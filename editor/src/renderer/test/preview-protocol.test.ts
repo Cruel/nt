@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  isDevtoolsDebugReport,
   isEditorToPreviewMessage,
   isDevtoolsSnapshot,
   isPreviewDocument,
@@ -1163,6 +1164,63 @@ describe('preview protocol validation', () => {
         version: 1,
         type: 'devtools-trace-delta',
         delta: { ...traceDelta, records: [{ ...traceDelta.records[0], repeatCount: 0 }] },
+      }),
+    ).toBe(false);
+
+    const debugReport = {
+      formatVersion: 1,
+      build: {
+        engineVersion: '1.0.0',
+        buildConfiguration: 'RelWithDebInfo',
+        targetPlatform: 'Emscripten',
+        hostPlatform: 'SDL3',
+        renderer: 'WebGL',
+      },
+      capabilities: [
+        'devtools-snapshot-v1',
+        'devtools-console-v1',
+        'devtools-trace-v1',
+        'devtools-debug-report-v1',
+      ],
+      snapshot: devtoolsSnapshot,
+      diagnostics: [
+        {
+          code: 'runtime.example',
+          severity: 'warning',
+          message: 'Example warning',
+          sourcePath: 'project:/scripts/main.lua',
+          jsonPointer: '',
+          causes: [],
+        },
+      ],
+      rmlui: {
+        contexts: devtoolsSnapshot.rmlui,
+        debugger: devtoolsSnapshot.rmluiDebugger,
+      },
+      console: { ...consoleDelta, afterSequence: '0' },
+      trace: { ...traceDelta, afterSequence: '0' },
+    };
+    expect(isDevtoolsDebugReport(debugReport)).toBe(true);
+    expect(
+      isEditorToPreviewMessage({
+        version: 1,
+        type: 'devtools-request-debug-report',
+        requestId: 'debug-report',
+      }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-debug-report',
+        requestId: 'debug-report',
+        report: debugReport,
+      }),
+    ).toBe(true);
+    expect(isDevtoolsDebugReport({ ...debugReport, formatVersion: 2 })).toBe(false);
+    expect(
+      isDevtoolsDebugReport({
+        ...debugReport,
+        console: { ...debugReport.console, lostRecordCount: 3 },
       }),
     ).toBe(false);
     expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, runtime: {} })).toBe(false);

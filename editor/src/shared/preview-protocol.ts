@@ -533,6 +533,37 @@ export interface DevtoolsTraceDelta {
   records: DevtoolsTraceRecord[];
 }
 
+export type DevtoolsDiagnosticSeverity = 'info' | 'warning' | 'error' | 'fatal';
+
+export interface DevtoolsDiagnostic {
+  code: string;
+  severity: DevtoolsDiagnosticSeverity;
+  message: string;
+  sourcePath: string;
+  jsonPointer: string;
+  causes: DevtoolsDiagnostic[];
+}
+
+export interface DevtoolsDebugReport {
+  formatVersion: 1;
+  build: {
+    engineVersion: string;
+    buildConfiguration: string;
+    targetPlatform: string;
+    hostPlatform: string;
+    renderer: string;
+  };
+  capabilities: string[];
+  snapshot: DevtoolsSnapshot;
+  diagnostics: DevtoolsDiagnostic[];
+  rmlui: {
+    contexts: DevtoolsRmlUiContextSnapshot[];
+    debugger: DevtoolsSnapshot['rmluiDebugger'];
+  };
+  console: DevtoolsConsoleDelta;
+  trace: DevtoolsTraceDelta;
+}
+
 export interface RuntimeFastForwardResult {
   reason: RuntimeFastForwardStopReason;
   stepsApplied: number;
@@ -622,6 +653,7 @@ export type EditorToPreviewMessage =
     }
   | { version: 1; type: 'runtime-request-debug-snapshot'; requestId: string }
   | { version: 1; type: 'devtools-request-snapshot'; requestId: string }
+  | { version: 1; type: 'devtools-request-debug-report'; requestId: string }
   | { version: 1; type: 'devtools-clear-console'; requestId: string }
   | { version: 1; type: 'devtools-clear-trace'; requestId: string }
   | {
@@ -760,6 +792,12 @@ export type PreviewToEditorMessage =
       type: 'devtools-snapshot';
       requestId?: string;
       snapshot: DevtoolsSnapshot;
+    }
+  | {
+      version: 1;
+      type: 'devtools-debug-report';
+      requestId: string;
+      report: DevtoolsDebugReport;
     }
   | { version: 1; type: 'devtools-console-delta'; delta: DevtoolsConsoleDelta }
   | { version: 1; type: 'devtools-trace-delta'; delta: DevtoolsTraceDelta }
@@ -1558,6 +1596,93 @@ export function isDevtoolsConsoleDelta(value: unknown): value is DevtoolsConsole
   });
 }
 
+function isDevtoolsDiagnostic(value: unknown): value is DevtoolsDiagnostic {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) =>
+      ['code', 'severity', 'message', 'sourcePath', 'jsonPointer', 'causes'].includes(key),
+    ) &&
+    typeof value.code === 'string' &&
+    (value.severity === 'info' ||
+      value.severity === 'warning' ||
+      value.severity === 'error' ||
+      value.severity === 'fatal') &&
+    typeof value.message === 'string' &&
+    typeof value.sourcePath === 'string' &&
+    typeof value.jsonPointer === 'string' &&
+    Array.isArray(value.causes) &&
+    value.causes.every(isDevtoolsDiagnostic)
+  );
+}
+
+export function isDevtoolsDebugReport(value: unknown): value is DevtoolsDebugReport {
+  if (
+    !isRecord(value) ||
+    value.formatVersion !== 1 ||
+    !isRecord(value.build) ||
+    !Array.isArray(value.capabilities) ||
+    !isDevtoolsSnapshot(value.snapshot) ||
+    !Array.isArray(value.diagnostics) ||
+    !isRecord(value.rmlui) ||
+    !isDevtoolsConsoleDelta(value.console) ||
+    !isDevtoolsTraceDelta(value.trace)
+  )
+    return false;
+  if (
+    !Object.keys(value).every((key) =>
+      [
+        'formatVersion',
+        'build',
+        'capabilities',
+        'snapshot',
+        'diagnostics',
+        'rmlui',
+        'console',
+        'trace',
+      ].includes(key),
+    ) ||
+    !Object.keys(value.build).every((key) =>
+      [
+        'engineVersion',
+        'buildConfiguration',
+        'targetPlatform',
+        'hostPlatform',
+        'renderer',
+      ].includes(key),
+    ) ||
+    !Object.keys(value.rmlui).every((key) => ['contexts', 'debugger'].includes(key))
+  )
+    return false;
+
+  const snapshot = value.snapshot;
+  const contextsMatch =
+    Array.isArray(value.rmlui.contexts) &&
+    value.rmlui.contexts.length === snapshot.rmlui.length &&
+    value.rmlui.contexts.every(
+      (context, index) => JSON.stringify(context) === JSON.stringify(snapshot.rmlui[index]),
+    );
+  const debuggerMatches =
+    JSON.stringify(value.rmlui.debugger) === JSON.stringify(snapshot.rmluiDebugger);
+  return (
+    typeof value.build.engineVersion === 'string' &&
+    value.build.engineVersion.length > 0 &&
+    typeof value.build.buildConfiguration === 'string' &&
+    value.build.buildConfiguration.length > 0 &&
+    typeof value.build.targetPlatform === 'string' &&
+    value.build.targetPlatform.length > 0 &&
+    typeof value.build.hostPlatform === 'string' &&
+    value.build.hostPlatform.length > 0 &&
+    typeof value.build.renderer === 'string' &&
+    value.build.renderer.length > 0 &&
+    value.capabilities.every(
+      (capability) => typeof capability === 'string' && capability.length > 0,
+    ) &&
+    value.diagnostics.every(isDevtoolsDiagnostic) &&
+    contextsMatch &&
+    debuggerMatches
+  );
+}
+
 function isRuntimeFastForwardStopReason(value: unknown): value is RuntimeFastForwardStopReason {
   return [
     'choice-available',
@@ -1713,6 +1838,7 @@ export function isEditorToPreviewMessage(value: unknown): value is EditorToPrevi
     case 'runtime-clear-subject-selection':
     case 'runtime-request-debug-snapshot':
     case 'devtools-request-snapshot':
+    case 'devtools-request-debug-report':
     case 'devtools-clear-console':
     case 'devtools-clear-trace':
     case 'request-preview-state':
@@ -1914,6 +2040,8 @@ export function isPreviewToEditorMessage(value: unknown): value is PreviewToEdit
         (value.requestId === undefined || typeof value.requestId === 'string') &&
         isDevtoolsSnapshot(value.snapshot)
       );
+    case 'devtools-debug-report':
+      return typeof value.requestId === 'string' && isDevtoolsDebugReport(value.report);
     case 'devtools-console-delta':
       return isDevtoolsConsoleDelta(value.delta);
     case 'devtools-trace-delta':

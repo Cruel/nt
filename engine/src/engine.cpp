@@ -3695,6 +3695,7 @@ std::span<const std::string_view> EngineTooling::devtools_capabilities() noexcep
         std::string_view{"rmlui-debugger-v1"},
         std::string_view{"devtools-console-v1"},
         std::string_view{"devtools-trace-v1"},
+        std::string_view{"devtools-debug-report-v1"},
         std::string_view{"runtime-debug-snapshot-v1"},
         std::string_view{"runtime-debug-mutations-v1"},
         std::string_view{"runtime-fast-forward-v1"},
@@ -3712,6 +3713,47 @@ EngineTooling::devtools_snapshot(const Engine& engine)
     }
     return core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>::success(
         engine.m_impl->devtools_snapshot());
+}
+
+core::Result<devtools::DevtoolsDebugReport, core::Diagnostic>
+EngineTooling::devtools_debug_report(Engine& engine)
+{
+    if (!engine.m_impl->m_initialized) {
+        return core::Result<devtools::DevtoolsDebugReport, core::Diagnostic>::failure(
+            {.code = "devtools.engine_uninitialized",
+             .message = "Devtools debug-report export requires an initialized engine."});
+    }
+
+    engine.m_impl->sync_devtools_generations();
+    auto snapshot = engine.m_impl->devtools_snapshot();
+    core::Diagnostics diagnostics;
+    if (snapshot.runtime)
+        diagnostics = snapshot.runtime->diagnostics;
+
+    std::vector<std::string> capabilities;
+    for (const auto capability : devtools_capabilities())
+        capabilities.emplace_back(capability);
+
+    devtools::DevtoolsRmlUiSummary rmlui{
+        .contexts = snapshot.rmlui,
+        .debugger = snapshot.rmlui_debugger,
+    };
+    const auto console = engine.m_impl->m_devtools_console.delta_after(0);
+    const auto trace = engine.m_impl->m_devtools_trace.delta_after(0);
+
+    return core::Result<devtools::DevtoolsDebugReport, core::Diagnostic>::success(
+        {.format_version = 1,
+         .build = {.engine_version = NOVELTEA_PRODUCT_VERSION,
+                   .build_configuration = NOVELTEA_BUILD_CONFIGURATION,
+                   .target_platform = NOVELTEA_TARGET_PLATFORM,
+                   .host_platform = snapshot.host.platform,
+                   .renderer = snapshot.host.renderer},
+         .capabilities = std::move(capabilities),
+         .snapshot = std::move(snapshot),
+         .diagnostics = std::move(diagnostics),
+         .rmlui = std::move(rmlui),
+         .console = console,
+         .trace = trace});
 }
 
 core::Result<void, core::Diagnostic>

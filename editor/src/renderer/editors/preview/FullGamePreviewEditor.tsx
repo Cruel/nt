@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { RmlUiDebuggerControls } from './RmlUiDebuggerControls';
+import { DebugReportExportButton } from './DebugReportExportButton';
 import type { DevtoolsSnapshot } from '../../../shared/preview-protocol';
 import { Group, Panel as ResizePanel } from 'react-resizable-panels';
 import {
@@ -1997,6 +1998,7 @@ function CompiledProjectStaleWarning({
 function RuntimeInspector({
   devtoolsSnapshot,
   debuggerSupported,
+  debugReportSupported,
   state,
   project,
   controlsContext,
@@ -2021,6 +2023,7 @@ function RuntimeInspector({
 }: {
   devtoolsSnapshot: DevtoolsSnapshot | null;
   debuggerSupported: boolean;
+  debugReportSupported: boolean;
   state: FullGamePreviewState;
   project: AuthoringProject | null;
   controlsContext: EnginePreviewControlsContext | null;
@@ -2112,6 +2115,18 @@ function RuntimeInspector({
             onApplyExisting={onRecorderApplyExisting}
             onOpenSavedTest={onOpenSavedTest}
           />
+        ) : null}
+        {mode === 'debug' ? (
+          <div className="border-b px-3 py-2">
+            <DebugReportExportButton
+              supported={debugReportSupported}
+              requestReport={
+                controlsContext
+                  ? () => controlsContext.controller.requestDevtoolsDebugReport()
+                  : null
+              }
+            />
+          </div>
         ) : null}
         <RmlUiDebuggerControls
           snapshot={devtoolsSnapshot}
@@ -2965,6 +2980,7 @@ export function FullGamePreviewEditor({
         <RuntimeInspector
           devtoolsSnapshot={devtoolsSnapshot}
           debuggerSupported={previewCapabilities.includes('rmlui-debugger-v1')}
+          debugReportSupported={previewCapabilities.includes('devtools-debug-report-v1')}
           state={state}
           project={project}
           controlsContext={previewControls}

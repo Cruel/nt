@@ -1,5 +1,9 @@
 {
   "rmluiDebugger": { "title": "Depurador RmlUi", "context": "Contexto inspecionado" },
+  "debugReport": {
+    "export": "Exportar relatório de depuração",
+    "exporting": "Exportando relatório de depuração…"
+  },
   "layoutDataAssets": "Recursos de dados JSON",
   "projectImport": {
     "title": "Importar projeto NovelTea",

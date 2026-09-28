@@ -71,7 +71,11 @@ observation, and the existing Runtime Debug Snapshot rather than a second gamepl
 Trace records correlate pointer routing across those same host/RmlUi/Layout/world seams and retain
 generation markers and debugger-originated mutations with transition-based motion coalescing. Native
 developer UI and editor-preview transport consume these same engine-owned values; neither owns a
-parallel instrumentation model. The native Dear ImGui frontend is host composition rather than a
+parallel instrumentation model. `EngineTooling::devtools_debug_report()` snapshots that same data
+plane into one machine-readable artifact: the current Devtools Snapshot, retained Console and Trace
+windows (including cursor/gap metadata), current runtime diagnostics, advertised capabilities,
+version/configuration/target/host/renderer build identity, and an RmlUi context summary. Report export does not inspect or
+scrape any native/editor debugger frontend. The native Dear ImGui frontend is host composition rather than a
 second observation system: sandbox and devtools-enabled native player builds may initialize it,
 while editor preview omits it. Its F10/Shift+F10 host shortcuts are intercepted before RmlUi/Layout
 or gameplay admission. Devtools-off builds retain ordinary runtime diagnostics/logging but expose

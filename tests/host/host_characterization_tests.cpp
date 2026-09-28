@@ -73,9 +73,10 @@ concept HasEngineToolingAccess = requires(Engine& engine, const Engine& const_en
 };
 
 template<typename Adapter>
-concept HasDevtoolsToolingAccess = requires(const Engine& engine) {
+concept HasDevtoolsToolingAccess = requires(Engine& engine, const Engine& const_engine) {
     Adapter::devtools_capabilities();
-    Adapter::devtools_snapshot(engine);
+    Adapter::devtools_snapshot(const_engine);
+    Adapter::devtools_debug_report(engine);
 };
 
 template<typename T>
@@ -210,10 +211,16 @@ TEST_CASE("Devtools tooling advertises its shared snapshot capability")
     REQUIRE_FALSE(capabilities.empty());
     CHECK(std::find(capabilities.begin(), capabilities.end(), "devtools-snapshot-v1") !=
           capabilities.end());
+    CHECK(std::find(capabilities.begin(), capabilities.end(), "devtools-debug-report-v1") !=
+          capabilities.end());
 
     const auto snapshot = EngineTooling::devtools_snapshot(engine);
     REQUIRE_FALSE(snapshot);
     CHECK(snapshot.error().code == "devtools.engine_uninitialized");
+
+    const auto report = EngineTooling::devtools_debug_report(engine);
+    REQUIRE_FALSE(report);
+    CHECK(report.error().code == "devtools.engine_uninitialized");
 #else
     STATIC_REQUIRE_FALSE(HasDevtoolsToolingAccess<EngineTooling>);
 #endif
@@ -431,6 +438,50 @@ TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapsh
           RuntimePreviewController::encode_debug_snapshot(*narrow_before));
     CHECK(devtools_before.value_if()->runtime->preview_running);
     CHECK(devtools_before.value_if()->tooling.preview_running);
+
+    EngineTooling::record_debugger_mutation(engine, "debug report export test");
+    const auto console_before_report = EngineTooling::devtools_console_delta(engine, 0);
+    REQUIRE(console_before_report);
+    const auto trace_before_report = EngineTooling::devtools_trace_delta(engine, 0);
+    REQUIRE(trace_before_report);
+
+    const auto report = EngineTooling::devtools_debug_report(engine);
+    REQUIRE(report);
+    const auto& report_value = *report.value_if();
+    CHECK(report_value.format_version == 1);
+    CHECK_FALSE(report_value.build.engine_version.empty());
+    CHECK_FALSE(report_value.build.build_configuration.empty());
+    CHECK_FALSE(report_value.build.target_platform.empty());
+    CHECK(report_value.build.host_platform == report_value.snapshot.host.platform);
+    CHECK(report_value.build.renderer == report_value.snapshot.host.renderer);
+    CHECK(std::find(report_value.capabilities.begin(), report_value.capabilities.end(),
+                    "devtools-debug-report-v1") != report_value.capabilities.end());
+    CHECK(report_value.console.after_sequence == 0);
+    CHECK(report_value.console.earliest_retained_sequence ==
+          console_before_report.value_if()->earliest_retained_sequence);
+    CHECK(report_value.console.latest_sequence ==
+          console_before_report.value_if()->latest_sequence);
+    CHECK(report_value.console.lost_record_count ==
+          console_before_report.value_if()->lost_record_count);
+    CHECK(report_value.console.history_gap == console_before_report.value_if()->history_gap);
+    CHECK(report_value.console.records.size() == console_before_report.value_if()->records.size());
+    CHECK(report_value.trace.after_sequence == 0);
+    CHECK(report_value.trace.earliest_retained_sequence ==
+          trace_before_report.value_if()->earliest_retained_sequence);
+    CHECK(report_value.trace.latest_sequence == trace_before_report.value_if()->latest_sequence);
+    CHECK(report_value.trace.lost_record_count ==
+          trace_before_report.value_if()->lost_record_count);
+    CHECK(report_value.trace.history_gap == trace_before_report.value_if()->history_gap);
+    REQUIRE(report_value.trace.records.size() == trace_before_report.value_if()->records.size());
+    REQUIRE_FALSE(report_value.trace.records.empty());
+    CHECK(report_value.trace.records.back().kind == devtools::TraceRecordKind::DebuggerMutation);
+    CHECK(report_value.trace.records.back().detail == "debug report export test");
+    REQUIRE(report_value.rmlui.contexts.size() == report_value.snapshot.rmlui.size());
+    for (std::size_t index = 0; index < report_value.rmlui.contexts.size(); ++index)
+        CHECK(report_value.rmlui.contexts[index].name == report_value.snapshot.rmlui[index].name);
+    CHECK(report_value.rmlui.debugger.context == report_value.snapshot.rmlui_debugger.context);
+    REQUIRE(report_value.snapshot.runtime);
+    CHECK(report_value.diagnostics == report_value.snapshot.runtime->diagnostics);
 
     EngineTooling::set_preview_running(engine, false);
     const auto narrow_after = EngineTooling::preview(engine).debug_snapshot_value();

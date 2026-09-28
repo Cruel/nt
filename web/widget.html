@@ -1254,6 +1254,31 @@ thead, tbody, tfoot {
       }
     }
 
+    function emitDevtoolsDebugReport(message) {
+      if (!nativeExportAvailable('noveltea_devtools_debug_report')) {
+        failCommand(message, 'Structured debug-report export is unavailable in this preview build.', { category: 'devtools' });
+        return false;
+      }
+      const json = Module.ccall('noveltea_devtools_debug_report', 'string', [], []);
+      if (typeof json !== 'string' || json.length === 0) {
+        failCommand(message, 'Structured debug report is unavailable for the current preview session.', { category: 'devtools' });
+        return false;
+      }
+      try {
+        const report = JSON.parse(json);
+        send({
+          version: protocolVersion,
+          type: 'devtools-debug-report',
+          requestId: message.requestId,
+          report,
+        });
+        return true;
+      } catch (error) {
+        failCommand(message, `Structured debug report JSON could not be parsed: ${error && error.message ? error.message : String(error)}`, { category: 'devtools' });
+        return false;
+      }
+    }
+
     function setRmlUiDebugger(message) {
       if (typeof message.visible !== 'boolean' || typeof message.context !== 'string' || !message.context ||
           !nativeExportAvailable('noveltea_devtools_set_rmlui_debugger')) {
@@ -1554,6 +1579,11 @@ thead, tbody, tfoot {
           return true;
         case 'devtools-request-snapshot':
           if (emitDevtoolsSnapshot(message)) {
+            send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+          }
+          return true;
+        case 'devtools-request-debug-report':
+          if (emitDevtoolsDebugReport(message)) {
             send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
           }
           return true;

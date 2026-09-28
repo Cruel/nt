@@ -369,7 +369,7 @@ The optimized `web-editor-preview` build enables `NOVELTEA_ENABLE_DEVTOOLS` even
 compile Dear ImGui. At startup the widget asks the native engine for its versioned devtools
 capabilities instead of hard-coding them in JavaScript. The current capability set contributed by
 the devtools layer is `devtools-snapshot-v1`, `rmlui-debugger-v1`, `devtools-console-v1`,
-`devtools-trace-v1`, `runtime-debug-snapshot-v1`, `runtime-debug-mutations-v1`, and
+`devtools-trace-v1`, `devtools-debug-report-v1`, `runtime-debug-snapshot-v1`, `runtime-debug-mutations-v1`, and
 `runtime-fast-forward-v1`; later debugger features add their own independently versioned
 capabilities.
 
@@ -427,8 +427,21 @@ continues, reports lost history, and clears both local and native history throug
 `devtools-clear-trace`. Native ImGui renders the same engine Trace instead of maintaining another
 instrumentation log.
 
+When `devtools-debug-report-v1` is advertised, Play Inspector exposes one **Export Debug Report**
+action. `devtools-request-debug-report` invokes `noveltea_devtools_debug_report()` and returns one
+`devtools-debug-report` payload before the matching command acknowledgement. The report is encoded
+directly from the typed engine-owned debugger data plane and contains Format V1 metadata,
+engine version/build configuration/target/host/renderer identity, advertised capabilities, the current Devtools Snapshot,
+current runtime diagnostics, the public RmlUi context/debugger summary, and retained Console/Trace
+delta envelopes captured from sequence `0`. The Console and Trace envelopes deliberately retain
+`earliestRetainedSequence`, `latestSequence`, `historyGap`, and `lostRecordCount`, so an exported bug
+report states when older history has already been evicted instead of implying complete history.
+Generation and sequence IDs keep their existing canonical decimal-string wire representation. The
+editor downloads the received object as timestamped JSON; it does not reconstruct the artifact from
+React panels, rendered text, or local Console/Trace stores.
+
 When developer instrumentation is compiled out, the native devtools capability/snapshot/debugger
-exports are not exposed, the Console and Trace delta/clear exports are likewise absent, these
+and debug-report exports are not exposed, the Console and Trace delta/clear exports are likewise absent, these
 devtools capabilities are not advertised, and this transport is unavailable.
 Ordinary diagnostics and runtime logging remain independent of the developer-only boundary.
 
