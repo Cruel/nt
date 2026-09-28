@@ -4,6 +4,7 @@
 #include "noveltea/core/asset_telemetry.hpp"
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/result.hpp"
+#include "noveltea/devtools_debug_report.hpp"
 #include "noveltea/devtools_snapshot.hpp"
 #include "noveltea/devtools_console.hpp"
 #include "noveltea/devtools_trace.hpp"
@@ -83,6 +84,8 @@ public:
     [[nodiscard]] static std::span<const std::string_view> devtools_capabilities() noexcept;
     [[nodiscard]] static core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>
     devtools_snapshot(const Engine& engine);
+    [[nodiscard]] static core::Result<devtools::DevtoolsDebugReport, core::Diagnostic>
+    devtools_debug_report(Engine& engine);
     [[nodiscard]] static core::Result<void, core::Diagnostic>
     set_rmlui_debugger(Engine& engine, const devtools::RmlUiDebuggerCommand& command);
     [[nodiscard]] static core::Result<devtools::ConsoleDelta, core::Diagnostic>

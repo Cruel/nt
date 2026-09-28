@@ -1,5 +1,6 @@
 {
   "rmluiDebugger": { "title": "RmlUi Debugger", "context": "Inspected context" },
+  "debugReport": { "export": "Export Debug Report", "exporting": "Exporting Debug Report…" },
   "layoutDataAssets": "JSON Data Assets",
   "projectImport": {
     "title": "Import NovelTea Project",

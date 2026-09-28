@@ -12,6 +12,7 @@ import { useWorkspaceStore } from '@/stores/workspace-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
 import { assetProfilerFullPayload } from './fixtures/asset-profiler';
+import { devtoolsDebugReportFixture } from './fixtures/devtools-debug-report';
 
 class FakePort {
   onmessage: ((event: MessageEvent) => void) | null = null;
@@ -472,6 +473,60 @@ describe('EnginePreview', () => {
       });
     });
     await expect(profilerRequest).resolves.toMatchObject({ kind: 'full', sessionId: '1' });
+  });
+
+  it('resolves a debug-report request only after the typed report and success acknowledgement', async () => {
+    const user = userEvent.setup();
+    let debugReportRequest: Promise<unknown> | null = null;
+    render(
+      <EnginePreview
+        renderControls={({ controller }) => (
+          <button
+            type="button"
+            onClick={() => {
+              debugReportRequest = controller.requestDevtoolsDebugReport();
+            }}
+          >
+            Request debug report
+          </button>
+        )}
+      />,
+    );
+    const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
+    const { editorPort, previewPort } = await connectRenderedPreview(iframe);
+    await user.click(screen.getByText('Request debug report'));
+    const request = latestRequest(editorPort, 'devtools-request-debug-report');
+    expect(request).toBeDefined();
+
+    let settled = false;
+    void debugReportRequest!.then(
+      () => {
+        settled = true;
+      },
+      () => {
+        settled = true;
+      },
+    );
+    const report = devtoolsDebugReportFixture();
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'devtools-debug-report',
+        requestId: request!.requestId,
+        report,
+      });
+    });
+    expect(settled).toBe(false);
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'command-result',
+        requestId: request!.requestId,
+        ok: true,
+      });
+    });
+    await expect(debugReportRequest).resolves.toEqual(report);
   });
 
   it('rejects asset profiler payloads carrying retired version fields immediately', async () => {

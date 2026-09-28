@@ -8,6 +8,7 @@ import {
   type PreviewDocument,
   type PreviewMode,
   type PreviewToEditorMessage,
+  type DevtoolsDebugReport,
   type RuntimeFastForwardResult,
   isPreviewToEditorMessage,
   validatePreviewHandshake,
@@ -26,8 +27,8 @@ interface PendingRequest {
   resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timeout: number;
-  expectedPayload?: 'asset-profiler';
-  payload?: AssetProfilerWirePayload;
+  expectedPayload?: 'asset-profiler' | 'debug-report';
+  payload?: AssetProfilerWirePayload | DevtoolsDebugReport;
 }
 
 const FOCUSED_PREVIEW_COMMAND_TIMEOUT_MS = 30_000;
@@ -102,6 +103,27 @@ export function usePreviewTransport({
         const message = portEvent.data;
         if (
           isRecord(message) &&
+          message.type === 'devtools-debug-report' &&
+          typeof message.requestId === 'string' &&
+          !isPreviewToEditorMessage(message)
+        ) {
+          const pending = pendingRef.current.get(message.requestId);
+          if (pending?.expectedPayload === 'debug-report') {
+            window.clearTimeout(pending.timeout);
+            pendingRef.current.delete(message.requestId);
+            pending.reject(
+              new PreviewCommandError(
+                'Preview sent an invalid debug report.',
+                'devtools.invalid-debug-report',
+              ),
+            );
+            return;
+          }
+          onErrorRef.current('Preview sent an invalid debug report.');
+          return;
+        }
+        if (
+          isRecord(message) &&
           message.type === 'runtime-asset-profiler' &&
           typeof message.requestId === 'string' &&
           !isPreviewToEditorMessage(message)
@@ -143,6 +165,24 @@ export function usePreviewTransport({
             pending.payload = message.payload;
           }
         }
+        if (message.type === 'devtools-debug-report') {
+          const pending = pendingRef.current.get(message.requestId);
+          if (!pending || pending.expectedPayload !== 'debug-report' || pending.payload) {
+            onErrorRef.current('Preview sent an unmatched debug report.');
+            if (pending?.expectedPayload === 'debug-report') {
+              window.clearTimeout(pending.timeout);
+              pendingRef.current.delete(message.requestId);
+              pending.reject(
+                new PreviewCommandError(
+                  'Preview sent more than one debug report for a request.',
+                  'devtools.duplicate-debug-report',
+                ),
+              );
+            }
+          } else {
+            pending.payload = message.report;
+          }
+        }
         if (message.type === 'command-result' || message.type === 'runtime-fast-forward-result') {
           const pending = pendingRef.current.get(message.requestId);
           if (pending) {
@@ -151,11 +191,15 @@ export function usePreviewTransport({
             if (message.type === 'runtime-fast-forward-result') {
               pending.resolve(message.result);
             } else if (message.ok) {
-              if (pending.expectedPayload === 'asset-profiler' && !pending.payload) {
+              if (pending.expectedPayload && !pending.payload) {
                 pending.reject(
                   new PreviewCommandError(
-                    'Preview acknowledged an asset profiler request without a payload.',
-                    'asset-profiler.missing-payload',
+                    pending.expectedPayload === 'asset-profiler'
+                      ? 'Preview acknowledged an asset profiler request without a payload.'
+                      : 'Preview acknowledged a debug-report request without a payload.',
+                    pending.expectedPayload === 'asset-profiler'
+                      ? 'asset-profiler.missing-payload'
+                      : 'devtools.missing-debug-report',
                   ),
                 );
               } else {
@@ -292,6 +336,11 @@ export function usePreviewTransport({
       ) => send({ type: 'runtime-run-interaction', verbId, bindings }),
       requestRuntimeDebugSnapshot: () => send({ type: 'runtime-request-debug-snapshot' }),
       requestDevtoolsSnapshot: () => send({ type: 'devtools-request-snapshot' }),
+      requestDevtoolsDebugReport: () =>
+        send<DevtoolsDebugReport>(
+          { type: 'devtools-request-debug-report' },
+          { expectedPayload: 'debug-report' },
+        ),
       clearDevtoolsConsole: () => send({ type: 'devtools-clear-console' }),
       clearDevtoolsTrace: () => send({ type: 'devtools-clear-trace' }),
       setRmlUiDebugger: (visible: boolean, context: string) =>

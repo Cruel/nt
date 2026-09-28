@@ -156,6 +156,275 @@ void record_debugger_mutation_if_accepted(std::string_view mutation_result, std:
     if (auto* engine = preview_engine())
         noveltea::EngineTooling::record_debugger_mutation(*engine, std::move(detail));
 }
+
+nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot& value)
+{
+    const auto& surface = value.host.surface;
+    nlohmann::json runtime = nullptr;
+    if (value.runtime) {
+        runtime = nlohmann::json::parse(
+            noveltea::RuntimePreviewController::encode_debug_snapshot(*value.runtime), nullptr,
+            false);
+        if (runtime.is_discarded())
+            return nullptr;
+    }
+    const auto encode_element = [](const auto& element) -> nlohmann::json {
+        if (!element)
+            return nullptr;
+        return {{"tag", element->tag},
+                {"id", element->id},
+                {"classes", element->classes},
+                {"pointerEvents", element->pointer_events}};
+    };
+    auto rmlui = nlohmann::json::array();
+    for (const auto& context : value.rmlui) {
+        rmlui.push_back({{"name", context.name},
+                         {"width", context.width},
+                         {"height", context.height},
+                         {"mouseInteracting", context.mouse_interacting},
+                         {"hover", encode_element(context.hover)},
+                         {"focus", encode_element(context.focus)}});
+    }
+    auto hotspots = nlohmann::json::array();
+    for (const auto& hotspot : value.world.hotspots) {
+        hotspots.push_back(
+            {{"identity", hotspot.identity},
+             {"label", hotspot.label},
+             {"conditionEligible", hotspot.condition_eligible},
+             {"targetAvailable", hotspot.target_available},
+             {"target", hotspot.target},
+             {"highlight", hotspot.highlight},
+             {"cursor", hotspot.cursor ? nlohmann::json(*hotspot.cursor) : nlohmann::json(nullptr)},
+             {"underPointer", hotspot.under_pointer},
+             {"hovered", hotspot.hovered},
+             {"pressed", hotspot.pressed}});
+    }
+    return {
+        {"host",
+         {{"platform", value.host.platform},
+          {"renderer", value.host.renderer},
+          {"hostGeneration", value.host.host_generation
+                                 ? nlohmann::json(*value.host.host_generation)
+                                 : nlohmann::json(nullptr)},
+          {"surface",
+           {{"logicalWidth", surface.logical_size.width},
+            {"logicalHeight", surface.logical_size.height},
+            {"framebufferWidth", surface.framebuffer_size.width},
+            {"framebufferHeight", surface.framebuffer_size.height},
+            {"framebufferScaleX", surface.logical_to_framebuffer_scale.x},
+            {"framebufferScaleY", surface.logical_to_framebuffer_scale.y}}}}},
+        {"input",
+         {{"referenceX", value.input.reference_pointer.x},
+          {"referenceY", value.input.reference_pointer.y},
+          {"pointerValid", value.input.pointer_valid},
+          {"lastEvent", value.input.last_event},
+          {"debugProcessed", value.input.debug_processed},
+          {"debugConsumed", value.input.debug_consumed},
+          {"runtimeUiProcessed", value.input.runtime_ui_processed},
+          {"runtimeUiConsumed", value.input.runtime_ui_consumed},
+          {"runtimeUiWantsPointer", value.input.runtime_ui_wants_pointer},
+          {"gameplayEvent", value.input.gameplay_event},
+          {"gameplayAdmitted", value.input.gameplay_admitted},
+          {"gameplayBlockReason", value.input.gameplay_block_reason},
+          {"governingLayout", value.input.governing_layout
+                                  ? nlohmann::json(*value.input.governing_layout)
+                                  : nlohmann::json(nullptr)},
+          {"governingLayoutMode", value.input.governing_layout_mode}}},
+        {"rmlui", std::move(rmlui)},
+        {"rmluiDebugger",
+         {{"available", value.rmlui_debugger.available},
+          {"visible", value.rmlui_debugger.visible},
+          {"context", value.rmlui_debugger.context}}},
+        {"world",
+         {{"referenceX", value.world.reference_pointer.x},
+          {"referenceY", value.world.reference_pointer.y},
+          {"pointerValid", value.world.pointer_valid},
+          {"captureActive", value.world.capture_active},
+          {"underPointer", value.world.under_pointer ? nlohmann::json(*value.world.under_pointer)
+                                                     : nlohmann::json(nullptr)},
+          {"hovered",
+           value.world.hovered ? nlohmann::json(*value.world.hovered) : nlohmann::json(nullptr)},
+          {"pressed",
+           value.world.pressed ? nlohmann::json(*value.world.pressed) : nlohmann::json(nullptr)},
+          {"hotspots", std::move(hotspots)}}},
+        {"tooling",
+         {{"previewRunning", value.tooling.preview_running},
+          {"renderPerfLogging", value.tooling.render_perf_logging},
+          {"nativeDebugUiAvailable", value.tooling.native_debug_ui_available},
+          {"nativeDebugUiEnabled", value.tooling.native_debug_ui_enabled}}},
+        {"runtime", std::move(runtime)},
+    };
+}
+
+nlohmann::json devtools_console_delta_json(const noveltea::devtools::ConsoleDelta& value)
+{
+    auto records = nlohmann::json::array();
+    for (const auto& record : value.records) {
+        nlohmann::json source = nullptr;
+        if (record.source) {
+            source = {{"chunk", record.source->chunk},
+                      {"line", record.source->line ? nlohmann::json(*record.source->line)
+                                                   : nlohmann::json(nullptr)}};
+        }
+        records.push_back(
+            {{"sequence", std::to_string(record.sequence)},
+             {"hostGeneration", record.host_generation
+                                    ? nlohmann::json(std::to_string(*record.host_generation))
+                                    : nlohmann::json(nullptr)},
+             {"runtimeGeneration", record.runtime_generation
+                                       ? nlohmann::json(std::to_string(*record.runtime_generation))
+                                       : nlohmann::json(nullptr)},
+             {"severity", noveltea::devtools::console_severity_name(record.severity)},
+             {"category", record.category},
+             {"message", record.message},
+             {"source", std::move(source)},
+             {"generationMarker", record.generation_marker}});
+    }
+    return {{"afterSequence", std::to_string(value.after_sequence)},
+            {"earliestRetainedSequence", std::to_string(value.earliest_retained_sequence)},
+            {"latestSequence", std::to_string(value.latest_sequence)},
+            {"lostRecordCount", std::to_string(value.lost_record_count)},
+            {"historyGap", value.history_gap},
+            {"records", std::move(records)}};
+}
+
+nlohmann::json devtools_trace_delta_json(const noveltea::devtools::TraceDelta& value)
+{
+    auto records = nlohmann::json::array();
+    const auto encode_element = [](const auto& element) -> nlohmann::json {
+        if (!element)
+            return nullptr;
+        return {{"context", element->context},
+                {"tag", element->tag},
+                {"id", element->id},
+                {"classes", element->classes},
+                {"pointerEvents", element->pointer_events}};
+    };
+    for (const auto& record : value.records) {
+        nlohmann::json input = nullptr;
+        if (record.input) {
+            const auto& routed = *record.input;
+            input = {
+                {"event", routed.event},
+                {"hostX", routed.host_x ? nlohmann::json(*routed.host_x) : nlohmann::json(nullptr)},
+                {"hostY", routed.host_y ? nlohmann::json(*routed.host_y) : nlohmann::json(nullptr)},
+                {"referenceX", routed.reference_x ? nlohmann::json(*routed.reference_x)
+                                                  : nlohmann::json(nullptr)},
+                {"referenceY", routed.reference_y ? nlohmann::json(*routed.reference_y)
+                                                  : nlohmann::json(nullptr)},
+                {"mouseButton", routed.mouse_button ? nlohmann::json(*routed.mouse_button)
+                                                    : nlohmann::json(nullptr)},
+                {"wheelX",
+                 routed.wheel_x ? nlohmann::json(*routed.wheel_x) : nlohmann::json(nullptr)},
+                {"wheelY",
+                 routed.wheel_y ? nlohmann::json(*routed.wheel_y) : nlohmann::json(nullptr)},
+                {"referenceValid", routed.reference_valid},
+                {"debugProcessed", routed.debug_processed},
+                {"debugConsumed", routed.debug_consumed},
+                {"runtimeUiProcessed", routed.runtime_ui_processed},
+                {"runtimeUiConsumed", routed.runtime_ui_consumed},
+                {"runtimeUiWantsPointer", routed.runtime_ui_wants_pointer},
+                {"gameplayEvent", routed.gameplay_event},
+                {"gameplayAdmitted", routed.gameplay_admitted},
+                {"gameplayBlockReason", routed.gameplay_block_reason},
+                {"governingLayout", routed.governing_layout
+                                        ? nlohmann::json(*routed.governing_layout)
+                                        : nlohmann::json(nullptr)},
+                {"governingLayoutMode", routed.governing_layout_mode},
+                {"rmluiHover", encode_element(routed.rmlui_hover)},
+                {"rmluiFocus", encode_element(routed.rmlui_focus)},
+                {"worldEvaluated", routed.world_evaluated},
+                {"worldConsumed", routed.world_consumed},
+                {"worldHit",
+                 routed.world_hit ? nlohmann::json(*routed.world_hit) : nlohmann::json(nullptr)},
+                {"worldHovered", routed.world_hovered ? nlohmann::json(*routed.world_hovered)
+                                                      : nlohmann::json(nullptr)},
+                {"worldPressed", routed.world_pressed ? nlohmann::json(*routed.world_pressed)
+                                                      : nlohmann::json(nullptr)},
+                {"worldTarget", routed.world_target ? nlohmann::json(*routed.world_target)
+                                                    : nlohmann::json(nullptr)}};
+        }
+        records.push_back(
+            {{"sequence", std::to_string(record.sequence)},
+             {"firstSequence", std::to_string(record.first_sequence)},
+             {"hostGeneration", record.host_generation
+                                    ? nlohmann::json(std::to_string(*record.host_generation))
+                                    : nlohmann::json(nullptr)},
+             {"runtimeGeneration", record.runtime_generation
+                                       ? nlohmann::json(std::to_string(*record.runtime_generation))
+                                       : nlohmann::json(nullptr)},
+             {"kind", noveltea::devtools::trace_record_kind_name(record.kind)},
+             {"category", record.category},
+             {"repeatCount", record.repeat_count},
+             {"firstFrame", std::to_string(record.first_frame)},
+             {"lastFrame", std::to_string(record.last_frame)},
+             {"input", std::move(input)},
+             {"detail", record.detail},
+             {"generationMarker", record.generation_marker}});
+    }
+    return {{"afterSequence", std::to_string(value.after_sequence)},
+            {"earliestRetainedSequence", std::to_string(value.earliest_retained_sequence)},
+            {"latestSequence", std::to_string(value.latest_sequence)},
+            {"lostRecordCount", std::to_string(value.lost_record_count)},
+            {"historyGap", value.history_gap},
+            {"records", std::move(records)}};
+}
+
+const char* devtools_diagnostic_severity_name(noveltea::core::ErrorSeverity severity)
+{
+    switch (severity) {
+    case noveltea::core::ErrorSeverity::Info:
+        return "info";
+    case noveltea::core::ErrorSeverity::Warning:
+        return "warning";
+    case noveltea::core::ErrorSeverity::Error:
+        return "error";
+    case noveltea::core::ErrorSeverity::Fatal:
+        return "fatal";
+    }
+    return "error";
+}
+
+nlohmann::json devtools_diagnostic_json(const noveltea::core::Diagnostic& diagnostic)
+{
+    auto causes = nlohmann::json::array();
+    for (const auto& cause : diagnostic.causes)
+        causes.push_back(devtools_diagnostic_json(cause));
+    return {{"code", diagnostic.code},
+            {"severity", devtools_diagnostic_severity_name(diagnostic.severity)},
+            {"message", diagnostic.message},
+            {"sourcePath", diagnostic.source_path},
+            {"jsonPointer", diagnostic.json_pointer},
+            {"causes", std::move(causes)}};
+}
+
+nlohmann::json devtools_debug_report_json(const noveltea::devtools::DevtoolsDebugReport& report)
+{
+    auto snapshot = devtools_snapshot_json(report.snapshot);
+    if (snapshot.is_null())
+        return nullptr;
+    auto diagnostics = nlohmann::json::array();
+    for (const auto& diagnostic : report.diagnostics)
+        diagnostics.push_back(devtools_diagnostic_json(diagnostic));
+    auto capabilities = nlohmann::json::array();
+    for (const auto& capability : report.capabilities)
+        capabilities.push_back(capability);
+    return {
+        {"formatVersion", report.format_version},
+        {"build",
+         {{"engineVersion", report.build.engine_version},
+          {"buildConfiguration", report.build.build_configuration},
+          {"targetPlatform", report.build.target_platform},
+          {"hostPlatform", report.build.host_platform},
+          {"renderer", report.build.renderer}}},
+        {"capabilities", std::move(capabilities)},
+        {"snapshot", snapshot},
+        {"diagnostics", std::move(diagnostics)},
+        {"rmlui", {{"contexts", snapshot["rmlui"]}, {"debugger", snapshot["rmluiDebugger"]}}},
+        {"console", devtools_console_delta_json(report.console)},
+        {"trace", devtools_trace_delta_json(report.trace)},
+    };
+}
 #endif
 
 std::string diagnostics_json(const noveltea::core::Diagnostics& diagnostics)
@@ -606,105 +875,27 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_snapshot()
     auto snapshot = noveltea::EngineTooling::devtools_snapshot(*engine);
     if (!snapshot)
         return result.c_str();
-    const auto& value = *snapshot.value_if();
-    const auto& surface = value.host.surface;
-    nlohmann::json runtime = nullptr;
-    if (value.runtime) {
-        runtime = nlohmann::json::parse(
-            noveltea::RuntimePreviewController::encode_debug_snapshot(*value.runtime), nullptr,
-            false);
-        if (runtime.is_discarded())
-            return result.c_str();
-    }
-    auto rmlui = nlohmann::json::array();
-    const auto encode_element = [](const auto& element) -> nlohmann::json {
-        if (!element)
-            return nullptr;
-        return {{"tag", element->tag},
-                {"id", element->id},
-                {"classes", element->classes},
-                {"pointerEvents", element->pointer_events}};
-    };
-    for (const auto& context : value.rmlui) {
-        rmlui.push_back({{"name", context.name},
-                         {"width", context.width},
-                         {"height", context.height},
-                         {"mouseInteracting", context.mouse_interacting},
-                         {"hover", encode_element(context.hover)},
-                         {"focus", encode_element(context.focus)}});
-    }
-    auto hotspots = nlohmann::json::array();
-    for (const auto& hotspot : value.world.hotspots) {
-        hotspots.push_back(
-            {{"identity", hotspot.identity},
-             {"label", hotspot.label},
-             {"conditionEligible", hotspot.condition_eligible},
-             {"targetAvailable", hotspot.target_available},
-             {"target", hotspot.target},
-             {"highlight", hotspot.highlight},
-             {"cursor", hotspot.cursor ? nlohmann::json(*hotspot.cursor) : nlohmann::json(nullptr)},
-             {"underPointer", hotspot.under_pointer},
-             {"hovered", hotspot.hovered},
-             {"pressed", hotspot.pressed}});
-    }
-    result =
-        nlohmann::json{
-            {"host",
-             {{"platform", value.host.platform},
-              {"renderer", value.host.renderer},
-              {"hostGeneration", value.host.host_generation
-                                     ? nlohmann::json(*value.host.host_generation)
-                                     : nlohmann::json(nullptr)},
-              {"surface",
-               {{"logicalWidth", surface.logical_size.width},
-                {"logicalHeight", surface.logical_size.height},
-                {"framebufferWidth", surface.framebuffer_size.width},
-                {"framebufferHeight", surface.framebuffer_size.height},
-                {"framebufferScaleX", surface.logical_to_framebuffer_scale.x},
-                {"framebufferScaleY", surface.logical_to_framebuffer_scale.y}}}}},
-            {"input",
-             {{"referenceX", value.input.reference_pointer.x},
-              {"referenceY", value.input.reference_pointer.y},
-              {"pointerValid", value.input.pointer_valid},
-              {"lastEvent", value.input.last_event},
-              {"debugProcessed", value.input.debug_processed},
-              {"debugConsumed", value.input.debug_consumed},
-              {"runtimeUiProcessed", value.input.runtime_ui_processed},
-              {"runtimeUiConsumed", value.input.runtime_ui_consumed},
-              {"runtimeUiWantsPointer", value.input.runtime_ui_wants_pointer},
-              {"gameplayEvent", value.input.gameplay_event},
-              {"gameplayAdmitted", value.input.gameplay_admitted},
-              {"gameplayBlockReason", value.input.gameplay_block_reason},
-              {"governingLayout", value.input.governing_layout
-                                      ? nlohmann::json(*value.input.governing_layout)
-                                      : nlohmann::json(nullptr)},
-              {"governingLayoutMode", value.input.governing_layout_mode}}},
-            {"rmlui", std::move(rmlui)},
-            {"rmluiDebugger",
-             {{"available", value.rmlui_debugger.available},
-              {"visible", value.rmlui_debugger.visible},
-              {"context", value.rmlui_debugger.context}}},
-            {"world",
-             {{"referenceX", value.world.reference_pointer.x},
-              {"referenceY", value.world.reference_pointer.y},
-              {"pointerValid", value.world.pointer_valid},
-              {"captureActive", value.world.capture_active},
-              {"underPointer", value.world.under_pointer
-                                   ? nlohmann::json(*value.world.under_pointer)
-                                   : nlohmann::json(nullptr)},
-              {"hovered", value.world.hovered ? nlohmann::json(*value.world.hovered)
-                                              : nlohmann::json(nullptr)},
-              {"pressed", value.world.pressed ? nlohmann::json(*value.world.pressed)
-                                              : nlohmann::json(nullptr)},
-              {"hotspots", std::move(hotspots)}}},
-            {"tooling",
-             {{"previewRunning", value.tooling.preview_running},
-              {"renderPerfLogging", value.tooling.render_perf_logging},
-              {"nativeDebugUiAvailable", value.tooling.native_debug_ui_available},
-              {"nativeDebugUiEnabled", value.tooling.native_debug_ui_enabled}}},
-            {"runtime", std::move(runtime)},
-        }
-            .dump();
+    auto encoded = devtools_snapshot_json(*snapshot.value_if());
+    if (encoded.is_null())
+        return result.c_str();
+    result = encoded.dump();
+    return result.c_str();
+}
+
+EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_debug_report()
+{
+    static std::string result;
+    result.clear();
+    auto* engine = preview_engine();
+    if (!engine)
+        return result.c_str();
+    auto report = noveltea::EngineTooling::devtools_debug_report(*engine);
+    if (!report)
+        return result.c_str();
+    auto encoded = devtools_debug_report_json(*report.value_if());
+    if (encoded.is_null())
+        return result.c_str();
+    result = encoded.dump();
     return result.c_str();
 }
 
@@ -726,87 +917,7 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_trace_delta(const char* after
     if (!delta)
         return result.c_str();
 
-    const auto& value = *delta.value_if();
-    auto records = nlohmann::json::array();
-    const auto encode_element = [](const auto& element) -> nlohmann::json {
-        if (!element)
-            return nullptr;
-        return {{"context", element->context},
-                {"tag", element->tag},
-                {"id", element->id},
-                {"classes", element->classes},
-                {"pointerEvents", element->pointer_events}};
-    };
-    for (const auto& record : value.records) {
-        nlohmann::json input = nullptr;
-        if (record.input) {
-            const auto& routed = *record.input;
-            input = {
-                {"event", routed.event},
-                {"hostX", routed.host_x ? nlohmann::json(*routed.host_x) : nlohmann::json(nullptr)},
-                {"hostY", routed.host_y ? nlohmann::json(*routed.host_y) : nlohmann::json(nullptr)},
-                {"referenceX", routed.reference_x ? nlohmann::json(*routed.reference_x)
-                                                  : nlohmann::json(nullptr)},
-                {"referenceY", routed.reference_y ? nlohmann::json(*routed.reference_y)
-                                                  : nlohmann::json(nullptr)},
-                {"mouseButton", routed.mouse_button ? nlohmann::json(*routed.mouse_button)
-                                                    : nlohmann::json(nullptr)},
-                {"wheelX",
-                 routed.wheel_x ? nlohmann::json(*routed.wheel_x) : nlohmann::json(nullptr)},
-                {"wheelY",
-                 routed.wheel_y ? nlohmann::json(*routed.wheel_y) : nlohmann::json(nullptr)},
-                {"referenceValid", routed.reference_valid},
-                {"debugProcessed", routed.debug_processed},
-                {"debugConsumed", routed.debug_consumed},
-                {"runtimeUiProcessed", routed.runtime_ui_processed},
-                {"runtimeUiConsumed", routed.runtime_ui_consumed},
-                {"runtimeUiWantsPointer", routed.runtime_ui_wants_pointer},
-                {"gameplayEvent", routed.gameplay_event},
-                {"gameplayAdmitted", routed.gameplay_admitted},
-                {"gameplayBlockReason", routed.gameplay_block_reason},
-                {"governingLayout", routed.governing_layout
-                                        ? nlohmann::json(*routed.governing_layout)
-                                        : nlohmann::json(nullptr)},
-                {"governingLayoutMode", routed.governing_layout_mode},
-                {"rmluiHover", encode_element(routed.rmlui_hover)},
-                {"rmluiFocus", encode_element(routed.rmlui_focus)},
-                {"worldEvaluated", routed.world_evaluated},
-                {"worldConsumed", routed.world_consumed},
-                {"worldHit",
-                 routed.world_hit ? nlohmann::json(*routed.world_hit) : nlohmann::json(nullptr)},
-                {"worldHovered", routed.world_hovered ? nlohmann::json(*routed.world_hovered)
-                                                      : nlohmann::json(nullptr)},
-                {"worldPressed", routed.world_pressed ? nlohmann::json(*routed.world_pressed)
-                                                      : nlohmann::json(nullptr)},
-                {"worldTarget", routed.world_target ? nlohmann::json(*routed.world_target)
-                                                    : nlohmann::json(nullptr)}};
-        }
-        records.push_back(
-            {{"sequence", std::to_string(record.sequence)},
-             {"firstSequence", std::to_string(record.first_sequence)},
-             {"hostGeneration", record.host_generation
-                                    ? nlohmann::json(std::to_string(*record.host_generation))
-                                    : nlohmann::json(nullptr)},
-             {"runtimeGeneration", record.runtime_generation
-                                       ? nlohmann::json(std::to_string(*record.runtime_generation))
-                                       : nlohmann::json(nullptr)},
-             {"kind", noveltea::devtools::trace_record_kind_name(record.kind)},
-             {"category", record.category},
-             {"repeatCount", record.repeat_count},
-             {"firstFrame", std::to_string(record.first_frame)},
-             {"lastFrame", std::to_string(record.last_frame)},
-             {"input", std::move(input)},
-             {"detail", record.detail},
-             {"generationMarker", record.generation_marker}});
-    }
-    result = nlohmann::json{{"afterSequence", std::to_string(value.after_sequence)},
-                            {"earliestRetainedSequence",
-                             std::to_string(value.earliest_retained_sequence)},
-                            {"latestSequence", std::to_string(value.latest_sequence)},
-                            {"lostRecordCount", std::to_string(value.lost_record_count)},
-                            {"historyGap", value.history_gap},
-                            {"records", std::move(records)}}
-                 .dump();
+    result = devtools_trace_delta_json(*delta.value_if()).dump();
     return result.c_str();
 }
 
@@ -841,37 +952,7 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_devtools_console_delta(const char* aft
     if (!delta)
         return result.c_str();
 
-    const auto& value = *delta.value_if();
-    auto records = nlohmann::json::array();
-    for (const auto& record : value.records) {
-        nlohmann::json source = nullptr;
-        if (record.source) {
-            source = {{"chunk", record.source->chunk},
-                      {"line", record.source->line ? nlohmann::json(*record.source->line)
-                                                   : nlohmann::json(nullptr)}};
-        }
-        records.push_back(
-            {{"sequence", std::to_string(record.sequence)},
-             {"hostGeneration", record.host_generation
-                                    ? nlohmann::json(std::to_string(*record.host_generation))
-                                    : nlohmann::json(nullptr)},
-             {"runtimeGeneration", record.runtime_generation
-                                       ? nlohmann::json(std::to_string(*record.runtime_generation))
-                                       : nlohmann::json(nullptr)},
-             {"severity", noveltea::devtools::console_severity_name(record.severity)},
-             {"category", record.category},
-             {"message", record.message},
-             {"source", std::move(source)},
-             {"generationMarker", record.generation_marker}});
-    }
-    result = nlohmann::json{{"afterSequence", std::to_string(value.after_sequence)},
-                            {"earliestRetainedSequence",
-                             std::to_string(value.earliest_retained_sequence)},
-                            {"latestSequence", std::to_string(value.latest_sequence)},
-                            {"lostRecordCount", std::to_string(value.lost_record_count)},
-                            {"historyGap", value.history_gap},
-                            {"records", std::move(records)}}
-                 .dump();
+    result = devtools_console_delta_json(*delta.value_if()).dump();
     return result.c_str();
 }
 

@@ -260,6 +260,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/world_presentation.hpp
     engine/include/noveltea/world_transition.hpp
     engine/include/noveltea/devtools_snapshot.hpp
+    engine/include/noveltea/devtools_debug_report.hpp
     engine/include/noveltea/devtools_console.hpp
     engine/include/noveltea/devtools_trace.hpp
     engine/src/active_text.cpp

@@ -161,6 +161,7 @@ function createDevtoolsHarness() {
       name === 'noveltea_devtools_set_rmlui_debugger' ||
       name === 'noveltea_devtools_capabilities' ||
       name === 'noveltea_devtools_snapshot' ||
+      name === 'noveltea_devtools_debug_report' ||
       name === 'noveltea_devtools_console_delta' ||
       name === 'noveltea_devtools_console_clear' ||
       name === 'noveltea_devtools_trace_delta' ||
@@ -172,6 +173,7 @@ function createDevtoolsHarness() {
             'devtools-snapshot-v1',
             'devtools-console-v1',
             'devtools-trace-v1',
+            'devtools-debug-report-v1',
             'runtime-debug-snapshot-v1',
           ]);
         if (name === 'noveltea_devtools_set_rmlui_debugger') {
@@ -180,6 +182,42 @@ function createDevtoolsHarness() {
           return 1;
         }
         if (name === 'noveltea_devtools_snapshot') return JSON.stringify(snapshot);
+        if (name === 'noveltea_devtools_debug_report')
+          return JSON.stringify({
+            formatVersion: 1,
+            build: {
+              engineVersion: '1.0.0',
+              buildConfiguration: 'RelWithDebInfo',
+              targetPlatform: 'Emscripten',
+              hostPlatform: 'SDL3',
+              renderer: 'WebGL',
+            },
+            capabilities: [
+              'devtools-snapshot-v1',
+              'devtools-console-v1',
+              'devtools-trace-v1',
+              'devtools-debug-report-v1',
+            ],
+            snapshot,
+            diagnostics: [],
+            rmlui: { contexts: snapshot.rmlui, debugger: snapshot.rmluiDebugger },
+            console: {
+              afterSequence: '0',
+              earliestRetainedSequence: '2',
+              latestSequence: '4',
+              lostRecordCount: '1',
+              historyGap: true,
+              records: [],
+            },
+            trace: {
+              afterSequence: '0',
+              earliestRetainedSequence: '1',
+              latestSequence: '5',
+              lostRecordCount: '0',
+              historyGap: false,
+              records: [],
+            },
+          });
         if (name === 'noveltea_devtools_console_delta')
           return JSON.stringify({
             afterSequence: args?.[0] ?? '0',
@@ -244,6 +282,7 @@ function createDevtoolsHarness() {
     },
     readDevtoolsCapabilities: null as null | (() => string[]),
     emitDevtoolsSnapshot: null as null | ((message: Record<string, unknown>) => boolean),
+    emitDevtoolsDebugReport: null as null | ((message: Record<string, unknown>) => boolean),
     publishDevtoolsConsoleDelta: null as null | (() => void),
     clearDevtoolsConsole: null as null | ((message: Record<string, unknown>) => void),
     publishDevtoolsTraceDelta: null as null | (() => void),
@@ -251,12 +290,13 @@ function createDevtoolsHarness() {
     setRmlUiDebugger: null as null | ((message: Record<string, unknown>) => void),
   };
   vm.runInNewContext(
-    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole; this.publishDevtoolsTraceDelta = publishDevtoolsTraceDelta; this.clearDevtoolsTrace = clearDevtoolsTrace; this.setRmlUiDebugger = setRmlUiDebugger;`,
+    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.emitDevtoolsDebugReport = emitDevtoolsDebugReport; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole; this.publishDevtoolsTraceDelta = publishDevtoolsTraceDelta; this.clearDevtoolsTrace = clearDevtoolsTrace; this.setRmlUiDebugger = setRmlUiDebugger;`,
     context,
   );
   if (
     !context.readDevtoolsCapabilities ||
     !context.emitDevtoolsSnapshot ||
+    !context.emitDevtoolsDebugReport ||
     !context.publishDevtoolsConsoleDelta ||
     !context.clearDevtoolsConsole ||
     !context.publishDevtoolsTraceDelta ||
@@ -274,6 +314,7 @@ describe('preview widget runtime project loading', () => {
       'devtools-snapshot-v1',
       'devtools-console-v1',
       'devtools-trace-v1',
+      'devtools-debug-report-v1',
       'runtime-debug-snapshot-v1',
     ]);
     expect(harness.context.emitDevtoolsSnapshot!({ requestId: 'snapshot-1' })).toBe(true);
@@ -285,6 +326,22 @@ describe('preview widget runtime project loading', () => {
         snapshot: harness.snapshot,
       },
     ]);
+  });
+
+  it('exports one structured debug report from the native devtools data plane', () => {
+    const harness = createDevtoolsHarness();
+
+    expect(harness.context.emitDevtoolsDebugReport!({ requestId: 'report-1' })).toBe(true);
+    expect(harness.messages.at(-1)).toMatchObject({
+      version: 1,
+      type: 'devtools-debug-report',
+      requestId: 'report-1',
+      report: {
+        formatVersion: 1,
+        console: { afterSequence: '0', historyGap: true, lostRecordCount: '1' },
+        trace: { afterSequence: '0', historyGap: false, lostRecordCount: '0' },
+      },
+    });
   });
 
   it('controls the native RmlUi debugger and publishes accepted state without ImGui', () => {
