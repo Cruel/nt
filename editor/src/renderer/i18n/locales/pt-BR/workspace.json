@@ -1,4 +1,5 @@
 {
+  "rmluiDebugger": { "title": "Depurador RmlUi", "context": "Contexto inspecionado" },
   "layoutDataAssets": "Recursos de dados JSON",
   "projectImport": {
     "title": "Importar projeto NovelTea",

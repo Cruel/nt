@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { RmlUiDebuggerControls } from './RmlUiDebuggerControls';
+import type { DevtoolsSnapshot } from '../../../shared/preview-protocol';
 import { Group, Panel as ResizePanel } from 'react-resizable-panels';
 import {
   AlertCircle,
@@ -1993,6 +1995,8 @@ function CompiledProjectStaleWarning({
 }
 
 function RuntimeInspector({
+  devtoolsSnapshot,
+  debuggerSupported,
   state,
   project,
   controlsContext,
@@ -2015,6 +2019,8 @@ function RuntimeInspector({
   onRecorderApplyExisting,
   onOpenSavedTest,
 }: {
+  devtoolsSnapshot: DevtoolsSnapshot | null;
+  debuggerSupported: boolean;
   state: FullGamePreviewState;
   project: AuthoringProject | null;
   controlsContext: EnginePreviewControlsContext | null;
@@ -2107,6 +2113,11 @@ function RuntimeInspector({
             onOpenSavedTest={onOpenSavedTest}
           />
         ) : null}
+        <RmlUiDebuggerControls
+          snapshot={devtoolsSnapshot}
+          controls={controlsContext}
+          supported={debuggerSupported}
+        />
         <RuntimeSummaryPanel snapshot={state.snapshot} />
         <InputAvailabilityPanel
           snapshot={state.snapshot}
@@ -2319,6 +2330,7 @@ export function FullGamePreviewEditor({
     });
   const [mode, setMode] = useState<FullGamePreviewMode>('debug');
   const [previewCapabilities, setPreviewCapabilities] = useState<string[]>([]);
+  const [devtoolsSnapshot, setDevtoolsSnapshot] = useState<DevtoolsSnapshot | null>(null);
   const [previewControls, setPreviewControls] = useState<EnginePreviewControlsContext | null>(null);
   const [previewReadyGeneration, setPreviewReadyGeneration] = useState(0);
   const [recorderDraft, setRecorderDraft] = useState<RecordedTestDraft>({
@@ -2633,7 +2645,9 @@ export function FullGamePreviewEditor({
       if (message.type === 'ready' || message.type === 'capabilities') {
         setPreviewCapabilities(message.capabilities);
       }
+      if (message.type === 'devtools-snapshot') setDevtoolsSnapshot(message.snapshot);
       if (message.type === 'ready') {
+        setDevtoolsSnapshot(null);
         setPreviewReadyGeneration((current) => current + 1);
       }
       const logEntry = previewMessageLabel(message);
@@ -2949,6 +2963,8 @@ export function FullGamePreviewEditor({
         maxSize="55%"
       >
         <RuntimeInspector
+          devtoolsSnapshot={devtoolsSnapshot}
+          debuggerSupported={previewCapabilities.includes('rmlui-debugger-v1')}
           state={state}
           project={project}
           controlsContext={previewControls}

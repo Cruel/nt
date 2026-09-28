@@ -56,6 +56,17 @@ struct DevtoolsRmlUiContextSnapshot {
     std::optional<DevtoolsRmlUiElementSnapshot> focus;
 };
 
+struct RmlUiDebuggerSnapshot {
+    bool available = false;
+    bool visible = false;
+    std::string context;
+};
+
+struct RmlUiDebuggerCommand {
+    bool visible = false;
+    std::string context;
+};
+
 struct DevtoolsWorldHotspotSnapshot {
     std::string identity;
     std::string label;
@@ -90,6 +101,7 @@ struct DevtoolsSnapshot {
     DevtoolsHostSnapshot host;
     DevtoolsInputSnapshot input;
     std::vector<DevtoolsRmlUiContextSnapshot> rmlui;
+    RmlUiDebuggerSnapshot rmlui_debugger;
     DevtoolsWorldSnapshot world;
     DevtoolsToolingSnapshot tooling;
     std::optional<RuntimeDebugSnapshot> runtime;

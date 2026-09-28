@@ -1254,6 +1254,22 @@ thead, tbody, tfoot {
       }
     }
 
+    function setRmlUiDebugger(message) {
+      if (typeof message.visible !== 'boolean' || typeof message.context !== 'string' || !message.context ||
+          !nativeExportAvailable('noveltea_devtools_set_rmlui_debugger')) {
+        failCommand(message, 'RmlUi debugger command is invalid or unavailable.', { category: 'devtools' });
+        return;
+      }
+      const accepted = Module.ccall('noveltea_devtools_set_rmlui_debugger', 'number', ['number', 'string'], [message.visible ? 1 : 0, message.context]);
+      if (!accepted) {
+        failCommand(message, 'RmlUi debugger context is unavailable.', { category: 'devtools' });
+        return;
+      }
+      if (emitDevtoolsSnapshot(message)) {
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      }
+    }
+
     function publishDevtoolsConsoleDelta() {
       if (!port || !engineReady || !runtimeReady || !previewActivityActive || !previewActivityVisible)
         return;
@@ -1546,6 +1562,9 @@ thead, tbody, tfoot {
           return true;
         case 'devtools-clear-trace':
           clearDevtoolsTrace(message);
+          return true;
+        case 'devtools-set-rmlui-debugger':
+          setRmlUiDebugger(message);
           return true;
         case 'runtime-request-asset-profiler':
           requestAssetProfiler(message);

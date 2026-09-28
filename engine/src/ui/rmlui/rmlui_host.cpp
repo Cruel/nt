@@ -13,8 +13,12 @@
 #include <string>
 #include <utility>
 
+#include <SDL3/SDL_events.h>
 #include <RmlUi/Core.h>
 #include <RmlUi/Lua.h>
+#if NOVELTEA_ENABLE_DEVTOOLS
+#include <RmlUi/Debugger.h>
+#endif
 
 namespace noveltea::ui::rmlui {
 namespace {
@@ -142,6 +146,17 @@ bool RmlUiHost::initialize(const Config& config)
         }
     }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+    m_debugger_initialized = Rml::Debugger::Initialise(m_primary_context);
+    if (m_debugger_initialized) {
+        Rml::Debugger::SetContext(nullptr);
+        m_debugger_context = m_primary_context->GetName();
+        m_primary_context->Update();
+    } else {
+        std::fprintf(stderr, "[runtime_ui] RmlUi debugger initialization failed\n");
+    }
+#endif
+
     std::fprintf(stderr, "[runtime_ui] RmlUi initialized %s\n",
                  format_resolved_context_metrics(m_default_context_metrics).c_str());
     return true;
@@ -210,6 +225,13 @@ bool RmlUiHost::configure_fonts(const assets::FontAssetConfig& config)
 void RmlUiHost::shutdown()
 {
     reset_pointer_state();
+#if NOVELTEA_ENABLE_DEVTOOLS
+    // The plugin owns documents and wraps our system interface; release it before either owner.
+    if (m_debugger_initialized)
+        Rml::Debugger::Shutdown();
+    m_debugger_initialized = false;
+    m_debugger_context.clear();
+#endif
     for (auto& record : m_contexts) {
         if (record.context)
             record.context->UnloadAllDocuments();
@@ -241,6 +263,43 @@ void RmlUiHost::shutdown()
     m_shader_materials = nullptr;
     m_cursor_authority = nullptr;
 }
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+bool RmlUiHost::set_debugger(bool visible, const std::string& context)
+{
+    const auto found = std::find_if(m_contexts.begin(), m_contexts.end(),
+                                    [&](const auto& record) { return record.name == context; });
+    if (!m_debugger_initialized || found == m_contexts.end())
+        return false;
+    if (!Rml::Debugger::SetContext(found->context))
+        return false;
+    m_debugger_context = context;
+    // Upstream SetVisible controls only the menu, not the independently opened inspectors.
+    if (!visible) {
+        for (int index = 0; index < m_primary_context->GetNumDocuments(); ++index) {
+            auto* document = m_primary_context->GetDocument(index);
+            if (document && document->GetId().starts_with("rmlui-debug-") &&
+                document->GetId() != "rmlui-debug-hook")
+                document->Hide();
+        }
+    }
+    Rml::Debugger::SetVisible(visible);
+    m_primary_context->Update();
+    if (!visible) {
+        SDL_Event leave{};
+        leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
+        (void)process_event(leave, {}, {});
+    }
+    return true;
+}
+
+devtools::RmlUiDebuggerSnapshot RmlUiHost::debugger_snapshot() const
+{
+    return {.available = m_debugger_initialized,
+            .visible = m_debugger_initialized && Rml::Debugger::IsVisible(),
+            .context = m_debugger_context};
+}
+#endif
 
 Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_context; }
 

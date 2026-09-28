@@ -57,8 +57,12 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
     std::vector<std::uint64_t> cursor_order;
     bool consumed = false;
     for (auto it = m_contexts.rbegin(); it != m_contexts.rend(); ++it) {
+        bool debugger_active = false;
+#if NOVELTEA_ENABLE_DEVTOOLS
+        debugger_active = it->context == m_primary_context && debugger_snapshot().visible;
+#endif
         if (!it->context || it->key.input == core::LayoutInputMode::None ||
-            (has_visible_document && !has_visible_document(it->context)))
+            (!debugger_active && has_visible_document && !has_visible_document(it->context)))
             continue;
         if (updates_cursor)
             cursor_order.push_back(it->cursor_source_id);

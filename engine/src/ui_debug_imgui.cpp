@@ -214,6 +214,20 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
         }
         ImGui::Separator();
 
+        if (snapshot.rmlui_debugger.available) {
+            bool visible = snapshot.rmlui_debugger.visible;
+            if (ImGui::Checkbox("RmlUi Debugger", &visible))
+                output.rmlui_debugger = {visible, snapshot.rmlui_debugger.context};
+            if (ImGui::BeginCombo("Inspect context", snapshot.rmlui_debugger.context.c_str())) {
+                for (const auto& context : snapshot.rmlui) {
+                    if (ImGui::Selectable(context.name.c_str(),
+                                          context.name == snapshot.rmlui_debugger.context))
+                        output.rmlui_debugger = {visible, context.name};
+                }
+                ImGui::EndCombo();
+            }
+        }
+
         if (!console.empty()) {
             ImGui::TextUnformatted("Console");
             ImGui::BeginChild("Console", ImVec2(0.0f, 180.0f), true);

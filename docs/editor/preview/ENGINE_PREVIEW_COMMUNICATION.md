@@ -368,16 +368,23 @@ remains available for initial synchronization and manual refresh.
 The optimized `web-editor-preview` build enables `NOVELTEA_ENABLE_DEVTOOLS` even though it does not
 compile Dear ImGui. At startup the widget asks the native engine for its versioned devtools
 capabilities instead of hard-coding them in JavaScript. The current capability set contributed by
-the devtools layer is `devtools-snapshot-v1`, `devtools-console-v1`, `devtools-trace-v1`, `runtime-debug-snapshot-v1`,
-`runtime-debug-mutations-v1`, and `runtime-fast-forward-v1`; later debugger features add their own
-independently versioned capabilities.
+the devtools layer is `devtools-snapshot-v1`, `rmlui-debugger-v1`, `devtools-console-v1`,
+`devtools-trace-v1`, `runtime-debug-snapshot-v1`, `runtime-debug-mutations-v1`, and
+`runtime-fast-forward-v1`; later debugger features add their own independently versioned
+capabilities.
 
 `devtools-request-snapshot` calls the narrow `noveltea_devtools_snapshot()` export and emits
-`devtools-snapshot` with the same request ID. The payload owns three sections: `host`, `tooling`, and
-`runtime`. `host` carries current surface/backend/renderer/generation state; `tooling` carries
-preview/performance/native-frontend state; and `runtime` is either `null` or the exact existing
-Runtime Debug Snapshot object. Runtime fields are not copied to the root or re-encoded into a second
+`devtools-snapshot` with the same request ID. Alongside host/input/RmlUi/world/tooling/runtime state,
+the payload includes `rmluiDebugger` with availability, visibility, and the exact currently selected
+RmlUi context name. Runtime fields are not copied to the root or re-encoded into a second
 gameplay-debugger DTO. Existing consumers may continue using `runtime-debug-snapshot` directly.
+
+When `rmlui-debugger-v1` is advertised, Play tooling controls the engine-owned built-in RmlUi
+Debugger through `devtools-set-rmlui-debugger { visible, context }`. The widget calls the narrow
+`noveltea_devtools_set_rmlui_debugger()` export, rejects unknown context names, emits a fresh
+`devtools-snapshot` on success, and then acknowledges the command. React does not reproduce the
+Debugger's DOM/style/data-model inspector; it only exposes visibility and inspected-context controls
+for the native RmlUi Debugger hosted by the runtime.
 
 The structured Console is a separate cursor-based data plane rather than another snapshot section.
 The engine retains roughly the latest 1000 Console records with monotonically increasing sequence
@@ -420,9 +427,9 @@ continues, reports lost history, and clears both local and native history throug
 `devtools-clear-trace`. Native ImGui renders the same engine Trace instead of maintaining another
 instrumentation log.
 
-When developer instrumentation is compiled out, the native devtools capability/snapshot exports are
-not exposed, the Console and Trace delta/clear exports are likewise absent, these devtools capabilities are not
-advertised, and this transport is unavailable.
+When developer instrumentation is compiled out, the native devtools capability/snapshot/debugger
+exports are not exposed, the Console and Trace delta/clear exports are likewise absent, these
+devtools capabilities are not advertised, and this transport is unavailable.
 Ordinary diagnostics and runtime logging remain independent of the developer-only boundary.
 
 `set-engine-settings` applies live host configuration to an already-running preview. Its optional

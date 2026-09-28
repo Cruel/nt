@@ -1,6 +1,8 @@
 #pragma once
 
 #include "noveltea/core/diagnostic.hpp"
+#include "noveltea/devtools_snapshot.hpp"
+#include <optional>
 
 #include <compare>
 #include <variant>
@@ -23,6 +25,7 @@ using DebugUiCommand =
 
 struct DebugUiFrameOutput {
     std::vector<DebugUiCommand> commands;
+    std::optional<devtools::RmlUiDebuggerCommand> rmlui_debugger;
 };
 
 } // namespace noveltea::host
