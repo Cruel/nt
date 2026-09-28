@@ -81,6 +81,10 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
         const bool context_consumed =
             dispatch_layout_event ? dispatch_layout_event(it->key, it->key.owner, process_context)
                                   : process_context();
+#if NOVELTEA_ENABLE_DEVTOOLS
+        it->recent_event_processed = true;
+        it->recent_event_consumed = context_consumed;
+#endif
         consumed = context_consumed || consumed;
         if (stops_lower_presentation_input(it->key.input, consumed))
             break;
@@ -96,6 +100,13 @@ bool RmlUiHost::process_event(const SDL_Event& event,
 {
     if (m_contexts.empty())
         return false;
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+    for (auto& record : m_contexts) {
+        record.recent_event_processed = false;
+        record.recent_event_consumed = false;
+    }
+#endif
 
     const PresentationTransform transform{m_presentation};
     const auto dispatch = [&](const SDL_Event& routed,

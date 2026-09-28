@@ -391,6 +391,7 @@ export interface DevtoolsInputSnapshot {
 }
 
 export interface DevtoolsRmlUiElementSnapshot {
+  documentId: string;
   tag: string;
   id: string;
   classes: string;
@@ -399,9 +400,28 @@ export interface DevtoolsRmlUiElementSnapshot {
 
 export interface DevtoolsRmlUiContextSnapshot {
   name: string;
+  lifecycleIdentity: string;
+  plane: string;
+  clock: string;
+  inputMode: string;
+  owner: string;
+  scaleDomain: string;
+  compositionGroup: number;
+  compatibilityGroup: number;
   width: number;
   height: number;
+  mediaQueryWidth: number;
+  mediaQueryHeight: number;
+  requestedUiScale: number;
+  textScaleFactor: number;
+  referenceToContextScaleX: number;
+  referenceToContextScaleY: number;
+  uiRasterScaleX: number;
+  uiRasterScaleY: number;
+  fontRasterScale: number;
   mouseInteracting: boolean;
+  recentEventProcessed: boolean;
+  recentEventConsumed: boolean;
   hover: DevtoolsRmlUiElementSnapshot | null;
   focus: DevtoolsRmlUiElementSnapshot | null;
 }
@@ -451,8 +471,10 @@ export type DevtoolsConsoleSeverity = 'info' | 'warning' | 'error';
 
 export interface DevtoolsConsoleRecord {
   sequence: string;
+  globalSequence: string;
   hostGeneration: string | null;
   runtimeGeneration: string | null;
+  frame: string;
   severity: DevtoolsConsoleSeverity;
   category: string;
   message: string;
@@ -473,6 +495,7 @@ export type DevtoolsTraceRecordKind = 'input-routing' | 'debugger-mutation' | 'g
 
 export interface DevtoolsTraceElementRef {
   context: string;
+  documentId: string;
   tag: string;
   id: string;
   classes: string;
@@ -512,6 +535,8 @@ export interface DevtoolsTraceInputRouting {
 export interface DevtoolsTraceRecord {
   sequence: string;
   firstSequence: string;
+  globalSequence: string;
+  firstGlobalSequence: string;
   hostGeneration: string | null;
   runtimeGeneration: string | null;
   kind: DevtoolsTraceRecordKind;
@@ -520,6 +545,7 @@ export interface DevtoolsTraceRecord {
   firstFrame: string;
   lastFrame: string;
   input: DevtoolsTraceInputRouting | null;
+  debuggerMutation: { sourceFrontend: string; operation: string } | null;
   detail: string;
   generationMarker: boolean;
 }
@@ -1402,6 +1428,7 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
   const rmluiElement = (entry: unknown) =>
     entry === null ||
     (isRecord(entry) &&
+      typeof entry.documentId === 'string' &&
       typeof entry.tag === 'string' &&
       typeof entry.id === 'string' &&
       typeof entry.classes === 'string' &&
@@ -1410,13 +1437,40 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
     (context) =>
       isRecord(context) &&
       typeof context.name === 'string' &&
+      typeof context.lifecycleIdentity === 'string' &&
+      typeof context.plane === 'string' &&
+      typeof context.clock === 'string' &&
+      typeof context.inputMode === 'string' &&
+      typeof context.owner === 'string' &&
+      typeof context.scaleDomain === 'string' &&
+      typeof context.compositionGroup === 'number' &&
+      Number.isSafeInteger(context.compositionGroup) &&
+      context.compositionGroup >= 0 &&
+      typeof context.compatibilityGroup === 'number' &&
+      Number.isSafeInteger(context.compatibilityGroup) &&
+      context.compatibilityGroup >= 0 &&
       typeof context.width === 'number' &&
       Number.isSafeInteger(context.width) &&
       context.width >= 0 &&
       typeof context.height === 'number' &&
       Number.isSafeInteger(context.height) &&
       context.height >= 0 &&
+      typeof context.mediaQueryWidth === 'number' &&
+      Number.isSafeInteger(context.mediaQueryWidth) &&
+      context.mediaQueryWidth >= 0 &&
+      typeof context.mediaQueryHeight === 'number' &&
+      Number.isSafeInteger(context.mediaQueryHeight) &&
+      context.mediaQueryHeight >= 0 &&
+      positiveNumber(context.requestedUiScale) &&
+      positiveNumber(context.textScaleFactor) &&
+      positiveNumber(context.referenceToContextScaleX) &&
+      positiveNumber(context.referenceToContextScaleY) &&
+      positiveNumber(context.uiRasterScaleX) &&
+      positiveNumber(context.uiRasterScaleY) &&
+      positiveNumber(context.fontRasterScale) &&
       typeof context.mouseInteracting === 'boolean' &&
+      typeof context.recentEventProcessed === 'boolean' &&
+      typeof context.recentEventConsumed === 'boolean' &&
       rmluiElement(context.hover) &&
       rmluiElement(context.focus),
   );
@@ -1483,6 +1537,7 @@ function isDevtoolsTraceElementRef(value: unknown): value is DevtoolsTraceElemen
   return (
     isRecord(value) &&
     typeof value.context === 'string' &&
+    typeof value.documentId === 'string' &&
     typeof value.tag === 'string' &&
     typeof value.id === 'string' &&
     typeof value.classes === 'string' &&
@@ -1540,9 +1595,16 @@ export function isDevtoolsTraceDelta(value: unknown): value is DevtoolsTraceDelt
         nullableString(record.input.worldHovered) &&
         nullableString(record.input.worldPressed) &&
         nullableString(record.input.worldTarget));
+    const mutationValid =
+      record.debuggerMutation === null ||
+      (isRecord(record.debuggerMutation) &&
+        typeof record.debuggerMutation.sourceFrontend === 'string' &&
+        typeof record.debuggerMutation.operation === 'string');
     return (
       isCanonicalUnsignedDecimal(record.sequence) &&
       isCanonicalUnsignedDecimal(record.firstSequence) &&
+      isCanonicalUnsignedDecimal(record.globalSequence) &&
+      isCanonicalUnsignedDecimal(record.firstGlobalSequence) &&
       (record.hostGeneration === null || isCanonicalUnsignedDecimal(record.hostGeneration)) &&
       (record.runtimeGeneration === null || isCanonicalUnsignedDecimal(record.runtimeGeneration)) &&
       (record.kind === 'input-routing' ||
@@ -1555,6 +1617,7 @@ export function isDevtoolsTraceDelta(value: unknown): value is DevtoolsTraceDelt
       isCanonicalUnsignedDecimal(record.firstFrame) &&
       isCanonicalUnsignedDecimal(record.lastFrame) &&
       inputValid &&
+      mutationValid &&
       typeof record.detail === 'string' &&
       typeof record.generationMarker === 'boolean'
     );
@@ -1583,8 +1646,10 @@ export function isDevtoolsConsoleDelta(value: unknown): value is DevtoolsConsole
             record.source.line > 0)));
     return (
       isCanonicalUnsignedDecimal(record.sequence) &&
+      isCanonicalUnsignedDecimal(record.globalSequence) &&
       (record.hostGeneration === null || isCanonicalUnsignedDecimal(record.hostGeneration)) &&
       (record.runtimeGeneration === null || isCanonicalUnsignedDecimal(record.runtimeGeneration)) &&
+      isCanonicalUnsignedDecimal(record.frame) &&
       (record.severity === 'info' ||
         record.severity === 'warning' ||
         record.severity === 'error') &&

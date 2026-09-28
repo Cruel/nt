@@ -4,33 +4,49 @@
 
 namespace noveltea::devtools {
 
-ConsoleBuffer::ConsoleBuffer(std::size_t capacity) : m_capacity(std::max<std::size_t>(capacity, 1))
+ConsoleBuffer::ConsoleBuffer(std::size_t capacity, SequenceAllocator* sequence)
+    : m_capacity(std::max<std::size_t>(capacity, 1)), m_global_sequence(sequence)
 {
     m_records.reserve(m_capacity);
 }
 
 void ConsoleBuffer::set_generations(std::optional<std::uint64_t> host_generation,
-                                    std::optional<std::uint64_t> runtime_generation)
+                                    std::optional<std::uint64_t> runtime_generation,
+                                    std::uint64_t frame)
 {
+    const auto previous_host_generation = m_host_generation;
     const auto previous_runtime_generation = m_runtime_generation;
     m_host_generation = host_generation;
     m_runtime_generation = runtime_generation;
-    if (runtime_generation == previous_runtime_generation)
+    if (host_generation == previous_host_generation &&
+        runtime_generation == previous_runtime_generation)
         return;
 
     std::string message;
-    if (runtime_generation) {
-        message = "Runtime generation " + std::to_string(*runtime_generation) + " started";
+    if (host_generation != previous_host_generation) {
+        message = "Host generation ";
+        message += host_generation ? std::to_string(*host_generation) : "none";
+        if (previous_host_generation)
+            message += " replaced " + std::to_string(*previous_host_generation);
+        message += '.';
+    }
+    if (runtime_generation != previous_runtime_generation && runtime_generation) {
+        if (!message.empty())
+            message += ' ';
+        message += "Runtime generation " + std::to_string(*runtime_generation) + " started";
         if (previous_runtime_generation)
             message += " (replacing " + std::to_string(*previous_runtime_generation) + ")";
         message += '.';
-    } else if (previous_runtime_generation) {
-        message = "Runtime generation " + std::to_string(*previous_runtime_generation) + " ended.";
-    } else {
-        return;
+    } else if (runtime_generation != previous_runtime_generation && previous_runtime_generation) {
+        if (!message.empty())
+            message += ' ';
+        message += "Runtime generation " + std::to_string(*previous_runtime_generation) + " ended.";
     }
+    if (message.empty())
+        return;
     append_record({.host_generation = m_host_generation,
                    .runtime_generation = m_runtime_generation,
+                   .frame = frame,
                    .severity = ConsoleSeverity::Info,
                    .category = "runtime",
                    .message = std::move(message),
@@ -39,10 +55,11 @@ void ConsoleBuffer::set_generations(std::optional<std::uint64_t> host_generation
 }
 
 void ConsoleBuffer::append(ConsoleSeverity severity, std::string category, std::string message,
-                           std::optional<ConsoleSource> source)
+                           std::optional<ConsoleSource> source, std::uint64_t frame)
 {
     append_record({.host_generation = m_host_generation,
                    .runtime_generation = m_runtime_generation,
+                   .frame = frame,
                    .severity = severity,
                    .category = std::move(category),
                    .message = std::move(message),
@@ -53,6 +70,7 @@ void ConsoleBuffer::append(ConsoleSeverity severity, std::string category, std::
 void ConsoleBuffer::append_record(ConsoleRecord record)
 {
     record.sequence = m_next_sequence++;
+    record.global_sequence = m_global_sequence ? m_global_sequence->next() : record.sequence;
     if (m_records.size() == m_capacity)
         m_records.erase(m_records.begin());
     m_records.push_back(std::move(record));

@@ -228,8 +228,10 @@ function createDevtoolsHarness() {
             records: [
               {
                 sequence: '2',
+                globalSequence: '6',
                 hostGeneration: '1',
                 runtimeGeneration: '4',
+                frame: '9',
                 severity: 'info',
                 category: 'lua',
                 message: 'hello',
@@ -251,6 +253,8 @@ function createDevtoolsHarness() {
               {
                 sequence: '5',
                 firstSequence: '4',
+                globalSequence: '7',
+                firstGlobalSequence: '6',
                 hostGeneration: '1',
                 runtimeGeneration: '4',
                 kind: 'input-routing',
@@ -259,6 +263,7 @@ function createDevtoolsHarness() {
                 firstFrame: '10',
                 lastFrame: '11',
                 input: null,
+                debuggerMutation: null,
                 detail: '',
                 generationMarker: false,
               },

@@ -5,7 +5,8 @@
 
 namespace noveltea::devtools {
 
-TraceBuffer::TraceBuffer(std::size_t capacity) : m_capacity(std::max<std::size_t>(capacity, 1))
+TraceBuffer::TraceBuffer(std::size_t capacity, SequenceAllocator* sequence)
+    : m_capacity(std::max<std::size_t>(capacity, 1)), m_global_sequence(sequence)
 {
     m_records.reserve(m_capacity);
 }
@@ -14,23 +15,36 @@ void TraceBuffer::set_generations(std::optional<std::uint64_t> host_generation,
                                   std::optional<std::uint64_t> runtime_generation,
                                   std::uint64_t frame)
 {
+    const auto previous_host_generation = m_host_generation;
     const auto previous_runtime_generation = m_runtime_generation;
     m_host_generation = host_generation;
     m_runtime_generation = runtime_generation;
-    if (runtime_generation == previous_runtime_generation)
+    if (host_generation == previous_host_generation &&
+        runtime_generation == previous_runtime_generation)
         return;
 
     std::string detail;
-    if (runtime_generation) {
-        detail = "Runtime generation " + std::to_string(*runtime_generation) + " started";
+    if (host_generation != previous_host_generation) {
+        detail = "Host generation ";
+        detail += host_generation ? std::to_string(*host_generation) : "none";
+        if (previous_host_generation)
+            detail += " replaced " + std::to_string(*previous_host_generation);
+        detail += '.';
+    }
+    if (runtime_generation != previous_runtime_generation && runtime_generation) {
+        if (!detail.empty())
+            detail += ' ';
+        detail += "Runtime generation " + std::to_string(*runtime_generation) + " started";
         if (previous_runtime_generation)
             detail += " (replacing " + std::to_string(*previous_runtime_generation) + ")";
         detail += '.';
-    } else if (previous_runtime_generation) {
-        detail = "Runtime generation " + std::to_string(*previous_runtime_generation) + " ended.";
-    } else {
-        return;
+    } else if (runtime_generation != previous_runtime_generation && previous_runtime_generation) {
+        if (!detail.empty())
+            detail += ' ';
+        detail += "Runtime generation " + std::to_string(*previous_runtime_generation) + " ended.";
     }
+    if (detail.empty())
+        return;
     append_record({.host_generation = m_host_generation,
                    .runtime_generation = m_runtime_generation,
                    .kind = TraceRecordKind::Generation,
@@ -39,6 +53,7 @@ void TraceBuffer::set_generations(std::optional<std::uint64_t> host_generation,
                    .first_frame = frame,
                    .last_frame = frame,
                    .input = std::nullopt,
+                   .debugger_mutation = std::nullopt,
                    .detail = std::move(detail),
                    .generation_marker = true});
 }
@@ -55,22 +70,28 @@ void TraceBuffer::append_input(TraceInputRouting input, std::uint64_t frame)
                    .first_frame = frame,
                    .last_frame = frame,
                    .input = std::move(input),
+                   .debugger_mutation = std::nullopt,
                    .detail = {},
                    .generation_marker = false});
 }
 
-void TraceBuffer::append_debugger_mutation(std::string detail, std::uint64_t frame)
+void TraceBuffer::append_debugger_mutation(std::string source_frontend, std::string operation,
+                                           std::uint64_t frame)
 {
-    append_record({.host_generation = m_host_generation,
-                   .runtime_generation = m_runtime_generation,
-                   .kind = TraceRecordKind::DebuggerMutation,
-                   .category = "debugger",
-                   .repeat_count = 1,
-                   .first_frame = frame,
-                   .last_frame = frame,
-                   .input = std::nullopt,
-                   .detail = std::move(detail),
-                   .generation_marker = false});
+    const std::string detail = source_frontend + ": " + operation;
+    append_record(
+        {.host_generation = m_host_generation,
+         .runtime_generation = m_runtime_generation,
+         .kind = TraceRecordKind::DebuggerMutation,
+         .category = "debugger",
+         .repeat_count = 1,
+         .first_frame = frame,
+         .last_frame = frame,
+         .input = std::nullopt,
+         .debugger_mutation = TraceDebuggerMutation{.source_frontend = std::move(source_frontend),
+                                                    .operation = std::move(operation)},
+         .detail = detail,
+         .generation_marker = false});
 }
 
 bool TraceBuffer::try_coalesce_input(const TraceInputRouting& input, std::uint64_t frame)
@@ -100,6 +121,7 @@ bool TraceBuffer::try_coalesce_input(const TraceInputRouting& input, std::uint64
         return false;
 
     previous.sequence = m_next_sequence++;
+    previous.global_sequence = m_global_sequence ? m_global_sequence->next() : previous.sequence;
     ++previous.repeat_count;
     previous.last_frame = frame;
     previous.input = input;
@@ -110,6 +132,8 @@ void TraceBuffer::append_record(TraceRecord record)
 {
     record.sequence = m_next_sequence++;
     record.first_sequence = record.sequence;
+    record.global_sequence = m_global_sequence ? m_global_sequence->next() : record.sequence;
+    record.first_global_sequence = record.global_sequence;
     if (m_records.size() == m_capacity) {
         m_records.erase(m_records.begin());
         ++m_evicted_record_count;

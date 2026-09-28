@@ -28,21 +28,28 @@ surface from built artifacts rather than inferring the result only from option d
 
 The **Devtools Snapshot** is the current-state view. It contains host/tooling state, pointer
 projection and admission, public RmlUi context/hover/focus information, canonical world Hotspot
-observation, and the existing Runtime Debug Snapshot as its runtime section. The runtime section is
-not a second gameplay model.
+observation, and the existing Runtime Debug Snapshot as its runtime section. RmlUi observations
+include lifecycle identity, plane/clock/input/owner/scale-domain information, resolved context and
+raster metrics, recent per-context input processing/consumption, and owning-document identity for
+hover/focus elements. The runtime section is not a second gameplay model.
 
-The **Console** is the bounded structured log stream. Records have monotonic sequence IDs, severity,
-category, generation identity, and optional Lua source information. Runtime-generation boundaries are
+The **Console** is the bounded structured log stream. Records have a per-stream cursor sequence, a
+shared global debugger sequence for correlation with Trace, frame identity, severity, category,
+generation identity, and optional Lua source information. Host/runtime generation boundaries are
 records rather than implicit clears. `Debug.info(...)`, `Debug.warn(...)`, and `Debug.error(...)`
 publish here when a developer sink is attached; `print(...)` keeps its normal host logging and is
-also mirrored as an informational Lua record in developer builds. In devtools-off builds the `Debug`
-table remains source-compatible but has no developer sink.
+also mirrored as an informational Lua record in developer builds. NovelTea runtime diagnostic
+summaries and RmlUi's own typed log callback are also explicit Console producers rather than being
+recovered by scraping SDL log text. In devtools-off builds the `Debug` table remains source-compatible
+but has no developer sink.
 
 The **Trace** is the bounded causal routing stream. Pointer records correlate host coordinates,
 reference projection, RmlUi processing/consumption, governing Layout admission, gameplay admission,
 world hit testing, and Hotspot hover. Equivalent pointer motion may coalesce while state transitions,
-buttons, wheel input, generation changes, and debugger mutations remain explicit records. Use the
-Trace for "why did this input stop here?" and the Devtools Snapshot for "what is true now?".
+buttons, wheel input, generation changes, and debugger mutations remain explicit records. Coalesced
+records retain first/current local and global sequence identity. Debugger mutations identify their
+source frontend and semantic operation explicitly. Use the Trace for "why did this input stop here?"
+and the Devtools Snapshot for "what is true now?".
 
 The **Export Debug Report** action serializes those same engine-owned values: build identity,
 capabilities, current Devtools Snapshot, diagnostics, public RmlUi/debugger summary, and retained
@@ -57,7 +64,13 @@ style, or data-model inspector. Hiding the debugger preserves the selected conte
 On a native developer host, `F10` toggles the NovelTea Dear ImGui debugger frontend and
 `Shift+F10` resets its window layout. These shortcuts are intercepted at the host-input layer before
 RmlUi, Layout, or gameplay admission. The Dear ImGui frontend consumes the same Devtools Snapshot,
-Console, and Trace contracts as editor tooling.
+Console, and Trace contracts as editor tooling. Its Console and Trace sections have explicit Clear
+actions; clearing retained history does not restart the runtime or disable capture.
+
+The editor Play inspector uses the current Devtools Snapshot directly for Input Routing, RmlUi State,
+and World Hotspots sections. World state keeps under-pointer/hovered/pressed Hotspots visible first
+while retaining the complete resolved Hotspot set in a collapsed subsection. Console and Trace remain
+chronological bottom panes rather than being duplicated into the inspector.
 
 ## Diagnosing Rooms & Interactions Hotspots
 

@@ -162,8 +162,9 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     host::CheckpointThumbnailCaptureCoordinator m_checkpoint_thumbnail_captures;
     script::ScriptRuntime m_scripts;
 #if NOVELTEA_ENABLE_DEVTOOLS
-    devtools::ConsoleBuffer m_devtools_console;
-    devtools::TraceBuffer m_devtools_trace;
+    devtools::SequenceAllocator m_devtools_sequence;
+    devtools::ConsoleBuffer m_devtools_console{1000, &m_devtools_sequence};
+    devtools::TraceBuffer m_devtools_trace{2000, &m_devtools_sequence};
     devtools::DevtoolsInputSnapshot m_devtools_input_snapshot;
 #endif
     core::TypedMemorySaveSlotStore m_typed_saves;

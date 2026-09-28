@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/devtools_sequence.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -11,6 +13,7 @@ namespace noveltea::devtools {
 
 struct TraceElementRef {
     std::string context;
+    std::string document_id;
     std::string tag;
     std::string id;
     std::string classes;
@@ -57,9 +60,18 @@ enum class TraceRecordKind : std::uint8_t {
     Generation,
 };
 
+struct TraceDebuggerMutation {
+    std::string source_frontend;
+    std::string operation;
+
+    bool operator==(const TraceDebuggerMutation&) const = default;
+};
+
 struct TraceRecord {
     std::uint64_t sequence = 0;
     std::uint64_t first_sequence = 0;
+    std::uint64_t global_sequence = 0;
+    std::uint64_t first_global_sequence = 0;
     std::optional<std::uint64_t> host_generation;
     std::optional<std::uint64_t> runtime_generation;
     TraceRecordKind kind = TraceRecordKind::InputRouting;
@@ -68,6 +80,7 @@ struct TraceRecord {
     std::uint64_t first_frame = 0;
     std::uint64_t last_frame = 0;
     std::optional<TraceInputRouting> input;
+    std::optional<TraceDebuggerMutation> debugger_mutation;
     std::string detail;
     bool generation_marker = false;
 };
@@ -83,12 +96,13 @@ struct TraceDelta {
 
 class TraceBuffer final {
 public:
-    explicit TraceBuffer(std::size_t capacity = 2000);
+    explicit TraceBuffer(std::size_t capacity = 2000, SequenceAllocator* sequence = nullptr);
 
     void set_generations(std::optional<std::uint64_t> host_generation,
                          std::optional<std::uint64_t> runtime_generation, std::uint64_t frame);
     void append_input(TraceInputRouting input, std::uint64_t frame);
-    void append_debugger_mutation(std::string detail, std::uint64_t frame);
+    void append_debugger_mutation(std::string source_frontend, std::string operation,
+                                  std::uint64_t frame);
     [[nodiscard]] TraceDelta delta_after(std::uint64_t after_sequence) const;
     [[nodiscard]] std::span<const TraceRecord> records() const noexcept { return m_records; }
     [[nodiscard]] std::uint64_t latest_sequence() const noexcept { return m_next_sequence - 1; }
@@ -104,6 +118,7 @@ private:
 
     std::size_t m_capacity = 2000;
     std::uint64_t m_next_sequence = 1;
+    SequenceAllocator* m_global_sequence = nullptr;
     std::optional<std::uint64_t> m_host_generation;
     std::optional<std::uint64_t> m_runtime_generation;
     std::vector<TraceRecord> m_records;

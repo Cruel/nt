@@ -401,6 +401,14 @@ const std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() const noexcep
 
 std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() noexcept { return m_contexts; }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+void RmlUiHost::set_devtools_log_sink(DevtoolsLogSink sink)
+{
+    if (m_system_interface)
+        m_system_interface->set_devtools_log_sink(std::move(sink));
+}
+#endif
+
 const ResolvedContextMetrics* RmlUiHost::context_metrics(Rml::Context* context) const noexcept
 {
     const auto found = std::find_if(m_contexts.begin(), m_contexts.end(),

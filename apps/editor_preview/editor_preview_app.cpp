@@ -154,7 +154,8 @@ void record_debugger_mutation_if_accepted(std::string_view mutation_result, std:
     if (!parsed.is_object() || !parsed.value("accepted", false))
         return;
     if (auto* engine = preview_engine())
-        noveltea::EngineTooling::record_debugger_mutation(*engine, std::move(detail));
+        noveltea::EngineTooling::record_debugger_mutation(*engine, "editor-react",
+                                                          std::move(detail));
 }
 
 nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot& value)
@@ -171,7 +172,8 @@ nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot
     const auto encode_element = [](const auto& element) -> nlohmann::json {
         if (!element)
             return nullptr;
-        return {{"tag", element->tag},
+        return {{"documentId", element->document_id},
+                {"tag", element->tag},
                 {"id", element->id},
                 {"classes", element->classes},
                 {"pointerEvents", element->pointer_events}};
@@ -179,9 +181,28 @@ nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot
     auto rmlui = nlohmann::json::array();
     for (const auto& context : value.rmlui) {
         rmlui.push_back({{"name", context.name},
+                         {"lifecycleIdentity", context.lifecycle_identity},
+                         {"plane", context.plane},
+                         {"clock", context.clock},
+                         {"inputMode", context.input_mode},
+                         {"owner", context.owner},
+                         {"scaleDomain", context.scale_domain},
+                         {"compositionGroup", context.composition_group},
+                         {"compatibilityGroup", context.compatibility_group},
                          {"width", context.width},
                          {"height", context.height},
+                         {"mediaQueryWidth", context.media_query_width},
+                         {"mediaQueryHeight", context.media_query_height},
+                         {"requestedUiScale", context.requested_ui_scale},
+                         {"textScaleFactor", context.text_scale_factor},
+                         {"referenceToContextScaleX", context.reference_to_context_scale_x},
+                         {"referenceToContextScaleY", context.reference_to_context_scale_y},
+                         {"uiRasterScaleX", context.ui_raster_scale_x},
+                         {"uiRasterScaleY", context.ui_raster_scale_y},
+                         {"fontRasterScale", context.font_raster_scale},
                          {"mouseInteracting", context.mouse_interacting},
+                         {"recentEventProcessed", context.recent_event_processed},
+                         {"recentEventConsumed", context.recent_event_consumed},
                          {"hover", encode_element(context.hover)},
                          {"focus", encode_element(context.focus)}});
     }
@@ -268,12 +289,14 @@ nlohmann::json devtools_console_delta_json(const noveltea::devtools::ConsoleDelt
         }
         records.push_back(
             {{"sequence", std::to_string(record.sequence)},
+             {"globalSequence", std::to_string(record.global_sequence)},
              {"hostGeneration", record.host_generation
                                     ? nlohmann::json(std::to_string(*record.host_generation))
                                     : nlohmann::json(nullptr)},
              {"runtimeGeneration", record.runtime_generation
                                        ? nlohmann::json(std::to_string(*record.runtime_generation))
                                        : nlohmann::json(nullptr)},
+             {"frame", std::to_string(record.frame)},
              {"severity", noveltea::devtools::console_severity_name(record.severity)},
              {"category", record.category},
              {"message", record.message},
@@ -294,11 +317,9 @@ nlohmann::json devtools_trace_delta_json(const noveltea::devtools::TraceDelta& v
     const auto encode_element = [](const auto& element) -> nlohmann::json {
         if (!element)
             return nullptr;
-        return {{"context", element->context},
-                {"tag", element->tag},
-                {"id", element->id},
-                {"classes", element->classes},
-                {"pointerEvents", element->pointer_events}};
+        return {{"context", element->context}, {"documentId", element->document_id},
+                {"tag", element->tag},         {"id", element->id},
+                {"classes", element->classes}, {"pointerEvents", element->pointer_events}};
     };
     for (const auto& record : value.records) {
         nlohmann::json input = nullptr;
@@ -344,9 +365,16 @@ nlohmann::json devtools_trace_delta_json(const noveltea::devtools::TraceDelta& v
                 {"worldTarget", routed.world_target ? nlohmann::json(*routed.world_target)
                                                     : nlohmann::json(nullptr)}};
         }
+        nlohmann::json debugger_mutation = nullptr;
+        if (record.debugger_mutation) {
+            debugger_mutation = {{"sourceFrontend", record.debugger_mutation->source_frontend},
+                                 {"operation", record.debugger_mutation->operation}};
+        }
         records.push_back(
             {{"sequence", std::to_string(record.sequence)},
              {"firstSequence", std::to_string(record.first_sequence)},
+             {"globalSequence", std::to_string(record.global_sequence)},
+             {"firstGlobalSequence", std::to_string(record.first_global_sequence)},
              {"hostGeneration", record.host_generation
                                     ? nlohmann::json(std::to_string(*record.host_generation))
                                     : nlohmann::json(nullptr)},
@@ -359,6 +387,7 @@ nlohmann::json devtools_trace_delta_json(const noveltea::devtools::TraceDelta& v
              {"firstFrame", std::to_string(record.first_frame)},
              {"lastFrame", std::to_string(record.last_frame)},
              {"input", std::move(input)},
+             {"debuggerMutation", std::move(debugger_mutation)},
              {"detail", record.detail},
              {"generationMarker", record.generation_marker}});
     }

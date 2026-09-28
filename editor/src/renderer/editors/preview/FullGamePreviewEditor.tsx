@@ -727,6 +727,182 @@ function RuntimeSummaryPanel({ snapshot }: { snapshot: RuntimeDebugSnapshot | nu
   );
 }
 
+function DevtoolsInputPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null }) {
+  const input = snapshot?.input;
+  const host = snapshot?.host;
+  return (
+    <Panel
+      title="Input routing"
+      icon={<MousePointer2 className="h-3.5 w-3.5" />}
+      summary={
+        input
+          ? `${input.lastEvent || 'No event'} · ${input.gameplayAdmitted ? 'admitted' : input.gameplayBlockReason}`
+          : 'No snapshot'
+      }
+      defaultOpen
+    >
+      <div className="space-y-1">
+        <InfoRow
+          label="Pointer"
+          value={input?.pointerValid ? `${input.referenceX}, ${input.referenceY}` : 'outside'}
+        />
+        <InfoRow
+          label="Developer UI"
+          value={
+            input
+              ? `${input.debugProcessed ? 'processed' : 'skipped'}${input.debugConsumed ? ' / consumed' : ''}`
+              : undefined
+          }
+        />
+        <InfoRow
+          label="RmlUi"
+          value={
+            input
+              ? `${input.runtimeUiProcessed ? 'processed' : 'skipped'}${input.runtimeUiConsumed ? ' / consumed' : ''}${input.runtimeUiWantsPointer ? ' / wants pointer' : ''}`
+              : undefined
+          }
+        />
+        <InfoRow
+          label="Gameplay"
+          value={
+            input
+              ? input.gameplayAdmitted
+                ? 'admitted'
+                : `blocked: ${input.gameplayBlockReason}`
+              : undefined
+          }
+        />
+        <InfoRow
+          label="Governing Layout"
+          value={
+            input?.governingLayout
+              ? `${input.governingLayout} (${input.governingLayoutMode})`
+              : input?.governingLayoutMode
+          }
+        />
+        <InfoRow label="Host" value={host ? `${host.platform} · ${host.renderer}` : undefined} />
+      </div>
+    </Panel>
+  );
+}
+
+function DevtoolsRmlUiPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null }) {
+  const contexts = snapshot?.rmlui ?? [];
+  return (
+    <Panel
+      title="RmlUi state"
+      icon={<Braces className="h-3.5 w-3.5" />}
+      summary={`${contexts.length} context${contexts.length === 1 ? '' : 's'}`}
+    >
+      {contexts.length === 0 ? (
+        <div className="text-xs text-muted-foreground">
+          No RmlUi contexts in the latest snapshot.
+        </div>
+      ) : null}
+      {contexts.map((context) => (
+        <div key={context.lifecycleIdentity} className="rounded-md border p-2 text-xs">
+          <div className="flex flex-wrap items-center gap-1">
+            <span className="font-medium">{context.name}</span>
+            <Badge variant="outline">{context.plane}</Badge>
+            <Badge variant={context.recentEventConsumed ? 'secondary' : 'outline'}>
+              {context.recentEventConsumed
+                ? 'consumed last event'
+                : context.recentEventProcessed
+                  ? 'processed last event'
+                  : 'not reached'}
+            </Badge>
+          </div>
+          <div className="mt-1 space-y-1">
+            <InfoRow label="Lifecycle" value={context.lifecycleIdentity} />
+            <InfoRow label="Input" value={`${context.inputMode} · ${context.owner}`} />
+            <InfoRow label="Scale domain" value={context.scaleDomain} />
+            <InfoRow
+              label="Context size"
+              value={`${context.width}×${context.height} · media ${context.mediaQueryWidth}×${context.mediaQueryHeight}`}
+            />
+            <InfoRow
+              label="Scale"
+              value={`ui ${context.requestedUiScale} · text ${context.textScaleFactor} · raster ${context.uiRasterScaleX}×${context.uiRasterScaleY}`}
+            />
+            <InfoRow
+              label="Hover"
+              value={
+                context.hover
+                  ? `${context.hover.documentId || 'unknown'} · ${context.hover.tag}#${context.hover.id || '—'} · pointer-events=${context.hover.pointerEvents}`
+                  : undefined
+              }
+            />
+            <InfoRow
+              label="Focus"
+              value={
+                context.focus
+                  ? `${context.focus.documentId || 'unknown'} · ${context.focus.tag}#${context.focus.id || '—'}`
+                  : undefined
+              }
+            />
+          </div>
+        </div>
+      ))}
+    </Panel>
+  );
+}
+
+function DevtoolsWorldPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null }) {
+  const world = snapshot?.world;
+  const hotspots = world?.hotspots ?? [];
+  const active = hotspots.filter(
+    (hotspot) => hotspot.hovered || hotspot.pressed || hotspot.underPointer,
+  );
+  const inactive = hotspots.filter(
+    (hotspot) => !hotspot.hovered && !hotspot.pressed && !hotspot.underPointer,
+  );
+  const renderHotspot = (hotspot: (typeof hotspots)[number]) => (
+    <div key={hotspot.identity} className="rounded-md border p-2 text-xs">
+      <div className="flex flex-wrap items-center gap-1">
+        <span className="font-medium">{hotspot.label || hotspot.identity}</span>
+        {hotspot.underPointer ? <Badge>under pointer</Badge> : null}
+        {hotspot.hovered ? <Badge>hovered</Badge> : null}
+        {hotspot.pressed ? <Badge variant="secondary">pressed</Badge> : null}
+        {!hotspot.conditionEligible ? <Badge variant="outline">ineligible</Badge> : null}
+        {!hotspot.targetAvailable ? <Badge variant="outline">target unavailable</Badge> : null}
+      </div>
+      <div className="mt-1 space-y-1">
+        <InfoRow label="Identity" value={hotspot.identity} />
+        <InfoRow label="Target" value={hotspot.target} />
+        <InfoRow label="Highlight" value={hotspot.highlight} />
+        <InfoRow label="Cursor" value={hotspot.cursor} />
+      </div>
+    </div>
+  );
+  return (
+    <Panel
+      title="World Hotspots"
+      icon={<MousePointer2 className="h-3.5 w-3.5" />}
+      summary={
+        world
+          ? `${active.length} active · ${hotspots.length} total${world.captureActive ? ' · captured' : ''}`
+          : 'No snapshot'
+      }
+      defaultOpen
+    >
+      <div className="space-y-1">
+        <InfoRow label="Under pointer" value={world?.underPointer} />
+        <InfoRow label="Hovered" value={world?.hovered} />
+        <InfoRow label="Pressed" value={world?.pressed} />
+      </div>
+      {active.map(renderHotspot)}
+      {inactive.length > 0 ? (
+        <details className="rounded-md border p-2 text-xs">
+          <summary className="cursor-pointer text-muted-foreground">
+            All other Hotspots ({inactive.length})
+          </summary>
+          <div className="mt-2 space-y-1">{inactive.map(renderHotspot)}</div>
+        </details>
+      ) : null}
+    </Panel>
+  );
+}
+
 function RuntimeEntityButton({
   entity,
   project,
@@ -2133,6 +2309,9 @@ function RuntimeInspector({
           controls={controlsContext}
           supported={debuggerSupported}
         />
+        {mode === 'debug' ? <DevtoolsInputPanel snapshot={devtoolsSnapshot} /> : null}
+        {mode === 'debug' ? <DevtoolsRmlUiPanel snapshot={devtoolsSnapshot} /> : null}
+        {mode === 'debug' ? <DevtoolsWorldPanel snapshot={devtoolsSnapshot} /> : null}
         <RuntimeSummaryPanel snapshot={state.snapshot} />
         <InputAvailabilityPanel
           snapshot={state.snapshot}
@@ -2512,15 +2691,26 @@ export function FullGamePreviewEditor({
       setTargetTestId(recorderDraft.savedTestId);
   }, [recorderDraft.savedTestId, targetTestId]);
 
-  const requestDebugSnapshot = useCallback((context: EnginePreviewControlsContext | null) => {
-    if (!context) return;
-    void context.controller.requestRuntimeDebugSnapshot().catch((error: Error) => {
-      setState((current) => ({
-        ...current,
-        eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
-      }));
-    });
-  }, []);
+  const requestDebugSnapshot = useCallback(
+    (context: EnginePreviewControlsContext | null) => {
+      if (!context) return;
+      void context.controller.requestRuntimeDebugSnapshot().catch((error: Error) => {
+        setState((current) => ({
+          ...current,
+          eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
+        }));
+      });
+      if (previewCapabilities.includes('devtools-snapshot-v1')) {
+        void context.controller.requestDevtoolsSnapshot().catch((error: Error) => {
+          setState((current) => ({
+            ...current,
+            eventLog: addLogEntry(current.eventLog, { label: error.message, severity: 'error' }),
+          }));
+        });
+      }
+    },
+    [previewCapabilities],
+  );
 
   const loadCompiledProjectIntoPreview = useCallback(
     async (context: EnginePreviewControlsContext | null = controlsRef.current) => {

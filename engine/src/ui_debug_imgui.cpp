@@ -271,6 +271,8 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
         }
 
         if (ImGui::CollapsingHeader("Console")) {
+            if (ImGui::Button("Clear##console"))
+                output.clear_console = true;
             if (console.empty()) {
                 ImGui::TextUnformatted("No retained records");
             } else {
@@ -289,6 +291,8 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
         }
 
         if (ImGui::CollapsingHeader("Trace")) {
+            if (ImGui::Button("Clear##trace"))
+                output.clear_trace = true;
             if (trace_evicted_record_count > 0) {
                 ImGui::Text("History gap: %llu record(s) were evicted from retention",
                             static_cast<unsigned long long>(trace_evicted_record_count));

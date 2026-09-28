@@ -7,6 +7,9 @@
 #include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/surface.hpp"
 #include "noveltea/devtools_snapshot.hpp"
+#if NOVELTEA_ENABLE_DEVTOOLS
+#include "noveltea/devtools_console.hpp"
+#endif
 #include "ui/rmlui/rmlui_lifecycle.hpp"
 
 #include <cstdint>
@@ -60,6 +63,10 @@ public:
         std::vector<core::PresentationMaterialTextureBinding> material_textures;
         double material_camera_zoom = 1.0;
         std::uint64_t cursor_source_id = 0;
+#if NOVELTEA_ENABLE_DEVTOOLS
+        bool recent_event_processed = false;
+        bool recent_event_consumed = false;
+#endif
     };
 
     struct Config {
@@ -90,6 +97,10 @@ public:
     using CursorOwnerResolver = std::function<std::string(Rml::Context*)>;
     using CursorPresentationResolver =
         std::function<std::optional<host::CursorPresentation>(Rml::Context*, std::string_view)>;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    using DevtoolsLogSink =
+        std::function<void(devtools::ConsoleSeverity severity, std::string message)>;
+#endif
 
     RmlUiHost();
     ~RmlUiHost();
@@ -151,6 +162,9 @@ public:
     void set_context_initializer(ContextInitializer initializer);
     void set_cursor_owner_resolver(CursorOwnerResolver resolver);
     void set_cursor_presentation_resolver(CursorPresentationResolver resolver);
+#if NOVELTEA_ENABLE_DEVTOOLS
+    void set_devtools_log_sink(DevtoolsLogSink sink);
+#endif
     void set_context_clock(ContextKey key);
     void set_context_material_parameters(
         Rml::Context* context, std::optional<core::LayoutMountOccurrenceId> occurrence,

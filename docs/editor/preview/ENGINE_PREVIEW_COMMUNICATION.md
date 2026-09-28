@@ -376,8 +376,13 @@ capabilities.
 `devtools-request-snapshot` calls the narrow `noveltea_devtools_snapshot()` export and emits
 `devtools-snapshot` with the same request ID. Alongside host/input/RmlUi/world/tooling/runtime state,
 the payload includes `rmluiDebugger` with availability, visibility, and the exact currently selected
-RmlUi context name. Runtime fields are not copied to the root or re-encoded into a second
-gameplay-debugger DTO. Existing consumers may continue using `runtime-debug-snapshot` directly.
+RmlUi context name. RmlUi context observations include their NovelTea lifecycle identity,
+plane/clock/input/owner/scale-domain values, resolved context/raster metrics, recent input
+processing/consumption, and hover/focus element identity with owning document ID. Runtime fields are
+not copied to the root or re-encoded into a second gameplay-debugger DTO. Existing consumers may
+continue using `runtime-debug-snapshot` directly. Play requests both contracts when supported: the
+narrow runtime snapshot remains authoritative for runtime-only tooling, while the broader snapshot
+drives the Input Routing, RmlUi State, and World Hotspots inspector sections.
 
 When `rmlui-debugger-v1` is advertised, Play tooling controls the engine-owned built-in RmlUi
 Debugger through `devtools-set-rmlui-debugger { visible, context }`. The widget calls the narrow
@@ -388,9 +393,10 @@ for the native RmlUi Debugger hosted by the runtime.
 
 The structured Console is a separate cursor-based data plane rather than another snapshot section.
 The engine retains roughly the latest 1000 Console records with monotonically increasing sequence
-IDs, severity, category, optional Lua source/line, and the host/runtime generation that produced each
-record. Runtime-generation transitions are retained records themselves, so reset/reload boundaries
-remain visible instead of clearing history. `noveltea_devtools_console_delta(afterSequence)` returns
+IDs, a debugger-global sequence shared with Trace for cross-stream correlation, frame identity,
+severity, category, optional Lua source/line, and the host/runtime generation that produced each
+record. Host/runtime generation transitions are retained records themselves, so reset/reload
+boundaries remain visible instead of clearing history. `noveltea_devtools_console_delta(afterSequence)` returns
 records newer than the cursor plus `earliestRetainedSequence`, `latestSequence`, `historyGap`, and
 `lostRecordCount`. Sequence and generation IDs cross the JavaScript boundary as canonical unsigned
 decimal strings so 64-bit values are not truncated by JavaScript numbers.
@@ -404,13 +410,17 @@ retained engine history without resetting the monotonic sequence, and advances t
 the returned latest sequence so cleared records cannot reappear on the next poll.
 
 Pointer routing uses a second cursor-based developer data plane, the engine-owned Trace. Its bounded
-records carry monotonic sequence IDs plus host/runtime generations and correlate one logical pointer
+records carry monotonic per-stream sequence IDs, debugger-global sequence IDs, and host/runtime
+generations and correlate one logical pointer
 event across host/reference projection, RmlUi processing and consumption, governing Layout admission,
 gameplay admission/block reason, and world Hotspot evaluation. Mouse/touch motion with unchanged
-semantic routing state is coalesced into one retained record with repetition and first/last-frame
+semantic routing state is coalesced into one retained record with repetition, first/current local and
+global sequence identity, and first/last-frame
 metadata while the latest coordinates continue to update. Mouse-button and wheel events remain
 explicit, so alternating button/wheel outcomes cannot disappear into motion coalescing.
-Runtime-generation transitions and debugger-originated mutations are distinct Trace record kinds.
+Host/runtime-generation transitions and debugger-originated mutations are distinct Trace record
+kinds. Debugger mutations additionally carry a structured source frontend and semantic operation so
+editor tooling cannot be confused with natural gameplay input.
 
 The Devtools Snapshot owns the complementary current-state view: projected pointer/admission state,
 cheap public RmlUi context metrics and hover/focus identity including computed `pointer-events`, and

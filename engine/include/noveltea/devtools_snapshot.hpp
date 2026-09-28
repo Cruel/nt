@@ -41,6 +41,7 @@ struct DevtoolsInputSnapshot {
 };
 
 struct DevtoolsRmlUiElementSnapshot {
+    std::string document_id;
     std::string tag;
     std::string id;
     std::string classes;
@@ -49,9 +50,28 @@ struct DevtoolsRmlUiElementSnapshot {
 
 struct DevtoolsRmlUiContextSnapshot {
     std::string name;
+    std::string lifecycle_identity;
+    std::string plane;
+    std::string clock;
+    std::string input_mode;
+    std::string owner;
+    std::string scale_domain;
+    std::uint32_t composition_group = 0;
+    std::uint32_t compatibility_group = 0;
     std::int32_t width = 0;
     std::int32_t height = 0;
+    std::int32_t media_query_width = 0;
+    std::int32_t media_query_height = 0;
+    float requested_ui_scale = 1.0f;
+    float text_scale_factor = 1.0f;
+    float reference_to_context_scale_x = 1.0f;
+    float reference_to_context_scale_y = 1.0f;
+    float ui_raster_scale_x = 1.0f;
+    float ui_raster_scale_y = 1.0f;
+    float font_raster_scale = 1.0f;
     bool mouse_interacting = false;
+    bool recent_event_processed = false;
+    bool recent_event_consumed = false;
     std::optional<DevtoolsRmlUiElementSnapshot> hover;
     std::optional<DevtoolsRmlUiElementSnapshot> focus;
 };

@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/devtools_sequence.hpp"
+
 #include <cstddef>
 #include <cstdint>
 #include <optional>
@@ -23,8 +25,10 @@ struct ConsoleSource {
 
 struct ConsoleRecord {
     std::uint64_t sequence = 0;
+    std::uint64_t global_sequence = 0;
     std::optional<std::uint64_t> host_generation;
     std::optional<std::uint64_t> runtime_generation;
+    std::uint64_t frame = 0;
     ConsoleSeverity severity = ConsoleSeverity::Info;
     std::string category;
     std::string message;
@@ -43,12 +47,12 @@ struct ConsoleDelta {
 
 class ConsoleBuffer final {
 public:
-    explicit ConsoleBuffer(std::size_t capacity = 1000);
+    explicit ConsoleBuffer(std::size_t capacity = 1000, SequenceAllocator* sequence = nullptr);
 
     void set_generations(std::optional<std::uint64_t> host_generation,
-                         std::optional<std::uint64_t> runtime_generation);
+                         std::optional<std::uint64_t> runtime_generation, std::uint64_t frame = 0);
     void append(ConsoleSeverity severity, std::string category, std::string message,
-                std::optional<ConsoleSource> source = std::nullopt);
+                std::optional<ConsoleSource> source = std::nullopt, std::uint64_t frame = 0);
     [[nodiscard]] ConsoleDelta delta_after(std::uint64_t after_sequence) const;
     [[nodiscard]] std::span<const ConsoleRecord> records() const noexcept { return m_records; }
     [[nodiscard]] std::uint64_t latest_sequence() const noexcept { return m_next_sequence - 1; }
@@ -59,6 +63,7 @@ private:
 
     std::size_t m_capacity = 1000;
     std::uint64_t m_next_sequence = 1;
+    SequenceAllocator* m_global_sequence = nullptr;
     std::optional<std::uint64_t> m_host_generation;
     std::optional<std::uint64_t> m_runtime_generation;
     std::vector<ConsoleRecord> m_records;

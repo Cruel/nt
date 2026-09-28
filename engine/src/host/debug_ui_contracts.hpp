@@ -26,6 +26,8 @@ using DebugUiCommand =
 struct DebugUiFrameOutput {
     std::vector<DebugUiCommand> commands;
     std::optional<devtools::RmlUiDebuggerCommand> rmlui_debugger;
+    bool clear_console = false;
+    bool clear_trace = false;
 };
 
 struct DebugUiWindowRect {

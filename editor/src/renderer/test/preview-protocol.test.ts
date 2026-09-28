@@ -991,10 +991,35 @@ describe('preview protocol validation', () => {
       rmlui: [
         {
           name: 'game-ui',
+          lifecycleIdentity: 'game-ui:0:0:gameplay:normal:gameplay:ui-inherit-text-inherit',
+          plane: 'game-ui',
+          clock: 'gameplay',
+          inputMode: 'normal',
+          owner: 'gameplay',
+          scaleDomain: 'ui-inherit-text-inherit',
+          compositionGroup: 0,
+          compatibilityGroup: 0,
           width: 1280,
           height: 720,
+          mediaQueryWidth: 1280,
+          mediaQueryHeight: 720,
+          requestedUiScale: 1,
+          textScaleFactor: 1,
+          referenceToContextScaleX: 1,
+          referenceToContextScaleY: 1,
+          uiRasterScaleX: 2,
+          uiRasterScaleY: 2,
+          fontRasterScale: 2,
           mouseInteracting: false,
-          hover: { tag: 'button', id: 'continue', classes: 'primary', pointerEvents: 'auto' },
+          recentEventProcessed: true,
+          recentEventConsumed: false,
+          hover: {
+            documentId: 'hud',
+            tag: 'button',
+            id: 'continue',
+            classes: 'primary',
+            pointerEvents: 'auto',
+          },
           focus: null,
         },
       ],
@@ -1061,8 +1086,10 @@ describe('preview protocol validation', () => {
       records: [
         {
           sequence: '5',
+          globalSequence: '9',
           hostGeneration: '2',
           runtimeGeneration: '7',
+          frame: '39',
           severity: 'warning',
           category: 'lua',
           message: 'careful',
@@ -1102,6 +1129,8 @@ describe('preview protocol validation', () => {
         {
           sequence: '8',
           firstSequence: '7',
+          globalSequence: '10',
+          firstGlobalSequence: '8',
           hostGeneration: '2',
           runtimeGeneration: '7',
           kind: 'input-routing',
@@ -1131,6 +1160,7 @@ describe('preview protocol validation', () => {
             governingLayoutMode: 'none',
             rmluiHover: {
               context: 'game-ui',
+              documentId: 'hud',
               tag: 'button',
               id: 'continue',
               classes: 'primary',
@@ -1144,6 +1174,7 @@ describe('preview protocol validation', () => {
             worldPressed: null,
             worldTarget: null,
           },
+          debuggerMutation: null,
           detail: '',
           generationMarker: false,
         },
@@ -1152,6 +1183,50 @@ describe('preview protocol validation', () => {
     expect(
       isPreviewToEditorMessage({ version: 1, type: 'devtools-trace-delta', delta: traceDelta }),
     ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-trace-delta',
+        delta: {
+          ...traceDelta,
+          records: [
+            {
+              ...traceDelta.records[0],
+              sequence: '9',
+              firstSequence: '9',
+              globalSequence: '11',
+              firstGlobalSequence: '11',
+              kind: 'debugger-mutation',
+              category: 'debugger',
+              repeatCount: 1,
+              input: null,
+              debuggerMutation: {
+                sourceFrontend: 'editor-react',
+                operation: 'set variable trust',
+              },
+              detail: 'editor-react: set variable trust',
+            },
+          ],
+        },
+      }),
+    ).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        version: 1,
+        type: 'devtools-trace-delta',
+        delta: {
+          ...traceDelta,
+          records: [
+            {
+              ...traceDelta.records[0],
+              kind: 'debugger-mutation',
+              input: null,
+              debuggerMutation: { sourceFrontend: 7, operation: 'set variable trust' },
+            },
+          ],
+        },
+      }),
+    ).toBe(false);
     expect(
       isEditorToPreviewMessage({
         version: 1,

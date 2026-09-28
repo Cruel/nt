@@ -2,6 +2,10 @@
 
 #include "noveltea/surface.hpp"
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+#include "noveltea/devtools_console.hpp"
+#endif
+
 #include <RmlUi/Core/SystemInterface.h>
 
 #include <chrono>
@@ -26,12 +30,19 @@ project_text_input_area_to_host_logical(const PresentationMetrics& presentation,
 class SdlSystemInterface final : public Rml::SystemInterface {
 public:
     using CursorRequestSink = std::function<void(const Rml::String&)>;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    using DevtoolsLogSink =
+        std::function<void(devtools::ConsoleSeverity severity, std::string message)>;
+#endif
 
     explicit SdlSystemInterface(SDL_Window* window);
 
     double GetElapsedTime() override;
     void set_elapsed_time(std::chrono::microseconds elapsed) noexcept;
     void set_cursor_request_sink(CursorRequestSink sink);
+#if NOVELTEA_ENABLE_DEVTOOLS
+    void set_devtools_log_sink(DevtoolsLogSink sink);
+#endif
     void SetMouseCursor(const Rml::String& cursor_name) override;
     void SetClipboardText(const Rml::String& text) override;
     void GetClipboardText(Rml::String& text) override;
@@ -44,6 +55,9 @@ public:
 private:
     SDL_Window* m_window = nullptr;
     CursorRequestSink m_cursor_request_sink;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    DevtoolsLogSink m_devtools_log_sink;
+#endif
     std::chrono::microseconds m_elapsed{0};
     PresentationMetrics m_presentation{};
     ResolvedContextMetrics m_context_metrics{};

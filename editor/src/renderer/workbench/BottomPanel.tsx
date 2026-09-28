@@ -183,6 +183,13 @@ function RuntimeEventsPanel() {
               {entry.source.line ? `:${entry.source.line}` : ''}
             </div>
           ) : null}
+          {entry.globalSequence || entry.frame ? (
+            <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+              {entry.globalSequence ? `global #${entry.globalSequence}` : ''}
+              {entry.globalSequence && entry.frame ? ' · ' : ''}
+              {entry.frame ? `frame ${entry.frame}` : ''}
+            </div>
+          ) : null}
         </div>
       ))}
     </div>
@@ -345,7 +352,7 @@ function TracePanel() {
               <Badge variant="outline">{record.kind}</Badge>
               <Badge variant="outline">{record.category}</Badge>
               <span className="font-mono text-[10px] text-muted-foreground">
-                #{record.sequence}
+                #{record.sequence} · global #{record.globalSequence}
               </span>
               {record.repeatCount > 1 ? (
                 <span className="text-muted-foreground">×{record.repeatCount}</span>
@@ -379,6 +386,12 @@ function TracePanel() {
                   {record.input.worldHit ?? '—'} hovered={record.input.worldHovered ?? '—'} pressed=
                   {record.input.worldPressed ?? '—'} target={record.input.worldTarget ?? '—'}
                 </div>
+              </div>
+            ) : null}
+            {record.debuggerMutation ? (
+              <div className="mt-1 font-mono text-[10px] text-muted-foreground">
+                debugger: {record.debuggerMutation.sourceFrontend} ·{' '}
+                {record.debuggerMutation.operation}
               </div>
             ) : null}
           </div>

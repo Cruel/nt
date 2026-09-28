@@ -171,9 +171,11 @@ public:
     bool wants_pointer_input() const;
     bool wants_keyboard_input() const;
     bool last_event_consumed() const { return m_last_event_consumed; }
+#if NOVELTEA_ENABLE_DEVTOOLS
     [[nodiscard]] std::vector<devtools::DevtoolsRmlUiContextSnapshot>
     devtools_context_snapshot() const;
-#if NOVELTEA_ENABLE_DEVTOOLS
+    void bind_devtools_console_sink(
+        std::function<void(devtools::ConsoleSeverity severity, std::string message)> sink);
     [[nodiscard]] bool set_debugger(const devtools::RmlUiDebuggerCommand& command);
     [[nodiscard]] devtools::RmlUiDebuggerSnapshot debugger_snapshot() const;
 #endif
