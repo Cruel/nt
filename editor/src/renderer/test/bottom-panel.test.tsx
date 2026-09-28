@@ -213,8 +213,10 @@ describe('BottomPanel', () => {
       useWorkspaceStore.getState().addDevtoolsConsoleRecords([
         {
           sequence: '8',
+          globalSequence: '18',
           hostGeneration: '1',
           runtimeGeneration: '3',
+          frame: '40',
           severity: 'info',
           category: 'lua',
           message: 'hello player',
@@ -223,8 +225,10 @@ describe('BottomPanel', () => {
         },
         {
           sequence: '9',
+          globalSequence: '20',
           hostGeneration: '1',
           runtimeGeneration: '3',
+          frame: '41',
           severity: 'error',
           category: 'runtime',
           message: 'door failed',
@@ -257,6 +261,8 @@ describe('BottomPanel', () => {
     const pointerRecord = {
       sequence: '12',
       firstSequence: '10',
+      globalSequence: '21',
+      firstGlobalSequence: '19',
       hostGeneration: '1',
       runtimeGeneration: '3',
       kind: 'input-routing' as const,
@@ -286,6 +292,7 @@ describe('BottomPanel', () => {
         governingLayoutMode: 'none',
         rmluiHover: {
           context: 'game-ui',
+          documentId: 'hud',
           tag: 'button',
           id: 'door',
           classes: '',
@@ -299,6 +306,7 @@ describe('BottomPanel', () => {
         worldPressed: null,
         worldTarget: null,
       },
+      debuggerMutation: null,
       detail: '',
       generationMarker: false,
     };
@@ -315,6 +323,7 @@ describe('BottomPanel', () => {
         gameplayBlockReason: 'runtime-ui',
         rmluiHover: {
           context: 'game-ui',
+          documentId: 'hud',
           tag: 'div',
           id: 'feature-lab-panel',
           classes: 'feature-lab-panel',

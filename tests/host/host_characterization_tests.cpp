@@ -249,6 +249,7 @@ TEST_CASE("Devtools Console retains bounded sequenced history and reports cursor
     CHECK(delta.records.front().sequence == 2);
     CHECK(delta.records.front().host_generation == 7);
     CHECK(delta.records.front().runtime_generation == 11);
+    CHECK(delta.records.front().frame == 0);
 
     const auto cursor_delta = console.delta_after(2);
     REQUIRE(cursor_delta.records.size() == 2);
@@ -274,6 +275,45 @@ TEST_CASE("Devtools Console retains runtime generation transitions as records")
     CHECK(console.records()[1].generation_marker);
     CHECK(console.records()[1].runtime_generation == 4);
     CHECK(console.records()[1].message.find("replacing 3") != std::string::npos);
+}
+
+TEST_CASE("Devtools Console and Trace share a global sequence while keeping independent cursors")
+{
+    devtools::SequenceAllocator sequence;
+    devtools::ConsoleBuffer console(8, &sequence);
+    devtools::TraceBuffer trace(8, &sequence);
+
+    console.append(devtools::ConsoleSeverity::Info, "runtime", "first", std::nullopt, 10);
+    trace.append_input(
+        {.event = "mouse-motion", .gameplay_block_reason = "none", .governing_layout_mode = "none"},
+        11);
+    console.append(devtools::ConsoleSeverity::Warning, "runtime", "third", std::nullopt, 12);
+
+    REQUIRE(console.records().size() == 2);
+    REQUIRE(trace.records().size() == 1);
+    CHECK(console.records()[0].sequence == 1);
+    CHECK(trace.records()[0].sequence == 1);
+    CHECK(console.records()[1].sequence == 2);
+    CHECK(console.records()[0].global_sequence == 1);
+    CHECK(trace.records()[0].global_sequence == 2);
+    CHECK(console.records()[1].global_sequence == 3);
+    CHECK(console.records()[1].frame == 12);
+}
+
+TEST_CASE("Devtools generation markers include host-only replacement")
+{
+    devtools::ConsoleBuffer console;
+    devtools::TraceBuffer trace;
+    console.set_generations(1, 3, 1);
+    trace.set_generations(1, 3, 1);
+    console.set_generations(2, 3, 2);
+    trace.set_generations(2, 3, 2);
+
+    REQUIRE(console.records().size() == 2);
+    REQUIRE(trace.records().size() == 2);
+    CHECK(console.records().back().message.find("Host generation 2 replaced 1") !=
+          std::string::npos);
+    CHECK(trace.records().back().detail.find("Host generation 2 replaced 1") != std::string::npos);
 }
 
 TEST_CASE("Devtools Trace coalesces equivalent routing outcomes without hiding transitions")
@@ -316,6 +356,7 @@ TEST_CASE("Devtools Trace coalesces equivalent routing outcomes without hiding t
     CHECK(repeated.first_frame == 11);
     CHECK(repeated.last_frame == 13);
     CHECK(repeated.sequence > repeated.first_sequence);
+    CHECK(repeated.global_sequence > repeated.first_global_sequence);
     CHECK(repeated.input->host_x == 322.0f);
     CHECK(repeated.input->reference_x == 644.0f);
 
@@ -375,7 +416,7 @@ TEST_CASE("Devtools Trace reports retained gaps and keeps generation and debugge
 {
     devtools::TraceBuffer trace(3);
     trace.set_generations(1, 7, 1);
-    trace.append_debugger_mutation("set variable trust", 2);
+    trace.append_debugger_mutation("editor-react", "set variable trust", 2);
     trace.append_input({.event = "mouse-button-down",
                         .mouse_button = 1,
                         .gameplay_event = true,
@@ -392,6 +433,9 @@ TEST_CASE("Devtools Trace reports retained gaps and keeps generation and debugge
     CHECK(delta.history_gap);
     CHECK(delta.lost_record_count == 1);
     CHECK(delta.records[0].kind == devtools::TraceRecordKind::DebuggerMutation);
+    REQUIRE(delta.records[0].debugger_mutation);
+    CHECK(delta.records[0].debugger_mutation->source_frontend == "editor-react");
+    CHECK(delta.records[0].debugger_mutation->operation == "set variable trust");
     CHECK(delta.records[1].kind == devtools::TraceRecordKind::InputRouting);
     CHECK(delta.records[1].input->mouse_button == 1);
     CHECK(delta.records[2].kind == devtools::TraceRecordKind::Generation);
@@ -439,9 +483,12 @@ TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapsh
     CHECK(devtools_before.value_if()->runtime->preview_running);
     CHECK(devtools_before.value_if()->tooling.preview_running);
 
-    EngineTooling::record_debugger_mutation(engine, "debug report export test");
+    EngineTooling::record_debugger_mutation(engine, "host-test", "debug report export test");
     const auto console_before_report = EngineTooling::devtools_console_delta(engine, 0);
     REQUIRE(console_before_report);
+    CHECK(std::any_of(console_before_report.value_if()->records.begin(),
+                      console_before_report.value_if()->records.end(),
+                      [](const auto& record) { return record.category == "engine"; }));
     const auto trace_before_report = EngineTooling::devtools_trace_delta(engine, 0);
     REQUIRE(trace_before_report);
 
@@ -475,7 +522,10 @@ TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapsh
     REQUIRE(report_value.trace.records.size() == trace_before_report.value_if()->records.size());
     REQUIRE_FALSE(report_value.trace.records.empty());
     CHECK(report_value.trace.records.back().kind == devtools::TraceRecordKind::DebuggerMutation);
-    CHECK(report_value.trace.records.back().detail == "debug report export test");
+    REQUIRE(report_value.trace.records.back().debugger_mutation);
+    CHECK(report_value.trace.records.back().debugger_mutation->source_frontend == "host-test");
+    CHECK(report_value.trace.records.back().debugger_mutation->operation ==
+          "debug report export test");
     REQUIRE(report_value.rmlui.contexts.size() == report_value.snapshot.rmlui.size());
     for (std::size_t index = 0; index < report_value.rmlui.contexts.size(); ++index)
         CHECK(report_value.rmlui.contexts[index].name == report_value.snapshot.rmlui[index].name);

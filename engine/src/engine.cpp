@@ -1406,6 +1406,12 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime] %s %s %s",
                          diagnostic.code.c_str(), diagnostic.source_path.c_str(),
                          diagnostic.message.c_str());
+#if NOVELTEA_ENABLE_DEVTOOLS
+            sync_devtools_generations();
+            m_devtools_console.append(devtools::ConsoleSeverity::Error, "runtime",
+                                      diagnostic.code + ": " + diagnostic.message, std::nullopt,
+                                      m_frame_count);
+#endif
             emit_preview_diagnostic(diagnostic);
         }
         service_loading_frame_jobs();
@@ -1417,6 +1423,12 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
     m_game_host.runtime_presentation().bind_mandatory_asset_gate(&m_mandatory_assets);
     service_loading_frame_jobs();
     SDL_Log("[engine] loaded compiled project: %s", logical_path.c_str());
+#if NOVELTEA_ENABLE_DEVTOOLS
+    sync_devtools_generations();
+    m_devtools_console.append(devtools::ConsoleSeverity::Info, "engine",
+                              "Loaded compiled project: " + logical_path, std::nullopt,
+                              m_frame_count);
+#endif
     return true;
 }
 
@@ -1898,6 +1910,14 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
             false)) {
         std::fprintf(stderr, "[engine] runtime UI init failed; continuing without runtime UI\n");
     } else {
+#if NOVELTEA_ENABLE_DEVTOOLS
+        m_runtime_ui.bind_devtools_console_sink(
+            [this](devtools::ConsoleSeverity severity, std::string message) {
+                sync_devtools_generations();
+                m_devtools_console.append(severity, "rmlui", std::move(message), std::nullopt,
+                                          m_frame_count);
+            });
+#endif
         m_game_host.runtime_layouts().bind_document_host(&m_layout_realizer);
         m_runtime_ui.bind_layout_gameplay_admission([this]() {
             return m_game_host.runtime_layouts().evaluate_input_policy().gameplay ==
@@ -2857,11 +2877,13 @@ void Engine::Impl::apply_pending_debug_ui_commands()
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, host::SetRenderPerfLoggingDebugCommand>) {
                     m_devtools_trace.append_debugger_mutation(
+                        "native-imgui",
                         std::string{"set render perf logging "} +
                             (value.enabled ? "enabled" : "disabled"),
                         m_frame_count);
                 } else if constexpr (std::is_same_v<T, host::SetGameplayPausedDebugCommand>) {
-                    m_devtools_trace.append_debugger_mutation(std::string{"set gameplay paused "} +
+                    m_devtools_trace.append_debugger_mutation("native-imgui",
+                                                              std::string{"set gameplay paused "} +
                                                                   (value.paused ? "true" : "false"),
                                                               m_frame_count);
                 }
@@ -2875,6 +2897,13 @@ void Engine::Impl::apply_pending_debug_ui_commands()
             m_runtime_ui.enable_render_perf_logging(m_render_perf_logging);
             SDL_Log("[engine] renderer perf logging %s",
                     m_render_perf_logging ? "enabled" : "disabled");
+#if NOVELTEA_ENABLE_DEVTOOLS
+            sync_devtools_generations();
+            m_devtools_console.append(devtools::ConsoleSeverity::Info, "render",
+                                      std::string{"Renderer perf logging "} +
+                                          (m_render_perf_logging ? "enabled" : "disabled"),
+                                      std::nullopt, m_frame_count);
+#endif
         }
         runtime_state_changed = runtime_state_changed || effect.runtime_state_changed;
     }
@@ -2978,7 +3007,7 @@ void Engine::Impl::sync_devtools_generations()
         m_game_host.running_game()
             ? std::optional<std::uint64_t>{m_game_host.session_generation().number()}
             : std::nullopt;
-    m_devtools_console.set_generations(host_generation, runtime_generation);
+    m_devtools_console.set_generations(host_generation, runtime_generation, m_frame_count);
     m_devtools_trace.set_generations(host_generation, runtime_generation, m_frame_count);
 }
 
@@ -3000,7 +3029,7 @@ void Engine::Impl::append_script_debug_message(const script::ScriptDebugMessage&
     if (!message.source.empty() || message.line) {
         source = devtools::ConsoleSource{.chunk = message.source, .line = message.line};
     }
-    m_devtools_console.append(severity, "lua", message.message, std::move(source));
+    m_devtools_console.append(severity, "lua", message.message, std::move(source), m_frame_count);
 }
 
 void Engine::Impl::append_input_trace(const host::NormalizedHostEvent& event,
@@ -3086,6 +3115,7 @@ void Engine::Impl::append_input_trace(const host::NormalizedHostEvent& event,
         if (!element)
             return std::nullopt;
         return devtools::TraceElementRef{.context = context.name,
+                                         .document_id = element->document_id,
                                          .tag = element->tag,
                                          .id = element->id,
                                          .classes = element->classes,
@@ -3138,6 +3168,27 @@ void Engine::Impl::append_runtime_diagnostics(core::Diagnostics diagnostics)
 {
     if (diagnostics.empty())
         return;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    sync_devtools_generations();
+    for (const auto& diagnostic : diagnostics) {
+        devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Info;
+        switch (diagnostic.severity) {
+        case core::ErrorSeverity::Info:
+            break;
+        case core::ErrorSeverity::Warning:
+            severity = devtools::ConsoleSeverity::Warning;
+            break;
+        case core::ErrorSeverity::Error:
+        case core::ErrorSeverity::Fatal:
+            severity = devtools::ConsoleSeverity::Error;
+            break;
+        }
+        std::string message = diagnostic.code.empty() ? diagnostic.message
+                                                      : diagnostic.code + ": " + diagnostic.message;
+        m_devtools_console.append(severity, "runtime", std::move(message), std::nullopt,
+                                  m_frame_count);
+    }
+#endif
     m_game_host.report_runtime_diagnostics(host::HostFrameStage::UpdatePresentation,
                                            std::move(diagnostics));
 }
@@ -3375,6 +3426,10 @@ void Engine::Impl::render()
         auto output = m_debug_ui.end_frame(
             devtools_snapshot(), m_devtools_console.records(), m_devtools_trace.records(),
             m_devtools_trace.evicted_record_count(), !screenshot_capture_frame);
+        if (output.clear_console)
+            m_devtools_console.clear();
+        if (output.clear_trace)
+            m_devtools_trace.clear();
         if (output.rmlui_debugger && !m_runtime_ui.set_debugger(*output.rmlui_debugger))
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "RmlUi debugger context is unavailable");
 #else
@@ -3807,11 +3862,12 @@ std::uint64_t EngineTooling::clear_devtools_trace(Engine& engine) noexcept
     return latest;
 }
 
-void EngineTooling::record_debugger_mutation(Engine& engine, std::string detail)
+void EngineTooling::record_debugger_mutation(Engine& engine, std::string source_frontend,
+                                             std::string operation)
 {
     engine.m_impl->sync_devtools_generations();
-    engine.m_impl->m_devtools_trace.append_debugger_mutation(std::move(detail),
-                                                             engine.m_impl->m_frame_count);
+    engine.m_impl->m_devtools_trace.append_debugger_mutation(
+        std::move(source_frontend), std::move(operation), engine.m_impl->m_frame_count);
 }
 #endif
 

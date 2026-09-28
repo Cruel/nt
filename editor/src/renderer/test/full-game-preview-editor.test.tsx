@@ -14,7 +14,7 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultInteractableData } from '../../shared/project-schema/authoring-interactables';
 import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
-import type { PreviewClickableTarget } from '../../shared/preview-protocol';
+import type { DevtoolsSnapshot, PreviewClickableTarget } from '../../shared/preview-protocol';
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -189,6 +189,106 @@ function cloneProject<T>(project: T): T {
   return JSON.parse(JSON.stringify(project)) as T;
 }
 
+function devtoolsSnapshotFixture(): DevtoolsSnapshot {
+  return {
+    host: {
+      platform: 'SDL3',
+      renderer: 'WebGL',
+      hostGeneration: 2,
+      surface: {
+        logicalWidth: 1280,
+        logicalHeight: 720,
+        framebufferWidth: 1280,
+        framebufferHeight: 720,
+        framebufferScaleX: 1,
+        framebufferScaleY: 1,
+      },
+    },
+    input: {
+      referenceX: 640,
+      referenceY: 360,
+      pointerValid: true,
+      lastEvent: 'mouse-motion',
+      debugProcessed: true,
+      debugConsumed: false,
+      runtimeUiProcessed: true,
+      runtimeUiConsumed: true,
+      runtimeUiWantsPointer: true,
+      gameplayEvent: true,
+      gameplayAdmitted: false,
+      gameplayBlockReason: 'runtime-ui',
+      governingLayout: '17',
+      governingLayoutMode: 'block-gameplay',
+    },
+    rmlui: [
+      {
+        name: 'game-ui',
+        lifecycleIdentity: 'game-ui:0:0:gameplay:block-gameplay:gameplay:ui-inherit-text-inherit',
+        plane: 'game-ui',
+        clock: 'gameplay',
+        inputMode: 'block-gameplay',
+        owner: 'gameplay',
+        scaleDomain: 'ui-inherit-text-inherit',
+        compositionGroup: 0,
+        compatibilityGroup: 0,
+        width: 1280,
+        height: 720,
+        mediaQueryWidth: 1280,
+        mediaQueryHeight: 720,
+        requestedUiScale: 1,
+        textScaleFactor: 1,
+        referenceToContextScaleX: 1,
+        referenceToContextScaleY: 1,
+        uiRasterScaleX: 1,
+        uiRasterScaleY: 1,
+        fontRasterScale: 1,
+        mouseInteracting: true,
+        recentEventProcessed: true,
+        recentEventConsumed: true,
+        hover: {
+          documentId: 'hud',
+          tag: 'button',
+          id: 'feature-lab-panel',
+          classes: 'overlay',
+          pointerEvents: 'auto',
+        },
+        focus: null,
+      },
+    ],
+    rmluiDebugger: { available: true, visible: false, context: 'game-ui' },
+    world: {
+      referenceX: 640,
+      referenceY: 360,
+      pointerValid: true,
+      captureActive: false,
+      underPointer: 'room/foyer/hotspot/door',
+      hovered: 'room/foyer/hotspot/door',
+      pressed: null,
+      hotspots: [
+        {
+          identity: 'room/foyer/hotspot/door',
+          label: 'Door',
+          conditionEligible: true,
+          targetAvailable: true,
+          target: 'room/foyer/exit/hall',
+          highlight: 'default',
+          cursor: 'system:pointer',
+          underPointer: true,
+          hovered: true,
+          pressed: false,
+        },
+      ],
+    },
+    tooling: {
+      previewRunning: true,
+      renderPerfLogging: false,
+      nativeDebugUiAvailable: false,
+      nativeDebugUiEnabled: false,
+    },
+    runtime: null,
+  };
+}
+
 async function postInputSnapshot(
   previewPort: FakePort,
   options: {
@@ -313,6 +413,38 @@ describe('FullGamePreviewEditor', () => {
     expect(debug).toHaveAttribute('aria-pressed', 'false');
     expect(recording).toHaveAttribute('aria-pressed', 'true');
     view.unmount();
+  });
+
+  it('requests and renders the shared Devtools Snapshot in the Play inspector', async () => {
+    const user = userEvent.setup();
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithEntrypoint());
+    const view = await renderConnectedPreview(['devtools-snapshot-v1', 'rmlui-debugger-v1']);
+    await waitFor(() =>
+      expect(latestRequest(view.editorPort, 'runtime-load-compiled-project')).toBeDefined(),
+    );
+    await resolveLatest(view.editorPort, view.previewPort, 'runtime-load-compiled-project');
+    await waitFor(() =>
+      expect(latestRequest(view.editorPort, 'devtools-request-snapshot')).toBeDefined(),
+    );
+
+    await act(async () => {
+      view.previewPort.postMessage({
+        version: 1,
+        type: 'devtools-snapshot',
+        requestId: latestRequest(view.editorPort, 'devtools-request-snapshot')!.requestId,
+        snapshot: devtoolsSnapshotFixture(),
+      });
+    });
+
+    expect(await screen.findByRole('button', { name: /Input routing/ })).toBeInTheDocument();
+    expect(screen.getByText('blocked: runtime-ui')).toBeInTheDocument();
+    expect(screen.getByText('Door')).toBeInTheDocument();
+    expect(screen.getAllByText('under pointer').length).toBeGreaterThan(0);
+
+    await user.click(screen.getByRole('button', { name: /RmlUi state/ }));
+    expect(screen.getByText('consumed last event')).toBeInTheDocument();
+    expect(screen.getByText(/hud · button#feature-lab-panel/)).toBeInTheDocument();
+    expect(screen.getByText(/media 1280×720/)).toBeInTheDocument();
   });
 
   it('presentation-pauses hidden Play without semantically stopping or resetting the runtime', async () => {

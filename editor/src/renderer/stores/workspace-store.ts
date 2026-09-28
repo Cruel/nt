@@ -55,8 +55,10 @@ export interface RuntimeEventEntry {
   severity: 'info' | 'warning' | 'error';
   category?: string;
   sequence?: string;
+  globalSequence?: string;
   hostGeneration?: string | null;
   runtimeGeneration?: string | null;
+  frame?: string;
   source?: DevtoolsConsoleRecord['source'];
   generationMarker?: boolean;
 }
@@ -188,8 +190,10 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
           severity: record.severity,
           category: record.category,
           sequence: record.sequence,
+          globalSequence: record.globalSequence,
           hostGeneration: record.hostGeneration,
           runtimeGeneration: record.runtimeGeneration,
+          frame: record.frame,
           source: record.source,
           generationMarker: record.generationMarker,
         }))
