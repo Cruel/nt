@@ -9,6 +9,7 @@
 #include <memory>
 #include <span>
 #include <cstdint>
+#include <functional>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -32,6 +33,19 @@ struct ScriptEnvironmentHandle {
 struct DataAssetBinding {
     core::AssetId id;
     std::string logical_path;
+};
+
+enum class ScriptDebugSeverity : std::uint8_t {
+    Info,
+    Warning,
+    Error,
+};
+
+struct ScriptDebugMessage {
+    ScriptDebugSeverity severity = ScriptDebugSeverity::Info;
+    std::string message;
+    std::string source;
+    std::optional<std::uint32_t> line;
 };
 
 struct ScriptRuntimeConfig {
@@ -95,6 +109,7 @@ public:
     ScriptRuntime& operator=(const ScriptRuntime&) = delete;
 
     [[nodiscard]] core::Result<void, ScriptError> initialize(ScriptRuntimeConfig config);
+    void set_debug_sink(std::function<void(const ScriptDebugMessage&)> sink);
     void shutdown();
     [[nodiscard]] bool is_initialized() const;
     void set_startup_context(core::PersistableValue context) override;
@@ -203,6 +218,7 @@ private:
 
     struct Impl;
     std::unique_ptr<Impl> m_impl;
+    std::function<void(const ScriptDebugMessage&)> m_debug_sink;
 };
 
 } // namespace noveltea::script

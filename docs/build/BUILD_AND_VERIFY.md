@@ -14,6 +14,11 @@ through [vcpkg](https://github.com/microsoft/vcpkg) via the manifest in
 See [docs/build/CMAKE_OPTIONS.md](CMAKE_OPTIONS.md) for the full list of
 supported CMake variables.
 
+Developer formatting uses `uv` as a tool launcher so the repository can pin an exact formatter
+independently of the host distribution. Install `uv` on development hosts; the CMake `format` and
+`format-check` targets use the same standalone formatter driver as CI and currently run
+`clang-format` 18.1.8.
+
 ## Local Build Parallelism
 
 The canonical local build limit is the existing `CMAKE_BUILD_PARALLEL_LEVEL` environment variable.
@@ -32,6 +37,11 @@ ignores those pools and can launch several memory-heavy executable links within 
 limit. On memory-constrained Makefiles builds, build one executable target at a time with
 `cmake --build --preset <preset> --target <target>`, waiting for each command to finish before the
 next. Do not retry an unrestricted aggregate build after a link-memory failure.
+
+For `scripts/run-tests.sh`, set `LINK_POOL_SIZE` to override the preset's Ninja link pool for that
+configuration: a positive integer sets the pool size, and `0` removes the limit. For example,
+`LINK_POOL_SIZE=2 ./scripts/run-tests.sh` or `LINK_POOL_SIZE=0 ./scripts/run-tests.sh`. This affects
+only Ninja; `CMAKE_BUILD_PARALLEL_LEVEL` remains the separate overall build concurrency limit.
 
 Build and test helper scripts should preserve an inherited value and may provide only a conservative
 fallback when it is absent, for example:
@@ -73,6 +83,34 @@ cmake --preset web-profile
 cmake --build --preset web-profile
 pnpm run web:smoke:profile
 ```
+
+For C/C++ formatting, use the CMake targets rather than invoking `clang-format` directly:
+
+```sh
+cmake --build --preset linux-debug --target format-check
+cmake --build --preset linux-debug --target format
+```
+
+CI runs the same repository formatter driver as an early gate before shader compilation and the
+platform build fan-out.
+
+The `web-editor-preview` preset is intentionally different from a production Web build: it enables
+`NOVELTEA_ENABLE_DEVTOOLS` so the editor can request the shared Devtools Snapshot and versioned
+capability set, but its engine composition uses the debug-UI stub and does not compile or render Dear
+ImGui. Production/devtools-off builds omit the Devtools Snapshot transport and link ordinary RmlUi
+through Core without the Debugger component.
+
+After native developer and production players are built, the artifact-level composition checks are:
+
+```sh
+bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/sandbox/noveltea-sandbox on
+bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/player/noveltea-player on
+bash scripts/check-native-devtools-symbols.sh build/linux-release/apps/player/noveltea-player off
+```
+
+These inspect the linked binaries for RmlUi Debugger and Dear ImGui rather than merely checking CMake
+option text. CI runs the enabled checks in the Linux developer build and the disabled check against
+the Linux production player. See `docs/runtime/DEVELOPER_DEBUGGING.md` for the full capability matrix.
 
 ## Compile a Project Without the Editor
 
@@ -369,5 +407,7 @@ That helper asks Gradle to sign the release build with the debug keystore only f
 
 ## Optional Components
 
-- Dear ImGui (`NOVELTEA_ENABLE_DEVTOOLS`): dev/debug overlay. Default `ON`.
+- Developer tooling (`NOVELTEA_ENABLE_DEVTOOLS`): shared Devtools Snapshot/Console/Trace
+  instrumentation and debugger capabilities. Host composition may additionally include the native
+  Dear ImGui frontend; optimized editor-preview builds intentionally do not. Default `ON`.
 - Shader compilation (`NOVELTEA_COMPILE_SHADERS`): set `OFF` to use prebuilt shaders. Default `ON`.

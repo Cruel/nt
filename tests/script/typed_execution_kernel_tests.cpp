@@ -577,7 +577,8 @@ TEST_CASE(
     const auto& authored_tint =
         kernel->state().postprocess_effects().front().material_parameters.front();
     CHECK(authored_tint.name == "u_tint");
-    const auto* literal = std::get_if<core::compiled::MaterialApplicationLiteralSource>(&authored_tint.source);
+    const auto* literal =
+        std::get_if<core::compiled::MaterialApplicationLiteralSource>(&authored_tint.source);
     REQUIRE(literal != nullptr);
     CHECK(std::get<core::compiled::MaterialColorValue>(literal->value) ==
           core::compiled::MaterialColorValue{0.4, 0.4, 0.4, 1.0});

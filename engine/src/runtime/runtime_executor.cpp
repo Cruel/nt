@@ -2407,7 +2407,8 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                         const auto effect = std::ranges::find_if(
                             m_state.postprocess_effects(), [&](const auto& candidate) {
                                 return candidate.instance == postprocess->instance &&
-                                       candidate.owner == owner && candidate.material == value.material;
+                                       candidate.owner == owner &&
+                                       candidate.material == value.material;
                             });
                         if (effect != m_state.postprocess_effects().end()) {
                             const auto parameter = std::ranges::find_if(
@@ -2415,9 +2416,9 @@ core::FlowRunOutcome RuntimeExecutor::run_until_blocked(std::size_t instruction_
                                     return candidate.name == value.parameter;
                                 });
                             if (parameter != effect->material_parameters.end()) {
-                                if (const auto* literal =
-                                        std::get_if<core::compiled::MaterialApplicationLiteralSource>(
-                                            &parameter->source))
+                                if (const auto* literal = std::get_if<
+                                        core::compiled::MaterialApplicationLiteralSource>(
+                                        &parameter->source))
                                     source_value = literal->value;
                             }
                         }

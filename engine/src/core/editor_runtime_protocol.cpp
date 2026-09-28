@@ -2976,35 +2976,51 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         }
         return result_value;
     };
-    const auto material_parameter_type = [&](std::string_view value, std::string_view path)
-        -> std::optional<compiled::MaterialParameterType> {
-        if (value == "float") return compiled::MaterialParameterType::Float;
-        if (value == "vec2") return compiled::MaterialParameterType::Vec2;
-        if (value == "vec3") return compiled::MaterialParameterType::Vec3;
-        if (value == "vec4") return compiled::MaterialParameterType::Vec4;
-        if (value == "color") return compiled::MaterialParameterType::Color;
-        if (value == "int") return compiled::MaterialParameterType::Int;
-        if (value == "bool") return compiled::MaterialParameterType::Bool;
+    const auto material_parameter_type =
+        [&](std::string_view value,
+            std::string_view path) -> std::optional<compiled::MaterialParameterType> {
+        if (value == "float")
+            return compiled::MaterialParameterType::Float;
+        if (value == "vec2")
+            return compiled::MaterialParameterType::Vec2;
+        if (value == "vec3")
+            return compiled::MaterialParameterType::Vec3;
+        if (value == "vec4")
+            return compiled::MaterialParameterType::Vec4;
+        if (value == "color")
+            return compiled::MaterialParameterType::Color;
+        if (value == "int")
+            return compiled::MaterialParameterType::Int;
+        if (value == "bool")
+            return compiled::MaterialParameterType::Bool;
         diagnostics.push_back(error("editor_preview.invalid_enum",
                                     "Material Application parameter type is unsupported.",
                                     std::string(path)));
         return std::nullopt;
     };
-    const auto material_facet = [&](std::string_view value, std::string_view path)
-        -> std::optional<compiled::MaterialApplicationStandardFacet> {
-        if (value == "occurrence-time") return compiled::MaterialApplicationStandardFacet::OccurrenceTime;
-        if (value == "paint-width") return compiled::MaterialApplicationStandardFacet::PaintWidth;
-        if (value == "paint-height") return compiled::MaterialApplicationStandardFacet::PaintHeight;
-        if (value == "viewport-width") return compiled::MaterialApplicationStandardFacet::ViewportWidth;
-        if (value == "viewport-height") return compiled::MaterialApplicationStandardFacet::ViewportHeight;
-        if (value == "camera-zoom") return compiled::MaterialApplicationStandardFacet::CameraZoom;
+    const auto material_facet =
+        [&](std::string_view value,
+            std::string_view path) -> std::optional<compiled::MaterialApplicationStandardFacet> {
+        if (value == "occurrence-time")
+            return compiled::MaterialApplicationStandardFacet::OccurrenceTime;
+        if (value == "paint-width")
+            return compiled::MaterialApplicationStandardFacet::PaintWidth;
+        if (value == "paint-height")
+            return compiled::MaterialApplicationStandardFacet::PaintHeight;
+        if (value == "viewport-width")
+            return compiled::MaterialApplicationStandardFacet::ViewportWidth;
+        if (value == "viewport-height")
+            return compiled::MaterialApplicationStandardFacet::ViewportHeight;
+        if (value == "camera-zoom")
+            return compiled::MaterialApplicationStandardFacet::CameraZoom;
         diagnostics.push_back(error("editor_preview.invalid_enum",
                                     "Material Application standard facet is unsupported.",
                                     std::string(path)));
         return std::nullopt;
     };
-    const auto material_literal = [&](const nlohmann::json& value, std::string_view path)
-        -> std::optional<compiled::MaterialParameterValue> {
+    const auto material_literal =
+        [&](const nlohmann::json& value,
+            std::string_view path) -> std::optional<compiled::MaterialParameterValue> {
         if (!value.is_object()) {
             diagnostics.push_back(error("editor_preview.wrong_type",
                                         "Material Application literal must be an object.",
@@ -3014,7 +3030,8 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         exact_fields(value, {"type", "value"}, diagnostics, path);
         const auto type = required_string(value, "type", path);
         const auto payload = value.find("value");
-        if (payload == value.end()) return std::nullopt;
+        if (payload == value.end())
+            return std::nullopt;
         if (type == "float") {
             const auto parsed = json_access::get<double>(*payload);
             return parsed ? std::optional<compiled::MaterialParameterValue>{*parsed} : std::nullopt;
@@ -3035,43 +3052,45 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             return parsed ? std::optional<compiled::MaterialParameterValue>{*parsed} : std::nullopt;
         }
         const auto parse_array = [&](std::size_t size) -> std::optional<std::vector<double>> {
-            if (!payload->is_array() || payload->size() != size) return std::nullopt;
+            if (!payload->is_array() || payload->size() != size)
+                return std::nullopt;
             std::vector<double> result_values;
             result_values.reserve(size);
             for (const auto& item : *payload) {
                 const auto parsed = json_access::get<double>(item);
-                if (!parsed) return std::nullopt;
+                if (!parsed)
+                    return std::nullopt;
                 result_values.push_back(*parsed);
             }
             return result_values;
         };
         if (type == "vec2") {
             const auto parsed = parse_array(2);
-            return parsed ? std::optional<compiled::MaterialParameterValue>{
-                                std::array<double, 2>{(*parsed)[0], (*parsed)[1]}}
+            return parsed ? std::optional<compiled::MaterialParameterValue>{std::array<double, 2>{
+                                (*parsed)[0], (*parsed)[1]}}
                           : std::nullopt;
         }
         if (type == "vec3") {
             const auto parsed = parse_array(3);
-            return parsed ? std::optional<compiled::MaterialParameterValue>{
-                                std::array<double, 3>{(*parsed)[0], (*parsed)[1], (*parsed)[2]}}
+            return parsed ? std::optional<compiled::MaterialParameterValue>{std::array<double, 3>{
+                                (*parsed)[0], (*parsed)[1], (*parsed)[2]}}
                           : std::nullopt;
         }
         if (type == "vec4") {
             const auto parsed = parse_array(4);
-            return parsed ? std::optional<compiled::MaterialParameterValue>{
-                                std::array<double, 4>{(*parsed)[0], (*parsed)[1], (*parsed)[2], (*parsed)[3]}}
+            return parsed ? std::optional<compiled::MaterialParameterValue>{std::array<double, 4>{
+                                (*parsed)[0], (*parsed)[1], (*parsed)[2], (*parsed)[3]}}
                           : std::nullopt;
         }
         if (type == "color" && payload->is_object()) {
-            exact_fields(*payload, {"r", "g", "b", "a"}, diagnostics,
-                         std::string(path) + "/value");
+            exact_fields(*payload, {"r", "g", "b", "a"}, diagnostics, std::string(path) + "/value");
             const auto r = json_access::member_as<double>(*payload, "r");
             const auto g = json_access::member_as<double>(*payload, "g");
             const auto b = json_access::member_as<double>(*payload, "b");
             const auto a = json_access::member_as<double>(*payload, "a");
             if (r && g && b && a)
-                return compiled::MaterialParameterValue{compiled::MaterialColorValue{*r, *g, *b, *a}};
+                return compiled::MaterialParameterValue{
+                    compiled::MaterialColorValue{*r, *g, *b, *a}};
         }
         diagnostics.push_back(error("editor_preview.wrong_type",
                                     "Material Application literal value does not match its type.",
@@ -3099,7 +3118,8 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             const auto type_name = required_string(item, "type", item_path);
             const auto type = material_parameter_type(type_name, item_path + "/type");
             const auto source = item.find("source");
-            if (!type || source == item.end() || !source->is_object()) continue;
+            if (!type || source == item.end() || !source->is_object())
+                continue;
             const auto source_path = item_path + "/source";
             const auto kind = required_string(*source, "kind", source_path);
             std::optional<compiled::MaterialApplicationParameterSource> decoded_source;
@@ -3108,14 +3128,16 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                 const auto payload = source->find("value");
                 if (payload != source->end()) {
                     if (auto literal = material_literal(*payload, source_path + "/value"))
-                        decoded_source = compiled::MaterialApplicationLiteralSource{std::move(*literal)};
+                        decoded_source =
+                            compiled::MaterialApplicationLiteralSource{std::move(*literal)};
                 }
             } else if (kind == "property") {
                 exact_fields(*source, {"kind", "property"}, diagnostics, source_path);
                 auto property = focused_id.template operator()<PropertyId>(
                     required_string(*source, "property", source_path), source_path + "/property");
                 if (property)
-                    decoded_source = compiled::MaterialApplicationPropertySource{std::move(*property)};
+                    decoded_source =
+                        compiled::MaterialApplicationPropertySource{std::move(*property)};
             } else if (kind == "standard-facet") {
                 exact_fields(*source, {"kind", "facet"}, diagnostics, source_path);
                 auto facet = material_facet(required_string(*source, "facet", source_path),
@@ -3142,11 +3164,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         for (std::size_t index = 0; index < value.size(); ++index) {
             const auto& item = value[index];
             const auto item_path = std::string(path) + "/" + std::to_string(index);
-            if (!item.is_object()) continue;
+            if (!item.is_object())
+                continue;
             exact_fields(item, {"name", "source"}, diagnostics, item_path);
             const auto name = required_string(item, "name", item_path);
             const auto source = item.find("source");
-            if (source == item.end() || !source->is_object()) continue;
+            if (source == item.end() || !source->is_object())
+                continue;
             exact_fields(*source, {"kind", "id"}, diagnostics, item_path + "/source");
             if (required_string(*source, "kind", item_path + "/source") != "asset") {
                 diagnostics.push_back(error("editor_preview.invalid_enum",
@@ -3156,7 +3180,8 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             }
             auto asset = focused_id.template operator()<AssetId>(
                 required_string(*source, "id", item_path + "/source"), item_path + "/source/id");
-            if (asset) result_values.push_back({name, std::move(*asset)});
+            if (asset)
+                result_values.push_back({name, std::move(*asset)});
         }
         return result_values;
     };
@@ -3196,7 +3221,8 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                 typed.role = optional_string(layer, "role", layer_path);
                 typed.sprite_asset_id = optional_string(layer, "spriteAssetId", layer_path);
                 typed.material_id = optional_string(layer, "materialId", layer_path);
-                if (const auto parameters = layer.find("materialParameters"); parameters != layer.end())
+                if (const auto parameters = layer.find("materialParameters");
+                    parameters != layer.end())
                     typed.material_parameters =
                         material_parameters(*parameters, layer_path + "/materialParameters");
                 if (const auto textures = layer.find("materialTextures"); textures != layer.end())
@@ -3700,10 +3726,10 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         }
         if (const auto background = world->find("background");
             background != world->end() && background->is_object()) {
-            exact_fields(*background,
-                         {"assetId", "materialId", "materialParameters", "materialTextures", "fit",
-                          "color"},
-                         diagnostics, "/world/background");
+            exact_fields(
+                *background,
+                {"assetId", "materialId", "materialParameters", "materialTextures", "fit", "color"},
+                diagnostics, "/world/background");
             result.world.background.asset_id =
                 optional_string(*background, "assetId", "/world/background");
             result.world.background.material_id =
@@ -3864,10 +3890,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     .material_textures = {},
                     .visible = required_bool(value, "visible", path),
                     .order = json_access::member_as<int>(value, "order").value_or(0)};
-                if (const auto parameters = value.find("materialParameters"); parameters != value.end())
-                    typed.material_parameters = material_parameters(*parameters, path + "/materialParameters");
+                if (const auto parameters = value.find("materialParameters");
+                    parameters != value.end())
+                    typed.material_parameters =
+                        material_parameters(*parameters, path + "/materialParameters");
                 if (const auto textures = value.find("materialTextures"); textures != value.end())
-                    typed.material_textures = material_textures(*textures, path + "/materialTextures");
+                    typed.material_textures =
+                        material_textures(*textures, path + "/materialTextures");
                 result.world.props.push_back(std::move(typed));
             }
         if (const auto* environments = array("environments"))
@@ -3899,10 +3928,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         vector2(value["scrollPerSecond"], path + "/scrollPerSecond"),
                     .opacity = json_access::member_as<double>(value, "opacity").value_or(1.0),
                     .visible = required_bool(value, "visible", path)};
-                if (const auto parameters = value.find("materialParameters"); parameters != value.end())
-                    typed.material_parameters = material_parameters(*parameters, path + "/materialParameters");
+                if (const auto parameters = value.find("materialParameters");
+                    parameters != value.end())
+                    typed.material_parameters =
+                        material_parameters(*parameters, path + "/materialParameters");
                 if (const auto textures = value.find("materialTextures"); textures != value.end())
-                    typed.material_textures = material_textures(*textures, path + "/materialTextures");
+                    typed.material_textures =
+                        material_textures(*textures, path + "/materialTextures");
                 result.world.environments.push_back(std::move(typed));
             }
         if (const auto* overlays = array("overlays"))
@@ -4222,10 +4254,11 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         decoded.rcss = std::move(*rcss);
                     if (lua) {
                         if (lua->kind == TypedEditorLayoutSourceComponent::Kind::LogicalAsset)
-                            diagnostics.push_back(error(
-                                "editor_preview.invalid_layout_lua_source",
-                                "Dedicated Layout Lua must be inline in focused preview data; Project file source is projected before preview.",
-                                path + "/source/lua"));
+                            diagnostics.push_back(
+                                error("editor_preview.invalid_layout_lua_source",
+                                      "Dedicated Layout Lua must be inline in focused preview "
+                                      "data; Project file source is projected before preview.",
+                                      path + "/source/lua"));
                         else
                             decoded.lua = std::move(*lua);
                     }

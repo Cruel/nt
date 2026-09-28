@@ -97,7 +97,324 @@ function createRuntimeDebugHarness() {
   return { context, diagnostics };
 }
 
+function createDevtoolsHarness() {
+  const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+  const start = widget.indexOf('function readDevtoolsCapabilities() {');
+  const end = widget.indexOf('\n    function runtimeDebugFingerprint', start);
+  expect(start).toBeGreaterThanOrEqual(0);
+  expect(end).toBeGreaterThan(start);
+  const implementation = widget.slice(start, end);
+  const messages: Record<string, unknown>[] = [];
+  const snapshot = {
+    host: {
+      platform: 'SDL3',
+      renderer: 'WebGL',
+      hostGeneration: 2,
+      surface: {
+        logicalWidth: 640,
+        logicalHeight: 360,
+        framebufferWidth: 640,
+        framebufferHeight: 360,
+        framebufferScaleX: 1,
+        framebufferScaleY: 1,
+      },
+    },
+    input: {
+      referenceX: 100,
+      referenceY: 80,
+      pointerValid: true,
+      lastEvent: 'mouse-motion',
+      debugProcessed: false,
+      debugConsumed: false,
+      runtimeUiProcessed: true,
+      runtimeUiConsumed: false,
+      runtimeUiWantsPointer: false,
+      gameplayEvent: true,
+      gameplayAdmitted: true,
+      gameplayBlockReason: 'none',
+      governingLayout: null,
+      governingLayoutMode: 'none',
+    },
+    rmlui: [],
+    rmluiDebugger: { available: true, visible: false, context: 'runtime-ui' },
+    world: {
+      referenceX: 100,
+      referenceY: 80,
+      pointerValid: true,
+      captureActive: false,
+      underPointer: null,
+      hovered: null,
+      pressed: null,
+      hotspots: [],
+    },
+    tooling: {
+      previewRunning: true,
+      renderPerfLogging: false,
+      nativeDebugUiAvailable: false,
+      nativeDebugUiEnabled: false,
+    },
+    runtime: null,
+  };
+  const context = {
+    protocolVersion: 1,
+    nativeExportAvailable: (name: string): boolean =>
+      name === 'noveltea_devtools_set_rmlui_debugger' ||
+      name === 'noveltea_devtools_capabilities' ||
+      name === 'noveltea_devtools_snapshot' ||
+      name === 'noveltea_devtools_debug_report' ||
+      name === 'noveltea_devtools_console_delta' ||
+      name === 'noveltea_devtools_console_clear' ||
+      name === 'noveltea_devtools_trace_delta' ||
+      name === 'noveltea_devtools_trace_clear',
+    Module: {
+      ccall(name: string, _returnType?: string, _argTypes?: string[], args?: unknown[]) {
+        if (name === 'noveltea_devtools_capabilities')
+          return JSON.stringify([
+            'devtools-snapshot-v1',
+            'devtools-console-v1',
+            'devtools-trace-v1',
+            'devtools-debug-report-v1',
+            'runtime-debug-snapshot-v1',
+          ]);
+        if (name === 'noveltea_devtools_set_rmlui_debugger') {
+          if (args?.[1] !== 'runtime-ui') return 0;
+          snapshot.rmluiDebugger.visible = args[0] === 1;
+          return 1;
+        }
+        if (name === 'noveltea_devtools_snapshot') return JSON.stringify(snapshot);
+        if (name === 'noveltea_devtools_debug_report')
+          return JSON.stringify({
+            formatVersion: 1,
+            build: {
+              engineVersion: '1.0.0',
+              buildConfiguration: 'RelWithDebInfo',
+              targetPlatform: 'Emscripten',
+              hostPlatform: 'SDL3',
+              renderer: 'WebGL',
+            },
+            capabilities: [
+              'devtools-snapshot-v1',
+              'devtools-console-v1',
+              'devtools-trace-v1',
+              'devtools-debug-report-v1',
+            ],
+            snapshot,
+            diagnostics: [],
+            rmlui: { contexts: snapshot.rmlui, debugger: snapshot.rmluiDebugger },
+            console: {
+              afterSequence: '0',
+              earliestRetainedSequence: '2',
+              latestSequence: '4',
+              lostRecordCount: '1',
+              historyGap: true,
+              records: [],
+            },
+            trace: {
+              afterSequence: '0',
+              earliestRetainedSequence: '1',
+              latestSequence: '5',
+              lostRecordCount: '0',
+              historyGap: false,
+              records: [],
+            },
+          });
+        if (name === 'noveltea_devtools_console_delta')
+          return JSON.stringify({
+            afterSequence: args?.[0] ?? '0',
+            earliestRetainedSequence: '1',
+            latestSequence: '2',
+            lostRecordCount: '0',
+            historyGap: false,
+            records: [
+              {
+                sequence: '2',
+                globalSequence: '6',
+                hostGeneration: '1',
+                runtimeGeneration: '4',
+                frame: '9',
+                severity: 'info',
+                category: 'lua',
+                message: 'hello',
+                source: { chunk: 'test.lua', line: 3 },
+                generationMarker: false,
+              },
+            ],
+          });
+        if (name === 'noveltea_devtools_console_clear')
+          return JSON.stringify({ latestSequence: '2' });
+        if (name === 'noveltea_devtools_trace_delta')
+          return JSON.stringify({
+            afterSequence: args?.[0] ?? '0',
+            earliestRetainedSequence: '1',
+            latestSequence: '5',
+            lostRecordCount: '0',
+            historyGap: false,
+            records: [
+              {
+                sequence: '5',
+                firstSequence: '4',
+                globalSequence: '7',
+                firstGlobalSequence: '6',
+                hostGeneration: '1',
+                runtimeGeneration: '4',
+                kind: 'input-routing',
+                category: 'input',
+                repeatCount: 2,
+                firstFrame: '10',
+                lastFrame: '11',
+                input: null,
+                debuggerMutation: null,
+                detail: '',
+                generationMarker: false,
+              },
+            ],
+          });
+        if (name === 'noveltea_devtools_trace_clear')
+          return JSON.stringify({ latestSequence: '5' });
+        return '';
+      },
+    },
+    port: {},
+    engineReady: true,
+    runtimeReady: true,
+    previewActivityActive: true,
+    previewActivityVisible: true,
+    lastDevtoolsConsoleSequence: '0',
+    lastDevtoolsTraceSequence: '0',
+    failCommand() {},
+    send(message: Record<string, unknown>) {
+      messages.push(message);
+    },
+    readDevtoolsCapabilities: null as null | (() => string[]),
+    emitDevtoolsSnapshot: null as null | ((message: Record<string, unknown>) => boolean),
+    emitDevtoolsDebugReport: null as null | ((message: Record<string, unknown>) => boolean),
+    publishDevtoolsConsoleDelta: null as null | (() => void),
+    clearDevtoolsConsole: null as null | ((message: Record<string, unknown>) => void),
+    publishDevtoolsTraceDelta: null as null | (() => void),
+    clearDevtoolsTrace: null as null | ((message: Record<string, unknown>) => void),
+    setRmlUiDebugger: null as null | ((message: Record<string, unknown>) => void),
+  };
+  vm.runInNewContext(
+    `${implementation}\nthis.readDevtoolsCapabilities = readDevtoolsCapabilities; this.emitDevtoolsSnapshot = emitDevtoolsSnapshot; this.emitDevtoolsDebugReport = emitDevtoolsDebugReport; this.publishDevtoolsConsoleDelta = publishDevtoolsConsoleDelta; this.clearDevtoolsConsole = clearDevtoolsConsole; this.publishDevtoolsTraceDelta = publishDevtoolsTraceDelta; this.clearDevtoolsTrace = clearDevtoolsTrace; this.setRmlUiDebugger = setRmlUiDebugger;`,
+    context,
+  );
+  if (
+    !context.readDevtoolsCapabilities ||
+    !context.emitDevtoolsSnapshot ||
+    !context.emitDevtoolsDebugReport ||
+    !context.publishDevtoolsConsoleDelta ||
+    !context.clearDevtoolsConsole ||
+    !context.publishDevtoolsTraceDelta ||
+    !context.clearDevtoolsTrace
+  )
+    throw new Error('Devtools harness did not load.');
+  return { context, messages, snapshot };
+}
+
 describe('preview widget runtime project loading', () => {
+  it('advertises engine-owned devtools capabilities and emits the canonical Devtools Snapshot', () => {
+    const harness = createDevtoolsHarness();
+
+    expect(harness.context.readDevtoolsCapabilities!()).toEqual([
+      'devtools-snapshot-v1',
+      'devtools-console-v1',
+      'devtools-trace-v1',
+      'devtools-debug-report-v1',
+      'runtime-debug-snapshot-v1',
+    ]);
+    expect(harness.context.emitDevtoolsSnapshot!({ requestId: 'snapshot-1' })).toBe(true);
+    expect(harness.messages).toEqual([
+      {
+        version: 1,
+        type: 'devtools-snapshot',
+        requestId: 'snapshot-1',
+        snapshot: harness.snapshot,
+      },
+    ]);
+  });
+
+  it('exports one structured debug report from the native devtools data plane', () => {
+    const harness = createDevtoolsHarness();
+
+    expect(harness.context.emitDevtoolsDebugReport!({ requestId: 'report-1' })).toBe(true);
+    expect(harness.messages.at(-1)).toMatchObject({
+      version: 1,
+      type: 'devtools-debug-report',
+      requestId: 'report-1',
+      report: {
+        formatVersion: 1,
+        console: { afterSequence: '0', historyGap: true, lostRecordCount: '1' },
+        trace: { afterSequence: '0', historyGap: false, lostRecordCount: '0' },
+      },
+    });
+  });
+
+  it('controls the native RmlUi debugger and publishes accepted state without ImGui', () => {
+    const harness = createDevtoolsHarness();
+    harness.context.setRmlUiDebugger!({ requestId: 'show', visible: true, context: 'runtime-ui' });
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(true);
+    expect(harness.messages.at(-1)).toMatchObject({
+      type: 'command-result',
+      requestId: 'show',
+      ok: true,
+    });
+    harness.context.setRmlUiDebugger!({ requestId: 'hide', visible: false, context: 'runtime-ui' });
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(false);
+    const messageCount = harness.messages.length;
+    harness.context.setRmlUiDebugger!({ requestId: 'missing', visible: true, context: 'missing' });
+    expect(harness.messages.length).toBe(messageCount);
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(false);
+    harness.context.nativeExportAvailable = () => false;
+    harness.context.setRmlUiDebugger!({
+      requestId: 'disabled',
+      visible: true,
+      context: 'runtime-ui',
+    });
+    expect(harness.snapshot.rmluiDebugger.visible).toBe(false);
+  });
+
+  it('pushes sequenced Trace deltas and advances the native clear cursor', () => {
+    const harness = createDevtoolsHarness();
+
+    harness.context.publishDevtoolsTraceDelta!();
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'devtools-trace-delta',
+      delta: expect.objectContaining({ latestSequence: '5' }),
+    });
+    expect(harness.context.lastDevtoolsTraceSequence).toBe('5');
+
+    harness.context.clearDevtoolsTrace!({ requestId: 'clear-trace-1' });
+    expect(harness.context.lastDevtoolsTraceSequence).toBe('5');
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'command-result',
+      requestId: 'clear-trace-1',
+      ok: true,
+    });
+  });
+
+  it('pushes sequenced Console deltas and advances the native clear cursor', () => {
+    const harness = createDevtoolsHarness();
+
+    harness.context.publishDevtoolsConsoleDelta!();
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'devtools-console-delta',
+      delta: expect.objectContaining({ latestSequence: '2' }),
+    });
+    expect(harness.context.lastDevtoolsConsoleSequence).toBe('2');
+
+    harness.context.clearDevtoolsConsole!({ requestId: 'clear-1' });
+    expect(harness.context.lastDevtoolsConsoleSequence).toBe('2');
+    expect(harness.messages.at(-1)).toEqual({
+      version: 1,
+      type: 'command-result',
+      requestId: 'clear-1',
+      ok: true,
+    });
+  });
+
   it('does not spam diagnostics when passive runtime-debug polling has no snapshot yet', () => {
     const harness = createRuntimeDebugHarness();
 

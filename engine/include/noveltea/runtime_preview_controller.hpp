@@ -5,6 +5,7 @@
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/runtime_messages.hpp"
+#include "noveltea/devtools_snapshot.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/surface.hpp"
 
@@ -51,6 +52,7 @@ public:
     bool run_interaction(const std::string& verb_id,
                          std::vector<core::InteractionSubjectBinding> bindings);
 
+#if NOVELTEA_ENABLE_DEVTOOLS
     std::string set_variable(const std::string& variable_id, core::RuntimeValue value);
     std::string reset_variable(const std::string& variable_id);
     std::string teleport_room(const std::string& room_id);
@@ -65,6 +67,7 @@ public:
     std::string destroy_runtime_instance(const std::string& kind, const std::string& instance_id);
     std::string retarget_runtime_room_exit(const std::string& room_id, const std::string& exit_id,
                                            const std::string& target_room_id);
+#endif
 
     bool begin_recording();
     bool end_recording();
@@ -85,8 +88,13 @@ public:
     void stop_audio_track(const AudioTrackId& track_id, float fade_seconds = 0.0f);
     void stop_all_preview_audio(float fade_seconds = 0.0f);
 
+#if NOVELTEA_ENABLE_DEVTOOLS
     std::string fast_forward_to_input();
+    [[nodiscard]] std::optional<devtools::RuntimeDebugSnapshot> debug_snapshot_value() const;
+    [[nodiscard]] static std::string
+    encode_debug_snapshot(const devtools::RuntimeDebugSnapshot& snapshot);
     std::string debug_snapshot() const;
+#endif
 
     [[nodiscard]] const std::optional<runtime::RuntimePublication>& publication() const noexcept;
     [[nodiscard]] const runtime::RuntimeObservationSnapshot& observations() const noexcept;

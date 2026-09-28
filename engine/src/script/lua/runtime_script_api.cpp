@@ -685,8 +685,12 @@ RuntimeScriptApi::set_background(BackgroundCommandOptions options)
         return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
     return gateway->upsert_background_override(core::DesiredBackgroundOverride{
         std::move(*owner.value_if()),
-        core::compiled::BackgroundPresentation{std::move(options.asset), std::move(options.color),
-                                               options.fit, std::move(options.material), {}, {}}});
+        core::compiled::BackgroundPresentation{std::move(options.asset),
+                                               std::move(options.color),
+                                               options.fit,
+                                               std::move(options.material),
+                                               {},
+                                               {}}});
 }
 
 core::Result<void, core::Diagnostics>
@@ -1151,9 +1155,16 @@ RuntimeScriptApi::set_postprocess_effect(core::PostprocessEffectInstanceId insta
     auto owner = gateway->presentation_owner(options.owner_scope, std::move(options.room));
     if (!owner)
         return core::Result<void, core::Diagnostics>::failure(std::move(owner.error()));
-    return gateway->upsert_postprocess_effect(core::DesiredPostprocessEffect{
-        std::move(instance), std::move(*owner.value_if()), std::move(material), options.scope,
-        options.order, options.clock, {}, {}, options.visible});
+    return gateway->upsert_postprocess_effect(
+        core::DesiredPostprocessEffect{std::move(instance),
+                                       std::move(*owner.value_if()),
+                                       std::move(material),
+                                       options.scope,
+                                       options.order,
+                                       options.clock,
+                                       {},
+                                       {},
+                                       options.visible});
 }
 
 core::Result<void, core::Diagnostics>

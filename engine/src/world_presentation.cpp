@@ -362,6 +362,11 @@ std::string world_actor_identity(const core::ActorPresentationKey& key)
         key);
 }
 
+std::string world_hotspot_identity(const core::compiled::HotspotRef& ref)
+{
+    return hotspot_identity(ref);
+}
+
 void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project,
                                                           std::string_view active_locale)
 {
@@ -732,8 +737,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             WorldPresentationLayoutPolicy::normalized_rect(prop.bounds, viewport), full_uv, *visual,
             std::nullopt, std::nullopt, {0.0, 0.0}, prop.owner,
             material_instance
-                ? std::optional<core::MaterialOccurrence>{
-                      core::PropMaterialOccurrence{*material_instance}}
+                ? std::optional<core::MaterialOccurrence>{core::PropMaterialOccurrence{
+                      *material_instance}}
                 : std::nullopt);
         if (candidate.draws.size() != draw_index) {
             auto& command = candidate.draws.back().command;
@@ -767,8 +772,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             WorldPresentationLayoutPolicy::normalized_rect(interactable.bounds, viewport), full_uv,
             *visual, std::nullopt, std::nullopt, {0.0, 0.0}, interactable.material_owner,
             interactable.material_owner
-                ? std::optional<core::MaterialOccurrence>{
-                      core::InteractableMaterialOccurrence{interactable.interactable}}
+                ? std::optional<core::MaterialOccurrence>{core::InteractableMaterialOccurrence{
+                      interactable.interactable}}
                 : std::nullopt);
         auto& command = candidate.draws.back().command;
         for (const auto& texture : interactable.material_texture_overrides)
@@ -1119,6 +1124,22 @@ const WorldHotspotHitTarget* WorldHotspotController::hovered_target() const
     return m_hovered ? hit_target(*m_hovered) : nullptr;
 }
 
+WorldHotspotDebugObservation WorldHotspotController::debug_observation() const
+{
+    WorldHotspotDebugObservation observation{
+        .hovered = m_hovered,
+        .pressed =
+            m_capture ? std::optional<core::compiled::HotspotRef>{m_capture->ref} : std::nullopt,
+        .under_pointer = std::nullopt,
+        .last_mouse_reference = m_last_mouse_reference,
+        .last_mouse_valid = m_last_mouse_valid,
+        .capture_active = m_capture.has_value(),
+    };
+    if (m_last_mouse_valid)
+        observation.under_pointer = hit_test(m_last_mouse_reference);
+    return observation;
+}
+
 void WorldHotspotController::target_completed()
 {
     synchronize_generation();
@@ -1139,13 +1160,19 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
 {
     synchronize_generation();
     WorldPointerEventResult result;
+    const auto finish = [this, &result]() -> WorldPointerEventResult {
+        result.hovered = m_hovered;
+        result.pressed =
+            m_capture ? std::optional<core::compiled::HotspotRef>{m_capture->ref} : std::nullopt;
+        return result;
+    };
     const bool touch = event.kind == WorldPointerEventKind::TouchDown ||
                        event.kind == WorldPointerEventKind::TouchMove ||
                        event.kind == WorldPointerEventKind::TouchUp;
 
     if (event.kind == WorldPointerEventKind::Cancel) {
         cancel();
-        return result;
+        return finish();
     }
     if (!touch) {
         m_last_mouse_reference = event.reference_position;
@@ -1156,7 +1183,7 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
             cancel();
         else if (!touch)
             set_visual_state(std::nullopt, std::nullopt);
-        return result;
+        return finish();
     }
 
     if (event.kind == WorldPointerEventKind::MouseMove ||
@@ -1170,20 +1197,25 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
                 m_capture->target_canceled = true;
                 set_visual_state(std::nullopt, std::nullopt);
             }
-            return result;
+            return finish();
         }
-        if (!touch)
-            set_visual_state(hit_test(event.reference_position), std::nullopt);
-        return result;
+        if (!touch) {
+            result.hit_test_performed = true;
+            result.hit = hit_test(event.reference_position);
+            set_visual_state(result.hit, std::nullopt);
+        }
+        return finish();
     }
 
     if (event.kind == WorldPointerEventKind::MouseDown ||
         event.kind == WorldPointerEventKind::TouchDown) {
         if ((!event.primary && !event.secondary) || m_capture)
-            return result;
+            return finish();
+        result.hit_test_performed = true;
         auto target = hit_test(event.reference_position);
+        result.hit = target;
         if (!target)
-            return result;
+            return finish();
         m_capture = Capture{*target,
                             event.host_position,
                             event.reference_position,
@@ -1193,15 +1225,20 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
                             false};
         set_visual_state(std::nullopt, target);
         result.consumed = true;
-        return result;
+        return finish();
     }
 
     if (!m_capture || m_capture->pointer_id != event.pointer_id || m_capture->touch != touch)
-        return result;
+        return finish();
     result.consumed = true;
     const auto captured = m_capture->ref;
-    const bool select_target =
-        !m_capture->target_canceled && contains(captured, event.reference_position);
+    bool select_target = false;
+    if (!m_capture->target_canceled) {
+        result.hit_test_performed = true;
+        select_target = contains(captured, event.reference_position);
+    }
+    if (select_target)
+        result.hit = captured;
     const auto* semantic_target = select_target ? hit_target(captured) : nullptr;
     const auto target = semantic_target ? std::optional{semantic_target->target} : std::nullopt;
     const bool primary_activation = m_capture->primary;
@@ -1225,9 +1262,11 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
             result.trigger_context = trigger;
         }
     } else if (!touch) {
-        set_visual_state(hit_test(event.reference_position), std::nullopt);
+        result.hit_test_performed = true;
+        result.hit = hit_test(event.reference_position);
+        set_visual_state(result.hit, std::nullopt);
     }
-    return result;
+    return finish();
 }
 
 void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
@@ -1456,8 +1495,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                     facet_value = m_viewport.height;
                     break;
                 case core::MaterialStandardFacet::CameraZoom:
-                    facet_value =
-                        frame.camera ? static_cast<float>(frame.camera->view.zoom) : 1.0f;
+                    facet_value = frame.camera ? static_cast<float>(frame.camera->view.zoom) : 1.0f;
                     break;
                 }
                 resolved = ShaderUniformValue{facet_value};

@@ -1700,7 +1700,10 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
         cleanup_state();
         return false;
     }
-    script::install_host_print(m_state->lua_state);
+    const auto* debug_sink =
+        scripts ? script::detail::ScriptRuntimeAccess::debug_sink(*scripts) : nullptr;
+    script::install_host_print(m_state->lua_state, debug_sink);
+    script::install_debug_api(m_state->lua_state, debug_sink);
     m_state->component_registry = new ui::rmlui::RuntimeUiComponentRegistry;
     m_state->runtime_input_listener = std::make_unique<State::RuntimeInputListener>(*m_state);
     m_state->document_registry = std::make_unique<ui::rmlui::RmlUiDocumentRegistry>(*m_state->host);
@@ -3274,6 +3277,144 @@ bool RuntimeUI::wants_keyboard_input() const
 {
     return m_state && m_state->host && m_state->host->wants_keyboard_input();
 }
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+void RuntimeUI::bind_devtools_console_sink(
+    std::function<void(devtools::ConsoleSeverity severity, std::string message)> sink)
+{
+    if (m_state && m_state->host)
+        m_state->host->set_devtools_log_sink(std::move(sink));
+}
+
+bool RuntimeUI::set_debugger(const devtools::RmlUiDebuggerCommand& command)
+{
+    return m_state && m_state->host &&
+           m_state->host->set_debugger(command.visible, command.context);
+}
+
+devtools::RmlUiDebuggerSnapshot RuntimeUI::debugger_snapshot() const
+{
+    return m_state && m_state->host ? m_state->host->debugger_snapshot()
+                                    : devtools::RmlUiDebuggerSnapshot{};
+}
+
+std::vector<devtools::DevtoolsRmlUiContextSnapshot> RuntimeUI::devtools_context_snapshot() const
+{
+    std::vector<devtools::DevtoolsRmlUiContextSnapshot> result;
+    if (!m_state || !m_state->host)
+        return result;
+
+    const auto plane_name = [](core::PresentationPlane value) -> const char* {
+        switch (value) {
+        case core::PresentationPlane::WorldBackground:
+            return "world-background";
+        case core::PresentationPlane::WorldContent:
+            return "world-content";
+        case core::PresentationPlane::WorldOverlay:
+            return "world-overlay";
+        case core::PresentationPlane::GameUi:
+            return "game-ui";
+        case core::PresentationPlane::MenuOverlay:
+            return "menu-overlay";
+        case core::PresentationPlane::Modal:
+            return "modal";
+        case core::PresentationPlane::Transition:
+            return "transition";
+        case core::PresentationPlane::Debug:
+            return "debug";
+        }
+        return "unknown";
+    };
+    const auto input_name = [](core::LayoutInputMode value) -> const char* {
+        switch (value) {
+        case core::LayoutInputMode::None:
+            return "none";
+        case core::LayoutInputMode::Normal:
+            return "normal";
+        case core::LayoutInputMode::BlockGameplay:
+            return "block-gameplay";
+        case core::LayoutInputMode::Modal:
+            return "modal";
+        }
+        return "unknown";
+    };
+    const auto clock_name = [](core::LayoutClockDomain value) -> const char* {
+        return value == core::LayoutClockDomain::Gameplay ? "gameplay" : "unscaled-presentation";
+    };
+    const auto owner_name = [](core::MountedLayoutOwner value) -> const char* {
+        return value == core::MountedLayoutOwner::Shell ? "shell" : "gameplay";
+    };
+    const auto scale_domain_name = [](ui::rmlui::LayoutScaleDomain value) -> const char* {
+        switch (value) {
+        case ui::rmlui::LayoutScaleDomain::UiInheritTextInherit:
+            return "ui-inherit-text-inherit";
+        case ui::rmlui::LayoutScaleDomain::UiInheritTextIgnore:
+            return "ui-inherit-text-ignore";
+        case ui::rmlui::LayoutScaleDomain::UiIgnoreTextInherit:
+            return "ui-ignore-text-inherit";
+        case ui::rmlui::LayoutScaleDomain::UiIgnoreTextIgnore:
+            return "ui-ignore-text-ignore";
+        }
+        return "unknown";
+    };
+    const auto element_snapshot =
+        [this](Rml::Element* element) -> std::optional<devtools::DevtoolsRmlUiElementSnapshot> {
+        if (!element)
+            return std::nullopt;
+        const auto pointer_events = element->GetComputedValues().pointer_events();
+        const auto* owner_document = element->GetOwnerDocument();
+        const auto document_id = m_state->document_registry
+                                     ? m_state->document_registry->document_id(owner_document)
+                                     : std::nullopt;
+        return devtools::DevtoolsRmlUiElementSnapshot{
+            .document_id = document_id.value_or(""),
+            .tag = element->GetTagName(),
+            .id = element->GetId(),
+            .classes = element->GetClassNames(),
+            .pointer_events = pointer_events == Rml::Style::PointerEvents::None ? "none" : "auto",
+        };
+    };
+
+    for (const auto& record : m_state->host->contexts()) {
+        if (!record.context)
+            continue;
+        const auto dimensions = record.context->GetDimensions();
+        const auto& key = record.key;
+        const auto& metrics = record.metrics;
+        const std::string lifecycle_identity =
+            std::string{plane_name(key.plane)} + ":" + std::to_string(key.compatibility_group) +
+            ":" + std::to_string(key.composition_group) + ":" + clock_name(key.clock) + ":" +
+            input_name(key.input) + ":" + owner_name(key.owner) + ":" +
+            scale_domain_name(key.scale_domain);
+        result.push_back({.name = record.name,
+                          .lifecycle_identity = lifecycle_identity,
+                          .plane = plane_name(key.plane),
+                          .clock = clock_name(key.clock),
+                          .input_mode = input_name(key.input),
+                          .owner = owner_name(key.owner),
+                          .scale_domain = scale_domain_name(key.scale_domain),
+                          .composition_group = key.composition_group,
+                          .compatibility_group = key.compatibility_group,
+                          .width = dimensions.x,
+                          .height = dimensions.y,
+                          .media_query_width = metrics.media_query_size.width,
+                          .media_query_height = metrics.media_query_size.height,
+                          .requested_ui_scale = metrics.requested_ui_scale,
+                          .text_scale_factor = metrics.text_scale_factor,
+                          .reference_to_context_scale_x = metrics.reference_to_context_scale.x,
+                          .reference_to_context_scale_y = metrics.reference_to_context_scale.y,
+                          .ui_raster_scale_x = metrics.ui_raster_scale.x,
+                          .ui_raster_scale_y = metrics.ui_raster_scale.y,
+                          .font_raster_scale = metrics.font_raster_scale,
+                          .mouse_interacting = record.context->IsMouseInteracting(),
+                          .recent_event_processed = record.recent_event_processed,
+                          .recent_event_consumed = record.recent_event_consumed,
+                          .hover = element_snapshot(record.context->GetHoverElement()),
+                          .focus = element_snapshot(record.context->GetFocusElement())});
+    }
+    return result;
+}
+#endif
 
 ui::rmlui::RuntimeUiPlaybackDriver*
 ui::rmlui::RuntimeUiPlaybackDriver::from(RuntimeUI& runtime_ui) noexcept

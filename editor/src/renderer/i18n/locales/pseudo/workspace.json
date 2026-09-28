@@ -1,4 +1,76 @@
 {
+  "rmluiDebugger": { "title": "⟦RmlUi Debugger⟧", "context": "⟦Inspected context⟧" },
+  "debugReport": {
+    "export": "⟦Export Debug Report⟧",
+    "exporting": "⟦Exporting Debug Report…⟧"
+  },
+  "devtoolsInspector": {
+    "common": {
+      "noEvent": "⟦No event⟧",
+      "noSnapshot": "⟦No snapshot⟧",
+      "outside": "⟦outside⟧",
+      "unknown": "⟦unknown⟧"
+    },
+    "input": {
+      "title": "⟦Input routing⟧",
+      "summaryAdmitted": "⟦{{event}} · admitted⟧",
+      "summaryBlocked": "⟦{{event}} · {{reason}}⟧",
+      "pointer": "⟦Pointer⟧",
+      "developerUi": "⟦Developer UI⟧",
+      "developerProcessed": "⟦processed⟧",
+      "developerProcessedConsumed": "⟦processed / consumed⟧",
+      "developerSkipped": "⟦skipped⟧",
+      "rmlui": "⟦RmlUi⟧",
+      "rmluiProcessed": "⟦processed⟧",
+      "rmluiProcessedConsumed": "⟦processed / consumed⟧",
+      "rmluiProcessedPointer": "⟦processed / wants pointer⟧",
+      "rmluiProcessedConsumedPointer": "⟦processed / consumed / wants pointer⟧",
+      "rmluiSkipped": "⟦skipped⟧",
+      "gameplay": "⟦Gameplay⟧",
+      "gameplayAdmitted": "⟦admitted⟧",
+      "gameplayBlocked": "⟦blocked: {{reason}}⟧",
+      "governingLayout": "⟦Governing Layout⟧",
+      "host": "⟦Host⟧"
+    },
+    "rmlui": {
+      "title": "⟦RmlUi state⟧",
+      "contextCount_one": "⟦{{count}} context⟧",
+      "contextCount_other": "⟦{{count}} contexts⟧",
+      "none": "⟦No RmlUi contexts in the latest snapshot.⟧",
+      "consumedLastEvent": "⟦consumed last event⟧",
+      "processedLastEvent": "⟦processed last event⟧",
+      "notReached": "⟦not reached⟧",
+      "lifecycle": "⟦Lifecycle⟧",
+      "input": "⟦Input⟧",
+      "scaleDomain": "⟦Scale domain⟧",
+      "contextSize": "⟦Context size⟧",
+      "contextSizeValue": "⟦{{width}}×{{height}} · media {{mediaWidth}}×{{mediaHeight}}⟧",
+      "scale": "⟦Scale⟧",
+      "scaleValue": "⟦UI {{uiScale}} · text {{textScale}} · raster {{rasterX}}×{{rasterY}}⟧",
+      "hover": "⟦Hover⟧",
+      "focus": "⟦Focus⟧"
+    },
+    "world": {
+      "title": "⟦World Hotspots⟧",
+      "summary": "⟦{{active}} active · {{total}} total⟧",
+      "summaryCaptured": "⟦{{active}} active · {{total}} total · captured⟧",
+      "underPointer": "⟦Under pointer⟧",
+      "hovered": "⟦Hovered⟧",
+      "pressed": "⟦Pressed⟧",
+      "ineligible": "⟦ineligible⟧",
+      "targetUnavailable": "⟦target unavailable⟧",
+      "noPreparedHitTarget": "⟦no prepared hit target⟧",
+      "identity": "⟦Identity⟧",
+      "target": "⟦Target⟧",
+      "highlight": "⟦Highlight⟧",
+      "cursor": "⟦Cursor⟧",
+      "hitShape": "⟦Hit shape⟧",
+      "hitBounds": "⟦Hit bounds⟧",
+      "hitTestOrder": "⟦Hit-test order⟧",
+      "inputOrder": "⟦Input order⟧",
+      "allOther": "⟦All other Hotspots ({{count}})⟧"
+    }
+  },
   "layoutDataAssets": "[JSON Dátá Ásséts]",
   "projectImport": {
     "title": "⟦Import NovelTea Project⟧",
@@ -64,7 +136,8 @@
     "empty": {
       "commandHistory": "⟦No project commands yet.⟧",
       "output": "⟦No activity entries yet.⟧",
-      "previewEvents": "⟦No runtime events yet.⟧",
+      "previewEvents": "⟦No Console entries yet.⟧",
+      "previewTrace": "⟦No Trace entries yet.⟧",
       "problems": "⟦No validation diagnostics.⟧"
     },
     "labels": {
@@ -73,12 +146,55 @@
       "output": "⟦Activity⟧",
       "packageExport": "⟦Package Export⟧",
       "previewDiagnostics": "⟦Preview Diagnostics⟧",
-      "previewEvents": "⟦Runtime Events⟧",
+      "previewEvents": "⟦Console⟧",
+      "previewTrace": "⟦Trace⟧",
       "problems": "⟦Problems⟧",
       "references": "⟦References⟧",
       "shaderCompile": "⟦Shader Compile⟧",
       "testPlayback": "⟦Test Playback⟧",
       "terminal": "⟦Terminal⟧"
+    },
+    "console": {
+      "severityLabel": "[Çöñšöļê šêvêrïţÿ]",
+      "categoryLabel": "[Çöñšöļê çåţêĝörÿ]",
+      "textFilterLabel": "[Çöñšöļê ţêxţ ƒïļţêr]",
+      "severities": {
+        "all": "[Åļļ šêvêrïţïêš]",
+        "info": "[Ïñƒö]",
+        "warning": "[Ŵårñïñĝ]",
+        "error": "[Êrrör]"
+      },
+      "categoriesAll": "[Åļļ çåţêĝörïêš]",
+      "filterPlaceholder": "[Ƒïļţêr Çöñšöļê]",
+      "freeze": "[Ƒrêêžê]",
+      "unfreeze": "[Ûñƒrêêžê]",
+      "autoscroll": "[Åûţöšçröļļ]",
+      "clear": "[Çļêår]",
+      "historyGap_one": "[Çöñšöļê ħïšţörÿ ĝåþ: {{count}} rêçörd ŵåš êvïçţêð.]",
+      "historyGap_other": "[Çöñšöļê ħïšţörÿ ĝåþ: {{count}} rêçördš ŵêrê êvïçţêð.]",
+      "frozen": "[Çöñšöļê vïêŵ ƒröžêñ; çåþţûrê çöñţïñûêš.]",
+      "noMatches": "[Ñö Çöñšöļê êñţrïêš måţçħ ţħê ƒïļţêrš.]"
+    },
+    "trace": {
+      "kindLabel": "⟦Trace kind⟧",
+      "categoryLabel": "⟦Trace category⟧",
+      "textFilterLabel": "⟦Trace text filter⟧",
+      "kinds": {
+        "all": "⟦All kinds⟧",
+        "inputRouting": "⟦Input routing⟧",
+        "debuggerMutation": "⟦Debugger mutations⟧",
+        "generation": "⟦Generations⟧"
+      },
+      "categoriesAll": "⟦All categories⟧",
+      "filterPlaceholder": "⟦Filter trace⟧",
+      "freeze": "⟦Freeze⟧",
+      "unfreeze": "⟦Unfreeze⟧",
+      "autoscroll": "⟦Autoscroll⟧",
+      "clear": "⟦Clear⟧",
+      "historyGap_one": "⟦Trace history gap: {{count}} record was evicted.⟧",
+      "historyGap_other": "⟦Trace history gap: {{count}} records were evicted.⟧",
+      "frozen": "⟦Trace view frozen; capture continues.⟧",
+      "noMatches": "⟦No Trace entries match the filters.⟧"
     },
     "lastCommandDiagnostics": "⟦Last command diagnostics⟧",
     "toggle": "⟦Toggle Bottom Panel⟧"

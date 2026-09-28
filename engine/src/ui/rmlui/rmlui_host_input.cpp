@@ -57,8 +57,12 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
     std::vector<std::uint64_t> cursor_order;
     bool consumed = false;
     for (auto it = m_contexts.rbegin(); it != m_contexts.rend(); ++it) {
+        bool debugger_active = false;
+#if NOVELTEA_ENABLE_DEVTOOLS
+        debugger_active = it->context == m_primary_context && debugger_snapshot().visible;
+#endif
         if (!it->context || it->key.input == core::LayoutInputMode::None ||
-            (has_visible_document && !has_visible_document(it->context)))
+            (!debugger_active && has_visible_document && !has_visible_document(it->context)))
             continue;
         if (updates_cursor)
             cursor_order.push_back(it->cursor_source_id);
@@ -77,6 +81,10 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
         const bool context_consumed =
             dispatch_layout_event ? dispatch_layout_event(it->key, it->key.owner, process_context)
                                   : process_context();
+#if NOVELTEA_ENABLE_DEVTOOLS
+        it->recent_event_processed = true;
+        it->recent_event_consumed = context_consumed;
+#endif
         consumed = context_consumed || consumed;
         if (stops_lower_presentation_input(it->key.input, consumed))
             break;
@@ -92,6 +100,13 @@ bool RmlUiHost::process_event(const SDL_Event& event,
 {
     if (m_contexts.empty())
         return false;
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+    for (auto& record : m_contexts) {
+        record.recent_event_processed = false;
+        record.recent_event_consumed = false;
+    }
+#endif
 
     const PresentationTransform transform{m_presentation};
     const auto dispatch = [&](const SDL_Event& routed,

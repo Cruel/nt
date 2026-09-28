@@ -8,7 +8,13 @@ This document records NovelTea's rendering ownership boundaries. Detailed RmlUi 
 
 - `Renderer` owns bgfx initialization, frame lifecycle, view setup, engine 2D draws, screenshots, resize handling, and shader/material resource caches.
 - `RuntimeUI` owns RmlUi documents, input forwarding, runtime UI binding, and the NovelTea adapter around the external `rmlui-bgfx` renderer package.
-- `DebugUI` owns Dear ImGui developer/debug overlay only.
+- `DebugUI` is the optional native Dear ImGui frontend over the engine-owned Devtools Snapshot; it
+  does not own developer observation state. Devtools-enabled editor-preview builds can consume that
+  snapshot without compiling ImGui. Native sandbox builds and native players intentionally built
+  with devtools initialize the same frontend hidden; F10 toggles it before RmlUi/gameplay routing,
+  and Shift+F10 resets its window to the current work-area top-left at full work-area width and half
+  height. Reset placement is applied on the next visible frame and then returns to ordinary ImGui
+  dragging, resizing, and ini persistence.
 - Engine-owned text rendering remains independent from RmlUi text. It now renders ActiveText glyph visuals produced by `ActiveTextLayout`, including per-glyph color/alpha/offset/scale/glow metadata, object hit rectangles, reveal clipping, and deterministic effect state.
 
 The typed snapshot/coordinator, clock domains, mounted-Layout policies, RmlUi lifecycle contexts,

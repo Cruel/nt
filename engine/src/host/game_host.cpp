@@ -34,6 +34,56 @@ bool replaces_runtime_generation(const core::RuntimeInputMessage& input) noexcep
            std::holds_alternative<core::LoadRuntimeInput>(input);
 }
 
+class CandidateScriptDebugBuffer final {
+public:
+    CandidateScriptDebugBuffer(
+        const std::function<void(const script::ScriptDebugMessage&)>& committed_sink,
+        const std::function<void(const script::ScriptDebugMessage&)>& candidate_sink)
+        : m_committed_sink(committed_sink), m_candidate_sink(candidate_sink)
+    {
+    }
+
+    ~CandidateScriptDebugBuffer()
+    {
+        if (!m_released)
+            flush(m_candidate_sink);
+    }
+
+    [[nodiscard]] std::function<void(const script::ScriptDebugMessage&)> sink()
+    {
+        return [this](const script::ScriptDebugMessage& message) { m_messages.push_back(message); };
+    }
+
+    void commit()
+    {
+        flush(m_committed_sink);
+        m_released = true;
+    }
+
+    void release_to(std::vector<script::ScriptDebugMessage>& destination)
+    {
+        destination.insert(destination.end(), std::make_move_iterator(m_messages.begin()),
+                           std::make_move_iterator(m_messages.end()));
+        m_messages.clear();
+        m_released = true;
+    }
+
+private:
+    void flush(const std::function<void(const script::ScriptDebugMessage&)>& sink)
+    {
+        if (sink) {
+            for (const auto& message : m_messages)
+                sink(message);
+        }
+        m_messages.clear();
+    }
+
+    const std::function<void(const script::ScriptDebugMessage&)>& m_committed_sink;
+    const std::function<void(const script::ScriptDebugMessage&)>& m_candidate_sink;
+    std::vector<script::ScriptDebugMessage> m_messages;
+    bool m_released = false;
+};
+
 class CandidateProjectAssetContext final : public runtime::ScriptSourcePort {
 public:
     CandidateProjectAssetContext(const assets::AssetManager& live_assets,
@@ -379,7 +429,10 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         candidate_project_assets = &candidate_asset_context->project_assets();
     }
 
+    CandidateScriptDebugBuffer candidate_debug(m_dependencies.script_debug_sink,
+                                               m_dependencies.candidate_script_debug_sink);
     auto candidate_scripts = std::make_unique<script::ScriptRuntime>();
+    candidate_scripts->set_debug_sink(candidate_debug.sink());
     auto initialized_candidate_scripts =
         candidate_scripts->initialize({&m_dependencies.content_assets});
     if (!initialized_candidate_scripts) {
@@ -603,6 +656,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
 
     advance_session_generation();
     advance_backend_generation();
+    candidate_debug.commit();
     bind_runtime_ui_input_sink();
     m_shutdown = false;
     previous_game.reset();
@@ -611,7 +665,9 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     return core::Result<void, core::Diagnostics>::success();
 }
 
-HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeInputMessage& input)
+HostRuntimeDispatchResult
+GameHost::replace_runtime_session(const core::RuntimeInputMessage& input,
+                                  std::vector<script::ScriptDebugMessage>& committed_debug_messages)
 {
     HostRuntimeDispatchResult failed;
     failed.disposition = runtime::RuntimeInputDisposition::Failed;
@@ -622,7 +678,10 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
         return failed;
     }
 
+    CandidateScriptDebugBuffer candidate_debug(m_dependencies.script_debug_sink,
+                                               m_dependencies.candidate_script_debug_sink);
     auto candidate_scripts = std::make_unique<script::ScriptRuntime>();
+    candidate_scripts->set_debug_sink(candidate_debug.sink());
     auto initialized = candidate_scripts->initialize({&m_dependencies.content_assets});
     if (!initialized) {
         failed.diagnostics = one({.code = "host.runtime_candidate_script_runtime_failed",
@@ -728,6 +787,7 @@ HostRuntimeDispatchResult GameHost::replace_runtime_session(const core::RuntimeI
     previous_session.reset();
     previous_scripts.reset();
     previous_presentation.reset();
+    candidate_debug.release_to(committed_debug_messages);
     return HostRuntimeDispatchResult::from_runtime(std::move(runtime_result));
 }
 
@@ -980,15 +1040,17 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
     HostRuntimeDispatchResult result;
     bool runtime_replaced = false;
     std::optional<core::RuntimeInputMessage> replacement_input;
+    std::vector<script::ScriptDebugMessage> replacement_debug_messages;
     if (replacing_generation) {
         replacement_input = input;
-        result = replace_runtime_session(input);
+        result = replace_runtime_session(input, replacement_debug_messages);
         runtime_replaced = result.accepted();
     } else {
         auto runtime_result = m_running_game->session().dispatch(input);
         if (runtime_result.session_replacement_request && runtime_result.diagnostics.empty()) {
             replacement_input = *runtime_result.session_replacement_request;
-            auto replacement = replace_runtime_session(*runtime_result.session_replacement_request);
+            auto replacement = replace_runtime_session(*runtime_result.session_replacement_request,
+                                                       replacement_debug_messages);
             if (replacement.accepted()) {
                 result = std::move(replacement);
                 runtime_replaced = true;
@@ -1009,6 +1071,10 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
         advance_backend_generation();
         if (m_dependencies.runtime_session_replaced)
             m_dependencies.runtime_session_replaced();
+        if (m_dependencies.script_debug_sink) {
+            for (const auto& message : replacement_debug_messages)
+                m_dependencies.script_debug_sink(message);
+        }
     }
 
     if (!result.diagnostics.empty())

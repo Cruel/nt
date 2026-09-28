@@ -237,12 +237,26 @@ void upsert_preview_material(ShaderMaterialProject& project, std::string materia
 }
 
 PreviewMutationResult mutation_result(bool accepted, std::string kind, std::string id,
-                                      std::string message = {})
+                                      std::string message = {},
+                                      std::optional<core::RuntimeValue> old_value = std::nullopt,
+                                      std::optional<core::RuntimeValue> new_value = std::nullopt)
 {
     return {.accepted = accepted,
             .kind = std::move(kind),
             .id = std::move(id),
-            .message = std::move(message)};
+            .message = std::move(message),
+            .old_value = std::move(old_value),
+            .new_value = std::move(new_value)};
+}
+
+std::optional<core::RuntimeValue> lookup_global_value(const runtime::RuntimeCommandGateway& gateway,
+                                                      const core::PropertyId& id)
+{
+    auto lookup = gateway.global_property_lookup(id);
+    if (!lookup)
+        return std::nullopt;
+    const auto* value = std::get_if<core::RuntimeValue>(lookup.value_if());
+    return value ? std::optional<core::RuntimeValue>{*value} : std::nullopt;
 }
 
 std::string first_diagnostic_message(const core::Diagnostics& diagnostics)
@@ -575,12 +589,22 @@ bool PreviewHost::run_interaction(const std::string& verb_id,
 PreviewMutationResult PreviewHost::set_variable(const std::string& variable_id,
                                                 core::RuntimeValue value)
 {
+    const auto requested_value = value;
     auto id = core::PropertyId::create(variable_id);
-    if (!id)
-        return mutation_result(false, "set-variable", variable_id, "invalid variable id");
-    const bool accepted = dispatch(core::RuntimeInputMessage{
-        core::SetVariableDebugInput{std::move(*id.value_if()), std::move(value)}});
-    return mutation_result(accepted, "set-variable", variable_id);
+    auto* running_game = m_dependencies.game_host.running_game();
+    if (!id || !running_game)
+        return mutation_result(false, "set-variable", variable_id, "invalid variable id",
+                               std::nullopt, requested_value);
+    const auto property_id = *id.value_if();
+    auto& gateway = running_game->session().gateway();
+    const auto old_value = lookup_global_value(gateway, property_id);
+    const bool accepted = dispatch(
+        core::RuntimeInputMessage{core::SetVariableDebugInput{property_id, std::move(value)}});
+    const auto new_value = accepted ? lookup_global_value(gateway, property_id)
+                                    : std::optional<core::RuntimeValue>{requested_value};
+    return mutation_result(accepted, "set-variable", variable_id,
+                           accepted ? std::string{} : "runtime rejected variable mutation",
+                           old_value, new_value);
 }
 
 PreviewMutationResult PreviewHost::reset_variable(const std::string& variable_id)
@@ -592,9 +616,14 @@ PreviewMutationResult PreviewHost::reset_variable(const std::string& variable_id
     const auto* definition = running_game->package().project().find_property(*id.value_if());
     if (!definition || !definition->is_global())
         return mutation_result(false, "reset-variable", variable_id, "unknown variable");
+    auto& gateway = running_game->session().gateway();
+    const auto old_value = lookup_global_value(gateway, *id.value_if());
     const bool accepted = dispatch(
         core::RuntimeInputMessage{core::SetVariableDebugInput{*id.value_if(), std::nullopt}});
-    return mutation_result(accepted, "reset-variable", variable_id);
+    const auto new_value = accepted ? lookup_global_value(gateway, *id.value_if()) : old_value;
+    return mutation_result(accepted, "reset-variable", variable_id,
+                           accepted ? std::string{} : "runtime rejected variable reset", old_value,
+                           new_value);
 }
 
 PreviewMutationResult PreviewHost::teleport_room(const std::string& room_id)

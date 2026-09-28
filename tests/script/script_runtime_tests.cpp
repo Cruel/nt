@@ -941,6 +941,49 @@ TEST_CASE("ScriptRuntime evaluates typed basic values")
     CHECK(std::holds_alternative<std::monostate>(nil.value()));
 }
 
+TEST_CASE("ScriptRuntime publishes structured Lua debug messages without changing script flow")
+{
+    RuntimeFixture fixture;
+    std::vector<script::ScriptDebugMessage> messages;
+    fixture.runtime.set_debug_sink(
+        [&](const script::ScriptDebugMessage& message) { messages.push_back(message); });
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+
+    auto result = fixture.runtime.execute("Debug.info('hello', 42, { nested = true })\n"
+                                          "Debug.warn('careful')\n"
+                                          "Debug.error('still-running')\n"
+                                          "print('printed', false)\n"
+                                          "assert(true)",
+                                          "debug_api.lua");
+    REQUIRE(result);
+    REQUIRE(messages.size() == 4);
+
+    CHECK(messages[0].severity == script::ScriptDebugSeverity::Info);
+    CHECK(messages[0].message == "hello\t42\t<table>");
+    CHECK(messages[0].source == "debug_api.lua");
+    CHECK(messages[0].line == 1);
+    CHECK(messages[1].severity == script::ScriptDebugSeverity::Warning);
+    CHECK(messages[1].message == "careful");
+    CHECK(messages[1].line == 2);
+    CHECK(messages[2].severity == script::ScriptDebugSeverity::Error);
+    CHECK(messages[2].message == "still-running");
+    CHECK(messages[2].line == 3);
+    CHECK(messages[3].severity == script::ScriptDebugSeverity::Info);
+    CHECK(messages[3].message == "printed\tfalse");
+    CHECK(messages[3].line == 4);
+}
+
+TEST_CASE("ScriptRuntime keeps Debug as a harmless facade when no debug sink is installed")
+{
+    RuntimeFixture fixture;
+    REQUIRE(fixture.runtime.initialize({&fixture.sources}));
+
+    auto result = fixture.runtime.execute(
+        "Debug.info('ignored')\nDebug.warn({ cycle = nil })\nDebug.error(function() end)",
+        "production_debug_facade.lua");
+    REQUIRE(result);
+}
+
 TEST_CASE("ScriptRuntime has an explicit expression return policy")
 {
     RuntimeFixture fixture;

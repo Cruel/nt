@@ -95,12 +95,11 @@ public:
     void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_output_framebuffer(bgfx::FrameBufferHandle framebuffer,
                                 const PresentationMetrics& presentation, bool local_viewport);
-    void set_material_parameters(
-        std::string_view occurrence_scope,
-        std::optional<core::LayoutMountOccurrenceId> occurrence,
-        std::span<const core::PresentationMaterialParameter> parameters,
-        std::span<const core::PresentationMaterialTextureBinding> textures,
-        const core::RuntimeClockUpdate& clocks, double camera_zoom);
+    void set_material_parameters(std::string_view occurrence_scope,
+                                 std::optional<core::LayoutMountOccurrenceId> occurrence,
+                                 std::span<const core::PresentationMaterialParameter> parameters,
+                                 std::span<const core::PresentationMaterialTextureBinding> textures,
+                                 const core::RuntimeClockUpdate& clocks, double camera_zoom);
 
     Rml::CompiledGeometryHandle CompileGeometry(Rml::Span<const Rml::Vertex> vertices,
                                                 Rml::Span<const int> indices) override;

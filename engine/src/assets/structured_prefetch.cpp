@@ -698,10 +698,9 @@ struct StructuredAssetDependencyIndex::Impl {
                                  core::compiled::AssetKind::Image, collection_diagnostics,
                                  "Room initial interactable", retain_alpha_coverage);
                 }
-                const auto effective_material =
-                    placed.declaration->material_override
-                        ? placed.declaration->material_override
-                        : interactable->presentation.material;
+                const auto effective_material = placed.declaration->material_override
+                                                    ? placed.declaration->material_override
+                                                    : interactable->presentation.material;
                 if (effective_material)
                     append_material(output, *effective_material, collection_diagnostics,
                                     "Room initial interactable");
@@ -987,8 +986,7 @@ MandatoryAssetDependencyCollector::collect(const MandatoryAssetDependencyContext
                                             "current postprocess effect");
             for (const auto& texture : effect.material_textures)
                 m_index.m_impl->append_asset(current, texture.source,
-                                             core::compiled::AssetKind::Image,
-                                             current_diagnostics,
+                                             core::compiled::AssetKind::Image, current_diagnostics,
                                              "current postprocess Material texture");
         }
         for (const auto& audio : snapshot->desired_audio)

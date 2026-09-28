@@ -250,7 +250,8 @@ CompiledProject project()
         .layouts = {},
         .material_interfaces = {{id<MaterialId>("int-material"),
                                  compiled::MaterialRole::Engine2D,
-                                 {{"u_index", compiled::MaterialParameterType::Int, std::nullopt}}}},
+                                 {{"u_index", compiled::MaterialParameterType::Int,
+                                   std::nullopt}}}},
         .scripts = {{id<ScriptId>("bootstrap"), compiled::InlineLuaSource{"return {}"}}},
         .characters = {},
         .rooms = std::move(rooms),
@@ -1161,9 +1162,15 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
         REQUIRE(state.upsert_postprocess_effect(
             compiled_project,
             DesiredPostprocessEffect{
-                instance, owner, postprocess_material, compiled::MaterialPostprocessScope::World,
+                instance,
+                owner,
+                postprocess_material,
+                compiled::MaterialPostprocessScope::World,
                 static_cast<std::int32_t>(max_postprocess_effects_per_scope - index),
-                MaterialClockPolicy::Gameplay, {}, {}, true}));
+                MaterialClockPolicy::Gameplay,
+                {},
+                {},
+                true}));
     }
     const auto bound_instance = id<PostprocessEffectInstanceId>("fx-0");
     const MaterialOccurrence postprocess = PostprocessMaterialOccurrence{bound_instance};
@@ -1186,10 +1193,15 @@ TEST_CASE("occurrence Material Parameters enforce binding authority and bounded 
                              return left.instance.text() < right.instance.text();
                          }));
     CHECK_FALSE(state.upsert_postprocess_effect(
-        compiled_project,
-        DesiredPostprocessEffect{id<PostprocessEffectInstanceId>("fx-overflow"), owner,
-                                 postprocess_material, compiled::MaterialPostprocessScope::World,
-                                 99, MaterialClockPolicy::Gameplay, {}, {}, true}));
+        compiled_project, DesiredPostprocessEffect{id<PostprocessEffectInstanceId>("fx-overflow"),
+                                                   owner,
+                                                   postprocess_material,
+                                                   compiled::MaterialPostprocessScope::World,
+                                                   99,
+                                                   MaterialClockPolicy::Gameplay,
+                                                   {},
+                                                   {},
+                                                   true}));
 }
 
 TEST_CASE("runtime Material integers enforce the exact float-backed ABI boundary")
@@ -1203,23 +1215,19 @@ TEST_CASE("runtime Material integers enforce the exact float-backed ABI boundary
     const auto material = id<MaterialId>("int-material");
 
     REQUIRE(state.upsert_material_parameter(
-        compiled_project,
-        DesiredMaterialParameter{owner, occurrence, material, "u_index",
-                                 -compiled::material_int_exact_limit, std::nullopt,
-                                 MaterialClockPolicy::Gameplay}));
+        compiled_project, DesiredMaterialParameter{owner, occurrence, material, "u_index",
+                                                   -compiled::material_int_exact_limit,
+                                                   std::nullopt, MaterialClockPolicy::Gameplay}));
     REQUIRE(state.upsert_material_parameter(
-        compiled_project,
-        DesiredMaterialParameter{owner, occurrence, material, "u_index",
-                                 compiled::material_int_exact_limit, std::nullopt,
-                                 MaterialClockPolicy::Gameplay}));
+        compiled_project, DesiredMaterialParameter{owner, occurrence, material, "u_index",
+                                                   compiled::material_int_exact_limit, std::nullopt,
+                                                   MaterialClockPolicy::Gameplay}));
     CHECK_FALSE(state.upsert_material_parameter(
-        compiled_project,
-        DesiredMaterialParameter{owner, occurrence, material, "u_index",
-                                 -compiled::material_int_exact_limit - 1, std::nullopt,
-                                 MaterialClockPolicy::Gameplay}));
+        compiled_project, DesiredMaterialParameter{owner, occurrence, material, "u_index",
+                                                   -compiled::material_int_exact_limit - 1,
+                                                   std::nullopt, MaterialClockPolicy::Gameplay}));
     CHECK_FALSE(state.upsert_material_parameter(
-        compiled_project,
-        DesiredMaterialParameter{owner, occurrence, material, "u_index",
-                                 compiled::material_int_exact_limit + 1, std::nullopt,
-                                 MaterialClockPolicy::Gameplay}));
+        compiled_project, DesiredMaterialParameter{owner, occurrence, material, "u_index",
+                                                   compiled::material_int_exact_limit + 1,
+                                                   std::nullopt, MaterialClockPolicy::Gameplay}));
 }

@@ -2,11 +2,19 @@
 
 #include "noveltea/audio/audio_backend.hpp"
 #include "noveltea/core/asset_telemetry.hpp"
+#include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/result.hpp"
+#include "noveltea/devtools_debug_report.hpp"
+#include "noveltea/devtools_snapshot.hpp"
+#include "noveltea/devtools_console.hpp"
+#include "noveltea/devtools_trace.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/render/material.hpp"
 
 #include <cstdint>
+#include <span>
 #include <string>
+#include <string_view>
 
 namespace noveltea {
 
@@ -72,6 +80,26 @@ public:
     [[nodiscard]] static RuntimePreviewController& preview(Engine& engine) noexcept;
     [[nodiscard]] static const RuntimePreviewController& preview(const Engine& engine) noexcept;
     [[nodiscard]] static bool preview_running(const Engine& engine) noexcept;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    [[nodiscard]] static std::span<const std::string_view> devtools_capabilities() noexcept;
+    [[nodiscard]] static core::Result<devtools::DevtoolsSnapshot, core::Diagnostic>
+    devtools_snapshot(const Engine& engine);
+    [[nodiscard]] static core::Result<devtools::DevtoolsDebugReport, core::Diagnostic>
+    devtools_debug_report(Engine& engine);
+    [[nodiscard]] static core::Result<void, core::Diagnostic>
+    set_rmlui_debugger(Engine& engine, const devtools::RmlUiDebuggerCommand& command);
+    [[nodiscard]] static core::Result<devtools::ConsoleDelta, core::Diagnostic>
+    devtools_console_delta(Engine& engine, std::uint64_t after_sequence);
+    static std::uint64_t clear_devtools_console(Engine& engine) noexcept;
+    [[nodiscard]] static core::Result<devtools::TraceDelta, core::Diagnostic>
+    devtools_trace_delta(Engine& engine, std::uint64_t after_sequence);
+    static std::uint64_t clear_devtools_trace(Engine& engine) noexcept;
+    static void
+    record_debugger_mutation(Engine& engine, std::string source_frontend, std::string operation,
+                             devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Info);
+    static void record_debugger_console(Engine& engine, std::string message,
+                                        devtools::ConsoleSeverity severity);
+#endif
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
     [[nodiscard]] static core::Result<core::AssetProfilerSnapshot, core::Diagnostic>

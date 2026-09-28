@@ -1,6 +1,8 @@
 #include "host/host_input_router.hpp"
 
 #include <catch2/catch_test_macros.hpp>
+#include <SDL3/SDL_events.h>
+#include <SDL3/SDL_keycode.h>
 #include <SDL3/SDL_mouse.h>
 
 #include <array>
@@ -52,6 +54,21 @@ HostInputConsumers passive_consumers(int* debug_calls = nullptr, int* runtime_ui
     };
 }
 
+TEST_CASE("normalize_host_event preserves native debugger shortcut state")
+{
+    SDL_Event event{};
+    event.type = SDL_EVENT_KEY_DOWN;
+    event.key.key = SDLK_F10;
+    event.key.mod = SDL_KMOD_LSHIFT;
+    event.key.repeat = true;
+
+    const auto normalized = normalize_host_event(event, {});
+    CHECK(normalized.kind == NormalizedHostEventKind::KeyDown);
+    CHECK(normalized.key == NormalizedHostKey::F10);
+    CHECK(normalized.shift);
+    CHECK(normalized.repeat);
+}
+
 TEST_CASE("HostInputRouter orders debug RuntimeUI and typed runtime admission")
 {
     HostInputRouter router;
@@ -81,7 +98,7 @@ TEST_CASE("HostInputRouter orders debug RuntimeUI and typed runtime admission")
     CHECK(result.disposition == HostInputDisposition::Consumed);
 }
 
-TEST_CASE("HostInputRouter debug overlay capture stops lower input")
+TEST_CASE("HostInputRouter native debugger capture stops lower input")
 {
     HostInputRouter router;
     const auto presentation = test_presentation();
@@ -102,6 +119,80 @@ TEST_CASE("HostInputRouter debug overlay capture stops lower input")
     CHECK(result.route_diagnostics.block_reason == HostGameplayInputBlockReason::DebugOverlay);
     CHECK(result.runtime_inputs.empty());
     CHECK(result.disposition == HostInputDisposition::Consumed);
+}
+
+TEST_CASE("HostInputRouter handles native debugger shortcuts before debug and RuntimeUI input")
+{
+    HostInputRouter router;
+    const auto presentation = test_presentation();
+    int debug_calls = 0;
+    int runtime_ui_calls = 0;
+
+    const NormalizedHostEvent toggle{
+        .kind = NormalizedHostEventKind::KeyDown,
+        .key = NormalizedHostKey::F10,
+    };
+    const auto toggled =
+        router.route(toggle, {.presentation = &presentation, .devtools_enabled = true},
+                     passive_consumers(&debug_calls, &runtime_ui_calls));
+
+    REQUIRE(toggled.tooling_actions.size() == 1);
+    CHECK(
+        std::holds_alternative<ToggleNativeDebugUiToolingAction>(toggled.tooling_actions.front()));
+    CHECK(toggled.disposition == HostInputDisposition::Consumed);
+    CHECK_FALSE(toggled.route_diagnostics.debug_processed);
+    CHECK_FALSE(toggled.route_diagnostics.runtime_ui_processed);
+    CHECK_FALSE(toggled.route_diagnostics.gameplay_admitted);
+    CHECK(toggled.route_diagnostics.block_reason == HostGameplayInputBlockReason::DevtoolsShortcut);
+    CHECK(debug_calls == 0);
+    CHECK(runtime_ui_calls == 0);
+
+    const NormalizedHostEvent reset{
+        .kind = NormalizedHostEventKind::KeyDown,
+        .key = NormalizedHostKey::F10,
+        .shift = true,
+    };
+    const auto reset_result =
+        router.route(reset, {.presentation = &presentation, .devtools_enabled = true},
+                     passive_consumers(&debug_calls, &runtime_ui_calls));
+
+    REQUIRE(reset_result.tooling_actions.size() == 1);
+    CHECK(std::holds_alternative<ResetNativeDebugUiRectToolingAction>(
+        reset_result.tooling_actions.front()));
+    CHECK(reset_result.disposition == HostInputDisposition::Consumed);
+    CHECK(debug_calls == 0);
+    CHECK(runtime_ui_calls == 0);
+}
+
+TEST_CASE("HostInputRouter ignores repeated or unavailable native debugger shortcuts")
+{
+    HostInputRouter router;
+    const auto presentation = test_presentation();
+    int debug_calls = 0;
+    int runtime_ui_calls = 0;
+
+    const NormalizedHostEvent repeated{
+        .kind = NormalizedHostEventKind::KeyDown,
+        .key = NormalizedHostKey::F10,
+        .repeat = true,
+    };
+    const auto repeated_result =
+        router.route(repeated, {.presentation = &presentation, .devtools_enabled = true},
+                     passive_consumers(&debug_calls, &runtime_ui_calls));
+    CHECK(repeated_result.tooling_actions.empty());
+    CHECK(repeated_result.route_diagnostics.debug_processed);
+    CHECK(repeated_result.route_diagnostics.runtime_ui_processed);
+
+    const NormalizedHostEvent unavailable{
+        .kind = NormalizedHostEventKind::KeyDown,
+        .key = NormalizedHostKey::F10,
+    };
+    const auto unavailable_result =
+        router.route(unavailable, {.presentation = &presentation, .devtools_enabled = false},
+                     passive_consumers(&debug_calls, &runtime_ui_calls));
+    CHECK(unavailable_result.tooling_actions.empty());
+    CHECK_FALSE(unavailable_result.route_diagnostics.debug_processed);
+    CHECK(unavailable_result.route_diagnostics.runtime_ui_processed);
 }
 
 TEST_CASE("HostInputRouter RuntimeUI consumption stops gameplay")

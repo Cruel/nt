@@ -38,6 +38,23 @@ permissions:
 # - Android export and Electron packaging consume the host CLI artifact without waiting for Linux tests.
 
 jobs:
+  cxx-format:
+    name: C++ formatting
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+      - name: Set up uv
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
+      - name: Check C++ formatting
+        run: >-
+          cmake
+          -DSOURCE_ROOT="$GITHUB_WORKSPACE"
+          -DMODE=check
+          -P "$GITHUB_WORKSPACE/cmake/RunClangFormat.cmake"
+
   cxx-runtime-policy:
     name: C++ runtime policy
     runs-on: ubuntu-24.04
@@ -69,6 +86,7 @@ jobs:
   shader-assets:
     name: Shader assets
     runs-on: ubuntu-24.04
+    needs: cxx-format
     timeout-minutes: 45
 
     steps:
@@ -174,6 +192,11 @@ jobs:
 
       - name: Build
         run: cmake --build --preset linux-debug
+
+      - name: Verify native devtools composition
+        run: |
+          bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/sandbox/noveltea-sandbox on
+          bash scripts/check-native-devtools-symbols.sh build/linux-debug/apps/player/noveltea-player on
 
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache
@@ -636,6 +659,11 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Set up Node
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+
       - name: Set up Linux native dependencies
         uses: ./.github/actions/setup-linux-native
         with:
@@ -670,13 +698,18 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
-      - name: Configure and build editor preview
+      - name: Verify devtools-off transport and build editor preview
         env:
           EMSDK: ${{ github.workspace }}/.cache/emsdk
         run: |
           source "$EMSDK/emsdk_env.sh"
-          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_ENABLE_DEVTOOLS=OFF -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
           cmake --build --preset web-editor-preview --target noveltea-editor-preview
+          node scripts/check-web-editor-preview-exports.mjs build/web-editor-preview/apps/editor_preview/index.js off
+
+          emcmake cmake --preset web-editor-preview -G Ninja -DNOVELTEA_ENABLE_DEVTOOLS=ON -DNOVELTEA_COMPILE_SHADERS=OFF -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" -DBUILD_TESTING=OFF -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          cmake --build --preset web-editor-preview --target noveltea-editor-preview
+          node scripts/check-web-editor-preview-exports.mjs build/web-editor-preview/apps/editor_preview/index.js on
 
       - name: Save compiler cache
         uses: ./.github/actions/save-ccache

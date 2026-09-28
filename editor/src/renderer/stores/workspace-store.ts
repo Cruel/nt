@@ -8,7 +8,11 @@ import {
   type AuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import type { ToolDiagnostic, PlaybackTestSummary } from '../../shared/editor-tooling';
-import type { PreviewConnectionState } from '../../shared/preview-protocol';
+import type {
+  DevtoolsConsoleRecord,
+  DevtoolsTraceRecord,
+  PreviewConnectionState,
+} from '../../shared/preview-protocol';
 
 export interface AssetNode {
   id: string;
@@ -49,6 +53,14 @@ export interface RuntimeEventEntry {
   label: string;
   detail?: string;
   severity: 'info' | 'warning' | 'error';
+  category?: string;
+  sequence?: string;
+  globalSequence?: string;
+  hostGeneration?: string | null;
+  runtimeGeneration?: string | null;
+  frame?: string;
+  source?: DevtoolsConsoleRecord['source'];
+  generationMarker?: boolean;
 }
 
 export function buildAuthoringProjectTree(project: AuthoringProject): AssetNode[] {
@@ -92,6 +104,11 @@ interface WorkspaceState {
   previewConnectionState: PreviewConnectionState;
   selectedRuntimeObjectId: string | null;
   runtimeEvents: RuntimeEventEntry[];
+  runtimeConsoleLostRecordCount: string | null;
+  runtimeConsoleClearHandler: (() => Promise<void>) | null;
+  runtimeTrace: DevtoolsTraceRecord[];
+  runtimeTraceLostRecordCount: string | null;
+  runtimeTraceClearHandler: (() => Promise<void>) | null;
   timeline: TimelineEntry[];
   lastPlaybackReport: unknown;
   lastExportResult: unknown;
@@ -108,7 +125,12 @@ interface WorkspaceState {
   setPreviewConnectionState: (state: PreviewConnectionState) => void;
   setSelectedRuntimeObjectId: (id: string | null) => void;
   addRuntimeEvent: (event: Omit<RuntimeEventEntry, 'id' | 'timestamp'>) => void;
+  addDevtoolsConsoleRecords: (records: DevtoolsConsoleRecord[], lostRecordCount?: string) => void;
   clearRuntimeEvents: () => void;
+  setRuntimeConsoleClearHandler: (handler: (() => Promise<void>) | null) => void;
+  addDevtoolsTraceRecords: (records: DevtoolsTraceRecord[], lostRecordCount?: string) => void;
+  clearRuntimeTrace: () => void;
+  setRuntimeTraceClearHandler: (handler: (() => Promise<void>) | null) => void;
   addTimelineEntry: (entry: Omit<TimelineEntry, 'id'>) => void;
   setLastPlaybackReport: (report: unknown) => void;
   setLastExportResult: (result: unknown) => void;
@@ -128,6 +150,11 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
   previewConnectionState: 'disconnected',
   selectedRuntimeObjectId: null,
   runtimeEvents: [],
+  runtimeConsoleLostRecordCount: null,
+  runtimeConsoleClearHandler: null,
+  runtimeTrace: [],
+  runtimeTraceLostRecordCount: null,
+  runtimeTraceClearHandler: null,
   timeline: [],
   lastPlaybackReport: null,
   lastExportResult: null,
@@ -150,10 +177,56 @@ export const useWorkspaceStore = create<WorkspaceState>()((set) => ({
         runtimeEvents: [
           { ...event, id: `${timestamp}-${state.runtimeEvents.length}`, timestamp },
           ...state.runtimeEvents,
-        ].slice(0, 100),
+        ].slice(0, 1000),
       };
     }),
-  clearRuntimeEvents: () => set({ runtimeEvents: [] }),
+  addDevtoolsConsoleRecords: (records, lostRecordCount) =>
+    set((state) => {
+      const existing = new Set(state.runtimeEvents.map((entry) => entry.sequence).filter(Boolean));
+      const appended = records
+        .filter((record) => !existing.has(record.sequence))
+        .map((record) => ({
+          id: `console:${record.sequence}`,
+          timestamp: Date.now(),
+          label: record.message,
+          severity: record.severity,
+          category: record.category,
+          sequence: record.sequence,
+          globalSequence: record.globalSequence,
+          hostGeneration: record.hostGeneration,
+          runtimeGeneration: record.runtimeGeneration,
+          frame: record.frame,
+          source: record.source,
+          generationMarker: record.generationMarker,
+        }))
+        .reverse();
+      return {
+        runtimeEvents: [...appended, ...state.runtimeEvents].slice(0, 1000),
+        runtimeConsoleLostRecordCount:
+          lostRecordCount && lostRecordCount !== '0'
+            ? lostRecordCount
+            : state.runtimeConsoleLostRecordCount,
+      };
+    }),
+  clearRuntimeEvents: () => set({ runtimeEvents: [], runtimeConsoleLostRecordCount: null }),
+  setRuntimeConsoleClearHandler: (runtimeConsoleClearHandler) =>
+    set({ runtimeConsoleClearHandler }),
+  addDevtoolsTraceRecords: (records, lostRecordCount) =>
+    set((state) => {
+      const incomingFirstSequences = new Set(records.map((record) => record.firstSequence));
+      const retained = state.runtimeTrace.filter(
+        (record) => !incomingFirstSequences.has(record.firstSequence),
+      );
+      return {
+        runtimeTrace: [...records.slice().reverse(), ...retained].slice(0, 2000),
+        runtimeTraceLostRecordCount:
+          lostRecordCount && lostRecordCount !== '0'
+            ? lostRecordCount
+            : state.runtimeTraceLostRecordCount,
+      };
+    }),
+  clearRuntimeTrace: () => set({ runtimeTrace: [], runtimeTraceLostRecordCount: null }),
+  setRuntimeTraceClearHandler: (runtimeTraceClearHandler) => set({ runtimeTraceClearHandler }),
   addTimelineEntry: (entry) =>
     set((state) => ({
       timeline: [

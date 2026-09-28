@@ -6,6 +6,10 @@
 #include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/surface.hpp"
+#include "noveltea/devtools_snapshot.hpp"
+#if NOVELTEA_ENABLE_DEVTOOLS
+#include "noveltea/devtools_console.hpp"
+#endif
 #include "ui/rmlui/rmlui_lifecycle.hpp"
 
 #include <cstdint>
@@ -59,6 +63,10 @@ public:
         std::vector<core::PresentationMaterialTextureBinding> material_textures;
         double material_camera_zoom = 1.0;
         std::uint64_t cursor_source_id = 0;
+#if NOVELTEA_ENABLE_DEVTOOLS
+        bool recent_event_processed = false;
+        bool recent_event_consumed = false;
+#endif
     };
 
     struct Config {
@@ -89,6 +97,10 @@ public:
     using CursorOwnerResolver = std::function<std::string(Rml::Context*)>;
     using CursorPresentationResolver =
         std::function<std::optional<host::CursorPresentation>(Rml::Context*, std::string_view)>;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    using DevtoolsLogSink =
+        std::function<void(devtools::ConsoleSeverity severity, std::string message)>;
+#endif
 
     RmlUiHost();
     ~RmlUiHost();
@@ -101,6 +113,10 @@ public:
     [[nodiscard]] bool activate_font_fallbacks(const assets::FontAssetConfig& config);
     [[nodiscard]] bool configure_fonts(const assets::FontAssetConfig& config);
     void shutdown();
+#if NOVELTEA_ENABLE_DEVTOOLS
+    [[nodiscard]] bool set_debugger(bool visible, const std::string& context);
+    [[nodiscard]] devtools::RmlUiDebuggerSnapshot debugger_snapshot() const;
+#endif
 
     [[nodiscard]] Rml::Context* primary_context() const noexcept;
     [[nodiscard]] Rml::Context* context_for(ContextKey key);
@@ -146,9 +162,11 @@ public:
     void set_context_initializer(ContextInitializer initializer);
     void set_cursor_owner_resolver(CursorOwnerResolver resolver);
     void set_cursor_presentation_resolver(CursorPresentationResolver resolver);
+#if NOVELTEA_ENABLE_DEVTOOLS
+    void set_devtools_log_sink(DevtoolsLogSink sink);
+#endif
     void set_context_clock(ContextKey key);
-    void
-    set_context_material_parameters(
+    void set_context_material_parameters(
         Rml::Context* context, std::optional<core::LayoutMountOccurrenceId> occurrence,
         std::vector<core::PresentationMaterialParameter> parameters,
         std::vector<core::PresentationMaterialTextureBinding> textures, double camera_zoom);
@@ -209,6 +227,10 @@ private:
     CursorOwnerResolver m_cursor_owner_resolver;
     CursorPresentationResolver m_cursor_presentation_resolver;
     std::unordered_set<std::uint64_t> m_active_touches;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    bool m_debugger_initialized = false;
+    std::string m_debugger_context;
+#endif
     Rml::Context* m_primary_context = nullptr;
     Rml::Context* m_active_cursor_context = nullptr;
     std::optional<Vec2> m_reference_pointer;

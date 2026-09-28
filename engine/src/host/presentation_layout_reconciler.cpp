@@ -262,15 +262,14 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                                             static_cast<std::ptrdiff_t>(*retained_match));
             if (retained_revision->second.empty())
                 m_retained.erase(retained_revision);
-            next.insert_or_assign(item.identity,
-                                  MountedPresentationLayout{
-                                      item.key, retained_instance, item.layout, item.semantic_owner,
-                                      item.owner, item.policy, item.scale_overrides,
-                                      item.occurrence, item.inputs, item.connected_signals,
-                                      item.state_shape, item.state_values, item.material_parameters,
-                                      item.material_textures, item.material_camera_zoom,
-                                      item.trigger_context, item.composition_group,
-                                      snapshot.revision});
+            next.insert_or_assign(
+                item.identity,
+                MountedPresentationLayout{
+                    item.key, retained_instance, item.layout, item.semantic_owner, item.owner,
+                    item.policy, item.scale_overrides, item.occurrence, item.inputs,
+                    item.connected_signals, item.state_shape, item.state_values,
+                    item.material_parameters, item.material_textures, item.material_camera_zoom,
+                    item.trigger_context, item.composition_group, snapshot.revision});
             continue;
         }
 
@@ -285,9 +284,9 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                                   item.key, *mounted.value_if(), item.layout, item.semantic_owner,
                                   item.owner, item.policy, item.scale_overrides, item.occurrence,
                                   item.inputs, item.connected_signals, item.state_shape,
-                                  item.state_values, item.material_parameters, item.material_textures,
-                                  item.material_camera_zoom, item.trigger_context,
-                                  item.composition_group, snapshot.revision});
+                                  item.state_values, item.material_parameters,
+                                  item.material_textures, item.material_camera_zoom,
+                                  item.trigger_context, item.composition_group, snapshot.revision});
     }
 
     for (const auto& [identity, previous] : m_current) {

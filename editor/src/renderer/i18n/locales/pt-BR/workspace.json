@@ -1,4 +1,76 @@
 {
+  "rmluiDebugger": { "title": "Depurador RmlUi", "context": "Contexto inspecionado" },
+  "debugReport": {
+    "export": "Exportar relatório de depuração",
+    "exporting": "Exportando relatório de depuração…"
+  },
+  "devtoolsInspector": {
+    "common": {
+      "noEvent": "Nenhum evento",
+      "noSnapshot": "Nenhum snapshot",
+      "outside": "fora",
+      "unknown": "desconhecido"
+    },
+    "input": {
+      "title": "Roteamento de entrada",
+      "summaryAdmitted": "{{event}} · admitido",
+      "summaryBlocked": "{{event}} · {{reason}}",
+      "pointer": "Ponteiro",
+      "developerUi": "UI do desenvolvedor",
+      "developerProcessed": "processado",
+      "developerProcessedConsumed": "processado / consumido",
+      "developerSkipped": "ignorado",
+      "rmlui": "RmlUi",
+      "rmluiProcessed": "processado",
+      "rmluiProcessedConsumed": "processado / consumido",
+      "rmluiProcessedPointer": "processado / solicita ponteiro",
+      "rmluiProcessedConsumedPointer": "processado / consumido / solicita ponteiro",
+      "rmluiSkipped": "ignorado",
+      "gameplay": "Jogabilidade",
+      "gameplayAdmitted": "admitido",
+      "gameplayBlocked": "bloqueado: {{reason}}",
+      "governingLayout": "Layout controlador",
+      "host": "Host"
+    },
+    "rmlui": {
+      "title": "Estado do RmlUi",
+      "contextCount_one": "{{count}} contexto",
+      "contextCount_other": "{{count}} contextos",
+      "none": "Nenhum contexto RmlUi no snapshot mais recente.",
+      "consumedLastEvent": "consumiu o último evento",
+      "processedLastEvent": "processou o último evento",
+      "notReached": "não alcançado",
+      "lifecycle": "Ciclo de vida",
+      "input": "Entrada",
+      "scaleDomain": "Domínio de escala",
+      "contextSize": "Tamanho do contexto",
+      "contextSizeValue": "{{width}}×{{height}} · mídia {{mediaWidth}}×{{mediaHeight}}",
+      "scale": "Escala",
+      "scaleValue": "UI {{uiScale}} · texto {{textScale}} · raster {{rasterX}}×{{rasterY}}",
+      "hover": "Hover",
+      "focus": "Foco"
+    },
+    "world": {
+      "title": "Hotspots do mundo",
+      "summary": "{{active}} ativos · {{total}} no total",
+      "summaryCaptured": "{{active}} ativos · {{total}} no total · capturado",
+      "underPointer": "Sob o ponteiro",
+      "hovered": "Em hover",
+      "pressed": "Pressionado",
+      "ineligible": "inelegível",
+      "targetUnavailable": "alvo indisponível",
+      "noPreparedHitTarget": "sem alvo de hit preparado",
+      "identity": "Identidade",
+      "target": "Alvo",
+      "highlight": "Destaque",
+      "cursor": "Cursor",
+      "hitShape": "Forma de hit",
+      "hitBounds": "Limites de hit",
+      "hitTestOrder": "Ordem de hit-test",
+      "inputOrder": "Ordem de entrada",
+      "allOther": "Todos os outros Hotspots ({{count}})"
+    }
+  },
   "layoutDataAssets": "Recursos de dados JSON",
   "projectImport": {
     "title": "Importar projeto NovelTea",
@@ -64,7 +136,8 @@
     "empty": {
       "commandHistory": "Ainda não há comandos de projeto.",
       "output": "Ainda não há entradas de atividade.",
-      "previewEvents": "Ainda não há eventos de execução.",
+      "previewEvents": "Ainda não há entradas no Console.",
+      "previewTrace": "Ainda não há entradas no Trace.",
       "problems": "Nenhum diagnóstico de validação."
     },
     "labels": {
@@ -73,12 +146,55 @@
       "output": "Atividade",
       "packageExport": "Exportação de pacote",
       "previewDiagnostics": "Diagnósticos da visualização",
-      "previewEvents": "Eventos de execução",
+      "previewEvents": "Console",
+      "previewTrace": "Trace",
       "problems": "Problemas",
       "references": "Referências",
       "shaderCompile": "Compilação de shaders",
       "testPlayback": "Reprodução de testes",
       "terminal": "Terminal"
+    },
+    "console": {
+      "severityLabel": "Severidade do Console",
+      "categoryLabel": "Categoria do Console",
+      "textFilterLabel": "Filtro de texto do Console",
+      "severities": {
+        "all": "Todas as severidades",
+        "info": "Informação",
+        "warning": "Aviso",
+        "error": "Erro"
+      },
+      "categoriesAll": "Todas as categorias",
+      "filterPlaceholder": "Filtrar Console",
+      "freeze": "Congelar",
+      "unfreeze": "Descongelar",
+      "autoscroll": "Rolagem automática",
+      "clear": "Limpar",
+      "historyGap_one": "Lacuna no histórico do Console: {{count}} registro foi descartado.",
+      "historyGap_other": "Lacuna no histórico do Console: {{count}} registros foram descartados.",
+      "frozen": "Visualização do Console congelada; a captura continua.",
+      "noMatches": "Nenhuma entrada do Console corresponde aos filtros."
+    },
+    "trace": {
+      "kindLabel": "Tipo do Trace",
+      "categoryLabel": "Categoria do Trace",
+      "textFilterLabel": "Filtro de texto do Trace",
+      "kinds": {
+        "all": "Todos os tipos",
+        "inputRouting": "Roteamento de entrada",
+        "debuggerMutation": "Mutações do depurador",
+        "generation": "Gerações"
+      },
+      "categoriesAll": "Todas as categorias",
+      "filterPlaceholder": "Filtrar Trace",
+      "freeze": "Congelar",
+      "unfreeze": "Descongelar",
+      "autoscroll": "Rolagem automática",
+      "clear": "Limpar",
+      "historyGap_one": "Lacuna no histórico do Trace: {{count}} registro foi removido da retenção.",
+      "historyGap_other": "Lacuna no histórico do Trace: {{count}} registros foram removidos da retenção.",
+      "frozen": "Visualização do Trace congelada; a captura continua.",
+      "noMatches": "Nenhuma entrada do Trace corresponde aos filtros."
     },
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"

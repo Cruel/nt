@@ -620,22 +620,21 @@ TEST_CASE("runtime Material manifest integers preserve the exact Shader range")
         };
     };
 
-    CHECK_FALSE(has_code(
-        noveltea::parse_shader_material_project_json(
-            document_for(noveltea::core::compiled::material_int_exact_limit).dump()),
-        MaterialDiagnosticCode::InvalidUniformValue));
-    CHECK_FALSE(has_code(
-        noveltea::parse_shader_material_project_json(
-            document_for(-noveltea::core::compiled::material_int_exact_limit).dump()),
-        MaterialDiagnosticCode::InvalidUniformValue));
-    CHECK(has_code(
-        noveltea::parse_shader_material_project_json(
-            document_for(noveltea::core::compiled::material_int_exact_limit + 1).dump()),
-        MaterialDiagnosticCode::InvalidUniformValue));
-    CHECK(has_code(
-        noveltea::parse_shader_material_project_json(
-            document_for(-noveltea::core::compiled::material_int_exact_limit - 1).dump()),
-        MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK_FALSE(
+        has_code(noveltea::parse_shader_material_project_json(
+                     document_for(noveltea::core::compiled::material_int_exact_limit).dump()),
+                 MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK_FALSE(
+        has_code(noveltea::parse_shader_material_project_json(
+                     document_for(-noveltea::core::compiled::material_int_exact_limit).dump()),
+                 MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK(has_code(noveltea::parse_shader_material_project_json(
+                       document_for(noveltea::core::compiled::material_int_exact_limit + 1).dump()),
+                   MaterialDiagnosticCode::InvalidUniformValue));
+    CHECK(
+        has_code(noveltea::parse_shader_material_project_json(
+                     document_for(-noveltea::core::compiled::material_int_exact_limit - 1).dump()),
+                 MaterialDiagnosticCode::InvalidUniformValue));
 }
 
 TEST_CASE("postprocess scope belongs to the effect occurrence and source texture is renderer-owned")

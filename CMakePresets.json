@@ -268,7 +268,7 @@
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_BUILD_EDITOR_PREVIEW": "ON",
                 "NOVELTEA_BUILD_PLAYER": "OFF",
-                "NOVELTEA_ENABLE_DEVTOOLS": "OFF"
+                "NOVELTEA_ENABLE_DEVTOOLS": "ON"
             }
         },
         {

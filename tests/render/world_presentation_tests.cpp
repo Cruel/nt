@@ -416,13 +416,8 @@ TEST_CASE("Interactable Material Application overrides reach the draw command")
                                       true,
                                       true});
     snapshot.material_parameters.push_back(
-        {owner,
-         InteractableMaterialOccurrence{interactable},
-         material,
-         "u_amount",
-         compiled::MaterialParameterValue{0.5},
-         std::nullopt,
-         MaterialClockPolicy::Gameplay});
+        {owner, InteractableMaterialOccurrence{interactable}, material, "u_amount",
+         compiled::MaterialParameterValue{0.5}, std::nullopt, MaterialClockPolicy::Gameplay});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -430,13 +425,11 @@ TEST_CASE("Interactable Material Application overrides reach the draw command")
     REQUIRE(draw);
     REQUIRE(draw->command.material_texture_overrides.size() == 1);
     CHECK(draw->command.material_texture_overrides.front().name == "s_noise");
-    CHECK(draw->command.material_texture_overrides.front().source ==
-          "project:/assets/noise.png");
+    CHECK(draw->command.material_texture_overrides.front().source == "project:/assets/noise.png");
 
     const auto rendered = std::ranges::find_if(
-        backend.frame()->base_batch.commands(), [&](const QuadCommand& command) {
-            return command.material.string() == material.text();
-        });
+        backend.frame()->base_batch.commands(),
+        [&](const QuadCommand& command) { return command.material.string() == material.text(); });
     REQUIRE(rendered != backend.frame()->base_batch.commands().end());
     REQUIRE(rendered->material_uniform_overrides.size() == 1);
     CHECK(rendered->material_uniform_overrides.front().name == "u_amount");
@@ -527,9 +520,9 @@ TEST_CASE("Engine2D Material Applications reach background prop environment and 
          "u_amount", compiled::MaterialParameterValue{0.3}, std::nullopt,
          MaterialClockPolicy::Gameplay});
     snapshot.material_parameters.push_back(
-        {owner,
-         ActorMaterialOccurrence{hero.key, hero.layers.front().id}, actor_material, "u_amount",
-         compiled::MaterialParameterValue{0.4}, std::nullopt, MaterialClockPolicy::Gameplay});
+        {owner, ActorMaterialOccurrence{hero.key, hero.layers.front().id}, actor_material,
+         "u_amount", compiled::MaterialParameterValue{0.4}, std::nullopt,
+         MaterialClockPolicy::Gameplay});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -548,8 +541,8 @@ TEST_CASE("Engine2D Material Applications reach background prop environment and 
     check_draw("character/hero", 0, "project:/assets/actor-noise.png");
 
     const auto check_uniform = [&](const core::MaterialId& material, float expected) {
-        const auto rendered = std::ranges::find_if(
-            frame.base_batch.commands(), [&](const QuadCommand& command) {
+        const auto rendered =
+            std::ranges::find_if(frame.base_batch.commands(), [&](const QuadCommand& command) {
                 return command.material.string() == material.text();
             });
         REQUIRE(rendered != frame.base_batch.commands().end());
@@ -1052,6 +1045,15 @@ TEST_CASE("world hotspot hover carries cursor intent and recomputes it for a sta
     REQUIRE(controller.hovered_target()->cursor);
     CHECK(controller.hovered_target()->cursor->kind == compiled::CursorTargetKind::Named);
     CHECK(controller.hovered_target()->cursor->named_id == "inspect");
+    const auto hovered_observation = controller.debug_observation();
+    CHECK(hovered_observation.last_mouse_valid);
+    CHECK(hovered_observation.last_mouse_reference.x == 50.0f);
+    CHECK(hovered_observation.last_mouse_reference.y == 50.0f);
+    REQUIRE(hovered_observation.under_pointer);
+    CHECK(world_hotspot_identity(*hovered_observation.under_pointer) == "room/room/hotspot/desk");
+    REQUIRE(hovered_observation.hovered);
+    CHECK(world_hotspot_identity(*hovered_observation.hovered) == "room/room/hotspot/desk");
+    CHECK_FALSE(hovered_observation.capture_active);
 
     auto replacement = snapshot;
     replacement.revision = PresentationSnapshotRevision::from_number(2);
@@ -1069,6 +1071,7 @@ TEST_CASE("world hotspot hover carries cursor intent and recomputes it for a sta
     REQUIRE(backend.reconcile(replacement, {100.0f, 100.0f}));
     controller.presentation_changed();
     CHECK(controller.hovered_target() == nullptr);
+    CHECK_FALSE(controller.debug_observation().under_pointer);
 
     (void)controller.handle(
         {WorldPointerEventKind::Cancel, {50.0f, 50.0f}, {50.0f, 50.0f}, 0, false, false});
@@ -1148,15 +1151,17 @@ TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
     REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
     controller.presentation_changed();
 
-    CHECK_FALSE(
-        controller
-            .handle(
-                {WorldPointerEventKind::MouseDown, {25.0f, 50.0f}, {25.0f, 50.0f}, 0, true, true})
-            .consumed);
-    CHECK(controller
-              .handle(
-                  {WorldPointerEventKind::MouseDown, {75.0f, 50.0f}, {75.0f, 50.0f}, 0, true, true})
-              .consumed);
+    const auto transparent = controller.handle(
+        {WorldPointerEventKind::MouseDown, {25.0f, 50.0f}, {25.0f, 50.0f}, 0, true, true});
+    CHECK_FALSE(transparent.consumed);
+    CHECK(transparent.hit_test_performed);
+    CHECK_FALSE(transparent.hit);
+    const auto opaque = controller.handle(
+        {WorldPointerEventKind::MouseDown, {75.0f, 50.0f}, {75.0f, 50.0f}, 0, true, true});
+    CHECK(opaque.consumed);
+    CHECK(opaque.hit_test_performed);
+    REQUIRE(opaque.hit);
+    CHECK(*opaque.hit == alpha);
 }
 
 TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admission")
@@ -1190,6 +1195,9 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
     auto canceled = controller.handle(
         {WorldPointerEventKind::MouseUp, {19.0f, 10.0f}, {19.0f, 10.0f}, 0, true, true});
     CHECK(canceled.consumed);
+    CHECK(canceled.hit_test_performed);
+    REQUIRE(canceled.hit);
+    CHECK(*canceled.hit == hotspot);
     CHECK_FALSE(canceled.target);
 
     REQUIRE(
@@ -1212,8 +1220,10 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
             .handle(
                 {WorldPointerEventKind::MouseDown, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true})
             .consumed);
-    (void)controller.handle(
+    const auto blocked_move = controller.handle(
         {WorldPointerEventKind::MouseMove, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, false});
+    CHECK_FALSE(blocked_move.hit_test_performed);
+    CHECK_FALSE(blocked_move.hit);
     auto blocked_release = controller.handle(
         {WorldPointerEventKind::MouseUp, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true});
     CHECK_FALSE(blocked_release.consumed);
@@ -1237,6 +1247,23 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
         {WorldPointerEventKind::TouchUp, {20.0f, 20.0f}, {20.0f, 20.0f}, 1, true, true});
     REQUIRE(touch_release.target);
     CHECK(*touch_release.target == semantic_target("room-target"));
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::TouchDown, {20.0f, 20.0f}, {20.0f, 20.0f}, 3, true, true})
+            .consumed);
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::TouchMove, {40.0f, 20.0f}, {40.0f, 20.0f}, 3, true, true})
+            .consumed);
+    const auto canceled_touch_release = controller.handle(
+        {WorldPointerEventKind::TouchUp, {40.0f, 20.0f}, {40.0f, 20.0f}, 3, true, true});
+    CHECK(canceled_touch_release.consumed);
+    CHECK_FALSE(canceled_touch_release.hit_test_performed);
+    CHECK_FALSE(canceled_touch_release.hit);
+    CHECK_FALSE(canceled_touch_release.target);
 }
 
 TEST_CASE("world hotspot capture revalidates release containment and presentation generation")

@@ -657,7 +657,8 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     m_impl->traceback = m_impl->lua["__noveltea_traceback"];
     sol::protected_function::set_default_handler(m_impl->traceback);
     bind_noveltea(m_impl->lua.lua_state());
-    install_host_print(m_impl->lua.lua_state());
+    install_host_print(m_impl->lua.lua_state(), &m_debug_sink);
+    install_debug_api(m_impl->lua.lua_state(), &m_debug_sink);
     lua_State* state = m_impl->lua.lua_state();
     lua_newtable(state);
     lua_pushlightuserdata(state, this);
@@ -683,6 +684,11 @@ core::Result<void, ScriptError> ScriptRuntime::initialize(ScriptRuntimeConfig co
     bind_typed_script_host(m_impl->lua.lua_state(), m_impl->runtime_api.get());
     m_impl->initialized = true;
     return Result::success();
+}
+
+void ScriptRuntime::set_debug_sink(std::function<void(const ScriptDebugMessage&)> sink)
+{
+    m_debug_sink = std::move(sink);
 }
 
 void ScriptRuntime::shutdown()
@@ -2163,6 +2169,12 @@ const lua_State* detail::ScriptRuntimeAccess::state(const ScriptRuntime& runtime
 std::size_t detail::ScriptRuntimeAccess::environment_count(const ScriptRuntime& runtime) noexcept
 {
     return runtime.m_impl ? runtime.m_impl->environments.size() : 0;
+}
+
+const std::function<void(const ScriptDebugMessage&)>*
+detail::ScriptRuntimeAccess::debug_sink(const ScriptRuntime& runtime) noexcept
+{
+    return &runtime.m_debug_sink;
 }
 
 } // namespace noveltea::script

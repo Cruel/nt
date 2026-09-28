@@ -827,8 +827,7 @@ TEST_CASE("running-game creation failure leaves presentation integration untouch
 {
     RuntimeFixture runtime;
     auto invalid = fixture("minimal");
-    invalid["resources"]["scripts"][0]["source"] =
-        {{"kind", "inline-lua"}, {"source", "local ="}};
+    invalid["resources"]["scripts"][0]["source"] = {{"kind", "inline-lua"}, {"source", "local ="}};
 
     auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
                                                runtime.presentation, runtime.saves);
@@ -851,26 +850,26 @@ TEST_CASE("compiled runtime certifies unused modules before executing Bootstrap"
     unused["id"] = "unused-module";
     unused["source"] = {{"kind", "inline-lua"}, {"source", "local ="}};
     invalid["resources"]["scripts"].push_back(std::move(unused));
-    invalid["resources"]["scripts"][0]["source"] =
-        {{"kind", "inline-lua"},
-         {"source", "error('Bootstrap must not run before certification')\nreturn {}"}};
+    invalid["resources"]["scripts"][0]["source"] = {
+        {"kind", "inline-lua"},
+        {"source", "error('Bootstrap must not run before certification')\nreturn {}"}};
     auto rejected = runtime::load_running_game(load_input(std::move(invalid)), runtime.scripts,
                                                runtime.presentation, runtime.saves);
     REQUIRE_FALSE(rejected.has_value());
     CHECK(has_code(rejected.error(), "runtime.lua_certification_failed"));
 
     auto failed = fixture("minimal");
-    failed["resources"]["scripts"][0]["source"] =
-        {{"kind", "inline-lua"}, {"source", "error('bootstrap executed')\nreturn {}"}};
+    failed["resources"]["scripts"][0]["source"] = {
+        {"kind", "inline-lua"}, {"source", "error('bootstrap executed')\nreturn {}"}};
     auto execution_rejected = runtime::load_running_game(
         load_input(std::move(failed)), runtime.scripts, runtime.presentation, runtime.saves);
     REQUIRE_FALSE(execution_rejected.has_value());
     CHECK(has_code(execution_rejected.error(), "runtime.project_bootstrap_failed"));
 
     auto valid = fixture("minimal");
-    valid["resources"]["scripts"][0]["source"] =
-        {{"kind", "inline-lua"},
-         {"source", "local certification_only = true\nreturn { ready = certification_only }"}};
+    valid["resources"]["scripts"][0]["source"] = {
+        {"kind", "inline-lua"},
+        {"source", "local certification_only = true\nreturn { ready = certification_only }"}};
     auto loaded = runtime::load_running_game(load_input(std::move(valid)), runtime.scripts,
                                              runtime.presentation, runtime.saves);
     REQUIRE(loaded.has_value());
