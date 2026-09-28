@@ -54,6 +54,24 @@ if [ -d "$PROJECT_ROOT/rmlui-bgfx" ]; then
     )
 fi
 
+if [ -n "${LINK_POOL_SIZE:-}" ]; then
+    if [[ ! "$LINK_POOL_SIZE" =~ ^[0-9]+$ ]]; then
+        echo "[test] LINK_POOL_SIZE must be a non-negative integer" >&2
+        exit 2
+    fi
+    if [ "$LINK_POOL_SIZE" = "0" ]; then
+        CMAKE_CONFIGURE_ARGS+=(
+            -DCMAKE_JOB_POOLS=
+            -DCMAKE_JOB_POOL_LINK=
+        )
+    else
+        CMAKE_CONFIGURE_ARGS+=(
+            -DCMAKE_JOB_POOLS="link_pool=$LINK_POOL_SIZE"
+            -DCMAKE_JOB_POOL_LINK=link_pool
+        )
+    fi
+fi
+
 echo "[test] configuring $PRESET..."
 cmake --preset "$PRESET" "${CMAKE_CONFIGURE_ARGS[@]}"
 

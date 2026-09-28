@@ -38,6 +38,11 @@ limit. On memory-constrained Makefiles builds, build one executable target at a 
 `cmake --build --preset <preset> --target <target>`, waiting for each command to finish before the
 next. Do not retry an unrestricted aggregate build after a link-memory failure.
 
+For `scripts/run-tests.sh`, set `LINK_POOL_SIZE` to override the preset's Ninja link pool for that
+configuration: a positive integer sets the pool size, and `0` removes the limit. For example,
+`LINK_POOL_SIZE=2 ./scripts/run-tests.sh` or `LINK_POOL_SIZE=0 ./scripts/run-tests.sh`. This affects
+only Ninja; `CMAKE_BUILD_PARALLEL_LEVEL` remains the separate overall build concurrency limit.
+
 Build and test helper scripts should preserve an inherited value and may provide only a conservative
 fallback when it is absent, for example:
 
