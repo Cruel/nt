@@ -500,7 +500,6 @@ if(NOT TARGET rmlui_bgfx::rmlui_bgfx)
         "-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON for tandem local development.")
 endif()
 
-noveltea_force_rmlui_bgfx_core_linkage(rmlui_bgfx::rmlui_bgfx)
 noveltea_apply_runtime_dependency_policy(rmlui_bgfx::rmlui_bgfx)
 
 add_subdirectory(engine)
