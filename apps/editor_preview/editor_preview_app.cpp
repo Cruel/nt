@@ -148,14 +148,29 @@ noveltea::RuntimePreviewController* preview_controller()
 }
 
 #if NOVELTEA_ENABLE_DEVTOOLS
-void record_debugger_mutation_if_accepted(std::string_view mutation_result, std::string detail)
+void record_debugger_mutation_result(std::string_view mutation_result, std::string fallback_detail)
 {
     const auto parsed = nlohmann::json::parse(mutation_result, nullptr, false);
-    if (!parsed.is_object() || !parsed.value("accepted", false))
+    if (!parsed.is_object())
         return;
-    if (auto* engine = preview_engine())
-        noveltea::EngineTooling::record_debugger_mutation(*engine, "editor-react",
-                                                          std::move(detail));
+    auto detail = std::move(fallback_detail);
+    if (detail.empty())
+        detail = parsed.value("label", std::string{});
+    if (parsed.contains("oldValue"))
+        detail += " · old=" + parsed["oldValue"].dump();
+    if (parsed.contains("newValue"))
+        detail += " · new=" + parsed["newValue"].dump();
+    if (const auto reason = parsed.value("message", std::string{}); !reason.empty())
+        detail += " · " + reason;
+    if (auto* engine = preview_engine()) {
+        if (parsed.value("accepted", false)) {
+            noveltea::EngineTooling::record_debugger_mutation(*engine, "editor-react",
+                                                              std::move(detail));
+        } else {
+            noveltea::EngineTooling::record_debugger_console(
+                *engine, std::move(detail), noveltea::devtools::ConsoleSeverity::Warning);
+        }
+    }
 }
 
 nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot& value)
@@ -216,6 +231,29 @@ nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot
              {"target", hotspot.target},
              {"highlight", hotspot.highlight},
              {"cursor", hotspot.cursor ? nlohmann::json(*hotspot.cursor) : nlohmann::json(nullptr)},
+             {"preparedHitTarget", hotspot.prepared_hit_target},
+             {"hitTestOrder", hotspot.hit_test_order ? nlohmann::json(*hotspot.hit_test_order)
+                                                     : nlohmann::json(nullptr)},
+             {"inputOrder",
+              hotspot.input_order ? nlohmann::json(*hotspot.input_order) : nlohmann::json(nullptr)},
+             {"hitShape", hotspot.hit_shape},
+             {"hitShapeX",
+              hotspot.hit_shape_x ? nlohmann::json(*hotspot.hit_shape_x) : nlohmann::json(nullptr)},
+             {"hitShapeY",
+              hotspot.hit_shape_y ? nlohmann::json(*hotspot.hit_shape_y) : nlohmann::json(nullptr)},
+             {"hitShapeWidth", hotspot.hit_shape_width ? nlohmann::json(*hotspot.hit_shape_width)
+                                                       : nlohmann::json(nullptr)},
+             {"hitShapeHeight", hotspot.hit_shape_height ? nlohmann::json(*hotspot.hit_shape_height)
+                                                         : nlohmann::json(nullptr)},
+             {"hitBoundsX", hotspot.hit_bounds_x ? nlohmann::json(*hotspot.hit_bounds_x)
+                                                 : nlohmann::json(nullptr)},
+             {"hitBoundsY", hotspot.hit_bounds_y ? nlohmann::json(*hotspot.hit_bounds_y)
+                                                 : nlohmann::json(nullptr)},
+             {"hitBoundsWidth", hotspot.hit_bounds_width ? nlohmann::json(*hotspot.hit_bounds_width)
+                                                         : nlohmann::json(nullptr)},
+             {"hitBoundsHeight", hotspot.hit_bounds_height
+                                     ? nlohmann::json(*hotspot.hit_bounds_height)
+                                     : nlohmann::json(nullptr)},
              {"underPointer", hotspot.under_pointer},
              {"hovered", hotspot.hovered},
              {"pressed", hotspot.pressed}});
@@ -771,7 +809,7 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_set_variable(const char* varia
         return result.c_str();
     }
     result = preview->set_variable(variable_id, std::move(*value.value_if()));
-    record_debugger_mutation_if_accepted(result, "set variable " + std::string(variable_id));
+    record_debugger_mutation_result(result, "set variable " + std::string(variable_id));
     return result.c_str();
 }
 
@@ -781,7 +819,7 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_reset_variable(const char* var
     result.clear();
     if (auto* preview = preview_controller(); preview && variable_id) {
         result = preview->reset_variable(variable_id);
-        record_debugger_mutation_if_accepted(result, "reset variable " + std::string(variable_id));
+        record_debugger_mutation_result(result, "reset variable " + std::string(variable_id));
     }
     return result.c_str();
 }
@@ -792,7 +830,7 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_teleport_room(const char* room
     result.clear();
     if (auto* preview = preview_controller(); preview && room_id) {
         result = preview->teleport_room(room_id);
-        record_debugger_mutation_if_accepted(result, "teleport room " + std::string(room_id));
+        record_debugger_mutation_result(result, "teleport room " + std::string(room_id));
     }
     return result.c_str();
 }
@@ -804,8 +842,8 @@ noveltea_runtime_create_instance(const char* kind, const char* source_kind, cons
     result.clear();
     if (auto* preview = preview_controller(); preview && kind && source_kind && source_id) {
         result = preview->create_runtime_instance(kind, source_kind, source_id);
-        record_debugger_mutation_if_accepted(result, "create " + std::string(kind) + " from " +
-                                                         source_kind + ":" + source_id);
+        record_debugger_mutation_result(result, "create " + std::string(kind) + " from " +
+                                                    source_kind + ":" + source_id);
     }
     return result.c_str();
 }
@@ -820,9 +858,8 @@ noveltea_runtime_replace_instance_configuration(const char* kind, const char* in
         preview && kind && instance_id && source_kind && source_id) {
         result = preview->replace_runtime_instance_configuration(kind, instance_id, source_kind,
                                                                  source_id);
-        record_debugger_mutation_if_accepted(result, "replace " + std::string(kind) + " " +
-                                                         instance_id + " from " + source_kind +
-                                                         ":" + source_id);
+        record_debugger_mutation_result(result, "replace " + std::string(kind) + " " + instance_id +
+                                                    " from " + source_kind + ":" + source_id);
     }
     return result.c_str();
 }
@@ -834,8 +871,8 @@ noveltea_runtime_clear_instance_configuration(const char* kind, const char* inst
     result.clear();
     if (auto* preview = preview_controller(); preview && kind && instance_id) {
         result = preview->clear_runtime_instance_configuration(kind, instance_id);
-        record_debugger_mutation_if_accepted(result, "clear " + std::string(kind) +
-                                                         " configuration " + instance_id);
+        record_debugger_mutation_result(result, "clear " + std::string(kind) + " configuration " +
+                                                    instance_id);
     }
     return result.c_str();
 }
@@ -847,8 +884,7 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_destroy_instance(const char* k
     result.clear();
     if (auto* preview = preview_controller(); preview && kind && instance_id) {
         result = preview->destroy_runtime_instance(kind, instance_id);
-        record_debugger_mutation_if_accepted(result,
-                                             "destroy " + std::string(kind) + " " + instance_id);
+        record_debugger_mutation_result(result, "destroy " + std::string(kind) + " " + instance_id);
     }
     return result.c_str();
 }
@@ -861,8 +897,8 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_retarget_room_exit(const char*
     result.clear();
     if (auto* preview = preview_controller(); preview && room_id && exit_id && target_room_id) {
         result = preview->retarget_runtime_room_exit(room_id, exit_id, target_room_id);
-        record_debugger_mutation_if_accepted(result, "retarget room exit " + std::string(room_id) +
-                                                         "/" + exit_id + " -> " + target_room_id);
+        record_debugger_mutation_result(result, "retarget room exit " + std::string(room_id) + "/" +
+                                                    exit_id + " -> " + target_room_id);
     }
     return result.c_str();
 }
@@ -1003,8 +1039,25 @@ EMSCRIPTEN_KEEPALIVE const char* noveltea_runtime_fast_forward_to_input()
 {
     static std::string result;
     result.clear();
-    if (auto* preview = preview_controller())
+    if (auto* preview = preview_controller()) {
         result = preview->fast_forward_to_input();
+        if (auto* engine = preview_engine()) {
+            const auto parsed = nlohmann::json::parse(result, nullptr, false);
+            std::string operation = "Fast-forward stopped";
+            auto severity = noveltea::devtools::ConsoleSeverity::Info;
+            if (parsed.is_object()) {
+                const auto reason = parsed.value("reason", std::string{"unknown"});
+                operation += ": reason=" + reason;
+                operation += " steps=" + std::to_string(parsed.value("stepsApplied", 0));
+                if (reason == "error")
+                    severity = noveltea::devtools::ConsoleSeverity::Error;
+                else if (reason == "budget-exhausted" || reason == "stabilization-limit")
+                    severity = noveltea::devtools::ConsoleSeverity::Warning;
+            }
+            noveltea::EngineTooling::record_debugger_mutation(*engine, "editor-react",
+                                                              std::move(operation), severity);
+        }
+    }
     return result.c_str();
 }
 #endif

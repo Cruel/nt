@@ -1151,15 +1151,17 @@ TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
     REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
     controller.presentation_changed();
 
-    CHECK_FALSE(
-        controller
-            .handle(
-                {WorldPointerEventKind::MouseDown, {25.0f, 50.0f}, {25.0f, 50.0f}, 0, true, true})
-            .consumed);
-    CHECK(controller
-              .handle(
-                  {WorldPointerEventKind::MouseDown, {75.0f, 50.0f}, {75.0f, 50.0f}, 0, true, true})
-              .consumed);
+    const auto transparent = controller.handle(
+        {WorldPointerEventKind::MouseDown, {25.0f, 50.0f}, {25.0f, 50.0f}, 0, true, true});
+    CHECK_FALSE(transparent.consumed);
+    CHECK(transparent.hit_test_performed);
+    CHECK_FALSE(transparent.hit);
+    const auto opaque = controller.handle(
+        {WorldPointerEventKind::MouseDown, {75.0f, 50.0f}, {75.0f, 50.0f}, 0, true, true});
+    CHECK(opaque.consumed);
+    CHECK(opaque.hit_test_performed);
+    REQUIRE(opaque.hit);
+    CHECK(*opaque.hit == alpha);
 }
 
 TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admission")
@@ -1193,6 +1195,9 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
     auto canceled = controller.handle(
         {WorldPointerEventKind::MouseUp, {19.0f, 10.0f}, {19.0f, 10.0f}, 0, true, true});
     CHECK(canceled.consumed);
+    CHECK(canceled.hit_test_performed);
+    REQUIRE(canceled.hit);
+    CHECK(*canceled.hit == hotspot);
     CHECK_FALSE(canceled.target);
 
     REQUIRE(
@@ -1215,8 +1220,10 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
             .handle(
                 {WorldPointerEventKind::MouseDown, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true})
             .consumed);
-    (void)controller.handle(
+    const auto blocked_move = controller.handle(
         {WorldPointerEventKind::MouseMove, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, false});
+    CHECK_FALSE(blocked_move.hit_test_performed);
+    CHECK_FALSE(blocked_move.hit);
     auto blocked_release = controller.handle(
         {WorldPointerEventKind::MouseUp, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true});
     CHECK_FALSE(blocked_release.consumed);
@@ -1240,6 +1247,23 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
         {WorldPointerEventKind::TouchUp, {20.0f, 20.0f}, {20.0f, 20.0f}, 1, true, true});
     REQUIRE(touch_release.target);
     CHECK(*touch_release.target == semantic_target("room-target"));
+
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::TouchDown, {20.0f, 20.0f}, {20.0f, 20.0f}, 3, true, true})
+            .consumed);
+    REQUIRE(
+        controller
+            .handle(
+                {WorldPointerEventKind::TouchMove, {40.0f, 20.0f}, {40.0f, 20.0f}, 3, true, true})
+            .consumed);
+    const auto canceled_touch_release = controller.handle(
+        {WorldPointerEventKind::TouchUp, {40.0f, 20.0f}, {40.0f, 20.0f}, 3, true, true});
+    CHECK(canceled_touch_release.consumed);
+    CHECK_FALSE(canceled_touch_release.hit_test_performed);
+    CHECK_FALSE(canceled_touch_release.hit);
+    CHECK_FALSE(canceled_touch_release.target);
 }
 
 TEST_CASE("world hotspot capture revalidates release containment and presentation generation")

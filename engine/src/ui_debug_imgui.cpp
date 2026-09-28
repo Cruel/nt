@@ -271,15 +271,42 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
         }
 
         if (ImGui::CollapsingHeader("Console")) {
-            if (ImGui::Button("Clear##console"))
+            if (ImGui::Checkbox("Freeze##console", &m_console_frozen)) {
+                if (m_console_frozen)
+                    m_frozen_console.assign(console.begin(), console.end());
+                else
+                    m_frozen_console.clear();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##console")) {
                 output.clear_console = true;
-            if (console.empty()) {
+                if (m_console_frozen)
+                    m_frozen_console.clear();
+            }
+            ImGui::SetNextItemWidth(140.0f);
+            ImGui::Combo("Severity##console", &m_console_severity_filter,
+                         "All\0Info\0Warning\0Error\0");
+            ImGui::InputText("Category##console", m_console_category_filter.data(),
+                             m_console_category_filter.size());
+            ImGui::InputText("Filter##console", m_console_text_filter.data(),
+                             m_console_text_filter.size());
+            const std::span<const devtools::ConsoleRecord> visible_console =
+                m_console_frozen ? std::span<const devtools::ConsoleRecord>{m_frozen_console}
+                                 : console;
+            if (visible_console.empty()) {
                 ImGui::TextUnformatted("No retained records");
             } else {
                 ImGui::BeginChild("Console", ImVec2(0.0f, 180.0f), true);
-                const auto first = console.size() > 100 ? console.size() - 100 : 0;
-                for (std::size_t index = first; index < console.size(); ++index) {
-                    const auto& record = console[index];
+                for (const auto& record : visible_console) {
+                    if (m_console_severity_filter != 0 &&
+                        static_cast<int>(record.severity) + 1 != m_console_severity_filter)
+                        continue;
+                    if (m_console_category_filter[0] != '\0' &&
+                        record.category.find(m_console_category_filter.data()) == std::string::npos)
+                        continue;
+                    if (m_console_text_filter[0] != '\0' &&
+                        record.message.find(m_console_text_filter.data()) == std::string::npos)
+                        continue;
                     ImGui::TextWrapped(
                         "[%llu] [%.*s] [%s] %s", static_cast<unsigned long long>(record.sequence),
                         static_cast<int>(devtools::console_severity_name(record.severity).size()),
@@ -291,19 +318,47 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
         }
 
         if (ImGui::CollapsingHeader("Trace")) {
-            if (ImGui::Button("Clear##trace"))
+            if (ImGui::Checkbox("Freeze##trace", &m_trace_frozen)) {
+                if (m_trace_frozen)
+                    m_frozen_trace.assign(trace.begin(), trace.end());
+                else
+                    m_frozen_trace.clear();
+            }
+            ImGui::SameLine();
+            if (ImGui::Button("Clear##trace")) {
                 output.clear_trace = true;
+                if (m_trace_frozen)
+                    m_frozen_trace.clear();
+            }
+            ImGui::SetNextItemWidth(160.0f);
+            ImGui::Combo("Kind##trace", &m_trace_kind_filter,
+                         "All\0Input routing\0Debugger mutation\0Generation\0");
+            ImGui::InputText("Category##trace", m_trace_category_filter.data(),
+                             m_trace_category_filter.size());
+            ImGui::InputText("Filter##trace", m_trace_text_filter.data(),
+                             m_trace_text_filter.size());
             if (trace_evicted_record_count > 0) {
                 ImGui::Text("History gap: %llu record(s) were evicted from retention",
                             static_cast<unsigned long long>(trace_evicted_record_count));
             }
-            if (trace.empty()) {
+            const std::span<const devtools::TraceRecord> visible_trace =
+                m_trace_frozen ? std::span<const devtools::TraceRecord>{m_frozen_trace} : trace;
+            if (visible_trace.empty()) {
                 ImGui::TextUnformatted("No retained records");
             } else {
                 ImGui::BeginChild("Trace", ImVec2(0.0f, 180.0f), true);
-                const auto first = trace.size() > 100 ? trace.size() - 100 : 0;
-                for (std::size_t index = first; index < trace.size(); ++index) {
-                    const auto& record = trace[index];
+                for (const auto& record : visible_trace) {
+                    if (m_trace_kind_filter != 0 &&
+                        static_cast<int>(record.kind) + 1 != m_trace_kind_filter)
+                        continue;
+                    if (m_trace_category_filter[0] != '\0' &&
+                        record.category.find(m_trace_category_filter.data()) == std::string::npos)
+                        continue;
+                    if (m_trace_text_filter[0] != '\0' &&
+                        record.detail.find(m_trace_text_filter.data()) == std::string::npos &&
+                        (!record.input ||
+                         record.input->event.find(m_trace_text_filter.data()) == std::string::npos))
+                        continue;
                     if (record.input) {
                         const auto& input = *record.input;
                         ImGui::TextWrapped("[%llu] [%s] %s admitted=%s block=%s world=%s repeat=%u",
@@ -314,6 +369,26 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
                                            input.gameplay_block_reason.c_str(),
                                            input.world_evaluated ? "evaluated" : "not-evaluated",
                                            record.repeat_count);
+                        if (input.host_x || input.reference_x) {
+                            ImGui::TextWrapped(
+                                "  coords host=(%.1f, %.1f) reference=(%.1f, %.1f)",
+                                input.host_x.value_or(0.0f), input.host_y.value_or(0.0f),
+                                input.reference_x.value_or(0.0f), input.reference_y.value_or(0.0f));
+                        }
+                        if (input.rmlui_hover) {
+                            const auto& hover = *input.rmlui_hover;
+                            ImGui::TextWrapped("  RmlUi %s %s#%s pointer-events=%s",
+                                               hover.context.c_str(), hover.tag.c_str(),
+                                               hover.id.c_str(), hover.pointer_events.c_str());
+                        }
+                        ImGui::TextWrapped(
+                            "  layout=%s (%s) hit=%s hovered=%s pressed=%s target=%s",
+                            input.governing_layout ? input.governing_layout->c_str() : "none",
+                            input.governing_layout_mode.c_str(),
+                            input.world_hit ? input.world_hit->c_str() : "none",
+                            input.world_hovered ? input.world_hovered->c_str() : "none",
+                            input.world_pressed ? input.world_pressed->c_str() : "none",
+                            input.world_target ? input.world_target->c_str() : "none");
                     } else {
                         ImGui::TextWrapped(
                             "[%llu] [%s] %s", static_cast<unsigned long long>(record.sequence),

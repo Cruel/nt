@@ -273,6 +273,18 @@ function devtoolsSnapshotFixture(): DevtoolsSnapshot {
           target: 'room/foyer/exit/hall',
           highlight: 'default',
           cursor: 'system:pointer',
+          preparedHitTarget: true,
+          hitTestOrder: 0,
+          inputOrder: 10,
+          hitShape: 'rect',
+          hitShapeX: 0.1,
+          hitShapeY: 0.2,
+          hitShapeWidth: 0.3,
+          hitShapeHeight: 0.4,
+          hitBoundsX: 10,
+          hitBoundsY: 20,
+          hitBoundsWidth: 100,
+          hitBoundsHeight: 80,
           underPointer: true,
           hovered: true,
           pressed: false,
@@ -439,7 +451,7 @@ describe('FullGamePreviewEditor', () => {
     expect(await screen.findByRole('button', { name: /Input routing/ })).toBeInTheDocument();
     expect(screen.getByText('blocked: runtime-ui')).toBeInTheDocument();
     expect(screen.getByText('Door')).toBeInTheDocument();
-    expect(screen.getAllByText('under pointer').length).toBeGreaterThan(0);
+    expect(screen.getAllByText('Under pointer').length).toBeGreaterThan(0);
 
     await user.click(screen.getByRole('button', { name: /RmlUi state/ }));
     expect(screen.getByText('consumed last event')).toBeInTheDocument();
@@ -1090,13 +1102,39 @@ describe('FullGamePreviewEditor', () => {
       });
     });
 
-    await waitFor(() =>
-      expect(useWorkspaceStore.getState().runtimeEvents[0]).toMatchObject({
-        label: 'Fast-forward stopped',
-        severity: 'warning',
-      }),
-    );
-    expect(useWorkspaceStore.getState().runtimeEvents[0]?.detail).toContain('budget-exhausted');
+    expect(useWorkspaceStore.getState().runtimeEvents).toEqual([]);
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'devtools-console-delta',
+        delta: {
+          afterSequence: '0',
+          earliestRetainedSequence: '1',
+          latestSequence: '1',
+          lostRecordCount: '0',
+          historyGap: false,
+          records: [
+            {
+              sequence: '1',
+              globalSequence: '1',
+              hostGeneration: '1',
+              runtimeGeneration: '1',
+              frame: '1',
+              severity: 'warning',
+              category: 'debugger',
+              message: 'Fast-forward stopped: reason=budget-exhausted steps=500',
+              source: null,
+              generationMarker: false,
+            },
+          ],
+        },
+      });
+    });
+    expect(useWorkspaceStore.getState().runtimeEvents[0]).toMatchObject({
+      label: 'Fast-forward stopped: reason=budget-exhausted steps=500',
+      severity: 'warning',
+      category: 'debugger',
+    });
   });
 
   it('renders runtime debug snapshots with authoring metadata labels', async () => {

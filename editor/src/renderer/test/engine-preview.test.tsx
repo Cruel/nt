@@ -51,6 +51,9 @@ beforeEach(() => {
     previewConnectionState: 'disconnected',
     selectedRuntimeObjectId: null,
     runtimeEvents: [],
+    runtimeConsoleLostRecordCount: null,
+    runtimeTrace: [],
+    runtimeTraceLostRecordCount: null,
     statusMessage: 'Preview disconnected',
   });
   usePreferencesStore.setState({ showPreviewFpsCounter: false });
@@ -763,6 +766,41 @@ describe('EnginePreview', () => {
     );
     const iframe = (await screen.findByTitle('NovelTea engine preview')) as HTMLIFrameElement;
     const { editorPort } = await connectRenderedPreview(iframe);
+    act(() => {
+      useWorkspaceStore.getState().addDevtoolsConsoleRecords([
+        {
+          sequence: '1',
+          globalSequence: '1',
+          hostGeneration: '1',
+          runtimeGeneration: '1',
+          frame: '1',
+          severity: 'info',
+          category: 'runtime',
+          message: 'old host console',
+          source: null,
+          generationMarker: false,
+        },
+      ]);
+      useWorkspaceStore.getState().addDevtoolsTraceRecords([
+        {
+          sequence: '1',
+          firstSequence: '1',
+          globalSequence: '2',
+          firstGlobalSequence: '2',
+          hostGeneration: '1',
+          runtimeGeneration: '1',
+          kind: 'generation',
+          category: 'lifecycle',
+          repeatCount: 1,
+          firstFrame: '1',
+          lastFrame: '1',
+          input: null,
+          debuggerMutation: null,
+          detail: 'old host trace',
+          generationMarker: true,
+        },
+      ]);
+    });
     await user.click(await screen.findByText('Reload preview'));
     await waitFor(() => expect(window.noveltea.reloadEnginePreview).toHaveBeenCalled());
     expect(editorPort.closed).toBe(true);
@@ -770,6 +808,8 @@ describe('EnginePreview', () => {
     expect((screen.getByTitle('NovelTea engine preview') as HTMLIFrameElement).src).toBe(
       'http://127.0.0.1:5000/?sessionToken=test-token&audio=0',
     );
+    expect(useWorkspaceStore.getState().runtimeEvents).toEqual([]);
+    expect(useWorkspaceStore.getState().runtimeTrace).toEqual([]);
   });
 
   it('minimal embedded previews load preview documents with embedded iframe params', async () => {
@@ -932,7 +972,7 @@ describe('EnginePreview', () => {
     );
   });
 
-  it('records only semantic runtime activity in the Console feed', async () => {
+  it('uses the engine Console stream instead of runtime mutation messages as Console history', async () => {
     const { previewPort } = await renderConnectedPreview();
     const before = useWorkspaceStore.getState().runtimeEvents.length;
 
@@ -968,10 +1008,40 @@ describe('EnginePreview', () => {
       });
     });
 
+    expect(useWorkspaceStore.getState().runtimeEvents).toHaveLength(before);
+
+    await act(async () => {
+      previewPort.postMessage({
+        version: 1,
+        type: 'devtools-console-delta',
+        delta: {
+          afterSequence: '0',
+          earliestRetainedSequence: '1',
+          latestSequence: '1',
+          lostRecordCount: '0',
+          historyGap: false,
+          records: [
+            {
+              sequence: '1',
+              globalSequence: '2',
+              hostGeneration: '1',
+              runtimeGeneration: '3',
+              frame: '9',
+              severity: 'info',
+              category: 'debugger',
+              message: 'set variable trust',
+              source: null,
+              generationMarker: false,
+            },
+          ],
+        },
+      });
+    });
+
     expect(useWorkspaceStore.getState().runtimeEvents[0]).toMatchObject({
-      label: 'Set trust',
-      detail: 'variable-set · old=2 · new=3',
+      label: 'set variable trust',
       severity: 'info',
+      category: 'debugger',
     });
   });
 

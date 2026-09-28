@@ -15,13 +15,69 @@ namespace noveltea {
 namespace {
 
 #if NOVELTEA_ENABLE_DEVTOOLS
+nlohmann::json runtime_debug_value(const core::RuntimeValue& value)
+{
+    return std::visit(
+        [](const auto& typed) -> nlohmann::json {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, std::monostate>)
+                return nullptr;
+            else if constexpr (std::is_same_v<T, core::MessageRef>)
+                return nlohmann::json{{"messageId", typed.id}};
+            else
+                return typed;
+        },
+        value);
+}
+
+std::string runtime_debug_event_kind(std::string_view kind)
+{
+    if (kind == "set-variable")
+        return "variable-set";
+    if (kind == "reset-variable")
+        return "variable-reset";
+    if (kind == "teleport-room")
+        return "room-teleport";
+    return std::string{kind};
+}
+
+std::string runtime_debug_event_label(std::string_view kind, std::string_view id)
+{
+    if (kind == "set-variable")
+        return "Set variable " + std::string{id};
+    if (kind == "reset-variable")
+        return "Reset variable " + std::string{id};
+    if (kind == "teleport-room")
+        return "Teleport to room " + std::string{id};
+    if (kind == "instance-create")
+        return "Create Gameplay Instance " + std::string{id};
+    if (kind == "instance-replace-configuration")
+        return "Replace Gameplay Instance configuration " + std::string{id};
+    if (kind == "instance-clear-configuration")
+        return "Clear Gameplay Instance configuration " + std::string{id};
+    if (kind == "instance-destroy")
+        return "Destroy Gameplay Instance " + std::string{id};
+    if (kind == "room-exit-retarget")
+        return "Retarget Room Exit " + std::string{id};
+    return std::string{kind} + " " + std::string{id};
+}
+
 std::string typed_mutation_result(host::PreviewMutationResult result)
 {
-    return nlohmann::json{{"accepted", result.accepted},
-                          {"kind", std::move(result.kind)},
-                          {"id", std::move(result.id)},
-                          {"message", std::move(result.message)}}
-        .dump();
+    nlohmann::json encoded{{"accepted", result.accepted},
+                           {"kind", runtime_debug_event_kind(result.kind)},
+                           {"id", result.id},
+                           {"debugOnly", true},
+                           {"label", runtime_debug_event_label(result.kind, result.id)},
+                           {"rejected", !result.accepted},
+                           {"target", {{"type", "runtime-debug-target"}, {"id", result.id}}}};
+    if (!result.message.empty())
+        encoded["message"] = std::move(result.message);
+    if (result.old_value)
+        encoded["oldValue"] = runtime_debug_value(*result.old_value);
+    if (result.new_value)
+        encoded["newValue"] = runtime_debug_value(*result.new_value);
+    return encoded.dump();
 }
 
 nlohmann::json preview_entity_ref(std::string type, std::string id, std::string collection = {})

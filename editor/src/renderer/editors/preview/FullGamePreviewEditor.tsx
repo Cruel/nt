@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { RmlUiDebuggerControls } from './RmlUiDebuggerControls';
 import { DebugReportExportButton } from './DebugReportExportButton';
 import type { DevtoolsSnapshot } from '../../../shared/preview-protocol';
@@ -728,76 +729,109 @@ function RuntimeSummaryPanel({ snapshot }: { snapshot: RuntimeDebugSnapshot | nu
 }
 
 function DevtoolsInputPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null }) {
+  const { t } = useTranslation('workspace');
   const input = snapshot?.input;
   const host = snapshot?.host;
   return (
     <Panel
-      title="Input routing"
+      title={t('devtoolsInspector.input.title')}
       icon={<MousePointer2 className="h-3.5 w-3.5" />}
       summary={
         input
-          ? `${input.lastEvent || 'No event'} · ${input.gameplayAdmitted ? 'admitted' : input.gameplayBlockReason}`
-          : 'No snapshot'
+          ? t(
+              input.gameplayAdmitted
+                ? 'devtoolsInspector.input.summaryAdmitted'
+                : 'devtoolsInspector.input.summaryBlocked',
+              {
+                event: input.lastEvent || t('devtoolsInspector.common.noEvent'),
+                reason: input.gameplayBlockReason,
+              },
+            )
+          : t('devtoolsInspector.common.noSnapshot')
       }
       defaultOpen
     >
       <div className="space-y-1">
         <InfoRow
-          label="Pointer"
-          value={input?.pointerValid ? `${input.referenceX}, ${input.referenceY}` : 'outside'}
+          label={t('devtoolsInspector.input.pointer')}
+          value={
+            input?.pointerValid
+              ? `${input.referenceX}, ${input.referenceY}`
+              : t('devtoolsInspector.common.outside')
+          }
         />
         <InfoRow
-          label="Developer UI"
+          label={t('devtoolsInspector.input.developerUi')}
           value={
             input
-              ? `${input.debugProcessed ? 'processed' : 'skipped'}${input.debugConsumed ? ' / consumed' : ''}`
+              ? t(
+                  input.debugProcessed
+                    ? input.debugConsumed
+                      ? 'devtoolsInspector.input.developerProcessedConsumed'
+                      : 'devtoolsInspector.input.developerProcessed'
+                    : 'devtoolsInspector.input.developerSkipped',
+                )
               : undefined
           }
         />
         <InfoRow
-          label="RmlUi"
+          label={t('devtoolsInspector.input.rmlui')}
           value={
             input
-              ? `${input.runtimeUiProcessed ? 'processed' : 'skipped'}${input.runtimeUiConsumed ? ' / consumed' : ''}${input.runtimeUiWantsPointer ? ' / wants pointer' : ''}`
+              ? t(
+                  !input.runtimeUiProcessed
+                    ? 'devtoolsInspector.input.rmluiSkipped'
+                    : input.runtimeUiConsumed && input.runtimeUiWantsPointer
+                      ? 'devtoolsInspector.input.rmluiProcessedConsumedPointer'
+                      : input.runtimeUiConsumed
+                        ? 'devtoolsInspector.input.rmluiProcessedConsumed'
+                        : input.runtimeUiWantsPointer
+                          ? 'devtoolsInspector.input.rmluiProcessedPointer'
+                          : 'devtoolsInspector.input.rmluiProcessed',
+                )
               : undefined
           }
         />
         <InfoRow
-          label="Gameplay"
+          label={t('devtoolsInspector.input.gameplay')}
           value={
             input
               ? input.gameplayAdmitted
-                ? 'admitted'
-                : `blocked: ${input.gameplayBlockReason}`
+                ? t('devtoolsInspector.input.gameplayAdmitted')
+                : t('devtoolsInspector.input.gameplayBlocked', {
+                    reason: input.gameplayBlockReason,
+                  })
               : undefined
           }
         />
         <InfoRow
-          label="Governing Layout"
+          label={t('devtoolsInspector.input.governingLayout')}
           value={
             input?.governingLayout
               ? `${input.governingLayout} (${input.governingLayoutMode})`
               : input?.governingLayoutMode
           }
         />
-        <InfoRow label="Host" value={host ? `${host.platform} · ${host.renderer}` : undefined} />
+        <InfoRow
+          label={t('devtoolsInspector.input.host')}
+          value={host ? `${host.platform} · ${host.renderer}` : undefined}
+        />
       </div>
     </Panel>
   );
 }
 
 function DevtoolsRmlUiPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null }) {
+  const { t } = useTranslation('workspace');
   const contexts = snapshot?.rmlui ?? [];
   return (
     <Panel
-      title="RmlUi state"
+      title={t('devtoolsInspector.rmlui.title')}
       icon={<Braces className="h-3.5 w-3.5" />}
-      summary={`${contexts.length} context${contexts.length === 1 ? '' : 's'}`}
+      summary={t('devtoolsInspector.rmlui.contextCount', { count: contexts.length })}
     >
       {contexts.length === 0 ? (
-        <div className="text-xs text-muted-foreground">
-          No RmlUi contexts in the latest snapshot.
-        </div>
+        <div className="text-xs text-muted-foreground">{t('devtoolsInspector.rmlui.none')}</div>
       ) : null}
       {contexts.map((context) => (
         <div key={context.lifecycleIdentity} className="rounded-md border p-2 text-xs">
@@ -806,37 +840,53 @@ function DevtoolsRmlUiPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null })
             <Badge variant="outline">{context.plane}</Badge>
             <Badge variant={context.recentEventConsumed ? 'secondary' : 'outline'}>
               {context.recentEventConsumed
-                ? 'consumed last event'
+                ? t('devtoolsInspector.rmlui.consumedLastEvent')
                 : context.recentEventProcessed
-                  ? 'processed last event'
-                  : 'not reached'}
+                  ? t('devtoolsInspector.rmlui.processedLastEvent')
+                  : t('devtoolsInspector.rmlui.notReached')}
             </Badge>
           </div>
           <div className="mt-1 space-y-1">
-            <InfoRow label="Lifecycle" value={context.lifecycleIdentity} />
-            <InfoRow label="Input" value={`${context.inputMode} · ${context.owner}`} />
-            <InfoRow label="Scale domain" value={context.scaleDomain} />
             <InfoRow
-              label="Context size"
-              value={`${context.width}×${context.height} · media ${context.mediaQueryWidth}×${context.mediaQueryHeight}`}
+              label={t('devtoolsInspector.rmlui.lifecycle')}
+              value={context.lifecycleIdentity}
             />
             <InfoRow
-              label="Scale"
-              value={`ui ${context.requestedUiScale} · text ${context.textScaleFactor} · raster ${context.uiRasterScaleX}×${context.uiRasterScaleY}`}
+              label={t('devtoolsInspector.rmlui.input')}
+              value={`${context.inputMode} · ${context.owner}`}
+            />
+            <InfoRow label={t('devtoolsInspector.rmlui.scaleDomain')} value={context.scaleDomain} />
+            <InfoRow
+              label={t('devtoolsInspector.rmlui.contextSize')}
+              value={t('devtoolsInspector.rmlui.contextSizeValue', {
+                width: context.width,
+                height: context.height,
+                mediaWidth: context.mediaQueryWidth,
+                mediaHeight: context.mediaQueryHeight,
+              })}
             />
             <InfoRow
-              label="Hover"
+              label={t('devtoolsInspector.rmlui.scale')}
+              value={t('devtoolsInspector.rmlui.scaleValue', {
+                uiScale: context.requestedUiScale,
+                textScale: context.textScaleFactor,
+                rasterX: context.uiRasterScaleX,
+                rasterY: context.uiRasterScaleY,
+              })}
+            />
+            <InfoRow
+              label={t('devtoolsInspector.rmlui.hover')}
               value={
                 context.hover
-                  ? `${context.hover.documentId || 'unknown'} · ${context.hover.tag}#${context.hover.id || '—'} · pointer-events=${context.hover.pointerEvents}`
+                  ? `${context.hover.documentId || t('devtoolsInspector.common.unknown')} · ${context.hover.tag}#${context.hover.id || '—'} · pointer-events=${context.hover.pointerEvents}`
                   : undefined
               }
             />
             <InfoRow
-              label="Focus"
+              label={t('devtoolsInspector.rmlui.focus')}
               value={
                 context.focus
-                  ? `${context.focus.documentId || 'unknown'} · ${context.focus.tag}#${context.focus.id || '—'}`
+                  ? `${context.focus.documentId || t('devtoolsInspector.common.unknown')} · ${context.focus.tag}#${context.focus.id || '—'}`
                   : undefined
               }
             />
@@ -848,6 +898,7 @@ function DevtoolsRmlUiPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null })
 }
 
 function DevtoolsWorldPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null }) {
+  const { t } = useTranslation('workspace');
   const world = snapshot?.world;
   const hotspots = world?.hotspots ?? [];
   const active = hotspots.filter(
@@ -860,41 +911,76 @@ function DevtoolsWorldPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null })
     <div key={hotspot.identity} className="rounded-md border p-2 text-xs">
       <div className="flex flex-wrap items-center gap-1">
         <span className="font-medium">{hotspot.label || hotspot.identity}</span>
-        {hotspot.underPointer ? <Badge>under pointer</Badge> : null}
-        {hotspot.hovered ? <Badge>hovered</Badge> : null}
-        {hotspot.pressed ? <Badge variant="secondary">pressed</Badge> : null}
-        {!hotspot.conditionEligible ? <Badge variant="outline">ineligible</Badge> : null}
-        {!hotspot.targetAvailable ? <Badge variant="outline">target unavailable</Badge> : null}
+        {hotspot.underPointer ? <Badge>{t('devtoolsInspector.world.underPointer')}</Badge> : null}
+        {hotspot.hovered ? <Badge>{t('devtoolsInspector.world.hovered')}</Badge> : null}
+        {hotspot.pressed ? (
+          <Badge variant="secondary">{t('devtoolsInspector.world.pressed')}</Badge>
+        ) : null}
+        {!hotspot.conditionEligible ? (
+          <Badge variant="outline">{t('devtoolsInspector.world.ineligible')}</Badge>
+        ) : null}
+        {!hotspot.targetAvailable ? (
+          <Badge variant="outline">{t('devtoolsInspector.world.targetUnavailable')}</Badge>
+        ) : null}
+        {!hotspot.preparedHitTarget ? (
+          <Badge variant="outline">{t('devtoolsInspector.world.noPreparedHitTarget')}</Badge>
+        ) : null}
       </div>
       <div className="mt-1 space-y-1">
-        <InfoRow label="Identity" value={hotspot.identity} />
-        <InfoRow label="Target" value={hotspot.target} />
-        <InfoRow label="Highlight" value={hotspot.highlight} />
-        <InfoRow label="Cursor" value={hotspot.cursor} />
+        <InfoRow label={t('devtoolsInspector.world.identity')} value={hotspot.identity} />
+        <InfoRow label={t('devtoolsInspector.world.target')} value={hotspot.target} />
+        <InfoRow label={t('devtoolsInspector.world.highlight')} value={hotspot.highlight} />
+        <InfoRow label={t('devtoolsInspector.world.cursor')} value={hotspot.cursor} />
+        <InfoRow
+          label={t('devtoolsInspector.world.hitShape')}
+          value={
+            hotspot.hitShape === 'rect' && hotspot.hitShapeX !== null
+              ? `${hotspot.hitShape} ${hotspot.hitShapeX}, ${hotspot.hitShapeY} · ${hotspot.hitShapeWidth}×${hotspot.hitShapeHeight}`
+              : hotspot.hitShape
+          }
+        />
+        <InfoRow
+          label={t('devtoolsInspector.world.hitBounds')}
+          value={
+            hotspot.hitBoundsX !== null
+              ? `${hotspot.hitBoundsX}, ${hotspot.hitBoundsY} · ${hotspot.hitBoundsWidth}×${hotspot.hitBoundsHeight}`
+              : undefined
+          }
+        />
+        <InfoRow label={t('devtoolsInspector.world.hitTestOrder')} value={hotspot.hitTestOrder} />
+        <InfoRow label={t('devtoolsInspector.world.inputOrder')} value={hotspot.inputOrder} />
       </div>
     </div>
   );
   return (
     <Panel
-      title="World Hotspots"
+      title={t('devtoolsInspector.world.title')}
       icon={<MousePointer2 className="h-3.5 w-3.5" />}
       summary={
         world
-          ? `${active.length} active · ${hotspots.length} total${world.captureActive ? ' · captured' : ''}`
-          : 'No snapshot'
+          ? t(
+              world.captureActive
+                ? 'devtoolsInspector.world.summaryCaptured'
+                : 'devtoolsInspector.world.summary',
+              {
+                active: active.length,
+                total: hotspots.length,
+              },
+            )
+          : t('devtoolsInspector.common.noSnapshot')
       }
       defaultOpen
     >
       <div className="space-y-1">
-        <InfoRow label="Under pointer" value={world?.underPointer} />
-        <InfoRow label="Hovered" value={world?.hovered} />
-        <InfoRow label="Pressed" value={world?.pressed} />
+        <InfoRow label={t('devtoolsInspector.world.underPointer')} value={world?.underPointer} />
+        <InfoRow label={t('devtoolsInspector.world.hovered')} value={world?.hovered} />
+        <InfoRow label={t('devtoolsInspector.world.pressed')} value={world?.pressed} />
       </div>
       {active.map(renderHotspot)}
       {inactive.length > 0 ? (
         <details className="rounded-md border p-2 text-xs">
           <summary className="cursor-pointer text-muted-foreground">
-            All other Hotspots ({inactive.length})
+            {t('devtoolsInspector.world.allOther', { count: inactive.length })}
           </summary>
           <div className="mt-2 space-y-1">{inactive.map(renderHotspot)}</div>
         </details>
