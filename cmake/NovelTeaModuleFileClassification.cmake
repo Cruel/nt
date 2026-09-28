@@ -224,6 +224,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/core/asset_telemetry.hpp
     engine/include/noveltea/core/editor_playback_expectations.hpp
     engine/include/noveltea/core/editor_runtime_protocol.hpp
+    engine/include/noveltea/devtools_sequence.hpp
     engine/include/noveltea/engine.hpp
     engine/include/noveltea/engine_tooling.hpp
     engine/include/noveltea/jobs/job_completion_queue.hpp

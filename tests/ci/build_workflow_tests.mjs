@@ -168,7 +168,10 @@ test('shader tool consumers use the pinned bgfx-matched nt-tools bundle', () => 
 test('C++ formatting runs as an early pinned-tool gate before shader assets', () => {
   const format = job('cxx-format');
   assert.match(format, /name: C\+\+ formatting/);
-  assert.match(format, /uses: astral-sh\/setup-uv@v10/);
+  assert.match(
+    format,
+    /uses: astral-sh\/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10\.2\.0/,
+  );
   assert.match(step(format, 'Check C++ formatting'), /cmake\/RunClangFormat\.cmake/);
   assert.match(step(format, 'Check C++ formatting'), /-DMODE=check/);
   assert.equal(field(job('shader-assets'), 'needs'), 'cxx-format');
