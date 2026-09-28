@@ -389,7 +389,9 @@ Debugger through `devtools-set-rmlui-debugger { visible, context }`. The widget 
 `noveltea_devtools_set_rmlui_debugger()` export, rejects unknown context names, emits a fresh
 `devtools-snapshot` on success, and then acknowledges the command. React does not reproduce the
 Debugger's DOM/style/data-model inspector; it only exposes visibility and inspected-context controls
-for the native RmlUi Debugger hosted by the runtime.
+for the native RmlUi Debugger hosted by the runtime. Hiding it detaches the upstream inspection hook
+while retaining the selected context name, so outline rendering cannot remain active behind a
+`visible=false` snapshot.
 
 The structured Console is a separate cursor-based data plane rather than another snapshot section.
 The engine retains roughly the latest 1000 Console records with monotonically increasing sequence
@@ -399,7 +401,12 @@ record. Host/runtime generation transitions are retained records themselves, so 
 boundaries remain visible instead of clearing history. `noveltea_devtools_console_delta(afterSequence)` returns
 records newer than the cursor plus `earliestRetainedSequence`, `latestSequence`, `historyGap`, and
 `lostRecordCount`. Sequence and generation IDs cross the JavaScript boundary as canonical unsigned
-decimal strings so 64-bit values are not truncated by JavaScript numbers.
+decimal strings so 64-bit values are not truncated by JavaScript numbers. Console strings are made
+valid UTF-8 at the engine boundary; invalid Lua bytes are represented as `\\xNN`, keeping Console
+polling and debug-report JSON transport safe under the no-exceptions build. Candidate project-runtime
+logs are buffered until replacement outcome is known: committed bootstrap logs are published only
+after the new runtime generation is active, while failed-candidate logs use `lua-candidate` without a
+runtime generation and therefore cannot masquerade as output from the still-running session.
 
 While Play is active and visible, `web/widget.html` persists the last accepted Console sequence and
 polls this delta surface independently from snapshot fingerprinting. Non-empty deltas or explicit

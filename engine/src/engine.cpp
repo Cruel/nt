@@ -362,6 +362,14 @@ Engine::Impl::Impl()
 #else
               {},
 #endif
+          .candidate_script_debug_sink =
+#if NOVELTEA_ENABLE_DEVTOOLS
+              [this](const script::ScriptDebugMessage& message) {
+                  append_candidate_script_debug_message(message);
+              },
+#else
+              {},
+#endif
           .runtime_session_replaced =
               [this]() { m_presentation_layouts.replace_runtime_session(); },
           .diagnostic_sink =
@@ -3079,6 +3087,27 @@ void Engine::Impl::append_script_debug_message(const script::ScriptDebugMessage&
         source = devtools::ConsoleSource{.chunk = message.source, .line = message.line};
     }
     m_devtools_console.append(severity, "lua", message.message, std::move(source), m_frame_count);
+}
+
+void Engine::Impl::append_candidate_script_debug_message(const script::ScriptDebugMessage& message)
+{
+    sync_devtools_generations();
+    devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Info;
+    switch (message.severity) {
+    case script::ScriptDebugSeverity::Info:
+        break;
+    case script::ScriptDebugSeverity::Warning:
+        severity = devtools::ConsoleSeverity::Warning;
+        break;
+    case script::ScriptDebugSeverity::Error:
+        severity = devtools::ConsoleSeverity::Error;
+        break;
+    }
+    std::optional<devtools::ConsoleSource> source;
+    if (!message.source.empty() || message.line)
+        source = devtools::ConsoleSource{.chunk = message.source, .line = message.line};
+    m_devtools_console.append_with_runtime_generation(
+        severity, "lua-candidate", message.message, std::move(source), std::nullopt, m_frame_count);
 }
 
 void Engine::Impl::append_input_trace(const host::NormalizedHostEvent& event,

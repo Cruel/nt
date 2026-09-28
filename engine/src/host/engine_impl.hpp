@@ -65,6 +65,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
 #if NOVELTEA_ENABLE_DEVTOOLS
     void sync_devtools_generations();
     void append_script_debug_message(const script::ScriptDebugMessage& message);
+    void append_candidate_script_debug_message(const script::ScriptDebugMessage& message);
     void append_input_trace(const host::NormalizedHostEvent& event,
                             const host::HostInputRouteResult& routed,
                             const std::optional<WorldPointerEventResult>& world_result);
