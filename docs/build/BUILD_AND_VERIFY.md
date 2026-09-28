@@ -390,5 +390,7 @@ That helper asks Gradle to sign the release build with the debug keystore only f
 
 ## Optional Components
 
-- Dear ImGui (`NOVELTEA_ENABLE_DEVTOOLS`): dev/debug overlay. Default `ON`.
+- Developer tooling (`NOVELTEA_ENABLE_DEVTOOLS`): shared Devtools Snapshot/Console/Trace
+  instrumentation and debugger capabilities. Host composition may additionally include the native
+  Dear ImGui frontend; optimized editor-preview builds intentionally do not. Default `ON`.
 - Shader compilation (`NOVELTEA_COMPILE_SHADERS`): set `OFF` to use prebuilt shaders. Default `ON`.

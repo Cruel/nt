@@ -268,6 +268,9 @@ std::filesystem::path config_path(int argc, char** argv)
 noveltea::EngineToolingConfig tooling_config(int argc, char** argv)
 {
     noveltea::EngineToolingConfig config;
+#if NOVELTEA_ENABLE_DEVTOOLS && !defined(__EMSCRIPTEN__)
+    config.enable_debug_ui = true;
+#endif
     for (int i = 1; i < argc; ++i) {
         const std::string_view argument = argv[i];
         if (argument == "--show-fps") {

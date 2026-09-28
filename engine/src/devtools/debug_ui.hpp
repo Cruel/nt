@@ -43,16 +43,16 @@ public:
 
     [[nodiscard]] bool is_visible() const noexcept { return m_visible; }
     void toggle_visibility() noexcept { m_visible = !m_visible; }
+    void reset_window_rect() noexcept { m_reset_window_rect = true; }
 
 private:
-    bool m_visible = true;
-#if defined(NOVELTEA_HAS_IMGUI)
+    bool m_visible = false;
+    bool m_reset_window_rect = false;
     bool m_initialized = false;
     std::string m_ini_path;
     float m_web_ini_sync_timer = 0.0f;
     void* m_bgfx_backend = nullptr;
     const assets::AssetManager* m_assets = nullptr;
-#endif
 };
 
 } // namespace noveltea
