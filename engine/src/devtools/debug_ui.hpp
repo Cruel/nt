@@ -51,18 +51,16 @@ private:
     bool m_visible = false;
     bool m_reset_window_rect = false;
     bool m_initialized = false;
-#if defined(NOVELTEA_HAS_IMGUI)
-    bool m_console_frozen = false;
-    bool m_trace_frozen = false;
-    int m_console_severity_filter = 0;
-    int m_trace_kind_filter = 0;
-    std::array<char, 64> m_console_category_filter{};
-    std::array<char, 128> m_console_text_filter{};
-    std::array<char, 64> m_trace_category_filter{};
-    std::array<char, 128> m_trace_text_filter{};
-    std::vector<devtools::ConsoleRecord> m_frozen_console;
-    std::vector<devtools::TraceRecord> m_frozen_trace;
-#endif
+    [[maybe_unused]] bool m_console_frozen = false;
+    [[maybe_unused]] bool m_trace_frozen = false;
+    [[maybe_unused]] int m_console_severity_filter = 0;
+    [[maybe_unused]] int m_trace_kind_filter = 0;
+    [[maybe_unused]] std::array<char, 64> m_console_category_filter{};
+    [[maybe_unused]] std::array<char, 128> m_console_text_filter{};
+    [[maybe_unused]] std::array<char, 64> m_trace_category_filter{};
+    [[maybe_unused]] std::array<char, 128> m_trace_text_filter{};
+    [[maybe_unused]] std::vector<devtools::ConsoleRecord> m_frozen_console;
+    [[maybe_unused]] std::vector<devtools::TraceRecord> m_frozen_trace;
     std::string m_ini_path;
     float m_web_ini_sync_timer = 0.0f;
     void* m_bgfx_backend = nullptr;
