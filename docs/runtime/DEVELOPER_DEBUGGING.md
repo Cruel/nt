@@ -44,7 +44,12 @@ publish here when a developer sink is attached; `print(...)` keeps its normal ho
 also mirrored as an informational Lua record in developer builds. NovelTea runtime diagnostic
 summaries and RmlUi's own typed log callback are also explicit Console producers rather than being
 recovered by scraping SDL log text. In devtools-off builds the `Debug` table remains source-compatible
-but has no developer sink.
+but has no developer sink. Console strings are normalized to valid UTF-8 before retention; arbitrary
+Lua bytes are preserved as `\\xNN` text so polling and debug-report JSON serialization cannot abort on
+invalid UTF-8. Project-runtime bootstrap logging is buffered until candidate ownership is known:
+successful candidates publish after the new runtime generation boundary, while failed candidates use
+the `lua-candidate` category with no runtime generation instead of being attributed to the still-live
+session.
 
 Editor debugger mutations publish their semantic result to this same Console boundary. Accepted and
 rejected attempts are both visible; rejected attempts use warning severity and retain their rejection
@@ -70,7 +75,9 @@ Console/Trace envelopes including retention-gap metadata. It does not scrape edi
 
 Developer builds initialize RmlUi's built-in Debugger against the persistent primary context. The
 editor controls only its visibility and inspected context; React does not reproduce its element,
-style, or data-model inspector. Hiding the debugger preserves the selected context.
+style, or data-model inspector. Hiding the debugger preserves the selected context but detaches the
+Debugger inspection hook, so element outlines and other inspected-context rendering stop with the
+visible debugger.
 
 On a native developer host, `F10` toggles the NovelTea Dear ImGui debugger frontend and
 `Shift+F10` resets its window layout. These shortcuts are intercepted at the host-input layer before

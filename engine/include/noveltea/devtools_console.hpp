@@ -53,6 +53,10 @@ public:
                          std::optional<std::uint64_t> runtime_generation, std::uint64_t frame = 0);
     void append(ConsoleSeverity severity, std::string category, std::string message,
                 std::optional<ConsoleSource> source = std::nullopt, std::uint64_t frame = 0);
+    void append_with_runtime_generation(ConsoleSeverity severity, std::string category,
+                                        std::string message, std::optional<ConsoleSource> source,
+                                        std::optional<std::uint64_t> runtime_generation,
+                                        std::uint64_t frame = 0);
     [[nodiscard]] ConsoleDelta delta_after(std::uint64_t after_sequence) const;
     [[nodiscard]] std::span<const ConsoleRecord> records() const noexcept { return m_records; }
     [[nodiscard]] std::uint64_t latest_sequence() const noexcept { return m_next_sequence - 1; }

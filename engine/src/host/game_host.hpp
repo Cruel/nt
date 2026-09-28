@@ -105,6 +105,7 @@ public:
         WorldTransitionBackend* world_transitions = nullptr;
         script::ScriptRuntime& script_certifier;
         std::function<void(const script::ScriptDebugMessage&)> script_debug_sink;
+        std::function<void(const script::ScriptDebugMessage&)> candidate_script_debug_sink;
         std::function<void()> runtime_session_replaced;
         std::function<void(HostFrameStage, const core::Diagnostic&)> diagnostic_sink;
     };
@@ -332,7 +333,8 @@ private:
                                                         const std::function<bool()>& dispatch);
     void deliver_runtime_ui_events(std::span<const runtime::RuntimeEvent> events);
     [[nodiscard]] HostRuntimeDispatchResult
-    replace_runtime_session(const core::RuntimeInputMessage& input);
+    replace_runtime_session(const core::RuntimeInputMessage& input,
+                            std::vector<script::ScriptDebugMessage>& committed_debug_messages);
     [[nodiscard]] HostRuntimeDispatchResult
     stale_runtime_input_result(GameSessionGeneration generation);
     [[nodiscard]] HostRuntimeDispatchResult lifecycle_noop_result() const noexcept;

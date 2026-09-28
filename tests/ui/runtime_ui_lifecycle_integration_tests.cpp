@@ -1401,6 +1401,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     REQUIRE(host.set_debugger(true, primary));
     host.update_contexts();
     CHECK(host.debugger_snapshot().context == primary);
+    CHECK(host.primary_context()->GetDocument("rmlui-debug-hook") != nullptr);
     auto* menu = host.primary_context()->GetDocument("rmlui-debug-menu");
     REQUIRE(menu);
     REQUIRE(menu->IsVisible());
@@ -1419,6 +1420,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     REQUIRE(host.set_debugger(false, primary));
     host.update_contexts();
     CHECK_FALSE(menu->IsVisible());
+    CHECK(host.primary_context()->GetDocument("rmlui-debug-hook") == nullptr);
     auto* info = host.primary_context()->GetDocument("rmlui-debug-info");
     REQUIRE(info);
     CHECK_FALSE(info->IsVisible());
@@ -1434,6 +1436,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     REQUIRE(inspected);
     REQUIRE(host.set_debugger(true, inspected->GetName()));
     CHECK(host.debugger_snapshot().context == inspected->GetName());
+    CHECK(inspected->GetDocument("rmlui-debug-hook") != nullptr);
     CHECK(menu->GetContext() == host.primary_context());
     auto* underlying = inspected->LoadDocumentFromMemory(
         "<rml><head><style>body { width: 1280px; height: 720px; }</style></head><body/></rml>");
@@ -1453,6 +1456,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     CHECK(primary_dispatches == 1);
     CHECK(underlying_dispatches == 0);
     REQUIRE(host.set_debugger(false, inspected->GetName()));
+    CHECK(inspected->GetDocument("rmlui-debug-hook") == nullptr);
     (void)host.process_event(
         motion, [inspected](Rml::Context* context) { return context == inspected; },
         dispatch_layout);

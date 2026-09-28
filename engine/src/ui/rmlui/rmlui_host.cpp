@@ -227,8 +227,19 @@ void RmlUiHost::shutdown()
     reset_pointer_state();
 #if NOVELTEA_ENABLE_DEVTOOLS
     // The plugin owns documents and wraps our system interface; release it before either owner.
-    if (m_debugger_initialized)
+    if (m_debugger_initialized) {
+        const auto selected =
+            std::find_if(m_contexts.begin(), m_contexts.end(),
+                         [&](const auto& record) { return record.name == m_debugger_context; });
+        if (selected != m_contexts.end() && selected->context) {
+            // Upstream debugger teardown assumes a live debug context. Hidden debugger state
+            // deliberately detaches it to suppress outline rendering, so restore the remembered
+            // context only for teardown before unregistering the plugin.
+            (void)Rml::Debugger::SetContext(selected->context);
+            selected->context->Update();
+        }
         Rml::Debugger::Shutdown();
+    }
     m_debugger_initialized = false;
     m_debugger_context.clear();
 #endif
@@ -271,8 +282,9 @@ bool RmlUiHost::set_debugger(bool visible, const std::string& context)
                                     [&](const auto& record) { return record.name == context; });
     if (!m_debugger_initialized || found == m_contexts.end())
         return false;
-    if (!Rml::Debugger::SetContext(found->context))
-        return false;
+    const auto previous =
+        std::find_if(m_contexts.begin(), m_contexts.end(),
+                     [&](const auto& record) { return record.name == m_debugger_context; });
     m_debugger_context = context;
     // Upstream SetVisible controls only the menu, not the independently opened inspectors.
     if (!visible) {
@@ -282,9 +294,20 @@ bool RmlUiHost::set_debugger(bool visible, const std::string& context)
                 document->GetId() != "rmlui-debug-hook")
                 document->Hide();
         }
+        if (!Rml::Debugger::SetContext(nullptr))
+            return false;
+    } else if (!Rml::Debugger::SetContext(found->context)) {
+        return false;
     }
+    // DebuggerPlugin::SetContext unloads the previous debug-hook document, but RmlUi defers its
+    // destruction until that context is updated. Flush it while the plugin is still alive so a
+    // secondary inspected context cannot retain a hook that outlives Debugger::Shutdown().
+    if (previous != m_contexts.end() && previous->context)
+        previous->context->Update();
     Rml::Debugger::SetVisible(visible);
-    m_primary_context->Update();
+    if (m_primary_context &&
+        (previous == m_contexts.end() || previous->context != m_primary_context))
+        m_primary_context->Update();
     if (!visible) {
         SDL_Event leave{};
         leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;

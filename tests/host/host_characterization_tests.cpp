@@ -278,6 +278,40 @@ TEST_CASE("Devtools Console retains runtime generation transitions as records")
     CHECK(console.records()[1].message.find("replacing 3") != std::string::npos);
 }
 
+TEST_CASE("Devtools Console sanitizes arbitrary bytes before JSON transport")
+{
+    devtools::ConsoleBuffer console;
+    std::string message{"lua byte: "};
+    message.push_back(static_cast<char>(0xFF));
+    std::string source{"chunk"};
+    source.push_back(static_cast<char>(0x80));
+    console.append(devtools::ConsoleSeverity::Info, "lua", std::move(message),
+                   devtools::ConsoleSource{.chunk = std::move(source), .line = 7});
+
+    REQUIRE(console.records().size() == 1);
+    CHECK(console.records().front().message == "lua byte: \\xFF");
+    REQUIRE(console.records().front().source);
+    CHECK(console.records().front().source->chunk == "chunk\\x80");
+    const auto encoded = nlohmann::json(console.records().front().message).dump();
+    CHECK(encoded.find("\\\\xFF") != std::string::npos);
+}
+
+TEST_CASE("Devtools Console can record uncommitted candidate output without changing generations")
+{
+    devtools::ConsoleBuffer console;
+    console.set_generations(2, 9, 4);
+    console.append_with_runtime_generation(devtools::ConsoleSeverity::Warning, "lua-candidate",
+                                           "candidate failed", std::nullopt, std::nullopt, 5);
+    console.append(devtools::ConsoleSeverity::Info, "lua", "live runtime", std::nullopt, 6);
+
+    REQUIRE(console.records().size() == 3);
+    CHECK(console.records()[1].host_generation == 2);
+    CHECK_FALSE(console.records()[1].runtime_generation);
+    CHECK(console.records()[1].category == "lua-candidate");
+    CHECK(console.records()[2].runtime_generation == 9);
+    CHECK_FALSE(console.records()[2].generation_marker);
+}
+
 TEST_CASE("Devtools Console and Trace share a global sequence while keeping independent cursors")
 {
     devtools::SequenceAllocator sequence;
