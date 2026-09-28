@@ -131,6 +131,165 @@ std::string presentation_owner_key(const core::PresentationOwner& owner)
         owner);
 }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+const char* host_event_name(host::NormalizedHostEventKind kind) noexcept
+{
+    using Kind = host::NormalizedHostEventKind;
+    switch (kind) {
+    case Kind::Unknown:
+        return "unknown";
+    case Kind::QuitRequested:
+        return "quit-requested";
+    case Kind::WindowMinimized:
+        return "window-minimized";
+    case Kind::WindowRestored:
+        return "window-restored";
+    case Kind::FocusLost:
+        return "focus-lost";
+    case Kind::FocusGained:
+        return "focus-gained";
+    case Kind::EnteredBackground:
+        return "entered-background";
+    case Kind::EnteredForeground:
+        return "entered-foreground";
+    case Kind::WindowResized:
+        return "window-resized";
+    case Kind::PointerLeft:
+        return "pointer-left";
+    case Kind::MouseButtonDown:
+        return "mouse-button-down";
+    case Kind::MouseButtonUp:
+        return "mouse-button-up";
+    case Kind::MouseMotion:
+        return "mouse-motion";
+    case Kind::MouseWheel:
+        return "mouse-wheel";
+    case Kind::KeyDown:
+        return "key-down";
+    case Kind::KeyUp:
+        return "key-up";
+    case Kind::TextInput:
+        return "text-input";
+    case Kind::TouchDown:
+        return "touch-down";
+    case Kind::TouchUp:
+        return "touch-up";
+    case Kind::TouchMotion:
+        return "touch-motion";
+    case Kind::TouchCanceled:
+        return "touch-canceled";
+    }
+    return "unknown";
+}
+
+const char* input_block_reason_name(host::HostGameplayInputBlockReason reason) noexcept
+{
+    using Reason = host::HostGameplayInputBlockReason;
+    switch (reason) {
+    case Reason::None:
+        return "none";
+    case Reason::HiddenPreview:
+        return "hidden-preview";
+    case Reason::DebugOverlay:
+        return "debug-overlay";
+    case Reason::RuntimeUi:
+        return "runtime-ui";
+    case Reason::OutsidePresentation:
+        return "outside-presentation";
+    case Reason::MountedLayout:
+        return "mounted-layout";
+    case Reason::EffectivePause:
+        return "effective-pause";
+    }
+    return "none";
+}
+
+const char* layout_input_mode_name(core::LayoutInputMode mode) noexcept
+{
+    switch (mode) {
+    case core::LayoutInputMode::None:
+        return "none";
+    case core::LayoutInputMode::Normal:
+        return "normal";
+    case core::LayoutInputMode::BlockGameplay:
+        return "block-gameplay";
+    case core::LayoutInputMode::Modal:
+        return "modal";
+    }
+    return "none";
+}
+
+bool trace_pointer_event(host::NormalizedHostEventKind kind) noexcept
+{
+    using Kind = host::NormalizedHostEventKind;
+    return kind == Kind::PointerLeft || kind == Kind::MouseButtonDown ||
+           kind == Kind::MouseButtonUp || kind == Kind::MouseMotion || kind == Kind::MouseWheel ||
+           kind == Kind::TouchDown || kind == Kind::TouchUp || kind == Kind::TouchMotion ||
+           kind == Kind::TouchCanceled;
+}
+
+std::string resolved_hotspot_target_name(const core::compiled::ResolvedHotspotTarget& target)
+{
+    return std::visit(
+        [](const auto& value) -> std::string {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::compiled::RoomExitRef>) {
+                return "room/" + value.room.text() + "/exit/" + value.exit_id.text();
+            } else {
+                return std::visit(
+                    [](const auto& subject) -> std::string {
+                        using S = std::decay_t<decltype(subject)>;
+                        if constexpr (std::is_same_v<S,
+                                                     core::compiled::CharacterInteractionSubject>)
+                            return "character/" + subject.character.text();
+                        else if constexpr (std::is_same_v<
+                                               S, core::compiled::InteractableInteractionSubject>)
+                            return "interactable/" + subject.interactable.text();
+                        else {
+                            return std::visit(
+                                [](const auto& feature) -> std::string {
+                                    using F = std::decay_t<decltype(feature)>;
+                                    if constexpr (std::is_same_v<F, core::RoomFeatureRef>)
+                                        return "room/" + feature.room.text() + "/feature/" +
+                                               feature.feature_id.text();
+                                    else
+                                        return "interactable/" + feature.interactable.text() +
+                                               "/feature/" + feature.feature_id.text();
+                                },
+                                subject.feature);
+                        }
+                    },
+                    value);
+            }
+        },
+        target);
+}
+
+std::string hotspot_highlight_name(const core::compiled::HotspotHighlight& highlight)
+{
+    if (std::holds_alternative<core::compiled::NoHotspotHighlight>(highlight))
+        return "none";
+    if (const auto* material = std::get_if<core::compiled::MaterialHotspotHighlight>(&highlight))
+        return "material:" + material->material.text();
+    return "default";
+}
+
+std::string cursor_target_name(const core::compiled::CursorTarget& cursor)
+{
+    switch (cursor.kind) {
+    case core::compiled::CursorTargetKind::System:
+        return "system:" + std::to_string(static_cast<unsigned>(cursor.system));
+    case core::compiled::CursorTargetKind::Named:
+        return "named:" + cursor.named_id;
+    case core::compiled::CursorTargetKind::None:
+        return "none";
+    case core::compiled::CursorTargetKind::InheritPointer:
+        return "inherit-pointer";
+    }
+    return "none";
+}
+#endif
+
 std::vector<RuntimePostprocessPass>
 runtime_postprocess_stack(const core::CompiledProject& project,
                           const core::RuntimePresentationSnapshot& snapshot)
@@ -2422,6 +2581,10 @@ void Engine::Impl::handle_events()
                                               : host::FocusedContentKind::None;
         const bool focused_preview_active = focused_content_kind != host::FocusedContentKind::None;
         const bool focused_room_preview = focused_content_kind == host::FocusedContentKind::Room;
+#if NOVELTEA_ENABLE_DEVTOOLS
+        bool world_evaluated = false;
+        std::optional<WorldPointerEventResult> world_trace_result;
+#endif
         if ((focused_preview_active && !focused_room_preview) || presentation_pointer_consumed) {
             // Focused editor previews are passive even when the same preview host also has a
             // loaded play-runtime project. A presentation-skip click is also terminally consumed so
@@ -2480,6 +2643,10 @@ void Engine::Impl::handle_events()
                      .primary = touch || normalized.mouse_button == SDL_BUTTON_LEFT,
                      .admitted = focused_room_preview || routed.route_diagnostics.gameplay_admitted,
                      .secondary = !touch && normalized.mouse_button == SDL_BUTTON_RIGHT});
+#if NOVELTEA_ENABLE_DEVTOOLS
+                world_evaluated = true;
+                world_trace_result = world;
+#endif
                 if (world.target && !focused_room_preview) {
                     const bool accepted = std::visit(
                         [this, &world](const auto& target) {
@@ -2577,6 +2744,9 @@ void Engine::Impl::handle_events()
                                 (detail.empty() ? std::string{} : " (" + detail + ")")});
             }
         }
+#if NOVELTEA_ENABLE_DEVTOOLS
+        append_input_trace(normalized, routed, world_evaluated, world_trace_result);
+#endif
         if (!routed.diagnostics.empty()) {
             m_game_host.report_runtime_diagnostics(host::HostFrameStage::RouteInput,
                                                    std::move(routed.diagnostics));
@@ -2668,6 +2838,25 @@ void Engine::Impl::apply_pending_debug_ui_commands()
             continue;
         }
 
+#if NOVELTEA_ENABLE_DEVTOOLS
+        sync_devtools_generations();
+        std::visit(
+            [this](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, host::SetRenderPerfLoggingDebugCommand>) {
+                    m_devtools_trace.append_debugger_mutation(
+                        std::string{"set render perf logging "} +
+                            (value.enabled ? "enabled" : "disabled"),
+                        m_frame_count);
+                } else if constexpr (std::is_same_v<T, host::SetGameplayPausedDebugCommand>) {
+                    m_devtools_trace.append_debugger_mutation(std::string{"set gameplay paused "} +
+                                                                  (value.paused ? "true" : "false"),
+                                                              m_frame_count);
+                }
+            },
+            command);
+#endif
+
         const auto& effect = *executed.value_if();
         if (effect.render_perf_logging) {
             m_render_perf_logging = *effect.render_perf_logging;
@@ -2695,6 +2884,52 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
 #if NOVELTEA_ENABLE_DEVTOOLS
     auto runtime = m_runtime_preview.debug_snapshot_value();
     const auto preview_host_generation = m_runtime_preview.host_generation();
+    auto input = m_devtools_input_snapshot;
+    input.reference_pointer = m_pointer_position;
+    input.pointer_valid = m_pointer_valid;
+    auto rmlui = m_runtime_ui.devtools_context_snapshot();
+
+    const auto world_observation = m_world_hotspots.debug_observation();
+    devtools::DevtoolsWorldSnapshot world{
+        .reference_pointer = world_observation.last_mouse_reference,
+        .pointer_valid = world_observation.last_mouse_valid,
+        .capture_active = world_observation.capture_active,
+        .under_pointer = world_observation.under_pointer
+                             ? std::optional<std::string>{world_hotspot_identity(
+                                   *world_observation.under_pointer)}
+                             : std::nullopt,
+        .hovered =
+            world_observation.hovered
+                ? std::optional<std::string>{world_hotspot_identity(*world_observation.hovered)}
+                : std::nullopt,
+        .pressed =
+            world_observation.pressed
+                ? std::optional<std::string>{world_hotspot_identity(*world_observation.pressed)}
+                : std::nullopt,
+        .hotspots = {},
+    };
+    if (const auto* frame = m_world_presentation.frame()) {
+        if (const auto* presentation = m_world_presentation.snapshot(frame->revision)) {
+            world.hotspots.reserve(presentation->hotspots.size());
+            for (const auto& hotspot : presentation->hotspots) {
+                const auto identity = world_hotspot_identity(hotspot.ref);
+                world.hotspots.push_back({
+                    .identity = identity,
+                    .label = hotspot.label,
+                    .condition_eligible = hotspot.condition_eligible,
+                    .target_available = hotspot.target_available,
+                    .target = resolved_hotspot_target_name(hotspot.target),
+                    .highlight = hotspot_highlight_name(hotspot.highlight),
+                    .cursor = hotspot.cursor
+                                  ? std::optional<std::string>{cursor_target_name(*hotspot.cursor)}
+                                  : std::nullopt,
+                    .under_pointer = world.under_pointer == identity,
+                    .hovered = world.hovered == identity,
+                    .pressed = world.pressed == identity,
+                });
+            }
+        }
+    }
 
     bool native_debug_ui_available = false;
 #if defined(NOVELTEA_HAS_IMGUI)
@@ -2706,6 +2941,9 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
                      .host_generation = preview_host_generation > 0
                                             ? std::optional<std::uint64_t>{preview_host_generation}
                                             : std::nullopt},
+            .input = std::move(input),
+            .rmlui = std::move(rmlui),
+            .world = std::move(world),
             .tooling = {.preview_running = m_preview_running,
                         .render_perf_logging = m_render_perf_logging,
                         .native_debug_ui_available = native_debug_ui_available,
@@ -2717,7 +2955,7 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
 }
 
 #if NOVELTEA_ENABLE_DEVTOOLS
-void Engine::Impl::sync_devtools_console_generations()
+void Engine::Impl::sync_devtools_generations()
 {
     const auto preview_host_generation = m_runtime_preview.host_generation();
     const auto host_generation = preview_host_generation > 0
@@ -2728,11 +2966,12 @@ void Engine::Impl::sync_devtools_console_generations()
             ? std::optional<std::uint64_t>{m_game_host.session_generation().number()}
             : std::nullopt;
     m_devtools_console.set_generations(host_generation, runtime_generation);
+    m_devtools_trace.set_generations(host_generation, runtime_generation, m_frame_count);
 }
 
 void Engine::Impl::append_script_debug_message(const script::ScriptDebugMessage& message)
 {
-    sync_devtools_console_generations();
+    sync_devtools_generations();
     devtools::ConsoleSeverity severity = devtools::ConsoleSeverity::Info;
     switch (message.severity) {
     case script::ScriptDebugSeverity::Info:
@@ -2749,6 +2988,117 @@ void Engine::Impl::append_script_debug_message(const script::ScriptDebugMessage&
         source = devtools::ConsoleSource{.chunk = message.source, .line = message.line};
     }
     m_devtools_console.append(severity, "lua", message.message, std::move(source));
+}
+
+void Engine::Impl::append_input_trace(const host::NormalizedHostEvent& event,
+                                      const host::HostInputRouteResult& routed,
+                                      bool world_evaluated,
+                                      const std::optional<WorldPointerEventResult>& world_result)
+{
+    sync_devtools_generations();
+    const auto& diagnostics = routed.route_diagnostics;
+    m_devtools_input_snapshot = devtools::DevtoolsInputSnapshot{
+        .reference_pointer = m_pointer_position,
+        .pointer_valid = m_pointer_valid,
+        .last_event = host_event_name(event.kind),
+        .debug_processed = diagnostics.debug_processed,
+        .debug_consumed = routed.debug_result.consumed,
+        .runtime_ui_processed = diagnostics.runtime_ui_processed,
+        .runtime_ui_consumed = routed.runtime_ui_result.consumed,
+        .runtime_ui_wants_pointer = routed.runtime_ui_result.wants_pointer,
+        .gameplay_event = diagnostics.gameplay_event,
+        .gameplay_admitted = diagnostics.gameplay_admitted,
+        .gameplay_block_reason = input_block_reason_name(diagnostics.block_reason),
+        .governing_layout =
+            diagnostics.governing_layout
+                ? std::optional<std::string>{std::to_string(diagnostics.governing_layout->number())}
+                : std::nullopt,
+        .governing_layout_mode = layout_input_mode_name(diagnostics.governing_layout_mode),
+    };
+
+    if (!trace_pointer_event(event.kind))
+        return;
+
+    devtools::TraceInputRouting trace{
+        .event = host_event_name(event.kind),
+        .host_x = std::nullopt,
+        .host_y = std::nullopt,
+        .reference_x = std::nullopt,
+        .reference_y = std::nullopt,
+        .mouse_button = std::nullopt,
+        .wheel_x = std::nullopt,
+        .wheel_y = std::nullopt,
+        .reference_valid = m_pointer_valid,
+        .debug_processed = diagnostics.debug_processed,
+        .debug_consumed = routed.debug_result.consumed,
+        .runtime_ui_processed = diagnostics.runtime_ui_processed,
+        .runtime_ui_consumed = routed.runtime_ui_result.consumed,
+        .runtime_ui_wants_pointer = routed.runtime_ui_result.wants_pointer,
+        .gameplay_event = diagnostics.gameplay_event,
+        .gameplay_admitted = diagnostics.gameplay_admitted,
+        .gameplay_block_reason = input_block_reason_name(diagnostics.block_reason),
+        .governing_layout = m_devtools_input_snapshot.governing_layout,
+        .governing_layout_mode = m_devtools_input_snapshot.governing_layout_mode,
+        .rmlui_hover = std::nullopt,
+        .rmlui_focus = std::nullopt,
+        .world_evaluated = world_evaluated,
+        .world_consumed = world_result && world_result->consumed,
+        .world_hit = std::nullopt,
+        .world_hovered = std::nullopt,
+        .world_pressed = std::nullopt,
+        .world_target = std::nullopt,
+    };
+    if (event.has_host_position) {
+        trace.host_x = event.host_position.x;
+        trace.host_y = event.host_position.y;
+    }
+    if (m_pointer_valid) {
+        trace.reference_x = m_pointer_position.x;
+        trace.reference_y = m_pointer_position.y;
+    }
+    if (event.kind == host::NormalizedHostEventKind::MouseButtonDown ||
+        event.kind == host::NormalizedHostEventKind::MouseButtonUp) {
+        trace.mouse_button = event.mouse_button;
+    }
+    if (event.kind == host::NormalizedHostEventKind::MouseWheel) {
+        trace.wheel_x = event.wheel_x;
+        trace.wheel_y = event.wheel_y;
+    }
+
+    const auto contexts = m_runtime_ui.devtools_context_snapshot();
+    const auto element_ref =
+        [](const devtools::DevtoolsRmlUiContextSnapshot& context,
+           const std::optional<devtools::DevtoolsRmlUiElementSnapshot>& element)
+        -> std::optional<devtools::TraceElementRef> {
+        if (!element)
+            return std::nullopt;
+        return devtools::TraceElementRef{.context = context.name,
+                                         .tag = element->tag,
+                                         .id = element->id,
+                                         .classes = element->classes,
+                                         .pointer_events = element->pointer_events};
+    };
+    for (const auto& context : contexts) {
+        if (!trace.rmlui_hover && context.hover)
+            trace.rmlui_hover = element_ref(context, context.hover);
+        if (!trace.rmlui_focus && context.focus)
+            trace.rmlui_focus = element_ref(context, context.focus);
+        if (context.mouse_interacting && context.hover) {
+            trace.rmlui_hover = element_ref(context, context.hover);
+            break;
+        }
+    }
+
+    const auto world = m_world_hotspots.debug_observation();
+    if (world.under_pointer)
+        trace.world_hit = world_hotspot_identity(*world.under_pointer);
+    if (world.hovered)
+        trace.world_hovered = world_hotspot_identity(*world.hovered);
+    if (world.pressed)
+        trace.world_pressed = world_hotspot_identity(*world.pressed);
+    if (world_result && world_result->target)
+        trace.world_target = resolved_hotspot_target_name(*world_result->target);
+    m_devtools_trace.append_input(std::move(trace), m_frame_count);
 }
 #endif
 
@@ -3008,11 +3358,13 @@ void Engine::Impl::render()
         m_renderer.finalize_screenshot_capture();
     if (m_debug_ui_enabled) {
 #if NOVELTEA_ENABLE_DEVTOOLS
-        sync_devtools_console_generations();
-        auto output = m_debug_ui.end_frame(devtools_snapshot(), m_devtools_console.records(),
-                                           !screenshot_capture_frame);
+        sync_devtools_generations();
+        auto output = m_debug_ui.end_frame(
+            devtools_snapshot(), m_devtools_console.records(), m_devtools_trace.records(),
+            m_devtools_trace.evicted_record_count(), !screenshot_capture_frame);
 #else
-        auto output = m_debug_ui.end_frame(devtools_snapshot(), {}, !screenshot_capture_frame);
+        auto output =
+            m_debug_ui.end_frame(devtools_snapshot(), {}, {}, 0, !screenshot_capture_frame);
 #endif
         for (auto& command : output.commands)
             m_pending_debug_ui_commands.push_back(std::move(command));
@@ -3326,6 +3678,7 @@ std::span<const std::string_view> EngineTooling::devtools_capabilities() noexcep
     static constexpr std::array capabilities{
         std::string_view{"devtools-snapshot-v1"},
         std::string_view{"devtools-console-v1"},
+        std::string_view{"devtools-trace-v1"},
         std::string_view{"runtime-debug-snapshot-v1"},
         std::string_view{"runtime-debug-mutations-v1"},
         std::string_view{"runtime-fast-forward-v1"},
@@ -3353,7 +3706,7 @@ EngineTooling::devtools_console_delta(Engine& engine, std::uint64_t after_sequen
             {.code = "devtools.engine_uninitialized",
              .message = "Devtools Console requires an initialized engine."});
     }
-    engine.m_impl->sync_devtools_console_generations();
+    engine.m_impl->sync_devtools_generations();
     return core::Result<devtools::ConsoleDelta, core::Diagnostic>::success(
         engine.m_impl->m_devtools_console.delta_after(after_sequence));
 }
@@ -3363,6 +3716,33 @@ std::uint64_t EngineTooling::clear_devtools_console(Engine& engine) noexcept
     const auto latest = engine.m_impl->m_devtools_console.latest_sequence();
     engine.m_impl->m_devtools_console.clear();
     return latest;
+}
+
+core::Result<devtools::TraceDelta, core::Diagnostic>
+EngineTooling::devtools_trace_delta(Engine& engine, std::uint64_t after_sequence)
+{
+    if (!engine.m_impl->m_initialized) {
+        return core::Result<devtools::TraceDelta, core::Diagnostic>::failure(
+            {.code = "devtools.engine_uninitialized",
+             .message = "Devtools Trace requires an initialized engine."});
+    }
+    engine.m_impl->sync_devtools_generations();
+    return core::Result<devtools::TraceDelta, core::Diagnostic>::success(
+        engine.m_impl->m_devtools_trace.delta_after(after_sequence));
+}
+
+std::uint64_t EngineTooling::clear_devtools_trace(Engine& engine) noexcept
+{
+    const auto latest = engine.m_impl->m_devtools_trace.latest_sequence();
+    engine.m_impl->m_devtools_trace.clear();
+    return latest;
+}
+
+void EngineTooling::record_debugger_mutation(Engine& engine, std::string detail)
+{
+    engine.m_impl->sync_devtools_generations();
+    engine.m_impl->m_devtools_trace.append_debugger_mutation(std::move(detail),
+                                                             engine.m_impl->m_frame_count);
 }
 #endif
 

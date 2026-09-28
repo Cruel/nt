@@ -65,11 +65,14 @@ private or link-only requirements. The exact graph and platform-specific provide
 
 Developer observation is also engine-owned. When `NOVELTEA_ENABLE_DEVTOOLS` is compiled in,
 `EngineTooling` advertises versioned devtools capabilities and exposes one canonical
-`devtools::DevtoolsSnapshot`. Its host/tooling section contains host-surface, renderer, generation,
-preview, performance-logging, and native-debug-UI state. Its runtime section is the existing Runtime
-Debug Snapshot itself rather than a second projection of gameplay/debugger state. Native developer
-UI and editor-preview transport consume that same snapshot. Devtools-off builds retain ordinary
-runtime diagnostics/logging but expose no Devtools Snapshot capability or editor-preview export.
+`devtools::DevtoolsSnapshot` plus bounded Console and Trace streams. The snapshot contains current
+host/tooling state, pointer/input admission, cheap RmlUi hover/focus context, canonical world Hotspot
+observation, and the existing Runtime Debug Snapshot rather than a second gameplay/debugger model.
+Trace records correlate pointer routing across those same host/RmlUi/Layout/world seams and retain
+generation markers and debugger-originated mutations with transition-based motion coalescing. Native
+developer UI and editor-preview transport consume these same engine-owned values; neither owns a
+parallel instrumentation model. Devtools-off builds retain ordinary runtime diagnostics/logging but
+expose none of these developer-only capabilities or editor-preview exports.
 
 ## Loading
 

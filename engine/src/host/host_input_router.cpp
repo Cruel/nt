@@ -126,6 +126,8 @@ NormalizedHostEvent normalize_host_event(const SDL_Event& event,
         normalized.kind = NormalizedHostEventKind::MouseWheel;
         normalized.host_position = {event.wheel.mouse_x, event.wheel.mouse_y};
         normalized.has_host_position = true;
+        normalized.wheel_x = event.wheel.x;
+        normalized.wheel_y = event.wheel.y;
         break;
     case SDL_EVENT_KEY_DOWN:
     case SDL_EVENT_KEY_UP:

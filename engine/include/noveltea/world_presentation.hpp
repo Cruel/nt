@@ -213,6 +213,15 @@ struct WorldPointerEventResult {
     std::optional<core::TriggerContext> trigger_context;
 };
 
+struct WorldHotspotDebugObservation {
+    std::optional<core::compiled::HotspotRef> hovered;
+    std::optional<core::compiled::HotspotRef> pressed;
+    std::optional<core::compiled::HotspotRef> under_pointer;
+    Vec2 last_mouse_reference{};
+    bool last_mouse_valid = false;
+    bool capture_active = false;
+};
+
 class WorldPresentationBackend;
 
 class WorldHotspotController {
@@ -221,6 +230,7 @@ public:
 
     [[nodiscard]] WorldPointerEventResult handle(const WorldPointerEvent& event);
     [[nodiscard]] const WorldHotspotHitTarget* hovered_target() const;
+    [[nodiscard]] WorldHotspotDebugObservation debug_observation() const;
     void target_completed();
     void presentation_changed();
     void cancel() noexcept;
@@ -253,6 +263,7 @@ private:
 };
 
 [[nodiscard]] std::string world_actor_identity(const core::ActorPresentationKey& key);
+[[nodiscard]] std::string world_hotspot_identity(const core::compiled::HotspotRef& ref);
 
 class WorldPresentationBackend {
 public:

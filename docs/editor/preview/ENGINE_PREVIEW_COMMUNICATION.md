@@ -257,6 +257,7 @@ Editor to preview:
 - `runtime-request-debug-snapshot`
 - `devtools-request-snapshot`
 - `devtools-clear-console`
+- `devtools-clear-trace`
 - `runtime-request-asset-profiler`
 - `runtime-set-variable`
 - `runtime-reset-variable`
@@ -335,6 +336,7 @@ Preview to editor:
 - `runtime-debug-snapshot`
 - `devtools-snapshot`
 - `devtools-console-delta`
+- `devtools-trace-delta`
 - `runtime-asset-profiler`
 - `runtime-debug-event`
 - `runtime-fast-forward-result`
@@ -366,7 +368,7 @@ remains available for initial synchronization and manual refresh.
 The optimized `web-editor-preview` build enables `NOVELTEA_ENABLE_DEVTOOLS` even though it does not
 compile Dear ImGui. At startup the widget asks the native engine for its versioned devtools
 capabilities instead of hard-coding them in JavaScript. The current capability set contributed by
-the devtools layer is `devtools-snapshot-v1`, `devtools-console-v1`, `runtime-debug-snapshot-v1`,
+the devtools layer is `devtools-snapshot-v1`, `devtools-console-v1`, `devtools-trace-v1`, `runtime-debug-snapshot-v1`,
 `runtime-debug-mutations-v1`, and `runtime-fast-forward-v1`; later debugger features add their own
 independently versioned capabilities.
 
@@ -394,8 +396,32 @@ snapshot churn remain excluded. `devtools-clear-console` calls the narrow native
 retained engine history without resetting the monotonic sequence, and advances the widget cursor to
 the returned latest sequence so cleared records cannot reappear on the next poll.
 
+Pointer routing uses a second cursor-based developer data plane, the engine-owned Trace. Its bounded
+records carry monotonic sequence IDs plus host/runtime generations and correlate one logical pointer
+event across host/reference projection, RmlUi processing and consumption, governing Layout admission,
+gameplay admission/block reason, and world Hotspot evaluation. Mouse/touch motion with unchanged
+semantic routing state is coalesced into one retained record with repetition and first/last-frame
+metadata while the latest coordinates continue to update. Mouse-button and wheel events remain
+explicit, so alternating button/wheel outcomes cannot disappear into motion coalescing.
+Runtime-generation transitions and debugger-originated mutations are distinct Trace record kinds.
+
+The Devtools Snapshot owns the complementary current-state view: projected pointer/admission state,
+cheap public RmlUi context metrics and hover/focus identity including computed `pointer-events`, and
+canonical world Hotspot observations including eligibility, target availability/identity,
+cursor/highlight intent, hit/hover/press, and capture state. This current state continues changing
+even when repeated pointer motion coalesces into an existing Trace record.
+
+`noveltea_devtools_trace_delta(afterSequence)` returns newer retained records plus
+`earliestRetainedSequence`, `latestSequence`, `historyGap`, and `lostRecordCount`; sequence and
+generation IDs remain canonical unsigned-decimal strings across JavaScript. While Play is active and
+visible, the widget polls this stream independently and emits `devtools-trace-delta`. The editor's
+Play-only Trace pane filters the retained stream, may freeze/autoscroll its local view while capture
+continues, reports lost history, and clears both local and native history through
+`devtools-clear-trace`. Native ImGui renders the same engine Trace instead of maintaining another
+instrumentation log.
+
 When developer instrumentation is compiled out, the native devtools capability/snapshot exports are
-not exposed, the Console delta/clear exports are likewise absent, these devtools capabilities are not
+not exposed, the Console and Trace delta/clear exports are likewise absent, these devtools capabilities are not
 advertised, and this transport is unavailable.
 Ordinary diagnostics and runtime logging remain independent of the developer-only boundary.
 

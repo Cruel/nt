@@ -3,6 +3,7 @@
 #include "host/debug_ui_contracts.hpp"
 #include "noveltea/devtools_console.hpp"
 #include "noveltea/devtools_snapshot.hpp"
+#include "noveltea/devtools_trace.hpp"
 #include "noveltea/surface.hpp"
 
 #include <string>
@@ -35,7 +36,9 @@ public:
     void begin_frame(const HostSurfaceMetrics& surface);
     [[nodiscard]] host::DebugUiFrameOutput
     end_frame(const devtools::DevtoolsSnapshot& snapshot,
-              std::span<const devtools::ConsoleRecord> console, bool submit_draw_data = true);
+              std::span<const devtools::ConsoleRecord> console,
+              std::span<const devtools::TraceRecord> trace,
+              std::uint64_t trace_evicted_record_count, bool submit_draw_data = true);
     void shutdown();
 
     [[nodiscard]] bool is_visible() const noexcept { return m_visible; }

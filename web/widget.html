@@ -37,6 +37,7 @@
     let previewActivityVisible = true;
     let lastRuntimeDebugFingerprint = '';
     let lastDevtoolsConsoleSequence = '0';
+    let lastDevtoolsTraceSequence = '0';
     let previewWheelPolicy = params.get('wheelPolicy') === 'editor-scroll' ? 'editor-scroll' : 'preview-input';
     let previewWheelRouteId = '';
     let transportGeneration = 0;
@@ -1285,6 +1286,38 @@ thead, tbody, tfoot {
       }
     }
 
+    function publishDevtoolsTraceDelta() {
+      if (!port || !engineReady || !runtimeReady || !previewActivityActive || !previewActivityVisible)
+        return;
+      if (!nativeExportAvailable('noveltea_devtools_trace_delta')) return;
+      const json = Module.ccall('noveltea_devtools_trace_delta', 'string', ['string'], [lastDevtoolsTraceSequence]);
+      if (typeof json !== 'string' || json.length === 0) return;
+      try {
+        const delta = JSON.parse(json);
+        if (!delta || typeof delta.latestSequence !== 'string' || !Array.isArray(delta.records)) return;
+        lastDevtoolsTraceSequence = delta.latestSequence;
+        if (delta.records.length === 0 && !delta.historyGap && delta.lostRecordCount === '0') return;
+        send({ version: protocolVersion, type: 'devtools-trace-delta', delta });
+      } catch (_error) {
+      }
+    }
+
+    function clearDevtoolsTrace(message) {
+      if (!nativeExportAvailable('noveltea_devtools_trace_clear')) {
+        failCommand(message, 'Developer Trace is unavailable in this preview build.', { category: 'devtools' });
+        return;
+      }
+      const json = Module.ccall('noveltea_devtools_trace_clear', 'string', [], []);
+      try {
+        const result = JSON.parse(json);
+        if (!result || typeof result.latestSequence !== 'string') throw new Error('missing latest sequence');
+        lastDevtoolsTraceSequence = result.latestSequence;
+        send({ version: protocolVersion, type: 'command-result', requestId: message.requestId, ok: true });
+      } catch (error) {
+        failCommand(message, `Developer Trace clear failed: ${error && error.message ? error.message : String(error)}`, { category: 'devtools' });
+      }
+    }
+
     function runtimeDebugFingerprint(snapshot) {
       return JSON.stringify({
         loaded: snapshot.loaded,
@@ -1510,6 +1543,9 @@ thead, tbody, tfoot {
           return true;
         case 'devtools-clear-console':
           clearDevtoolsConsole(message);
+          return true;
+        case 'devtools-clear-trace':
+          clearDevtoolsTrace(message);
           return true;
         case 'runtime-request-asset-profiler':
           requestAssetProfiler(message);
@@ -1740,6 +1776,7 @@ thead, tbody, tfoot {
     window.setInterval(() => {
       publishRuntimeDebugSnapshotIfChanged();
       publishDevtoolsConsoleDelta();
+      publishDevtoolsTraceDelta();
     }, 100);
 
     // BEGIN preview-surface-metrics
