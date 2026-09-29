@@ -42,6 +42,7 @@ add_custom_target(cxx-dependency-policy
     COMMAND "${CMAKE_COMMAND}"
         -DBUILD_DIR=${CMAKE_BINARY_DIR}
         -DPLATFORM_NAME=${CMAKE_SYSTEM_NAME}
+        -DDEVTOOLS_ENABLED=${NOVELTEA_ENABLE_DEVTOOLS}
         -P ${CMAKE_SOURCE_DIR}/cmake/VerifyDependencyCompilerPolicy.cmake
     COMMENT "Verifying C++ dependency compiler flags and runtime link inputs"
     VERBATIM)

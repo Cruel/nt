@@ -163,12 +163,21 @@ if(platform_name STREQUAL "linux")
     if(link_command MATCHES "vcpkg_installed/[^ ]*/[^ ]*rmlui")
         message(FATAL_ERROR "Runtime link graph contains a vcpkg RmlUi archive")
     endif()
-    foreach(_rmlui_archive IN ITEMS librmlui.a librmlui_lua.a librmlui_debugger.a)
+    foreach(_rmlui_archive IN ITEMS librmlui.a librmlui_lua.a)
         if(NOT link_command MATCHES "${_rmlui_archive}")
             message(FATAL_ERROR
                 "Runtime link graph does not contain fetched RmlUi archive ${_rmlui_archive}")
         endif()
     endforeach()
+    if(DEVTOOLS_ENABLED)
+        if(NOT link_command MATCHES "librmlui_debugger.a")
+            message(FATAL_ERROR
+                "Devtools-enabled runtime link graph does not contain fetched RmlUi debugger archive")
+        endif()
+    elseif(link_command MATCHES "librmlui_debugger.a")
+        message(FATAL_ERROR
+            "Devtools-disabled runtime link graph contains fetched RmlUi debugger archive")
+    endif()
 endif()
 
 message(STATUS
