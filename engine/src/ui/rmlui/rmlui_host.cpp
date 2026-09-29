@@ -9,6 +9,7 @@
 #include <algorithm>
 #include <cmath>
 #include <cstdio>
+#include <limits>
 #include <memory>
 #include <string>
 #include <utility>
@@ -25,6 +26,21 @@ namespace {
 
 constexpr const char* kRuntimeUiFontAsset = "project:/rmlui/LiberationSans.ttf";
 constexpr const char* kRuntimeUiSystemFontAsset = "system:/fonts/LiberationSans.ttf";
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+constexpr RmlUiHost::ContextKey debugger_host_key() noexcept
+{
+    return {
+        .plane = core::PresentationPlane::Debug,
+        .composition_group = std::numeric_limits<std::uint32_t>::max(),
+        .clock = core::LayoutClockDomain::UnscaledPresentation,
+        .input = core::LayoutInputMode::Normal,
+        .owner = core::MountedLayoutOwner::Shell,
+        .scale_domain = LayoutScaleDomain::UiIgnoreTextIgnore,
+        .compatibility_group = std::numeric_limits<std::uint32_t>::max(),
+    };
+}
+#endif
 
 std::optional<host::CursorShape> rmlui_cursor_shape(std::string_view name) noexcept
 {
@@ -147,11 +163,15 @@ bool RmlUiHost::initialize(const Config& config)
     }
 
 #if NOVELTEA_ENABLE_DEVTOOLS
-    m_debugger_initialized = Rml::Debugger::Initialise(m_primary_context);
+    m_debugger_host_context = context_for(debugger_host_key(), false);
+    if (m_debugger_host_context)
+        m_debugger_host_context->SetDensityIndependentPixelRatio(m_debugger_scale);
+    m_debugger_initialized =
+        m_debugger_host_context && Rml::Debugger::Initialise(m_debugger_host_context);
     if (m_debugger_initialized) {
         Rml::Debugger::SetContext(nullptr);
         m_debugger_context = m_primary_context->GetName();
-        m_primary_context->Update();
+        m_debugger_host_context->Update();
     } else {
         std::fprintf(stderr, "[runtime_ui] RmlUi debugger initialization failed\n");
     }
@@ -242,6 +262,8 @@ void RmlUiHost::shutdown()
     }
     m_debugger_initialized = false;
     m_debugger_context.clear();
+    m_debugger_host_context = nullptr;
+    m_debugger_scale = 1.0f;
 #endif
     for (auto& record : m_contexts) {
         if (record.context)
@@ -288,8 +310,10 @@ bool RmlUiHost::set_debugger(bool visible, const std::string& context)
     m_debugger_context = context;
     // Upstream SetVisible controls only the menu, not the independently opened inspectors.
     if (!visible) {
-        for (int index = 0; index < m_primary_context->GetNumDocuments(); ++index) {
-            auto* document = m_primary_context->GetDocument(index);
+        for (int index = 0;
+             m_debugger_host_context && index < m_debugger_host_context->GetNumDocuments();
+             ++index) {
+            auto* document = m_debugger_host_context->GetDocument(index);
             if (document && document->GetId().starts_with("rmlui-debug-") &&
                 document->GetId() != "rmlui-debug-hook")
                 document->Hide();
@@ -305,13 +329,24 @@ bool RmlUiHost::set_debugger(bool visible, const std::string& context)
     if (previous != m_contexts.end() && previous->context)
         previous->context->Update();
     Rml::Debugger::SetVisible(visible);
-    if (m_primary_context &&
-        (previous == m_contexts.end() || previous->context != m_primary_context))
-        m_primary_context->Update();
+    if (m_debugger_host_context)
+        m_debugger_host_context->Update();
     if (!visible) {
         SDL_Event leave{};
         leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
         (void)process_event(leave, {}, {});
+    }
+    return true;
+}
+
+bool RmlUiHost::set_debugger_scale(float scale)
+{
+    if (!std::isfinite(scale) || scale < 0.5f || scale > 2.5f)
+        return false;
+    m_debugger_scale = scale;
+    if (m_debugger_host_context) {
+        m_debugger_host_context->SetDensityIndependentPixelRatio(scale);
+        m_debugger_host_context->Update();
     }
     return true;
 }
@@ -322,6 +357,8 @@ devtools::RmlUiDebuggerSnapshot RmlUiHost::debugger_snapshot() const
             .visible = m_debugger_initialized && Rml::Debugger::IsVisible(),
             .context = m_debugger_context};
 }
+
+Rml::Context* RmlUiHost::debugger_host_context() const noexcept { return m_debugger_host_context; }
 #endif
 
 Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_context; }
@@ -330,10 +367,16 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedCont
 {
     const bool world_transition_source =
         is_world_transition_source_context(key, host::kWorldTransitionSourceCompositionGroup);
+#if NOVELTEA_ENABLE_DEVTOOLS
+    const bool host_surface = key == debugger_host_key();
+#else
+    const bool host_surface = false;
+#endif
     const auto found =
         std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(), [&](const auto& value) {
             return value.plane == key.plane &&
-                   value.world_transition_source == world_transition_source;
+                   value.world_transition_source == world_transition_source &&
+                   value.host_surface == host_surface;
         });
     if (found != m_plane_renderers.end())
         return found->owned.get();
@@ -341,13 +384,17 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedCont
     PlaneRenderer renderer;
     renderer.plane = key.plane;
     renderer.world_transition_source = world_transition_source;
+    renderer.host_surface = host_surface;
     if (m_headless_render) {
         renderer.owned = std::make_unique<HeadlessRenderInterface>();
     } else {
-        const auto views = world_transition_source ? rmlui_bgfx_world_source_overlay_view_range()
-                                                   : rmlui_bgfx_plane_view_range(key.plane);
-        auto bgfx = std::make_unique<BgfxRenderInterface>(m_presentation, metrics, *m_assets, views,
-                                                          m_shader_materials);
+        const auto views = world_transition_source
+                               ? rmlui_bgfx_world_source_overlay_view_range()
+                               : (host_surface ? rmlui_bgfx_debugger_host_view_range()
+                                               : rmlui_bgfx_plane_view_range(key.plane));
+        auto bgfx = std::make_unique<BgfxRenderInterface>(
+            m_presentation, metrics, *m_assets, views, m_shader_materials,
+            host_surface ? RmlUiRenderSurface::HostSurface : RmlUiRenderSurface::GameViewport);
         if (!*bgfx)
             return nullptr;
         bgfx->set_perf_logging_enabled(m_perf_logging);
@@ -360,7 +407,9 @@ Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedCont
     return m_plane_renderers.back().owned.get();
 }
 
-Rml::Context* RmlUiHost::context_for(ContextKey key)
+Rml::Context* RmlUiHost::context_for(ContextKey key) { return context_for(key, true); }
+
+Rml::Context* RmlUiHost::context_for(ContextKey key, bool run_initializer)
 {
     const auto found = std::find_if(m_contexts.begin(), m_contexts.end(),
                                     [&](const auto& value) { return value.key == key; });
@@ -393,7 +442,7 @@ Rml::Context* RmlUiHost::context_for(ContextKey key)
     if (!created)
         return nullptr;
     apply_context_environment(*created, *resolved_metrics);
-    if (m_context_initializer && !m_context_initializer(*created)) {
+    if (run_initializer && m_context_initializer && !m_context_initializer(*created)) {
         Rml::RemoveContext(name);
         return nullptr;
     }
@@ -452,6 +501,28 @@ core::Result<ResolvedContextMetrics, std::string>
 RmlUiHost::resolve_context_environment(ContextKey key, const PresentationMetrics& presentation,
                                        const core::RuntimeUserSettings& settings) const
 {
+#if NOVELTEA_ENABLE_DEVTOOLS
+    if (key == debugger_host_key()) {
+        const HostSurfaceMetrics host = sanitize_host_surface_metrics(presentation.host);
+        ResolvedContextMetrics metrics;
+        metrics.requested_ui_scale = m_debugger_scale;
+        metrics.text_scale_factor = 1.0f;
+        metrics.layout_size = host.logical_size;
+        metrics.media_query_size = host.logical_size;
+        metrics.reference_to_context_scale = {
+            static_cast<float>(host.logical_size.width) / presentation.reference.size.width,
+            static_cast<float>(host.logical_size.height) / presentation.reference.size.height,
+        };
+        metrics.context_to_reference_scale = {
+            static_cast<float>(presentation.reference.size.width) / host.logical_size.width,
+            static_cast<float>(presentation.reference.size.height) / host.logical_size.height,
+        };
+        metrics.ui_raster_scale = host.logical_to_framebuffer_scale;
+        metrics.font_raster_scale = host.logical_to_framebuffer_scale.x;
+        return core::Result<ResolvedContextMetrics, std::string>::success(std::move(metrics));
+    }
+#endif
+
     const float ui_scale = static_cast<float>(settings.ui_scale());
     const float text_scale = static_cast<float>(settings.text_scale());
     if (!std::isfinite(ui_scale) || ui_scale <= 0.0f)
@@ -472,14 +543,20 @@ RmlUiHost::resolve_context_environment(ContextKey key, const PresentationMetrics
 
 void RmlUiHost::apply_context_environment(Rml::Context& context,
                                           const ResolvedContextMetrics& metrics,
-                                          bool force_media_query_refresh)
+                                          bool force_media_query_refresh) const
 {
     context.SetDimensions(Rml::Vector2i(metrics.layout_size.width, metrics.layout_size.height));
     if (force_media_query_refresh)
         context.ClearMediaQueryDimensions();
     context.SetMediaQueryDimensions(
         Rml::Vector2i(metrics.media_query_size.width, metrics.media_query_size.height));
-    context.SetDensityIndependentPixelRatio(metrics.ui_raster_scale.x);
+#if NOVELTEA_ENABLE_DEVTOOLS
+    const float density_ratio =
+        &context == m_debugger_host_context ? m_debugger_scale : metrics.ui_raster_scale.x;
+#else
+    const float density_ratio = metrics.ui_raster_scale.x;
+#endif
+    context.SetDensityIndependentPixelRatio(density_ratio);
     context.SetTextScaleFactor(metrics.text_scale_factor);
     context.SetFontRasterScale(metrics.font_raster_scale);
 }

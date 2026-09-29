@@ -219,6 +219,10 @@ void Renderer::begin_frame()
         static_cast<uint16_t>(capture_frame ? m_screenshot_scene_width : viewport.width);
     const auto fb_h =
         static_cast<uint16_t>(capture_frame ? m_screenshot_scene_height : viewport.height);
+    const auto clear_w = static_cast<uint16_t>(capture_frame ? m_screenshot_scene_width
+                                                             : host.framebuffer_size.width);
+    const auto clear_h = static_cast<uint16_t>(capture_frame ? m_screenshot_scene_height
+                                                             : host.framebuffer_size.height);
     bgfx::FrameBufferHandle final_framebuffer = BGFX_INVALID_HANDLE;
     if (capture_frame)
         final_framebuffer = bgfx::FrameBufferHandle{m_screenshot_scene_target.framebuffer};
@@ -226,7 +230,7 @@ void Renderer::begin_frame()
     bgfx::setViewFrameBuffer(ViewPresentationClear, final_framebuffer);
     bgfx::setViewClear(ViewPresentationClear, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, m_bar_color_rgba,
                        1.0f, 0);
-    bgfx::setViewRect(ViewPresentationClear, fb_x, fb_y, fb_w, fb_h);
+    bgfx::setViewRect(ViewPresentationClear, 0, 0, clear_w, clear_h);
     bgfx::touch(ViewPresentationClear);
 
     bgfx::setViewClear(ViewWorldSourceBackground, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, 0x20242cff,

@@ -14,6 +14,9 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
     m_visible = false;
     m_reset_window_rect = false;
     m_initialized = false;
+    m_imgui_scale = 1.0f;
+    m_rmlui_debugger_scale = 1.0f;
+    m_rmlui_debugger_scale_dirty = false;
     m_ini_path.clear();
     m_web_ini_sync_timer = 0.0f;
     m_bgfx_backend = nullptr;
@@ -48,6 +51,9 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
 void DebugUI::shutdown()
 {
     m_initialized = false;
+    m_imgui_scale = 1.0f;
+    m_rmlui_debugger_scale = 1.0f;
+    m_rmlui_debugger_scale_dirty = false;
     m_ini_path.clear();
     m_web_ini_sync_timer = 0.0f;
     m_bgfx_backend = nullptr;

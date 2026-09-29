@@ -18,6 +18,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <unordered_map>
 #include <unordered_set>
 #include <vector>
 
@@ -115,7 +116,10 @@ public:
     void shutdown();
 #if NOVELTEA_ENABLE_DEVTOOLS
     [[nodiscard]] bool set_debugger(bool visible, const std::string& context);
+    [[nodiscard]] bool set_debugger_scale(float scale);
+    [[nodiscard]] float debugger_scale() const noexcept { return m_debugger_scale; }
     [[nodiscard]] devtools::RmlUiDebuggerSnapshot debugger_snapshot() const;
+    [[nodiscard]] Rml::Context* debugger_host_context() const noexcept;
 #endif
 
     [[nodiscard]] Rml::Context* primary_context() const noexcept;
@@ -181,11 +185,13 @@ private:
     struct PlaneRenderer {
         core::PresentationPlane plane = core::PresentationPlane::GameUi;
         bool world_transition_source = false;
+        bool host_surface = false;
         std::unique_ptr<Rml::RenderInterface> owned;
         BgfxRenderInterface* bgfx = nullptr;
         bool view_range_started = false;
     };
 
+    [[nodiscard]] Rml::Context* context_for(ContextKey key, bool run_initializer);
     [[nodiscard]] Rml::RenderInterface* renderer_for(ContextKey key,
                                                      const ResolvedContextMetrics& metrics);
     [[nodiscard]] core::Result<ResolvedContextMetrics, std::string>
@@ -195,14 +201,15 @@ private:
     reconfigure_context_environment(const PresentationMetrics& presentation,
                                     const core::RuntimeUserSettings& settings,
                                     bool force_media_query_refresh);
-    static void apply_context_environment(Rml::Context& context,
-                                          const ResolvedContextMetrics& metrics,
-                                          bool force_media_query_refresh = false);
+    void apply_context_environment(Rml::Context& context, const ResolvedContextMetrics& metrics,
+                                   bool force_media_query_refresh = false) const;
     [[nodiscard]] bool
     dispatch_transformed_event(const SDL_Event& event, const PresentationTransform& transform,
+                               std::optional<Vec2> host_pointer,
                                std::optional<Vec2> reference_pointer,
                                const VisibleDocumentPredicate& has_visible_document,
-                               const LayoutEventDispatch& dispatch_layout_event);
+                               const LayoutEventDispatch& dispatch_layout_event,
+                               bool dispatch_runtime = true, bool dispatch_debugger = true);
     void reset_pointer_state();
     void publish_cursor_request(std::string_view cursor_name);
     void resolve_cursor_requests(const std::vector<std::uint64_t>& front_to_back);
@@ -226,10 +233,16 @@ private:
     ContextInitializer m_context_initializer;
     CursorOwnerResolver m_cursor_owner_resolver;
     CursorPresentationResolver m_cursor_presentation_resolver;
-    std::unordered_set<std::uint64_t> m_active_touches;
+    std::unordered_map<std::uint64_t, Vec2> m_active_touches;
+    std::unordered_set<std::uint64_t> m_debugger_observed_touches;
+    std::unordered_set<std::uint64_t> m_debugger_active_touches;
+    std::unordered_set<std::uint8_t> m_active_mouse_buttons;
+    std::optional<Vec2> m_mouse_capture_reference;
 #if NOVELTEA_ENABLE_DEVTOOLS
     bool m_debugger_initialized = false;
     std::string m_debugger_context;
+    Rml::Context* m_debugger_host_context = nullptr;
+    float m_debugger_scale = 1.0f;
 #endif
     Rml::Context* m_primary_context = nullptr;
     Rml::Context* m_active_cursor_context = nullptr;

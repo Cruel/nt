@@ -400,6 +400,7 @@ export interface DevtoolsRmlUiElementSnapshot {
 
 export interface DevtoolsRmlUiContextSnapshot {
   name: string;
+  label: string;
   lifecycleIdentity: string;
   plane: string;
   clock: string;
@@ -419,6 +420,7 @@ export interface DevtoolsRmlUiContextSnapshot {
   uiRasterScaleX: number;
   uiRasterScaleY: number;
   fontRasterScale: number;
+  hasInspectableDocuments: boolean;
   mouseInteracting: boolean;
   recentEventProcessed: boolean;
   recentEventConsumed: boolean;
@@ -1452,6 +1454,7 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
     (context) =>
       isRecord(context) &&
       typeof context.name === 'string' &&
+      typeof context.label === 'string' &&
       typeof context.lifecycleIdentity === 'string' &&
       typeof context.plane === 'string' &&
       typeof context.clock === 'string' &&
@@ -1483,6 +1486,7 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
       positiveNumber(context.uiRasterScaleX) &&
       positiveNumber(context.uiRasterScaleY) &&
       positiveNumber(context.fontRasterScale) &&
+      typeof context.hasInspectableDocuments === 'boolean' &&
       typeof context.mouseInteracting === 'boolean' &&
       typeof context.recentEventProcessed === 'boolean' &&
       typeof context.recentEventConsumed === 'boolean' &&

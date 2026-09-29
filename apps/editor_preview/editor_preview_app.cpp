@@ -196,6 +196,7 @@ nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot
     auto rmlui = nlohmann::json::array();
     for (const auto& context : value.rmlui) {
         rmlui.push_back({{"name", context.name},
+                         {"label", context.label},
                          {"lifecycleIdentity", context.lifecycle_identity},
                          {"plane", context.plane},
                          {"clock", context.clock},
@@ -215,6 +216,7 @@ nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot
                          {"uiRasterScaleX", context.ui_raster_scale_x},
                          {"uiRasterScaleY", context.ui_raster_scale_y},
                          {"fontRasterScale", context.font_raster_scale},
+                         {"hasInspectableDocuments", context.has_inspectable_documents},
                          {"mouseInteracting", context.mouse_interacting},
                          {"recentEventProcessed", context.recent_event_processed},
                          {"recentEventConsumed", context.recent_event_consumed},

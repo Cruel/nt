@@ -991,6 +991,7 @@ describe('preview protocol validation', () => {
       rmlui: [
         {
           name: 'game-ui',
+          label: 'Game UI — runtime-ui',
           lifecycleIdentity: 'game-ui:0:0:gameplay:normal:gameplay:ui-inherit-text-inherit',
           plane: 'game-ui',
           clock: 'gameplay',
@@ -1010,6 +1011,7 @@ describe('preview protocol validation', () => {
           uiRasterScaleX: 2,
           uiRasterScaleY: 2,
           fontRasterScale: 2,
+          hasInspectableDocuments: true,
           mouseInteracting: false,
           recentEventProcessed: true,
           recentEventConsumed: false,

@@ -245,6 +245,8 @@
     },
     "showFpsCounter": "Show FPS counter",
     "showFpsCounterDescription": "Displays the engine frame rate overlay in editor preview widgets. Preview is display-paced unless an engine FPS cap is lower.",
+    "showEmptyRmlUiContexts": "Show empty RmlUi contexts",
+    "showEmptyRmlUiContextsDescription": "Include empty runtime and staging contexts in RmlUi debugger context selectors.",
     "title": "Preview"
   },
   "reset": {

@@ -50,6 +50,7 @@ struct DevtoolsRmlUiElementSnapshot {
 
 struct DevtoolsRmlUiContextSnapshot {
     std::string name;
+    std::string label;
     std::string lifecycle_identity;
     std::string plane;
     std::string clock;
@@ -69,6 +70,7 @@ struct DevtoolsRmlUiContextSnapshot {
     float ui_raster_scale_x = 1.0f;
     float ui_raster_scale_y = 1.0f;
     float font_raster_scale = 1.0f;
+    bool has_inspectable_documents = false;
     bool mouse_interacting = false;
     bool recent_event_processed = false;
     bool recent_event_consumed = false;

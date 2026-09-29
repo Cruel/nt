@@ -718,17 +718,18 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
 
 std::optional<rmlui_bgfx::SurfaceMetrics>
 to_rmlui_bgfx_surface(const PresentationMetrics& presentation,
-                      const ResolvedContextMetrics& context)
+                      const ResolvedContextMetrics& context, RmlUiRenderSurface surface)
 {
+    const IntegerSize raster_size = surface == RmlUiRenderSurface::HostSurface
+                                        ? presentation.host.framebuffer_size
+                                        : presentation.ui_raster.size;
     if (context.layout_size.width <= 0 || context.layout_size.height <= 0 ||
-        presentation.ui_raster.size.width <= 0 || presentation.ui_raster.size.height <= 0 ||
-        context.ui_raster_scale.x <= 0.0f || context.ui_raster_scale.y <= 0.0f)
+        raster_size.width <= 0 || raster_size.height <= 0 || context.ui_raster_scale.x <= 0.0f ||
+        context.ui_raster_scale.y <= 0.0f)
         return std::nullopt;
-    return rmlui_bgfx::SurfaceMetrics{
-        context.layout_size.width,         context.layout_size.height,
-        presentation.ui_raster.size.width, presentation.ui_raster.size.height,
-        context.ui_raster_scale.x,         context.ui_raster_scale.y,
-    };
+    return rmlui_bgfx::SurfaceMetrics{context.layout_size.width, context.layout_size.height,
+                                      raster_size.width,         raster_size.height,
+                                      context.ui_raster_scale.x, context.ui_raster_scale.y};
 }
 
 Rml::Vector2f snap_rmlui_submission_translation(Rml::Vector2f translation,
@@ -755,6 +756,11 @@ rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range()
 rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range()
 {
     return {bgfx_backend::ViewWorldSourceOverlayBegin, bgfx_backend::ViewWorldSourceOverlayEnd};
+}
+
+rmlui_bgfx::ViewRange rmlui_bgfx_debugger_host_view_range()
+{
+    return {bgfx_backend::ViewRmlDebuggerHostBegin, bgfx_backend::ViewRmlDebuggerHostEnd};
 }
 
 rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane)
@@ -793,14 +799,25 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
                                          const ResolvedContextMetrics& context,
                                          const assets::AssetManager& assets,
                                          rmlui_bgfx::ViewRange views,
-                                         const ShaderMaterialProject* shader_materials)
+                                         const ShaderMaterialProject* shader_materials,
+                                         RmlUiRenderSurface surface_space)
     : m_adapter(std::make_unique<Adapter>(presentation, context, assets, shader_materials)),
-      m_context_metrics(context), m_viewport{presentation.viewport.host_framebuffer_rect.x,
-                                             presentation.viewport.host_framebuffer_rect.y,
-                                             presentation.viewport.host_framebuffer_rect.width,
-                                             presentation.viewport.host_framebuffer_rect.height}
+      m_context_metrics(context),
+      m_viewport{surface_space == RmlUiRenderSurface::HostSurface
+                     ? 0
+                     : presentation.viewport.host_framebuffer_rect.x,
+                 surface_space == RmlUiRenderSurface::HostSurface
+                     ? 0
+                     : presentation.viewport.host_framebuffer_rect.y,
+                 surface_space == RmlUiRenderSurface::HostSurface
+                     ? presentation.host.framebuffer_size.width
+                     : presentation.viewport.host_framebuffer_rect.width,
+                 surface_space == RmlUiRenderSurface::HostSurface
+                     ? presentation.host.framebuffer_size.height
+                     : presentation.viewport.host_framebuffer_rect.height},
+      m_surface(surface_space)
 {
-    const auto surface = to_rmlui_bgfx_surface(presentation, context);
+    const auto surface = to_rmlui_bgfx_surface(presentation, context, m_surface);
     if (!surface)
         return;
     rmlui_bgfx::RendererConfig config;
@@ -815,6 +832,8 @@ BgfxRenderInterface::BgfxRenderInterface(const PresentationMetrics& presentation
     config.render_path = render_path_from_env();
     config.trace_filter_pipeline = env_flag_enabled("RMLUI_BGFX_FILTER_TRACE");
     config.preserve_backbuffer = true;
+    config.route_transient_geometry_to_active_renderer =
+        m_surface == RmlUiRenderSurface::HostSurface;
     m_core = std::make_unique<rmlui_bgfx::RenderInterface>(config);
 }
 
@@ -825,17 +844,21 @@ BgfxRenderInterface::operator bool() const { return m_core && static_cast<bool>(
 void BgfxRenderInterface::resize(const PresentationMetrics& presentation,
                                  const ResolvedContextMetrics& context)
 {
-    m_viewport = {presentation.viewport.host_framebuffer_rect.x,
-                  presentation.viewport.host_framebuffer_rect.y,
-                  presentation.viewport.host_framebuffer_rect.width,
-                  presentation.viewport.host_framebuffer_rect.height};
+    m_viewport =
+        m_surface == RmlUiRenderSurface::HostSurface
+            ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.host.framebuffer_size.width,
+                                              presentation.host.framebuffer_size.height}
+            : rmlui_bgfx::FramebufferViewport{presentation.viewport.host_framebuffer_rect.x,
+                                              presentation.viewport.host_framebuffer_rect.y,
+                                              presentation.viewport.host_framebuffer_rect.width,
+                                              presentation.viewport.host_framebuffer_rect.height};
     configure_context(presentation, context);
 }
 
 void BgfxRenderInterface::configure_context(const PresentationMetrics& presentation,
                                             const ResolvedContextMetrics& context)
 {
-    const auto surface = to_rmlui_bgfx_surface(presentation, context);
+    const auto surface = to_rmlui_bgfx_surface(presentation, context, m_surface);
     if (!m_core || !surface)
         return;
     m_context_metrics = context;
@@ -889,9 +912,11 @@ void BgfxRenderInterface::set_output_framebuffer(bgfx::FrameBufferHandle framebu
 {
     m_core->set_output_framebuffer(framebuffer);
     m_viewport =
-        local_viewport
-            ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.ui_raster.size.width,
-                                              presentation.ui_raster.size.height}
+        local_viewport ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.ui_raster.size.width,
+                                                         presentation.ui_raster.size.height}
+        : m_surface == RmlUiRenderSurface::HostSurface
+            ? rmlui_bgfx::FramebufferViewport{0, 0, presentation.host.framebuffer_size.width,
+                                              presentation.host.framebuffer_size.height}
             : rmlui_bgfx::FramebufferViewport{presentation.viewport.host_framebuffer_rect.x,
                                               presentation.viewport.host_framebuffer_rect.y,
                                               presentation.viewport.host_framebuffer_rect.width,

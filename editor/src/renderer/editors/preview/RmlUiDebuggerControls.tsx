@@ -3,6 +3,7 @@ import { useTranslation } from 'react-i18next';
 import type { DevtoolsSnapshot } from '../../../shared/preview-protocol';
 import type { EnginePreviewControlsContext } from '@/components/engine-preview';
 import { Switch } from '@/components/ui/switch';
+import { usePreferencesStore } from '@/stores/preferences-store';
 import {
   Select,
   SelectContent,
@@ -21,6 +22,7 @@ export function RmlUiDebuggerControls({
   supported: boolean;
 }) {
   const { t } = useTranslation('workspace');
+  const showEmptyContexts = usePreferencesStore((state) => state.showEmptyRmlUiContexts);
   const controller = controls?.connectionState === 'ready' ? controls.controller : null;
   useEffect(() => {
     if (!supported || !controller) return;
@@ -42,9 +44,13 @@ export function RmlUiDebuggerControls({
     }, 1000);
     return () => clearInterval(timer);
   }, [controller, supported]);
-  if (!supported) return null;
   const debuggerState = snapshot?.rmluiDebugger;
-  const disabled = !controller || !debuggerState?.available;
+  const availableContexts =
+    snapshot?.rmlui.filter((context) => showEmptyContexts || context.hasInspectableDocuments) ?? [];
+  const selectedContext =
+    availableContexts.find((context) => context.name === debuggerState?.context) ??
+    availableContexts[0];
+  const disabled = !controller || !debuggerState?.available || !selectedContext;
   const update = (visible: boolean, context: string) => {
     if (!controller) return;
     controls?.sendRuntimeCommand(
@@ -52,6 +58,29 @@ export function RmlUiDebuggerControls({
       t('rmluiDebugger.title'),
     );
   };
+  useEffect(() => {
+    if (
+      !showEmptyContexts &&
+      debuggerState?.visible &&
+      selectedContext &&
+      selectedContext.name !== debuggerState.context &&
+      controller
+    ) {
+      controls?.sendRuntimeCommand(
+        controller.setRmlUiDebugger(true, selectedContext.name),
+        t('rmluiDebugger.title'),
+      );
+    }
+  }, [
+    controller,
+    controls,
+    debuggerState?.context,
+    debuggerState?.visible,
+    selectedContext,
+    showEmptyContexts,
+    t,
+  ]);
+  if (!supported) return null;
   return (
     <section className="space-y-2 border-b p-3">
       <label className="flex items-center justify-between gap-2 text-xs font-medium">
@@ -59,11 +88,11 @@ export function RmlUiDebuggerControls({
         <Switch
           disabled={disabled}
           checked={debuggerState?.visible ?? false}
-          onCheckedChange={(visible) => update(visible, debuggerState?.context ?? '')}
+          onCheckedChange={(visible) => update(visible, selectedContext?.name ?? '')}
         />
       </label>
       <Select
-        value={debuggerState?.context ?? ''}
+        value={selectedContext?.name ?? ''}
         disabled={disabled}
         onValueChange={(context) => {
           if (context) update(debuggerState?.visible ?? false, context);
@@ -73,9 +102,9 @@ export function RmlUiDebuggerControls({
           <SelectValue />
         </SelectTrigger>
         <SelectContent>
-          {snapshot?.rmlui.map((context) => (
+          {availableContexts.map((context) => (
             <SelectItem key={context.name} value={context.name}>
-              {context.name}
+              {context.label}
             </SelectItem>
           ))}
         </SelectContent>

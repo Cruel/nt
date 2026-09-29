@@ -90,7 +90,7 @@ public:
                     *layout.semantic_owner, *layout.semantic_key, *layout.occurrence, layout.inputs,
                     layout.connected_signals, layout.state_shape, layout.state_values,
                     layout.material_parameters, layout.material_camera_zoom, layout.trigger_context,
-                    layout.material_textures});
+                    layout.material_textures, layout.mounted.layout.text()});
         } else {
             m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
         }

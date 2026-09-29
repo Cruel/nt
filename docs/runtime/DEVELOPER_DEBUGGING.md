@@ -73,19 +73,28 @@ Console/Trace envelopes including retention-gap metadata. It does not scrape edi
 
 ## RmlUi Debugger and native shortcuts
 
-Developer builds initialize RmlUi's built-in Debugger against the persistent primary context. The
-editor controls only its visibility and inspected context; React does not reproduce its element,
-style, or data-model inspector. Hiding the debugger preserves the selected context but detaches the
-Debugger inspection hook, so element outlines and other inspected-context rendering stop with the
-visible debugger.
+Developer builds initialize RmlUi's built-in Debugger on a dedicated Debug-plane host-space context.
+Its logical dimensions are the complete SDL host logical surface and its renderer targets the complete
+host framebuffer, rather than the fitted game viewport or Project reference frame. Project UI/text
+scaling and inspected-Layout scale policy therefore do not affect debugger geometry. Host logical-to-
+framebuffer scale is retained only for raster/font resolution, while the debugger's `dp` ratio is an
+independent developer preference. The editor controls only debugger visibility and inspected context;
+React does not reproduce its element, style, or data-model inspector. Hiding the debugger preserves
+the selected context but detaches the Debugger inspection hook, so element outlines and other
+inspected-context rendering stop with the visible debugger. Devtools Snapshots publish a human-facing
+context label based on the presentation plane and mounted Layout/document identities; commands
+continue to use the stable internal RmlUi context name.
 
 On a native developer host, `F10` toggles the NovelTea Dear ImGui debugger frontend and
 `Shift+F10` resets its window layout. These shortcuts are intercepted at the host-input layer before
-RmlUi, Layout, or gameplay admission. The Dear ImGui frontend consumes the same Devtools Snapshot,
-Console, and Trace contracts as editor tooling. Its Console and Trace sections have explicit Clear
-actions, filtering, and presentation-only freeze controls; clearing retained history does not restart
-the runtime or disable capture. The native frontend can inspect the complete currently retained
-buffers rather than silently truncating them to a smaller presentation limit.
+RmlUi, Layout, or gameplay admission. A **Developer UI** section exposes independent 50–250% scales
+for ImGui and the embedded RmlUi debugger. Both are absolute scales rather than cumulative style
+multipliers, and they persist through ImGui's normal ini settings. The Dear ImGui frontend consumes
+the same Devtools Snapshot, Console, and Trace contracts as editor tooling. Its Console and Trace
+sections have explicit Clear actions, filtering, and presentation-only freeze controls; clearing
+retained history does not restart the runtime or disable capture. The native frontend can inspect the
+complete currently retained buffers rather than silently truncating them to a smaller presentation
+limit.
 
 The editor Play inspector uses the current Devtools Snapshot directly for Input Routing, RmlUi State,
 and World Hotspots sections. World state keeps under-pointer/hovered/pressed Hotspots visible first

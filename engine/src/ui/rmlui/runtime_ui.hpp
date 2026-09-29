@@ -177,6 +177,7 @@ public:
     void bind_devtools_console_sink(
         std::function<void(devtools::ConsoleSeverity severity, std::string message)> sink);
     [[nodiscard]] bool set_debugger(const devtools::RmlUiDebuggerCommand& command);
+    [[nodiscard]] bool set_debugger_scale(float scale);
     [[nodiscard]] devtools::RmlUiDebuggerSnapshot debugger_snapshot() const;
 #endif
 

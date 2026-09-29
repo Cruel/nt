@@ -398,6 +398,7 @@ export function SettingsPage({
   const restoreLastProjectOnStart = usePreferencesStore((s) => s.restoreLastProjectOnStart);
   const showCategorizedEditorHeaders = usePreferencesStore((s) => s.showCategorizedEditorHeaders);
   const showPreviewFpsCounter = usePreferencesStore((s) => s.showPreviewFpsCounter);
+  const showEmptyRmlUiContexts = usePreferencesStore((s) => s.showEmptyRmlUiContexts);
   const previewFpsCap = usePreferencesStore((s) => s.previewFpsCap);
   const previewRmlUiRasterSnap = usePreferencesStore((s) => s.previewRmlUiRasterSnap);
   const previewDisplay = usePreferencesStore((s) => s.previewDisplay);
@@ -416,6 +417,7 @@ export function SettingsPage({
     (s) => s.setShowCategorizedEditorHeaders,
   );
   const setShowPreviewFpsCounter = usePreferencesStore((s) => s.setShowPreviewFpsCounter);
+  const setShowEmptyRmlUiContexts = usePreferencesStore((s) => s.setShowEmptyRmlUiContexts);
   const setPreviewFpsCap = usePreferencesStore((s) => s.setPreviewFpsCap);
   const setPreviewRmlUiRasterSnap = usePreferencesStore((s) => s.setPreviewRmlUiRasterSnap);
   const setPreviewDisplay = usePreferencesStore((s) => s.setPreviewDisplay);
@@ -1552,6 +1554,21 @@ export function SettingsPage({
                 id="show-preview-fps-counter"
                 checked={showPreviewFpsCounter}
                 onCheckedChange={setShowPreviewFpsCounter}
+              />
+            </div>
+            <div className="flex items-center justify-between gap-6">
+              <div>
+                <Label htmlFor="show-empty-rmlui-contexts">
+                  {t('settings:preview.showEmptyRmlUiContexts')}
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  {t('settings:preview.showEmptyRmlUiContextsDescription')}
+                </p>
+              </div>
+              <Switch
+                id="show-empty-rmlui-contexts"
+                checked={showEmptyRmlUiContexts}
+                onCheckedChange={setShowEmptyRmlUiContexts}
               />
             </div>
             <div className="flex items-center justify-between gap-6">

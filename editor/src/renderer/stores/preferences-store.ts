@@ -97,6 +97,7 @@ function sharedPreferencesSnapshot(state: ResettableEditorPreferences): NovelTea
     developerMode: state.developerMode,
     restoreLastProjectOnStart: state.restoreLastProjectOnStart,
     showPreviewFpsCounter: state.showPreviewFpsCounter,
+    showEmptyRmlUiContexts: state.showEmptyRmlUiContexts,
     previewFpsCap: state.previewFpsCap,
     previewRmlUiRasterSnap: state.previewRmlUiRasterSnap,
     defaultProjectDirectory: state.defaultProjectDirectory,
@@ -135,6 +136,9 @@ function sharedPreferencesState(
       : {}),
     ...(typeof candidate.showPreviewFpsCounter === 'boolean'
       ? { showPreviewFpsCounter: candidate.showPreviewFpsCounter }
+      : {}),
+    ...(typeof candidate.showEmptyRmlUiContexts === 'boolean'
+      ? { showEmptyRmlUiContexts: candidate.showEmptyRmlUiContexts }
       : {}),
     previewFpsCap: normalizePreviewFpsCap(Number(candidate.previewFpsCap ?? current.previewFpsCap)),
     previewRmlUiRasterSnap: normalizeRmlUiRasterSnapMode(
@@ -177,6 +181,7 @@ export interface ResettableEditorPreferences {
   developerMode: boolean;
   restoreLastProjectOnStart: boolean;
   showPreviewFpsCounter: boolean;
+  showEmptyRmlUiContexts: boolean;
   previewFpsCap: number;
   previewRmlUiRasterSnap: RmlUiRasterSnapMode;
   defaultProjectDirectory: string | null;
@@ -199,6 +204,7 @@ interface PreferencesState extends ResettableEditorPreferences {
   setDeveloperMode: (enabled: boolean) => void;
   setRestoreLastProjectOnStart: (restore: boolean) => void;
   setShowPreviewFpsCounter: (show: boolean) => void;
+  setShowEmptyRmlUiContexts: (show: boolean) => void;
   setPreviewFpsCap: (cap: number) => void;
   setPreviewRmlUiRasterSnap: (mode: RmlUiRasterSnapMode) => void;
   setLastProjectPath: (projectPath: string | null) => void;
@@ -226,6 +232,7 @@ export function createDefaultEditorPreferences(): ResettableEditorPreferences {
     developerMode: false,
     restoreLastProjectOnStart: true,
     showPreviewFpsCounter: false,
+    showEmptyRmlUiContexts: false,
     previewFpsCap: 0,
     previewRmlUiRasterSnap: 'all',
     defaultProjectDirectory: null,
@@ -249,6 +256,7 @@ export function selectEditorPreferencesAreDefaults(state: ResettableEditorPrefer
     state.developerMode === defaults.developerMode &&
     state.restoreLastProjectOnStart === defaults.restoreLastProjectOnStart &&
     state.showPreviewFpsCounter === defaults.showPreviewFpsCounter &&
+    state.showEmptyRmlUiContexts === defaults.showEmptyRmlUiContexts &&
     state.previewFpsCap === defaults.previewFpsCap &&
     state.previewRmlUiRasterSnap === defaults.previewRmlUiRasterSnap &&
     state.defaultProjectDirectory === defaults.defaultProjectDirectory &&
@@ -276,6 +284,7 @@ export const usePreferencesStore = create<PreferencesState>()(
       setDeveloperMode: (developerMode) => set({ developerMode }),
       setRestoreLastProjectOnStart: (restore) => set({ restoreLastProjectOnStart: restore }),
       setShowPreviewFpsCounter: (show) => set({ showPreviewFpsCounter: show }),
+      setShowEmptyRmlUiContexts: (show) => set({ showEmptyRmlUiContexts: show }),
       setPreviewFpsCap: (previewFpsCap) =>
         set({ previewFpsCap: normalizePreviewFpsCap(previewFpsCap) }),
       setPreviewRmlUiRasterSnap: (previewRmlUiRasterSnap) =>

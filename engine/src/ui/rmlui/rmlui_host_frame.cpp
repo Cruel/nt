@@ -26,7 +26,18 @@ void RmlUiHost::resize(const PresentationMetrics& presentation)
                 (void)process_sdl_event(*record.context, m_window, leave);
             }
         }
-        for (const std::uint64_t touch_id : m_active_touches) {
+        for (const auto& [touch_id, _] : m_active_touches) {
+            SDL_Event cancel{};
+            cancel.type = SDL_EVENT_FINGER_CANCELED;
+            cancel.tfinger.fingerID = touch_id;
+            for (auto& record : m_contexts) {
+                set_context_clock(record.key);
+                (void)process_sdl_event(*record.context, m_window, cancel);
+            }
+        }
+        for (const std::uint64_t touch_id : m_debugger_observed_touches) {
+            if (m_active_touches.contains(touch_id))
+                continue;
             SDL_Event cancel{};
             cancel.type = SDL_EVENT_FINGER_CANCELED;
             cancel.tfinger.fingerID = touch_id;
@@ -127,7 +138,14 @@ void RmlUiHost::commit_environment(PreparedEnvironment prepared) noexcept
             continue;
         const auto context =
             std::find_if(m_contexts.begin(), m_contexts.end(), [&](const auto& record) {
+                const bool host_surface =
+#if NOVELTEA_ENABLE_DEVTOOLS
+                    record.context == m_debugger_host_context;
+#else
+                    false;
+#endif
                 return record.key.plane == renderer.plane &&
+                       host_surface == renderer.host_surface &&
                        is_world_transition_source_context(
                            record.key, host::kWorldTransitionSourceCompositionGroup) ==
                            renderer.world_transition_source;
@@ -225,7 +243,7 @@ void RmlUiHost::configure_plane_output_framebuffers()
                          : m_final_output_framebuffer;
         }
 
-        const bool local = handle != UINT16_MAX;
+        const bool local = handle != UINT16_MAX && !renderer.host_surface;
         bgfx::FrameBufferHandle framebuffer = BGFX_INVALID_HANDLE;
         if (local)
             framebuffer = bgfx::FrameBufferHandle{handle};
@@ -255,10 +273,17 @@ void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only,
         if (!include_debug_plane && record.key.plane == core::PresentationPlane::Debug)
             continue;
         set_context_clock(record.key);
+        const bool host_surface =
+#if NOVELTEA_ENABLE_DEVTOOLS
+            record.context == m_debugger_host_context;
+#else
+            false;
+#endif
         const auto renderer = std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(),
                                            [&](const PlaneRenderer& value) {
                                                return value.plane == record.key.plane &&
-                                                      value.world_transition_source == is_source;
+                                                      value.world_transition_source == is_source &&
+                                                      value.host_surface == host_surface;
                                            });
         if (renderer != m_plane_renderers.end() && renderer->bgfx) {
             renderer->bgfx->configure_context(m_presentation, record.metrics);

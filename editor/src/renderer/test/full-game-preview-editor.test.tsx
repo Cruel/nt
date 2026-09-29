@@ -223,6 +223,7 @@ function devtoolsSnapshotFixture(): DevtoolsSnapshot {
     rmlui: [
       {
         name: 'game-ui',
+        label: 'Game UI — dialogue-hud',
         lifecycleIdentity: 'game-ui:0:0:gameplay:block-gameplay:gameplay:ui-inherit-text-inherit',
         plane: 'game-ui',
         clock: 'gameplay',
@@ -242,6 +243,7 @@ function devtoolsSnapshotFixture(): DevtoolsSnapshot {
         uiRasterScaleX: 1,
         uiRasterScaleY: 1,
         fontRasterScale: 1,
+        hasInspectableDocuments: true,
         mouseInteracting: true,
         recentEventProcessed: true,
         recentEventConsumed: true,

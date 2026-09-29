@@ -26,14 +26,21 @@ struct ShaderMaterialProject;
 
 namespace noveltea::ui::rmlui {
 
+enum class RmlUiRenderSurface : std::uint8_t {
+    GameViewport,
+    HostSurface,
+};
+
 [[nodiscard]] std::optional<rmlui_bgfx::SurfaceMetrics>
 to_rmlui_bgfx_surface(const PresentationMetrics& presentation,
-                      const ResolvedContextMetrics& context);
+                      const ResolvedContextMetrics& context,
+                      RmlUiRenderSurface surface = RmlUiRenderSurface::GameViewport);
 [[nodiscard]] Rml::Vector2f
 snap_rmlui_submission_translation(Rml::Vector2f translation,
                                   const ResolvedContextMetrics& context) noexcept;
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_runtime_view_range();
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_plane_view_range(core::PresentationPlane plane);
+[[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_debugger_host_view_range();
 [[nodiscard]] rmlui_bgfx::ViewRange rmlui_bgfx_world_source_overlay_view_range();
 
 struct RmlUiResolvedMaterialTexture {
@@ -80,7 +87,8 @@ public:
     BgfxRenderInterface(const PresentationMetrics& presentation,
                         const ResolvedContextMetrics& context, const assets::AssetManager& assets,
                         rmlui_bgfx::ViewRange views,
-                        const ShaderMaterialProject* shader_materials = nullptr);
+                        const ShaderMaterialProject* shader_materials = nullptr,
+                        RmlUiRenderSurface surface = RmlUiRenderSurface::GameViewport);
     ~BgfxRenderInterface() override;
 
     explicit operator bool() const;
@@ -145,6 +153,7 @@ private:
     std::unique_ptr<rmlui_bgfx::RenderInterface> m_core;
     ResolvedContextMetrics m_context_metrics{};
     rmlui_bgfx::FramebufferViewport m_viewport{};
+    RmlUiRenderSurface m_surface = RmlUiRenderSurface::GameViewport;
     std::unordered_set<Rml::TextureHandle> m_generated_textures;
     bool m_geometry_raster_snapping = true;
     bool m_text_raster_snapping = true;
