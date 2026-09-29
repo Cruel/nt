@@ -977,9 +977,14 @@ std::optional<std::filesystem::path> ui_test_runner_path()
     return std::nullopt;
 }
 
-int run_ui_test_runner_process(const std::filesystem::path& runner,
-                               const std::filesystem::path& input_path,
-                               const std::filesystem::path& response_path)
+struct UiTestRunnerProcessResult {
+    int status = -1;
+    std::string detail;
+};
+
+UiTestRunnerProcessResult run_ui_test_runner_process(const std::filesystem::path& runner,
+                                                     const std::filesystem::path& input_path,
+                                                     const std::filesystem::path& response_path)
 {
 #if defined(_WIN32)
     const auto quote = [](const std::wstring& value) { return L"\"" + value + L"\""; };
@@ -989,43 +994,69 @@ int run_ui_test_runner_process(const std::filesystem::path& runner,
     startup.cb = sizeof(startup);
     PROCESS_INFORMATION process{};
     if (!CreateProcessW(runner.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
-                        nullptr, nullptr, &startup, &process))
-        return -1;
+                        nullptr, nullptr, &startup, &process)) {
+        const auto code = static_cast<int>(GetLastError());
+        return {.status = -1,
+                .detail = "CreateProcessW failed: " +
+                          std::error_code(code, std::system_category()).message()};
+    }
     const auto wait = WaitForSingleObject(process.hProcess, INFINITE);
     DWORD exit_code = 0;
     const bool exited = wait == WAIT_OBJECT_0 && GetExitCodeProcess(process.hProcess, &exit_code);
     CloseHandle(process.hThread);
     CloseHandle(process.hProcess);
-    return exited ? static_cast<int>(exit_code) : -1;
+    if (!exited) {
+        const auto code = static_cast<int>(GetLastError());
+        return {.status = -1,
+                .detail = "WaitForSingleObject/GetExitCodeProcess failed: " +
+                          std::error_code(code, std::system_category()).message()};
+    }
+    return {.status = static_cast<int>(exit_code)};
 #else
     auto runner_text = filesystem_path_to_utf8(runner);
     auto input_text = filesystem_path_to_utf8(input_path);
     auto response_text = filesystem_path_to_utf8(response_path);
     char* arguments[] = {runner_text.data(), input_text.data(), response_text.data(), nullptr};
     posix_spawn_file_actions_t actions;
-    if (posix_spawn_file_actions_init(&actions) != 0)
-        return -1;
+    const int initialized = posix_spawn_file_actions_init(&actions);
+    if (initialized != 0) {
+        return {.status = -1,
+                .detail = "posix_spawn_file_actions_init failed: " +
+                          std::error_code(initialized, std::generic_category()).message()};
+    }
     const int redirected = posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, STDOUT_FILENO);
     if (redirected != 0) {
         posix_spawn_file_actions_destroy(&actions);
-        return -1;
+        return {.status = -1,
+                .detail = "posix_spawn_file_actions_adddup2 failed: " +
+                          std::error_code(redirected, std::generic_category()).message()};
     }
     pid_t process = 0;
     const int spawned =
         posix_spawn(&process, runner_text.c_str(), &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
-    if (spawned != 0)
-        return -1;
+    if (spawned != 0) {
+        return {.status = -1,
+                .detail = "posix_spawn failed: " +
+                          std::error_code(spawned, std::generic_category()).message()};
+    }
     int status = 0;
     while (waitpid(process, &status, 0) < 0) {
-        if (errno != EINTR)
-            return -1;
+        if (errno != EINTR) {
+            const int code = errno;
+            return {.status = -1,
+                    .detail = "waitpid failed: " +
+                              std::error_code(code, std::generic_category()).message()};
+        }
     }
     if (WIFEXITED(status))
-        return WEXITSTATUS(status);
-    if (WIFSIGNALED(status))
-        return 128 + WTERMSIG(status);
-    return -1;
+        return {.status = WEXITSTATUS(status), .detail = {}};
+    if (WIFSIGNALED(status)) {
+        const int signal = WTERMSIG(status);
+        return {.status = 128 + signal,
+                .detail = "terminated by signal " + std::to_string(signal)};
+    }
+    return {.status = -1, .detail = "runner ended without an exit code or terminating signal"};
 #endif
 }
 
@@ -1063,12 +1094,17 @@ nlohmann::json run_external_ui_playback(const nlohmann::json& request)
                                  std::filesystem::perm_options::replace, error);
     error.clear();
 #endif
-    const int status = run_ui_test_runner_process(*runner, input_path, response_path);
+    const auto process = run_ui_test_runner_process(*runner, input_path, response_path);
     const auto response_text = read_file(response_path);
     std::filesystem::remove_all(root, error);
-    if (!response_text)
-        return fail("Runtime UI Test runner did not produce a response (status " +
-                    std::to_string(status) + ").");
+    if (!response_text) {
+        auto message = "Runtime UI Test runner did not produce a response (status " +
+                       std::to_string(process.status) + ")";
+        if (!process.detail.empty())
+            message += ": " + process.detail;
+        message += ".";
+        return fail(std::move(message));
+    }
     auto response = nlohmann::json::parse(*response_text, nullptr, false);
     if (response.is_discarded())
         return fail("Runtime UI Test runner returned malformed JSON.");
@@ -1127,7 +1163,7 @@ nlohmann::json playback_report_error_diagnostics(const nlohmann::json& report,
 nlohmann::json suite_error_diagnostics(const nlohmann::json& response, std::string_view test_id)
 {
     if (auto diagnostics = response.find("diagnostics");
-        diagnostics != response.end() && diagnostics->is_array())
+        diagnostics != response.end() && diagnostics->is_array() && !diagnostics->empty())
         return *diagnostics;
     return nlohmann::json::array(
         {{{"severity", "error"},

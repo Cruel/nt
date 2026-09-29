@@ -275,7 +275,9 @@ public:
                      .message = "RuntimeUI rejected gameplay values after UI input."});
                 return false;
             }
-            m_runtime_ui.begin_frame({});
+            // UI input reaches this sink while RmlUi is still dispatching the originating event.
+            // Context::Update may remove data-bound elements and their event controllers, so the
+            // playback loop must settle the frame only after RuntimeUiPlaybackDriver::click returns.
         }
         return result.disposition != noveltea::runtime::RuntimeInputDisposition::Failed &&
                !has_errors(result.diagnostics);
