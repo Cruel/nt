@@ -3,18 +3,21 @@
 <body onshow="feature_lab.on_show(event, element, document)">
   <div id="feature-lab-toolbar" data-model="noveltea">
     <button id="feature-lab-open" onclick="feature_lab.open(event, element, document)">Feature Lab</button>
-    <div class="feature-lab-room-controls" data-for="exit : gameplay.room.exits" data-if="exit.id == 'east-gate'">
-      <button id="feature-lab-use-lever" onclick="feature_lab.use_lever(event, element, document)">Press wall button</button>
-      <button id="feature-lab-east-gate" onclick="feature_lab.try_gate(event, element, document)">Try Bedroom Door</button>
-    </div>
   </div>
   <div id="feature-lab-notification" data-model="noveltea" data-if="gameplay.notification != ''">{{ gameplay.notification }}</div>
-  <div id="rt_options" data-model="noveltea" data-if="gameplay.dialogue.choices.size > 0">
-    <button data-for="choice : gameplay.dialogue.choices"
-            class="option"
-            data-class-disabled="!choice.enabled"
-            data-attrif-disabled="!choice.enabled"
-            data-event-click="ui_choose('dialogue', choice.id)">{{ choice.label }}</button>
+  <div id="feature-lab-scenario-guide" class="hidden"></div>
+  <div id="feature-lab-text-panel"
+       data-model="noveltea"
+       data-if="gameplay.active_text_available || gameplay.dialogue.choices.size > 0"
+       data-style-pointer-events="gameplay.can_continue || gameplay.dialogue.choices.size > 0 ? 'auto' : 'none'">
+    <nt-active-text id="rt_body"></nt-active-text>
+    <div id="rt_options">
+      <button data-for="choice : gameplay.dialogue.choices"
+              class="option"
+              data-class-disabled="!choice.enabled"
+              data-attrif-disabled="!choice.enabled"
+              data-event-click="ui_choose('dialogue', choice.id)">{{ choice.label }}</button>
+    </div>
   </div>
   <div id="feature-lab-panel" class="feature-lab-panel hidden">
     <div class="feature-lab-header">

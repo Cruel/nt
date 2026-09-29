@@ -13,9 +13,9 @@
       },
       {
         "id": "enter-dialogue-pilot",
-        "input": "navigate",
-        "label": "Enter Dialogue pilot semantically",
-        "navigate": { "exitId": "dialogue-presentation-test-entry" },
+        "input": "ui-click",
+        "label": "Launch the Dialogue pilot through the Feature Lab catalog",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-dialogue-presentation" },
         "expectations": [
           {
             "id": "dialogue-open",

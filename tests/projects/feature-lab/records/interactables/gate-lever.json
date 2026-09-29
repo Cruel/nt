@@ -19,7 +19,17 @@
         },
         "textures": {}
       },
-      "hotspots": { "kind": "none" }
+      "hotspots": {
+        "kind": "sprite-alpha",
+        "hotspot": {
+          "id": "button",
+          "label": "Wall Button",
+          "condition": { "kind": "always" },
+          "inputOrder": 0,
+          "highlight": { "kind": "default" },
+          "target": { "kind": "owner" }
+        }
+      }
     },
     "features": [
       {

@@ -24,6 +24,35 @@ test('canonical Feature Lab manifest satisfies the project-specific contract', a
   assert.equal(catalog.scenarios[0].id, 'rooms-interactions');
 });
 
+test('Feature Lab HUD preserves world input and presents active Dialogue text', async () => {
+  const layoutRoot = path.join(projectRoot, 'records', 'layouts', 'feature-lab-hud');
+  const [rml, rcss, lua, workshop, gateLever] = await Promise.all([
+    readFile(path.join(layoutRoot, 'layout.rml'), 'utf8'),
+    readFile(path.join(layoutRoot, 'layout.rcss'), 'utf8'),
+    readFile(path.join(layoutRoot, 'layout.lua'), 'utf8'),
+    readFile(path.join(projectRoot, 'records', 'rooms', 'rooms-interactions-workshop.json'), 'utf8').then(JSON.parse),
+    readFile(path.join(projectRoot, 'records', 'interactables', 'gate-lever.json'), 'utf8').then(JSON.parse),
+  ]);
+
+  assert.match(rml, /<nt-active-text\s+id="rt_body"/u);
+  assert.match(rml, /id="feature-lab-scenario-guide"/u);
+  assert.doesNotMatch(rml, /feature-lab-(?:use-lever|east-gate)/u);
+  assert.match(rcss, /#feature-lab-toolbar\s*\{[^}]*pointer-events:\s*none;/u);
+  assert.match(rcss, /#feature-lab-text-panel\s*\{[^}]*pointer-events:\s*none;/u);
+  assert.match(lua, /feature_lab\.render_scenario_guide/u);
+  assert.doesNotMatch(rcss, /border:\s*2px\s+solid\b/u);
+
+  assert.deepEqual(workshop.data.description.source, {
+    kind: 'inline',
+    text: 'The bedroom door is locked. Press the wall button, then try the door again.',
+  });
+  assert.equal(workshop.data.hotspots.some((hotspot) => hotspot.id === 'gate-lever-hotspot'), false);
+  const doorHotspot = workshop.data.hotspots.find((hotspot) => hotspot.id === 'east-gate-control-hotspot');
+  assert.deepEqual(doorHotspot?.target, { kind: 'exit', exitId: 'east-gate' });
+  assert.equal(gateLever.data.presentation.hotspots.kind, 'sprite-alpha');
+  assert.deepEqual(gateLever.data.presentation.hotspots.hotspot.target, { kind: 'owner' });
+});
+
 test('validator rejects duplicate IDs, broken references, invalid statuses, and non-UTC timestamps', async () => {
   const catalog = await manifest();
   const broken = structuredClone(catalog);

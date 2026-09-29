@@ -993,7 +993,7 @@ TEST_CASE("runtime and focused Room hotspot projection preserve semantic eligibi
     CHECK(inspect->condition_eligible);
     CHECK(inspect->target_available);
     CHECK(exit->condition_eligible);
-    CHECK_FALSE(exit->target_available);
+    CHECK(exit->target_available);
     CHECK(alpha->condition_eligible);
     CHECK(alpha->target_available);
     CHECK(inspect->target == compiled::ResolvedHotspotTarget{compiled::FeatureInteractionSubject{
@@ -1008,7 +1008,7 @@ TEST_CASE("runtime and focused Room hotspot projection preserve semantic eligibi
     CHECK(std::count_if(runtime.value().hotspots.begin(), runtime.value().hotspots.end(),
                         [](const auto& hotspot) {
                             return hotspot.condition_eligible && !hotspot.target_available;
-                        }) == 1);
+                        }) == 0);
     CHECK(std::any_of(runtime.value().hotspots.begin(), runtime.value().hotspots.end(),
                       [](const auto& hotspot) {
                           return std::holds_alternative<AlphaHotspotShape>(hotspot.shape);
@@ -1021,7 +1021,7 @@ TEST_CASE("runtime and focused Room hotspot projection preserve semantic eligibi
     CHECK(std::count_if(focused.value().hotspots.begin(), focused.value().hotspots.end(),
                         [](const auto& hotspot) {
                             return hotspot.condition_eligible && !hotspot.target_available;
-                        }) == 1);
+                        }) == 0);
     CHECK(std::any_of(focused.value().hotspots.begin(), focused.value().hotspots.end(),
                       [](const auto& hotspot) {
                           return std::holds_alternative<AlphaHotspotShape>(hotspot.shape);
