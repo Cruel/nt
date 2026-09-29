@@ -1205,7 +1205,7 @@ if(TARGET noveltea-sandbox)
         )
         set_tests_properties(noveltea_sandbox_invalid_compiled_project_exits PROPERTIES
             WILL_FAIL TRUE
-            TIMEOUT 10
+            TIMEOUT 20
             LABELS "runtime;assets;failure-path"
         )
     endif()

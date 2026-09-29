@@ -1011,7 +1011,7 @@ UiTestRunnerProcessResult run_ui_test_runner_process(const std::filesystem::path
                 .detail = "WaitForSingleObject/GetExitCodeProcess failed: " +
                           std::error_code(code, std::system_category()).message()};
     }
-    return {.status = static_cast<int>(exit_code)};
+    return {.status = static_cast<int>(exit_code), .detail = {}};
 #else
     auto runner_text = filesystem_path_to_utf8(runner);
     auto input_text = filesystem_path_to_utf8(input_path);
