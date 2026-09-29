@@ -715,6 +715,10 @@ nlohmann::json encode_mount_key(const MountedLayoutPresentationKey& key)
                 return {{"kind", "room-overlay"},
                         {"room", value.room.text()},
                         {"overlay", value.overlay.text()}};
+            else if constexpr (std::is_same_v<T, RoomPlacementLayoutMountKey>)
+                return {{"kind", "room-placement"},
+                        {"room", value.room.text()},
+                        {"placement", value.placement.text()}};
             else
                 return {{"kind", "scoped"}, {"instance", value.instance.text()}};
         },
@@ -752,6 +756,19 @@ decode_mount_key(Decoder& d, const nlohmann::json& value, std::string_view point
         return room && overlay
                    ? std::optional<MountedLayoutPresentationKey>{RoomOverlayLayoutMountKey{
                          std::move(*room), std::move(*overlay)}}
+                   : std::nullopt;
+    }
+    if (*kind == "room-placement") {
+        d.object(value, pointer, {"kind", "room", "placement"});
+        const auto* room_value = d.member(value, "room", pointer);
+        const auto* placement_value = d.member(value, "placement", pointer);
+        auto room = room_value ? d.id<RoomId>(*room_value, child(pointer, "room")) : std::nullopt;
+        auto placement = placement_value
+                             ? d.id<RoomPlacementId>(*placement_value, child(pointer, "placement"))
+                             : std::nullopt;
+        return room && placement
+                   ? std::optional<MountedLayoutPresentationKey>{RoomPlacementLayoutMountKey{
+                         std::move(*room), std::move(*placement)}}
                    : std::nullopt;
     }
     if (*kind == "scoped") {

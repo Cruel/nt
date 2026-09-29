@@ -158,6 +158,7 @@ import {
 } from '../../../shared/project-schema/authoring-archetypes';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
+import { allocateRoomPresentationOrder } from '../../../shared/project-schema/room-presentation-order';
 import { analyzeHookRegistry } from '../../../shared/hook-registry-analysis';
 
 const backgroundFitLabels = {
@@ -2559,7 +2560,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         {
                           id,
                           bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-                          order: data.placements.length,
                           presentation: { label: null, layout: null },
                         },
                       ],
@@ -2719,14 +2719,45 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       </div>
                       <Select
                         value={refValue(placement.presentation.layout)}
-                        onValueChange={(value) =>
-                          replacePlacement(placement.id, {
-                            presentation: {
-                              ...placement.presentation,
-                              layout: value === '__none__' ? null : roomLayoutRef(String(value)),
+                        onValueChange={(value) => {
+                          if (value === '__none__') {
+                            replacePlacement(placement.id, {
+                              presentation: {
+                                label: placement.presentation.label,
+                                layout: null,
+                              },
+                            });
+                            return;
+                          }
+                          if (placement.presentation.layout) {
+                            replacePlacement(placement.id, {
+                              presentation: {
+                                ...placement.presentation,
+                                layout: roomLayoutRef(String(value)),
+                              },
+                            });
+                            return;
+                          }
+                          const allocated = allocateRoomPresentationOrder(data, 'world-overlay');
+                          commit(
+                            {
+                              ...allocated.room,
+                              placements: allocated.room.placements.map((entry) =>
+                                entry.id === placement.id
+                                  ? {
+                                      ...entry,
+                                      presentation: {
+                                        label: entry.presentation.label,
+                                        layout: roomLayoutRef(String(value)),
+                                        layoutOrder: allocated.order,
+                                      },
+                                    }
+                                  : entry,
+                              ),
                             },
-                          })
-                        }
+                            'Update room placement Layout',
+                          );
+                        }}
                       >
                         <SelectItem value="__none__">No layout</SelectItem>
                         {layouts.map((layout) => (
@@ -2765,12 +2796,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 onClick: () => {
                   const layout = layouts[0];
                   if (!layout) return;
+                  const allocated = allocateRoomPresentationOrder(data, 'world-overlay');
                   setSelectedOverlayIndex(data.overlays.length);
                   commit(
                     {
-                      ...data,
+                      ...allocated.room,
                       overlays: [
-                        ...data.overlays,
+                        ...allocated.room.overlays,
                         {
                           id: nextId(
                             data.overlays.map((overlay) => overlay.id),
@@ -2779,7 +2811,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           layout: roomLayoutRef(layout.id),
                           condition: { kind: 'always' },
                           visible: true,
-                          order: data.overlays.length,
+                          order: allocated.order,
                         },
                       ],
                     },
@@ -2857,12 +2889,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 disabled: !characters[0] || !data.placements[0],
                 onClick: () => {
                   if (!characters[0] || !data.placements[0]) return;
+                  const allocated = allocateRoomPresentationOrder(data, 'world-content');
                   setSelectedCastIndex(data.cast.length);
                   commit(
                     {
-                      ...data,
+                      ...allocated.room,
                       cast: [
-                        ...data.cast,
+                        ...allocated.room.cast,
                         {
                           id: nextId(
                             data.cast.map((entry) => entry.id),
@@ -2875,7 +2908,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           expressionId: null,
                           idleId: null,
                           visible: true,
-                          order: data.cast.length,
+                          order: allocated.order,
                         },
                       ],
                     },
@@ -3008,12 +3041,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 disabled: !data.placements[0] || (!assets[0] && !materials[0]),
                 onClick: () => {
                   if (!data.placements[0]) return;
+                  const allocated = allocateRoomPresentationOrder(data, 'world-content');
                   setSelectedPropIndex(data.props.length);
                   commit(
                     {
-                      ...data,
+                      ...allocated.room,
                       props: [
-                        ...data.props,
+                        ...allocated.room.props,
                         {
                           id: nextId(
                             data.props.map((entry) => entry.id),
@@ -3027,7 +3061,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                               ? emptyMaterialApplication(materials[0].id)
                               : null,
                           visible: true,
-                          order: data.props.length,
+                          order: allocated.order,
                         },
                       ],
                     },
@@ -3147,12 +3181,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 onClick: () => {
                   const material = materials[0];
                   if (!material) return;
+                  const allocated = allocateRoomPresentationOrder(data, 'world-content');
                   setSelectedEnvironmentIndex(data.environments.length);
                   commit(
                     {
-                      ...data,
+                      ...allocated.room,
                       environments: [
-                        ...data.environments,
+                        ...allocated.room.environments,
                         {
                           id: nextId(
                             data.environments.map((entry) => entry.id),
@@ -3163,7 +3198,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           materialApplication: emptyMaterialApplication(material.id),
                           bounds: { x: 0, y: 0, width: 1, height: 1 },
                           plane: 'world-content',
-                          order: data.environments.length,
+                          order: allocated.order,
                           clock: 'gameplay',
                           scrollPerSecond: { x: 0, y: 0 },
                           opacity: 1,
@@ -3261,11 +3296,22 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         label: plane,
                       }))}
                       value={entry.plane}
-                      onValueChange={(value) =>
-                        replaceEnvironment(entry.id, {
-                          plane: value as RoomEnvironmentData['plane'],
-                        })
-                      }
+                      onValueChange={(value) => {
+                        const plane = value as RoomEnvironmentData['plane'];
+                        if (plane === entry.plane) return;
+                        const allocated = allocateRoomPresentationOrder(data, plane);
+                        commit(
+                          {
+                            ...allocated.room,
+                            environments: allocated.room.environments.map((environment) =>
+                              environment.id === entry.id
+                                ? { ...environment, plane, order: allocated.order }
+                                : environment,
+                            ),
+                          },
+                          'Update room environment plane',
+                        );
+                      }}
                     >
                       <SelectTrigger className="w-full">
                         <SelectValue />

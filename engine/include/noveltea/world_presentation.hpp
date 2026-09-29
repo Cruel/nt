@@ -170,6 +170,11 @@ struct HotspotInteractionVisualState {
     std::optional<core::compiled::HotspotRef> pressed;
 };
 
+struct OrderedWorldOverlayBatch {
+    std::int32_t order = 0;
+    QuadBatch batch;
+};
+
 struct WorldPresentationFrame {
     core::PresentationSnapshotRevision revision =
         core::PresentationSnapshotRevision::from_number(0);
@@ -179,9 +184,11 @@ struct WorldPresentationFrame {
     std::vector<WorldPreparedHotspotSurface> hotspot_surfaces;
     std::vector<WorldHotspotHitTarget> hotspot_hit_targets;
     QuadBatch base_world_composition_batch;
+    std::vector<OrderedWorldOverlayBatch> base_world_overlay_batches;
     QuadBatch base_game_ui_underlay_batch;
     QuadBatch base_batch;
     QuadBatch world_composition_batch;
+    std::vector<OrderedWorldOverlayBatch> world_overlay_batches;
     QuadBatch game_ui_underlay_batch;
     QuadBatch batch;
 };

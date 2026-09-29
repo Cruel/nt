@@ -689,7 +689,6 @@
               "y": 0.6
             },
             "id": "coin-placement",
-            "order": 0,
             "presentation": {
               "label": {
                 "markup": "plain",
@@ -698,7 +697,8 @@
                   "kind": "message"
                 }
               },
-              "layout": null
+              "layout": null,
+              "layoutOrder": null
             }
           }
         ],
@@ -854,7 +854,6 @@
               "y": 0.2
             },
             "id": "key-placement",
-            "order": 0,
             "presentation": {
               "label": {
                 "markup": "plain",
@@ -866,7 +865,8 @@
               "layout": {
                 "id": "hud-inline",
                 "kind": "layout"
-              }
+              },
+              "layoutOrder": 1024
             }
           }
         ],
@@ -2680,7 +2680,7 @@
       }
     ]
   },
-  "saveContract": "sc1:e8294f0b8258a1b9d62aa95b4ada6d5d",
+  "saveContract": "sc1:5283582958d7fc67b2e6a459dbda0403",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

@@ -92,7 +92,7 @@ struct RoomPresentationDefinitionView {
         std::optional<RoomPresentationTextToken> label;
         TextMarkup label_markup = TextMarkup::Plain;
         std::optional<LayoutId> layout;
-        std::int32_t order = 0;
+        std::optional<std::int32_t> layout_order;
     };
     struct Exit {
         RoomExitId id;
@@ -185,6 +185,7 @@ struct ResolvedRoomInteractable {
     RoomPlacementId placement;
     bool enabled = true;
     bool visible = true;
+    std::int32_t order = 0;
 };
 
 struct ResolvedRoomProp {

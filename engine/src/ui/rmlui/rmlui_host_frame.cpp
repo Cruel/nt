@@ -251,6 +251,39 @@ void RmlUiHost::configure_plane_output_framebuffers()
     }
 }
 
+void RmlUiHost::render_context(ContextRecord& record)
+{
+    const bool is_source = is_world_transition_source_context(
+        record.key, host::kWorldTransitionSourceCompositionGroup);
+    set_context_clock(record.key);
+    const bool host_surface =
+#if NOVELTEA_ENABLE_DEVTOOLS
+        record.context == m_debugger_host_context;
+#else
+        false;
+#endif
+    const auto renderer = std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(),
+                                       [&](const PlaneRenderer& value) {
+                                           return value.plane == record.key.plane &&
+                                                  value.world_transition_source == is_source &&
+                                                  value.host_surface == host_surface;
+                                       });
+    if (renderer != m_plane_renderers.end() && renderer->bgfx) {
+        renderer->bgfx->configure_context(m_presentation, record.metrics);
+        renderer->bgfx->set_material_parameters(
+            record.name, record.material_occurrence, record.material_parameters,
+            record.material_textures, m_clocks, record.material_camera_zoom);
+        renderer->bgfx->begin_frame(renderer->view_range_started);
+        renderer->view_range_started = true;
+    }
+    if (m_context_render_observer)
+        m_context_render_observer(record.key, record.metrics);
+    record.context->Render();
+    if (renderer != m_plane_renderers.end() && renderer->bgfx)
+        renderer->bgfx->end_frame();
+    m_rendered_contexts.insert(record.context);
+}
+
 void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only,
                                 bool include_debug_plane)
 {
@@ -272,39 +305,127 @@ void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only,
             continue;
         if (!include_debug_plane && record.key.plane == core::PresentationPlane::Debug)
             continue;
-        set_context_clock(record.key);
-        const bool host_surface =
-#if NOVELTEA_ENABLE_DEVTOOLS
-            record.context == m_debugger_host_context;
-#else
-            false;
-#endif
-        const auto renderer = std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(),
-                                           [&](const PlaneRenderer& value) {
-                                               return value.plane == record.key.plane &&
-                                                      value.world_transition_source == is_source &&
-                                                      value.host_surface == host_surface;
-                                           });
-        if (renderer != m_plane_renderers.end() && renderer->bgfx) {
-            renderer->bgfx->configure_context(m_presentation, record.metrics);
-            renderer->bgfx->set_material_parameters(
-                record.name, record.material_occurrence, record.material_parameters,
-                record.material_textures, m_clocks, record.material_camera_zoom);
-            renderer->bgfx->begin_frame(renderer->view_range_started);
-            renderer->view_range_started = true;
-        }
-        if (m_context_render_observer)
-            m_context_render_observer(record.key, record.metrics);
-        record.context->Render();
-        if (renderer != m_plane_renderers.end() && renderer->bgfx)
-            renderer->bgfx->end_frame();
-        m_rendered_contexts.insert(record.context);
+        render_context(record);
     }
+}
+
+bool RmlUiHost::render_world_overlay_sequence(
+    bool source, std::span<const std::int32_t> external_orders,
+    const WorldOverlayExternalDraw& draw_external)
+{
+    if (m_world_transition_active) {
+        const bool enabled =
+            source ? m_world_transition_source_enabled : m_world_transition_target_enabled;
+        if (!enabled)
+            return external_orders.empty();
+    }
+
+    std::vector<ContextRecord*> ordered_contexts;
+    for (auto& record : m_contexts) {
+        if (record.key.plane != core::PresentationPlane::WorldOverlay ||
+            m_rendered_contexts.contains(record.context) || !record.presentation_order)
+            continue;
+        const bool is_source = is_world_transition_source_context(
+            record.key, host::kWorldTransitionSourceCompositionGroup);
+        if (is_source == source)
+            ordered_contexts.push_back(&record);
+    }
+    std::sort(ordered_contexts.begin(), ordered_contexts.end(), [](const auto* lhs, const auto* rhs) {
+        return std::tie(*lhs->presentation_order, lhs->name) <
+               std::tie(*rhs->presentation_order, rhs->name);
+    });
+
+    PlaneRenderer* plane_renderer = nullptr;
+    const auto find_renderer = [&]() -> PlaneRenderer* {
+        const auto found = std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(),
+                                        [&](const PlaneRenderer& value) {
+                                            return value.plane == core::PresentationPlane::WorldOverlay &&
+                                                   value.world_transition_source == source &&
+                                                   !value.host_surface;
+                                        });
+        return found == m_plane_renderers.end() ? nullptr : &*found;
+    };
+    plane_renderer = find_renderer();
+    if (!plane_renderer && !external_orders.empty()) {
+        ContextKey key;
+        key.plane = core::PresentationPlane::WorldOverlay;
+        key.composition_group = source ? host::kWorldTransitionSourceCompositionGroup
+                                       : host::layout_composition_group(
+                                             core::PresentationCompositionGroup::World);
+        auto metrics = resolve_context_environment(key, m_presentation, m_user_settings);
+        if (!metrics || !renderer_for(key, *metrics.value_if()))
+            return false;
+        configure_plane_output_framebuffers();
+        plane_renderer = find_renderer();
+    }
+
+    std::size_t external_index = 0;
+    std::size_t context_index = 0;
+    const auto render_external_run = [&](std::size_t begin, std::size_t end) -> bool {
+        if (begin >= end)
+            return true;
+        if (!draw_external)
+            return false;
+        if (!plane_renderer || !plane_renderer->bgfx) {
+            if (m_headless_render) {
+                for (std::size_t index = begin; index < end; ++index)
+                    draw_external(index, 0);
+                return true;
+            }
+            return false;
+        }
+        const auto view =
+            plane_renderer->bgfx->reserve_external_pass(plane_renderer->view_range_started);
+        if (!view)
+            return false;
+        plane_renderer->view_range_started = true;
+        for (std::size_t index = begin; index < end; ++index)
+            draw_external(index, *view);
+        return true;
+    };
+
+    while (external_index < external_orders.size() && context_index < ordered_contexts.size()) {
+        const auto external_order = external_orders[external_index];
+        const auto context_order = *ordered_contexts[context_index]->presentation_order;
+        if (external_order < context_order) {
+            const auto begin = external_index;
+            do {
+                ++external_index;
+            } while (external_index < external_orders.size() &&
+                     external_orders[external_index] < context_order);
+            if (!render_external_run(begin, external_index))
+                return false;
+        } else {
+            render_context(*ordered_contexts[context_index++]);
+        }
+    }
+    if (!render_external_run(external_index, external_orders.size()))
+        return false;
+    while (context_index < ordered_contexts.size())
+        render_context(*ordered_contexts[context_index++]);
+
+    if (source)
+        render_contexts(true, false, true);
+    else
+        render_contexts(false, true, true);
+    return true;
 }
 
 void RmlUiHost::render_world_overlay_source() { render_contexts(true, false, true); }
 
 void RmlUiHost::render_world_overlay_target() { render_contexts(false, true, true); }
+
+bool RmlUiHost::render_world_overlay_source(std::span<const std::int32_t> external_orders,
+                                            const WorldOverlayExternalDraw& draw_external)
+{
+    return render_world_overlay_sequence(true, external_orders, draw_external);
+}
+
+bool RmlUiHost::render_world_overlay_target(std::span<const std::int32_t> external_orders,
+                                            const WorldOverlayExternalDraw& draw_external)
+{
+    return render_world_overlay_sequence(false, external_orders, draw_external);
+}
 
 void RmlUiHost::end_frame(bool include_debug_plane)
 {

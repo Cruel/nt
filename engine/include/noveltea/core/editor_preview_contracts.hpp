@@ -100,6 +100,7 @@ struct TypedFocusedRoomLayoutDefinition {
     enum class MountKind : std::uint8_t {
         GameHud,
         RoomOverlay,
+        RoomPlacement,
     };
 
     std::string instance_id;
@@ -108,6 +109,7 @@ struct TypedFocusedRoomLayoutDefinition {
     LayoutKind layout_kind = LayoutKind::Document;
     MountKind mount_kind = MountKind::GameHud;
     std::optional<std::string> overlay_id;
+    std::optional<std::string> placement_id;
     std::optional<std::string> template_id;
     std::string source_url;
     std::optional<std::string> default_parent;
@@ -274,7 +276,7 @@ struct TypedFocusedRoomWorldDefinition {
     struct Placement {
         std::string id;
         TypedFocusedNormalizedRect bounds;
-        std::int32_t order = 0;
+        std::optional<std::int32_t> layout_order;
         std::optional<TypedFocusedText> label;
         std::optional<std::string> layout_id;
     };

@@ -28,7 +28,17 @@
     "anchors": [],
     "overlays": [],
     "cast": [],
-    "props": [],
+    "props": [
+      {
+        "id": "material-ordering-prop",
+        "condition": { "kind": "always" },
+        "placementId": "material-ordering-placement",
+        "asset": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+        "materialApplication": null,
+        "visible": true,
+        "order": 15
+      }
+    ],
     "interactables": [
       {
         "id": "material-definition-sample",
@@ -64,13 +74,16 @@
       {
         "id": "material-definition-placement",
         "bounds": { "x": 0.28, "y": 0.38, "width": 0.16, "height": 0.24 },
-        "order": 10,
         "presentation": { "label": null, "layout": null }
       },
       {
         "id": "material-instance-placement",
         "bounds": { "x": 0.56, "y": 0.38, "width": 0.16, "height": 0.24 },
-        "order": 20,
+        "presentation": { "label": null, "layout": null }
+      },
+      {
+        "id": "material-ordering-placement",
+        "bounds": { "x": 0.36, "y": 0.38, "width": 0.32, "height": 0.24 },
         "presentation": { "label": null, "layout": null }
       }
     ],

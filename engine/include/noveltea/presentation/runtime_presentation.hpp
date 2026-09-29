@@ -16,7 +16,6 @@ struct RoomPresentationVisualCatalog {
     struct Placement {
         RoomPlacementId placement;
         compiled::NormalizedRect bounds{};
-        std::int32_t order = 0;
     };
     struct CharacterVisual {
         CharacterId character;

@@ -41,6 +41,11 @@ struct WorldTransitionScenePlan {
     bool operator==(const WorldTransitionScenePlan&) const = default;
 };
 
+struct TargetedWorldComposition {
+    QuadBatch world_composition_batch;
+    std::vector<OrderedWorldOverlayBatch> world_overlay_batches;
+};
+
 [[nodiscard]] WorldTransitionScenePlan
 make_world_transition_scene_plan(const WorldTransitionRenderState& state) noexcept;
 
@@ -94,7 +99,8 @@ public:
     [[nodiscard]] std::vector<TargetedPresentationRenderState> targeted_render_states() const;
     [[nodiscard]] std::vector<LayoutTransitionRenderState> layout_render_states() const;
     [[nodiscard]] std::vector<core::PresentationSnapshotRevision> active_revisions() const;
-    [[nodiscard]] core::Result<QuadBatch, core::Diagnostics> compose_targeted_world_batch() const;
+    [[nodiscard]] core::Result<TargetedWorldComposition, core::Diagnostics>
+    compose_targeted_world_batch() const;
 
 private:
     struct ActiveOperation {

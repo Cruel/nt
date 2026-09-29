@@ -395,9 +395,9 @@ TEST_CASE("targeted background cross-fade retains exact revisions and completes"
     transitions.advance(clocks);
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 2);
-    CHECK(batch.value().commands()[0].color.a == Catch::Approx(0.5f));
-    CHECK(batch.value().commands()[1].color.a == Catch::Approx(0.5f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 2);
+    CHECK(batch.value().world_composition_batch.commands()[0].color.a == Catch::Approx(0.5f));
+    CHECK(batch.value().world_composition_batch.commands()[1].color.a == Catch::Approx(0.5f));
 
     transitions.advance(clocks);
     CHECK(transitions.targeted_render_states().empty());
@@ -438,8 +438,9 @@ TEST_CASE("Character Gesture animates admitted layers and emits each cue exactly
 
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().material.value() == "gesture-material");
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().material.value() ==
+          "gesture-material");
 
     transitions.advance(clocks);
     cues = transitions.take_gesture_cues();
@@ -513,9 +514,10 @@ TEST_CASE("targeted camera pan interpolates the exact committed world framing")
     transitions.advance(clocks);
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().rect.x == Catch::Approx(50.0f));
-    CHECK(batch.value().commands().front().rect.width == Catch::Approx(1000.0f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().rect.x == Catch::Approx(50.0f));
+    CHECK(batch.value().world_composition_batch.commands().front().rect.width ==
+          Catch::Approx(1000.0f));
 }
 
 TEST_CASE("captured camera focus and flash remain temporary over the unchanged desired View")
@@ -546,8 +548,9 @@ TEST_CASE("captured camera focus and flash remain temporary over the unchanged d
     transitions.advance(clocks);
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().rect.width == Catch::Approx(5000.0f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().rect.width ==
+          Catch::Approx(5000.0f));
     REQUIRE(world.snapshot(PresentationSnapshotRevision::from_number(2))->camera);
     CHECK(world.snapshot(PresentationSnapshotRevision::from_number(2))->camera->view ==
           first.camera->view);
@@ -560,8 +563,11 @@ TEST_CASE("captured camera focus and flash remain temporary over the unchanged d
     transitions.advance(clocks);
     batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 2);
-    CHECK(batch.value().commands().back().color.a == Catch::Approx(0.8f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    REQUIRE(batch.value().world_overlay_batches.size() == 1);
+    REQUIRE(batch.value().world_overlay_batches.front().batch.commands().size() == 1);
+    CHECK(batch.value().world_overlay_batches.front().batch.commands().front().color.a ==
+          Catch::Approx(0.8f));
 }
 
 TEST_CASE("targeted actor slide interpolates resolved bounds and rejects pose changes")
@@ -585,14 +591,14 @@ TEST_CASE("targeted actor slide interpolates resolved bounds and rejects pose ch
     transitions.advance(clocks);
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().rect.x == Catch::Approx(340.0f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().rect.x == Catch::Approx(340.0f));
 
     REQUIRE(world.resize({2000.0f, 1000.0f}));
     batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().rect.x == Catch::Approx(680.0f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().rect.x == Catch::Approx(680.0f));
 
     transitions.reset(PresentationCancellationReason::RuntimeReset);
     auto invalid_target = snapshot(3);
@@ -629,10 +635,11 @@ TEST_CASE("targeted actor fade cross-fades general actor replacement")
 
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 2);
-    CHECK(batch.value().commands()[0].color.a == Catch::Approx(0.5f));
-    CHECK(batch.value().commands()[1].color.a == Catch::Approx(0.5f));
-    CHECK(batch.value().commands()[0].rect.x != batch.value().commands()[1].rect.x);
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 2);
+    CHECK(batch.value().world_composition_batch.commands()[0].color.a == Catch::Approx(0.5f));
+    CHECK(batch.value().world_composition_batch.commands()[1].color.a == Catch::Approx(0.5f));
+    CHECK(batch.value().world_composition_batch.commands()[0].rect.x !=
+          batch.value().world_composition_batch.commands()[1].rect.x);
 }
 
 TEST_CASE("targeted actor slide rejects hidden pose or expression changes")
@@ -676,8 +683,9 @@ TEST_CASE("targeted actor show slide derives nearest horizontal offscreen endpoi
     (void)transitions.take_acknowledgements();
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().rect.x == Catch::Approx(-320.0f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().rect.x ==
+          Catch::Approx(-320.0f));
 }
 
 TEST_CASE("targeted actor hide slide converges to the nearest horizontal offscreen endpoint")
@@ -703,8 +711,8 @@ TEST_CASE("targeted actor hide slide converges to the nearest horizontal offscre
     transitions.advance(clocks);
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().rect.x == Catch::Approx(795.0f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().rect.x == Catch::Approx(795.0f));
 }
 
 TEST_CASE("targeted realization remains active beneath a concurrent full-world transition")
@@ -742,8 +750,8 @@ TEST_CASE("targeted realization remains active beneath a concurrent full-world t
     REQUIRE(transitions.targeted_render_states().size() == 1);
     auto batch = transitions.compose_targeted_world_batch();
     REQUIRE(batch);
-    REQUIRE(batch.value().commands().size() == 1);
-    CHECK(batch.value().commands().front().rect.x == Catch::Approx(465.0f));
+    REQUIRE(batch.value().world_composition_batch.commands().size() == 1);
+    CHECK(batch.value().world_composition_batch.commands().front().rect.x == Catch::Approx(465.0f));
 }
 
 TEST_CASE("targeted operations replace only the same typed target")

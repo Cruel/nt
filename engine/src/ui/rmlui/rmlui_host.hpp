@@ -16,6 +16,7 @@
 #include <functional>
 #include <memory>
 #include <optional>
+#include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
@@ -63,6 +64,7 @@ public:
         std::vector<core::PresentationMaterialParameter> material_parameters;
         std::vector<core::PresentationMaterialTextureBinding> material_textures;
         double material_camera_zoom = 1.0;
+        std::optional<std::int32_t> presentation_order;
         std::uint64_t cursor_source_id = 0;
 #if NOVELTEA_ENABLE_DEVTOOLS
         bool recent_event_processed = false;
@@ -94,6 +96,8 @@ public:
                                                    const std::function<bool()>&)>;
     using ContextRenderObserver =
         std::function<void(const ContextKey&, const ResolvedContextMetrics&)>;
+    using WorldOverlayExternalDraw =
+        std::function<void(std::size_t external_index, std::uint16_t view)>;
     using ContextInitializer = std::function<bool(Rml::Context&)>;
     using CursorOwnerResolver = std::function<std::string(Rml::Context*)>;
     using CursorPresentationResolver =
@@ -156,6 +160,12 @@ public:
                                         bool transition_active);
     void render_world_overlay_source();
     void render_world_overlay_target();
+    [[nodiscard]] bool
+    render_world_overlay_source(std::span<const std::int32_t> external_orders,
+                                const WorldOverlayExternalDraw& draw_external);
+    [[nodiscard]] bool
+    render_world_overlay_target(std::span<const std::int32_t> external_orders,
+                                const WorldOverlayExternalDraw& draw_external);
     void end_frame(bool include_debug_plane = true);
     void reset_backend_state();
 
@@ -174,6 +184,8 @@ public:
         Rml::Context* context, std::optional<core::LayoutMountOccurrenceId> occurrence,
         std::vector<core::PresentationMaterialParameter> parameters,
         std::vector<core::PresentationMaterialTextureBinding> textures, double camera_zoom);
+    void set_context_presentation_order(Rml::Context* context,
+                                        std::optional<std::int32_t> order) noexcept;
 
     void refresh_pointer_cursor(const VisibleDocumentPredicate& has_visible_document,
                                 const LayoutEventDispatch& dispatch_layout_event);
@@ -215,6 +227,10 @@ private:
     void resolve_cursor_requests(const std::vector<std::uint64_t>& front_to_back);
     void configure_plane_output_framebuffers();
     void render_contexts(bool world_source_only, bool world_target_only, bool include_debug_plane);
+    void render_context(ContextRecord& record);
+    [[nodiscard]] bool
+    render_world_overlay_sequence(bool source, std::span<const std::int32_t> external_orders,
+                                  const WorldOverlayExternalDraw& draw_external);
 
     const assets::AssetManager* m_assets = nullptr;
     SDL_Window* m_window = nullptr;

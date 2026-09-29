@@ -266,7 +266,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
     strict({
       id: z.string().min(1),
       bounds: normalizedRect,
-      order: z.number().int(),
+      layoutOrder: z.number().int().nullable(),
       label: focusedTextSchema.nullable(),
       layoutId: z.string().min(1).nullable(),
     }),
@@ -452,6 +452,11 @@ export const focusedRoomLayoutDefinitionSchema = strict({
       overlayId: z.string().min(1),
       order: z.number().int(),
       visible: z.boolean(),
+    }),
+    strict({
+      kind: z.literal('room-placement'),
+      placementId: z.string().min(1),
+      order: z.number().int(),
     }),
   ]),
   source: z.discriminatedUnion('kind', [
@@ -726,7 +731,15 @@ export const roomPreviewDocumentSchema = strict({
     if (!placements.has(value.placementId))
       issue(['world', 'props', index, 'placementId'], 'Referenced Room placement does not exist.');
   });
+  document.world.placements.forEach((placement, index) => {
+    if ((placement.layoutId === null) !== (placement.layoutOrder === null))
+      issue(
+        ['world', 'placements', index, 'layoutOrder'],
+        'Room placement layoutOrder must be present exactly when a Layout is attached.',
+      );
+  });
   const overlayLayouts = new Map<string, number>();
+  const placementLayouts = new Map<string, number>();
   let gameHudCount = 0;
   document.layouts.forEach((layout, index) => {
     if (layout.mount.kind === 'game-hud') {
@@ -735,7 +748,7 @@ export const roomPreviewDocumentSchema = strict({
         issue(['layouts', index, 'instanceId'], "Game HUD instanceId must be 'game-hud'.");
       if (layout.source.kind === 'builtin-game-hud' && layout.layoutId !== null)
         issue(['layouts', index, 'layoutId'], 'Built-in Game HUD must have null layoutId.');
-    } else {
+    } else if (layout.mount.kind === 'room-overlay') {
       const overlayId = layout.mount.overlayId;
       const overlay = document.world.overlays.find(
         (candidate) => candidate.overlayId === overlayId,
@@ -755,6 +768,32 @@ export const roomPreviewDocumentSchema = strict({
           issue(
             ['layouts', index, 'mount'],
             'Layout mount does not match overlay order/visibility.',
+          );
+      }
+    } else {
+      const placementId = layout.mount.placementId;
+      const placement = document.world.placements.find((candidate) => candidate.id === placementId);
+      placementLayouts.set(placementId, (placementLayouts.get(placementId) ?? 0) + 1);
+      if (layout.instanceId !== `room-placement:${placementId}`)
+        issue(
+          ['layouts', index, 'instanceId'],
+          'Room placement Layout instanceId is not canonical.',
+        );
+      if (!placement)
+        issue(
+          ['layouts', index, 'mount', 'placementId'],
+          'Layout mount references an unknown Room placement.',
+        );
+      else {
+        if (layout.layoutId !== placement.layoutId)
+          issue(
+            ['layouts', index, 'layoutId'],
+            'Layout identity does not match its Room placement.',
+          );
+        if (layout.mount.order !== placement.layoutOrder)
+          issue(
+            ['layouts', index, 'mount', 'order'],
+            'Layout mount does not match Room placement Layout order.',
           );
       }
     }
@@ -798,6 +837,19 @@ export const roomPreviewDocumentSchema = strict({
       issue(
         ['layouts', index, 'containsDedicatedLuaSource'],
         'Dedicated Lua presence flag does not match source bytes.',
+      );
+  });
+  document.world.placements.forEach((placement, index) => {
+    const count = placementLayouts.get(placement.id) ?? 0;
+    if (placement.layoutId && count !== 1)
+      issue(
+        ['world', 'placements', index, 'layoutId'],
+        'Room placement with a Layout requires exactly one matching Layout mount.',
+      );
+    if (!placement.layoutId && count !== 0)
+      issue(
+        ['world', 'placements', index, 'layoutId'],
+        'Room placement without a Layout cannot own a Layout mount.',
       );
   });
   if (gameHudCount !== 1) issue(['layouts'], 'Focused Room requires exactly one Game HUD Layout.');

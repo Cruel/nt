@@ -170,6 +170,8 @@ public:
 
     void draw_2d(const QuadBatch& batch);
     void draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, float opacity = 1.0f);
+    void draw_world_overlay_2d(const QuadBatch& batch, std::uint16_t view,
+                               float opacity = 1.0f);
     void composite_ordinary_world_surface();
     void set_postprocess_material(std::optional<MaterialId> material,
                                   PostprocessScope scope = PostprocessScope::World);

@@ -175,7 +175,8 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
             markup = placement.presentation.label->markup;
         }
         definition.placements.push_back({placement.id, placement.bounds, label, markup,
-                                         placement.presentation.layout, placement.order});
+                                         placement.presentation.layout,
+                                         placement.presentation.layout_order});
     }
     for (const auto& exit : room->exits)
         definition.exits.push_back({exit.id, condition_token(exit.condition), exit.direction,
@@ -440,7 +441,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                      compiled::RoomPlacementRef{visit.room, interactable.placement},
                  .interactable_bounds = placement->bounds,
                  .owner_plane = PresentationPlane::WorldContent,
-                 .owner_order = placement->order,
+                 .owner_order = interactable.order,
                  .cursor = hotspot.cursor ? hotspot.cursor : definition->presentation.cursor});
             return Result<void, Diagnostics>::success();
         };
@@ -548,7 +549,8 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
                       "Interactable occurrence references a missing Room placement"));
         draft.interactables.push_back({occurrence.id, occurrence.interactable, occurrence.placement,
                                        state_interactable->enabled,
-                                       state_interactable->visible && occurrence.visible});
+                                       state_interactable->visible && occurrence.visible,
+                                       occurrence.order});
     }
     for (const auto& state_interactable : state.interactables) {
         if (!state_interactable.room_location_matches)
@@ -564,7 +566,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
             draft.interactables.push_back(
                 {DynamicRoomInteractableOccurrenceId{state_interactable.interactable},
                  state_interactable.interactable, *state_interactable.dynamic_placement,
-                 state_interactable.enabled, state_interactable.visible});
+                 state_interactable.enabled, state_interactable.visible, 0});
             continue;
         }
         const bool has_authored_occurrence =
@@ -583,7 +585,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
         draft.interactables.push_back(
             {FallbackRoomInteractableOccurrenceId{state_interactable.interactable},
              state_interactable.interactable, *room.fallback_interactable_placement,
-             state_interactable.enabled, state_interactable.visible});
+             state_interactable.enabled, state_interactable.visible, 0});
     }
     for (const auto& prop : room.props) {
         auto enabled = evaluate(prop.condition);
@@ -644,9 +646,11 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
         return std::tie(left.order, left.character, left.placement) <
                std::tie(right.order, right.character, right.placement);
     });
-    std::sort(
-        draft.interactables.begin(), draft.interactables.end(),
-        [](const auto& left, const auto& right) { return left.interactable < right.interactable; });
+    std::sort(draft.interactables.begin(), draft.interactables.end(),
+              [](const auto& left, const auto& right) {
+                  return std::tie(left.order, left.interactable) <
+                         std::tie(right.order, right.interactable);
+              });
     std::sort(draft.props.begin(), draft.props.end(), [](const auto& left, const auto& right) {
         return std::tie(left.order, left.prop) < std::tie(right.order, right.prop);
     });
@@ -674,7 +678,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolverCore::re
                                .label = std::nullopt,
                                .label_markup = TextMarkup::Plain,
                                .layout = placement.layout,
-                               .order = placement.order,
+                               .layout_order = placement.layout_order,
                                .occupants = {}};
         if (placement.label) {
             auto label = resolve_text(*placement.label);

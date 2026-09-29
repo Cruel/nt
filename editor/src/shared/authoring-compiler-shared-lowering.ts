@@ -927,10 +927,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         visible: overlay.visible,
         order: overlay.order,
       })),
-      placements: data.placements.map((placement, index) => ({
+      placements: data.placements.map((placement) => ({
         id: placement.id,
         bounds: { ...placement.bounds },
-        order: placement.order ?? index,
         presentation: {
           label: placement.presentation.label
             ? compileText(
@@ -939,6 +938,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               )
             : null,
           layout: layoutRef(placement.presentation.layout),
+          layoutOrder: placement.presentation.layout ? placement.presentation.layoutOrder : null,
         },
       })),
       features: data.features.map((feature) => compileFeature(project, feature, 'value')),
@@ -1418,10 +1418,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             export: mapping.handler.export.trim(),
           },
         })),
-        placements: data.placements.map((placement, index) => ({
+        placements: data.placements.map((placement) => ({
           id: placement.id,
           bounds: { ...placement.bounds },
-          order: placement.order ?? index,
           presentation: {
             label: placement.presentation.label
               ? compileText(
@@ -1430,6 +1429,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                 )
               : null,
             layout: layoutRef(placement.presentation.layout),
+            layoutOrder: placement.presentation.layout ? placement.presentation.layoutOrder : null,
           },
         })),
         features: data.features.map((feature) => compileFeature(project, feature, 'value')),

@@ -1235,10 +1235,10 @@ const characterDefinitionSchema = strict({
 const roomPlacementSchema = strict({
   bounds: normalizedRectSchema,
   id,
-  order: z.number().int(),
   presentation: strict({
     label: compiledTextSchema.nullable(),
     layout: layoutReferenceSchema.nullable(),
+    layoutOrder: z.number().int().nullable(),
   }),
 });
 const worldRectSchema = strict({

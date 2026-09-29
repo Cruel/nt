@@ -507,7 +507,6 @@ describe('BottomPanel', () => {
       {
         id: 'key-placement',
         bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        order: 0,
         presentation: { label: null, layout: null },
       },
     ];

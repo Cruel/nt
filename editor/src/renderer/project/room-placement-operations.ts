@@ -17,8 +17,13 @@ import {
 } from '../../shared/project-schema/authoring-rooms';
 import { replaceRoomDataPatches } from './room-operations';
 import { toJsonValue } from './json-value';
-
-const INT32_MAX = 2_147_483_647;
+import {
+  allocateRoomPresentationOrder,
+  allocateRoomPresentationOrders,
+  reorderRoomPresentation,
+  type RoomPresentationOrderTarget,
+  type RoomPresentationReorderAction,
+} from '../../shared/project-schema/room-presentation-order';
 
 function error(message: string, path?: string): EntityOperationDiagnostic {
   return { severity: 'error', message, path };
@@ -160,14 +165,9 @@ export function placeInteractablePatches(
       patches: [],
       diagnostics: [error('Interactable Instance is assigned to a different Room.')],
     };
-  const maximumOrder = loaded.room.placements.reduce(
-    (maximum, placement) => Math.max(maximum, placement.order ?? 0),
-    -1,
-  );
   const placement: RoomPlacementData = {
     id: payload.placementId,
     bounds: payload.bounds,
-    order: maximumOrder >= INT32_MAX ? INT32_MAX : maximumOrder + 1,
     presentation: {
       label: inlineTextContent(loaded.interactable!.displayName),
       layout: null,
@@ -220,18 +220,23 @@ export function placeInteractablePatches(
       first = false;
     }
   }
+  const allocated = allocateRoomPresentationOrders(
+    loaded.room,
+    'world-content',
+    requestedInstances.length,
+  );
   const roomData: RoomData = {
-    ...loaded.room,
-    placements: [...loaded.room.placements, placement],
+    ...allocated.room,
+    placements: [...allocated.room.placements, placement],
     interactables: [
-      ...loaded.room.interactables,
+      ...allocated.room.interactables,
       ...requestedInstances.map(({ instanceId, occurrenceId }, index) => ({
         id: occurrenceId,
         interactable: { $ref: { registry: 'interactableInstances' as const, id: instanceId } },
         condition: { kind: 'always' as const },
         placementId: payload.placementId,
         visible: true,
-        order: loaded.room.interactables.length + index,
+        order: allocated.orders[index]!,
       })),
     ],
   };
@@ -300,17 +305,18 @@ export function addInteractableOccurrencePatches(
     return { patches: [], diagnostics: [error('Room placement does not exist.')] };
   if (loaded.room.interactables.some((item) => item.id === payload.occurrenceId))
     return { patches: [], diagnostics: [error('Room Interactable occurrence ID already exists.')] };
+  const allocated = allocateRoomPresentationOrder(loaded.room, 'world-content');
   return roomResult(document, payload.roomId, {
-    ...loaded.room,
+    ...allocated.room,
     interactables: [
-      ...loaded.room.interactables,
+      ...allocated.room.interactables,
       {
         id: payload.occurrenceId,
         interactable: { $ref: { registry: 'interactableInstances', id: payload.instanceId } },
         condition: { kind: 'always' },
         placementId: payload.placementId,
         visible: payload.visible ?? true,
-        order: loaded.room.interactables.length,
+        order: allocated.order,
       },
     ],
   });
@@ -492,4 +498,26 @@ export function detachInteractablePlacementPatches(
       item.id === payload.occurrenceId ? { ...item, placementId: payload.placementId } : item,
     ),
   });
+}
+
+export function reorderRoomPresentationPatches(
+  document: unknown,
+  payload: {
+    roomId: string;
+    target: RoomPresentationOrderTarget;
+    action: RoomPresentationReorderAction;
+  },
+): EntityOperationResult {
+  const loaded = loadedRecords(document, payload.roomId);
+  if ('patches' in loaded) return loaded;
+  const room = reorderRoomPresentation(loaded.room, payload.target, payload.action);
+  if (!room)
+    return {
+      patches: [],
+      diagnostics: [
+        error('Room presentation occurrence does not exist.', roomPath(payload.roomId)),
+      ],
+    };
+  if (room === loaded.room) return { patches: [], affectedPaths: [] };
+  return roomResult(document, payload.roomId, room);
 }

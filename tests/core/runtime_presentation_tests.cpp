@@ -67,7 +67,7 @@ CompiledProject fixture()
                                 {"appearanceId", nullptr},
                                 {"idleId", nullptr},
                                 {"visible", true},
-                                {"order", 0}}});
+                                {"order", 1024}}});
     auto decoded = decode_compiled_project(document, "scene-program.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
@@ -638,7 +638,7 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(snapshot.environments.front().scroll_per_second.y == 0.25);
     CHECK(snapshot.environments.front().opacity == 0.75);
 
-    REQUIRE(snapshot.layouts.size() == 2);
+    REQUIRE(snapshot.layouts.size() == 3);
     const auto* overlay =
         find_layout(snapshot, RoomOverlayLayoutMountKey{id<RoomId>("start"),
                                                         id<RoomOverlayId>("start-overlay")});
@@ -646,6 +646,14 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(overlay->layout == id<LayoutId>("hud-assets"));
     CHECK(overlay->policy.plane == PresentationPlane::WorldOverlay);
     CHECK(overlay->composition_group == PresentationCompositionGroup::World);
+    const auto* placement_layout =
+        find_layout(snapshot, RoomPlacementLayoutMountKey{id<RoomId>("start"),
+                                                          id<RoomPlacementId>("key-placement")});
+    REQUIRE(placement_layout);
+    CHECK(placement_layout->layout == id<LayoutId>("hud-inline"));
+    CHECK(placement_layout->policy.plane == PresentationPlane::WorldOverlay);
+    CHECK(placement_layout->policy.local_order == 1024);
+    CHECK(placement_layout->composition_group == PresentationCompositionGroup::World);
     const auto* hud = find_layout(snapshot, ReservedLayoutMountKey{compiled::LayoutSlot::Hud});
     REQUIRE(hud);
     CHECK(hud->layout == id<LayoutId>("hud-inline"));

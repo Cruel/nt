@@ -97,6 +97,8 @@ public:
     void configure_context(const PresentationMetrics& presentation,
                            const ResolvedContextMetrics& context);
     void begin_frame(bool continue_view_range = false);
+    [[nodiscard]] std::optional<std::uint16_t>
+    reserve_external_pass(bool continue_view_range = false);
     void end_frame();
     void set_perf_logging_enabled(bool enabled);
     void set_base_direct_compatibility(bool enabled);

@@ -532,6 +532,14 @@ function buildLayouts(
       visible: overlay.visible,
     }),
   );
+  room.placements.forEach((placement) => {
+    if (!placement.presentation.layout) return;
+    append(placement.presentation.layout.$ref.id, `room-placement:${placement.id}`, {
+      kind: 'room-placement',
+      placementId: placement.id,
+      order: placement.presentation.layoutOrder,
+    });
+  });
   return output.sort((left, right) => left.instanceId.localeCompare(right.instanceId));
 }
 
@@ -1217,7 +1225,7 @@ export async function buildFocusedRoomPreview(
       placements: room.placements.map((placement) => ({
         id: placement.id,
         bounds: placement.bounds,
-        order: placement.order ?? 0,
+        layoutOrder: placement.presentation.layout ? placement.presentation.layoutOrder : null,
         label: placement.presentation.label
           ? focusedText(
               project,

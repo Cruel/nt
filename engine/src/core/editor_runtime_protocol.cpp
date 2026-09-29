@@ -3781,14 +3781,26 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         error("editor_preview.wrong_type", "Placement must be an object.", path));
                     continue;
                 }
-                exact_fields(value, {"id", "bounds", "order", "label", "layoutId"}, diagnostics,
-                             path);
+                exact_fields(value, {"id", "bounds", "layoutOrder", "label", "layoutId"},
+                             diagnostics, path);
                 TypedFocusedRoomWorldDefinition::Placement typed{
                     .id = required_string(value, "id", path),
                     .bounds = rect(value["bounds"], path + "/bounds"),
-                    .order = json_access::member_as<int>(value, "order").value_or(0),
+                    .layout_order = std::nullopt,
                     .label = std::nullopt,
                     .layout_id = optional_string(value, "layoutId", path)};
+                if (const auto order = value.find("layoutOrder"); order == value.end()) {
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "layoutOrder is required.", path + "/layoutOrder"));
+                } else if (!order->is_null()) {
+                    if (auto decoded_order = json_access::get<std::int32_t>(*order))
+                        typed.layout_order = *decoded_order;
+                    else
+                        diagnostics.push_back(
+                            error("editor_preview.wrong_type",
+                                  "layoutOrder must be a signed 32-bit integer or null.",
+                                  path + "/layoutOrder"));
+                }
                 if (const auto label = value.find("label");
                     label != value.end() && !label->is_null())
                     typed.label = text(*label, path + "/label");
@@ -4158,6 +4170,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     decoded.order = json_access::member_as<int>(mount, "order").value_or(0);
                     decoded.visible =
                         json_access::member_as<bool>(mount, "visible").value_or(false);
+                } else if (mount_kind == "room-placement") {
+                    exact_fields(mount, {"kind", "placementId", "order"}, diagnostics,
+                                 path + "/mount");
+                    decoded.mount_kind = TypedFocusedRoomLayoutDefinition::MountKind::RoomPlacement;
+                    decoded.placement_id = required_string(mount, "placementId", path + "/mount");
+                    decoded.order = json_access::member_as<int>(mount, "order").value_or(0);
+                    decoded.visible = true;
                 } else
                     diagnostics.push_back(error("editor_preview.invalid_enum",
                                                 "Room Layout mount kind is unsupported.",

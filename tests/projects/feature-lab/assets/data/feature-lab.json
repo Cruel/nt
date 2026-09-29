@@ -202,10 +202,10 @@
       "id": "materials-engine2d",
       "categoryId": "rendering-materials",
       "title": "Engine2D Draw Texture & Specialization",
-      "description": "Two ordinary Interactable sprites use one custom Engine2D Material. The renderer supplies each draw's sprite texture automatically; one Instance inherits the Definition parameter while the other specializes it.",
+      "description": "Two ordinary Interactable sprites use one custom Engine2D Material while a raw-image Prop crosses both sprites at an authored order between them. The renderer supplies each Interactable draw's sprite texture automatically; one Instance inherits the Definition parameter while the other specializes it.",
       "status": "ready",
       "created": "2026-09-23T18:30:00Z",
-      "modified": "2026-09-23T18:30:00Z",
+      "modified": "2026-09-29T19:50:00Z",
       "launch": { "entry": "materials-engine2d" },
       "checks": [
         {
@@ -231,6 +231,18 @@
           "verification": "visual",
           "created": "2026-09-23T18:30:00Z",
           "modified": "2026-09-30T02:10:00Z",
+          "assetRequirements": ["pilot-button-sprite"],
+          "automation": []
+        },
+        {
+          "id": "cross-family-worldcontent-order",
+          "title": "WorldContent order interleaves Prop and Interactable draws",
+          "action": "Inspect the raw-image center Prop where it overlaps both cyan Interactable sprites.",
+          "expected": "The center Prop is in front of the left Interactable (orders 15 over 10) and behind the right Interactable (order 20 over 15), proving authored order interleaves draw families instead of using a hard Prop/Interactable tier.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-09-29T19:50:00Z",
+          "modified": "2026-09-29T19:50:00Z",
           "assetRequirements": ["pilot-button-sprite"],
           "automation": []
         }

@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { toJsonValue } from '@/project/json-value';
 import { createInitialCommandBusState, executeCommand, undoCommand } from './command-test-utils';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
@@ -18,7 +19,6 @@ describe('Room placement commands', () => {
       {
         id: 'desk',
         bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        order: 7,
         presentation: { label: null, layout: null },
       },
     ];
@@ -49,7 +49,6 @@ describe('Room placement commands', () => {
               {
                 id: 'key-placement',
                 bounds: { x: 0.3, y: 0.4, width: 0.2, height: 0.1 },
-                order: 8,
                 presentation: {
                   label: {
                     source: { kind: 'inline', text: 'Brass key' },
@@ -87,6 +86,103 @@ describe('Room placement commands', () => {
       '/rooms/foyer/data',
     ]);
     expect(undoCommand(placed.state).document).toEqual(state.document);
+  });
+
+  it('reorders WorldContent occurrences across families with sparse authored order', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0.1, y: 0.1, width: 0.8, height: 0.8 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.cast = [
+      {
+        id: 'hero',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'stage',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: null,
+        visible: true,
+        order: 0,
+      },
+    ];
+    room.props = [
+      {
+        id: 'desk',
+        condition: { kind: 'always' },
+        placementId: 'stage',
+        asset: { $ref: { collection: 'assets', id: 'desk' } },
+        materialApplication: null,
+        visible: true,
+        order: 1024,
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'stage',
+        visible: true,
+        order: 2048,
+      },
+    ];
+    project.characters.hero = {
+      id: 'hero',
+      label: 'Hero',
+      data: defaultCharacterData('Hero'),
+    };
+    project.assets.desk = {
+      id: 'desk',
+      label: 'Desk',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/desk.png' },
+        aliases: [],
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    let state = createInitialCommandBusState(toJsonValue(project));
+
+    const front = executeCommand(state, {
+      type: 'room.reorderPresentation',
+      payload: { roomId: 'foyer', target: { kind: 'cast', id: 'hero' }, action: 'front' },
+    });
+    expect(front.ok, JSON.stringify(front.diagnostics)).toBe(true);
+    state = front.state;
+    expect((front.document as typeof project).rooms.foyer?.data).toMatchObject({
+      cast: [{ id: 'hero', order: 3072 }],
+      props: [{ id: 'desk', order: 1024 }],
+      interactables: [{ id: 'key', order: 2048 }],
+    });
+
+    const forward = executeCommand(state, {
+      type: 'room.reorderPresentation',
+      payload: { roomId: 'foyer', target: { kind: 'prop', id: 'desk' }, action: 'forward' },
+    });
+    expect(forward.ok).toBe(true);
+    expect((forward.document as typeof project).rooms.foyer?.data).toMatchObject({
+      cast: [{ id: 'hero', order: 3072 }],
+      props: [{ id: 'desk', order: 2560 }],
+      interactables: [{ id: 'key', order: 2048 }],
+    });
   });
 
   it('places an existing exact Instance without cloning or discarding its deltas', () => {
@@ -163,13 +259,11 @@ describe('Room placement commands', () => {
       {
         id: 'left',
         bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        order: 0,
         presentation: { label: null, layout: null },
       },
       {
         id: 'right',
         bounds: { x: 0.7, y: 0.1, width: 0.2, height: 0.2 },
-        order: 1,
         presentation: { label: null, layout: null },
       },
     ];
@@ -226,13 +320,11 @@ describe('Room placement commands', () => {
       {
         id: 'shared',
         bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
-        order: 4,
         presentation: { label: null, layout: null },
       },
       {
         id: 'shelf',
         bounds: { x: 0.6, y: 0.2, width: 0.2, height: 0.3 },
-        order: 5,
         presentation: { label: null, layout: null },
       },
     ];
@@ -287,7 +379,6 @@ describe('Room placement commands', () => {
               {
                 id: 'key-placement',
                 bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.2 },
-                order: 4,
               },
             ],
             interactables: [expect.objectContaining({ id: 'key', placementId: 'key-placement' })],
@@ -347,9 +438,9 @@ describe('Room placement commands', () => {
       Object.values(placedProject.interactableInstances).map((instance) => instance.quantity),
     ).toEqual([3, 3, 1]);
     expect(placedProject.rooms.foyer?.data.interactables).toMatchObject([
-      { interactable: { $ref: { id: 'coins' } }, placementId: 'coins-placement' },
-      { interactable: { $ref: { id: 'coins-2' } }, placementId: 'coins-placement' },
-      { interactable: { $ref: { id: 'coins-3' } }, placementId: 'coins-placement' },
+      { interactable: { $ref: { id: 'coins' } }, placementId: 'coins-placement', order: 0 },
+      { interactable: { $ref: { id: 'coins-2' } }, placementId: 'coins-placement', order: 1024 },
+      { interactable: { $ref: { id: 'coins-3' } }, placementId: 'coins-placement', order: 2048 },
     ]);
     expect(undoCommand(placed.state).document).toEqual(state.document);
   });
@@ -361,7 +452,6 @@ describe('Room placement commands', () => {
       {
         id: 'key-placement',
         bounds: { x: 0.2, y: 0.2, width: 0.2, height: 0.2 },
-        order: 0,
         presentation: { label: null, layout: null },
       },
     ];

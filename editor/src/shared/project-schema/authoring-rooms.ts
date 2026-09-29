@@ -116,11 +116,17 @@ export const roomOverlayDataSchema = strict({
 export const roomPlacementDataSchema = strict({
   id: entityIdSchema,
   bounds: roomNormalizedRectSchema,
-  order: z.number().int().optional(),
-  presentation: strict({
-    label: textContentSchema.nullable(),
-    layout: roomLayoutRefSchema.nullable(),
-  }),
+  presentation: z.union([
+    strict({
+      label: textContentSchema.nullable(),
+      layout: z.null(),
+    }),
+    strict({
+      label: textContentSchema.nullable(),
+      layout: roomLayoutRefSchema,
+      layoutOrder: z.number().int(),
+    }),
+  ]),
 });
 export const roomCastDataSchema = strict({
   id: entityIdSchema,
@@ -561,6 +567,45 @@ export function validateRoomData(
           `${base}/placements/${index}/presentation/layout/$ref`,
           `Missing layout '${placement.presentation.layout.$ref.id}'.`,
         ),
+      );
+  });
+  const presentationOrders = new Map<string, Map<number, string>>();
+  const registerPresentationOrder = (plane: string, order: number, path: string) => {
+    const orders = presentationOrders.get(plane) ?? new Map<number, string>();
+    const existing = orders.get(order);
+    if (existing)
+      diagnostics.push(
+        diagnostic(
+          path,
+          `Presentation order ${order} is already used in '${plane}' by '${existing}'.`,
+          'error',
+          'room.presentation-order-duplicate',
+        ),
+      );
+    else orders.set(order, path);
+    presentationOrders.set(plane, orders);
+  };
+  data.cast.forEach((entry, index) =>
+    registerPresentationOrder('world-content', entry.order, `${base}/cast/${index}/order`),
+  );
+  data.props.forEach((entry, index) =>
+    registerPresentationOrder('world-content', entry.order, `${base}/props/${index}/order`),
+  );
+  data.interactables.forEach((entry, index) =>
+    registerPresentationOrder('world-content', entry.order, `${base}/interactables/${index}/order`),
+  );
+  data.environments.forEach((entry, index) =>
+    registerPresentationOrder(entry.plane, entry.order, `${base}/environments/${index}/order`),
+  );
+  data.overlays.forEach((entry, index) =>
+    registerPresentationOrder('world-overlay', entry.order, `${base}/overlays/${index}/order`),
+  );
+  data.placements.forEach((entry, index) => {
+    if (entry.presentation.layout)
+      registerPresentationOrder(
+        'world-overlay',
+        entry.presentation.layoutOrder,
+        `${base}/placements/${index}/presentation/layoutOrder`,
       );
   });
   data.cast.forEach((entry, index) => {

@@ -3360,6 +3360,24 @@ void Engine::Impl::render()
     m_runtime_ui.begin_frame(clocks);
     (void)m_game_host.flush_runtime_presentation();
 
+    const auto render_ordered_world_overlay =
+        [&](bool source, const std::vector<OrderedWorldOverlayBatch>& batches) {
+            std::vector<std::int32_t> orders;
+            orders.reserve(batches.size());
+            for (const auto& batch : batches)
+                orders.push_back(batch.order);
+            const auto draw_external = [&](std::size_t index, std::uint16_t view) {
+                if (index < batches.size())
+                    m_renderer.draw_world_overlay_2d(batches[index].batch, view);
+            };
+            const bool rendered = source
+                                      ? m_runtime_ui.render_world_overlay_source(orders, draw_external)
+                                      : m_runtime_ui.render_world_overlay_target(orders, draw_external);
+            if (!rendered)
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "[runtime-presentation] WorldOverlay ordered pass range exhausted");
+        };
+
     if (rendering_full_world_transition) {
         const auto* source = m_world_presentation.frame(transition->source);
         const auto* target = m_world_presentation.frame(transition->target);
@@ -3369,13 +3387,20 @@ void Engine::Impl::render()
                                          WorldCompositionPass::Source);
             }
             m_renderer.composite_world_surface_to_transition_scene(WorldCompositionPass::Source);
-            m_runtime_ui.render_world_overlay_source();
+            if (source)
+                render_ordered_world_overlay(true, source->world_overlay_batches);
+            else
+                m_runtime_ui.render_world_overlay_source();
         }
         if (transition_scene_plan->render_target) {
             const auto targeted_states = m_world_transitions.targeted_render_states();
             auto targeted = m_world_transitions.compose_targeted_world_batch();
+            const std::vector<OrderedWorldOverlayBatch>* target_overlay_batches =
+                target ? &target->world_overlay_batches : nullptr;
             if (!targeted_states.empty() && targeted) {
-                m_renderer.draw_world_2d(*targeted.value_if(), WorldCompositionPass::Target);
+                m_renderer.draw_world_2d(targeted.value().world_composition_batch,
+                                         WorldCompositionPass::Target);
+                target_overlay_batches = &targeted.value().world_overlay_batches;
             } else if (!targeted_states.empty()) {
                 for (const auto& diagnostic : targeted.error()) {
                     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "[runtime-presentation] %s %s %s",
@@ -3394,7 +3419,10 @@ void Engine::Impl::render()
                                          WorldCompositionPass::Target);
             }
             m_renderer.composite_world_surface_to_transition_scene(WorldCompositionPass::Target);
-            m_runtime_ui.render_world_overlay_target();
+            if (target_overlay_batches)
+                render_ordered_world_overlay(false, *target_overlay_batches);
+            else
+                m_runtime_ui.render_world_overlay_target();
         }
 
         if (transition_scene_plan->blend_completed_scenes) {
@@ -3409,7 +3437,10 @@ void Engine::Impl::render()
     } else if (!m_world_transitions.targeted_render_states().empty()) {
         auto targeted = m_world_transitions.compose_targeted_world_batch();
         if (targeted) {
-            m_renderer.draw_world_2d(*targeted.value_if(), WorldCompositionPass::Ordinary);
+            m_renderer.draw_world_2d(targeted.value().world_composition_batch,
+                                     WorldCompositionPass::Ordinary);
+            m_renderer.composite_ordinary_world_surface();
+            render_ordered_world_overlay(false, targeted.value().world_overlay_batches);
         } else {
             const auto states = m_world_transitions.targeted_render_states();
             for (const auto& diagnostic : targeted.error()) {
@@ -3420,14 +3451,21 @@ void Engine::Impl::render()
                     m_world_transitions.fail_operation(state.operation, diagnostic);
             }
             append_runtime_diagnostics(std::move(targeted).error());
-            if (const auto* frame = m_world_presentation.frame())
+            if (const auto* frame = m_world_presentation.frame()) {
                 m_renderer.draw_world_2d(frame->world_composition_batch,
                                          WorldCompositionPass::Ordinary);
+                m_renderer.composite_ordinary_world_surface();
+                render_ordered_world_overlay(false, frame->world_overlay_batches);
+            } else {
+                m_renderer.composite_ordinary_world_surface();
+                m_runtime_ui.render_world_overlay_target();
+            }
         }
     } else if (const auto* frame = m_world_presentation.frame()) {
         m_renderer.draw_world_2d(frame->world_composition_batch, WorldCompositionPass::Ordinary);
-    }
-    if (!rendering_full_world_transition) {
+        m_renderer.composite_ordinary_world_surface();
+        render_ordered_world_overlay(false, frame->world_overlay_batches);
+    } else if (!rendering_full_world_transition) {
         m_renderer.composite_ordinary_world_surface();
         m_runtime_ui.render_world_overlay_target();
     }

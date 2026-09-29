@@ -315,7 +315,7 @@ TEST_CASE("world actor layout centralizes logical slots room anchors and pose la
     CHECK(room_pose->command.rect.y == Catch::Approx(100.0f));
 }
 
-TEST_CASE("world backend realizes canonical family order and every actor key family")
+TEST_CASE("world backend interleaves WorldContent families by authored order")
 {
     FakeWorldResources resources;
     resources.add_texture("pose", 1, 100, 200);
@@ -336,7 +336,7 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
          {},
          {0.0, 0.0, 1.0, 1.0},
          PresentationPlane::WorldContent,
-         50,
+         10,
          LayoutClockDomain::Gameplay,
          {0.1, 0.0},
          0.5,
@@ -352,7 +352,7 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
          std::nullopt,
          {0.2, 0.3, 0.1, 0.2},
          PresentationPlane::WorldContent,
-         40,
+         50,
          true});
     snapshot.interactables.push_back({id<InteractableInstanceId>("key"),
                                       {id<RoomId>("atrium"), id<RoomPlacementId>("table")},
@@ -367,23 +367,29 @@ TEST_CASE("world backend realizes canonical family order and every actor key fam
                                       true});
 
     const ScenePresentationOwner scene_owner{flow_frame_id(7), id<SceneId>("opening")};
-    snapshot.actors.push_back(actor(ScopedActorKey{id<ScopedActorInstanceId>("temporary")}));
-    snapshot.actors.push_back(actor(SceneActorKey{scene_owner, id<ActorSlotId>("lead")}));
+    snapshot.actors.push_back(actor(ScopedActorKey{id<ScopedActorInstanceId>("temporary")}, 70));
+    snapshot.actors.push_back(actor(SceneActorKey{scene_owner, id<ActorSlotId>("lead")}, 60));
     snapshot.actors.push_back(
-        actor(RoomCastActorKey{id<RoomId>("atrium"), id<RoomCastEntryId>("guard")}));
-    snapshot.actors.push_back(actor(CharacterActorKey{id<CharacterId>("hero")}));
+        actor(RoomCastActorKey{id<RoomId>("atrium"), id<RoomCastEntryId>("guard")}, 40));
+    snapshot.actors.push_back(actor(CharacterActorKey{id<CharacterId>("hero")}, 20));
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
     const auto& draws = backend.frame()->draws;
     REQUIRE(draws.size() == 11);
     CHECK(draws[0].family == WorldDrawFamily::Environment);
-    CHECK(draws[1].family == WorldDrawFamily::Prop);
-    CHECK(draws[2].family == WorldDrawFamily::Interactable);
-    CHECK(draws[2].command.rect.x == Catch::Approx(400.0f));
-    CHECK(draws[2].command.rect.y == Catch::Approx(250.0f));
-    CHECK(draws[2].command.rect.width == Catch::Approx(100.0f));
-    CHECK(draws[2].command.material.value() == "item-material");
+    CHECK(draws[1].family == WorldDrawFamily::Actor);
+    CHECK(draws[1].stable_identity == "character/hero");
+    CHECK(draws[2].family == WorldDrawFamily::Actor);
+    CHECK(draws[2].stable_identity == "character/hero");
+    CHECK(draws[3].family == WorldDrawFamily::Interactable);
+    CHECK(draws[3].command.rect.x == Catch::Approx(400.0f));
+    CHECK(draws[3].command.rect.y == Catch::Approx(250.0f));
+    CHECK(draws[3].command.rect.width == Catch::Approx(100.0f));
+    CHECK(draws[3].command.material.value() == "item-material");
+    CHECK(draws[4].family == WorldDrawFamily::Actor);
+    CHECK(draws[4].stable_identity == "room-cast/atrium/guard");
+    CHECK(draws[6].family == WorldDrawFamily::Prop);
 
     std::vector<std::string> actor_identities;
     for (const auto& draw : draws) {
@@ -667,6 +673,10 @@ TEST_CASE("reconstructible environment loops restart from phase zero after backe
     backend.realize(clock);
     REQUIRE(backend.frame());
     REQUIRE(backend.frame()->batch.commands().size() == 1);
+    CHECK(backend.frame()->world_composition_batch.commands().empty());
+    REQUIRE(backend.frame()->world_overlay_batches.size() == 1);
+    CHECK(backend.frame()->world_overlay_batches.front().order == 0);
+    REQUIRE(backend.frame()->world_overlay_batches.front().batch.commands().size() == 1);
     CHECK(backend.frame()->batch.commands().front().uv.x == Catch::Approx(0.0f));
     REQUIRE(backend.frame()->batch.commands().front().time_seconds);
     CHECK(*backend.frame()->batch.commands().front().time_seconds == Catch::Approx(0.0f));

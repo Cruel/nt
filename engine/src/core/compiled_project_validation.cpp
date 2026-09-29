@@ -1,6 +1,7 @@
 #include "compiled_project_validation.hpp"
 
 #include "noveltea/core/data_asset.hpp"
+#include "noveltea/core/presentation_contracts.hpp"
 
 #include <algorithm>
 #include <functional>
@@ -2465,6 +2466,38 @@ private:
         for (std::size_t index = 0; index < m_input.rooms.size(); ++index) {
             const auto& value = m_input.rooms[index];
             const auto path = item("/definitions/rooms", index);
+            std::array<std::unordered_map<std::int32_t, std::string>, 3> presentation_orders;
+            const auto presentation_plane_index =
+                [](PresentationPlane plane) -> std::optional<std::size_t> {
+                switch (plane) {
+                case PresentationPlane::WorldBackground:
+                    return 0;
+                case PresentationPlane::WorldContent:
+                    return 1;
+                case PresentationPlane::WorldOverlay:
+                    return 2;
+                default:
+                    return std::nullopt;
+                }
+            };
+            const auto register_presentation_order = [&](PresentationPlane plane,
+                                                         std::int32_t order,
+                                                         const std::string& order_path) {
+                const auto plane_index = presentation_plane_index(plane);
+                if (!plane_index) {
+                    error("compiled_project.invalid_room_presentation_plane",
+                          "Room author-ordered presentation occurrence uses an unsupported plane.",
+                          order_path);
+                    return;
+                }
+                auto& orders = presentation_orders[*plane_index];
+                if (const auto [found, inserted] = orders.emplace(order, order_path); !inserted)
+                    error("compiled_project.duplicate_room_presentation_order",
+                          "Room presentation order must be unique within its Presentation Plane; "
+                          "the same order is already used at '" +
+                              found->second + "'.",
+                          order_path);
+            };
             validate_assignments(value, PropertyOwnerKind::Room, path);
             validate_features(value, path);
             validate_text(value.description, path + "/description");
@@ -2490,6 +2523,9 @@ private:
                         path + "/overlays/" + std::to_string(overlay) + "/layout");
                 validate_condition(value.overlays[overlay].condition,
                                    path + "/overlays/" + std::to_string(overlay) + "/condition");
+                register_presentation_order(
+                    PresentationPlane::WorldOverlay, value.overlays[overlay].order,
+                    path + "/overlays/" + std::to_string(overlay) + "/order");
             }
             std::unordered_set<RoomPlacementId> placement_ids;
             for (std::size_t placement_index = 0; placement_index < value.placements.size();
@@ -2502,6 +2538,16 @@ private:
                 if (placed.presentation.layout)
                     require(m_layouts, *placed.presentation.layout, "layout",
                             placement_path + "/presentation/layout");
+                if (placed.presentation.layout.has_value() !=
+                    placed.presentation.layout_order.has_value())
+                    error("compiled_project.invalid_room_placement_layout_order",
+                          "Room placement layoutOrder must be present exactly when a Layout is "
+                          "attached.",
+                          placement_path + "/presentation/layoutOrder");
+                if (placed.presentation.layout_order)
+                    register_presentation_order(PresentationPlane::WorldOverlay,
+                                                *placed.presentation.layout_order,
+                                                placement_path + "/presentation/layoutOrder");
                 if (placed.presentation.label)
                     validate_text(*placed.presentation.label,
                                   placement_path + "/presentation/label");
@@ -2518,6 +2564,8 @@ private:
                     error("compiled_project.unresolved_nested_reference",
                           "Room cast references a missing placement.", cast_path + "/placementId");
                 validate_condition(entry.condition, cast_path + "/condition");
+                register_presentation_order(PresentationPlane::WorldContent, entry.order,
+                                            cast_path + "/order");
                 const auto character = m_characters.find(entry.character);
                 if (character != m_characters.end()) {
                     const auto& definition = m_input.characters[character->second];
@@ -2580,6 +2628,8 @@ private:
                           "Room interactable occurrence references a missing placement.",
                           entry_path + "/placementId");
                 validate_condition(entry.condition, entry_path + "/condition");
+                register_presentation_order(PresentationPlane::WorldContent, entry.order,
+                                            entry_path + "/order");
             }
             if (value.fallback_interactable_placement &&
                 !placement(
@@ -2603,6 +2653,8 @@ private:
                 if (prop.asset)
                     require(m_assets, *prop.asset, "asset", prop_path + "/asset");
                 validate_condition(prop.condition, prop_path + "/condition");
+                register_presentation_order(PresentationPlane::WorldContent, prop.order,
+                                            prop_path + "/order");
             }
             std::unordered_set<RoomEnvironmentId> environment_ids;
             for (std::size_t environment_index = 0; environment_index < value.environments.size();
@@ -2616,6 +2668,8 @@ private:
                 if (environment.asset)
                     require(m_assets, *environment.asset, "asset", environment_path + "/asset");
                 validate_condition(environment.condition, environment_path + "/condition");
+                register_presentation_order(environment.plane, environment.order,
+                                            environment_path + "/order");
             }
             std::unordered_set<RoomScriptHookKind> script_hook_kinds;
             for (std::size_t hook_index = 0; hook_index < value.script_hooks.size(); ++hook_index) {
