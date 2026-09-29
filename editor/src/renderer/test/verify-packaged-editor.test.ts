@@ -8,8 +8,11 @@ import {
   findSharpNativeClosure,
   // @ts-expect-error The packaged-editor verifier is intentionally authored as a Node ESM script.
 } from '../../../scripts/verify-packaged-editor.mjs';
-// @ts-expect-error Distribution helper is authored as Node ESM.
-import { pruneForeignNodePtyPrebuilds } from '../../../scripts/node-pty-distribution.mjs';
+import {
+  normalizePackagedNodePtyPermissions,
+  pruneForeignNodePtyPrebuilds,
+  // @ts-expect-error Distribution helper is authored as Node ESM.
+} from '../../../scripts/node-pty-distribution.mjs';
 
 const temporaryRoots: string[] = [];
 
@@ -100,6 +103,21 @@ describe('packaged node-pty native closure', () => {
     await writeNativeFile(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper');
 
     await pruneForeignNodePtyPrebuilds(nodePtyRoot, 'darwin', 'arm64');
+
+    const helper = await stat(path.join(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper'));
+    expect(helper.mode & 0o111).not.toBe(0);
+  });
+
+  it('restores the macOS spawn-helper executable bit after packaging', async () => {
+    const resourcesRoot = await mkdtemp(
+      path.join(os.tmpdir(), 'noveltea-packaged-resources-test-'),
+    );
+    temporaryRoots.push(resourcesRoot);
+    const nodePtyRoot = path.join(resourcesRoot, 'app.asar.unpacked', 'node_modules', 'node-pty');
+    await writeNativeFile(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper');
+    await chmod(path.join(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper'), 0o644);
+
+    await normalizePackagedNodePtyPermissions(resourcesRoot, 'darwin', 'arm64');
 
     const helper = await stat(path.join(nodePtyRoot, 'prebuilds/darwin-arm64/spawn-helper'));
     expect(helper.mode & 0o111).not.toBe(0);

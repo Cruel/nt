@@ -4,6 +4,8 @@ import { fileURLToPath } from 'node:url';
 
 import { FuseV1Options, FuseVersion, flipFuses } from '@electron/fuses';
 
+import { normalizePackagedNodePtyPermissions } from './scripts/node-pty-distribution.mjs';
+
 const stageRoot = process.env.NOVELTEA_STAGE_ROOT?.trim();
 const outputRoot = process.env.NOVELTEA_BUILDER_OUTPUT?.trim();
 const editorRoot = path.dirname(fileURLToPath(import.meta.url));
@@ -65,6 +67,13 @@ function packagedExecutable(context) {
     throw new Error(`Unable to locate the packaged Electron executable in ${context.appOutDir}.`);
   }
   return executable;
+}
+
+function packagedResources(context) {
+  const executable = packagedExecutable(context);
+  return context.electronPlatformName === 'darwin'
+    ? path.join(path.dirname(path.dirname(executable)), 'Resources')
+    : path.join(context.appOutDir, 'resources');
 }
 
 const completeFusePolicy = {
@@ -152,6 +161,11 @@ export default {
   },
   afterPack: async (context) => {
     await flipFuses(packagedExecutable(context), completeFusePolicy);
+    await normalizePackagedNodePtyPermissions(
+      packagedResources(context),
+      context.electronPlatformName,
+      process.arch,
+    );
   },
   linux: {
     icon: path.join(buildResourcesRoot, 'icon.svg'),

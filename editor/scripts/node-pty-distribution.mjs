@@ -14,6 +14,26 @@ export function nodePtyTuple(platform, arch) {
   return `${platform}-${arch}`;
 }
 
+export async function ensureNodePtySpawnHelperExecutable(nodePtyRoot, platform, arch) {
+  if (platform !== 'darwin') return;
+  try {
+    await chmod(
+      path.join(nodePtyRoot, 'prebuilds', nodePtyTuple(platform, arch), 'spawn-helper'),
+      0o755,
+    );
+  } catch (error) {
+    if (!(error && typeof error === 'object' && error.code === 'ENOENT')) throw error;
+  }
+}
+
+export async function normalizePackagedNodePtyPermissions(resourcesRoot, platform, arch) {
+  await ensureNodePtySpawnHelperExecutable(
+    path.join(resourcesRoot, 'app.asar.unpacked', 'node_modules', 'node-pty'),
+    platform,
+    arch,
+  );
+}
+
 export async function pruneForeignNodePtyPrebuilds(nodePtyRoot, platform, arch) {
   const prebuildsRoot = path.join(nodePtyRoot, 'prebuilds');
   let entries;
@@ -29,13 +49,7 @@ export async function pruneForeignNodePtyPrebuilds(nodePtyRoot, platform, arch) 
       .filter((entry) => entry.isDirectory() && entry.name !== currentTuple)
       .map((entry) => rm(path.join(prebuildsRoot, entry.name), { recursive: true, force: true })),
   );
-  if (platform === 'darwin') {
-    try {
-      await chmod(path.join(prebuildsRoot, currentTuple, 'spawn-helper'), 0o755);
-    } catch (error) {
-      if (!(error && typeof error === 'object' && error.code === 'ENOENT')) throw error;
-    }
-  }
+  await ensureNodePtySpawnHelperExecutable(nodePtyRoot, platform, arch);
 }
 
 export async function inspectNodePtyNativeClosure(nodePtyRoot, platform, arch, expectedVersion) {
