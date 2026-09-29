@@ -8,7 +8,7 @@ import type { InteractionSubjectData } from './authoring-features';
 import type { HotspotHighlight } from './authoring-hotspots';
 
 export interface HotspotAuthoringDiagnostic {
-  severity: 'error' | 'warning';
+  severity: 'error' | 'warning' | 'info';
   path: string;
   message: string;
   category: 'Rooms' | 'Interactables';
@@ -269,7 +269,17 @@ export function validateInteractableHotspotAuthoringSemantics(
         ),
       );
     seen.add(hotspot.id);
-    if (hotspot.target.kind === 'owner-feature') {
+    if (hotspot.target.kind === 'none') {
+      diagnostics.push(
+        diagnostic(
+          'Interactables',
+          `${path}/target`,
+          'Hotspot has no target and will not be interactive.',
+          'hotspot.authoring.target.none',
+          'info',
+        ),
+      );
+    } else if (hotspot.target.kind === 'owner-feature') {
       const featureId = hotspot.target.featureId;
       if (!interactable.features.some((feature) => feature.id === featureId))
         diagnostics.push(
@@ -338,7 +348,17 @@ export function validateRoomHotspotAuthoringSemantics(
   const exits = new Set(room.exits.map((exit) => exit.id));
   room.hotspots.forEach((hotspot, index) => {
     const path = `${base}/hotspots/${index}`;
-    if (hotspot.target.kind === 'owner-feature') {
+    if (hotspot.target.kind === 'none') {
+      diagnostics.push(
+        diagnostic(
+          'Rooms',
+          `${path}/target`,
+          'Hotspot has no target and will not be interactive.',
+          'hotspot.authoring.target.none',
+          'info',
+        ),
+      );
+    } else if (hotspot.target.kind === 'owner-feature') {
       const featureId = hotspot.target.featureId;
       if (!room.features.some((feature) => feature.id === featureId))
         diagnostics.push(
@@ -353,7 +373,7 @@ export function validateRoomHotspotAuthoringSemantics(
       diagnostics.push(
         ...validateSubject(project, 'Rooms', hotspot.target.subject, `${path}/target/subject`),
       );
-    } else if (!exits.has(hotspot.target.exitId))
+    } else if (hotspot.target.kind === 'exit' && !exits.has(hotspot.target.exitId))
       diagnostics.push(
         diagnostic(
           'Rooms',

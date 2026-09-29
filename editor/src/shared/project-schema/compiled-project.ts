@@ -1056,11 +1056,13 @@ const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('none') }),
 ]);
 const roomHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('none') }),
   strict({ kind: z.literal('owner-feature'), featureId: id }),
   strict({ kind: z.literal('subject'), subject: compiledInteractionSubjectSchema }),
   strict({ kind: z.literal('exit'), exitId: id }),
 ]);
 const interactableHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('none') }),
   strict({ kind: z.literal('owner') }),
   strict({ kind: z.literal('owner-feature'), featureId: id }),
   strict({ kind: z.literal('subject'), subject: compiledInteractionSubjectSchema }),

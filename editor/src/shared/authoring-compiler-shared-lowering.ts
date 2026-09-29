@@ -214,13 +214,15 @@ export function compileSubjectSelector(selector: SubjectSelector) {
 }
 
 function compileRoomHotspotTarget(target: RoomHotspotTarget) {
+  if (target.kind === 'none') return { ...target };
   if (target.kind === 'owner-feature') return { ...target };
   if (target.kind === 'exit') return { ...target };
   return { kind: 'subject' as const, subject: compileInteractionSubject(target.subject) };
 }
 
 function compileInteractableHotspotTarget(target: InteractableHotspotTarget) {
-  if (target.kind === 'owner' || target.kind === 'owner-feature') return { ...target };
+  if (target.kind === 'none' || target.kind === 'owner' || target.kind === 'owner-feature')
+    return { ...target };
   return { kind: 'subject' as const, subject: compileInteractionSubject(target.subject) };
 }
 

@@ -58,11 +58,13 @@ owner-qualified `(RoomId, FeatureId)` identity. Features are nested content, not
 collection.
 
 Room Hotspots have stable IDs within their Room, normalized rectangular image bounds, a condition,
-signed input priority, highlight policy, one semantic target, and an optional cursor target. A cursor
+signed input priority, highlight policy, one target, and an optional cursor target. A cursor
 target may select a system semantic cursor, a Project named cursor, or `none`; direct cursor images are
 not part of the Hotspot contract. Unset uses the Project Hotspot default, which inherits the Project
-Pointer default unless explicitly changed. A Room Hotspot may select an owner-local Feature, another
-exact admitted subject, or one of the Room's exits. Hotspots own no Verb or Interaction behavior. Exit
+Pointer default unless explicitly changed. A Room Hotspot may select `none`, an owner-local Feature,
+another exact admitted subject, or one of the Room's exits. `none` preserves valid editor-visible
+geometry but makes that Hotspot inert: it is omitted from runtime hit testing and semantic/navigation
+dispatch. Validation reports this as informational rather than rejecting the content. Hotspots own no Verb or Interaction behavior. Exit
 targets reuse the selected-exit navigation path above; subject targets reuse ordinary semantic subject
 selection. Different Hotspots may intentionally select the same Feature and therefore produce the
 same runtime subject identity.
@@ -165,7 +167,9 @@ same values immediately. Composition contains the command-backed Interactable oc
 a separate fallback-placement selector. Creating/placing an Instance, adding/removing an occurrence,
 moving an occurrence between Room placements, moving/unplacing the semantic Instance, and destroying
 the Instance are distinct operations; removing an occurrence does not destroy the Instance.
-Hotspots contains both nested Feature authoring and the shared React image stage. Feature editing
+Hotspots contains both nested Feature authoring and the shared React image stage. New Room Hotspot
+geometry starts with target `none`, so authors can draw and refine geometry before assigning gameplay
+semantics. Feature editing
 covers stable ID, label, compatible Traits, and compatible Properties. The image stage uses direct
 manipulation: click a Hotspot to select it, drag a rectangular Hotspot or its handles to move/resize
 it, drag empty image space to pan, and use the temporary `Add hotspot` action to draw one new rectangle

@@ -114,15 +114,30 @@ CompiledProject focus_fixture()
     return std::move(decoded).value();
 }
 
-CompiledProject hotspot_fixture()
+CompiledProject hotspot_fixture(bool inert_targets = false)
 {
     std::ifstream input(
         std::string(NOVELTEA_SOURCE_DIR) +
         "/editor/src/renderer/test/fixtures/compiled-project-golden/interaction-program.json");
     REQUIRE(input.good());
     const std::string source((std::istreambuf_iterator<char>(input)), {});
-    auto decoded =
-        decode_compiled_project(nlohmann::json::parse(source), "interaction-program.json");
+    auto document = nlohmann::json::parse(source);
+    if (inert_targets) {
+        auto room = std::ranges::find_if(document["definitions"]["rooms"],
+                                         [](const auto& value) { return value["id"] == "start"; });
+        REQUIRE(room != document["definitions"]["rooms"].end());
+        auto room_hotspot = std::ranges::find_if(
+            (*room)["hotspots"], [](const auto& value) { return value["id"] == "inspect-door"; });
+        REQUIRE(room_hotspot != (*room)["hotspots"].end());
+        (*room_hotspot)["target"] = {{"kind", "none"}};
+
+        auto interactable =
+            std::ranges::find_if(document["definitions"]["interactables"],
+                                 [](const auto& value) { return value["id"] == "key"; });
+        REQUIRE(interactable != document["definitions"]["interactables"].end());
+        (*interactable)["presentation"]["hotspots"]["hotspot"]["target"] = {{"kind", "none"}};
+    }
+    auto decoded = decode_compiled_project(document, "interaction-program.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
 }
@@ -1034,6 +1049,44 @@ TEST_CASE("runtime and focused Room hotspot projection preserve semantic eligibi
                       [](const auto& hotspot) {
                           return std::holds_alternative<AlphaHotspotShape>(hotspot.shape);
                       }));
+}
+
+TEST_CASE("inert Hotspots remain authored geometry but never enter runtime interaction projection")
+{
+    const auto project = hotspot_fixture(true);
+
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    REQUIRE(state.room_visit());
+
+    RuntimeWorld world(project, state);
+    RoomPresentationResolver resolver;
+    auto resolution = resolver.resolve(
+        project, world, state, *state.room_visit(),
+        [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
+        });
+    REQUIRE(resolution);
+
+    const auto& hotspots = resolution.value().presentation.hotspots;
+    CHECK(hotspots.size() == 1);
+    CHECK(std::ranges::none_of(hotspots, [](const auto& hotspot) {
+        return std::visit(
+            [](const auto& ref) { return ref.hotspot_id == id<HotspotId>("inspect-door"); },
+            hotspot.ref);
+    }));
+    CHECK(std::ranges::none_of(hotspots, [](const auto& hotspot) {
+        return std::visit(
+            [](const auto& ref) { return ref.hotspot_id == id<HotspotId>("key-alpha"); },
+            hotspot.ref);
+    }));
+
+    auto runtime = project_snapshot(project, state, &resolution.value().presentation);
+    REQUIRE(runtime);
+    CHECK(runtime.value().hotspots.size() == 1);
 }
 
 TEST_CASE("presentation projector represents absent optional families explicitly")

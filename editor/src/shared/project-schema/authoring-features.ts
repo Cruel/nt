@@ -38,12 +38,14 @@ export const interactionSubjectSchema = z.discriminatedUnion('kind', [
 ]);
 
 export const roomHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('none') }),
   strict({ kind: z.literal('owner-feature'), featureId: entityIdSchema }),
   strict({ kind: z.literal('subject'), subject: interactionSubjectSchema }),
   strict({ kind: z.literal('exit'), exitId: entityIdSchema }),
 ]);
 
 export const interactableHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('none') }),
   strict({ kind: z.literal('owner') }),
   strict({ kind: z.literal('owner-feature'), featureId: entityIdSchema }),
   strict({ kind: z.literal('subject'), subject: interactionSubjectSchema }),

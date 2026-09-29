@@ -277,6 +277,48 @@ describe('RoomEditor', () => {
       'false',
     );
   });
+  it('creates Room hotspot geometry inert until the author assigns a target', () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 400 },
+    });
+    const project = createAuthoringProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/room.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 64,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    selectRoomCategory('Hotspots');
+    fireEvent.click(screen.getByRole('button', { name: 'Add hotspot' }));
+    const stage = document.querySelector<HTMLElement>('[data-hotspot-image-stage] > div[tabindex]');
+    expect(stage).not.toBeNull();
+    if (!stage) return;
+    fireEvent.mouseDown(stage, { button: 0, clientX: 40, clientY: 40 });
+    fireEvent.mouseMove(window, { clientX: 120, clientY: 120 });
+    fireEvent.mouseUp(window, { clientX: 120, clientY: 120 });
+
+    const updated = useProjectStore.getState().document;
+    expect(isAuthoringProject(updated)).toBe(true);
+    if (!isAuthoringProject(updated)) return;
+    const updatedRoom = parseRoomData(updated.rooms.foyer?.data);
+    expect(updatedRoom?.hotspots).toHaveLength(1);
+    expect(updatedRoom?.hotspots[0]?.target).toEqual({ kind: 'none' });
+    expect(screen.getByText('No target')).toBeInTheDocument();
+  });
   it('selects the owning Room category for workbench targets', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

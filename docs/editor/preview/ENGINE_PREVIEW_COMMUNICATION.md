@@ -633,6 +633,10 @@ The focused Room environment carries project reference resolution, world-raster 
 and accessibility scale policies through native decoding and environment preparation. The built-in
 focused Game HUD resolves from the canonical packaged path
 `system:/ui/runtime/runtime_game.rml`.
+Focused Room Hotspot documents preserve authored `target: { kind: 'none' }` so the editor can keep
+draft geometry visible and selectable. Native decoding accepts that closed target variant, but the
+focused presenter omits it from runtime presentation Hotspots; it therefore performs no pointer hit
+testing, condition evaluation for pointer behavior, semantic selection, or Exit navigation.
 
 `FocusedPreviewCoordinator` is the sole freshness owner for migrated roots. It consumes immutable
 project publications, the previous/current graph union, adapter inputs, lease

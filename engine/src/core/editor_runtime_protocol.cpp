@@ -4045,7 +4045,9 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     const auto target_path = path + "/target";
                     const auto kind = required_string(*target, "kind", target_path);
                     typed.target.kind = kind;
-                    if (kind == "character") {
+                    if (kind == "none") {
+                        exact_fields(*target, {"kind"}, diagnostics, target_path);
+                    } else if (kind == "character") {
                         exact_fields(*target, {"kind", "characterId"}, diagnostics, target_path);
                         typed.target.primary_id =
                             required_string(*target, "characterId", target_path);

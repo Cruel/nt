@@ -1300,6 +1300,7 @@
     "delete": "Excluir hotspot",
     "selectPrompt": "Selecione um hotspot para editar sua geometria e seu alvo semântico.",
     "targets": {
+      "none": "Sem alvo",
       "owner": "Este interagível",
       "localFeature": "Feature: {{label}}",
       "exit": "Saída: {{label}}",

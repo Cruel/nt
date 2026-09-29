@@ -123,12 +123,14 @@ export function HotspotAuthoringPanel(props: Props) {
 
   const targetOptions = useMemo<TargetOption[]>(() => {
     const options: TargetOption[] = [];
-    if (props.ownerKind === 'interactable')
+    if (props.ownerKind === 'interactable') {
       options.push({
         value: 'owner',
         label: t('hotspots.targets.owner'),
         target: { kind: 'owner' },
       });
+    }
+    options.push({ value: 'none', label: t('hotspots.targets.none'), target: { kind: 'none' } });
     for (const feature of props.localFeatures) {
       options.push({
         value: `owner-feature:${feature.id}`,

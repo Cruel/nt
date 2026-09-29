@@ -215,6 +215,8 @@ decode_room_hotspot_target(Decoder& decoder, const nlohmann::json& value, std::s
         kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
     if (!kind)
         return std::nullopt;
+    if (*kind == "none" && decoder.object(value, pointer, {"kind"}))
+        return NoHotspotTarget{};
     if (*kind == "owner-feature" && decoder.object(value, pointer, {"featureId", "kind"})) {
         const auto* feature_value = decoder.member(value, "featureId", pointer);
         auto feature = feature_value ? decoder.id<FeatureId>(*feature_value,
@@ -258,6 +260,8 @@ decode_interactable_hotspot_target(Decoder& decoder, const nlohmann::json& value
         kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
     if (!kind)
         return std::nullopt;
+    if (*kind == "none" && decoder.object(value, pointer, {"kind"}))
+        return NoHotspotTarget{};
     if (*kind == "owner" && decoder.object(value, pointer, {"kind"}))
         return HotspotOwnerTarget{};
     if (*kind == "owner-feature" && decoder.object(value, pointer, {"featureId", "kind"})) {
