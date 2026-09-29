@@ -227,6 +227,7 @@ const focusedWorldRectSchema = strict({
   height: z.number().finite().positive(),
 });
 const focusedHotspotTargetSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('none') }),
   strict({ kind: z.literal('character'), characterId: z.string().min(1) }),
   strict({ kind: z.literal('interactable'), interactableId: z.string().min(1) }),
   strict({

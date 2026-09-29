@@ -24,6 +24,7 @@ identity, or any supported subject; Hotspot identity itself never participates i
 A **Hotspot** is geometry plus pointer-selection metadata. It does not own a Verb, an Interaction
 program, or an exact Interaction context. A Hotspot maps pointer geometry to one semantic target:
 
+- explicit `none`, which retains authored geometry but creates no runtime interaction target;
 - a Feature owned by the same Room or Interactable;
 - another admitted exact Interaction subject;
 - the owning Interactable itself; or
@@ -44,7 +45,9 @@ normal dependency/validation diagnostics rather than by inventing a replacement 
 Room Hotspots use normalized rectangular bounds relative to the complete background source image.
 Interactable Hotspots use either the sprite alpha footprint or normalized custom rectangles relative
 to the complete Interactable sprite image. Every Hotspot retains a stable owner-local ID, label,
-condition, input order, highlight policy, and semantic target.
+condition, input order, highlight policy, and target. `none` is a valid target for either owner kind;
+new Room geometry defaults to `none`, while new Interactable Hotspots may continue to default to the
+owner. Validation emits an informational diagnostic for the inert state instead of rejecting it.
 
 The dependency graph indexes nested Feature ownership, Feature Trait/Property dependencies, Hotspot
 targets, and owner-local Room Exit targets. There are no exact-Hotspot Interaction-context edges and
@@ -125,6 +128,11 @@ There is no `ActivateHotspotInput`, no Lua `Game.activate_hotspot`, no Layout
 `Game.ui.activate_hotspot`, and no exact-Hotspot Interaction context. Generic Interaction invocation
 cannot manufacture Hotspot identity because Hotspot identity is no longer part of Interaction
 semantics.
+
+Hotspots whose authored target is `none` are filtered before runtime presentation Hotspot projection.
+Their conditions are not evaluated for pointer behavior, they allocate no world hit-test target, and
+they cannot produce semantic selection or Exit navigation. Their authoring geometry remains available
+to editor tooling for selection and later target assignment.
 
 ## Lua, preview, debugger, and tests
 

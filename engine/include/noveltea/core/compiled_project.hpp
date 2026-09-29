@@ -773,6 +773,9 @@ struct MaterialHotspotHighlight {
 };
 using HotspotHighlight =
     std::variant<DefaultHotspotHighlight, MaterialHotspotHighlight, NoHotspotHighlight>;
+struct NoHotspotTarget {
+    auto operator<=>(const NoHotspotTarget&) const = default;
+};
 struct HotspotOwnerTarget {
     auto operator<=>(const HotspotOwnerTarget&) const = default;
 };
@@ -788,10 +791,10 @@ struct RoomExitHotspotTarget {
     RoomExitId exit_id;
     auto operator<=>(const RoomExitHotspotTarget&) const = default;
 };
-using RoomHotspotTarget =
-    std::variant<HotspotOwnerFeatureTarget, HotspotSubjectTarget, RoomExitHotspotTarget>;
-using InteractableHotspotTarget =
-    std::variant<HotspotOwnerTarget, HotspotOwnerFeatureTarget, HotspotSubjectTarget>;
+using RoomHotspotTarget = std::variant<NoHotspotTarget, HotspotOwnerFeatureTarget,
+                                       HotspotSubjectTarget, RoomExitHotspotTarget>;
+using InteractableHotspotTarget = std::variant<NoHotspotTarget, HotspotOwnerTarget,
+                                               HotspotOwnerFeatureTarget, HotspotSubjectTarget>;
 using ResolvedHotspotTarget = std::variant<InteractionSubject, RoomExitRef>;
 struct RectHotspotShape {
     NormalizedRect bounds;

@@ -1479,7 +1479,25 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"props", nlohmann::json::array()},
           {"environments", nlohmann::json::array()},
           {"overlays", nlohmann::json::array()},
-          {"hotspots", nlohmann::json::array()}}},
+          {"hotspots",
+           nlohmann::json::array(
+               {{{"ownerKind", "room"},
+                 {"ownerId", "foyer"},
+                 {"hotspotId", "draft"},
+                 {"label", "Draft"},
+                 {"condition",
+                  {{"kind", "lua-predicate"},
+                   {"source", "error('inert hotspot condition must not execute')"}}},
+                 {"inputOrder", 0},
+                 {"shape",
+                  {{"kind", "rect"},
+                   {"bounds", {{"x", 0.1}, {"y", 0.1}, {"width", 0.2}, {"height", 0.2}}}}},
+                 {"target", {{"kind", "none"}}},
+                 {"cursor", "pointer"},
+                 {"sourceAssetId", "room-image"},
+                 {"sourceWidth", 1920},
+                 {"sourceHeight", 1080},
+                 {"placementId", nullptr}}})}}},
         {"layouts", nlohmann::json::array()},
         {"ui",
          {{"description", {{"markup", "plain"}, {"source", {{"kind", "resolved"}, {"text", ""}}}}},
@@ -1522,6 +1540,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(presenter.committed_owner().apply_sequence == 5);
     CHECK(world_presentation_changes > 0);
     CHECK(completions.back() == std::pair<std::string, std::string>{"room-two", "applied"});
+    REQUIRE(presenter.committed_room_resolution_for_testing() != nullptr);
+    CHECK(presenter.committed_room_resolution_for_testing()->presentation.hotspots.empty());
 
     auto lua_text_room = room;
     lua_text_room["ui"]["description"]["source"] = {

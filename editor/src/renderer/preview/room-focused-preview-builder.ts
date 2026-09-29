@@ -296,6 +296,7 @@ function focusedSubjectTarget(subject: InteractionSubjectData): FocusedHotspotTa
 }
 
 function focusedRoomHotspotTarget(roomId: string, target: RoomHotspotTarget): FocusedHotspotTarget {
+  if (target.kind === 'none') return { kind: 'none' };
   if (target.kind === 'owner-feature')
     return { kind: 'room-feature', roomId, featureId: target.featureId };
   if (target.kind === 'exit') return { kind: 'exit', roomId, exitId: target.exitId };
@@ -306,6 +307,7 @@ function focusedInteractableHotspotTarget(
   interactableId: string,
   target: InteractableHotspotTarget,
 ): FocusedHotspotTarget {
+  if (target.kind === 'none') return { kind: 'none' };
   if (target.kind === 'owner') return { kind: 'interactable', interactableId };
   if (target.kind === 'owner-feature')
     return { kind: 'interactable-feature', interactableId, featureId: target.featureId };

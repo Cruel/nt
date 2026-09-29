@@ -198,6 +198,54 @@ describe('authoring compiler framework', () => {
     });
   });
 
+  it('compiles inert Room and Interactable Hotspot targets without inventing semantics', () => {
+    const project = validProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/images/image.png',
+        extension: '.png',
+        byteSize: 64,
+        contentHash: 'image-hash',
+        imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    room.hotspots = [
+      {
+        id: 'draft',
+        label: 'Draft',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'none' },
+        shape: { kind: 'rect', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+        target: { kind: 'none' },
+      },
+    ];
+    const item = defaultInteractableData('Item');
+    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    item.presentation.hotspots = {
+      kind: 'sprite-alpha',
+      hotspot: { ...defaultHotspotBehavior('Item'), target: { kind: 'none' } },
+    };
+    project.interactables.item = { id: 'item', label: 'Item', data: item };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok, result.ok ? '' : JSON.stringify(result.diagnostics, null, 2)).toBe(true);
+    if (!result.ok) return;
+
+    expect(
+      result.project.definitions.rooms.find((entry) => entry.id === 'foyer')?.hotspots,
+    ).toContainEqual(expect.objectContaining({ id: 'draft', target: { kind: 'none' } }));
+    expect(
+      result.project.definitions.interactables.find((entry) => entry.id === 'item')?.presentation
+        .hotspots,
+    ).toMatchObject({ kind: 'sprite-alpha', hotspot: { target: { kind: 'none' } } });
+  });
+
   it('rejects dangling named Hotspot cursor references', () => {
     const project = validProject();
     const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;

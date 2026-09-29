@@ -1122,6 +1122,8 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                                            decoded_id<core::RoomExitId>(*target.secondary_id)};
     };
     for (const auto& hotspot : document.world.hotspots) {
+        if (hotspot.target.kind == "none")
+            continue;
         if (hotspot.owner_kind == "interactable") {
             const auto interactable = decoded_id<core::InteractableInstanceId>(hotspot.owner_id);
             if (std::none_of(resolved.value_if()->presentation.interactables.begin(),

@@ -46,8 +46,11 @@ its implicit `sprite-alpha` Hotspot uses that cursor, while each custom Hotspot 
 targets accept system semantic cursors, Project named cursors, or `none`, but not direct cursor images.
 If neither the custom Hotspot nor presentation supplies a cursor, resolution falls through the Project
 Hotspot default and then its Pointer/native fallback. Each Hotspot has stable owner-local identity,
-condition, semantic target, input priority, and highlight policy. It may select the owning
-Interactable, an owner-local Feature, or another exact admitted semantic subject. Hotspots own no Verb
+condition, target, input priority, and highlight policy. It may select the owning
+Interactable, an owner-local Feature, another exact admitted semantic subject, or explicit `none`.
+`none` keeps the Hotspot geometry authored and editor-visible while excluding it from runtime hit
+testing and semantic dispatch; validation reports the inert state informationally. Newly created
+Interactable Hotspots continue to default to the owning Interactable. Hotspots own no Verb
 or Interaction program. Cursor presentation remains Definition-level and is inherited by every
 placement/Instance; there is no cursor-specific Instance override. An empty custom list remains
 structurally valid while authoring, but `none` is the canonical way to declare an intentionally

@@ -193,6 +193,35 @@ TEST_CASE("focused Room decoder carries cursor settings and projected Hotspots")
     CHECK(hotspot.bounds->x == 0.1);
 }
 
+TEST_CASE("focused Room decoder admits inert Hotspot targets")
+{
+    auto document = focused_room_document();
+    document["world"]["hotspots"] = nlohmann::json::array(
+        {{{"ownerKind", "room"},
+          {"ownerId", "foyer"},
+          {"hotspotId", "draft"},
+          {"label", "Draft"},
+          {"condition", {{"kind", "always"}}},
+          {"inputOrder", 0},
+          {"shape",
+           {{"kind", "rect"},
+            {"bounds", {{"x", 0.1}, {"y", 0.2}, {"width", 0.3}, {"height", 0.4}}}}},
+          {"target", {{"kind", "none"}}},
+          {"cursor", "pointer"},
+          {"sourceAssetId", "room-image"},
+          {"sourceWidth", 1920},
+          {"sourceHeight", 1080},
+          {"placementId", nullptr}}});
+
+    auto result = decode_editor_room_preview_document_text(document.dump());
+    REQUIRE(result);
+    REQUIRE(result.value().world.hotspots.size() == 1);
+    const auto& hotspot = result.value().world.hotspots.front();
+    CHECK(hotspot.target.kind == "none");
+    CHECK(hotspot.target.primary_id.empty());
+    CHECK_FALSE(hotspot.target.secondary_id);
+}
+
 TEST_CASE("focused Room decoder carries mounted Layout contracts with runtime defaults")
 {
     auto document = focused_room_document();

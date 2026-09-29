@@ -326,12 +326,14 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
             },
             subject);
     };
-    const auto resolved_target =
-        [&](const compiled::RoomHotspotTarget& target) -> compiled::ResolvedHotspotTarget {
+    const auto resolved_target = [&](const compiled::RoomHotspotTarget& target)
+        -> std::optional<compiled::ResolvedHotspotTarget> {
         return std::visit(
-            [&](const auto& value) -> compiled::ResolvedHotspotTarget {
+            [&](const auto& value) -> std::optional<compiled::ResolvedHotspotTarget> {
                 using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, compiled::HotspotOwnerFeatureTarget>)
+                if constexpr (std::is_same_v<T, compiled::NoHotspotTarget>)
+                    return std::nullopt;
+                else if constexpr (std::is_same_v<T, compiled::HotspotOwnerFeatureTarget>)
                     return compiled::InteractionSubject{compiled::FeatureInteractionSubject{
                         RoomFeatureRef{room->identity.id, value.feature_id}}};
                 else if constexpr (std::is_same_v<T, compiled::HotspotSubjectTarget>)
@@ -371,10 +373,12 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     };
 
     for (const auto& hotspot : room->hotspots) {
-        auto condition = evaluate(hotspot.condition);
         auto target = resolved_target(hotspot.target);
-        auto available = target_availability(target);
-        auto label = target_label(target);
+        if (!target)
+            continue;
+        auto condition = evaluate(hotspot.condition);
+        auto available = target_availability(*target);
+        auto label = target_label(*target);
         if (!condition || !available || !label)
             return Result<RoomPresentationResolution, Diagnostics>::failure(
                 !condition   ? condition.error()
@@ -385,7 +389,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
              .label = std::move(*label.value_if()),
              .condition_eligible = *condition.value_if(),
              .target_available = *available.value_if(),
-             .target = std::move(target),
+             .target = std::move(*target),
              .shape = hotspot.shape,
              .input_order = hotspot.input_order,
              .highlight = hotspot.highlight,
@@ -407,13 +411,12 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
         const auto append = [&](const compiled::InteractableHotspotBehavior& hotspot,
                                 std::variant<std::monostate, compiled::RectHotspotShape> shape)
             -> Result<void, Diagnostics> {
-            auto condition = evaluate(hotspot.condition);
-            if (!condition)
-                return Result<void, Diagnostics>::failure(condition.error());
             auto target = std::visit(
-                [&](const auto& value) -> compiled::ResolvedHotspotTarget {
+                [&](const auto& value) -> std::optional<compiled::ResolvedHotspotTarget> {
                     using T = std::decay_t<decltype(value)>;
-                    if constexpr (std::is_same_v<T, compiled::HotspotOwnerTarget>)
+                    if constexpr (std::is_same_v<T, compiled::NoHotspotTarget>)
+                        return std::nullopt;
+                    else if constexpr (std::is_same_v<T, compiled::HotspotOwnerTarget>)
                         return compiled::InteractionSubject{
                             compiled::InteractableInteractionSubject{interactable.interactable}};
                     else if constexpr (std::is_same_v<T, compiled::HotspotOwnerFeatureTarget>)
@@ -423,8 +426,13 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                         return value.subject;
                 },
                 hotspot.target);
-            auto available = target_availability(target);
-            auto label = target_label(target);
+            if (!target)
+                return Result<void, Diagnostics>::success();
+            auto condition = evaluate(hotspot.condition);
+            if (!condition)
+                return Result<void, Diagnostics>::failure(condition.error());
+            auto available = target_availability(*target);
+            auto label = target_label(*target);
             if (!available || !label)
                 return Result<void, Diagnostics>::failure(!available ? available.error()
                                                                      : label.error());
@@ -433,7 +441,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                  .label = std::move(*label.value_if()),
                  .condition_eligible = *condition.value_if(),
                  .target_available = *available.value_if(),
-                 .target = std::move(target),
+                 .target = std::move(*target),
                  .shape = std::move(shape),
                  .input_order = hotspot.input_order,
                  .highlight = hotspot.highlight,

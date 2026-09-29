@@ -2729,10 +2729,12 @@ private:
                         } else if constexpr (std::is_same_v<T, HotspotSubjectTarget>)
                             validate_interaction_subject(target.subject,
                                                          hotspot_path + "/target/subject");
-                        else if (!exit_ids.contains(target.exit_id))
-                            error("compiled_project.unresolved_nested_reference",
-                                  "Room hotspot references an exit outside its owning Room.",
-                                  hotspot_path + "/target/exitId");
+                        else if constexpr (std::is_same_v<T, RoomExitHotspotTarget>) {
+                            if (!exit_ids.contains(target.exit_id))
+                                error("compiled_project.unresolved_nested_reference",
+                                      "Room hotspot references an exit outside its owning Room.",
+                                      hotspot_path + "/target/exitId");
+                        }
                     },
                     hotspot.target);
             }

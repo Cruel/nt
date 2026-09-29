@@ -96,7 +96,7 @@ Runtime UI presentation of one exact owner-qualified Inventory. Rows project exa
 The ancestry formed when an Interactable Instance is located in an owner-local Inventory. Its direct Location remains that Inventory while its ultimate world context follows the Inventory owner chain.
 
 **Hotspot**:
-A hit-testable region that maps pointer input to a semantic interaction subject or Exit navigation target. A Hotspot is not itself a gameplay object or behavior.
+An authored pointer region that normally maps input to a semantic interaction subject or Exit navigation target. A Hotspot may instead have the explicit `none` target while its geometry is being authored or intentionally kept inert; such a Hotspot is not hit-tested at runtime. A Hotspot is not itself a gameplay object or behavior.
 
 **Feature**:
 A stable owner-local semantic part of a Room or Interactable that can be targeted independently for interaction without being a top-level Project entity. A Feature has no independent Location and follows the semantic context of its owner.

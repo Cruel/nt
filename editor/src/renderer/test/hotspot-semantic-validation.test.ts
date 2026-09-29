@@ -95,6 +95,43 @@ describe('hotspot semantic validation', () => {
     );
   });
 
+  it('keeps inert Room and Interactable hotspot geometry valid with informational diagnostics', () => {
+    const project = createAuthoringProject();
+    project.assets.image = { id: 'image', label: 'Image', data: imageAsset() };
+
+    const room = defaultRoomData('Room');
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    room.hotspots.push({
+      id: 'draft-region',
+      label: 'Draft geometry',
+      condition: { kind: 'always' },
+      inputOrder: 0,
+      highlight: { kind: 'none' },
+      shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+      target: { kind: 'none' },
+    });
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+
+    const item = defaultInteractableData('Item');
+    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    primaryHotspot(item).target = { kind: 'none' };
+    project.interactables.item = { id: 'item', label: 'Item', data: item };
+
+    const diagnostics = validateAuthoringProject(project).filter(
+      (item) => item.code === 'hotspot.authoring.target.none',
+    );
+    expect(diagnostics).toHaveLength(2);
+    expect(diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ severity: 'info', category: 'Rooms' }),
+        expect.objectContaining({ severity: 'info', category: 'Interactables' }),
+      ]),
+    );
+    expect(diagnostics.every((item) => item.message.includes('will not be interactive'))).toBe(
+      true,
+    );
+  });
+
   it('allows multiple geometry regions to publish the same owner-qualified Feature target', () => {
     const project = createAuthoringProject();
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset({ orientation: 6 }) };

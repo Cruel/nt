@@ -1257,6 +1257,7 @@
     "delete": "Delete hotspot",
     "selectPrompt": "Select a hotspot to edit its geometry and semantic target.",
     "targets": {
+      "none": "No target",
       "owner": "This Interactable",
       "localFeature": "Feature: {{label}}",
       "exit": "Exit: {{label}}",
