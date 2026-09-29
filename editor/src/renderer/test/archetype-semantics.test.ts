@@ -402,7 +402,6 @@ describe('Archetype authoring semantics', () => {
           {
             id: 'desk-slot',
             bounds: { x: 0.2, y: 0.2, width: 0.2, height: 0.2 },
-            order: 0,
             presentation: { label: null, layout: null },
           },
         ],

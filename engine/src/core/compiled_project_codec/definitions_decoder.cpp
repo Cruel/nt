@@ -1872,19 +1872,15 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                   [&](const nlohmann::json& placement,
                       const std::string& item_pointer) -> std::optional<RoomPlacement> {
                       if (!decoder.object(placement, item_pointer,
-                                          {"bounds", "id", "order", "presentation"}))
+                                          {"bounds", "id", "presentation"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(placement, "id", item_pointer);
-                      const auto* order_value = decoder.member(placement, "order", item_pointer);
                       const auto* bounds_value = decoder.member(placement, "bounds", item_pointer);
                       const auto* presentation_value =
                           decoder.member(placement, "presentation", item_pointer);
                       auto id = id_value ? decoder.id<RoomPlacementId>(
                                                *id_value, pointer_child(item_pointer, "id"))
                                          : std::nullopt;
-                      auto order = order_value ? decode_order(decoder, *order_value,
-                                                              pointer_child(item_pointer, "order"))
-                                               : std::nullopt;
                       auto bounds = bounds_value
                                         ? decode_rect(decoder, *bounds_value,
                                                       pointer_child(item_pointer, "bounds"))
@@ -1893,13 +1889,15 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                       if (presentation_value &&
                           decoder.object(*presentation_value,
                                          pointer_child(item_pointer, "presentation"),
-                                         {"label", "layout"})) {
+                                         {"label", "layout", "layoutOrder"})) {
                           const auto presentation_pointer =
                               pointer_child(item_pointer, "presentation");
                           const auto* label_value =
                               decoder.member(*presentation_value, "label", presentation_pointer);
                           const auto* layout_value =
                               decoder.member(*presentation_value, "layout", presentation_pointer);
+                          const auto* layout_order_value = decoder.member(
+                              *presentation_value, "layoutOrder", presentation_pointer);
                           std::optional<TextContent> label;
                           bool label_ok = label_value != nullptr;
                           if (label_value && !label_value->is_null()) {
@@ -1915,12 +1913,20 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                   pointer_child(presentation_pointer, "layout"), "layout");
                               layout_ok = layout.has_value();
                           }
-                          if (label_ok && layout_ok)
-                              presentation =
-                                  RoomPlacementPresentation{std::move(label), std::move(layout)};
+                          std::optional<std::int32_t> layout_order;
+                          bool layout_order_ok = layout_order_value != nullptr;
+                          if (layout_order_value && !layout_order_value->is_null()) {
+                              layout_order =
+                                  decode_order(decoder, *layout_order_value,
+                                               pointer_child(presentation_pointer, "layoutOrder"));
+                              layout_order_ok = layout_order.has_value();
+                          }
+                          if (label_ok && layout_ok && layout_order_ok)
+                              presentation = RoomPlacementPresentation{
+                                  std::move(label), std::move(layout), layout_order};
                       }
-                      if (id && order && bounds && presentation)
-                          return RoomPlacement{std::move(*id), std::move(*bounds), *order,
+                      if (id && bounds && presentation)
+                          return RoomPlacement{std::move(*id), std::move(*bounds),
                                                std::move(*presentation)};
                       return std::nullopt;
                   })

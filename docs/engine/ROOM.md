@@ -96,12 +96,14 @@ exist only as reusable presentation targets. Captured Focus resolves an occurren
 operation acceptance and stores those captured world bounds in the finite operation; it does not track
 the source live while the effect is running.
 
-A `RoomPlacement` is an occupant-free anchor with stable nested identity, normalized bounds,
-presentation metadata, and deterministic order. Character and Interactable presentation occurrences
-may reference the same valid anchor. Interactable semantic Location, enabled state, and visible state
-remain in `SessionState`; a Room occurrence is a separate presentation identity that references one
-exact Interactable Instance. One Instance may therefore have zero, one, or multiple authored
-occurrences without duplicating the gameplay object.
+A `RoomPlacement` is an occupant-free anchor with stable nested identity, normalized bounds, and
+presentation metadata. Placement geometry has no stacking order. Character and Interactable
+presentation occurrences may reference the same valid anchor, while each authored presentation
+occurrence owns its own order. A placement may also attach one Layout; that attachment owns a separate
+`layoutOrder` in `WorldOverlay` rather than borrowing order from the placement. Interactable semantic
+Location, enabled state, and visible state remain in `SessionState`; a Room occurrence is a separate
+presentation identity that references one exact Interactable Instance. One Instance may therefore
+have zero, one, or multiple authored occurrences without duplicating the gameplay object.
 
 Runtime-created or dynamically moved Interactables may own at most one current dynamic occurrence in
 addition to authored occurrences. Each Room may also select zero or one generic fallback Interactable
@@ -113,6 +115,18 @@ current occurrence. Dynamic occurrence identity and placement round-trip through
 
 Character and declarative Room-cast occupants are resolved through the same Room-presentation
 resolver, but Interactable occurrence identity remains distinct from semantic Instance identity.
+
+Room-authored world presentation uses one total authored order per Presentation Plane, not one tier per
+object family. Cast/Character occurrences, Props, and authored Interactable occurrences all occupy
+`WorldContent` and may interleave there by their signed integer `order`. Environment occurrences use
+their admitted `WorldBackground`, `WorldContent`, or `WorldOverlay` plane and participate in the same
+order namespace for that plane. Room overlay Layouts and placement-attached Layouts share the
+`WorldOverlay` order namespace. The Room's primary background remains the structural floor of
+`WorldBackground`; it is not an authored occurrence slot. Internal sublayers of a single actor or
+other occurrence remain contiguous within that occurrence and do not consume additional authored
+slots. Authored order values must be unique within each Room/plane pair. The editor normally allocates
+sparse values and only deterministically rebalances a plane when the requested move cannot fit between
+existing values.
 
 `RoomView` publishes visit count, resolved description text/markup, background, overlays, placement
 bounds and labels, live Interactable state, and resolved exits. RmlUi and other presentation code
@@ -134,7 +148,8 @@ direct lifecycle handler mappings. The current compiled-project format atomicall
 Room shape: every producer emits World Presentation Space and Anchor fields, and both TypeScript and native
 consumers require that same shape. The canonical default remains a
 1920×1080 centered View with no Anchors. Validation
-rejects duplicate nested IDs, stale Room/Character/Interactable/Feature/Layout/resource/Script
+rejects duplicate nested IDs, duplicate authored presentation orders within a Presentation Plane,
+stale Room/Character/Interactable/Feature/Layout/resource/Script
 references, incompatible Feature Trait/Property assignments, invalid owner-local Feature or Exit
 Hotspot targets, invalid placement ownership, invalid pose/expression/idle combinations, invalid
 environment resources/opacity/planes, invalid transitions, bounds, direct Script Hook module references/exports, and hook data. The compiled
@@ -173,11 +188,13 @@ and the native display environment.
 The native `FocusedPreviewPresenter` prepares typed asset leases, an isolated Lua environment,
 focused query capabilities, Layout realizations, RuntimeUI values, passive input, and a complete
 `RuntimePresentationSnapshot`. Mounted authored Layouts receive their normal Mount Contract in the
-Room preview. Room overlays use Room-owned semantic Mount identity with preview-local `room` and
-`session` Layout State; state commits survive ordinary same-overlay preview rebuilds without becoming
-runtime save state. Gameplay actions emitted by Layout Lua remain passive in focused preview. World,
-Layout, UI, environment, and resource ownership commit as one focused-owner swap. A failed or
-superseded candidate releases its temporary state and cannot disturb the prior same-root visual.
+Room preview. Room overlays use `RoomOverlayLayoutMountKey`; placement-attached Layouts use
+`RoomPlacementLayoutMountKey`. Both are Room-owned `WorldOverlay` semantic Mounts with preview-local
+`room` and `session` Layout State, and both preserve their authored order relative to the rest of the
+plane. State commits survive ordinary same-Mount preview rebuilds without becoming runtime save state.
+Gameplay actions emitted by Layout Lua remain passive in focused preview. World, Layout, UI,
+environment, and resource ownership commit as one focused-owner swap. A failed or superseded
+candidate releases its temporary state and cannot disturb the prior same-root visual.
 Room-to-Room and Room-to-Layout/Shader changes use the same pooled-host generation and freshness rules
 as other focused previews.
 

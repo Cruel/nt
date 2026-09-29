@@ -1569,7 +1569,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     composition_room["world"]["placements"] = nlohmann::json::array(
         {{{"id", "table"},
           {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
-          {"order", 0},
+          {"layoutOrder", nullptr},
           {"label", nullptr},
           {"layoutId", nullptr}}});
     composition_room["world"]["interactables"] =

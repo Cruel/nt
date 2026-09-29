@@ -1128,7 +1128,7 @@ TEST_CASE("immutable Room loops and Character idles reconstruct after load witho
                                     {"appearanceId", nullptr},
                                     {"idleId", nullptr},
                                     {"visible", true},
-                                    {"order", 0}}});
+                                    {"order", 1024}}});
         (*room)["environments"] = nlohmann::json::array(
             {{{"id", "rain"},
               {"condition", {{"kind", "always"}}},

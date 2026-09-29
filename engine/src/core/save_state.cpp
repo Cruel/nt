@@ -205,13 +205,11 @@ save_material_occurrence(const SavedFrameMap& frame_ids, const MaterialOccurrenc
         occurrence);
 }
 
-bool is_authored_room_overlay_default(const CompiledProject& project,
-                                      const DesiredMountedLayout& layout) noexcept
+bool is_authored_room_layout_default(const CompiledProject& project,
+                                     const DesiredMountedLayout& layout) noexcept
 {
-    const auto* key = std::get_if<RoomOverlayLayoutMountKey>(&layout.key);
     const auto* owner = std::get_if<RoomPresentationOwner>(&layout.owner);
-    if (key == nullptr || owner == nullptr || owner->room != key->room ||
-        layout.scale_overrides != LayoutScaleOverrides{} ||
+    if (owner == nullptr || layout.scale_overrides != LayoutScaleOverrides{} ||
         layout.composition_group != PresentationCompositionGroup::World ||
         layout.policy.plane != PresentationPlane::WorldOverlay ||
         layout.policy.clock != LayoutClockDomain::Gameplay ||
@@ -220,16 +218,43 @@ bool is_authored_room_overlay_default(const CompiledProject& project,
         layout.policy.escape_dismissal != EscapeDismissalPolicy::Ignore ||
         layout.policy.entrance_operation || layout.policy.exit_operation)
         return false;
-    const auto* room = project.find_room(key->room);
-    if (room == nullptr)
-        return false;
-    const auto found = std::find_if(
-        room->overlays.begin(), room->overlays.end(),
-        [key](const compiled::RoomOverlay& overlay) { return overlay.id == key->overlay; });
-    return found != room->overlays.end() && found->layout == layout.layout &&
-           found->order == layout.policy.local_order &&
-           (found->visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden) ==
-               layout.policy.visibility;
+    return std::visit(
+        [&](const auto& key) {
+            using T = std::decay_t<decltype(key)>;
+            if constexpr (std::is_same_v<T, RoomOverlayLayoutMountKey>) {
+                if (owner->room != key.room)
+                    return false;
+                const auto* room = project.find_room(key.room);
+                if (room == nullptr)
+                    return false;
+                const auto found = std::find_if(room->overlays.begin(), room->overlays.end(),
+                                                [&key](const compiled::RoomOverlay& overlay) {
+                                                    return overlay.id == key.overlay;
+                                                });
+                return found != room->overlays.end() && found->layout == layout.layout &&
+                       found->order == layout.policy.local_order &&
+                       (found->visible ? LayoutVisibility::Visible : LayoutVisibility::Hidden) ==
+                           layout.policy.visibility;
+            } else if constexpr (std::is_same_v<T, RoomPlacementLayoutMountKey>) {
+                if (owner->room != key.room ||
+                    layout.policy.visibility != LayoutVisibility::Visible)
+                    return false;
+                const auto* room = project.find_room(key.room);
+                if (room == nullptr)
+                    return false;
+                const auto found = std::find_if(room->placements.begin(), room->placements.end(),
+                                                [&key](const compiled::RoomPlacement& placement) {
+                                                    return placement.id == key.placement;
+                                                });
+                return found != room->placements.end() && found->presentation.layout &&
+                       found->presentation.layout_order &&
+                       *found->presentation.layout == layout.layout &&
+                       *found->presentation.layout_order == layout.policy.local_order;
+            } else {
+                return false;
+            }
+        },
+        layout.key);
 }
 
 } // namespace
@@ -444,7 +469,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 effect.visible});
     }
     for (const auto& layout : session.m_mounted_layouts) {
-        if (is_authored_room_overlay_default(project, layout))
+        if (is_authored_room_layout_default(project, layout))
             continue;
         auto owner = save_presentation_owner(session, frame_ids, layout.owner);
         if (!owner)

@@ -59,6 +59,22 @@ GameLayer layer_for_plane(core::PresentationPlane plane)
     }
 }
 
+void append_world_overlay_command(std::vector<OrderedWorldOverlayBatch>& batches,
+                                  std::int32_t order, QuadCommand command)
+{
+    const auto found = std::lower_bound(
+        batches.begin(), batches.end(), order,
+        [](const OrderedWorldOverlayBatch& batch, std::int32_t value) { return batch.order < value; });
+    if (found != batches.end() && found->order == order) {
+        found->batch.draw(std::move(command));
+        return;
+    }
+    OrderedWorldOverlayBatch batch;
+    batch.order = order;
+    batch.batch.draw(std::move(command));
+    batches.insert(found, std::move(batch));
+}
+
 std::optional<core::PresentationPropInstanceId>
 prop_material_instance(const core::PresentationPropKey& key)
 {
@@ -923,9 +939,9 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     }
     std::sort(candidate.hotspot_hit_targets.begin(), candidate.hotspot_hit_targets.end(),
               [](const auto& lhs, const auto& rhs) {
-                  const auto lhs_owner = std::tie(lhs.plane, lhs.family, lhs.owner_order,
+                  const auto lhs_owner = std::tie(lhs.plane, lhs.owner_order, lhs.family,
                                                   lhs.stable_identity, lhs.base_sublayer);
-                  const auto rhs_owner = std::tie(rhs.plane, rhs.family, rhs.owner_order,
+                  const auto rhs_owner = std::tie(rhs.plane, rhs.owner_order, rhs.family,
                                                   rhs.stable_identity, rhs.base_sublayer);
                   if (lhs_owner != rhs_owner)
                       return lhs_owner > rhs_owner;
@@ -1001,8 +1017,17 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     }
 
     std::sort(candidate.draws.begin(), candidate.draws.end(), [](const auto& lhs, const auto& rhs) {
-        return std::tie(lhs.plane, lhs.family, lhs.order, lhs.stable_identity, lhs.sublayer) <
-               std::tie(rhs.plane, rhs.family, rhs.order, rhs.stable_identity, rhs.sublayer);
+        const auto structural_rank = [](const auto& draw) {
+            return draw.plane == core::PresentationPlane::WorldBackground &&
+                           draw.family == WorldDrawFamily::Background
+                       ? 0
+                       : 1;
+        };
+        const auto lhs_rank = structural_rank(lhs);
+        const auto rhs_rank = structural_rank(rhs);
+        return std::tie(lhs.plane, lhs_rank, lhs.order, lhs.family, lhs.stable_identity,
+                        lhs.sublayer) < std::tie(rhs.plane, rhs_rank, rhs.order, rhs.family,
+                                                 rhs.stable_identity, rhs.sublayer);
     });
     rebuild_batches(candidate);
 
@@ -1274,6 +1299,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
 {
     frame.base_batch.clear();
     frame.base_world_composition_batch.clear();
+    frame.base_world_overlay_batches.clear();
     frame.base_game_ui_underlay_batch.clear();
     for (const auto& draw : frame.draws) {
         QuadCommand command = draw.command;
@@ -1444,10 +1470,13 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
         }
 
         frame.base_batch.draw(command);
-        QuadBatch& composition_batch = draw.plane == core::PresentationPlane::GameUi
-                                           ? frame.base_game_ui_underlay_batch
-                                           : frame.base_world_composition_batch;
-        composition_batch.draw(std::move(command));
+        if (draw.plane == core::PresentationPlane::GameUi)
+            frame.base_game_ui_underlay_batch.draw(std::move(command));
+        else if (draw.plane == core::PresentationPlane::WorldOverlay)
+            append_world_overlay_command(frame.base_world_overlay_batches, draw.order,
+                                         std::move(command));
+        else
+            frame.base_world_composition_batch.draw(std::move(command));
     }
 
     for (auto& surface : frame.hotspot_surfaces) {
@@ -1512,6 +1541,7 @@ void WorldPresentationBackend::rebuild_hotspot_overlays(WorldPresentationFrame& 
 {
     frame.batch = frame.base_batch;
     frame.world_composition_batch = frame.base_world_composition_batch;
+    frame.world_overlay_batches = frame.base_world_overlay_batches;
     frame.game_ui_underlay_batch = frame.base_game_ui_underlay_batch;
     const auto active = m_hotspot_visual_state.pressed ? m_hotspot_visual_state.pressed
                                                        : m_hotspot_visual_state.hovered;
@@ -1525,10 +1555,13 @@ void WorldPresentationBackend::rebuild_hotspot_overlays(WorldPresentationFrame& 
     command.hotspot_hovered = m_hotspot_visual_state.hovered == active;
     command.hotspot_pressed = m_hotspot_visual_state.pressed == active;
     frame.batch.draw(command);
-    QuadBatch& composition_batch = found->overlay.plane == core::PresentationPlane::GameUi
-                                       ? frame.game_ui_underlay_batch
-                                       : frame.world_composition_batch;
-    composition_batch.draw(std::move(command));
+    if (found->overlay.plane == core::PresentationPlane::GameUi)
+        frame.game_ui_underlay_batch.draw(std::move(command));
+    else if (found->overlay.plane == core::PresentationPlane::WorldOverlay)
+        append_world_overlay_command(frame.world_overlay_batches, found->overlay.order,
+                                     std::move(command));
+    else
+        frame.world_composition_batch.draw(std::move(command));
 }
 
 bool WorldPresentationBackend::update_hotspot_visual_state(HotspotInteractionVisualState state)

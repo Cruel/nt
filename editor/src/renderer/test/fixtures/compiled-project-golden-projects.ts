@@ -718,6 +718,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
           source: { kind: 'lua-expression', source: 'return key_label()' },
         },
         layout: roomLayoutRef('hud-inline'),
+        layoutOrder: 1024,
       },
     },
   ];

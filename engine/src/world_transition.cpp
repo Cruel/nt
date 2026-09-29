@@ -708,12 +708,12 @@ std::vector<core::PresentationSnapshotRevision> WorldTransitionBackend::active_r
     return result;
 }
 
-core::Result<QuadBatch, core::Diagnostics>
+core::Result<TargetedWorldComposition, core::Diagnostics>
 WorldTransitionBackend::compose_targeted_world_batch() const
 {
     const auto* current = m_world.frame();
     if (!current)
-        return core::Result<QuadBatch, core::Diagnostics>::success(QuadBatch{});
+        return core::Result<TargetedWorldComposition, core::Diagnostics>::success({});
 
     std::vector<LayeredDraw> draws;
     draws.reserve(current->draws.size() + m_targeted.size() * 4);
@@ -730,7 +730,7 @@ WorldTransitionBackend::compose_targeted_world_batch() const
         const auto* source = m_world.frame(common.revisions.source);
         const auto* target = m_world.frame(common.revisions.target);
         if (!source || !target)
-            return core::Result<QuadBatch, core::Diagnostics>::failure(
+            return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
                 {failure("presentation.targeted_revision_unavailable",
                          "Camera finite realization lost an exact retained revision")});
 
@@ -747,7 +747,7 @@ WorldTransitionBackend::compose_targeted_world_batch() const
                         return same_draw_identity(candidate, target_draw);
                     });
                 if (source_draw == source->draws.end())
-                    return core::Result<QuadBatch, core::Diagnostics>::failure({failure(
+                    return core::Result<TargetedWorldComposition, core::Diagnostics>::failure({failure(
                         "presentation.camera_draw_identity_mismatch",
                         "Camera motion requires stable world draw identities across revisions")});
                 LayeredDraw draw{target_draw, 1};
@@ -773,7 +773,7 @@ WorldTransitionBackend::compose_targeted_world_batch() const
             std::holds_alternative<core::CameraPunchOperation>(active.request);
         if (temporary_camera) {
             if (!current->camera)
-                return core::Result<QuadBatch, core::Diagnostics>::failure(
+                return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
                     {failure("presentation.camera_revision_unavailable",
                              "Temporary camera emphasis requires a current Camera View")});
             core::PresentationCamera emphasized = *current->camera;
@@ -813,7 +813,7 @@ WorldTransitionBackend::compose_targeted_world_batch() const
         if (const auto* flash = std::get_if<core::CameraFlashOperation>(&active.request)) {
             const auto color = parse_color(flash->color);
             if (!color)
-                return core::Result<QuadBatch, core::Diagnostics>::failure(
+                return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
                     {failure("presentation.camera_flash_color_invalid",
                              "Camera flash color must be #RRGGBB or #RRGGBBAA")});
             QuadCommand command;
@@ -843,7 +843,7 @@ WorldTransitionBackend::compose_targeted_world_batch() const
         const auto* source = m_world.frame(common.revisions.source);
         const auto* target = m_world.frame(common.revisions.target);
         if (!source || !target) {
-            return core::Result<QuadBatch, core::Diagnostics>::failure(
+            return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
                 {failure("presentation.targeted_revision_unavailable",
                          "Targeted finite realization lost an exact retained revision")});
         }
@@ -879,7 +879,7 @@ WorldTransitionBackend::compose_targeted_world_batch() const
                     target_draw->actor_animation_clips,
                     [&](const auto& candidate) { return candidate.id == gesture->clip; });
                 if (clip == target_draw->actor_animation_clips.end() || clip->frames.empty()) {
-                    return core::Result<QuadBatch, core::Diagnostics>::failure(
+                    return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
                         {failure("presentation.character_gesture_clip_unprepared",
                                  "Character Gesture clip is not prepared for an Actor layer")});
                 }
@@ -930,7 +930,7 @@ WorldTransitionBackend::compose_targeted_world_batch() const
                         return item->sublayer == target_draw->sublayer;
                     });
                 if (source_draw == source_draws.end()) {
-                    return core::Result<QuadBatch, core::Diagnostics>::failure(
+                    return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
                         {failure("presentation.actor_slide_layers_mismatch",
                                  "Actor slide source and target visual layers do not match")});
                 }
@@ -959,17 +959,53 @@ WorldTransitionBackend::compose_targeted_world_batch() const
     }
 
     std::sort(draws.begin(), draws.end(), [](const auto& lhs, const auto& rhs) {
-        return std::tie(lhs.draw.plane, lhs.draw.family, lhs.draw.order, lhs.draw.stable_identity,
-                        lhs.blend_group, lhs.draw.sublayer) <
-               std::tie(rhs.draw.plane, rhs.draw.family, rhs.draw.order, rhs.draw.stable_identity,
-                        rhs.blend_group, rhs.draw.sublayer);
+        const auto structural_rank = [](const auto& draw) {
+            return draw.plane == core::PresentationPlane::WorldBackground &&
+                           draw.family == WorldDrawFamily::Background
+                       ? 0
+                       : 1;
+        };
+        const auto lhs_rank = structural_rank(lhs.draw);
+        const auto rhs_rank = structural_rank(rhs.draw);
+        return std::tie(lhs.draw.plane, lhs_rank, lhs.draw.order, lhs.draw.family,
+                        lhs.draw.stable_identity, lhs.blend_group, lhs.draw.sublayer) <
+               std::tie(rhs.draw.plane, rhs_rank, rhs.draw.order, rhs.draw.family,
+                        rhs.draw.stable_identity, rhs.blend_group, rhs.draw.sublayer);
     });
-    QuadBatch batch;
-    for (const auto& item : draws)
-        batch.draw(item.draw.command);
-    if (flash_overlay)
-        batch.draw(std::move(*flash_overlay));
-    return core::Result<QuadBatch, core::Diagnostics>::success(std::move(batch));
+    TargetedWorldComposition composition;
+    for (const auto& item : draws) {
+        if (item.draw.plane == core::PresentationPlane::WorldOverlay) {
+            const auto found = std::lower_bound(
+                composition.world_overlay_batches.begin(), composition.world_overlay_batches.end(),
+                item.draw.order, [](const OrderedWorldOverlayBatch& batch, std::int32_t order) {
+                    return batch.order < order;
+                });
+            if (found != composition.world_overlay_batches.end() &&
+                found->order == item.draw.order) {
+                found->batch.draw(item.draw.command);
+            } else {
+                OrderedWorldOverlayBatch batch;
+                batch.order = item.draw.order;
+                batch.batch.draw(item.draw.command);
+                composition.world_overlay_batches.insert(found, std::move(batch));
+            }
+        } else {
+            composition.world_composition_batch.draw(item.draw.command);
+        }
+    }
+    if (flash_overlay) {
+        if (!composition.world_overlay_batches.empty() &&
+            composition.world_overlay_batches.back().order == std::numeric_limits<std::int32_t>::max()) {
+            composition.world_overlay_batches.back().batch.draw(std::move(*flash_overlay));
+        } else {
+            OrderedWorldOverlayBatch batch;
+            batch.order = std::numeric_limits<std::int32_t>::max();
+            batch.batch.draw(std::move(*flash_overlay));
+            composition.world_overlay_batches.push_back(std::move(batch));
+        }
+    }
+    return core::Result<TargetedWorldComposition, core::Diagnostics>::success(
+        std::move(composition));
 }
 
 void WorldTransitionBackend::publish_running(const core::PresentationOperationMetadata& metadata)

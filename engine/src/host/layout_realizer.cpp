@@ -90,7 +90,8 @@ public:
                     *layout.semantic_owner, *layout.semantic_key, *layout.occurrence, layout.inputs,
                     layout.connected_signals, layout.state_shape, layout.state_values,
                     layout.material_parameters, layout.material_camera_zoom, layout.trigger_context,
-                    layout.material_textures, layout.mounted.layout.text()});
+                    layout.material_textures, layout.mounted.layout.text(),
+                    layout.mounted.policy.local_order});
         } else {
             m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
         }
@@ -213,6 +214,8 @@ std::string focused_state_slot_key(const core::MountedLayoutPresentationKey& key
                 return "reserved:" + std::to_string(static_cast<unsigned>(value.slot));
             } else if constexpr (std::is_same_v<T, core::RoomOverlayLayoutMountKey>) {
                 return "room-overlay:" + value.room.text() + ":" + value.overlay.text();
+            } else if constexpr (std::is_same_v<T, core::RoomPlacementLayoutMountKey>) {
+                return "room-placement:" + value.room.text() + ":" + value.placement.text();
             } else {
                 return "scoped:" + value.instance.text();
             }
@@ -586,18 +589,40 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                     core::PresentationOwner{core::RoomPresentationOwner{*focused_room}};
                 semantic_key = core::MountedLayoutPresentationKey{
                     core::RoomOverlayLayoutMountKey{*focused_room, *overlay_id.value_if()}};
+            } else if (focused_room != nullptr &&
+                       layout.mount_kind == core::editor::TypedFocusedRoomLayoutDefinition::
+                                                MountKind::RoomPlacement) {
+                if (!layout.placement_id) {
+                    rollback_focused_preview();
+                    return core::Result<void, core::Diagnostics>::failure(
+                        {{.code = "layout_realizer.focused_placement_identity_missing",
+                          .message = "Focused Room placement Layout requires a Placement ID",
+                          .source_path = layout.source_url}});
+                }
+                auto placement_id = core::RoomPlacementId::create(*layout.placement_id);
+                if (!placement_id) {
+                    rollback_focused_preview();
+                    return core::Result<void, core::Diagnostics>::failure(
+                        {{.code = "layout_realizer.focused_placement_identity_invalid",
+                          .message = "Focused Room placement identity is invalid",
+                          .source_path = layout.source_url}});
+                }
+                semantic_owner =
+                    core::PresentationOwner{core::RoomPresentationOwner{*focused_room}};
+                semantic_key = core::MountedLayoutPresentationKey{
+                    core::RoomPlacementLayoutMountKey{*focused_room, *placement_id.value_if()}};
             } else if (focused_room != nullptr && game_hud) {
                 semantic_owner = core::PresentationOwner{
                     core::SessionPresentationOwner{core::PresentationSessionId::from_number(1)}};
                 semantic_key = core::MountedLayoutPresentationKey{
                     core::ReservedLayoutMountKey{core::compiled::LayoutSlot::Hud}};
             } else {
-                if (layout.mount_kind ==
-                    core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomOverlay) {
+                if (layout.mount_kind !=
+                    core::editor::TypedFocusedRoomLayoutDefinition::MountKind::GameHud) {
                     rollback_focused_preview();
                     return core::Result<void, core::Diagnostics>::failure(
                         {{.code = "layout_realizer.focused_room_context_missing",
-                          .message = "Focused Room overlay Layout requires a Room preview context",
+                          .message = "Focused Room Layout mount requires a Room preview context",
                           .source_path = layout.source_url}});
                 }
                 auto scoped =

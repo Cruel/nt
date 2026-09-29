@@ -2192,6 +2192,23 @@ SessionState::commit_room_entry(const CompiledProject& project, const RoomId& ro
         if (!mounted)
             return mounted;
     }
+    for (const auto& placement : definition->placements) {
+        if (!placement.presentation.layout || !placement.presentation.layout_order)
+            continue;
+        auto mounted = candidate.upsert_mounted_layout(
+            project,
+            DesiredMountedLayout{RoomPlacementLayoutMountKey{room, placement.id},
+                                 RoomPresentationOwner{room},
+                                 *placement.presentation.layout,
+                                 room_overlay_policy(*placement.presentation.layout_order, true),
+                                 {},
+                                 PresentationCompositionGroup::World,
+                                 std::nullopt,
+                                 {},
+                                 {}});
+        if (!mounted)
+            return mounted;
+    }
 
     const auto* previous_mode = std::get_if<RoomMode>(&candidate.m_mode);
     const std::optional<RoomId> source_room = previous_mode ? std::optional(previous_mode->room)
@@ -2310,6 +2327,23 @@ SessionState::commit_room_navigation(const CompiledProject& project,
         if (!mounted)
             return mounted;
     }
+    for (const auto& placement : definition->placements) {
+        if (!placement.presentation.layout || !placement.presentation.layout_order)
+            continue;
+        auto mounted = candidate.upsert_mounted_layout(
+            project,
+            DesiredMountedLayout{RoomPlacementLayoutMountKey{target_visit.room, placement.id},
+                                 RoomPresentationOwner{target_visit.room},
+                                 *placement.presentation.layout,
+                                 room_overlay_policy(*placement.presentation.layout_order, true),
+                                 {},
+                                 PresentationCompositionGroup::World,
+                                 std::nullopt,
+                                 {},
+                                 {}});
+        if (!mounted)
+            return mounted;
+    }
 
     candidate.m_room_entry_sequence = target_visit.entry_sequence;
     candidate.m_room_visit = target_visit;
@@ -2410,6 +2444,24 @@ Result<void, Diagnostics> SessionState::upsert_mounted_layout(const CompiledProj
                 const auto* room_owner = std::get_if<RoomPresentationOwner>(&value.owner);
                 key_valid = found != nullptr && found->layout == value.layout &&
                             room_owner != nullptr && room_owner->room == key.room &&
+                            value.policy.plane == PresentationPlane::WorldOverlay &&
+                            value.composition_group == PresentationCompositionGroup::World;
+            } else if constexpr (std::is_same_v<T, RoomPlacementLayoutMountKey>) {
+                const auto* room = runtime_room(*this, key.room);
+                const auto found = room == nullptr
+                                       ? static_cast<const compiled::RoomPlacement*>(nullptr)
+                                       : [&]() -> const compiled::RoomPlacement* {
+                    const auto item =
+                        std::find_if(room->placements.begin(), room->placements.end(),
+                                     [&key](const compiled::RoomPlacement& placement) {
+                                         return placement.id == key.placement;
+                                     });
+                    return item == room->placements.end() ? nullptr : &*item;
+                }();
+                const auto* room_owner = std::get_if<RoomPresentationOwner>(&value.owner);
+                key_valid = found != nullptr && found->presentation.layout &&
+                            *found->presentation.layout == value.layout && room_owner != nullptr &&
+                            room_owner->room == key.room &&
                             value.policy.plane == PresentationPlane::WorldOverlay &&
                             value.composition_group == PresentationCompositionGroup::World;
             } else {

@@ -114,13 +114,20 @@ struct RoomOverlayLayoutMountKey {
     auto operator<=>(const RoomOverlayLayoutMountKey&) const = default;
 };
 
+struct RoomPlacementLayoutMountKey {
+    RoomId room;
+    RoomPlacementId placement;
+    auto operator<=>(const RoomPlacementLayoutMountKey&) const = default;
+};
+
 struct ScopedLayoutMountKey {
     ScopedLayoutInstanceId instance;
     auto operator<=>(const ScopedLayoutMountKey&) const = default;
 };
 
 using MountedLayoutPresentationKey =
-    std::variant<ReservedLayoutMountKey, RoomOverlayLayoutMountKey, ScopedLayoutMountKey>;
+    std::variant<ReservedLayoutMountKey, RoomOverlayLayoutMountKey, RoomPlacementLayoutMountKey,
+                 ScopedLayoutMountKey>;
 
 using LayoutReplacementGroupId = StrongId<struct LayoutReplacementGroupTag>;
 

@@ -197,6 +197,14 @@ occurrence. Each runtime occurrence is an engine-owned **Layout Mount** identifi
 pair `(PresentationOwner, MountedLayoutPresentationKey)` and carrying a separate occurrence token for
 stale-event rejection.
 
+Room-owned authored Mounts have two distinct semantic keys. A Room overlay uses
+`RoomOverlayLayoutMountKey { room, overlay }`; a Layout attached to a `RoomPlacement` uses
+`RoomPlacementLayoutMountKey { room, placement }`. Both resolve to `WorldOverlay` and participate in
+the Room's single authored `WorldOverlay` order namespace. Their order is occurrence data: overlay
+records own `order`, while placement presentation owns `layoutOrder`. Placement geometry itself has no
+stacking order. Updating the referenced Layout while retaining the same semantic Mount preserves that
+occurrence's authored order and state identity.
+
 The contract contains named scalar inputs, named semantic signals, and an optional recursive State
 Shape. Input and signal-field types are `boolean`, `integer`, `number`, and `string`; declarations also
 state nullability, input defaults, and whether each signal field is required. State Shapes add arrays

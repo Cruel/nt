@@ -2558,6 +2558,20 @@ void RuntimeUI::render_world_overlay_target()
         m_state->host->render_world_overlay_target();
 }
 
+bool RuntimeUI::render_world_overlay_source(std::span<const std::int32_t> external_orders,
+                                            const WorldOverlayExternalDraw& draw_external)
+{
+    return m_state && m_state->host &&
+           m_state->host->render_world_overlay_source(external_orders, draw_external);
+}
+
+bool RuntimeUI::render_world_overlay_target(std::span<const std::int32_t> external_orders,
+                                            const WorldOverlayExternalDraw& draw_external)
+{
+    return m_state && m_state->host &&
+           m_state->host->render_world_overlay_target(external_orders, draw_external);
+}
+
 void RuntimeUI::end_frame(bool include_debug_plane)
 {
     if (m_state && m_state->host)
@@ -2727,12 +2741,26 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
 {
     if (!m_state || !m_state->document_registry)
         return false;
+    auto* previous_context = m_state->document_registry->document_context(document_id);
     const State::ContextKey desired = ui::rmlui::make_lifecycle_context_key(
         policy, composition_group, owner, scale_policy, compatibility_group);
     const bool applied = m_state->with_active_layout_mount_document(document_id, [&]() {
         return m_state->document_registry->recreate_in_context(document_id, desired);
     });
     if (applied) {
+        auto* current_context = m_state->document_registry->document_context(document_id);
+        if (m_state->host && previous_context && previous_context != current_context)
+            m_state->host->set_context_presentation_order(previous_context, std::nullopt);
+        if (const auto mount = m_state->layout_mount_contexts.find(document_id);
+            mount != m_state->layout_mount_contexts.end()) {
+            mount->second.local_order = policy.local_order;
+            const bool ordered_world_mount =
+                std::holds_alternative<core::RoomOverlayLayoutMountKey>(mount->second.key) ||
+                std::holds_alternative<core::RoomPlacementLayoutMountKey>(mount->second.key);
+            m_state->host->set_context_presentation_order(
+                current_context,
+                ordered_world_mount ? std::optional{policy.local_order} : std::nullopt);
+        }
         m_state->refresh_game_hud_map();
         m_state->refresh_text_log_map();
         m_state->refresh_active_text_layout();
@@ -2782,9 +2810,12 @@ bool RuntimeUI::unload_document(const std::string& id)
 {
     if (!m_state || !m_state->document_registry)
         return false;
+    auto* document_context = m_state->document_registry->document_context(id);
     const bool unloaded = m_state->with_active_layout_mount_document(
         id, [&]() { return m_state->document_registry->unload(id); });
     if (unloaded) {
+        if (m_state->host && document_context)
+            m_state->host->set_context_presentation_order(document_context, std::nullopt);
         const auto clear_owner = [state = m_state](host::CursorAuthority::OwnerToken owner) {
             state->pending_layout_cursors.erase(owner);
             if (state->cursor_authority)
@@ -2867,16 +2898,24 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
                 m_state->layout_cursor_retirements.erase(retired);
         }
         if (m_state->host && m_state->document_registry) {
+            const bool ordered_world_mount =
+                std::holds_alternative<core::RoomOverlayLayoutMountKey>(context->key) ||
+                std::holds_alternative<core::RoomPlacementLayoutMountKey>(context->key);
+            auto* document_context = m_state->document_registry->document_context(id);
             m_state->host->set_context_material_parameters(
-                m_state->document_registry->document_context(id), context->occurrence,
-                context->material_parameters, context->material_textures,
-                context->material_camera_zoom);
+                document_context, context->occurrence, context->material_parameters,
+                context->material_textures, context->material_camera_zoom);
+            m_state->host->set_context_presentation_order(
+                document_context,
+                ordered_world_mount ? std::optional{context->local_order} : std::nullopt);
         }
         m_state->layout_mount_contexts.insert_or_assign(id, std::move(*context));
     } else {
         if (m_state->host && m_state->document_registry) {
-            m_state->host->set_context_material_parameters(
-                m_state->document_registry->document_context(id), std::nullopt, {}, {}, 1.0);
+            auto* document_context = m_state->document_registry->document_context(id);
+            m_state->host->set_context_material_parameters(document_context, std::nullopt, {}, {},
+                                                           1.0);
+            m_state->host->set_context_presentation_order(document_context, std::nullopt);
         }
         m_state->layout_mount_contexts.erase(id);
     }

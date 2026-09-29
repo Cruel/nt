@@ -46,6 +46,8 @@ std::string presentation_layout_key_text(const core::MountedLayoutPresentationKe
                 return "reserved/" + std::to_string(static_cast<unsigned>(value.slot));
             else if constexpr (std::is_same_v<T, core::RoomOverlayLayoutMountKey>)
                 return "room-overlay/" + value.room.text() + "/" + value.overlay.text();
+            else if constexpr (std::is_same_v<T, core::RoomPlacementLayoutMountKey>)
+                return "room-placement/" + value.room.text() + "/" + value.placement.text();
             else
                 return "scoped/" + value.instance.text();
         },

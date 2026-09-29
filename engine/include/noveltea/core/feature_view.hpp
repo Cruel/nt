@@ -67,7 +67,7 @@ struct RoomPlacementView {
     std::optional<std::string> label;
     TextMarkup label_markup = TextMarkup::Plain;
     std::optional<LayoutId> layout;
-    std::int32_t order = 0;
+    std::optional<std::int32_t> layout_order;
     struct Occupant {
         compiled::InteractionSubject subject;
         bool enabled;

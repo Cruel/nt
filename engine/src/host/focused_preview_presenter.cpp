@@ -105,6 +105,7 @@ standalone_layout_definition(const core::editor::TypedEditorLayoutPreviewDocumen
             fragment ? Definition::LayoutKind::Fragment : Definition::LayoutKind::Document,
         .mount_kind = Definition::MountKind::GameHud,
         .overlay_id = std::nullopt,
+        .placement_id = std::nullopt,
         .template_id = document.template_id,
         .source_url = document.source_url,
         .default_parent = document.default_parent,
@@ -186,6 +187,7 @@ shader_layout_definition(const core::editor::TypedEditorShaderPreviewDocument& d
         .layout_kind = Definition::LayoutKind::Document,
         .mount_kind = Definition::MountKind::GameHud,
         .overlay_id = std::nullopt,
+        .placement_id = std::nullopt,
         .template_id = document.template_id,
         .source_url = "preview://templates/shader-square-preview.rml",
         .default_parent = std::nullopt,
@@ -906,7 +908,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                  : core::TextMarkup::Plain,
              placement.layout_id ? std::optional{decoded_id<core::LayoutId>(*placement.layout_id)}
                                  : std::nullopt,
-             placement.order});
+             placement.layout_order});
     for (const auto& overlay : document.world.overlays)
         definition.overlays.push_back({decoded_id<core::RoomOverlayId>(overlay.overlay_id),
                                        decoded_id<core::LayoutId>(overlay.layout_id),
@@ -1148,7 +1150,15 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                     decoded_id<core::RoomPlacementId>(*hotspot.placement_id)};
                 placement_bounds = core::compiled::NormalizedRect{
                     found->bounds.x, found->bounds.y, found->bounds.width, found->bounds.height};
-                owner_order = found->order;
+                if (hotspot.owner_kind == "interactable") {
+                    const auto occurrence =
+                        std::ranges::find_if(document.world.interactables, [&](const auto& value) {
+                            return value.interactable_id == hotspot.owner_id &&
+                                   value.placement_id == *hotspot.placement_id;
+                        });
+                    if (occurrence != document.world.interactables.end())
+                        owner_order = occurrence->order;
+                }
             }
         }
         std::variant<std::monostate, core::compiled::RectHotspotShape> shape = std::monostate{};
@@ -1223,8 +1233,7 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
     for (const auto& placement : document.world.placements)
         result.placements.push_back({decoded_id<core::RoomPlacementId>(placement.id),
                                      {placement.bounds.x, placement.bounds.y,
-                                      placement.bounds.width, placement.bounds.height},
-                                     placement.order});
+                                      placement.bounds.width, placement.bounds.height}});
     const auto append_character = [&](const std::string& character_id, const auto& visual) {
         std::optional<core::compiled::CharacterIdle> idle;
         if (visual.idle && visual.idle_id) {

@@ -502,8 +502,7 @@ TEST_CASE("compiled project construction rejects structurally invalid public inp
     invalid_room.rooms[0].placements.push_back(compiled::RoomPlacement{
         .id = id<RoomPlacementId>("bad-placement"),
         .bounds = {-0.1, 0.0, 0.5, 0.5},
-        .order = 0,
-        .presentation = {std::nullopt, std::nullopt},
+        .presentation = {std::nullopt, std::nullopt, std::nullopt},
     });
     auto invalid_room_result = CompiledProject::create(std::move(invalid_room));
     REQUIRE_FALSE(invalid_room_result);

@@ -151,13 +151,11 @@ describe('RoomEditor', () => {
       {
         id: 'left-table',
         bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        order: 0,
         presentation: { label: null, layout: null },
       },
       {
         id: 'right-door',
         bounds: { x: 0.7, y: 0.2, width: 0.2, height: 0.4 },
-        order: 1,
         presentation: { label: null, layout: null },
       },
     ];
@@ -327,7 +325,6 @@ describe('RoomEditor', () => {
       {
         id: 'key-placement',
         bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        order: 0,
         presentation: { label: null, layout: null },
       },
     ];
@@ -948,7 +945,7 @@ describe('RoomEditor', () => {
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
         rooms: {
-          foyer: { data: { placements: [expect.objectContaining({ id: 'placement', order: 0 })] } },
+          foyer: { data: { placements: [expect.objectContaining({ id: 'placement' })] } },
         },
       }),
     );
@@ -1097,7 +1094,6 @@ describe('RoomEditor', () => {
       {
         id: 'key-placement',
         bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        order: 0,
         presentation: { label: null, layout: null },
       },
     ];
@@ -1180,7 +1176,6 @@ describe('RoomEditor', () => {
       {
         id: 'key-placement',
         bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        order: 0,
         presentation: { label: null, layout: null },
       },
     ];

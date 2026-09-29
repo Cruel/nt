@@ -76,7 +76,6 @@
       {
         "id": "gate-lever-placement",
         "bounds": { "x": 0.69, "y": 0.25, "width": 0.08, "height": 0.14 },
-        "order": 10,
         "presentation": { "label": null, "layout": null }
       }
     ],

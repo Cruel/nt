@@ -451,6 +451,9 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #120 gives each Room one optional catchall placement for semantically present Interactable
   // Instances that have no exact authored occurrence. It changes only the owning Room projection.
   [/^\/rooms\/\*\/data\/fallbackInteractablePlacementId$/, OWNER],
+  // #366 removes stacking from RoomPlacement geometry. A placement-attached Layout instead owns its
+  // WorldOverlay order inside presentation metadata, which changes only the owning Room projection.
+  [/^\/rooms\/\*\/data\/placements\/\*\/presentation\/layoutOrder$/, OWNER],
   // Nullable is a new Variable runtime semantic in #136. The renamed authored `value` leaf is
   // preserved against the previous `defaultValue` review slot below. #205 adds the nested
   // `$message` leaf for the typed Message value alternative; it changes the owning global
@@ -1147,7 +1150,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '60045c56',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: 'cf6cc747',
+    rooms: '90995c3f',
     scenes: '6650b472',
     schema: '63fb9bb9',
     scripts: '278134b5',

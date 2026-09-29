@@ -1052,6 +1052,9 @@ std::string saved_mount_key_text(const MountedLayoutPresentationKey& key)
             else if constexpr (std::is_same_v<T, RoomOverlayLayoutMountKey>)
                 return std::string("room-overlay:") + value.room.text() + ":" +
                        value.overlay.text();
+            else if constexpr (std::is_same_v<T, RoomPlacementLayoutMountKey>)
+                return std::string("room-placement:") + value.room.text() + ":" +
+                       value.placement.text();
             else
                 return std::string("scoped:") + value.instance.text();
         },
@@ -1353,6 +1356,19 @@ bool valid_layout_record(const CompiledProject& project, const SaveState& save,
                     room->overlays.begin(), room->overlays.end(),
                     [&key](const compiled::RoomOverlay& value) { return value.id == key.overlay; });
                 return found != room->overlays.end() && found->layout == layout.layout;
+            } else if constexpr (std::is_same_v<T, RoomPlacementLayoutMountKey>) {
+                const auto* owner = std::get_if<SavedRoomPresentationOwner>(&layout.owner);
+                auto room = resolved_room(project, save, key.room);
+                if (owner == nullptr || owner->room != key.room || !room ||
+                    layout.policy.plane != PresentationPlane::WorldOverlay ||
+                    layout.composition_group != PresentationCompositionGroup::World)
+                    return false;
+                const auto found = std::find_if(room->placements.begin(), room->placements.end(),
+                                                [&key](const compiled::RoomPlacement& value) {
+                                                    return value.id == key.placement;
+                                                });
+                return found != room->placements.end() && found->presentation.layout &&
+                       *found->presentation.layout == layout.layout;
             } else {
                 return true;
             }
@@ -1397,6 +1413,21 @@ bool valid_layout_state_record(const CompiledProject& project, const SaveState& 
                     room->overlays.begin(), room->overlays.end(),
                     [&](const compiled::RoomOverlay& value) { return value.id == key.overlay; });
                 if (overlay == room->overlays.end() || overlay->layout != slot.layout)
+                    return false;
+                if (const auto* owner = std::get_if<SavedRoomLayoutStateOwner>(&slot.scope_owner))
+                    return owner->room == key.room;
+                return std::holds_alternative<SavedSessionLayoutStateOwner>(slot.scope_owner);
+            } else if constexpr (std::is_same_v<T, RoomPlacementLayoutMountKey>) {
+                auto room = resolved_room(project, save, key.room);
+                if (!room)
+                    return false;
+                const auto placement =
+                    std::find_if(room->placements.begin(), room->placements.end(),
+                                 [&](const compiled::RoomPlacement& value) {
+                                     return value.id == key.placement;
+                                 });
+                if (placement == room->placements.end() || !placement->presentation.layout ||
+                    *placement->presentation.layout != slot.layout)
                     return false;
                 if (const auto* owner = std::get_if<SavedRoomLayoutStateOwner>(&slot.scope_owner))
                     return owner->room == key.room;

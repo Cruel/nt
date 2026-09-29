@@ -880,16 +880,26 @@ core::Result<void, core::Diagnostics> RuntimeWorld::validate_room_configuration_
                 "Room configuration change would invalidate live presentation placement state"));
     }
     for (const auto& layout : m_state.m_mounted_layouts) {
-        const auto* key = std::get_if<core::RoomOverlayLayoutMountKey>(&layout.key);
-        if (key == nullptr || key->room != id)
-            continue;
-        const auto overlay =
-            std::find_if(configuration.overlays.begin(), configuration.overlays.end(),
-                         [&](const auto& value) { return value.id == key->overlay; });
-        if (overlay == configuration.overlays.end() || overlay->layout != layout.layout)
-            return core::Result<void, core::Diagnostics>::failure(world_error(
-                "runtime.invalid_structural_edit",
-                "Room configuration change would invalidate live overlay presentation state"));
+        if (const auto* key = std::get_if<core::RoomOverlayLayoutMountKey>(&layout.key);
+            key != nullptr && key->room == id) {
+            const auto overlay =
+                std::find_if(configuration.overlays.begin(), configuration.overlays.end(),
+                             [&](const auto& value) { return value.id == key->overlay; });
+            if (overlay == configuration.overlays.end() || overlay->layout != layout.layout)
+                return core::Result<void, core::Diagnostics>::failure(world_error(
+                    "runtime.invalid_structural_edit",
+                    "Room configuration change would invalidate live overlay presentation state"));
+        } else if (const auto* key = std::get_if<core::RoomPlacementLayoutMountKey>(&layout.key);
+                   key != nullptr && key->room == id) {
+            const auto placement =
+                std::find_if(configuration.placements.begin(), configuration.placements.end(),
+                             [&](const auto& value) { return value.id == key->placement; });
+            if (placement == configuration.placements.end() || !placement->presentation.layout ||
+                *placement->presentation.layout != layout.layout)
+                return core::Result<void, core::Diagnostics>::failure(world_error(
+                    "runtime.invalid_structural_edit",
+                    "Room configuration change would invalidate live placement Layout state"));
+        }
     }
     return core::Result<void, core::Diagnostics>::success();
 }
@@ -1116,16 +1126,26 @@ RuntimeWorld::replace_structural_configuration(const core::RoomId& id,
                             "Room replacement would invalidate live presentation placement state"));
     }
     for (const auto& layout : m_state.m_mounted_layouts) {
-        const auto* key = std::get_if<core::RoomOverlayLayoutMountKey>(&layout.key);
-        if (key == nullptr || key->room != id)
-            continue;
-        const auto overlay =
-            std::find_if(configuration.overlays.begin(), configuration.overlays.end(),
-                         [&](const auto& value) { return value.id == key->overlay; });
-        if (overlay == configuration.overlays.end() || overlay->layout != layout.layout)
-            return core::Result<void, core::Diagnostics>::failure(
-                world_error("runtime.invalid_structural_edit",
-                            "Room replacement would invalidate live overlay presentation state"));
+        if (const auto* key = std::get_if<core::RoomOverlayLayoutMountKey>(&layout.key);
+            key != nullptr && key->room == id) {
+            const auto overlay =
+                std::find_if(configuration.overlays.begin(), configuration.overlays.end(),
+                             [&](const auto& value) { return value.id == key->overlay; });
+            if (overlay == configuration.overlays.end() || overlay->layout != layout.layout)
+                return core::Result<void, core::Diagnostics>::failure(world_error(
+                    "runtime.invalid_structural_edit",
+                    "Room replacement would invalidate live overlay presentation state"));
+        } else if (const auto* key = std::get_if<core::RoomPlacementLayoutMountKey>(&layout.key);
+                   key != nullptr && key->room == id) {
+            const auto placement =
+                std::find_if(configuration.placements.begin(), configuration.placements.end(),
+                             [&](const auto& value) { return value.id == key->placement; });
+            if (placement == configuration.placements.end() || !placement->presentation.layout ||
+                *placement->presentation.layout != layout.layout)
+                return core::Result<void, core::Diagnostics>::failure(
+                    world_error("runtime.invalid_structural_edit",
+                                "Room replacement would invalidate live placement Layout state"));
+        }
     }
 
     auto valid = validate_room_configuration_change(id, configuration);

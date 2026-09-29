@@ -44,6 +44,7 @@ import {
   detachInteractablePlacementPatches,
   moveInteractableToPlacementPatches,
   placeInteractablePatches,
+  reorderRoomPresentationPatches,
   removeInteractableOccurrencePatches,
   setRoomFallbackInteractablePlacementPatches,
   setRoomPlacementBoundsPatches,
@@ -754,6 +755,19 @@ const roomSetPlacementBoundsSchema = z.object({
   placementId: entityIdSchema,
   bounds: roomNormalizedRectSchema,
 });
+const roomPresentationOrderTargetSchema = z.discriminatedUnion('kind', [
+  z.object({ kind: z.literal('cast'), id: entityIdSchema }),
+  z.object({ kind: z.literal('prop'), id: entityIdSchema }),
+  z.object({ kind: z.literal('interactable'), id: entityIdSchema }),
+  z.object({ kind: z.literal('environment'), id: entityIdSchema }),
+  z.object({ kind: z.literal('overlay'), id: entityIdSchema }),
+  z.object({ kind: z.literal('placement-layout'), id: entityIdSchema }),
+]);
+const roomReorderPresentationSchema = z.object({
+  roomId: entityIdSchema,
+  target: roomPresentationOrderTargetSchema,
+  action: z.enum(['forward', 'backward', 'front', 'back']),
+});
 const roomPlaceInteractableSchema = z.object({
   roomId: entityIdSchema,
   interactableId: entityIdSchema,
@@ -1373,6 +1387,10 @@ export const roomSetPlacementBoundsCommand: CommandHandler = ({ document, payloa
   parseEntityCommand(roomSetPlacementBoundsSchema, payload, (parsed) =>
     setRoomPlacementBoundsPatches(document, parsed),
   );
+export const roomReorderPresentationCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomReorderPresentationSchema, payload, (parsed) =>
+    reorderRoomPresentationPatches(document, parsed),
+  );
 export const roomPlaceInteractableCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomPlaceInteractableSchema, payload, (parsed) =>
     placeInteractablePatches(document, parsed),
@@ -1742,6 +1760,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.setHotspotBounds': roomSetHotspotBoundsCommand,
     'room.reorderHotspots': roomReorderHotspotsCommand,
     'room.setPlacementBounds': roomSetPlacementBoundsCommand,
+    'room.reorderPresentation': roomReorderPresentationCommand,
     'room.placeInteractable': roomPlaceInteractableCommand,
     'room.addInteractableOccurrence': roomAddInteractableOccurrenceCommand,
     'room.removeInteractableOccurrence': roomRemoveInteractableOccurrenceCommand,
@@ -1856,6 +1875,8 @@ export function labelForCommand(type: string): string {
       return 'Update room';
     case 'room.setPlacementBounds':
       return 'Update room placement bounds';
+    case 'room.reorderPresentation':
+      return 'Reorder room presentation';
     case 'room.placeInteractable':
       return 'Place interactable';
     case 'room.addInteractableOccurrence':

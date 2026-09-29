@@ -31,7 +31,6 @@ function fixture() {
     {
       id: 'door',
       bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
-      order: 4,
       presentation: {
         label: { markup: 'plain', source: { kind: 'inline', text: 'Door' } },
         layout: null,
@@ -474,7 +473,7 @@ describe('graph-driven Room builder', () => {
       {
         id: 'door',
         bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
-        order: 4,
+        layoutOrder: null,
         label: { markup: 'plain', source: { kind: 'resolved', text: 'Door' } },
         layoutId: null,
       },
@@ -526,6 +525,32 @@ describe('graph-driven Room builder', () => {
       },
     });
     expect(mounted).not.toHaveProperty('sampleState');
+  });
+
+  it('mounts placement-attached Layouts with their explicit WorldOverlay order', async () => {
+    const project = fixture();
+    const layout = defaultLayoutData('Placement Layout', 'document');
+    layout.target = 'room-overlay';
+    project.layouts.placement = { id: 'placement', label: 'Placement Layout', data: layout };
+    const placement = project.rooms.bedroom!.data.placements[0]!;
+    placement.presentation = {
+      label: placement.presentation.label,
+      layout: { $ref: { collection: 'layouts', id: 'placement' } },
+      layoutOrder: 2048,
+    };
+
+    const result = await build(project);
+    expect(result.data.world.placements[0]).toMatchObject({
+      id: 'door',
+      layoutId: 'placement',
+      layoutOrder: 2048,
+    });
+    expect(
+      result.data.layouts.find((item) => item.instanceId === 'room-placement:door'),
+    ).toMatchObject({
+      layoutId: 'placement',
+      mount: { kind: 'room-placement', placementId: 'door', order: 2048 },
+    });
   });
 
   it('is independent of unrelated collection insertion order', async () => {

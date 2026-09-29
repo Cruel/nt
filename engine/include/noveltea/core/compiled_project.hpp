@@ -831,11 +831,11 @@ using InteractableHotspots =
 struct RoomPlacementPresentation {
     std::optional<TextContent> label;
     std::optional<LayoutId> layout;
+    std::optional<std::int32_t> layout_order;
 };
 struct RoomPlacement {
     RoomPlacementId id;
     NormalizedRect bounds;
-    std::int32_t order = 0;
     RoomPlacementPresentation presentation;
 };
 struct WorldPresentationRect {

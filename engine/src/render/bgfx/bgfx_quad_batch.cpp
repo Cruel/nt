@@ -190,6 +190,22 @@ void Renderer::draw_world_2d(const QuadBatch& batch, WorldCompositionPass pass, 
     }
 }
 
+void Renderer::draw_world_overlay_2d(const QuadBatch& batch, std::uint16_t view, float opacity)
+{
+    if (!m_initialized)
+        return;
+    float ortho[16]{};
+    ortho[0] = 2.0f / static_cast<float>(reference_width());
+    ortho[5] = -2.0f / static_cast<float>(reference_height());
+    ortho[10] = 1.0f;
+    ortho[12] = -1.0f;
+    ortho[13] = 1.0f;
+    ortho[15] = 1.0f;
+    bgfx::setViewTransform(view, nullptr, ortho);
+    for (const auto& command : batch.commands())
+        submit_quad(command, view, opacity);
+}
+
 bool Renderer::prepare_ordinary_world_surface()
 {
     if (!m_initialized)

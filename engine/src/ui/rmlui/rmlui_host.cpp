@@ -454,6 +454,7 @@ Rml::Context* RmlUiHost::context_for(ContextKey key, bool run_initializer)
                           {},
                           {},
                           1.0,
+                          std::nullopt,
                           m_next_cursor_source_id++});
     sort_contexts();
     return created;
@@ -674,6 +675,16 @@ void RmlUiHost::set_context_material_parameters(
     found->material_parameters = std::move(parameters);
     found->material_textures = std::move(textures);
     found->material_camera_zoom = camera_zoom;
+}
+
+void RmlUiHost::set_context_presentation_order(Rml::Context* context,
+                                               std::optional<std::int32_t> order) noexcept
+{
+    const auto found = std::find_if(m_contexts.begin(), m_contexts.end(),
+                                    [&](const auto& value) { return value.context == context; });
+    if (found == m_contexts.end())
+        return;
+    found->presentation_order = order;
 }
 
 const PresentationMetrics& RmlUiHost::presentation() const noexcept { return m_presentation; }

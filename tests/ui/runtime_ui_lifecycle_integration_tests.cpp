@@ -1605,6 +1605,58 @@ TEST_CASE("RmlUi debugger uses a fixed-scale debug host and routes input without
 }
 #endif
 
+TEST_CASE("RmlUiHost interleaves ordered WorldOverlay contexts with external draws")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize_scripts_only());
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+        {.reference = {.size = {1920, 1080}}});
+    REQUIRE(presentation);
+
+    noveltea::ui::rmlui::RmlUiHost host;
+    REQUIRE(host.initialize({.assets = &fixture.assets(),
+                             .lua_state = fixture.lua_state(),
+                             .presentation = presentation.value(),
+                             .headless_render = true}));
+
+    noveltea::ui::rmlui::RmlUiHost::ContextKey lower{
+        .plane = noveltea::core::PresentationPlane::WorldOverlay,
+        .composition_group = 1,
+        .compatibility_group = 1,
+    };
+    auto upper = lower;
+    upper.compatibility_group = 2;
+    auto* lower_context = host.context_for(lower);
+    auto* upper_context = host.context_for(upper);
+    REQUIRE(lower_context);
+    REQUIRE(upper_context);
+    host.set_context_presentation_order(lower_context, 10);
+    host.set_context_presentation_order(upper_context, 30);
+
+    std::vector<std::string> sequence;
+    host.set_context_render_observer([&](const auto& key, const auto&) {
+        if (key.plane != noveltea::core::PresentationPlane::WorldOverlay)
+            return;
+        if (key.compatibility_group == lower.compatibility_group)
+            sequence.emplace_back("layout-10");
+        else if (key.compatibility_group == upper.compatibility_group)
+            sequence.emplace_back("layout-30");
+    });
+
+    const std::vector<std::int32_t> external_orders{5, 20, 40};
+    host.begin_frame({});
+    REQUIRE(host.render_world_overlay_target(
+        external_orders, [&](std::size_t index, std::uint16_t view) {
+            CHECK(view == 0);
+            sequence.push_back("external-" + std::to_string(external_orders[index]));
+        }));
+
+    CHECK(sequence == std::vector<std::string>{"external-5", "layout-10", "external-20",
+                                               "layout-30", "external-40"});
+    host.shutdown();
+}
+
 TEST_CASE("RmlUiHost fails primary context creation when required context initialization fails")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});

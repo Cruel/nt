@@ -18,13 +18,11 @@ function projectWithRoom() {
     {
       id: 'door',
       bounds: { x: 0, y: 0, width: 0.2, height: 0.3 },
-      order: 0,
       presentation: { label: inlineTextContent('Door', 'plain'), layout: null },
     },
     {
       id: 'window',
       bounds: { x: 0.5, y: 0, width: 0.2, height: 0.3 },
-      order: 1,
       presentation: { label: inlineTextContent('Window', 'plain'), layout: null },
     },
   ];

@@ -1406,6 +1406,20 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.type"));
     }
 
+    SECTION("Room presentation order is unique within a Presentation Plane")
+    {
+        auto document = fixture("comprehensive");
+        auto* placement =
+            path_member(document, {"definitions", "rooms", "0", "placements", "0", "presentation"});
+        REQUIRE(placement != nullptr);
+        (*placement)["layout"] = {{"kind", "layout"}, {"id", "hud-inline"}};
+        (*placement)["layoutOrder"] = 0;
+        auto result =
+            noveltea::core::decode_compiled_project(document, "room-presentation-order.json");
+        REQUIRE_FALSE(result);
+        CHECK(has_code(result.error(), "compiled_project.duplicate_room_presentation_order"));
+    }
+
     SECTION("hotspot rectangles cannot cross normalized image bounds")
     {
         auto document = fixture("interaction-program");

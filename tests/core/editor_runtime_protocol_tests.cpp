@@ -247,6 +247,28 @@ TEST_CASE("focused Room decoder carries mounted Layout contracts with runtime de
     CHECK(layout.preview_inputs.front().input.text() == "title");
     CHECK(std::get<std::string>(layout.preview_inputs.front().value) == "Status");
 
+    auto placement_document = document;
+    placement_document["world"]["overlays"] = nlohmann::json::array();
+    placement_document["world"]["placements"] = nlohmann::json::array(
+        {{{"id", "desk"},
+          {"bounds", {{"x", 0.1}, {"y", 0.2}, {"width", 0.3}, {"height", 0.4}}},
+          {"layoutOrder", 7},
+          {"label", nullptr},
+          {"layoutId", "status-layout"}}});
+    placement_document["layouts"][0]["instanceId"] = "room-placement:desk";
+    placement_document["layouts"][0]["mount"] = {
+        {"kind", "room-placement"}, {"placementId", "desk"}, {"order", 7}};
+    auto placement_result = decode_editor_room_preview_document_text(placement_document.dump());
+    REQUIRE(placement_result);
+    REQUIRE(placement_result.value().world.placements.size() == 1);
+    CHECK(placement_result.value().world.placements.front().layout_order == 7);
+    REQUIRE(placement_result.value().layouts.size() == 1);
+    CHECK(placement_result.value().layouts.front().mount_kind ==
+          TypedFocusedRoomLayoutDefinition::MountKind::RoomPlacement);
+    REQUIRE(placement_result.value().layouts.front().placement_id);
+    CHECK(*placement_result.value().layouts.front().placement_id == "desk");
+    CHECK(placement_result.value().layouts.front().order == 7);
+
     auto obsolete_lua = document;
     obsolete_lua["layouts"][0]["source"]["lua"] = {
         {"kind", "asset"}, {"logicalPath", "project:/scripts/ui/status.lua"}};

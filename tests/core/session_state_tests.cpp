@@ -990,6 +990,16 @@ TEST_CASE("Room entry overlays receive stable Mount occurrence identity")
     REQUIRE(overlay != state.mounted_layouts().end());
     REQUIRE(overlay->occurrence);
     const auto occurrence = *overlay->occurrence;
+    const auto placement_layout = std::find_if(
+        state.mounted_layouts().begin(), state.mounted_layouts().end(), [&](const auto& layout) {
+            const auto* key = std::get_if<RoomPlacementLayoutMountKey>(&layout.key);
+            return key && key->room == start &&
+                   key->placement == id<RoomPlacementId>("key-placement");
+        });
+    REQUIRE(placement_layout != state.mounted_layouts().end());
+    CHECK(placement_layout->layout == id<LayoutId>("hud-inline"));
+    CHECK(placement_layout->policy.plane == PresentationPlane::WorldOverlay);
+    CHECK(placement_layout->policy.local_order == 1024);
 
     REQUIRE(state.commit_room_entry(compiled_project, start, std::nullopt));
     const auto retained = std::find_if(

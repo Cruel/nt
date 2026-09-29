@@ -594,7 +594,7 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
             RoomPresentationOwner{room.visit.room},
             material_application_textures(
                 project, interactable_material_application(definition->presentation)),
-            PresentationPlane::WorldContent, placement_definition->order, interactable.enabled,
+            PresentationPlane::WorldContent, interactable.order, interactable.enabled,
             interactable.visible});
     }
 
@@ -694,7 +694,7 @@ build_room_visual_catalog_impl(const CompiledProject* project, const runtime::Ru
     const auto* room = world.resolved_configuration(resolution.presentation.visit.room);
     if (room != nullptr) {
         for (const auto& placement : room->placements)
-            catalog.placements.push_back({placement.id, placement.bounds, placement.order});
+            catalog.placements.push_back({placement.id, placement.bounds});
     }
     for (const auto& actor : resolution.presentation.actors) {
         const auto* character = world.resolved_configuration(actor.character);
@@ -789,7 +789,7 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
                                      RoomPresentationOwner{passive.presentation.visit.room},
                                      {},
                                      PresentationPlane::WorldContent,
-                                     bounds->order,
+                                     interactable.order,
                                      interactable.enabled,
                                      interactable.visible});
     }
@@ -1021,7 +1021,7 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             RoomPresentationOwner{resolution.presentation.visit.room},
             material_application_textures(project, visual->material_application),
             PresentationPlane::WorldContent,
-            bounds->order,
+            interactable.order,
             interactable.enabled,
             interactable.visible});
     }

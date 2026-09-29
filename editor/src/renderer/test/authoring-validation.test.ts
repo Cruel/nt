@@ -19,6 +19,47 @@ import {
 } from '../../shared/project-schema/authoring-validation';
 
 describe('authoring validation', () => {
+  it('rejects duplicate authored Room presentation orders across WorldContent families', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'desk',
+        condition: { kind: 'always' },
+        placementId: 'stage',
+        asset: { $ref: { collection: 'assets', id: 'desk' } },
+        materialApplication: null,
+        visible: true,
+        order: 7,
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'stage',
+        visible: true,
+        order: 7,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        code: 'room.presentation-order-duplicate',
+        path: '/rooms/foyer/data/interactables/0/order',
+      }),
+    );
+  });
+
   it('diagnoses dangling supplemental prefetch hint references without requiring any hints', () => {
     const empty = createAuthoringProject();
     expect(
