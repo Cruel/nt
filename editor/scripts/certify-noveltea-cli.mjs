@@ -462,7 +462,10 @@ public static class NovelTeaConsoleProcess {
     ['-NoProfile', '-NonInteractive', '-Command', powerShellCommand],
     { cwd: repositoryRoot, env: options.env, windowsHide: true },
   );
-  const deadline = Date.now() + 5000;
+  // PowerShell must compile the CreateProcess interop type before it can publish the child PID.
+  // Hosted Windows runners can occasionally spend more than five seconds in Add-Type even though
+  // process creation succeeds, so keep startup bounded without racing that one-time compilation.
+  const deadline = Date.now() + 15000;
   while (Date.now() < deadline) {
     try {
       const pid = Number.parseInt((await readFile(pidPath, 'utf8')).trim(), 10);
