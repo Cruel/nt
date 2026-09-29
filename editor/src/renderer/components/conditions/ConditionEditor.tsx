@@ -43,19 +43,6 @@ export interface ConditionEditorProps {
   compact?: boolean;
 }
 
-const conditionKindLabels: Record<Condition['kind'], string> = {
-  always: 'Always',
-  all: 'All',
-  any: 'Any',
-  not: 'Not',
-  'variable-comparison': 'Variable / Global Property',
-  'property-comparison': 'Identity Property',
-  'trait-presence': 'Trait presence',
-  'location-comparison': 'Location',
-  'inventory-quantity-comparison': 'Inventory quantity',
-  'lua-predicate': 'Lua predicate',
-};
-
 const comparisonOperators = [
   'equal',
   'not-equal',
@@ -970,13 +957,25 @@ export function RecursiveConditionEditor({
   return (
     <div className={`space-y-2 rounded border ${padding}`}>
       <Select
+        items={[
+          { value: 'always', label: 'Always' },
+          { value: 'all', label: 'All' },
+          { value: 'any', label: 'Any' },
+          { value: 'not', label: 'Not' },
+          { value: 'variable-comparison', label: 'Variable / Global Property' },
+          { value: 'property-comparison', label: 'Identity Property' },
+          { value: 'trait-presence', label: 'Trait presence' },
+          { value: 'location-comparison', label: 'Location' },
+          { value: 'inventory-quantity-comparison', label: 'Inventory quantity' },
+          { value: 'lua-predicate', label: 'Lua predicate' },
+        ]}
         value={value.kind}
         onValueChange={(kind) =>
           onChange(defaultCondition(kind as Condition['kind'], project, scope))
         }
       >
         <SelectTrigger className="w-full">
-          <SelectValue>{conditionKindLabels[value.kind]}</SelectValue>
+          <SelectValue />
         </SelectTrigger>
         <SelectContent>
           <SelectItem value="always">Always</SelectItem>

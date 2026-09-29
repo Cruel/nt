@@ -2,6 +2,12 @@ import { useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -421,6 +427,18 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
             <div className="space-y-1">
               <Label>{t('materialEditor.base')}</Label>
               <Select
+                items={[
+                  ...materialPresetIdValues.map((presetId) => ({
+                    value: `preset:${presetId}`,
+                    label: `${materialPresets[presetId].label} (${t('materialEditor.presetSuffix')})`,
+                  })),
+                  ...Object.entries(project.materials)
+                    .filter(([id]) => materialCanInheritFrom(project, materialId, id))
+                    .map(([id, materialRecord]) => ({
+                      value: `material:${id}`,
+                      label: `${materialRecord.label} (${id})`,
+                    })),
+                ]}
                 value={baseValue}
                 onValueChange={(value) => {
                   const raw = String(value);
@@ -444,14 +462,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                 }}
               >
                 <SelectTrigger size="sm" className="w-full min-w-0">
-                  <SelectValue>
-                    {data.base.kind === 'preset'
-                      ? `${materialPresets[data.base.preset].label} (${t('materialEditor.presetSuffix')})`
-                      : `${
-                          project.materials[data.base.material.$ref.id]?.label ??
-                          data.base.material.$ref.id
-                        } (${data.base.material.$ref.id})`}
-                  </SelectValue>
+                  <SelectValue />
                 </SelectTrigger>
                 <SelectContent align="start">
                   {materialPresetIdValues.map((presetId) => (
@@ -593,6 +604,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       {slot.semantic} · {t('materialEditor.runtimeSupplied')}
                     </div>
                     <Select
+                      items={slot.addressPolicy.map((address) => ({
+                        value: address,
+                        label: address,
+                      }))}
                       value={current?.address ?? slot.addressPolicy[0] ?? 'clamp'}
                       disabled={!canEditAddress}
                       onValueChange={(address) =>
@@ -614,6 +629,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       </SelectContent>
                     </Select>
                     <Select
+                      items={slot.filterPolicy.map((filter) => ({ value: filter, label: filter }))}
                       value={current?.filter ?? slot.filterPolicy[0] ?? 'linear'}
                       disabled={!canEditFilter}
                       onValueChange={(filter) =>
@@ -710,6 +726,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       </div>
                     ) : declaration.type === 'bool' ? (
                       <Select
+                        items={[
+                          { value: 'false', label: 'false' },
+                          { value: 'true', label: 'true' },
+                        ]}
                         value={currentValue === true ? 'true' : 'false'}
                         onValueChange={(value) =>
                           setParameter(name, { ...local, value: value === 'true' })
@@ -769,17 +789,11 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   <span className="self-center">
                     {t('materialEditor.orphanedParameter', { name })}
                   </span>
-                  <Select
-                    value="__orphan__"
-                    onValueChange={(value) => rebindParameter(name, String(value))}
-                  >
-                    <SelectTrigger size="sm" className="w-full min-w-0">
-                      <SelectValue>{t('materialEditor.rebind')}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      <SelectItem value="__orphan__" disabled>
-                        {t('materialEditor.rebind')}
-                      </SelectItem>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="inline-flex h-6 w-full min-w-0 items-center rounded-md border border-input bg-input/20 px-2 text-xs hover:bg-accent hover:text-accent-foreground">
+                      {t('materialEditor.rebind')}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
                       {Object.entries(parameterDeclarations)
                         .filter(([, declaration]) => {
                           const source = data.parameters[name];
@@ -792,12 +806,15 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           );
                         })
                         .map(([candidate]) => (
-                          <SelectItem key={candidate} value={candidate}>
+                          <DropdownMenuItem
+                            key={candidate}
+                            onClick={() => rebindParameter(name, candidate)}
+                          >
                             {candidate}
-                          </SelectItem>
+                          </DropdownMenuItem>
                         ))}
-                    </SelectContent>
-                  </Select>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button
                     size="sm"
                     variant="outline"
@@ -831,7 +848,7 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   declaration.binding != null || rendererOwnedSamplerNames.has(name);
                 const provenance = effective?.provenance[`textures.${name}`];
                 const refId =
-                  current?.source && '$ref' in current.source ? current.source.$ref.id : '__none__';
+                  current?.source && '$ref' in current.source ? current.source.$ref.id : null;
                 return (
                   <div
                     key={name}
@@ -855,9 +872,14 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       </div>
                     ) : (
                       <Select
+                        items={imageAssets.map((asset) => ({
+                          value: asset.id,
+                          label: `${asset.label} (${asset.id})`,
+                        }))}
+                        placeholderItem={t('materialEditor.noTexture')}
                         value={refId}
                         onValueChange={(value) => {
-                          if (value === '__none__') {
+                          if (value === null) {
                             const next = { ...local };
                             delete next.source;
                             if (Object.keys(next).length === 0) clearTexture(name);
@@ -866,24 +888,14 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           }
                           setTexture(name, {
                             ...local,
-                            source: { $ref: { collection: 'assets', id: String(value) } },
+                            source: { $ref: { collection: 'assets', id: value } },
                           });
                         }}
                       >
                         <SelectTrigger size="sm" className="w-full min-w-0">
-                          <SelectValue>
-                            {refId === '__none__'
-                              ? t('materialEditor.noTexture')
-                              : (() => {
-                                  const asset = imageAssets.find(
-                                    (candidate) => candidate.id === refId,
-                                  );
-                                  return asset ? `${asset.label} (${asset.id})` : refId;
-                                })()}
-                          </SelectValue>
+                          <SelectValue />
                         </SelectTrigger>
                         <SelectContent align="start" className="max-w-[28rem]">
-                          <SelectItem value="__none__">{t('materialEditor.noTexture')}</SelectItem>
                           {imageAssets.map((asset) => (
                             <SelectItem key={asset.id} value={asset.id}>
                               <span className="block max-w-[24rem] truncate">
@@ -895,6 +907,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       </Select>
                     )}
                     <Select
+                      items={materialTextureAddressValues.map((address) => ({
+                        value: address,
+                        label: address,
+                      }))}
                       value={current?.address ?? 'clamp'}
                       disabled={rendererBound}
                       onValueChange={(address) =>
@@ -916,6 +932,10 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                       </SelectContent>
                     </Select>
                     <Select
+                      items={materialTextureFilterValues.map((filter) => ({
+                        value: filter,
+                        label: filter,
+                      }))}
                       value={current?.filter ?? 'linear'}
                       disabled={rendererBound}
                       onValueChange={(filter) =>
@@ -967,17 +987,11 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                   <span className="self-center">
                     {t('materialEditor.orphanedTexture', { name })}
                   </span>
-                  <Select
-                    value="__orphan__"
-                    onValueChange={(value) => rebindTexture(name, String(value))}
-                  >
-                    <SelectTrigger size="sm" className="w-full min-w-0">
-                      <SelectValue>{t('materialEditor.rebind')}</SelectValue>
-                    </SelectTrigger>
-                    <SelectContent align="start">
-                      <SelectItem value="__orphan__" disabled>
-                        {t('materialEditor.rebind')}
-                      </SelectItem>
+                  <DropdownMenu>
+                    <DropdownMenuTrigger className="inline-flex h-6 w-full min-w-0 items-center rounded-md border border-input bg-input/20 px-2 text-xs hover:bg-accent hover:text-accent-foreground">
+                      {t('materialEditor.rebind')}
+                    </DropdownMenuTrigger>
+                    <DropdownMenuContent align="start">
                       {Object.entries(textureDeclarations)
                         .filter(([, declaration]) => {
                           const source = data.textures[name];
@@ -988,12 +1002,15 @@ export function MaterialEditor({ tab }: WorkbenchEditorProps) {
                           );
                         })
                         .map(([candidate]) => (
-                          <SelectItem key={candidate} value={candidate}>
+                          <DropdownMenuItem
+                            key={candidate}
+                            onClick={() => rebindTexture(name, candidate)}
+                          >
                             {candidate}
-                          </SelectItem>
+                          </DropdownMenuItem>
                         ))}
-                    </SelectContent>
-                  </Select>
+                    </DropdownMenuContent>
+                  </DropdownMenu>
                   <Button
                     size="sm"
                     variant="outline"

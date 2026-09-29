@@ -20,6 +20,7 @@ export const FormatSwitcher = React.forwardRef<HTMLButtonElement, FormatSwitcher
     return (
       <FieldSelect
         ref={ref}
+        items={formats.map((format) => ({ value: format, label: format }))}
         aria-label="Color format"
         value={format}
         onValueChange={(v) => setFormat(v as ColorFormat)}

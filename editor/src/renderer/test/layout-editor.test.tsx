@@ -172,10 +172,10 @@ describe('LayoutEditor', () => {
     render(<LayoutEditor tab={tab} />);
 
     const uiScaleField = screen.getByText('UI scale').parentElement!;
-    expect(within(uiScaleField).getByRole('option', { selected: true })).toHaveTextContent(
-      'ignore',
-    );
-    await user.click(within(uiScaleField).getByRole('option', { name: 'inherit' }));
+    const uiScaleSelect = within(uiScaleField).getByRole('combobox');
+    expect(uiScaleSelect).toHaveTextContent('ignore');
+    await user.click(uiScaleSelect);
+    await user.click(await screen.findByRole('option', { name: 'inherit' }));
 
     expect(useProjectStore.getState().document).toMatchObject({
       layouts: { main: { data: { scalePolicy: { ui: 'inherit', text: 'inherit' } } } },

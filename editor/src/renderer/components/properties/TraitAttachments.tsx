@@ -92,21 +92,19 @@ export function TraitAttachments({
       })}
       {available.length > 0 ? (
         <div className="flex items-center gap-1.5">
-          <Select value={selectedId} onValueChange={(value) => onSelectedIdChange(value ?? '')}>
+          <Select
+            items={available.map((trait) => ({ value: trait.id, label: trait.label }))}
+            placeholderItem={t('propertyManager.traits.choose')}
+            value={selectedId || null}
+            onValueChange={(value) => onSelectedIdChange(value ?? '')}
+          >
             <SelectTrigger
               className={compact ? '!h-7 min-w-40' : '!h-8 min-w-48'}
               aria-label={t('propertyManager.traits.selectLabel')}
             >
-              <SelectValue placeholder={t('propertyManager.traits.choose')}>
-                {(value) =>
-                  value
-                    ? (available.find((trait) => trait.id === value)?.label ?? String(value))
-                    : t('propertyManager.traits.choose')
-                }
-              </SelectValue>
+              <SelectValue />
             </SelectTrigger>
-            <SelectContent alignItemWithTrigger>
-              <SelectItem value="">{t('propertyManager.traits.choose')}</SelectItem>
+            <SelectContent>
               {available.map((trait) => (
                 <SelectItem key={trait.id} value={trait.id}>
                   {trait.label}

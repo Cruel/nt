@@ -30,6 +30,7 @@ export const RadialSizeSelect = React.forwardRef<HTMLButtonElement, RadialSizeSe
     return (
       <TooltipProvider delay={150}>
         <Select
+          items={SIZE_OPTIONS.map((option) => ({ value: option.value, label: option.value }))}
           value={ctx.gradient.size}
           onValueChange={(v) => ctx.setRadialSize(v as RadialSizeKeyword)}
         >

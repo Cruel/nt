@@ -4,7 +4,103 @@ import { Select as SelectPrimitive } from '@base-ui/react/select';
 import { cn } from '@/lib/utils';
 import { ChevronDownIcon, CheckIcon, ChevronUpIcon } from 'lucide-react';
 
-const Select = SelectPrimitive.Root;
+export interface SelectOption<Value> {
+  value: Value;
+  label: React.ReactNode;
+}
+
+interface NovelTeaSelectContextValue {
+  placeholderItem?: React.ReactNode;
+}
+
+const NovelTeaSelectContext = React.createContext<NovelTeaSelectContextValue>({});
+
+type SelectProps<Value, Multiple extends boolean | undefined = false> = Omit<
+  SelectPrimitive.Root.Props<Value, Multiple>,
+  'items'
+> & {
+  items?: readonly SelectOption<Value>[];
+  /**
+   * Optional clear/unset entry rendered first in the popup. Its value is `null`, and the same
+   * content is used as the trigger placeholder while no value is selected.
+   */
+  placeholderItem?: React.ReactNode;
+};
+
+function collectSelectOptions(children: React.ReactNode): SelectOption<unknown>[] {
+  const options: SelectOption<unknown>[] = [];
+  const visit = (nodes: React.ReactNode) => {
+    React.Children.forEach(nodes, (child) => {
+      if (!React.isValidElement(child)) return;
+      if (child.type === SelectItem) {
+        const props = child.props as SelectPrimitive.Item.Props;
+        options.push({ value: props.value, label: props.children });
+        return;
+      }
+      const props = child.props as { children?: React.ReactNode };
+      if (props.children !== undefined) visit(props.children);
+    });
+  };
+  visit(children);
+  return options;
+}
+
+function containsSelectTrigger(children: React.ReactNode): boolean {
+  let found = false;
+  const visit = (nodes: React.ReactNode) => {
+    React.Children.forEach(nodes, (child) => {
+      if (found || !React.isValidElement(child)) return;
+      if (child.type === SelectTrigger) {
+        found = true;
+        return;
+      }
+      const props = child.props as { children?: React.ReactNode };
+      if (props.children !== undefined) visit(props.children);
+    });
+  };
+  visit(children);
+  return found;
+}
+
+function Select<Value, Multiple extends boolean | undefined = false>({
+  items,
+  placeholderItem,
+  children,
+  ...props
+}: SelectProps<Value, Multiple>) {
+  const composed = containsSelectTrigger(children);
+  const inferredItems = React.useMemo(
+    () => (items ?? collectSelectOptions(children)) as readonly SelectOption<Value>[],
+    [children, items],
+  );
+  const resolvedItems = React.useMemo(
+    () =>
+      placeholderItem === undefined
+        ? inferredItems
+        : ([
+            { value: null, label: placeholderItem },
+            ...inferredItems,
+          ] as readonly SelectOption<Value>[]),
+    [inferredItems, placeholderItem],
+  );
+
+  return (
+    <NovelTeaSelectContext.Provider value={{ placeholderItem }}>
+      <SelectPrimitive.Root items={resolvedItems} {...props}>
+        {composed ? (
+          children
+        ) : (
+          <>
+            <SelectTrigger>
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>{children}</SelectContent>
+          </>
+        )}
+      </SelectPrimitive.Root>
+    </NovelTeaSelectContext.Provider>
+  );
+}
 
 function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   return (
@@ -16,11 +112,13 @@ function SelectGroup({ className, ...props }: SelectPrimitive.Group.Props) {
   );
 }
 
-function SelectValue({ className, ...props }: SelectPrimitive.Value.Props) {
+function SelectValue({ className, placeholder, ...props }: SelectPrimitive.Value.Props) {
+  const { placeholderItem } = React.useContext(NovelTeaSelectContext);
   return (
     <SelectPrimitive.Value
       data-slot="select-value"
       className={cn('flex flex-1 text-left', className)}
+      placeholder={placeholder ?? placeholderItem}
       {...props}
     />
   );
@@ -66,6 +164,7 @@ function SelectContent({
     SelectPrimitive.Positioner.Props,
     'align' | 'alignOffset' | 'side' | 'sideOffset' | 'alignItemWithTrigger'
   >) {
+  const { placeholderItem } = React.useContext(NovelTeaSelectContext);
   return (
     <SelectPrimitive.Portal>
       <SelectPrimitive.Positioner
@@ -86,7 +185,12 @@ function SelectContent({
           {...props}
         >
           <SelectScrollUpButton />
-          <SelectPrimitive.List>{children}</SelectPrimitive.List>
+          <SelectPrimitive.List>
+            {placeholderItem !== undefined ? (
+              <SelectItem value={null}>{placeholderItem}</SelectItem>
+            ) : null}
+            {children}
+          </SelectPrimitive.List>
           <SelectScrollDownButton />
         </SelectPrimitive.Popup>
       </SelectPrimitive.Positioner>

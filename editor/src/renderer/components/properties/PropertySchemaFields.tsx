@@ -91,6 +91,10 @@ export function PropertySchemaFields({
         <div className="space-y-1.5">
           <Label>{t('propertyManager.fields.type')}</Label>
           <Select
+            items={propertyValueTypeValues.map((type) => ({
+              value: type,
+              label: t(`propertyManager.types.${type}`),
+            }))}
             value={draft.type}
             disabled={readOnly}
             onValueChange={(value) => value && changeType(value as VariableType)}

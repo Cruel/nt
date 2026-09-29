@@ -213,9 +213,19 @@ export default defineConfig({
         input: editorCheckInputs,
         output: [],
       },
+      'check:select-contract': {
+        command: 'node scripts/check-select-contract.mjs',
+        cache: true,
+        input: [
+          'src/renderer/**/*.ts',
+          'src/renderer/**/*.tsx',
+          'scripts/check-select-contract.mjs',
+        ],
+        output: [],
+      },
       'check:types': {
         command: 'tsc --noEmit',
-        dependsOn: ['check:tooling'],
+        dependsOn: ['check:tooling', 'check:select-contract'],
         cache: true,
         input: editorCheckInputs,
         output: [],

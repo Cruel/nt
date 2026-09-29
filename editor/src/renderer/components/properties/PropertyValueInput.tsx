@@ -102,6 +102,7 @@ export function PropertyValueInput({
           </div>
         ) : schema.type === 'enum' ? (
           <Select
+            items={enumValues.map((value) => ({ value, label: value }))}
             value={valueText}
             onValueChange={(value) => value && onValueTextChange(value)}
             disabled={disabled}
@@ -120,7 +121,8 @@ export function PropertyValueInput({
         ) : schema.type === 'message' ? (
           <div className="space-y-1">
             <Select
-              value={messageReferenceBroken ? undefined : valueText}
+              items={namedMessages.map((key) => ({ value: key, label: key }))}
+              value={messageReferenceBroken ? null : valueText || null}
               onValueChange={(value) => value && onValueTextChange(value)}
               disabled={disabled || namedMessages.length === 0}
             >

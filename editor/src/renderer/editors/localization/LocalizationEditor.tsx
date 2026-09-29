@@ -919,7 +919,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 {t('localizationMessageReuse.mergeIntoNamed')}
               </Label>
               <Select
-                value={mergeDraft.targetMessageId}
+                items={availableTargets.map(([targetId, targetMessage]) => ({
+                  value: targetId,
+                  label: targetMessage.key,
+                }))}
+                value={mergeDraft.targetMessageId || null}
                 onValueChange={(value) => {
                   if (!value) return;
                   setMergeError(null);
@@ -970,7 +974,17 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                       })}
                     </div>
                     <Select
-                      value={mergeDraft.resolutions[locale] ?? ''}
+                      items={[
+                        {
+                          value: 'target',
+                          label: t('localizationMessageReuse.keepNamedTranslation'),
+                        },
+                        {
+                          value: 'source',
+                          label: t('localizationMessageReuse.useLocalTranslation'),
+                        },
+                      ]}
+                      value={mergeDraft.resolutions[locale] ?? null}
                       onValueChange={(value) => {
                         if (!value) return;
                         setMergeDraft((current) =>
@@ -1109,20 +1123,30 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               </div>
               <div className="mt-2 max-w-sm">
                 <Select
-                  value={project.editor.previewLocale ?? '__project_default__'}
-                  onValueChange={(value) =>
-                    setPreviewLocale(value === '__project_default__' ? null : value)
-                  }
+                  items={[
+                    {
+                      value: PSEUDO_PREVIEW_LOCALE,
+                      label: t('localizationPreviewLocale.pseudoOption'),
+                    },
+                    ...previewLocales.map((locale) => ({
+                      value: locale,
+                      label: `${displayLocale(locale)} (${locale})${
+                        localization.locales[locale]?.supported
+                          ? ''
+                          : t('localizationEditor.overview.localeWorkInProgress')
+                      }`,
+                    })),
+                  ]}
+                  placeholderItem={t('localizationEditor.overview.projectDefault', {
+                    locale: localization.defaultLocale,
+                  })}
+                  value={project.editor.previewLocale}
+                  onValueChange={setPreviewLocale}
                 >
                   <SelectTrigger aria-label={t('localizationEditor.labels.previewLocale')}>
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__project_default__">
-                      {t('localizationEditor.overview.projectDefault', {
-                        locale: localization.defaultLocale,
-                      })}
-                    </SelectItem>
                     <SelectItem value={PSEUDO_PREVIEW_LOCALE}>
                       {t('localizationPreviewLocale.pseudoOption')}
                     </SelectItem>
@@ -1164,7 +1188,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                 {t('localizationEditor.labels.targetLocale')}
               </Label>
               <Select
-                value={effectiveTargetLocale}
+                items={targetLocales.map((locale) => ({
+                  value: locale,
+                  label: `${locale} · ${displayLocale(locale)}`,
+                }))}
+                value={effectiveTargetLocale || null}
                 onValueChange={(value) => {
                   if (value) setTargetLocale(value);
                 }}
@@ -1224,7 +1252,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         ? t('localizationEditor.status.localizedOutdated')
                         : t('localizationEditor.status.localized');
                   const selectValue = !localTarget
-                    ? '__missing__'
+                    ? null
                     : 'useSource' in localTarget
                       ? '__source__'
                       : localTarget.asset.$ref.id;
@@ -1321,10 +1349,20 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           </div>
                         ) : (
                           <Select
+                            items={[
+                              {
+                                value: '__source__',
+                                label: t('localizationEditor.status.useSource'),
+                              },
+                              ...compatibleVariants.map((candidate) => ({
+                                value: candidate.id,
+                                label: `${candidate.record.label} · ${candidate.data.source.path}`,
+                              })),
+                            ]}
+                            placeholderItem={t('localizationEditor.status.missing')}
                             value={selectValue}
                             onValueChange={(value) => {
-                              if (!value) return;
-                              if (value === '__missing__') {
+                              if (value === null) {
                                 setLocalizedAssetTarget(effectiveTargetLocale, baseAssetId, null);
                                 return;
                               }
@@ -1356,9 +1394,6 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                               <SelectValue />
                             </SelectTrigger>
                             <SelectContent>
-                              <SelectItem value="__missing__">
-                                {t('localizationEditor.status.missing')}
-                              </SelectItem>
                               <SelectItem value="__source__">
                                 {t('localizationEditor.status.useSource')}
                               </SelectItem>
@@ -1466,9 +1501,24 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         </div>
                       </div>
                       <Select
+                        items={[
+                          {
+                            value: '__new__',
+                            label: t('localizationReconciliation.createNew'),
+                          },
+                          ...group.previousOccurrences.map((previous) => ({
+                            value: previous.messageId,
+                            label: t(
+                              previous.valuable
+                                ? 'localizationReconciliation.relinkPreservesWork'
+                                : 'localizationReconciliation.relink',
+                              { source: previous.sourceSnapshot || previous.messageId },
+                            ),
+                          })),
+                        ]}
                         value={
                           reconciliationDecisions[occurrence.id] ??
-                          (group.requiresDecision ? undefined : '__new__')
+                          (group.requiresDecision ? null : '__new__')
                         }
                         onValueChange={(value) => {
                           if (!value) return;
@@ -1523,6 +1573,7 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               <div className="space-y-2">
                 <Label htmlFor="source-locale">{t('localizationEditor.labels.sourceLocale')}</Label>
                 <Select
+                  items={localeEntries.map(([locale]) => ({ value: locale, label: locale }))}
                   value={localization.sourceLocale}
                   onValueChange={(value) => {
                     if (value) setSourceLocale(value);
@@ -1558,6 +1609,9 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                   {t('localizationEditor.labels.defaultLocale')}
                 </Label>
                 <Select
+                  items={localeEntries
+                    .filter(([, definition]) => definition.supported)
+                    .map(([locale]) => ({ value: locale, label: locale }))}
                   value={localization.defaultLocale}
                   onValueChange={(value) => {
                     if (value) setDefaultLocale(value);
@@ -1639,10 +1693,12 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                         <span className="text-sm">{t('localizationEditor.labels.supported')}</span>
                       </div>
                       <Select
-                        value={definition.parentLocale ?? '__none__'}
-                        onValueChange={(value) =>
-                          setParentLocale(locale, value === '__none__' ? null : value)
-                        }
+                        items={localeEntries
+                          .filter(([candidate]) => candidate !== locale)
+                          .map(([candidate]) => ({ value: candidate, label: candidate }))}
+                        placeholderItem={t('localizationEditor.languages.noParent')}
+                        value={definition.parentLocale}
+                        onValueChange={(value) => setParentLocale(locale, value)}
                       >
                         <SelectTrigger
                           aria-label={t('localizationEditor.languages.parentAria', { locale })}
@@ -1650,9 +1706,6 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                           <SelectValue placeholder={t('localizationEditor.languages.noParent')} />
                         </SelectTrigger>
                         <SelectContent>
-                          <SelectItem value="__none__">
-                            {t('localizationEditor.languages.noParent')}
-                          </SelectItem>
                           {localeEntries
                             .filter(([candidate]) => candidate !== locale)
                             .map(([candidate]) => (
@@ -1960,6 +2013,10 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                                   {t('localizationMessageReuse.usageToMakeLocal')}
                                 </Label>
                                 <Select
+                                  items={localizableUsages.map((usage) => ({
+                                    value: usage.id,
+                                    label: usage.path,
+                                  }))}
                                   value={demotionDraft.usageId}
                                   onValueChange={(value) => {
                                     if (!value) return;
@@ -2099,7 +2156,11 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
               <div className="min-w-56 max-w-sm flex-1 space-y-1">
                 <Label htmlFor="target-locale">{t('localizationEditor.labels.targetLocale')}</Label>
                 <Select
-                  value={effectiveTargetLocale}
+                  items={targetLocales.map((locale) => ({
+                    value: locale,
+                    label: `${locale} · ${displayLocale(locale)}`,
+                  }))}
+                  value={effectiveTargetLocale || null}
                   onValueChange={(value) => {
                     if (value) setTargetLocale(value);
                   }}
@@ -2127,6 +2188,10 @@ export function LocalizationEditor({ tab }: WorkbenchEditorProps) {
                   {t('localizationEditor.labels.statusFilter')}
                 </Label>
                 <Select
+                  items={translationFilters.map((filter) => ({
+                    value: filter,
+                    label: t(`localizationEditor.filters.${filter}`),
+                  }))}
                   value={translationFilter}
                   onValueChange={(value) => setTranslationFilter(value as TranslationFilter)}
                 >

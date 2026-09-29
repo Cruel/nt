@@ -58,6 +58,7 @@ export const ChannelInput = React.forwardRef<HTMLDivElement, ChannelInputProps>(
           <>
             <FieldSelect
               aria-label="Color format"
+              items={formats.map((format) => ({ value: format, label: format }))}
               variant="inline"
               value={format}
               onValueChange={(v) => setFormat(v as ColorFormat)}

@@ -92,7 +92,8 @@ export function RmlUiDebuggerControls({
         />
       </label>
       <Select
-        value={selectedContext?.name ?? ''}
+        items={availableContexts.map((context) => ({ value: context.name, label: context.label }))}
+        value={selectedContext?.name ?? null}
         disabled={disabled}
         onValueChange={(context) => {
           if (context) update(debuggerState?.visible ?? false, context);
