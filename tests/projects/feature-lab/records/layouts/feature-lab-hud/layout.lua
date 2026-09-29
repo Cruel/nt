@@ -79,6 +79,23 @@ local function scenario_matches(scenario, query)
   return false
 end
 
+local function scenario_by_id(id)
+  for _, scenario in ipairs(feature_lab.catalog.scenarios) do
+    if scenario.id == id then return scenario end
+  end
+  return nil
+end
+
+local function matching_check_titles(scenario, query)
+  if query == '' then return '' end
+  local matches = {}
+  for _, check in ipairs(scenario.checks) do
+    if check_matches(check, query) then matches[#matches + 1] = check.title end
+  end
+  if #matches == 0 then return '' end
+  return '<p class="feature-lab-match">Matches: ' .. escape(table.concat(matches, ', ')) .. '</p>'
+end
+
 function feature_lab.render(document)
   local results = document:GetElementById('feature-lab-results')
   if not results then return end
@@ -91,23 +108,13 @@ function feature_lab.render(document)
         local modified = effective_modified(scenario)
         local recent = recent_label(scenario.created, modified)
         if (not feature_lab.recent_only) or recent then
-          local checks = ''
-          for _, check in ipairs(scenario.checks) do
-            if query == '' or check_matches(check, query) then
-              local check_recent = recent_label(check.created, check.modified)
-              checks = checks
-                .. '<div class="feature-lab-check"><strong>' .. escape(check.title) .. '</strong>'
-                .. '<span class="feature-lab-status">[' .. escape(check.status) .. ' / ' .. escape(check.verification) .. ']</span>'
-                .. (check_recent and '<span class="feature-lab-recent">' .. check_recent .. '</span>' or '')
-                .. '<p>' .. escape(check.action) .. '</p><p>Expected: ' .. escape(check.expected) .. '</p></div>'
-            end
-          end
           category_html = category_html
             .. '<div class="feature-lab-scenario"><div class="feature-lab-scenario-header"><h3>' .. escape(scenario.title) .. '</h3>'
-            .. '<span class="feature-lab-status">[' .. escape(scenario.status) .. ']</span>'
+            .. '<span class="feature-lab-status">[' .. escape(scenario.status) .. ' / ' .. tostring(#scenario.checks) .. ' checks]</span>'
             .. (recent and '<span class="feature-lab-recent">' .. recent .. '</span>' or '')
-            .. '<button id="feature-lab-launch-' .. escape(scenario.id) .. '" onclick="feature_lab.launch(\'' .. escape(scenario.id) .. '\')">Launch fresh</button></div>'
-            .. '<p>' .. escape(scenario.description) .. '</p>' .. checks .. '</div>'
+            .. '<button id="feature-lab-launch-' .. escape(scenario.id) .. '" onclick="feature_lab.launch(event, element, document)">Launch fresh</button></div>'
+            .. '<p>' .. escape(scenario.description) .. '</p>'
+            .. matching_check_titles(scenario, query) .. '</div>'
         end
       end
     end
@@ -119,15 +126,49 @@ function feature_lab.render(document)
   results.inner_rml = html
 end
 
+function feature_lab.render_scenario_guide(document, scenario_id)
+  local guide = document:GetElementById('feature-lab-scenario-guide')
+  if not guide then return end
+  local scenario = scenario_by_id(scenario_id)
+  if not scenario then
+    guide:SetClass('hidden', true)
+    return
+  end
+  local html = '<h2>' .. escape(scenario.title) .. '</h2>'
+  for _, check in ipairs(scenario.checks) do
+    html = html
+      .. '<div class="feature-lab-check"><strong>' .. escape(check.title) .. '</strong>'
+      .. '<span class="feature-lab-status"> [' .. escape(check.verification) .. ']</span>'
+      .. '<p>' .. escape(check.action) .. ' → ' .. escape(check.expected) .. '</p></div>'
+  end
+  guide.inner_rml = html
+  guide:SetClass('hidden', false)
+end
+
+function feature_lab.sync_scenario_guide(document)
+  local guide = document:GetElementById('feature-lab-scenario-guide')
+  if not guide then return end
+  local context = Game.startup_context()
+  local lab = type(context) == 'table' and type(context.feature_lab) == 'table' and context.feature_lab or nil
+  if lab and lab.mode == 'scenario' and lab.scenario_id then
+    feature_lab.render_scenario_guide(document, lab.scenario_id)
+  else
+    guide:SetClass('hidden', true)
+  end
+end
+
 function feature_lab.open(event, element, document)
   local panel = document:GetElementById('feature-lab-panel')
+  local guide = document:GetElementById('feature-lab-scenario-guide')
   if panel then panel:SetClass('hidden', false) end
+  if guide then guide:SetClass('hidden', true) end
   feature_lab.render(document)
 end
 
 function feature_lab.close(event, element, document)
   local panel = document:GetElementById('feature-lab-panel')
   if panel then panel:SetClass('hidden', true) end
+  feature_lab.sync_scenario_guide(document)
 end
 
 function feature_lab.apply_search(event, element, document)
@@ -141,7 +182,12 @@ function feature_lab.toggle_recent(event, element, document)
   feature_lab.render(document)
 end
 
-function feature_lab.launch(id)
+function feature_lab.launch(event, element, document)
+  local prefix = 'feature-lab-launch-'
+  local element_id = element and element.id or ''
+  local id = element_id:sub(1, #prefix) == prefix and element_id:sub(#prefix + 1) or ''
+  local panel = document and document:GetElementById('feature-lab-panel') or nil
+  if panel then panel:SetClass('hidden', true) end
   for _, scenario in ipairs(feature_lab.catalog.scenarios) do
     if scenario.id == id then
       for _, launch in ipairs(feature_lab.catalog.launches) do
@@ -158,21 +204,11 @@ function feature_lab.fresh_home(event, element, document)
   Game.restart({feature_lab={mode='home', entry_id='home'}}, false)
 end
 
-function feature_lab.use_lever(event, element, document)
-  Game.run_action('use', {target={kind='interactable', id='gate-lever-1'}})
-end
-
-function feature_lab.try_gate(event, element, document)
-  -- Attempt even a locked exit so the authored rejection lifecycle remains observable.
-  noveltea.navigation.via_exit('rooms-interactions-workshop', 'east-gate')
-end
-
 function feature_lab.on_show(event, element, document)
   local context = Game.startup_context()
+  local scenario = type(context) == 'table' and type(context.feature_lab) == 'table' and context.feature_lab.mode == 'scenario'
   local panel = document:GetElementById('feature-lab-panel')
-  if panel then
-    local scenario = type(context) == 'table' and type(context.feature_lab) == 'table' and context.feature_lab.mode == 'scenario'
-    panel:SetClass('hidden', scenario)
-  end
+  if panel then panel:SetClass('hidden', scenario) end
   feature_lab.render(document)
+  feature_lab.sync_scenario_guide(document)
 end

@@ -846,6 +846,43 @@ TEST_CASE("hotspot overlays reuse the prepared owner geometry and update transie
     CHECK(resources.hotspot_resolve_calls == 1);
 }
 
+TEST_CASE(
+    "retaining transition revisions never prunes the active world frame used by hotspot hover")
+{
+    FakeWorldResources resources;
+    resources.add_texture("room-image", 17, 100, 100);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+
+    auto snapshot = base_snapshot();
+    snapshot.background = PresentationBackground{.asset = id<AssetId>("room-image"),
+                                                 .fit = compiled::BackgroundFit::Stretch};
+    const compiled::HotspotRef hotspot_ref =
+        compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk")};
+    snapshot.hotspots.push_back({hotspot_ref, "Desk", true, true, semantic_target("desk"),
+                                 compiled::NormalizedRect{0.0, 0.0, 1.0, 1.0}, 0,
+                                 compiled::DefaultHotspotHighlight{}, id<AssetId>("room-image"),
+                                 100, 100});
+
+    REQUIRE(backend.reconcile(snapshot, {100.0f, 100.0f}));
+    backend.retain_only({});
+    REQUIRE(backend.snapshot(snapshot.revision));
+    REQUIRE(backend.frame(snapshot.revision));
+
+    controller.presentation_changed();
+    const auto hovered = controller.handle(
+        {WorldPointerEventKind::MouseMove, {50.0f, 50.0f}, {50.0f, 50.0f}, 0, false, true});
+    REQUIRE(hovered.hovered);
+    CHECK(*hovered.hovered == hotspot_ref);
+
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->world_composition_batch.commands().size() ==
+            backend.frame()->base_world_composition_batch.commands().size() + 1);
+    const auto& overlay = backend.frame()->world_composition_batch.commands().back();
+    CHECK(overlay.hotspot_hovered);
+    CHECK_FALSE(overlay.hotspot_pressed);
+}
+
 TEST_CASE("no-highlight hotspots stay semantic and allocate no overlay resources")
 {
     FakeWorldResources resources;

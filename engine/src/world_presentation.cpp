@@ -1713,6 +1713,8 @@ void WorldPresentationBackend::retain_only(
     std::span<const core::PresentationSnapshotRevision> revisions)
 {
     const auto retained = [&](std::uint64_t revision) {
+        if (m_snapshot && m_snapshot->revision.number() == revision)
+            return true;
         return std::any_of(revisions.begin(), revisions.end(),
                            [&](const auto value) { return value.number() == revision; });
     };

@@ -128,16 +128,15 @@
         {
           "id": "rejected-exit",
           "title": "Locked exit rejects navigation",
-          "action": "Click Try Bedroom Door in the HUD before pressing the wall button.",
-          "expected": "Navigation is rejected, the bedroom remains current, and the HUD displays the locked-door notification.",
+          "action": "Click the bedroom door while it is locked.",
+          "expected": "The door remains hoverable and clickable, navigation is rejected, the bedroom remains current, and the locked-door notification appears.",
           "status": "ready",
-          "verification": "ui",
+          "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-15T09:54:47Z",
+          "modified": "2026-09-25T04:40:00Z",
           "assetRequirements": [],
           "automation": [
-            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
-            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" }
           ]
         },
         {
@@ -146,28 +145,26 @@
           "action": "Activate the wall button using its normal Use Verb/Interaction.",
           "expected": "The Interaction handles the command, sets gate-unlocked true, and emits the button notification.",
           "status": "ready",
-          "verification": "ui",
+          "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-15T09:54:47Z",
+          "modified": "2026-09-25T04:40:00Z",
           "assetRequirements": ["pilot-button-sprite"],
           "automation": [
-            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
-            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" }
           ]
         },
         {
           "id": "successful-exit",
           "title": "Unlocked exit navigates",
-          "action": "Click Try Bedroom Door in the HUD after pressing the wall button.",
+          "action": "Click the bedroom door after pressing the wall button.",
           "expected": "Navigation succeeds and the destination Room becomes current.",
           "status": "ready",
-          "verification": "ui",
+          "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-15T09:54:47Z",
+          "modified": "2026-09-25T04:40:00Z",
           "assetRequirements": ["pilot-room-backdrop"],
           "automation": [
-            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
-            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" }
           ]
         },
         {
@@ -188,13 +185,12 @@
           "action": "Complete the unlocked navigation and read the HUD notification.",
           "expected": "The destination after-enter lifecycle emits its arrival notification after the Room becomes current.",
           "status": "ready",
-          "verification": "ui",
+          "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-15T02:55:07Z",
+          "modified": "2026-09-25T04:40:00Z",
           "assetRequirements": [],
           "automation": [
-            { "kind": "semantic-test", "id": "rooms-interactions-flow" },
-            { "kind": "ui-test", "id": "rooms-interactions-ui" }
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" }
           ]
         }
       ]

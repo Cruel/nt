@@ -352,7 +352,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
             return Result<bool, Diagnostics>::failure(
                 error("room_resolution.hotspot_exit_missing",
                       "Hotspot target references a missing Room exit"));
-        return Result<bool, Diagnostics>::success(found->enabled);
+        return Result<bool, Diagnostics>::success(true);
     };
     const auto target_label =
         [&](const compiled::ResolvedHotspotTarget& target) -> Result<std::string, Diagnostics> {
