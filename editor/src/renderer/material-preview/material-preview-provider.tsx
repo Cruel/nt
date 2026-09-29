@@ -166,9 +166,7 @@ export function MaterialPreviewGroupProvider({
   const disposalTokensRef = useRef(new WeakMap<MaterialPreviewGroupRenderer, object>());
   const authorityDisposalTokensRef = useRef(new WeakMap<AuthoringWebGlGroupRenderer, object>());
   useEffect(() => {
-    renderer.invalidateProjectResources();
-  }, [generation, renderer]);
-  useEffect(() => {
+    renderer.connect();
     const token = {};
     const disposalTokens = disposalTokensRef.current;
     disposalTokens.set(renderer, token);
@@ -180,6 +178,9 @@ export function MaterialPreviewGroupProvider({
       });
     };
   }, [renderer]);
+  useEffect(() => {
+    renderer.invalidateProjectResources();
+  }, [generation, renderer]);
   useEffect(() => {
     if (!ownedAuthoringRenderer) return undefined;
     const token = {};

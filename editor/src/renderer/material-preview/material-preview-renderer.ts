@@ -196,7 +196,7 @@ const MATERIAL_PREVIEW_SCENE_ORDER = 100;
 export class MaterialPreviewGroupRenderer {
   private readonly surfaces = new Map<object, RegisteredSurface>();
   private readonly listeners = new Set<() => void>();
-  private readonly unsubscribeAuthoringStatus: () => void;
+  private unsubscribeAuthoringStatus: (() => void) | null = null;
   private sceneRegistration: AuthoringWebGlSceneRegistration | null = null;
   private disposed = false;
   private renderFailed = false;
@@ -212,7 +212,6 @@ export class MaterialPreviewGroupRenderer {
     private readonly authoringRenderer: AuthoringWebGlGroupRenderer,
     private readonly renderSurface: MaterialPreviewSurfaceRenderer = renderMaterialPreviewSurface,
   ) {
-    this.unsubscribeAuthoringStatus = authoringRenderer.subscribe(() => this.syncAuthoringStatus());
     this.syncAuthoringStatus();
   }
 
@@ -223,6 +222,14 @@ export class MaterialPreviewGroupRenderer {
   subscribe(listener: () => void) {
     this.listeners.add(listener);
     return () => this.listeners.delete(listener);
+  }
+
+  connect() {
+    if (this.disposed || this.unsubscribeAuthoringStatus) return;
+    this.unsubscribeAuthoringStatus = this.authoringRenderer.subscribe(() =>
+      this.syncAuthoringStatus(),
+    );
+    this.syncAuthoringStatus();
   }
 
   registerSurface(state: MaterialPreviewSurfaceState) {
@@ -275,7 +282,8 @@ export class MaterialPreviewGroupRenderer {
     this.sceneRegistration = null;
     this.surfaces.clear();
     this.listeners.clear();
-    this.unsubscribeAuthoringStatus();
+    this.unsubscribeAuthoringStatus?.();
+    this.unsubscribeAuthoringStatus = null;
   }
 
   private async refreshSurface(token: object) {
