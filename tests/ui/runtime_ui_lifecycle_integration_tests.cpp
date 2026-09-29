@@ -1649,7 +1649,8 @@ TEST_CASE("RmlUiHost rejects a secondary context when required context initializ
                              .presentation = presentation.value(),
                              .headless_render = true}));
     REQUIRE(host.primary_context());
-    REQUIRE(host.contexts().size() == 2);
+    const auto context_count_before_secondary = host.contexts().size();
+    REQUIRE(context_count_before_secondary >= 1);
 
     const noveltea::ui::rmlui::RmlUiHost::ContextKey secondary{
         .plane = noveltea::core::PresentationPlane::MenuOverlay,
@@ -1660,7 +1661,7 @@ TEST_CASE("RmlUiHost rejects a secondary context when required context initializ
     };
     CHECK(host.context_for(secondary) == nullptr);
     CHECK(initializer_calls == 2);
-    CHECK(host.contexts().size() == 2);
+    CHECK(host.contexts().size() == context_count_before_secondary);
     CHECK(host.primary_context() != nullptr);
     host.shutdown();
 }

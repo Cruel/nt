@@ -38,15 +38,6 @@ add_custom_target(cxx-runtime-policy
     VERBATIM)
 add_dependencies(cxx-runtime-policy noveltea_compiler_policy_probe)
 
-add_custom_target(cxx-dependency-policy
-    COMMAND "${CMAKE_COMMAND}"
-        -DBUILD_DIR=${CMAKE_BINARY_DIR}
-        -DPLATFORM_NAME=${CMAKE_SYSTEM_NAME}
-        -DDEVTOOLS_ENABLED=${NOVELTEA_ENABLE_DEVTOOLS}
-        -P ${CMAKE_SOURCE_DIR}/cmake/VerifyDependencyCompilerPolicy.cmake
-    COMMENT "Verifying C++ dependency compiler flags and runtime link inputs"
-    VERBATIM)
-
 add_custom_target(json-boundary-policy
     COMMAND "${CMAKE_COMMAND}"
         -DSOURCE_ROOT=${CMAKE_SOURCE_DIR}
@@ -93,15 +84,6 @@ if(BUILD_TESTING)
             -P ${CMAKE_SOURCE_DIR}/cmake/CheckSchemaVersionPolicy.cmake)
 endif()
 
-add_custom_target(cxx-policy
-    DEPENDS
-        cxx-runtime-policy
-        cxx-dependency-policy
-        json-boundary-policy
-        module-boundary-policy
-        noveltea-schema-version-policy
-    COMMENT "Verifying the complete NovelTea C++ runtime policy")
-
 add_custom_target(format-check
     COMMAND
         "${CMAKE_COMMAND}"
@@ -143,6 +125,24 @@ if(NOVELTEA_ENABLE_DEVTOOLS)
 else()
     set(NOVELTEA_ENABLE_DEVTOOLS_VALUE 0)
 endif()
+
+add_custom_target(cxx-dependency-policy
+    COMMAND "${CMAKE_COMMAND}"
+        -DBUILD_DIR=${CMAKE_BINARY_DIR}
+        -DPLATFORM_NAME=${CMAKE_SYSTEM_NAME}
+        -DDEVTOOLS_ENABLED=${NOVELTEA_ENABLE_DEVTOOLS}
+        -P ${CMAKE_SOURCE_DIR}/cmake/VerifyDependencyCompilerPolicy.cmake
+    COMMENT "Verifying C++ dependency compiler flags and runtime link inputs"
+    VERBATIM)
+
+add_custom_target(cxx-policy
+    DEPENDS
+        cxx-runtime-policy
+        cxx-dependency-policy
+        json-boundary-policy
+        module-boundary-policy
+        noveltea-schema-version-policy
+    COMMENT "Verifying the complete NovelTea C++ runtime policy")
 option(
     NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     "Compile the editor-only asset memory and prefetch profiler"
