@@ -1,4 +1,5 @@
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { ComfyUiWorkflowsEditor } from '@/editors/comfyui/ComfyUiWorkflowsEditor';
 import { useComfyUiStore } from '@/comfyui/comfyui-store';
@@ -161,6 +162,7 @@ describe('ComfyUiWorkflowsEditor', () => {
   });
 
   it('shows project actions when a project is open and refreshes with the project path', async () => {
+    const user = userEvent.setup();
     useProjectStore.getState().loadProjectDocument({
       document: createAuthoringProject(),
       projectPath: '/mock/project',
@@ -171,7 +173,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     render(<ComfyUiWorkflowsEditor tab={tab} />);
 
     expect(await screen.findByText('Base Workflow')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Base Workflow' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Base Workflow' }));
     expect(await screen.findByRole('menuitem', { name: 'Copy to Project' })).toBeEnabled();
     expect(window.noveltea.listComfyUiWorkflowLibrary).toHaveBeenLastCalledWith(
       '11111111-1111-4111-8111-111111111111',
@@ -183,6 +185,7 @@ describe('ComfyUiWorkflowsEditor', () => {
   });
 
   it('runs workflow copy, reveal, delete, and refresh actions through the library API', async () => {
+    const user = userEvent.setup();
     useProjectStore.getState().loadProjectDocument({
       document: createAuthoringProject(),
       projectPath: '/mock/project',
@@ -196,7 +199,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     render(<ComfyUiWorkflowsEditor tab={tab} />);
 
     expect(await screen.findByText('Custom Workflow')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Copy to Project' }));
     await screen.findByText('Workflow copied.');
     expect(window.noveltea.copyComfyUiWorkflow).toHaveBeenCalledWith(
@@ -207,7 +210,7 @@ describe('ComfyUiWorkflowsEditor', () => {
       },
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Reveal in folder' }));
     await screen.findByText('Opened workflow in folder.');
     expect(window.noveltea.revealComfyUiWorkflow).toHaveBeenCalledWith(
@@ -215,7 +218,7 @@ describe('ComfyUiWorkflowsEditor', () => {
       'user:custom.manifest.json',
     );
 
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Delete workflow' }));
     await screen.findByText('Workflow deleted.');
     expect(window.confirm).toHaveBeenCalledWith("Delete workflow 'Custom Workflow'?");
@@ -233,6 +236,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     });
   });
   it('opens import and repair dialogs from manager actions', async () => {
+    const user = userEvent.setup();
     vi.mocked(window.noveltea.listComfyUiWorkflowLibrary).mockResolvedValue(
       response([
         entry({
@@ -258,12 +262,13 @@ describe('ComfyUiWorkflowsEditor', () => {
     expect(await screen.findByText('Import ComfyUI Workflow')).toBeInTheDocument();
     fireEvent.click(screen.getByRole('button', { name: 'Close' }));
 
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Custom Workflow' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Repair manifest' }));
     expect(await screen.findByText('Repair ComfyUI Workflow')).toBeInTheDocument();
   });
 
   it('opens future classifications in strict generic manifest repair mode', async () => {
+    const user = userEvent.setup();
     const genericDefinition = {
       schemaVersion: 1 as const,
       id: 'audio-bed',
@@ -310,7 +315,7 @@ describe('ComfyUiWorkflowsEditor', () => {
     render(<ComfyUiWorkflowsEditor tab={tab} />);
 
     expect(await screen.findByText('Audio Bed')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: 'Actions for Audio Bed' }));
+    await user.click(screen.getByRole('button', { name: 'Actions for Audio Bed' }));
     fireEvent.click(await screen.findByRole('menuitem', { name: 'Repair manifest' }));
     expect(await screen.findByText('Strict manifest JSON')).toBeInTheDocument();
     expect((screen.getByLabelText('Strict manifest JSON') as HTMLTextAreaElement).value).toContain(
