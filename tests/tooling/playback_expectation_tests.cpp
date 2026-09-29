@@ -5,8 +5,10 @@
 
 #include <algorithm>
 #include <chrono>
+#include <cstdlib>
 #include <filesystem>
 #include <fstream>
+#include <optional>
 #include <string>
 #include <system_error>
 
@@ -20,6 +22,36 @@ nlohmann::json load_minimal_compiled_project()
     REQUIRE(stream.good());
     return nlohmann::json::parse(stream);
 }
+
+class ScopedEnvironmentVariable final {
+public:
+    ScopedEnvironmentVariable(const char* name, const std::string& value) : m_name(name)
+    {
+        if (const char* previous = std::getenv(name))
+            m_previous = previous;
+#if defined(_WIN32)
+        REQUIRE(_putenv_s(name, value.c_str()) == 0);
+#else
+        REQUIRE(setenv(name, value.c_str(), 1) == 0);
+#endif
+    }
+
+    ~ScopedEnvironmentVariable()
+    {
+#if defined(_WIN32)
+        (void)_putenv_s(m_name.c_str(), m_previous ? m_previous->c_str() : "");
+#else
+        if (m_previous)
+            (void)setenv(m_name.c_str(), m_previous->c_str(), 1);
+        else
+            (void)unsetenv(m_name.c_str());
+#endif
+    }
+
+private:
+    std::string m_name;
+    std::optional<std::string> m_previous;
+};
 
 class ProjectRootFixture final {
 public:
@@ -170,6 +202,46 @@ TEST_CASE(
     CHECK(report["entries"][3]["id"] == "z-pass");
     CHECK(report["entries"][3]["status"] == "passed");
     CHECK(report["entries"][3]["report"]["passed"] == true);
+}
+
+TEST_CASE("native test suite preserves external UI runner failures")
+{
+    ProjectRootFixture project_root;
+#if defined(_WIN32)
+    const char* command = std::getenv("COMSPEC");
+    REQUIRE(command != nullptr);
+    ScopedEnvironmentVariable runner("NOVELTEA_UI_TEST_RUNNER", command);
+#else
+    ScopedEnvironmentVariable runner("NOVELTEA_UI_TEST_RUNNER", "/usr/bin/false");
+#endif
+    const nlohmann::json request = {
+        {"project", load_minimal_compiled_project()},
+        {"projectRoot", project_root.root().string()},
+        {"catalog",
+         {{"schema", "noveltea.runtime-test-catalog"},
+          {"entries",
+           nlohmann::json::array({{{"id", "ui-error"},
+                                   {"status", "runnable"},
+                                   {"runner", "runtime-ui"},
+                                   {"spec",
+                                    {{"schema", "noveltea.editor.playback"},
+                                     {"version", 1},
+                                     {"id", "ui-error"},
+                                     {"steps", nlohmann::json::array()},
+                                     {"finalExpectations", nlohmann::json::array()}}}}})}}}};
+
+    const auto result = noveltea::tooling::run_test_suite(request.dump());
+    REQUIRE(result.exit_code == 0);
+    const auto response = nlohmann::json::parse(result.response_json);
+    REQUIRE(response["ok"] == true);
+    REQUIRE(response["report"]["entries"].size() == 1);
+    const auto& entry = response["report"]["entries"][0];
+    CHECK(entry["status"] == "error");
+    REQUIRE(entry["diagnostics"].size() == 1);
+    CHECK(entry["diagnostics"][0]["message"].get<std::string>().find(
+              "Runtime UI Test runner did not produce a response") != std::string::npos);
+    CHECK(entry["diagnostics"][0]["message"].get<std::string>().find("status") !=
+          std::string::npos);
 }
 
 TEST_CASE("native test suite treats blocked-only and empty catalogs as successful")
