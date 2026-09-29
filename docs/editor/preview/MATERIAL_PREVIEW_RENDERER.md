@@ -4,10 +4,15 @@
 
 Material libraries, selectors, source previews, and the Material editor use a lightweight renderer for live authoring previews. These previews are intentionally separate from the full engine preview: they provide fast, Web-backend-oriented Material feedback without creating an engine iframe or WebGL context per preview surface.
 
-The ownership model has two levels:
+GPU ownership is shared with other browser-native authoring renderers through the workbench-group
+authority documented in `docs/editor/preview/AUTHORING_WEBGL_RENDERER.md`. Material preview code owns
+fixture semantics and surface lifecycle; it does not own the group's WebGL2 context or GPU caches.
+
+The ownership model has three levels:
 
 - one Project-scoped CPU resource authority shared by the whole workbench;
-- one WebGL2 renderer/context per workbench group, shared by every Material preview surface in that group.
+- one authoring WebGL2 authority per workbench group, shared by Material previews and other authoring scene consumers;
+- one Material preview adapter per workbench group, registering all of that group's Material surfaces as one scene-work consumer.
 
 A full engine preview remains authoritative when gameplay state, exact scene composition, text layout, RmlUi layout, postprocess ordering, or another contextual runtime contract matters.
 
@@ -25,20 +30,28 @@ A full engine preview remains authoritative when gameplay state, exact scene com
 
 This layer owns no WebGL handles. Side-by-side workbench groups therefore reuse the same resolved/decoded Project inputs while keeping their GPU state independent.
 
-## Workbench-Group Renderer
+## Workbench-Group Material Adapter
 
-Each rendered workbench group owns one `MaterialPreviewGroupRenderer`. Its WebGL2 backend is created lazily when the first Material preview surface registers. Persistent editors are physically hosted outside the group subtree, so the workbench's narrow group-service bridge publishes the owning group's renderer into those stable hosts without allocating a second renderer. All registered surfaces in the group share:
+Each rendered workbench group owns one `MaterialPreviewGroupRenderer` adapter over the group's
+`AuthoringWebGlGroupRenderer`. Persistent editors are physically hosted outside the group subtree, so
+the workbench group-service bridge publishes both the shared authoring authority and the owning
+Material adapter into those stable hosts. Material surfaces therefore retain their original group
+when hosted persistently without allocating another renderer.
+
+All registered Material surfaces in the group share the authority's:
 
 - one WebGL2 context and scratch render canvas;
 - program, texture, and geometry-buffer caches;
 - one requestAnimationFrame scheduler and animation clock;
 - one context-loss/recovery boundary.
 
-A `MaterialPreview` surface owns only its visible canvas, measured size, visibility, Material ID, and pointer state. It registers and unregisters with the group renderer; it never creates a WebGL context. The group renderer renders each visible surface into its shared WebGL scratch target and copies the resulting frame into that surface's canvas. This keeps independent surface sizing and interaction without requiring an atlas or an editor-wide overlay canvas.
+A `MaterialPreview` surface owns only its visible canvas, measured size, visibility, Material ID, and pointer state. It registers and unregisters with the Material adapter; it never creates a WebGL context. The adapter submits preview-fixture draws through the shared authoring frame, then copies the scratch result into that surface's canvas. This keeps independent surface sizing and interaction without requiring an atlas or an editor-wide overlay canvas.
 
 Visible previews are live by default and receive the same group-frame timestamp. Compact thumbnail-style previews use intersection visibility to suspend offscreen surfaces. Full editor previews follow workbench visibility directly, and a preview inside a retained persistent editor is suspended whenever that editor host is not workbench-visible. When every registered surface is hidden, the group stops scheduling frames. Static-Material detection is intentionally not required.
 
-Project invalidation clears the group's GPU caches before refreshed Project resources are consumed, preventing stale programs or textures from crossing generations.
+Project invalidation is forwarded to the shared authoring authority before refreshed Project resources
+are consumed. Project-derived GPU textures are cleared while reusable programs and last-good shader
+state are retained, matching the previous Material-preview behavior.
 
 ## Shader Source Workspaces
 
@@ -77,9 +90,15 @@ Add new role-specific fixtures by extending the harness selection from effective
 
 ## Failure and Recovery
 
-WebGL2 initialization failure is stable for the owning group and surfaces a `material-preview.webgl2-unavailable` diagnostic state. A render failure surfaces `material-preview.render-failed`. Neither case automatically launches a full engine preview.
+WebGL2 initialization failure is stable for the owning authoring group. The Material adapter translates
+that authority state to `material-preview.webgl2-unavailable`; a Material-specific render failure
+surfaces `material-preview.render-failed`. Neither case automatically launches a full engine preview.
 
-WebGL context loss is handled once by the group renderer. The surface canvases and editor/tab state remain mounted. On restoration, shared GPU state is rebuilt centrally and live surfaces resume on the existing group clock. The temporary state uses `material-preview.context-lost`. Intentional renderer disposal may release its WebGL context, but that teardown must not publish context-loss status to retained or transitioning editor surfaces.
+WebGL context loss is handled once by the shared authoring authority. The surface canvases and
+editor/tab state remain mounted. On restoration, shared GPU state is rebuilt centrally and live
+Material surfaces resume on the existing group clock. The adapter translates the temporary authority
+state to `material-preview.context-lost`. Intentional authority disposal may release its WebGL context,
+but that teardown must not publish context-loss status to retained or transitioning editor surfaces.
 
 ## Implementation
 
@@ -89,6 +108,9 @@ Primary files:
 editor/src/renderer/material-preview/material-preview-resources.ts
 editor/src/renderer/material-preview/material-preview-renderer.ts
 editor/src/renderer/material-preview/material-preview-provider.tsx
+editor/src/renderer/authoring-renderer/authoring-webgl-renderer.ts
+editor/src/renderer/authoring-renderer/authoring-webgl-backend.ts
+editor/src/renderer/authoring-renderer/authoring-webgl-provider.tsx
 editor/src/renderer/material-preview/MaterialPreview.tsx
 editor/src/renderer/components/materials/MaterialSelector.tsx
 editor/src/renderer/workbench/Workbench.tsx
@@ -96,4 +118,9 @@ editor/src/renderer/editors/materials/MaterialEditor.tsx
 editor/src/renderer/editors/interactables/InteractableEditor.tsx
 ```
 
-Provider-level coverage is in `editor/src/renderer/test/material-preview-renderer.test.ts`; Material-editor surface integration is covered by `shader-material-preview-pooling.test.tsx`. Reusable selector behavior is covered by `material-selector.test.tsx`, with the representative production seam covered by `interactable-editor.test.tsx`.
+The generalized authority is covered by `editor/src/renderer/test/authoring-webgl-renderer.test.ts`.
+Material provider-level coverage remains in `editor/src/renderer/test/material-preview-renderer.test.ts`;
+Material-editor surface integration and shared-authority coverage are in
+`shader-material-preview-pooling.test.tsx`. Reusable selector behavior is covered by
+`material-selector.test.tsx`, with the representative production seam covered by
+`interactable-editor.test.tsx`.

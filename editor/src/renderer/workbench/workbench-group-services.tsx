@@ -8,6 +8,11 @@ import {
   type ReactNode,
 } from 'react';
 import {
+  AuthoringWebGlGroupRendererBridge,
+  useOptionalAuthoringWebGlGroupRenderer,
+} from '@/authoring-renderer/authoring-webgl-provider';
+import type { AuthoringWebGlGroupRenderer } from '@/authoring-renderer/authoring-webgl-renderer';
+import {
   MaterialPreviewGroupRendererBridge,
   useOptionalMaterialPreviewGroupRenderer,
 } from '@/material-preview/material-preview-provider';
@@ -28,12 +33,24 @@ interface MaterialPreviewRendererRegistration {
   renderer: MaterialPreviewGroupRenderer;
 }
 
+interface AuthoringWebGlRendererRegistration {
+  owner: object;
+  renderer: AuthoringWebGlGroupRenderer;
+}
+
 interface WorkbenchGroupServicesRegistry {
+  getAuthoringWebGlRenderer: (groupId: string) => AuthoringWebGlGroupRenderer | null;
   getMaterialPreviewRenderer: (groupId: string) => MaterialPreviewGroupRenderer | null;
   getPreviewHostPool: (groupId: string) => PreviewHostPoolApi | null;
   getVersion: () => number;
+  removeAuthoringWebGlRenderer: (groupId: string, owner: object) => void;
   removeMaterialPreviewRenderer: (groupId: string, owner: object) => void;
   removePreviewHostPool: (groupId: string, owner: object) => void;
+  setAuthoringWebGlRenderer: (
+    groupId: string,
+    owner: object,
+    renderer: AuthoringWebGlGroupRenderer,
+  ) => void;
   setMaterialPreviewRenderer: (
     groupId: string,
     owner: object,
@@ -44,6 +61,7 @@ interface WorkbenchGroupServicesRegistry {
 }
 
 function createWorkbenchGroupServicesRegistry(): WorkbenchGroupServicesRegistry {
+  const authoringWebGlRenderersByGroupId = new Map<string, AuthoringWebGlRendererRegistration>();
   const materialPreviewRenderersByGroupId = new Map<string, MaterialPreviewRendererRegistration>();
   const previewHostPoolsByGroupId = new Map<string, PreviewHostPoolRegistration>();
   const listeners = new Set<() => void>();
@@ -55,10 +73,17 @@ function createWorkbenchGroupServicesRegistry(): WorkbenchGroupServicesRegistry 
   };
 
   return {
+    getAuthoringWebGlRenderer: (groupId) =>
+      authoringWebGlRenderersByGroupId.get(groupId)?.renderer ?? null,
     getMaterialPreviewRenderer: (groupId) =>
       materialPreviewRenderersByGroupId.get(groupId)?.renderer ?? null,
     getPreviewHostPool: (groupId) => previewHostPoolsByGroupId.get(groupId)?.pool ?? null,
     getVersion: () => version,
+    removeAuthoringWebGlRenderer: (groupId, owner) => {
+      if (authoringWebGlRenderersByGroupId.get(groupId)?.owner !== owner) return;
+      authoringWebGlRenderersByGroupId.delete(groupId);
+      notify();
+    },
     removeMaterialPreviewRenderer: (groupId, owner) => {
       if (materialPreviewRenderersByGroupId.get(groupId)?.owner !== owner) return;
       materialPreviewRenderersByGroupId.delete(groupId);
@@ -67,6 +92,12 @@ function createWorkbenchGroupServicesRegistry(): WorkbenchGroupServicesRegistry 
     removePreviewHostPool: (groupId, owner) => {
       if (previewHostPoolsByGroupId.get(groupId)?.owner !== owner) return;
       previewHostPoolsByGroupId.delete(groupId);
+      notify();
+    },
+    setAuthoringWebGlRenderer: (groupId, owner, renderer) => {
+      const current = authoringWebGlRenderersByGroupId.get(groupId);
+      if (current?.owner === owner && current.renderer === renderer) return;
+      authoringWebGlRenderersByGroupId.set(groupId, { owner, renderer });
       notify();
     },
     setMaterialPreviewRenderer: (groupId, owner, renderer) => {
@@ -133,6 +164,26 @@ export function WorkbenchGroupMaterialPreviewRendererRegistration({
   return null;
 }
 
+export function WorkbenchGroupAuthoringWebGlRendererRegistration({ groupId }: { groupId: string }) {
+  const registry = useContext(WorkbenchGroupServicesContext);
+  const renderer = useOptionalAuthoringWebGlGroupRenderer();
+  const ownerRef = useRef<object | null>(null);
+  if (!ownerRef.current) ownerRef.current = {};
+  const owner = ownerRef.current;
+
+  useLayoutEffect(() => {
+    if (!registry || !renderer) return;
+    registry.setAuthoringWebGlRenderer(groupId, owner, renderer);
+  }, [groupId, owner, registry, renderer]);
+
+  useLayoutEffect(() => {
+    if (!registry) return undefined;
+    return () => registry.removeAuthoringWebGlRenderer(groupId, owner);
+  }, [groupId, owner, registry]);
+
+  return null;
+}
+
 export function WorkbenchGroupPreviewHostPoolRegistration({ groupId }: { groupId: string }) {
   const registry = useContext(WorkbenchGroupServicesContext);
   const pool = usePreviewHostPool();
@@ -159,6 +210,12 @@ function useGroupMaterialPreviewRenderer(groupId: string | null) {
   return groupId ? registry.getMaterialPreviewRenderer(groupId) : null;
 }
 
+function useGroupAuthoringWebGlRenderer(groupId: string | null) {
+  const registry = useWorkbenchGroupServicesRegistry();
+  useSyncExternalStore(registry.subscribe, registry.getVersion, registry.getVersion);
+  return groupId ? registry.getAuthoringWebGlRenderer(groupId) : null;
+}
+
 function useGroupPreviewHostPool(groupId: string | null) {
   const registry = useWorkbenchGroupServicesRegistry();
   useSyncExternalStore(registry.subscribe, registry.getVersion, registry.getVersion);
@@ -180,6 +237,24 @@ export function WorkbenchGroupMaterialPreviewRendererBridge({
     <MaterialPreviewGroupRendererBridge renderer={renderer ?? lastRendererRef.current}>
       {children}
     </MaterialPreviewGroupRendererBridge>
+  );
+}
+
+export function WorkbenchGroupAuthoringWebGlRendererBridge({
+  groupId,
+  children,
+}: {
+  groupId: string | null;
+  children: ReactNode;
+}) {
+  const renderer = useGroupAuthoringWebGlRenderer(groupId);
+  const lastRendererRef = useRef<AuthoringWebGlGroupRenderer | null>(null);
+  if (renderer) lastRendererRef.current = renderer;
+  if (!lastRendererRef.current) return null;
+  return (
+    <AuthoringWebGlGroupRendererBridge renderer={renderer ?? lastRendererRef.current}>
+      {children}
+    </AuthoringWebGlGroupRendererBridge>
   );
 }
 

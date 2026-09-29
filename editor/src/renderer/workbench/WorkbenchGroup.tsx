@@ -6,6 +6,7 @@ import { defaultEditorRegistry } from './default-editors';
 import { resolveWorkbenchEditor } from './editor-registry';
 import { PersistentEditorSlot } from './persistent-editor-host';
 import {
+  WorkbenchGroupAuthoringWebGlRendererRegistration,
   WorkbenchGroupMaterialPreviewRendererRegistration,
   WorkbenchGroupPreviewHostPoolRegistration,
 } from './workbench-group-services';
@@ -44,6 +45,7 @@ export function WorkbenchGroup({ group, tabs }: WorkbenchGroupProps) {
       <WorkbenchTabs group={group} tabs={tabs} />
       <div className="relative min-h-0 flex-1 overflow-hidden">
         <PreviewHostPoolProvider groupId={group.id} activeTabId={activeTab?.id ?? null}>
+          <WorkbenchGroupAuthoringWebGlRendererRegistration groupId={group.id} />
           <WorkbenchGroupMaterialPreviewRendererRegistration groupId={group.id} />
           <WorkbenchGroupPreviewHostPoolRegistration groupId={group.id} />
           {activeTab ? (
