@@ -3486,6 +3486,10 @@ void Engine::Impl::render()
             m_devtools_console.clear();
         if (output.clear_trace)
             m_devtools_trace.clear();
+        if (output.rmlui_debugger_scale &&
+            !m_runtime_ui.set_debugger_scale(*output.rmlui_debugger_scale)) {
+            SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "RmlUi debugger scale is invalid");
+        }
         if (output.rmlui_debugger && !m_runtime_ui.set_debugger(*output.rmlui_debugger))
             SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION, "RmlUi debugger context is unavailable");
 #else

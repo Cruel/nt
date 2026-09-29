@@ -26,6 +26,7 @@ using DebugUiCommand =
 struct DebugUiFrameOutput {
     std::vector<DebugUiCommand> commands;
     std::optional<devtools::RmlUiDebuggerCommand> rmlui_debugger;
+    std::optional<float> rmlui_debugger_scale;
     bool clear_console = false;
     bool clear_trace = false;
 };

@@ -244,6 +244,8 @@
       "text": "Somente texto"
     },
     "showFpsCounter": "Mostrar contador de FPS",
+    "showEmptyRmlUiContexts": "Mostrar contextos RmlUi vazios",
+    "showEmptyRmlUiContextsDescription": "Inclui contextos vazios de execução e preparação nos seletores de contexto do depurador RmlUi.",
     "showFpsCounterDescription": "Exibe a sobreposição de taxa de quadros do motor nos widgets de pré-visualização do editor. A pré-visualização acompanha o ritmo da tela, a menos que um limite de FPS do motor seja menor.",
     "title": "Pré-visualização"
   },

@@ -836,7 +836,7 @@ function DevtoolsRmlUiPanel({ snapshot }: { snapshot: DevtoolsSnapshot | null })
       {contexts.map((context) => (
         <div key={context.lifecycleIdentity} className="rounded-md border p-2 text-xs">
           <div className="flex flex-wrap items-center gap-1">
-            <span className="font-medium">{context.name}</span>
+            <span className="font-medium">{context.label}</span>
             <Badge variant="outline">{context.plane}</Badge>
             <Badge variant={context.recentEventConsumed ? 'secondary' : 'outline'}>
               {context.recentEventConsumed

@@ -42,7 +42,9 @@ enum ViewId : bgfx::ViewId {
     ViewFullGamePostprocessEnd = 241,
     ViewFullGamePostprocessComposite = ViewFullGamePostprocessBegin,
     ViewRmlDebugBegin = 242,
-    ViewRmlDebugEnd = 254,
+    ViewRmlDebugEnd = 247,
+    ViewRmlDebuggerHostBegin = 248,
+    ViewRmlDebuggerHostEnd = 254,
 
     // Screenshot capture suppresses the RmlUi debug plane, so the tail of that range can be reused
     // for the resize/readback passes on capture frames without consuming additional global views.

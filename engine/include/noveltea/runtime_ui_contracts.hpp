@@ -32,6 +32,7 @@ struct RuntimeUiLayoutMountContext {
     double material_camera_zoom = 1.0;
     std::optional<core::TriggerContext> trigger_context;
     std::vector<core::PresentationMaterialTextureBinding> material_textures{};
+    std::string layout_id;
     bool operator==(const RuntimeUiLayoutMountContext&) const = default;
 };
 

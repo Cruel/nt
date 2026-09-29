@@ -48,6 +48,8 @@ public:
     void reset_window_rect() noexcept { m_reset_window_rect = true; }
 
 private:
+    void apply_imgui_scale();
+
     bool m_visible = false;
     bool m_reset_window_rect = false;
     bool m_initialized = false;
@@ -61,6 +63,10 @@ private:
     [[maybe_unused]] std::array<char, 128> m_trace_text_filter{};
     [[maybe_unused]] std::vector<devtools::ConsoleRecord> m_frozen_console;
     [[maybe_unused]] std::vector<devtools::TraceRecord> m_frozen_trace;
+    float m_imgui_scale = 1.0f;
+    float m_rmlui_debugger_scale = 1.0f;
+    bool m_show_empty_rmlui_contexts = false;
+    bool m_rmlui_debugger_scale_dirty = false;
     std::string m_ini_path;
     float m_web_ini_sync_timer = 0.0f;
     void* m_bgfx_backend = nullptr;

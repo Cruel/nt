@@ -290,6 +290,7 @@ TEST_CASE("SDL text input area projects context caret coordinates into host logi
 TEST_CASE("runtime presentation view ranges keep world transition below GameUi")
 {
     using noveltea::core::PresentationPlane;
+    using noveltea::ui::rmlui::rmlui_bgfx_debugger_host_view_range;
     using noveltea::ui::rmlui::rmlui_bgfx_plane_view_range;
     using noveltea::ui::rmlui::rmlui_bgfx_world_source_overlay_view_range;
 
@@ -298,6 +299,8 @@ TEST_CASE("runtime presentation view ranges keep world transition below GameUi")
     const auto game_ui = rmlui_bgfx_plane_view_range(PresentationPlane::GameUi);
     const auto menu = rmlui_bgfx_plane_view_range(PresentationPlane::MenuOverlay);
     const auto modal = rmlui_bgfx_plane_view_range(PresentationPlane::Modal);
+    const auto debug = rmlui_bgfx_plane_view_range(PresentationPlane::Debug);
+    const auto debugger_host = rmlui_bgfx_debugger_host_view_range();
 
     CHECK(source.begin <= source.end);
     CHECK(source.end < target.begin);
@@ -305,6 +308,9 @@ TEST_CASE("runtime presentation view ranges keep world transition below GameUi")
     CHECK(target.end < game_ui.begin);
     CHECK(game_ui.end < menu.begin);
     CHECK(menu.end < modal.begin);
+    CHECK(debug.begin <= debug.end);
+    CHECK(debug.end < debugger_host.begin);
+    CHECK(debugger_host.begin <= debugger_host.end);
 
     using namespace noveltea::bgfx_backend;
     CHECK(ViewWorldSourceContent < ViewWorldSourceSceneComposite);
@@ -326,5 +332,6 @@ TEST_CASE("runtime presentation view ranges keep world transition below GameUi")
     CHECK(ViewModalEnd < ViewTransitionUiBegin);
     CHECK(ViewTransitionUiEnd < ViewFullGamePostprocessComposite);
     CHECK(ViewFullGamePostprocessComposite < ViewRmlDebugBegin);
-    CHECK(ViewRmlDebugEnd < ViewDebugUI);
+    CHECK(ViewRmlDebugEnd < ViewRmlDebuggerHostBegin);
+    CHECK(ViewRmlDebuggerHostEnd < ViewDebugUI);
 }

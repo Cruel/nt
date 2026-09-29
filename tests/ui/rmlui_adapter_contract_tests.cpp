@@ -83,6 +83,29 @@ TEST_CASE("RmlUi adapter surface uses exact active context metrics")
     CHECK(one_x_again->scale_y == one_x_surface->scale_y);
 }
 
+TEST_CASE("RmlUi adapter host surface uses the complete host framebuffer")
+{
+    auto presentation_result = make_presentation_metrics(
+        make_host_surface_metrics(1000, 700, 2000, 1400), {.reference = {.size = {1280, 720}}});
+    REQUIRE(presentation_result);
+    const auto& presentation = presentation_result.value();
+    const ResolvedContextMetrics host_context = context_at({1000, 700}, {2.0f, 2.0f});
+
+    const auto game_surface = to_rmlui_bgfx_surface(presentation, host_context);
+    const auto host_surface =
+        to_rmlui_bgfx_surface(presentation, host_context, RmlUiRenderSurface::HostSurface);
+    REQUIRE(game_surface);
+    REQUIRE(host_surface);
+    CHECK(game_surface->framebuffer_width == presentation.ui_raster.size.width);
+    CHECK(game_surface->framebuffer_height == presentation.ui_raster.size.height);
+    CHECK(host_surface->logical_width == 1000);
+    CHECK(host_surface->logical_height == 700);
+    CHECK(host_surface->framebuffer_width == 2000);
+    CHECK(host_surface->framebuffer_height == 1400);
+    CHECK(host_surface->scale_x == 2.0f);
+    CHECK(host_surface->scale_y == 2.0f);
+}
+
 TEST_CASE("RmlUi adapter context surfaces switch between inherited and ignored UI domains")
 {
     const PresentationMetrics presentation = presentation_at({3840, 2160});

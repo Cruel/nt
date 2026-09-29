@@ -1380,12 +1380,12 @@ assert(LayoutClampResults.invalid_x and LayoutClampResults.invalid_padding)
 }
 
 #if NOVELTEA_ENABLE_DEVTOOLS
-TEST_CASE("RmlUi debugger uses the primary context and routes input without Layout documents")
+TEST_CASE("RmlUi debugger uses a fixed-scale debug host and routes input without Layout documents")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
     REQUIRE(fixture.initialize_scripts_only());
     const auto presentation = noveltea::make_presentation_metrics(
-        noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+        noveltea::make_host_surface_metrics(1000, 700, 2000, 1400),
         {.reference = {.size = {1280, 720}}});
     REQUIRE(presentation);
     noveltea::ui::rmlui::RmlUiHost host;
@@ -1393,8 +1393,47 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
                              .lua_state = fixture.lua_state(),
                              .presentation = presentation.value(),
                              .headless_render = true}));
-    REQUIRE(host.contexts().size() == 1);
-    CHECK(host.contexts().front().key.plane == noveltea::core::PresentationPlane::GameUi);
+    REQUIRE(host.contexts().size() == 2);
+    REQUIRE(host.debugger_host_context());
+    CHECK(host.debugger_host_context() != host.primary_context());
+    const auto debugger_record =
+        std::find_if(host.contexts().begin(), host.contexts().end(), [&](const auto& record) {
+            return record.context == host.debugger_host_context();
+        });
+    REQUIRE(debugger_record != host.contexts().end());
+    CHECK(debugger_record->key.plane == noveltea::core::PresentationPlane::Debug);
+    CHECK(debugger_record->key.scale_domain ==
+          noveltea::ui::rmlui::LayoutScaleDomain::UiIgnoreTextIgnore);
+    const auto scaled_settings = noveltea::core::RuntimeUserSettings::create(2.0, 1.5);
+    REQUIRE(scaled_settings);
+    REQUIRE(host.reconfigure_user_settings(*scaled_settings.value_if()));
+    REQUIRE(host.context_metrics(host.primary_context()));
+    REQUIRE(host.context_metrics(host.debugger_host_context()));
+    CHECK(host.context_metrics(host.primary_context())->requested_ui_scale == Catch::Approx(2.0f));
+    CHECK(host.context_metrics(host.primary_context())->text_scale_factor == Catch::Approx(1.5f));
+    CHECK(host.context_metrics(host.debugger_host_context())->requested_ui_scale ==
+          Catch::Approx(1.0f));
+    CHECK(host.context_metrics(host.debugger_host_context())->text_scale_factor ==
+          Catch::Approx(1.0f));
+    CHECK(host.context_metrics(host.debugger_host_context())->layout_size ==
+          noveltea::IntegerSize{1000, 700});
+    CHECK(host.context_metrics(host.debugger_host_context())->media_query_size ==
+          noveltea::IntegerSize{1000, 700});
+    CHECK(host.context_metrics(host.debugger_host_context())->ui_raster_scale.x ==
+          Catch::Approx(2.0f));
+    CHECK(host.context_metrics(host.debugger_host_context())->ui_raster_scale.y ==
+          Catch::Approx(2.0f));
+    CHECK(host.context_metrics(host.debugger_host_context())->font_raster_scale ==
+          Catch::Approx(2.0f));
+    CHECK(host.debugger_host_context()->GetDensityIndependentPixelRatio() == Catch::Approx(1.0f));
+    REQUIRE(host.set_debugger_scale(1.5f));
+    CHECK(host.debugger_scale() == Catch::Approx(1.5f));
+    CHECK(host.debugger_host_context()->GetDensityIndependentPixelRatio() == Catch::Approx(1.5f));
+    CHECK(host.context_metrics(host.debugger_host_context())->font_raster_scale ==
+          Catch::Approx(2.0f));
+    CHECK_FALSE(host.set_debugger_scale(0.49f));
+    CHECK_FALSE(host.set_debugger_scale(2.51f));
+    REQUIRE(host.set_debugger_scale(1.0f));
     CHECK(host.debugger_snapshot().available);
     CHECK_FALSE(host.debugger_snapshot().visible);
     const auto primary = host.primary_context()->GetName();
@@ -1402,7 +1441,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     host.update_contexts();
     CHECK(host.debugger_snapshot().context == primary);
     CHECK(host.primary_context()->GetDocument("rmlui-debug-hook") != nullptr);
-    auto* menu = host.primary_context()->GetDocument("rmlui-debug-menu");
+    auto* menu = host.debugger_host_context()->GetDocument("rmlui-debug-menu");
     REQUIRE(menu);
     REQUIRE(menu->IsVisible());
     auto* button = menu->GetElementById("debug-info-button");
@@ -1412,6 +1451,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     motion.type = SDL_EVENT_MOUSE_MOTION;
     motion.motion.x = position.x + 2;
     motion.motion.y = position.y + 2;
+    CHECK(motion.motion.y < presentation.value().viewport.host_logical_rect.y);
     const auto no_layouts = [](Rml::Context*) { return false; };
     CHECK(host.process_event(motion, no_layouts, {}));
     CHECK(host.wants_pointer_input());
@@ -1421,7 +1461,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     host.update_contexts();
     CHECK_FALSE(menu->IsVisible());
     CHECK(host.primary_context()->GetDocument("rmlui-debug-hook") == nullptr);
-    auto* info = host.primary_context()->GetDocument("rmlui-debug-info");
+    auto* info = host.debugger_host_context()->GetDocument("rmlui-debug-info");
     REQUIRE(info);
     CHECK_FALSE(info->IsVisible());
     CHECK_FALSE(host.process_event(motion, no_layouts, {}));
@@ -1437,7 +1477,7 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
     REQUIRE(host.set_debugger(true, inspected->GetName()));
     CHECK(host.debugger_snapshot().context == inspected->GetName());
     CHECK(inspected->GetDocument("rmlui-debug-hook") != nullptr);
-    CHECK(menu->GetContext() == host.primary_context());
+    CHECK(menu->GetContext() == host.debugger_host_context());
     auto* underlying = inspected->LoadDocumentFromMemory(
         "<rml><head><style>body { width: 1280px; height: 720px; }</style></head><body/></rml>");
     REQUIRE(underlying);
@@ -1453,15 +1493,113 @@ TEST_CASE("RmlUi debugger uses the primary context and routes input without Layo
         return dispatch();
     };
     CHECK(host.process_event(motion, [](Rml::Context*) { return true; }, dispatch_layout));
-    CHECK(primary_dispatches == 1);
+    CHECK(primary_dispatches == 0);
     CHECK(underlying_dispatches == 0);
     REQUIRE(host.set_debugger(false, inspected->GetName()));
     CHECK(inspected->GetDocument("rmlui-debug-hook") == nullptr);
+    SDL_Event runtime_motion = motion;
+    runtime_motion.motion.x = presentation.value().viewport.host_logical_rect.x + 10.0f;
+    runtime_motion.motion.y = presentation.value().viewport.host_logical_rect.y + 10.0f;
     (void)host.process_event(
-        motion, [inspected](Rml::Context* context) { return context == inspected; },
+        runtime_motion, [inspected](Rml::Context* context) { return context == inspected; },
         dispatch_layout);
-    CHECK(primary_dispatches == 1);
+    CHECK(primary_dispatches == 0);
     CHECK(underlying_dispatches == 1);
+
+    SDL_Event runtime_down{};
+    runtime_down.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    runtime_down.button.button = SDL_BUTTON_LEFT;
+    runtime_down.button.x = runtime_motion.motion.x;
+    runtime_down.button.y = runtime_motion.motion.y;
+    (void)host.process_event(
+        runtime_down, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    const int after_runtime_down = underlying_dispatches;
+    SDL_Event outside_motion{};
+    outside_motion.type = SDL_EVENT_MOUSE_MOTION;
+    outside_motion.motion.x = 10.0f;
+    outside_motion.motion.y = 10.0f;
+    (void)host.process_event(
+        outside_motion, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    SDL_Event outside_up{};
+    outside_up.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    outside_up.button.button = SDL_BUTTON_LEFT;
+    outside_up.button.x = 10.0f;
+    outside_up.button.y = 10.0f;
+    (void)host.process_event(
+        outside_up, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    CHECK(underlying_dispatches > after_runtime_down);
+
+    SDL_Event touch_down{};
+    touch_down.type = SDL_EVENT_FINGER_DOWN;
+    touch_down.tfinger.fingerID = 42;
+    touch_down.tfinger.x = runtime_motion.motion.x / 1000.0f;
+    touch_down.tfinger.y = runtime_motion.motion.y / 700.0f;
+    (void)host.process_event(
+        touch_down, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    const int after_touch_down = underlying_dispatches;
+    SDL_Event touch_outside = touch_down;
+    touch_outside.type = SDL_EVENT_FINGER_MOTION;
+    touch_outside.tfinger.x = 0.01f;
+    touch_outside.tfinger.y = 0.01f;
+    (void)host.process_event(
+        touch_outside, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    CHECK(underlying_dispatches == after_touch_down + 1);
+
+    REQUIRE(host.set_debugger(true, inspected->GetName()));
+    host.update_contexts();
+    const auto debugger_position = button->GetAbsoluteOffset(Rml::BoxArea::Border);
+    SDL_Event debugger_touch{};
+    debugger_touch.type = SDL_EVENT_FINGER_DOWN;
+    debugger_touch.tfinger.fingerID = 84;
+    debugger_touch.tfinger.x = (debugger_position.x + 2.0f) / 1000.0f;
+    debugger_touch.tfinger.y = (debugger_position.y + 2.0f) / 700.0f;
+    CHECK(host.process_event(
+        debugger_touch, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout));
+    const int before_debugger_crossing = underlying_dispatches;
+    SDL_Event debugger_touch_move = debugger_touch;
+    debugger_touch_move.type = SDL_EVENT_FINGER_MOTION;
+    debugger_touch_move.tfinger.x = runtime_motion.motion.x / 1000.0f;
+    debugger_touch_move.tfinger.y = runtime_motion.motion.y / 700.0f;
+    (void)host.process_event(
+        debugger_touch_move, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    CHECK(underlying_dispatches == before_debugger_crossing);
+    debugger_touch_move.type = SDL_EVENT_FINGER_UP;
+    (void)host.process_event(
+        debugger_touch_move, [inspected](Rml::Context* context) { return context == inspected; },
+        dispatch_layout);
+    CHECK(underlying_dispatches == before_debugger_crossing);
+
+    menu->SetProperty("pointer-events", "none");
+    host.update_contexts();
+    SDL_Event unclaimed_debugger_touch{};
+    unclaimed_debugger_touch.type = SDL_EVENT_FINGER_DOWN;
+    unclaimed_debugger_touch.tfinger.fingerID = 126;
+    unclaimed_debugger_touch.tfinger.x = 0.99f;
+    unclaimed_debugger_touch.tfinger.y = 0.01f;
+    CHECK_FALSE(host.process_event(
+        unclaimed_debugger_touch,
+        [inspected](Rml::Context* context) { return context == inspected; }, dispatch_layout));
+    unclaimed_debugger_touch.type = SDL_EVENT_FINGER_UP;
+    CHECK_FALSE(host.process_event(
+        unclaimed_debugger_touch,
+        [inspected](Rml::Context* context) { return context == inspected; }, dispatch_layout));
+    unclaimed_debugger_touch.type = SDL_EVENT_FINGER_DOWN;
+    CHECK_FALSE(host.process_event(
+        unclaimed_debugger_touch,
+        [inspected](Rml::Context* context) { return context == inspected; }, dispatch_layout));
+    unclaimed_debugger_touch.type = SDL_EVENT_FINGER_UP;
+    CHECK_FALSE(host.process_event(
+        unclaimed_debugger_touch,
+        [inspected](Rml::Context* context) { return context == inspected; }, dispatch_layout));
+    menu->RemoveProperty("pointer-events");
+
     host.shutdown();
     CHECK_FALSE(host.debugger_snapshot().available);
 }
@@ -1511,7 +1649,7 @@ TEST_CASE("RmlUiHost rejects a secondary context when required context initializ
                              .presentation = presentation.value(),
                              .headless_render = true}));
     REQUIRE(host.primary_context());
-    REQUIRE(host.contexts().size() == 1);
+    REQUIRE(host.contexts().size() == 2);
 
     const noveltea::ui::rmlui::RmlUiHost::ContextKey secondary{
         .plane = noveltea::core::PresentationPlane::MenuOverlay,
@@ -1522,7 +1660,7 @@ TEST_CASE("RmlUiHost rejects a secondary context when required context initializ
     };
     CHECK(host.context_for(secondary) == nullptr);
     CHECK(initializer_calls == 2);
-    CHECK(host.contexts().size() == 1);
+    CHECK(host.contexts().size() == 2);
     CHECK(host.primary_context() != nullptr);
     host.shutdown();
 }
@@ -4040,8 +4178,9 @@ TEST_CASE("RuntimeUI world Hotspot cursors share central arbitration with click-
   #target { display: block; width: 200px; height: 80px; margin: 0; cursor: text; }
 </style></head><body><button id="target">Target</button></body></rml>
 )";
-    noveltea::core::MountedLayoutPolicy policy;
+    noveltea::core::MountedLayoutPolicy policy{};
     policy.plane = noveltea::core::PresentationPlane::MenuOverlay;
+    policy.clock = noveltea::core::LayoutClockDomain::UnscaledPresentation;
     policy.input = noveltea::core::LayoutInputMode::Normal;
     REQUIRE(ui.load_document_from_memory_for_layout("hotspot-clickthrough", clickthrough_document,
                                                     "preview://hotspot-clickthrough.rml", true,
@@ -4071,6 +4210,7 @@ TEST_CASE("RuntimeUI world Hotspot cursors share central arbitration with click-
         });
     REQUIRE(owning_context != devtools_contexts.end());
     CHECK_FALSE(owning_context->name.empty());
+    CHECK(owning_context->label == "Menu Overlay — hotspot-clickthrough + hotspot-owner");
     CHECK_FALSE(owning_context->lifecycle_identity.empty());
     CHECK(owning_context->plane == "menu-overlay");
     CHECK(owning_context->clock == "unscaled-presentation");
@@ -4084,6 +4224,7 @@ TEST_CASE("RuntimeUI world Hotspot cursors share central arbitration with click-
     CHECK(owning_context->requested_ui_scale > 0.0f);
     CHECK(owning_context->ui_raster_scale_x > 0.0f);
     CHECK(owning_context->ui_raster_scale_y > 0.0f);
+    CHECK(owning_context->has_inspectable_documents);
     CHECK(owning_context->recent_event_processed);
     CHECK(owning_context->mouse_interacting);
     REQUIRE(owning_context->hover);

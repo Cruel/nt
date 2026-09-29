@@ -2,9 +2,11 @@
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
+#include <imgui_internal.h>
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <cstdarg>
 #include <cstdio>
 #include <cstring>
@@ -48,6 +50,16 @@ void add_logical_mouse_position(float x, float y, const HostSurfaceMetrics& surf
 DebugUI::DebugUI() = default;
 DebugUI::~DebugUI() { shutdown(); }
 
+void DebugUI::apply_imgui_scale()
+{
+    m_imgui_scale = std::clamp(m_imgui_scale, 0.5f, 2.5f);
+    ImGuiStyle style;
+    ImGui::StyleColorsDark(&style);
+    style.ScaleAllSizes(m_imgui_scale);
+    style.FontScaleMain = m_imgui_scale;
+    ImGui::GetStyle() = style;
+}
+
 bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
 {
     if (m_initialized)
@@ -60,6 +72,43 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
     ImGui::CreateContext();
     ImGuiIO& io = ImGui::GetIO();
     io.ConfigFlags |= ImGuiConfigFlags_NavEnableKeyboard;
+
+    ImGuiSettingsHandler settings_handler;
+    settings_handler.TypeName = "NovelTea";
+    settings_handler.TypeHash = ImHashStr(settings_handler.TypeName);
+    settings_handler.UserData = this;
+    settings_handler.ReadOpenFn = [](ImGuiContext*, ImGuiSettingsHandler* handler,
+                                     const char* name) -> void* {
+        return std::strcmp(name, "DeveloperUI") == 0 ? handler->UserData : nullptr;
+    };
+    settings_handler.ReadLineFn = [](ImGuiContext*, ImGuiSettingsHandler*, void* entry,
+                                     const char* line) {
+        auto* self = static_cast<DebugUI*>(entry);
+        float value = 1.0f;
+        if (std::sscanf(line, "ImGuiScale=%f", &value) == 1) {
+            self->m_imgui_scale = std::clamp(value, 0.5f, 2.5f);
+        } else if (std::sscanf(line, "RmlUiDebuggerScale=%f", &value) == 1) {
+            self->m_rmlui_debugger_scale = std::clamp(value, 0.5f, 2.5f);
+        } else {
+            int enabled = 0;
+            if (std::sscanf(line, "ShowEmptyRmlUiContexts=%d", &enabled) == 1)
+                self->m_show_empty_rmlui_contexts = enabled != 0;
+        }
+    };
+    settings_handler.ApplyAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler) {
+        auto* self = static_cast<DebugUI*>(handler->UserData);
+        self->apply_imgui_scale();
+        self->m_rmlui_debugger_scale_dirty = true;
+    };
+    settings_handler.WriteAllFn = [](ImGuiContext*, ImGuiSettingsHandler* handler,
+                                     ImGuiTextBuffer* output) {
+        const auto* self = static_cast<const DebugUI*>(handler->UserData);
+        output->appendf("[NovelTea][DeveloperUI]\nImGuiScale=%.3f\nRmlUiDebuggerScale=%.3f\n"
+                        "ShowEmptyRmlUiContexts=%d\n\n",
+                        self->m_imgui_scale, self->m_rmlui_debugger_scale,
+                        self->m_show_empty_rmlui_contexts ? 1 : 0);
+    };
+    ImGui::AddSettingsHandler(&settings_handler);
 
 #if defined(SDL_PLATFORM_ANDROID)
     char* pref_path = SDL_GetPrefPath("Cruel", "NovelTea");
@@ -78,13 +127,7 @@ bool DebugUI::initialize(SDL_Window* window, const assets::AssetManager* assets)
     SDL_Log("[debug_ui] ImGui ini path: %s", io.IniFilename);
 #endif
 
-    ImGui::StyleColorsDark();
-#if defined(SDL_PLATFORM_ANDROID)
-    constexpr float android_ui_scale = 1.f;
-    ImGuiStyle& style = ImGui::GetStyle();
-    style.ScaleAllSizes(android_ui_scale);
-    style.FontScaleDpi = android_ui_scale;
-#endif
+    apply_imgui_scale();
 
     if (!ImGui_ImplSDL3_InitForOther(window)) {
         SDL_Log("[debug_ui] ImGui_ImplSDL3_InitForOther failed");
@@ -183,6 +226,10 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
     host::DebugUiFrameOutput output;
     if (!m_initialized)
         return output;
+    if (m_rmlui_debugger_scale_dirty) {
+        output.rmlui_debugger_scale = m_rmlui_debugger_scale;
+        m_rmlui_debugger_scale_dirty = false;
+    }
 
     if (m_visible) {
         if (m_reset_window_rect) {
@@ -203,6 +250,34 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
             if (ImGui::Checkbox("Render Perf Logging", &render_perf_logging)) {
                 output.commands.emplace_back(
                     host::SetRenderPerfLoggingDebugCommand{render_perf_logging});
+            }
+        }
+
+        if (ImGui::CollapsingHeader("Developer UI", ImGuiTreeNodeFlags_DefaultOpen)) {
+            float imgui_percent = m_imgui_scale * 100.0f;
+            if (ImGui::SliderFloat("ImGui scale", &imgui_percent, 50.0f, 250.0f, "%.0f%%",
+                                   ImGuiSliderFlags_AlwaysClamp)) {
+                m_imgui_scale = imgui_percent / 100.0f;
+                apply_imgui_scale();
+                ImGui::MarkIniSettingsDirty();
+            }
+
+            float rmlui_percent = m_rmlui_debugger_scale * 100.0f;
+            if (ImGui::SliderFloat("RmlUi debugger scale", &rmlui_percent, 50.0f, 250.0f, "%.0f%%",
+                                   ImGuiSliderFlags_AlwaysClamp)) {
+                m_rmlui_debugger_scale = rmlui_percent / 100.0f;
+                m_rmlui_debugger_scale_dirty = true;
+                output.rmlui_debugger_scale = m_rmlui_debugger_scale;
+                ImGui::MarkIniSettingsDirty();
+            }
+
+            if (ImGui::Button("Reset UI scales")) {
+                m_imgui_scale = 1.0f;
+                m_rmlui_debugger_scale = 1.0f;
+                apply_imgui_scale();
+                m_rmlui_debugger_scale_dirty = false;
+                output.rmlui_debugger_scale = m_rmlui_debugger_scale;
+                ImGui::MarkIniSettingsDirty();
             }
         }
 
@@ -252,21 +327,52 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
 
         if (ImGui::CollapsingHeader("RmlUi", ImGuiTreeNodeFlags_DefaultOpen)) {
             if (snapshot.rmlui_debugger.available) {
+                const auto context_visible = [&](const auto& context) {
+                    return m_show_empty_rmlui_contexts || context.has_inspectable_documents;
+                };
+                auto selected_context = std::find_if(
+                    snapshot.rmlui.begin(), snapshot.rmlui.end(), [&](const auto& context) {
+                        return context_visible(context) &&
+                               context.name == snapshot.rmlui_debugger.context;
+                    });
+                if (selected_context == snapshot.rmlui.end())
+                    selected_context =
+                        std::find_if(snapshot.rmlui.begin(), snapshot.rmlui.end(), context_visible);
+                const std::string selected_name = selected_context != snapshot.rmlui.end()
+                                                      ? selected_context->name
+                                                      : std::string{};
                 bool visible = snapshot.rmlui_debugger.visible;
-                if (ImGui::Checkbox("RmlUi Debugger", &visible))
-                    output.rmlui_debugger = {visible, snapshot.rmlui_debugger.context};
-                if (ImGui::BeginCombo("Inspect context", snapshot.rmlui_debugger.context.c_str())) {
+                if (ImGui::Checkbox("RmlUi Debugger", &visible) && !selected_name.empty())
+                    output.rmlui_debugger = {visible, selected_name};
+                const char* selected_label = selected_context != snapshot.rmlui.end()
+                                                 ? selected_context->label.c_str()
+                                                 : "No inspectable contexts";
+                if (ImGui::BeginCombo("Inspect context", selected_label)) {
                     for (const auto& context : snapshot.rmlui) {
-                        if (ImGui::Selectable(context.name.c_str(),
-                                              context.name == snapshot.rmlui_debugger.context))
+                        if (!context_visible(context))
+                            continue;
+                        if (ImGui::Selectable(context.label.c_str(), context.name == selected_name))
                             output.rmlui_debugger = {visible, context.name};
                     }
                     ImGui::EndCombo();
                 }
+                if (ImGui::Checkbox("Show empty contexts", &m_show_empty_rmlui_contexts)) {
+                    ImGui::MarkIniSettingsDirty();
+                    if (!m_show_empty_rmlui_contexts && selected_context != snapshot.rmlui.end() &&
+                        !selected_context->has_inspectable_documents) {
+                        const auto fallback = std::find_if(
+                            snapshot.rmlui.begin(), snapshot.rmlui.end(),
+                            [](const auto& context) { return context.has_inspectable_documents; });
+                        if (fallback != snapshot.rmlui.end())
+                            output.rmlui_debugger = {visible, fallback->name};
+                    }
+                }
             }
             for (const auto& context : snapshot.rmlui) {
-                ImGui::BulletText("%s %dx%d%s", context.name.c_str(), context.width, context.height,
-                                  context.mouse_interacting ? " interacting" : "");
+                if (!m_show_empty_rmlui_contexts && !context.has_inspectable_documents)
+                    continue;
+                ImGui::BulletText("%s %dx%d%s", context.label.c_str(), context.width,
+                                  context.height, context.mouse_interacting ? " interacting" : "");
             }
         }
 

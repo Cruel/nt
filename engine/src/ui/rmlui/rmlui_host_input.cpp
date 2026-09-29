@@ -45,33 +45,77 @@ SDL_Event project_pointer_event_to_context(const SDL_Event& event, Vec2 referenc
     return transformed;
 }
 
+SDL_Event project_pointer_event_to_host_context(const SDL_Event& event, Vec2 host_pointer,
+                                                const ResolvedContextMetrics& context) noexcept
+{
+    SDL_Event transformed = event;
+    switch (transformed.type) {
+    case SDL_EVENT_MOUSE_MOTION:
+        transformed.motion.x = host_pointer.x;
+        transformed.motion.y = host_pointer.y;
+        break;
+    case SDL_EVENT_MOUSE_BUTTON_DOWN:
+    case SDL_EVENT_MOUSE_BUTTON_UP:
+        transformed.button.x = host_pointer.x;
+        transformed.button.y = host_pointer.y;
+        break;
+    case SDL_EVENT_MOUSE_WHEEL:
+        transformed.wheel.mouse_x = host_pointer.x;
+        transformed.wheel.mouse_y = host_pointer.y;
+        break;
+    case SDL_EVENT_FINGER_DOWN:
+    case SDL_EVENT_FINGER_UP:
+    case SDL_EVENT_FINGER_MOTION:
+    case SDL_EVENT_FINGER_CANCELED:
+        transformed.tfinger.x = host_pointer.x / static_cast<float>(context.layout_size.width);
+        transformed.tfinger.y = host_pointer.y / static_cast<float>(context.layout_size.height);
+        break;
+    default:
+        break;
+    }
+    return transformed;
+}
+
 bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
                                            const PresentationTransform& transform,
+                                           std::optional<Vec2> host_pointer,
                                            std::optional<Vec2> reference_pointer,
                                            const VisibleDocumentPredicate& has_visible_document,
-                                           const LayoutEventDispatch& dispatch_layout_event)
+                                           const LayoutEventDispatch& dispatch_layout_event,
+                                           bool dispatch_runtime, bool dispatch_debugger)
 {
     const bool updates_cursor =
         event.type == SDL_EVENT_MOUSE_MOTION || event.type == SDL_EVENT_MOUSE_BUTTON_DOWN ||
         event.type == SDL_EVENT_MOUSE_BUTTON_UP || event.type == SDL_EVENT_MOUSE_WHEEL;
+    const bool pointer_position_event = updates_cursor || event.type == SDL_EVENT_FINGER_DOWN ||
+                                        event.type == SDL_EVENT_FINGER_UP ||
+                                        event.type == SDL_EVENT_FINGER_MOTION ||
+                                        event.type == SDL_EVENT_FINGER_CANCELED;
     std::vector<std::uint64_t> cursor_order;
     bool consumed = false;
     for (auto it = m_contexts.rbegin(); it != m_contexts.rend(); ++it) {
         bool debugger_active = false;
 #if NOVELTEA_ENABLE_DEVTOOLS
-        debugger_active = it->context == m_primary_context && debugger_snapshot().visible;
+        debugger_active = it->context == m_debugger_host_context && debugger_snapshot().visible;
 #endif
         if (!it->context || it->key.input == core::LayoutInputMode::None ||
+            (debugger_active && !dispatch_debugger) || (!debugger_active && !dispatch_runtime) ||
             (!debugger_active && has_visible_document && !has_visible_document(it->context)))
             continue;
         if (updates_cursor)
             cursor_order.push_back(it->cursor_source_id);
+        if (pointer_position_event && !debugger_active && !reference_pointer)
+            continue;
         const auto process_context = [&]() {
             set_context_clock(it->key);
             SDL_Event transformed = event;
-            if (reference_pointer)
+            if (debugger_active && host_pointer) {
+                transformed =
+                    project_pointer_event_to_host_context(event, *host_pointer, it->metrics);
+            } else if (reference_pointer) {
                 transformed = project_pointer_event_to_context(event, *reference_pointer, transform,
                                                                it->metrics);
+            }
             Rml::Context* previous_cursor_context = m_active_cursor_context;
             m_active_cursor_context = it->context;
             const bool result = process_sdl_event(*it->context, m_window, transformed);
@@ -79,8 +123,10 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
             return result;
         };
         const bool context_consumed =
-            dispatch_layout_event ? dispatch_layout_event(it->key, it->key.owner, process_context)
-                                  : process_context();
+            debugger_active ? process_context()
+                            : (dispatch_layout_event
+                                   ? dispatch_layout_event(it->key, it->key.owner, process_context)
+                                   : process_context());
 #if NOVELTEA_ENABLE_DEVTOOLS
         it->recent_event_processed = true;
         it->recent_event_consumed = context_consumed;
@@ -110,9 +156,12 @@ bool RmlUiHost::process_event(const SDL_Event& event,
 
     const PresentationTransform transform{m_presentation};
     const auto dispatch = [&](const SDL_Event& routed,
-                              std::optional<Vec2> reference_pointer = std::nullopt) {
-        return dispatch_transformed_event(routed, transform, reference_pointer,
-                                          has_visible_document, dispatch_layout_event);
+                              std::optional<Vec2> host_pointer = std::nullopt,
+                              std::optional<Vec2> reference_pointer = std::nullopt,
+                              bool dispatch_runtime = true, bool dispatch_debugger = true) {
+        return dispatch_transformed_event(routed, transform, host_pointer, reference_pointer,
+                                          has_visible_document, dispatch_layout_event,
+                                          dispatch_runtime, dispatch_debugger);
     };
     const auto project_pointer = [&](Vec2 host_logical) -> std::optional<Vec2> {
         const auto normalized = transform.host_logical_to_normalized_game_viewport(host_logical);
@@ -123,51 +172,85 @@ bool RmlUiHost::process_event(const SDL_Event& event,
 
     switch (event.type) {
     case SDL_EVENT_MOUSE_MOTION: {
-        const auto point = project_pointer({event.motion.x, event.motion.y});
+        const Vec2 host_pointer{event.motion.x, event.motion.y};
+        const auto point = project_pointer(host_pointer);
+        bool leave_consumed = false;
         if (!point) {
             if (m_pointer_inside) {
-                reset_pointer_state();
+                m_pointer_inside = false;
+                m_reference_pointer.reset();
+                resolve_cursor_requests({});
                 SDL_Event leave{};
                 leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
-                return dispatch(leave);
+                leave_consumed = dispatch(leave);
             }
-            return false;
+            return dispatch(event, host_pointer, std::nullopt) || leave_consumed;
         }
         m_pointer_inside = true;
         m_reference_pointer = *point;
-        return dispatch(event, point);
+        if (!m_active_mouse_buttons.empty())
+            m_mouse_capture_reference = *point;
+        return dispatch(event, host_pointer, point);
     }
     case SDL_EVENT_MOUSE_BUTTON_DOWN:
     case SDL_EVENT_MOUSE_BUTTON_UP: {
-        const auto point = project_pointer({event.button.x, event.button.y});
+        const Vec2 host_pointer{event.button.x, event.button.y};
+        const auto point = project_pointer(host_pointer);
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_DOWN && point) {
+            m_active_mouse_buttons.insert(event.button.button);
+            m_mouse_capture_reference = *point;
+        }
         if (!point) {
+            const auto cleanup_reference =
+                m_mouse_capture_reference ? m_mouse_capture_reference : m_reference_pointer;
+            const bool release_consumed = event.type == SDL_EVENT_MOUSE_BUTTON_UP
+                                              ? dispatch(event, host_pointer, cleanup_reference)
+                                              : dispatch(event, host_pointer, std::nullopt);
             if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
-                const bool release_consumed = dispatch(event);
-                reset_pointer_state();
+                m_active_mouse_buttons.erase(event.button.button);
+                if (m_active_mouse_buttons.empty())
+                    m_mouse_capture_reference.reset();
+            }
+            if (m_pointer_inside) {
+                m_pointer_inside = false;
+                m_reference_pointer.reset();
+                resolve_cursor_requests({});
                 SDL_Event leave{};
                 leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
                 return release_consumed || dispatch(leave);
             }
-            return false;
+            return release_consumed;
         }
         m_pointer_inside = true;
         m_reference_pointer = *point;
-        return dispatch(event, point);
+        if (!m_active_mouse_buttons.empty())
+            m_mouse_capture_reference = *point;
+        const bool consumed = dispatch(event, host_pointer, point);
+        if (event.type == SDL_EVENT_MOUSE_BUTTON_UP) {
+            m_active_mouse_buttons.erase(event.button.button);
+            if (m_active_mouse_buttons.empty())
+                m_mouse_capture_reference.reset();
+        }
+        return consumed;
     }
     case SDL_EVENT_MOUSE_WHEEL: {
-        const auto point = project_pointer({event.wheel.mouse_x, event.wheel.mouse_y});
+        const Vec2 host_pointer{event.wheel.mouse_x, event.wheel.mouse_y};
+        const auto point = project_pointer(host_pointer);
+        bool leave_consumed = false;
         if (!point) {
             if (m_pointer_inside) {
-                reset_pointer_state();
+                m_pointer_inside = false;
+                m_reference_pointer.reset();
+                resolve_cursor_requests({});
                 SDL_Event leave{};
                 leave.type = SDL_EVENT_WINDOW_MOUSE_LEAVE;
-                return dispatch(leave);
+                leave_consumed = dispatch(leave);
             }
-            return false;
+            return dispatch(event, host_pointer, std::nullopt) || leave_consumed;
         }
         m_pointer_inside = true;
         m_reference_pointer = *point;
-        return dispatch(event, point);
+        return dispatch(event, host_pointer, point);
     }
     case SDL_EVENT_FINGER_DOWN:
     case SDL_EVENT_FINGER_UP:
@@ -177,24 +260,62 @@ bool RmlUiHost::process_event(const SDL_Event& event,
         const Vec2 host_logical =
             transform.normalized_host_surface_to_host_logical({event.tfinger.x, event.tfinger.y});
         const auto point = project_pointer(host_logical);
-        if (!point) {
-            if (event.type != SDL_EVENT_FINGER_DOWN && m_active_touches.erase(touch_id) > 0) {
-                SDL_Event canceled = event;
-                canceled.type = SDL_EVENT_FINGER_CANCELED;
-                canceled.tfinger.x = 0.0f;
-                canceled.tfinger.y = 0.0f;
-                return dispatch(canceled);
-            }
-            return false;
-        }
+
         if (event.type == SDL_EVENT_FINGER_DOWN) {
-            m_active_touches.insert(touch_id);
-        } else if (!m_active_touches.contains(touch_id)) {
-            return false;
-        } else if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
-            m_active_touches.erase(touch_id);
+            bool debugger_visible = false;
+#if NOVELTEA_ENABLE_DEVTOOLS
+            debugger_visible = debugger_snapshot().visible;
+#endif
+            const bool debugger_consumed = dispatch(event, host_logical, std::nullopt, false, true);
+            if (debugger_visible)
+                m_debugger_observed_touches.insert(touch_id);
+            if (debugger_consumed) {
+                m_debugger_active_touches.insert(touch_id);
+                return true;
+            }
+            if (!point)
+                return false;
+            m_active_touches[touch_id] = *point;
+            return dispatch(event, host_logical, point, true, false);
         }
-        return dispatch(event, point);
+
+        if (m_debugger_active_touches.contains(touch_id)) {
+            const bool consumed = dispatch(event, host_logical, std::nullopt, false, true);
+            if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
+                m_debugger_active_touches.erase(touch_id);
+                m_debugger_observed_touches.erase(touch_id);
+            }
+            return consumed;
+        }
+
+        bool debugger_consumed = false;
+        const bool debugger_observed = m_debugger_observed_touches.contains(touch_id);
+        if (debugger_observed)
+            debugger_consumed = dispatch(event, host_logical, std::nullopt, false, true);
+
+        auto runtime_touch = m_active_touches.find(touch_id);
+        if (runtime_touch == m_active_touches.end()) {
+            if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED)
+                m_debugger_observed_touches.erase(touch_id);
+            return debugger_consumed;
+        }
+        if (!point) {
+            SDL_Event canceled = event;
+            canceled.type = SDL_EVENT_FINGER_CANCELED;
+            const bool runtime_consumed =
+                dispatch(canceled, host_logical, runtime_touch->second, true, false);
+            m_active_touches.erase(runtime_touch);
+            m_debugger_observed_touches.erase(touch_id);
+            return debugger_consumed || runtime_consumed;
+        }
+
+        runtime_touch->second = *point;
+        const bool runtime_consumed = dispatch(event, host_logical, point, true, false);
+        if (event.type == SDL_EVENT_FINGER_UP || event.type == SDL_EVENT_FINGER_CANCELED) {
+            m_active_touches.erase(touch_id);
+            m_debugger_observed_touches.erase(touch_id);
+        }
+        return debugger_consumed || runtime_consumed;
     }
     case SDL_EVENT_WINDOW_MOUSE_LEAVE:
     case SDL_EVENT_WINDOW_FOCUS_LOST:
@@ -212,6 +333,10 @@ void RmlUiHost::reset_pointer_state()
     m_pointer_inside = false;
     m_reference_pointer.reset();
     m_active_touches.clear();
+    m_debugger_observed_touches.clear();
+    m_debugger_active_touches.clear();
+    m_active_mouse_buttons.clear();
+    m_mouse_capture_reference.reset();
     resolve_cursor_requests({});
 }
 
@@ -226,8 +351,9 @@ void RmlUiHost::refresh_pointer_cursor(const VisibleDocumentPredicate& has_visib
     SDL_Event motion{};
     motion.type = SDL_EVENT_MOUSE_MOTION;
     const PresentationTransform transform{m_presentation};
-    (void)dispatch_transformed_event(motion, transform, m_reference_pointer, has_visible_document,
-                                     dispatch_layout_event);
+    const Vec2 host_pointer = transform.reference_to_host_logical(*m_reference_pointer);
+    (void)dispatch_transformed_event(motion, transform, host_pointer, m_reference_pointer,
+                                     has_visible_document, dispatch_layout_event);
 }
 
 bool RmlUiHost::wants_pointer_input() const

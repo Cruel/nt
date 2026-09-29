@@ -3292,6 +3292,11 @@ bool RuntimeUI::set_debugger(const devtools::RmlUiDebuggerCommand& command)
            m_state->host->set_debugger(command.visible, command.context);
 }
 
+bool RuntimeUI::set_debugger_scale(float scale)
+{
+    return m_state && m_state->host && m_state->host->set_debugger_scale(scale);
+}
+
 devtools::RmlUiDebuggerSnapshot RuntimeUI::debugger_snapshot() const
 {
     return m_state && m_state->host ? m_state->host->debugger_snapshot()
@@ -3324,6 +3329,27 @@ std::vector<devtools::DevtoolsRmlUiContextSnapshot> RuntimeUI::devtools_context_
             return "debug";
         }
         return "unknown";
+    };
+    const auto plane_label = [](core::PresentationPlane value) -> const char* {
+        switch (value) {
+        case core::PresentationPlane::WorldBackground:
+            return "World Background";
+        case core::PresentationPlane::WorldContent:
+            return "World Content";
+        case core::PresentationPlane::WorldOverlay:
+            return "World Overlay";
+        case core::PresentationPlane::GameUi:
+            return "Game UI";
+        case core::PresentationPlane::MenuOverlay:
+            return "Menu Overlay";
+        case core::PresentationPlane::Modal:
+            return "Modal";
+        case core::PresentationPlane::Transition:
+            return "Transition";
+        case core::PresentationPlane::Debug:
+            return "Debug";
+        }
+        return "UI";
     };
     const auto input_name = [](core::LayoutInputMode value) -> const char* {
         switch (value) {
@@ -3376,7 +3402,7 @@ std::vector<devtools::DevtoolsRmlUiContextSnapshot> RuntimeUI::devtools_context_
     };
 
     for (const auto& record : m_state->host->contexts()) {
-        if (!record.context)
+        if (!record.context || record.context == m_state->host->debugger_host_context())
             continue;
         const auto dimensions = record.context->GetDimensions();
         const auto& key = record.key;
@@ -3386,7 +3412,47 @@ std::vector<devtools::DevtoolsRmlUiContextSnapshot> RuntimeUI::devtools_context_
             ":" + std::to_string(key.composition_group) + ":" + clock_name(key.clock) + ":" +
             input_name(key.input) + ":" + owner_name(key.owner) + ":" +
             scale_domain_name(key.scale_domain);
+        std::vector<std::string> layout_labels;
+        const auto append_layout_label = [&](std::string label) {
+            if (label.empty() ||
+                std::find(layout_labels.begin(), layout_labels.end(), label) != layout_labels.end())
+                return;
+            layout_labels.push_back(std::move(label));
+        };
+        if (m_state->document_registry) {
+            for (const auto& document_id : m_state->layout_order) {
+                if (m_state->document_registry->document_context(document_id) != record.context)
+                    continue;
+                const auto mounted = m_state->layout_mount_contexts.find(document_id);
+                if (mounted != m_state->layout_mount_contexts.end() &&
+                    !mounted->second.layout_id.empty()) {
+                    append_layout_label(mounted->second.layout_id);
+                } else {
+                    append_layout_label(document_id);
+                }
+            }
+        }
+        std::string label{plane_label(key.plane)};
+        if (!layout_labels.empty()) {
+            label += " — " + layout_labels.front();
+            if (layout_labels.size() == 2) {
+                label += " + " + layout_labels[1];
+            } else if (layout_labels.size() > 2) {
+                label += " + " + std::to_string(layout_labels.size() - 1) + " more";
+            }
+        } else {
+            label += std::string{" — "} + owner_name(key.owner) + " / " + input_name(key.input);
+        }
+        bool has_inspectable_documents = false;
+        for (int index = 0; index < record.context->GetNumDocuments(); ++index) {
+            const auto* document = record.context->GetDocument(index);
+            if (document && !document->GetId().starts_with("rmlui-debug-")) {
+                has_inspectable_documents = true;
+                break;
+            }
+        }
         result.push_back({.name = record.name,
+                          .label = std::move(label),
                           .lifecycle_identity = lifecycle_identity,
                           .plane = plane_name(key.plane),
                           .clock = clock_name(key.clock),
@@ -3406,6 +3472,7 @@ std::vector<devtools::DevtoolsRmlUiContextSnapshot> RuntimeUI::devtools_context_
                           .ui_raster_scale_x = metrics.ui_raster_scale.x,
                           .ui_raster_scale_y = metrics.ui_raster_scale.y,
                           .font_raster_scale = metrics.font_raster_scale,
+                          .has_inspectable_documents = has_inspectable_documents,
                           .mouse_interacting = record.context->IsMouseInteracting(),
                           .recent_event_processed = record.recent_event_processed,
                           .recent_event_consumed = record.recent_event_consumed,
