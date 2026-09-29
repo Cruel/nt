@@ -227,6 +227,7 @@ function materialRendererHarness(
 ) {
   const authority = new AuthoringWebGlGroupRenderer(backend.factory, clock.scheduler);
   const renderer = new MaterialPreviewGroupRenderer(resources, authority, renderSurface);
+  renderer.connect();
   return { authority, backend, clock, renderer };
 }
 
@@ -984,6 +985,7 @@ describe('Material preview workbench-group renderer', () => {
       };
     }, clock.scheduler);
     const renderer = new MaterialPreviewGroupRenderer(resources, authority, vi.fn());
+    renderer.connect();
     const listener = vi.fn();
     renderer.subscribe(listener);
     renderer.registerSurface(surface('panel'));
@@ -1051,6 +1053,7 @@ describe('Material preview workbench-group renderer', () => {
     const clock = manualScheduler();
     const authority = new AuthoringWebGlGroupRenderer(() => null, clock.scheduler);
     const renderer = new MaterialPreviewGroupRenderer(resources, authority, vi.fn());
+    renderer.connect();
     renderer.registerSurface(surface('panel'));
 
     expect(renderer.status).toEqual({

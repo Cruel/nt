@@ -15,11 +15,13 @@ import { MaterialPreviewProjectResources } from '@/material-preview/material-pre
 import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
 import {
   AuthoringWebGlGroupProvider,
+  AuthoringWebGlGroupRendererBridge,
   useAuthoringWebGlGroupRenderer,
 } from '@/authoring-renderer/authoring-webgl-provider';
-import type {
-  AuthoringWebGlBackendFactory,
-  AuthoringWebGlScheduler,
+import {
+  AuthoringWebGlGroupRenderer,
+  type AuthoringWebGlBackendFactory,
+  type AuthoringWebGlScheduler,
 } from '@/authoring-renderer/authoring-webgl-renderer';
 import type {
   WorkbenchGroup as WorkbenchGroupModel,
@@ -194,19 +196,32 @@ describe('Material lightweight previews', () => {
       reset: vi.fn(),
       dispose,
     }));
+    const authority = new AuthoringWebGlGroupRenderer(backendFactory);
+    const authoringSubscriptions = () =>
+      (authority as unknown as { listeners: Set<() => void> }).listeners.size;
 
-    render(
-      <StrictMode>
-        <MaterialPreviewProjectProvider>
-          <MaterialPreviewGroupProvider backendFactory={backendFactory}>
-            <MaterialPreview materialId="panel" />
-          </MaterialPreviewGroupProvider>
-        </MaterialPreviewProjectProvider>
-      </StrictMode>,
-    );
+    try {
+      const { unmount } = render(
+        <StrictMode>
+          <MaterialPreviewProjectProvider>
+            <AuthoringWebGlGroupRendererBridge renderer={authority}>
+              <MaterialPreviewGroupProvider>
+                <MaterialPreview materialId="panel" />
+              </MaterialPreviewGroupProvider>
+            </AuthoringWebGlGroupRendererBridge>
+          </MaterialPreviewProjectProvider>
+        </StrictMode>,
+      );
 
-    await waitFor(() => expect(renderFrame).toHaveBeenCalled());
-    expect(dispose).not.toHaveBeenCalled();
+      await waitFor(() => expect(renderFrame).toHaveBeenCalled());
+      expect(dispose).not.toHaveBeenCalled();
+      expect(authoringSubscriptions()).toBe(1);
+
+      unmount();
+      await waitFor(() => expect(authoringSubscriptions()).toBe(0));
+    } finally {
+      authority.dispose();
+    }
   });
 
   it('does not let IntersectionObserver suppress a full editor preview', async () => {
