@@ -1,5 +1,6 @@
 #include "noveltea/core/flow_executor.hpp"
 
+#include "noveltea/core/layout_policies.hpp"
 #include "noveltea/core/property_resolver.hpp"
 #include "noveltea/core/save_state.hpp"
 
@@ -711,6 +712,23 @@ FlowExecutor::restore_session(const CompiledProject& project, const SaveState& s
                 "save_restore.invalid_room", "Room presentation could not be reconstructed."));
         for (const auto& overlay : definition->overlays) {
             auto mounted = state->set_overlay(project, room, overlay.id, overlay.visible);
+            if (!mounted)
+                return mounted;
+        }
+        for (const auto& placement : definition->placements) {
+            if (!placement.presentation.layout || !placement.presentation.layout_order)
+                continue;
+            auto mounted = state->upsert_mounted_layout(
+                project, DesiredMountedLayout{
+                             RoomPlacementLayoutMountKey{room, placement.id},
+                             RoomPresentationOwner{room},
+                             *placement.presentation.layout,
+                             room_overlay_policy(*placement.presentation.layout_order, true),
+                             {},
+                             PresentationCompositionGroup::World,
+                             std::nullopt,
+                             {},
+                             {}});
             if (!mounted)
                 return mounted;
         }

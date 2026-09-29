@@ -1,10 +1,19 @@
 #include <catch2/catch_approx.hpp>
 #include <catch2/catch_test_macros.hpp>
 
+#include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/flow_executor.hpp"
+#include "noveltea/core/session_state.hpp"
+#include "noveltea/presentation/room_presentation.hpp"
+#include "noveltea/presentation/runtime_presentation.hpp"
+#include "noveltea/runtime/runtime_world.hpp"
 #include "noveltea/world_presentation.hpp"
 
 #include <algorithm>
 #include <bit>
+#include <fstream>
+#include <iterator>
+#include <nlohmann/json.hpp>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -212,6 +221,59 @@ const WorldPresentationDraw* find_draw(const WorldPresentationFrame& frame,
     return found == frame.draws.end() ? nullptr : &*found;
 }
 
+CompiledProject placement_independent_order_project(bool move_lower_occurrence)
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/interaction-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto document = nlohmann::json::parse(source);
+
+    auto& rooms = document["definitions"]["rooms"];
+    auto room = std::find_if(rooms.begin(), rooms.end(),
+                             [](const nlohmann::json& value) { return value["id"] == "start"; });
+    REQUIRE(room != rooms.end());
+    REQUIRE((*room)["interactables"].size() == 1);
+    REQUIRE((*room)["placements"].size() == 1);
+
+    (*room)["interactables"][0]["order"] = 20;
+    (*room)["placements"].push_back(
+        {{"bounds", {{"x", 0.7}, {"y", 0.1}, {"width", 0.15}, {"height", 0.15}}},
+         {"id", "alternate-placement"},
+         {"presentation", {{"label", nullptr}, {"layout", nullptr}, {"layoutOrder", nullptr}}}});
+
+    auto& instances = document["interactableInstances"];
+    const auto original =
+        std::find_if(instances.begin(), instances.end(),
+                     [](const nlohmann::json& value) { return value["id"] == "key"; });
+    REQUIRE(original != instances.end());
+    auto second = *original;
+    second["id"] = "key-2";
+    instances.push_back(std::move(second));
+
+    (*room)["interactables"].push_back(
+        {{"condition", {{"kind", "always"}}},
+         {"id", "key-2"},
+         {"interactable", {{"id", "key-2"}, {"kind", "interactable"}}},
+         {"order", 10},
+         {"placementId", move_lower_occurrence ? "alternate-placement" : "key-placement"},
+         {"visible", true}});
+
+    auto decoded = decode_compiled_project(document, "placement-independent-order.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
+void finish_initial_room_transition(FlowExecutor& executor)
+{
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::BeforeEnter));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::CommitRoomSwitch));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::AfterEnter));
+    REQUIRE(executor.advance_room_transition(RoomTransitionStage::Complete));
+    REQUIRE(executor.complete_room_transition());
+}
+
 } // namespace
 
 TEST_CASE("world background fit policy implements cover contain stretch and center")
@@ -398,6 +460,58 @@ TEST_CASE("world backend interleaves WorldContent families by authored order")
     }
     CHECK(actor_identities == std::vector<std::string>{"character/hero", "room-cast/atrium/guard",
                                                        "scene/7/opening/lead", "scoped/temporary"});
+}
+
+TEST_CASE("world rendering keeps Interactable stacking occurrence-owned across placements")
+{
+    const auto render_interactables = [](const CompiledProject& project) {
+        auto created = SessionState::create(project);
+        REQUIRE(created);
+        auto state = std::move(created).value();
+        FlowExecutor flow(project, state);
+        finish_initial_room_transition(flow);
+        REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+        REQUIRE(state.room_visit());
+
+        runtime::RuntimeWorld world(project, state);
+        RoomPresentationResolver resolver;
+        auto resolution = resolver.resolve(
+            project, world, state, *state.room_visit(),
+            [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+            [](const TextSource&) {
+                return Result<std::string, Diagnostics>::success(std::string{"test"});
+            });
+        REQUIRE(resolution);
+
+        auto snapshot =
+            PresentationProjector::project(project, world, state, &resolution.value().presentation);
+        REQUIRE(snapshot);
+
+        FakeWorldResources resources;
+        resources.add_texture("image-main", 1, 64, 64);
+        WorldPresentationBackend backend(resources);
+        REQUIRE(backend.reconcile(snapshot.value(), {1000.0f, 500.0f}));
+        REQUIRE(backend.frame());
+
+        std::vector<std::pair<std::string, float>> result;
+        for (const auto& draw : backend.frame()->draws) {
+            if (draw.family == WorldDrawFamily::Interactable && draw.sublayer == 0)
+                result.emplace_back(draw.stable_identity, draw.command.rect.x);
+        }
+        return result;
+    };
+
+    const auto shared_placement = render_interactables(placement_independent_order_project(false));
+    REQUIRE(shared_placement.size() == 2);
+    CHECK(shared_placement[0].first == "key-2");
+    CHECK(shared_placement[1].first == "key");
+    CHECK(shared_placement[0].second == Catch::Approx(shared_placement[1].second));
+
+    const auto moved_placement = render_interactables(placement_independent_order_project(true));
+    REQUIRE(moved_placement.size() == 2);
+    CHECK(moved_placement[0].first == "key-2");
+    CHECK(moved_placement[1].first == "key");
+    CHECK(moved_placement[0].second != Catch::Approx(moved_placement[1].second));
 }
 
 TEST_CASE("Interactable Material Application overrides reach the draw command")

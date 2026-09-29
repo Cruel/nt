@@ -213,7 +213,7 @@ bool is_authored_room_layout_default(const CompiledProject& project,
         layout.composition_group != PresentationCompositionGroup::World ||
         layout.policy.plane != PresentationPlane::WorldOverlay ||
         layout.policy.clock != LayoutClockDomain::Gameplay ||
-        layout.policy.input != LayoutInputMode::None ||
+        layout.policy.input != LayoutInputMode::Normal ||
         layout.policy.gameplay_pause != GameplayPausePolicy::Continue ||
         layout.policy.escape_dismissal != EscapeDismissalPolicy::Ignore ||
         layout.policy.entrance_operation || layout.policy.exit_operation)
