@@ -829,6 +829,47 @@ TEST_CASE("Layout Mount bindings and signal connections survive save restore wit
     CHECK(stale.error().front().code == "runtime.stale_layout_signal");
 }
 
+TEST_CASE("authored placement Layout mounts are reconstructed after save restore")
+{
+    const auto project = load_fixture("interaction-program.json");
+    auto state = make_state(project);
+    FlowExecutor flow(project, state);
+    finish_initial_room_transition(flow);
+    REQUIRE(std::holds_alternative<RoomMode>(state.mode()));
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+
+    const auto placement_key =
+        RoomPlacementLayoutMountKey{id<RoomId>("start"), id<RoomPlacementId>("key-placement")};
+    const auto original = std::ranges::find_if(state.mounted_layouts(), [&](const auto& mount) {
+        return mount.key == MountedLayoutPresentationKey{placement_key};
+    });
+    REQUIRE(original != state.mounted_layouts().end());
+    CHECK(original->layout == id<LayoutId>("hud-inline"));
+    CHECK(original->policy.local_order == 1024);
+
+    auto saved = make_save_state(project, state);
+    REQUIRE(saved);
+    CHECK(std::ranges::none_of(saved.value().mounted_layouts, [&](const auto& mount) {
+        return mount.key == MountedLayoutPresentationKey{placement_key};
+    }));
+
+    auto encoded = encode_save_state(project, saved.value());
+    REQUIRE(encoded);
+    auto decoded = decode_save_state(project, encoded.value(), "placement-layout-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    const auto restored_mount =
+        std::ranges::find_if(restored.value().mounted_layouts(), [&](const auto& mount) {
+            return mount.key == MountedLayoutPresentationKey{placement_key};
+        });
+    REQUIRE(restored_mount != restored.value().mounted_layouts().end());
+    CHECK(restored_mount->layout == id<LayoutId>("hud-inline"));
+    CHECK(restored_mount->policy.plane == PresentationPlane::WorldOverlay);
+    CHECK(restored_mount->policy.local_order == 1024);
+    CHECK(restored_mount->composition_group == PresentationCompositionGroup::World);
+}
+
 TEST_CASE("desired presentation save restore remaps Scene and current Room owners and omits shell")
 {
     SECTION("Scene invocation owners remap while shell records are omitted")
@@ -1496,9 +1537,22 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         REQUIRE(restored);
         CHECK(std::holds_alternative<RoomMode>(restored.value().mode()));
         CHECK(restored.value().flow_stack().empty());
-        REQUIRE(restored.value().mounted_layouts().size() == 1);
-        CHECK(restored.value().mounted_layouts().front().policy.visibility ==
-              LayoutVisibility::Visible);
+        REQUIRE(restored.value().mounted_layouts().size() == 2);
+        const auto overlay = std::find_if(
+            restored.value().mounted_layouts().begin(), restored.value().mounted_layouts().end(),
+            [](const DesiredMountedLayout& layout) {
+                return std::holds_alternative<RoomOverlayLayoutMountKey>(layout.key);
+            });
+        const auto placement = std::find_if(
+            restored.value().mounted_layouts().begin(), restored.value().mounted_layouts().end(),
+            [](const DesiredMountedLayout& layout) {
+                return std::holds_alternative<RoomPlacementLayoutMountKey>(layout.key);
+            });
+        REQUIRE(overlay != restored.value().mounted_layouts().end());
+        REQUIRE(placement != restored.value().mounted_layouts().end());
+        CHECK(overlay->policy.visibility == LayoutVisibility::Visible);
+        CHECK(placement->policy.visibility == LayoutVisibility::Visible);
+        CHECK(placement->policy.local_order == 1024);
     }
 
     SECTION("nested Dialogue frame receives fresh ownership and restores its input wait")
