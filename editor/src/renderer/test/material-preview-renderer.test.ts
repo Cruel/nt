@@ -3,17 +3,38 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import {
   MaterialPreviewProjectResources,
+  type MaterialPreviewResource,
   type MaterialPreviewResourceDependencies,
 } from '@/material-preview/material-preview-resources';
 import {
-  createWebGlMaterialPreviewBackend,
   MaterialPreviewGroupRenderer,
   MaterialPreviewShaderProgramError,
-  type MaterialPreviewBackend,
-  type MaterialPreviewBackendFactoryOptions,
-  type MaterialPreviewScheduler,
+  renderMaterialPreviewSurface,
+  type MaterialPreviewSurfaceRenderer,
   type MaterialPreviewSurfaceState,
 } from '@/material-preview/material-preview-renderer';
+import {
+  AuthoringWebGlGroupRenderer,
+  type AuthoringWebGlBackend,
+  type AuthoringWebGlBackendFactoryOptions,
+  type AuthoringWebGlScheduler,
+} from '@/authoring-renderer/authoring-webgl-renderer';
+import { createWebGlAuthoringBackend } from '@/authoring-renderer/authoring-webgl-backend';
+
+function createWebGlMaterialPreviewBackend(options: AuthoringWebGlBackendFactoryOptions) {
+  const backend = createWebGlAuthoringBackend(options);
+  if (!backend) return null;
+  return {
+    render: (
+      nextSurface: MaterialPreviewSurfaceState,
+      resource: MaterialPreviewResource,
+      time: number,
+    ) => renderMaterialPreviewSurface(backend.frame(time), nextSurface, resource),
+    invalidateProjectResources: () => backend.invalidateProjectResources(),
+    reset: () => backend.reset(),
+    dispose: () => backend.dispose(),
+  };
+}
 
 function materialProject(preset: Parameters<typeof defaultMaterialData>[1] = 'engine-2d') {
   const project = createAuthoringProject();
@@ -48,7 +69,7 @@ function surface(materialId: string, visible = true): MaterialPreviewSurfaceStat
 function manualScheduler() {
   let nextId = 1;
   const callbacks = new Map<number, FrameRequestCallback>();
-  const scheduler: MaterialPreviewScheduler = {
+  const scheduler: AuthoringWebGlScheduler = {
     request: vi.fn((callback: FrameRequestCallback) => {
       const id = nextId++;
       callbacks.set(id, callback);
@@ -169,18 +190,18 @@ function fakeBackendFactory() {
     resourcePreview: { geometry: string; background: string };
     time: number;
   }> = [];
-  const backends: MaterialPreviewBackend[] = [];
-  const callbacks: MaterialPreviewBackendFactoryOptions[] = [];
-  const factory = vi.fn((options: MaterialPreviewBackendFactoryOptions): MaterialPreviewBackend => {
+  const backends: AuthoringWebGlBackend[] = [];
+  const callbacks: AuthoringWebGlBackendFactoryOptions[] = [];
+  const frame = {
+    timeSeconds: 0,
+    beginTarget: vi.fn(),
+    drawMaterial: vi.fn(),
+    copyTargetToCanvas: vi.fn(),
+  };
+  const factory = vi.fn((options: AuthoringWebGlBackendFactoryOptions): AuthoringWebGlBackend => {
     callbacks.push(options);
-    const backend: MaterialPreviewBackend = {
-      render: vi.fn((nextSurface, resource, time) =>
-        renders.push({
-          surface: nextSurface,
-          resourcePreview: resource.resolved.preview,
-          time,
-        }),
-      ),
+    const backend: AuthoringWebGlBackend = {
+      frame: vi.fn((timeSeconds) => ({ ...frame, timeSeconds })),
       invalidateProjectResources: vi.fn(),
       reset: vi.fn(),
       dispose: vi.fn(),
@@ -188,7 +209,25 @@ function fakeBackendFactory() {
     backends.push(backend);
     return backend;
   });
-  return { factory, backends, callbacks, renders };
+  const renderSurface: MaterialPreviewSurfaceRenderer = vi.fn((nextFrame, nextSurface, resource) =>
+    renders.push({
+      surface: nextSurface,
+      resourcePreview: resource.resolved.preview,
+      time: nextFrame.timeSeconds,
+    }),
+  );
+  return { factory, backends, callbacks, renders, renderSurface };
+}
+
+function materialRendererHarness(
+  resources: MaterialPreviewProjectResources,
+  backend = fakeBackendFactory(),
+  clock = manualScheduler(),
+  renderSurface: MaterialPreviewSurfaceRenderer = backend.renderSurface,
+) {
+  const authority = new AuthoringWebGlGroupRenderer(backend.factory, clock.scheduler);
+  const renderer = new MaterialPreviewGroupRenderer(resources, authority, renderSurface);
+  return { authority, backend, clock, renderer };
 }
 
 beforeEach(() => {
@@ -769,7 +808,7 @@ describe('Material preview workbench-group renderer', () => {
     await resources.getMaterial('panel');
     const clock = manualScheduler();
     const backend = fakeBackendFactory();
-    const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
+    const { authority, renderer } = materialRendererHarness(resources, backend, clock);
 
     const first = {
       ...surface('panel'),
@@ -794,6 +833,7 @@ describe('Material preview workbench-group renderer', () => {
     expect(backend.renders[1]?.surface.width).toBe(320);
     expect(backend.renders[1]?.surface.pointer.pressed).toBe(true);
     renderer.dispose();
+    authority.dispose();
   });
 
   it('passes effective preview geometry and background metadata to the representative harness', async () => {
@@ -807,7 +847,7 @@ describe('Material preview workbench-group renderer', () => {
     await resources.getMaterial('panel');
     const clock = manualScheduler();
     const backend = fakeBackendFactory();
-    const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
+    const { authority, renderer } = materialRendererHarness(resources, backend, clock);
 
     renderer.registerSurface(surface('panel'));
     await Promise.resolve();
@@ -819,6 +859,7 @@ describe('Material preview workbench-group renderer', () => {
       background: 'light',
     });
     renderer.dispose();
+    authority.dispose();
   });
 
   it('keeps side-by-side groups independent while reusing the same Project resources', async () => {
@@ -828,16 +869,10 @@ describe('Material preview workbench-group renderer', () => {
     const secondBackend = fakeBackendFactory();
     const firstClock = manualScheduler();
     const secondClock = manualScheduler();
-    const first = new MaterialPreviewGroupRenderer(
-      resources,
-      firstBackend.factory,
-      firstClock.scheduler,
-    );
-    const second = new MaterialPreviewGroupRenderer(
-      resources,
-      secondBackend.factory,
-      secondClock.scheduler,
-    );
+    const firstHarness = materialRendererHarness(resources, firstBackend, firstClock);
+    const secondHarness = materialRendererHarness(resources, secondBackend, secondClock);
+    const first = firstHarness.renderer;
+    const second = secondHarness.renderer;
 
     first.registerSurface(surface('panel'));
     second.registerSurface(surface('panel'));
@@ -849,6 +884,8 @@ describe('Material preview workbench-group renderer', () => {
     expect(resources.getMaterial('panel')).toBe(resources.getMaterial('panel'));
     first.dispose();
     second.dispose();
+    firstHarness.authority.dispose();
+    secondHarness.authority.dispose();
   });
 
   it('does not compile or schedule hidden-only surfaces and resumes when one becomes visible', async () => {
@@ -862,7 +899,7 @@ describe('Material preview workbench-group renderer', () => {
     resources.updateProject(project);
     const clock = manualScheduler();
     const backend = fakeBackendFactory();
-    const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
+    const { authority, renderer } = materialRendererHarness(resources, backend, clock);
     const registration = renderer.registerSurface(surface('panel', false));
     await Promise.resolve();
     await Promise.resolve();
@@ -873,6 +910,7 @@ describe('Material preview workbench-group renderer', () => {
     expect(clock.pending).toBe(1);
     await vi.waitFor(() => expect(compileShaders).toHaveBeenCalledTimes(1));
     renderer.dispose();
+    authority.dispose();
   });
 
   it('keeps shader failure state isolated per preview surface', async () => {
@@ -880,16 +918,17 @@ describe('Material preview workbench-group renderer', () => {
     resources.updateProject(materialProject());
     await resources.getMaterial('panel');
     const clock = manualScheduler();
-    const backend: MaterialPreviewBackend = {
-      render: vi.fn((nextSurface) => {
-        if (nextSurface.width === 160)
-          throw new MaterialPreviewShaderProgramError(true, 'panel compile failed');
-      }),
-      invalidateProjectResources: vi.fn(),
-      reset: vi.fn(),
-      dispose: vi.fn(),
-    };
-    const renderer = new MaterialPreviewGroupRenderer(resources, () => backend, clock.scheduler);
+    const backend = fakeBackendFactory();
+    const renderSurface: MaterialPreviewSurfaceRenderer = vi.fn((_frame, nextSurface) => {
+      if (nextSurface.width === 160)
+        throw new MaterialPreviewShaderProgramError(true, 'panel compile failed');
+    });
+    const { authority, renderer } = materialRendererHarness(
+      resources,
+      backend,
+      clock,
+      renderSurface,
+    );
     const firstStatus = vi.fn();
     const secondStatus = vi.fn();
     renderer.registerSurface({ ...surface('panel'), onShaderProgramStatus: firstStatus });
@@ -906,6 +945,7 @@ describe('Material preview workbench-group renderer', () => {
     expect(secondStatus).toHaveBeenCalledWith({ stale: false, message: null });
     expect(renderer.status).toEqual({ available: true, code: null, message: null });
     renderer.dispose();
+    authority.dispose();
   });
 
   it('invalidates Project GPU resources without clearing retained shader programs', () => {
@@ -913,7 +953,7 @@ describe('Material preview workbench-group renderer', () => {
     resources.updateProject(materialProject());
     const clock = manualScheduler();
     const backend = fakeBackendFactory();
-    const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
+    const { authority, renderer } = materialRendererHarness(resources, backend, clock);
     renderer.registerSurface(surface('panel'));
 
     renderer.invalidateProjectResources();
@@ -921,6 +961,7 @@ describe('Material preview workbench-group renderer', () => {
     expect(backend.backends[0]?.invalidateProjectResources).toHaveBeenCalledTimes(1);
     expect(backend.backends[0]?.reset).not.toHaveBeenCalled();
     renderer.dispose();
+    authority.dispose();
   });
 
   it('does not publish context-loss status when disposal intentionally releases WebGL', () => {
@@ -928,24 +969,27 @@ describe('Material preview workbench-group renderer', () => {
     resources.updateProject(materialProject());
     const clock = manualScheduler();
     let onContextLost: (() => void) | null = null;
-    const renderer = new MaterialPreviewGroupRenderer(
-      resources,
-      (options) => {
-        onContextLost = options.onContextLost;
-        return {
-          render: vi.fn(),
-          invalidateProjectResources: vi.fn(),
-          reset: vi.fn(),
-          dispose: vi.fn(() => onContextLost?.()),
-        };
-      },
-      clock.scheduler,
-    );
+    const authority = new AuthoringWebGlGroupRenderer((options) => {
+      onContextLost = options.onContextLost;
+      return {
+        frame: vi.fn(() => ({
+          timeSeconds: 0,
+          beginTarget: vi.fn(),
+          drawMaterial: vi.fn(),
+          copyTargetToCanvas: vi.fn(),
+        })),
+        invalidateProjectResources: vi.fn(),
+        reset: vi.fn(),
+        dispose: vi.fn(() => onContextLost?.()),
+      };
+    }, clock.scheduler);
+    const renderer = new MaterialPreviewGroupRenderer(resources, authority, vi.fn());
     const listener = vi.fn();
     renderer.subscribe(listener);
     renderer.registerSurface(surface('panel'));
 
     renderer.dispose();
+    authority.dispose();
 
     expect(renderer.status).toEqual({ available: true, code: null, message: null });
     expect(listener).not.toHaveBeenCalled();
@@ -956,7 +1000,7 @@ describe('Material preview workbench-group renderer', () => {
     resources.updateProject(materialProject());
     const clock = manualScheduler();
     const backend = fakeBackendFactory();
-    const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
+    const { authority, renderer } = materialRendererHarness(resources, backend, clock);
     const listener = vi.fn();
     renderer.subscribe(listener);
     renderer.registerSurface(surface('panel'));
@@ -973,6 +1017,7 @@ describe('Material preview workbench-group renderer', () => {
     expect(backend.backends[0]?.reset).toHaveBeenCalledTimes(1);
     expect(listener).toHaveBeenCalledTimes(2);
     renderer.dispose();
+    authority.dispose();
   });
 
   it('keeps one renderer and one scheduled frame for a representative many-preview workload', async () => {
@@ -981,7 +1026,7 @@ describe('Material preview workbench-group renderer', () => {
     await resources.getMaterial('panel');
     const clock = manualScheduler();
     const backend = fakeBackendFactory();
-    const renderer = new MaterialPreviewGroupRenderer(resources, backend.factory, clock.scheduler);
+    const { authority, renderer } = materialRendererHarness(resources, backend, clock);
 
     for (let index = 0; index < 64; index += 1) {
       const next = surface('panel');
@@ -997,13 +1042,15 @@ describe('Material preview workbench-group renderer', () => {
     expect(backend.renders).toHaveLength(64);
     expect(clock.pending).toBe(1);
     renderer.dispose();
+    authority.dispose();
   });
 
   it('reports stable WebGL2 unavailability without scheduling any preview work', () => {
     const resources = createResources();
     resources.updateProject(materialProject());
     const clock = manualScheduler();
-    const renderer = new MaterialPreviewGroupRenderer(resources, () => null, clock.scheduler);
+    const authority = new AuthoringWebGlGroupRenderer(() => null, clock.scheduler);
+    const renderer = new MaterialPreviewGroupRenderer(resources, authority, vi.fn());
     renderer.registerSurface(surface('panel'));
 
     expect(renderer.status).toEqual({
@@ -1013,5 +1060,6 @@ describe('Material preview workbench-group renderer', () => {
     });
     expect(clock.pending).toBe(0);
     renderer.dispose();
+    authority.dispose();
   });
 });

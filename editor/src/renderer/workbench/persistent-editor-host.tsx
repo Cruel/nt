@@ -18,6 +18,7 @@ import {
   selectWorkbenchTabGroupId,
 } from './persistent-editor-selectors';
 import {
+  WorkbenchGroupAuthoringWebGlRendererBridge,
   WorkbenchGroupMaterialPreviewRendererBridge,
   WorkbenchGroupPreviewHostPoolBridge,
 } from './workbench-group-services';
@@ -524,13 +525,19 @@ function PersistentEditorHost({ tab }: { tab: WorkbenchTab }) {
     </WorkbenchGroupMaterialPreviewRendererBridge>
   );
 
+  const authoringBridgedEditorPane = (
+    <WorkbenchGroupAuthoringWebGlRendererBridge groupId={groupId}>
+      {materialBridgedEditorPane}
+    </WorkbenchGroupAuthoringWebGlRendererBridge>
+  );
+
   if (resolved.policies.previewHostPolicy !== 'pooled-per-tab-group') {
-    return materialBridgedEditorPane;
+    return authoringBridgedEditorPane;
   }
 
   return (
     <WorkbenchGroupPreviewHostPoolBridge groupId={groupId}>
-      {materialBridgedEditorPane}
+      {authoringBridgedEditorPane}
     </WorkbenchGroupPreviewHostPoolBridge>
   );
 }

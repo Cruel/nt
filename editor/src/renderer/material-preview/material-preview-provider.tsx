@@ -11,6 +11,13 @@ import {
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useProjectStore } from '@/project/project-store';
 import { useShaderCompileStore } from '@/shaders/shader-compile-store';
+import { createWebGlAuthoringBackend } from '@/authoring-renderer/authoring-webgl-backend';
+import { useOptionalAuthoringWebGlGroupRenderer } from '@/authoring-renderer/authoring-webgl-provider';
+import {
+  AuthoringWebGlGroupRenderer,
+  type AuthoringWebGlBackendFactory,
+  type AuthoringWebGlScheduler,
+} from '@/authoring-renderer/authoring-webgl-renderer';
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   MaterialPreviewProjectResources,
@@ -19,9 +26,7 @@ import {
 } from './material-preview-resources';
 import {
   MaterialPreviewGroupRenderer,
-  type MaterialPreviewBackendFactory,
   type MaterialPreviewGroupRendererStatus,
-  type MaterialPreviewScheduler,
 } from './material-preview-renderer';
 
 interface MaterialPreviewProjectContextValue {
@@ -140,15 +145,26 @@ export function MaterialPreviewGroupProvider({
   scheduler,
 }: {
   children: ReactNode;
-  backendFactory?: MaterialPreviewBackendFactory;
-  scheduler?: MaterialPreviewScheduler;
+  backendFactory?: AuthoringWebGlBackendFactory;
+  scheduler?: AuthoringWebGlScheduler;
 }) {
   const { resources, generation, scopeKey } = useMaterialPreviewProjectContext();
+  const inheritedAuthoringRenderer = useOptionalAuthoringWebGlGroupRenderer();
+  const ownedAuthoringRenderer = useMemo(() => {
+    if (inheritedAuthoringRenderer) return null;
+    void scopeKey;
+    return new AuthoringWebGlGroupRenderer(
+      backendFactory ?? createWebGlAuthoringBackend,
+      scheduler,
+    );
+  }, [backendFactory, inheritedAuthoringRenderer, scheduler, scopeKey]);
+  const authoringRenderer = inheritedAuthoringRenderer ?? ownedAuthoringRenderer!;
   const renderer = useMemo(() => {
     void scopeKey;
-    return new MaterialPreviewGroupRenderer(resources, backendFactory, scheduler);
-  }, [backendFactory, resources, scheduler, scopeKey]);
+    return new MaterialPreviewGroupRenderer(resources, authoringRenderer);
+  }, [authoringRenderer, resources, scopeKey]);
   const disposalTokensRef = useRef(new WeakMap<MaterialPreviewGroupRenderer, object>());
+  const authorityDisposalTokensRef = useRef(new WeakMap<AuthoringWebGlGroupRenderer, object>());
   useEffect(() => {
     renderer.invalidateProjectResources();
   }, [generation, renderer]);
@@ -164,6 +180,19 @@ export function MaterialPreviewGroupProvider({
       });
     };
   }, [renderer]);
+  useEffect(() => {
+    if (!ownedAuthoringRenderer) return undefined;
+    const token = {};
+    const disposalTokens = authorityDisposalTokensRef.current;
+    disposalTokens.set(ownedAuthoringRenderer, token);
+    return () => {
+      queueMicrotask(() => {
+        if (disposalTokens.get(ownedAuthoringRenderer) !== token) return;
+        disposalTokens.delete(ownedAuthoringRenderer);
+        ownedAuthoringRenderer.dispose();
+      });
+    };
+  }, [ownedAuthoringRenderer]);
   return <GroupRendererContext.Provider value={renderer}>{children}</GroupRendererContext.Provider>;
 }
 

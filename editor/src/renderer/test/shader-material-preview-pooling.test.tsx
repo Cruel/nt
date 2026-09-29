@@ -1,4 +1,4 @@
-import { StrictMode } from 'react';
+import { StrictMode, useEffect } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
@@ -13,7 +13,14 @@ import {
 import { MaterialPreview } from '@/material-preview/MaterialPreview';
 import { MaterialPreviewProjectResources } from '@/material-preview/material-preview-resources';
 import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
-import type { MaterialPreviewBackendFactory } from '@/material-preview/material-preview-renderer';
+import {
+  AuthoringWebGlGroupProvider,
+  useAuthoringWebGlGroupRenderer,
+} from '@/authoring-renderer/authoring-webgl-provider';
+import type {
+  AuthoringWebGlBackendFactory,
+  AuthoringWebGlScheduler,
+} from '@/authoring-renderer/authoring-webgl-renderer';
 import type {
   WorkbenchGroup as WorkbenchGroupModel,
   WorkbenchTab,
@@ -41,6 +48,41 @@ const materialTab: WorkbenchTab = {
 
 const noWebGlBackend = () => null;
 
+function manualScheduler() {
+  let nextId = 1;
+  const callbacks = new Map<number, FrameRequestCallback>();
+  const scheduler: AuthoringWebGlScheduler = {
+    request: vi.fn((callback) => {
+      const id = nextId++;
+      callbacks.set(id, callback);
+      return id;
+    }),
+    cancel: vi.fn((id) => callbacks.delete(id)),
+  };
+  return {
+    scheduler,
+    flush(timestamp = 1000) {
+      const pending = [...callbacks.values()];
+      callbacks.clear();
+      for (const callback of pending) callback(timestamp);
+    },
+  };
+}
+
+function SecondaryAuthoringConsumer({ renderFrame }: { renderFrame: () => void }) {
+  const renderer = useAuthoringWebGlGroupRenderer();
+  useEffect(() => {
+    const registration = renderer.registerSceneWork({
+      order: 0,
+      visible: true,
+      render: renderFrame,
+      onError: vi.fn(),
+    });
+    return registration.unregister;
+  }, [renderFrame, renderer]);
+  return null;
+}
+
 const nonPreviewTab: WorkbenchTab = {
   id: 'tab:non-preview',
   title: 'Non Preview',
@@ -54,7 +96,7 @@ function group(activeTabId: string | null): WorkbenchGroupModel {
 
 function renderGroup(
   model: WorkbenchGroupModel,
-  backendFactory: MaterialPreviewBackendFactory = noWebGlBackend,
+  backendFactory: AuthoringWebGlBackendFactory = noWebGlBackend,
 ) {
   return render(
     <MaterialPreviewProjectProvider>
@@ -70,7 +112,7 @@ function renderGroup(
 function rerenderGroup(
   view: ReturnType<typeof render>,
   model: WorkbenchGroupModel,
-  backendFactory: MaterialPreviewBackendFactory = noWebGlBackend,
+  backendFactory: AuthoringWebGlBackendFactory = noWebGlBackend,
 ) {
   view.rerender(
     <MaterialPreviewProjectProvider>
@@ -103,11 +145,51 @@ beforeEach(() => {
 });
 
 describe('Material lightweight previews', () => {
+  it('shares one group GPU authority with a second authoring scene consumer', async () => {
+    const clock = manualScheduler();
+    const renderScene = vi.fn();
+    const drawMaterial = vi.fn();
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
+      frame: vi.fn((timeSeconds) => ({
+        timeSeconds,
+        beginTarget: vi.fn(),
+        drawMaterial,
+        copyTargetToCanvas: vi.fn(),
+      })),
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+    }));
+
+    render(
+      <MaterialPreviewProjectProvider>
+        <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+          <MaterialPreviewGroupProvider>
+            <MaterialPreview materialId="panel" />
+            <SecondaryAuthoringConsumer renderFrame={renderScene} />
+          </MaterialPreviewGroupProvider>
+        </AuthoringWebGlGroupProvider>
+      </MaterialPreviewProjectProvider>,
+    );
+
+    await waitFor(() => expect(backendFactory).toHaveBeenCalledTimes(1));
+    await waitFor(() => {
+      act(() => clock.flush(2500));
+      expect(renderScene).toHaveBeenCalled();
+    });
+    expect(backendFactory).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps the group renderer alive through React StrictMode effect replay', async () => {
     const renderFrame = vi.fn();
     const dispose = vi.fn();
-    const backendFactory: MaterialPreviewBackendFactory = vi.fn(() => ({
-      render: renderFrame,
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
+      frame: vi.fn((timeSeconds) => ({
+        timeSeconds,
+        beginTarget: vi.fn(),
+        drawMaterial: renderFrame,
+        copyTargetToCanvas: vi.fn(),
+      })),
       invalidateProjectResources: vi.fn(),
       reset: vi.fn(),
       dispose,
@@ -239,11 +321,16 @@ describe('Material lightweight previews', () => {
 
   it('recreates the group renderer when the active Project session changes', async () => {
     const disposals: Array<ReturnType<typeof vi.fn>> = [];
-    const backendFactory: MaterialPreviewBackendFactory = vi.fn(() => {
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => {
       const dispose = vi.fn();
       disposals.push(dispose);
       return {
-        render: vi.fn(),
+        frame: vi.fn((timeSeconds) => ({
+          timeSeconds,
+          beginTarget: vi.fn(),
+          drawMaterial: vi.fn(),
+          copyTargetToCanvas: vi.fn(),
+        })),
         invalidateProjectResources: vi.fn(),
         reset: vi.fn(),
         dispose,

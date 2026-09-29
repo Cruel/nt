@@ -1,6 +1,7 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import { Group, Panel } from 'react-resizable-panels';
 import { PanelResizeSeparator } from '@/components/resize-separator';
+import { AuthoringWebGlGroupProvider } from '@/authoring-renderer/authoring-webgl-provider';
 import {
   MaterialPreviewGroupProvider,
   MaterialPreviewProjectProvider,
@@ -87,9 +88,11 @@ function WorkbenchLayoutRenderer({
       .map((tabId) => tabsById[tabId])
       .filter((tab): tab is NonNullable<typeof tab> => Boolean(tab));
     return (
-      <MaterialPreviewGroupProvider>
-        <WorkbenchGroup group={group} tabs={tabs} />
-      </MaterialPreviewGroupProvider>
+      <AuthoringWebGlGroupProvider>
+        <MaterialPreviewGroupProvider>
+          <WorkbenchGroup group={group} tabs={tabs} />
+        </MaterialPreviewGroupProvider>
+      </AuthoringWebGlGroupProvider>
     );
   }
 

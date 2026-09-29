@@ -82,6 +82,8 @@ vi.mock('@/workbench/default-editors', async () => {
   const { DerivedPreviewPane } = await import('@/preview/DerivedPreviewPane');
   const { useMaterialPreviewGroupRenderer } =
     await import('@/material-preview/material-preview-provider');
+  const { useAuthoringWebGlGroupRenderer } =
+    await import('@/authoring-renderer/authoring-webgl-provider');
 
   function PooledPersistentEditor({ tab }: { tab: WorkbenchTab }) {
     React.useEffect(() => {
@@ -134,6 +136,7 @@ vi.mock('@/workbench/default-editors', async () => {
   }
 
   function PersistentMaterialPreviewEditor() {
+    useAuthoringWebGlGroupRenderer();
     useMaterialPreviewGroupRenderer();
     return <div data-testid="persistent-material-preview-editor">Material preview editor</div>;
   }
