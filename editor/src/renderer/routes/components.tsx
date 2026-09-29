@@ -114,7 +114,16 @@ export function ComponentsPage() {
 
             <div className="grid gap-2">
               <Label htmlFor="demo-select">Choose an option</Label>
-              <Select value={selectValue} onValueChange={(value) => setSelectValue(String(value))}>
+              <Select
+                items={[
+                  { value: 'apple', label: 'Apple' },
+                  { value: 'banana', label: 'Banana' },
+                  { value: 'cherry', label: 'Cherry' },
+                  { value: 'date', label: 'Date (disabled)' },
+                ]}
+                value={selectValue || null}
+                onValueChange={(value) => setSelectValue(value ?? '')}
+              >
                 <SelectTrigger id="demo-select" className="w-52">
                   <SelectValue placeholder="Choose fruit" />
                 </SelectTrigger>

@@ -620,6 +620,12 @@ function PredictionView() {
             <div className="space-y-2 rounded border p-2">
               <div className="grid gap-2 @xl:grid-cols-2">
                 <Select
+                  items={(['asset', 'scene', 'dialogue', 'room', 'layout'] as const).map(
+                    (kind) => ({
+                      value: kind,
+                      label: t(`assetProfiler.prediction.targetKinds.${kind}`),
+                    }),
+                  )}
                   value={targetKind}
                   onValueChange={(value) => {
                     setTargetKind(String(value) as PrefetchTargetKind);
@@ -637,7 +643,11 @@ function PredictionView() {
                     ))}
                   </SelectContent>
                 </Select>
-                <Select value={targetId} onValueChange={(value) => setTargetId(String(value))}>
+                <Select
+                  items={targetRecords.map((record) => ({ value: record.id, label: record.label }))}
+                  value={targetId || null}
+                  onValueChange={(value) => setTargetId(value ?? '')}
+                >
                   <SelectTrigger aria-label={t('assetProfiler.prediction.targetRecord')}>
                     <SelectValue placeholder={t('assetProfiler.prediction.selectTarget')} />
                   </SelectTrigger>
@@ -652,7 +662,11 @@ function PredictionView() {
               </div>
 
               <div className="flex flex-wrap items-center gap-2">
-                <Select value={roomId} onValueChange={(value) => setRoomId(String(value))}>
+                <Select
+                  items={rooms.map((room) => ({ value: room.id, label: room.label }))}
+                  value={roomId || null}
+                  onValueChange={(value) => setRoomId(value ?? '')}
+                >
                   <SelectTrigger
                     className="min-w-44"
                     aria-label={t('assetProfiler.prediction.room')}
@@ -668,6 +682,10 @@ function PredictionView() {
                   </SelectContent>
                 </Select>
                 <Select
+                  items={[
+                    { value: 'entry-path', label: t('assetProfiler.prediction.entryPath') },
+                    { value: 'resident', label: t('assetProfiler.prediction.whileInRoom') },
+                  ]}
                   value={roomScope}
                   onValueChange={(value) => setRoomScope(String(value) as typeof roomScope)}
                 >
@@ -861,9 +879,16 @@ function IssuesView() {
           placeholder={t('assetProfiler.issues.search')}
           aria-label={t('assetProfiler.issues.search')}
         />
-        <Select value={type} onValueChange={(value) => setType(String(value))}>
+        <Select
+          items={issueTypes.map((value) => ({
+            value,
+            label: t(`assetProfiler.issues.types.${value}`),
+          }))}
+          value={type as 'all' | AssetProfilerIssueType}
+          onValueChange={(value) => setType(value as 'all' | AssetProfilerIssueType)}
+        >
           <SelectTrigger className="h-8 min-w-48" aria-label={t('assetProfiler.issues.filter')}>
-            <SelectValue>{t(`assetProfiler.issues.types.${type}`)}</SelectValue>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {issueTypes.map((value) => (
@@ -1124,12 +1149,19 @@ function AssetsView() {
           placeholder={t('assetProfiler.assets.search')}
           aria-label={t('assetProfiler.assets.search')}
         />
-        <Select value={state} onValueChange={(value) => setState(String(value))}>
+        <Select
+          items={stateFilters.map((value) => ({
+            value,
+            label: t(`assetProfiler.assets.states.${value}`),
+          }))}
+          value={state as AssetProfilerAssetStateFilter}
+          onValueChange={(value) => setState(value as AssetProfilerAssetStateFilter)}
+        >
           <SelectTrigger
             className="h-8 min-w-44"
             aria-label={t('assetProfiler.assets.stateFilter')}
           >
-            <SelectValue>{t(`assetProfiler.assets.states.${state}`)}</SelectValue>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {stateFilters.map((value) => (
@@ -1139,13 +1171,19 @@ function AssetsView() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={type} onValueChange={(value) => setType(String(value))}>
-          <SelectTrigger className="h-8 min-w-36" aria-label={t('assetProfiler.assets.typeFilter')}>
-            <SelectValue>
-              {type === 'all'
+        <Select
+          items={typeFilters.map((value) => ({
+            value,
+            label:
+              value === 'all'
                 ? t('assetProfiler.assets.types.all')
-                : t(`assetProfiler.assetTypes.${type}`)}
-            </SelectValue>
+                : t(`assetProfiler.assetTypes.${value}`),
+          }))}
+          value={type as AssetProfilerAssetTypeFilter}
+          onValueChange={(value) => setType(value as AssetProfilerAssetTypeFilter)}
+        >
+          <SelectTrigger className="h-8 min-w-36" aria-label={t('assetProfiler.assets.typeFilter')}>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {typeFilters.map((value) => (
@@ -1157,9 +1195,16 @@ function AssetsView() {
             ))}
           </SelectContent>
         </Select>
-        <Select value={sort} onValueChange={(value) => setSort(String(value))}>
+        <Select
+          items={sorts.map((value) => ({
+            value,
+            label: t(`assetProfiler.assets.sorts.${value}`),
+          }))}
+          value={sort as AssetProfilerAssetSort}
+          onValueChange={(value) => setSort(value as AssetProfilerAssetSort)}
+        >
           <SelectTrigger className="h-8 min-w-44" aria-label={t('assetProfiler.assets.sortLabel')}>
-            <SelectValue>{t(`assetProfiler.assets.sorts.${sort}`)}</SelectValue>
+            <SelectValue />
           </SelectTrigger>
           <SelectContent>
             {sorts.map((value) => (

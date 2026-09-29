@@ -305,18 +305,16 @@ function TextContentEditor({
       : value.source.kind === 'localized'
         ? value.source.key
         : value.source.source;
-  const sourceKindLabel =
-    value.source.kind === 'localized'
-      ? 'Localized key'
-      : value.source.kind === 'lua-expression'
-        ? 'Lua string'
-        : 'Inline';
-  const markupLabel = value.markup === 'active-text' ? 'ActiveText' : 'Plain';
   return (
     <div className="space-y-2">
       <div className="grid min-w-0 gap-2 @3xl:grid-cols-[9rem_minmax(0,1fr)]">
         <div className="grid gap-2">
           <Select
+            items={[
+              { value: 'inline', label: 'Inline' },
+              { value: 'localized', label: 'Localized key' },
+              { value: 'lua-expression', label: 'Lua string' },
+            ]}
             value={value.source.kind}
             onValueChange={(kind) => {
               const source =
@@ -333,7 +331,7 @@ function TextContentEditor({
             }}
           >
             <SelectTrigger className="w-full">
-              <SelectValue>{sourceKindLabel}</SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="inline">Inline</SelectItem>
@@ -342,13 +340,17 @@ function TextContentEditor({
             </SelectContent>
           </Select>
           <Select
+            items={[
+              { value: 'active-text', label: 'ActiveText' },
+              { value: 'plain', label: 'Plain' },
+            ]}
             value={value.markup}
             onValueChange={(markup) =>
               onChange({ ...value, markup: markup as TextContent['markup'] })
             }
           >
             <SelectTrigger className="w-full">
-              <SelectValue>{markupLabel}</SelectValue>
+              <SelectValue />
             </SelectTrigger>
             <SelectContent>
               <SelectItem value="active-text">ActiveText</SelectItem>
@@ -1723,6 +1725,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                                 <div className="flex min-w-0 items-center gap-1.5">
                                   <Label className="shrink-0 text-[11px]">Style</Label>
                                   <Select
+                                    items={[
+                                      { value: 'cut', label: 'Cut' },
+                                      { value: 'fade', label: 'Fade' },
+                                      { value: 'dissolve', label: 'Dissolve' },
+                                    ]}
                                     value={exit.transition.kind}
                                     onValueChange={(value) =>
                                       replaceExit(exit.id, {
@@ -1734,10 +1741,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                                     }
                                   >
                                     <SelectTrigger size="sm" aria-label="Transition style">
-                                      <SelectValue>
-                                        {exit.transition.kind.charAt(0).toUpperCase() +
-                                          exit.transition.kind.slice(1)}
-                                      </SelectValue>
+                                      <SelectValue />
                                     </SelectTrigger>
                                     <SelectContent>
                                       <SelectItem value="cut">Cut</SelectItem>
@@ -1902,13 +1906,20 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 <div className="space-y-1.5">
                   <Label>Edge policy</Label>
                   <Select
+                    items={[
+                      { value: 'contain', label: 'Contain' },
+                      { value: 'overscan', label: 'Overscan' },
+                    ]}
                     value={data.presentationSpace.edgePolicy}
                     onValueChange={(edgePolicy) => {
                       if (!edgePolicy) return;
                       commit(
                         {
                           ...data,
-                          presentationSpace: { ...data.presentationSpace, edgePolicy },
+                          presentationSpace: {
+                            ...data.presentationSpace,
+                            edgePolicy: edgePolicy as 'contain' | 'overscan',
+                          },
                         },
                         'Update camera edge policy',
                       );
@@ -2282,14 +2293,19 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-2">
                 <span className="text-xs font-medium">Fallback Interactable placement</span>
                 <Select
-                  value={data.fallbackInteractablePlacementId ?? '__none__'}
+                  items={data.placements.map((placement) => ({
+                    value: placement.id,
+                    label: placement.id,
+                  }))}
+                  placeholderItem="No fallback placement"
+                  value={data.fallbackInteractablePlacementId}
                   onValueChange={(placementId) =>
                     useCommandStore.getState().executeCommand({
                       type: 'room.setFallbackInteractablePlacement',
                       label: 'Set fallback Interactable placement',
                       payload: {
                         roomId,
-                        placementId: placementId === '__none__' ? null : placementId,
+                        placementId,
                       },
                       originSaveUnitId: recordSaveUnitId('rooms', roomId),
                       persistencePolicy: 'manual-save',
@@ -2300,7 +2316,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     <SelectValue placeholder="No fallback placement" />
                   </SelectTrigger>
                   <SelectContent>
-                    <SelectItem value="__none__">No fallback placement</SelectItem>
                     {data.placements.map((placement) => (
                       <SelectItem key={placement.id} value={placement.id}>
                         {placement.id}
@@ -2401,7 +2416,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           {t('roomComposition.detach')}
                         </Button>
                         <Select
-                          value={activePlacementId ?? undefined}
+                          items={data.placements.map((placement) => ({
+                            value: placement.id,
+                            label: placement.id,
+                          }))}
+                          value={activePlacementId}
                           onValueChange={(placementId) => {
                             if (placementId)
                               moveInteractableToPlacement(interactable.id, placementId);
@@ -2904,6 +2923,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   <div className="space-y-1">
                     <Label>Placement</Label>
                     <Select
+                      items={data.placements.map((item) => ({ value: item.id, label: item.id }))}
                       value={entry.placementId}
                       onValueChange={(value) =>
                         replaceCast(entry.id, { placementId: String(value) })
@@ -3038,6 +3058,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   <div className="space-y-1">
                     <Label>Placement</Label>
                     <Select
+                      items={data.placements.map((item) => ({ value: item.id, label: item.id }))}
                       value={entry.placementId}
                       onValueChange={(value) =>
                         replaceProp(entry.id, { placementId: String(value) })
@@ -3236,6 +3257,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   <div className="space-y-1">
                     <Label>Plane</Label>
                     <Select
+                      items={roomEnvironmentPlaneValues.map((plane) => ({
+                        value: plane,
+                        label: plane,
+                      }))}
                       value={entry.plane}
                       onValueChange={(value) =>
                         replaceEnvironment(entry.id, {
@@ -3258,6 +3283,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   <div className="space-y-1">
                     <Label>Clock</Label>
                     <Select
+                      items={roomEnvironmentClockValues.map((clock) => ({
+                        value: clock,
+                        label: clock,
+                      }))}
                       value={entry.clock}
                       onValueChange={(value) =>
                         replaceEnvironment(entry.id, {

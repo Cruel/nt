@@ -7,6 +7,12 @@ import {
   GameplayCommandListEditor,
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
@@ -618,13 +624,18 @@ export function SceneEditor({ tab }: WorkbenchEditorProps) {
     <div className="grid h-full min-h-0 grid-cols-[minmax(240px,0.7fr)_minmax(360px,1.3fr)_minmax(320px,1fr)]">
       <section className="min-h-0 overflow-auto border-r p-3">
         <div className="mb-3 flex gap-2">
-          <Select value="comment" onValueChange={(value) => addStep(value as SceneStepType)}>
-            {sceneStepTypeValues.map((type) => (
-              <SelectItem key={type} value={type}>
-                Add {title(type)}
-              </SelectItem>
-            ))}
-          </Select>
+          <DropdownMenu>
+            <DropdownMenuTrigger render={<Button size="sm" variant="outline" />}>
+              Add step
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="start">
+              {sceneStepTypeValues.map((type) => (
+                <DropdownMenuItem key={type} onClick={() => addStep(type as SceneStepType)}>
+                  Add {title(type)}
+                </DropdownMenuItem>
+              ))}
+            </DropdownMenuContent>
+          </DropdownMenu>
         </div>
         <div className="mb-4 rounded border bg-muted/20 p-2">
           <div className="mb-2 flex items-center gap-2">

@@ -53,8 +53,6 @@ type Step = 0 | 1 | 2 | 3 | 4 | 5 | 6;
 type InputSelections = Partial<Record<ComfyUiSemanticInput, string>>;
 type DefaultsDraft = Partial<Record<ComfyUiSemanticInput, string>>;
 
-const unmappedValue = '__unmapped__';
-
 const stepLabelKeys = [
   'sourceFile',
   'role',
@@ -734,11 +732,15 @@ export function ComfyUiWorkflowImportDialog({
           <div className="space-y-1 md:col-span-2">
             <Label>{t('comfyuiImport.metadata.role')}</Label>
             <Select
+              items={KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS.map((nextRole) => ({
+                value: nextRole,
+                label: COMFYUI_WORKFLOW_CLASSIFICATION_CATALOG[nextRole].label,
+              }))}
               value={role}
               onValueChange={(value) => setRole(value as ComfyUiKnownWorkflowClassification)}
             >
               <SelectTrigger className="w-full">
-                <SelectValue>{selectedRole.label}</SelectValue>
+                <SelectValue />
               </SelectTrigger>
               <SelectContent align="start">
                 {KNOWN_COMFYUI_WORKFLOW_CLASSIFICATIONS.map((nextRole) => (
@@ -850,25 +852,23 @@ export function ComfyUiWorkflowImportDialog({
                   <span className="text-xs text-muted-foreground">{input.type}</span>
                 </div>
                 <Select
-                  value={inputSelections[semanticKey] ?? unmappedValue}
+                  items={options.map((candidate) => ({
+                    value: candidateKey(candidate),
+                    label: candidateLabel(candidate),
+                  }))}
+                  placeholderItem={!input.required ? t('comfyuiImport.inputs.unmapped') : undefined}
+                  value={inputSelections[semanticKey] ?? null}
                   onValueChange={(value) =>
                     setInputSelections((current) => ({
                       ...current,
-                      [semanticKey]: value === unmappedValue ? undefined : String(value),
+                      [semanticKey]: value ?? undefined,
                     }))
                   }
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue>
-                      {selected ? candidateLabel(selected) : t('comfyuiImport.inputs.unmapped')}
-                    </SelectValue>
+                    <SelectValue placeholder={t('comfyuiImport.inputs.unmapped')} />
                   </SelectTrigger>
                   <SelectContent align="start" className="max-h-80">
-                    {!input.required ? (
-                      <SelectItem value={unmappedValue}>
-                        {t('comfyuiImport.inputs.unmapped')}
-                      </SelectItem>
-                    ) : null}
                     {options.map((candidate) => (
                       <SelectItem key={candidateKey(candidate)} value={candidateKey(candidate)}>
                         {candidateLabel(candidate)}

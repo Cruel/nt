@@ -309,11 +309,15 @@ function CodeEditorThemeDialog({
               <div className="space-y-1">
                 <Label>{t('settings:codeEditor.selectTheme')}</Label>
                 <Select
+                  items={codeEditorThemeOptions.map((option) => ({
+                    value: option.id,
+                    label: option.label,
+                  }))}
                   value={draftTheme}
                   onValueChange={(value) => setDraftTheme(value as CodeEditorThemeId)}
                 >
                   <SelectTrigger className="w-full">
-                    <SelectValue>{draftOption.label}</SelectValue>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent align="start" className="max-h-80">
                     {codeEditorThemeOptions.map((option) => (
@@ -1066,11 +1070,18 @@ export function SettingsPage({
                   ) : null}
                 </div>
                 <Select
+                  items={[
+                    { value: 'system', label: t('settings:language.options.system') },
+                    ...SUPPORTED_EDITOR_LANGUAGES.map((option) => ({
+                      value: option.value,
+                      label: t(`settings:language.options.${option.value}`),
+                    })),
+                  ]}
                   value={language}
                   onValueChange={(value) => setLanguage(value as EditorLanguage)}
                 >
                   <SelectTrigger id="editor-language" className="min-w-56">
-                    <SelectValue>{t(`settings:language.options.${language}`)}</SelectValue>
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent align="end">
                     <SelectItem value="system">{t('settings:language.options.system')}</SelectItem>
@@ -1097,6 +1108,13 @@ export function SettingsPage({
               <div className="space-y-1">
                 <Label>{t('settings:window.previewDisplay.profile')}</Label>
                 <Select
+                  items={[
+                    {
+                      value: 'project',
+                      label: t('settings:window.previewDisplay.followProject'),
+                    },
+                    { value: 'custom', label: t('settings:window.previewDisplay.custom') },
+                  ]}
                   value={previewDisplay.mode}
                   onValueChange={(mode) =>
                     setPreviewDisplay(
@@ -1128,6 +1146,16 @@ export function SettingsPage({
                   <div className="space-y-1">
                     <Label>{t('settings:window.previewDisplay.orientation')}</Label>
                     <Select
+                      items={[
+                        {
+                          value: 'landscape',
+                          label: t('settings:window.previewDisplay.landscape'),
+                        },
+                        {
+                          value: 'portrait',
+                          label: t('settings:window.previewDisplay.portrait'),
+                        },
+                      ]}
                       value={previewDisplay.orientation}
                       onValueChange={(orientation) =>
                         setPreviewDisplay({
@@ -1524,6 +1552,11 @@ export function SettingsPage({
                 </p>
               </div>
               <Select
+                items={[
+                  { value: 'automatic', label: t('settings:preview.layoutAutomatic') },
+                  { value: 'vertical', label: t('settings:preview.layoutVertical') },
+                  { value: 'horizontal', label: t('settings:preview.layoutHorizontal') },
+                ]}
                 value={editorPreviewLayout}
                 onValueChange={(value) =>
                   setEditorPreviewLayout(value as EditorPreviewLayoutPreference)
@@ -1599,6 +1632,15 @@ export function SettingsPage({
                 </p>
               </div>
               <Select
+                items={[
+                  { value: 'all', label: t('settings:preview.rmluiRasterSnapOptions.all') },
+                  {
+                    value: 'geometry',
+                    label: t('settings:preview.rmluiRasterSnapOptions.geometry'),
+                  },
+                  { value: 'text', label: t('settings:preview.rmluiRasterSnapOptions.text') },
+                  { value: 'none', label: t('settings:preview.rmluiRasterSnapOptions.none') },
+                ]}
                 value={previewRmlUiRasterSnap}
                 onValueChange={(value) => setPreviewRmlUiRasterSnap(value as RmlUiRasterSnapMode)}
               >

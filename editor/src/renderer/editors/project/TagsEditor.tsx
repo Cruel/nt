@@ -112,6 +112,10 @@ export function TagsEditor(_props: WorkbenchEditorProps) {
                     {collectionSummary(tag) || 'Unused registry tag'}
                   </div>
                   <Select
+                    items={TAG_COLOR_POOL.map((color) => ({
+                      value: color,
+                      label: color.replace('tag-', ''),
+                    }))}
                     value={tag.color}
                     onValueChange={(value) => setColor(tag, value as TagColor)}
                   >

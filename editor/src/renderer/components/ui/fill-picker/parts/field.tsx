@@ -2,7 +2,13 @@
 
 import * as React from 'react';
 import { cn } from '@/lib/utils';
-import { Select, SelectContent, SelectTrigger, SelectValue } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectTrigger,
+  SelectValue,
+  type SelectOption,
+} from '@/components/ui/select';
 
 /**
  * Bordered, h-8 shell every multi-field input inside the picker shares.
@@ -138,6 +144,7 @@ export interface FieldSelectProps {
    * by `ChannelInput`'s format toggle on the left).
    */
   variant?: 'standalone' | 'inline';
+  items: readonly SelectOption<string>[];
   value?: string;
   defaultValue?: string;
   onValueChange?: (value: string) => void;
@@ -181,6 +188,7 @@ export const FieldSelect = React.forwardRef<HTMLButtonElement, FieldSelectProps>
   function FieldSelect(
     {
       variant = 'standalone',
+      items,
       value,
       defaultValue,
       onValueChange,
@@ -207,6 +215,7 @@ export const FieldSelect = React.forwardRef<HTMLButtonElement, FieldSelectProps>
         {...wrapperRest}
       >
         <Select
+          items={items}
           value={value}
           defaultValue={defaultValue}
           onValueChange={(v) => {

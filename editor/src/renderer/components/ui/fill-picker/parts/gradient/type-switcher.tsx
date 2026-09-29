@@ -23,6 +23,7 @@ export const TypeSwitcher = React.forwardRef<HTMLButtonElement, { className?: st
     return (
       <FieldSelect
         ref={ref}
+        items={TYPES.map((type) => ({ value: type.value, label: type.label }))}
         aria-label="Gradient type"
         value={ctx.gradient.type}
         onValueChange={(v) => ctx.setType(v as GradientType)}
