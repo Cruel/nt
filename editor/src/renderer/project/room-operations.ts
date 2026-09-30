@@ -70,6 +70,10 @@ function repairedPlacementId(placementId: string, changes: PlacementChanges) {
 function repairLocalPlacementReferences(data: RoomData, changes: PlacementChanges): RoomData {
   return {
     ...data,
+    fallbackInteractablePlacementId: data.fallbackInteractablePlacementId
+      ? (repairedPlacementId(data.fallbackInteractablePlacementId, changes) ??
+        data.fallbackInteractablePlacementId)
+      : null,
     cast: data.cast.map((entry) => ({
       ...entry,
       placementId: repairedPlacementId(entry.placementId, changes) ?? entry.placementId,

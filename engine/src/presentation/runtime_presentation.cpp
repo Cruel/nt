@@ -2089,7 +2089,15 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             mount.key, mount.owner, mount.layout, mount.policy, mount.scale_overrides,
             mount.composition_group, mount.occurrence, std::move(*inputs.value_if()),
             mount.connected_signals, layout_definition->contract.state, std::move(state_values),
-            std::move(material_textures), mount.trigger_context});
+            std::move(material_textures), mount.trigger_context, std::nullopt});
+        if (const auto* placement_key = std::get_if<RoomPlacementLayoutMountKey>(&mount.key);
+            placement_key != nullptr && result.camera) {
+            const compiled::RoomPlacementRef placement_ref{placement_key->room,
+                                                           placement_key->placement};
+            if (const auto* placement = find_placement(world, placement_ref))
+                result.layouts.back().room_geometry =
+                    PresentationLayoutRoomGeometry{placement->bounds, *result.camera};
+        }
     }
     for (const auto& stage_layout : stage_layouts) {
         const auto* layout_definition = project.find_layout(stage_layout.layout);
@@ -2125,6 +2133,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                                                            layout_definition->contract.state,
                                                            {},
                                                            {},
+                                                           std::nullopt,
                                                            std::nullopt});
     }
 

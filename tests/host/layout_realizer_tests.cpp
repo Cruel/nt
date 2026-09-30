@@ -1106,6 +1106,47 @@ TEST_CASE("LayoutRealizer focused Room overlay Mount retains Room and Session St
                                      core::PersistableValue{std::int64_t{9}}}}));
 }
 
+TEST_CASE("LayoutRealizer focused Room placement Mount carries Room placement geometry")
+{
+    assets::AssetManager assets;
+    FakeLayoutBackend backend;
+    LayoutRealizer realizer(assets, backend, LayoutRealizer::BorrowedBackendForTesting{});
+
+    const auto room = core::RoomId::create("foyer");
+    REQUIRE(room);
+    core::editor::TypedFocusedRoomLayoutDefinition layout;
+    layout.instance_id = "room-placement:panel";
+    layout.layout_id = "panel-layout";
+    layout.source_kind = core::editor::TypedFocusedRoomLayoutDefinition::SourceKind::Authored;
+    layout.layout_kind = core::editor::TypedFocusedRoomLayoutDefinition::LayoutKind::Document;
+    layout.mount_kind = core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomPlacement;
+    layout.placement_id = "panel";
+    layout.source_url = "project:/__noveltea_inline_layout_panel-layout.rml";
+    layout.rml = {.kind = core::editor::TypedEditorLayoutSourceComponent::Kind::Inline,
+                  .value = "<rml><body>panel</body></rml>"};
+    layout.synthetic_semantic_mount = true;
+
+    const core::PresentationLayoutRoomGeometry geometry{
+        .bounds = {0.1, 0.2, 0.3, 0.4},
+        .camera = {.space = {.size = {1920.0, 1080.0},
+                             .bounds = std::nullopt,
+                             .edge_policy = core::compiled::WorldPresentationEdgePolicy::Overscan},
+                   .view = {{960.0, 540.0}, 1.5, 12.0}}};
+    const std::unordered_map<std::string, core::PresentationLayoutRoomGeometry> room_geometries{
+        {"panel", geometry}};
+
+    REQUIRE(realizer.stage_focused_preview({layout}, *room.value_if(), room_geometries));
+    realizer.commit_focused_preview();
+    REQUIRE(backend.mount_contexts.size() == 1);
+    const auto& mount = backend.mount_contexts.begin()->second;
+    REQUIRE(mount.room_geometry);
+    CHECK(*mount.room_geometry == geometry);
+    const auto* key = std::get_if<core::RoomPlacementLayoutMountKey>(&*mount.semantic_key);
+    REQUIRE(key != nullptr);
+    CHECK(key->room == *room.value_if());
+    CHECK(key->placement.text() == "panel");
+}
+
 TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candidates")
 {
     jobs::InlineJobExecutor asset_executor;

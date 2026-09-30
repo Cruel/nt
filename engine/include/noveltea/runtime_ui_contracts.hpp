@@ -34,6 +34,7 @@ struct RuntimeUiLayoutMountContext {
     std::vector<core::PresentationMaterialTextureBinding> material_textures{};
     std::string layout_id;
     std::int32_t local_order = 0;
+    std::optional<core::PresentationLayoutRoomGeometry> room_geometry;
     bool operator==(const RuntimeUiLayoutMountContext&) const = default;
 };
 

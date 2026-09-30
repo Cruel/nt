@@ -92,6 +92,7 @@ describe('room commands', () => {
         order: 0,
       },
     ];
+    room.fallbackInteractablePlacementId = 'lamp-placement';
     const guard = defaultCharacterData('Guard');
     guard.initialWorldState.location = {
       kind: 'room',
@@ -117,6 +118,7 @@ describe('room commands', () => {
       rooms: {
         foyer: {
           data: {
+            fallbackInteractablePlacementId: 'lamp-anchor',
             interactables: [expect.objectContaining({ id: 'lamp', placementId: 'lamp-anchor' })],
           },
         },
@@ -140,6 +142,7 @@ describe('room commands', () => {
     state = renameResult.state;
     const removed = structuredClone(renamed);
     removed.placements = [];
+    removed.fallbackInteractablePlacementId = null;
     const removeResult = executeCommand(state, {
       type: 'room.replaceData',
       payload: { roomId: 'foyer', data: removed },

@@ -6,6 +6,7 @@
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
 #include "noveltea/surface.hpp"
+#include "noveltea/world_presentation.hpp"
 #include "ui/rmlui/runtime_ui_facade_access.hpp"
 #include "ui/rmlui/rmlui_host.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
@@ -553,84 +554,112 @@ public:
 } // namespace
 
 template<class T>
-concept HasTypedRuntimeSessionBinding =
-    requires(T& value) { value.bind_typed_runtime_session(nullptr); };
+concept HasTypedRuntimeSessionBinding = requires(T& value)
+{
+    value.bind_typed_runtime_session(nullptr);
+};
 
 template<class T>
-concept HasPresentationOperationHandlerBinding =
-    requires(T& value) { value.bind_presentation_operation_handler(nullptr); };
+concept HasPresentationOperationHandlerBinding = requires(T& value)
+{
+    value.bind_presentation_operation_handler(nullptr);
+};
 
 template<class T>
 concept HasRuntimePublicationApplication =
-    requires(T& value, const noveltea::runtime::RuntimePublication& publication) {
-        value.apply_runtime_publication(publication);
-    };
+    requires(T& value, const noveltea::runtime::RuntimePublication& publication)
+{
+    value.apply_runtime_publication(publication);
+};
 
 template<class T>
 concept HasRuntimeCapabilityBinding =
-    requires(T& value, std::optional<noveltea::runtime::RuntimeCapabilitySet> capabilities) {
-        value.bind_layout_event_capabilities(capabilities, capabilities);
-    };
+    requires(T& value, std::optional<noveltea::runtime::RuntimeCapabilitySet> capabilities)
+{
+    value.bind_layout_event_capabilities(capabilities, capabilities);
+};
 
 template<class T>
-concept HasBorrowedDocumentAccess = requires(T& value) { value.document("runtime"); };
+concept HasBorrowedDocumentAccess = requires(T& value)
+{
+    value.document("runtime");
+};
 
 template<class T>
-concept HasBorrowedElementAccess = requires(T& value) { value.element("runtime", "element"); };
+concept HasBorrowedElementAccess = requires(T& value)
+{
+    value.element("runtime", "element");
+};
 
 template<class T>
-concept HasGenericDataModelAccess = requires(T& value) {
+concept HasGenericDataModelAccess = requires(T& value)
+{
     value.create_data_model("runtime");
     value.data_model("runtime");
 };
 
 template<class T>
-concept HasPlaybackClick = requires { &T::playback_click; };
+concept HasPlaybackClick = requires
+{
+    &T::playback_click;
+};
 
 template<class T>
-concept HasGenericDocumentLoading = requires(T& value) {
+concept HasGenericDocumentLoading = requires(T& value)
+{
     value.load_document("document", "project:/document.rml", true);
     value.load_document_from_memory("document", "<rml></rml>", "preview://document.rml", true);
 };
 
 template<class T>
-concept HasPreviewVirtualFiles = requires(T& value) {
+concept HasPreviewVirtualFiles = requires(T& value)
+{
     value.set_preview_virtual_file("preview://document.rml", "<rml></rml>");
     value.clear_preview_virtual_files();
 };
 
 template<class T>
-concept HasConvenienceDocuments = requires(T& value) {
+concept HasConvenienceDocuments = requires(T& value)
+{
     value.load_title_document();
     value.load_runtime_document();
     value.load_pause_menu_document();
 };
 
 template<class T>
-concept HasDirectRuntimeInputDispatch =
-    requires(T& value, const noveltea::core::RuntimeInputMessage& input) {
-        value.dispatch_typed_runtime_input(input);
-    };
+concept HasDirectRuntimeInputDispatch = requires(T& value,
+                                                 const noveltea::core::RuntimeInputMessage& input)
+{
+    value.dispatch_typed_runtime_input(input);
+};
 
 template<class T>
-concept HasGenericEventListeners = requires(T& value, std::function<void()> callback) {
+concept HasGenericEventListeners = requires(T& value, std::function<void()> callback)
+{
     value.add_event_listener("document", "element", "click", callback);
     value.remove_event_listener(1);
 };
 
 template<class T>
-concept HasToolingConfiguration = requires(T& value, std::function<void()> callback) {
+concept HasToolingConfiguration = requires(T& value, std::function<void()> callback)
+{
     value.set_rmlui_base_direct_compatibility(true);
     value.set_density(1.0f);
     value.bind_game_started_handler(callback);
 };
 
 template<class T>
-concept HasDensityBypass = requires(noveltea::RuntimeUI& value) { T::set_density(value, 1.0f); };
+concept HasDensityBypass = requires(noveltea::RuntimeUI& value)
+{
+    T::set_density(value, 1.0f);
+};
 
 template<class T>
-concept HasBackendReset = requires(T& value) {
-    { value.reset_backend() } -> std::same_as<bool>;
+concept HasBackendReset = requires(T& value)
+{
+    {
+        value.reset_backend()
+        } -> std::same_as<bool>;
 };
 
 TEST_CASE("private RuntimeUI is a view and input adapter without runtime authority")
@@ -1492,7 +1521,8 @@ TEST_CASE("RmlUi debugger uses a fixed-scale debug host and routes input without
             ++underlying_dispatches;
         return dispatch();
     };
-    CHECK(host.process_event(motion, [](Rml::Context*) { return true; }, dispatch_layout));
+    CHECK(host.process_event(
+        motion, [](Rml::Context*) { return true; }, dispatch_layout));
     CHECK(primary_dispatches == 0);
     CHECK(underlying_dispatches == 0);
     REQUIRE(host.set_debugger(false, inspected->GetName()));
@@ -4555,6 +4585,130 @@ TEST_CASE("RuntimeUI preserves lifecycle document state across migration and rel
     CHECK_FALSE(ui.is_initialized());
     REQUIRE(fixture.initialize());
     CHECK(ui.is_initialized());
+}
+
+TEST_CASE("RuntimeUI applies Room placement geometry to placement-attached Layout documents")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(
+        ui, "room-placement-layout", kDocument, "preview://room-placement-layout.rml", true));
+
+    noveltea::core::MountedLayoutPolicy policy;
+    policy.plane = noveltea::core::PresentationPlane::WorldOverlay;
+    policy.clock = noveltea::core::LayoutClockDomain::Gameplay;
+    policy.input = noveltea::core::LayoutInputMode::Normal;
+    REQUIRE(ui.apply_layout_policy("room-placement-layout", policy, 0));
+
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    auto* document = driver->document("room-placement-layout");
+    REQUIRE(document);
+    REQUIRE(document->GetContext());
+    const auto dimensions = document->GetContext()->GetDimensions();
+    REQUIRE(dimensions.x > 0);
+    REQUIRE(dimensions.y > 0);
+
+    REQUIRE(document->SetProperty("left", "13px"));
+    REQUIRE(document->SetProperty("top", "17px"));
+    REQUIRE(document->SetProperty("width", "321px"));
+    REQUIRE(document->SetProperty("height", "222px"));
+    REQUIRE(document->SetProperty("transform-origin-x", "7px"));
+    REQUIRE(document->SetProperty("transform-origin-y", "9px"));
+    REQUIRE(document->SetProperty("transform", "rotate(3deg)"));
+    const auto authored_left = *document->GetLocalProperty(Rml::PropertyId::Left);
+    const auto authored_top = *document->GetLocalProperty(Rml::PropertyId::Top);
+    const auto authored_width = *document->GetLocalProperty(Rml::PropertyId::Width);
+    const auto authored_height = *document->GetLocalProperty(Rml::PropertyId::Height);
+    const auto authored_origin_x = *document->GetLocalProperty(Rml::PropertyId::TransformOriginX);
+    const auto authored_origin_y = *document->GetLocalProperty(Rml::PropertyId::TransformOriginY);
+    const auto authored_transform = *document->GetLocalProperty(Rml::PropertyId::Transform);
+
+    const auto room = noveltea::core::RoomId::create("room");
+    const auto placement = noveltea::core::RoomPlacementId::create("panel");
+    REQUIRE(room);
+    REQUIRE(placement);
+    const noveltea::core::PresentationCamera camera{
+        .space = {.size = {static_cast<double>(dimensions.x), static_cast<double>(dimensions.y)},
+                  .bounds = std::nullopt,
+                  .edge_policy = noveltea::core::compiled::WorldPresentationEdgePolicy::Overscan},
+        .view = {{static_cast<double>(dimensions.x) * 0.5, static_cast<double>(dimensions.y) * 0.5},
+                 2.0,
+                 15.0}};
+    const noveltea::core::PresentationLayoutRoomGeometry geometry{.bounds = {0.1, 0.2, 0.25, 0.3},
+                                                                  .camera = camera};
+
+    noveltea::RuntimeUiLayoutMountContext mount_context{
+        noveltea::core::PresentationOwner{noveltea::core::RoomPresentationOwner{*room.value_if()}},
+        noveltea::core::MountedLayoutPresentationKey{
+            noveltea::core::RoomPlacementLayoutMountKey{*room.value_if(), *placement.value_if()}},
+        noveltea::core::LayoutMountOccurrenceId::from_number(1),
+        {},
+        {},
+        std::nullopt,
+        {},
+        {},
+        1.0,
+        std::nullopt,
+        {},
+        "room-placement-layout",
+        0,
+        std::nullopt};
+
+    // A Mount without engine-owned placement geometry must not alter authored root styles.
+    ui.set_layout_mount_context("room-placement-layout", mount_context);
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Left));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Top));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Width));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Height));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::TransformOriginX));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::TransformOriginY));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Transform));
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Left) == authored_left);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Top) == authored_top);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Width) == authored_width);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Height) == authored_height);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::TransformOriginX) == authored_origin_x);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::TransformOriginY) == authored_origin_y);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Transform) == authored_transform);
+
+    mount_context.room_geometry = geometry;
+    ui.set_layout_mount_context("room-placement-layout", mount_context);
+
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    const auto expected = noveltea::WorldPresentationLayoutPolicy::project_room_rect(
+        geometry.bounds, geometry.camera,
+        {static_cast<float>(dimensions.x), static_cast<float>(dimensions.y)});
+    const auto size = document->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto offset = document->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(size.x == Catch::Approx(expected.rect.width));
+    CHECK(size.y == Catch::Approx(expected.rect.height));
+    CHECK(offset.x == Catch::Approx(expected.rect.x));
+    CHECK(offset.y == Catch::Approx(expected.rect.y));
+    CHECK(document->GetComputedValues().transform() != nullptr);
+    CHECK(document->GetProperty("transform-origin-x") != nullptr);
+    CHECK(document->GetProperty("transform-origin-y") != nullptr);
+
+    ui.set_layout_mount_context("room-placement-layout", std::nullopt);
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Left));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Top));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Width));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Height));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::TransformOriginX));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::TransformOriginY));
+    REQUIRE(document->GetLocalProperty(Rml::PropertyId::Transform));
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Left) == authored_left);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Top) == authored_top);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Width) == authored_width);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Height) == authored_height);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::TransformOriginX) == authored_origin_x);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::TransformOriginY) == authored_origin_y);
+    CHECK(*document->GetLocalProperty(Rml::PropertyId::Transform) == authored_transform);
+    CHECK(document->GetComputedValues().transform() != nullptr);
 }
 
 TEST_CASE("RuntimeUI migrates a Layout when its effective scale domain changes")

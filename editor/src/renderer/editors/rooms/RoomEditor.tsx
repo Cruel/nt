@@ -616,6 +616,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [roomEditGestureCancellationToken, setRoomEditGestureCancellationToken] = useState(0);
   const roomEditAnimationFrameRef = useRef<number | null>(null);
   const roomEditViewportElementRef = useRef<HTMLDivElement | null>(null);
+  const roomEditViewportObserverRef = useRef<ResizeObserver | null>(null);
   const [roomEditViewportSize, setRoomEditViewportSize] = useState({ width: 0, height: 0 });
   const roomEditSurfaceElementRef = useRef<HTMLDivElement | null>(null);
   const roomPreviewSurfaceElementRef = useRef<HTMLDivElement | null>(null);
@@ -628,8 +629,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const handleRoomEditSurfaceElementChange = useCallback((element: HTMLDivElement | null) => {
     roomEditSurfaceElementRef.current = element;
   }, []);
-  useEffect(() => {
-    const element = roomEditViewportElementRef.current;
+  const handleRoomEditViewportElementChange = useCallback((element: HTMLDivElement | null) => {
+    roomEditViewportObserverRef.current?.disconnect();
+    roomEditViewportObserverRef.current = null;
+    roomEditViewportElementRef.current = element;
     if (!element) return;
     const update = () => {
       const rect = element.getBoundingClientRect();
@@ -638,8 +641,15 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     update();
     const observer = new ResizeObserver(update);
     observer.observe(element);
-    return () => observer.disconnect();
-  }, [presentationMode]);
+    roomEditViewportObserverRef.current = observer;
+  }, []);
+  useEffect(
+    () => () => {
+      roomEditViewportObserverRef.current?.disconnect();
+      roomEditViewportObserverRef.current = null;
+    },
+    [],
+  );
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -2437,8 +2447,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       case 'cast': {
         const occurrence = data.cast.find((item) => item.id === selection.id);
         if (occurrence) {
+          const characterRecord = project.characters[occurrence.character.$ref.id];
           const characterData = parseCharacterData(
-            project.characters[occurrence.character.$ref.id]?.data,
+            characterRecord
+              ? resolveGameplayInstanceRecord(project, 'character', characterRecord)?.data
+              : null,
           );
           const profileItems =
             characterData?.profiles.map((profile) => ({
@@ -3124,7 +3137,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {presentationMode === 'edit' ? (
               <div
-                ref={roomEditViewportElementRef}
+                ref={handleRoomEditViewportElementChange}
+                data-testid="room-edit-viewport"
                 className="flex h-full min-h-0 items-center justify-center overflow-hidden p-2"
               >
                 <div

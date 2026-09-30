@@ -203,7 +203,9 @@ Room-owned authored Mounts have two distinct semantic keys. A Room overlay uses
 the Room's single authored `WorldOverlay` order namespace. Their order is occurrence data: overlay
 records own `order`, while placement presentation owns `layoutOrder`. Placement geometry itself has no
 stacking order. Updating the referenced Layout while retaining the same semantic Mount preserves that
-occurrence's authored order and state identity.
+occurrence's authored order and state identity. A placement-attached Mount is also spatial: its root
+document is positioned and sized to the exact projected `RoomPlacement` bounds and follows the active
+Room Camera translation, zoom, and rotation. Room overlays remain full-context WorldOverlay Mounts.
 
 The contract contains named scalar inputs, named semantic signals, and an optional recursive State
 Shape. Input and signal-field types are `boolean`, `integer`, `number`, and `string`; declarations also

@@ -153,6 +153,12 @@ struct PresentationLayoutStateValue {
     bool operator==(const PresentationLayoutStateValue&) const = default;
 };
 
+struct PresentationLayoutRoomGeometry {
+    compiled::NormalizedRect bounds;
+    PresentationCamera camera;
+    bool operator==(const PresentationLayoutRoomGeometry&) const = default;
+};
+
 struct PresentationMountedLayout {
     MountedLayoutPresentationKey key;
     PresentationOwner owner;
@@ -167,6 +173,7 @@ struct PresentationMountedLayout {
     std::vector<PresentationLayoutStateValue> state_values;
     std::vector<PresentationMaterialTextureBinding> material_textures;
     std::optional<TriggerContext> trigger_context;
+    std::optional<PresentationLayoutRoomGeometry> room_geometry;
     bool operator==(const PresentationMountedLayout&) const = default;
 };
 

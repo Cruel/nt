@@ -543,6 +543,17 @@ Rect WorldPresentationLayoutPolicy::normalized_rect(const core::compiled::Normal
             static_cast<float>(bounds.height) * viewport.height};
 }
 
+WorldProjectedRect
+WorldPresentationLayoutPolicy::project_room_rect(const core::compiled::NormalizedRect& bounds,
+                                                 const core::PresentationCamera& camera,
+                                                 Size viewport) noexcept
+{
+    QuadCommand command;
+    command.rect = normalized_rect(bounds, viewport);
+    apply_camera(command, resolved_camera(camera), viewport);
+    return {command.rect, command.rotation_degrees, command.rotation_origin};
+}
+
 WorldFittedRect
 WorldPresentationLayoutPolicy::fit_background(Size viewport, Size texture,
                                               core::compiled::BackgroundFit fit) noexcept

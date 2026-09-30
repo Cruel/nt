@@ -5,6 +5,7 @@
 #include "noveltea/core/editor_preview_contracts.hpp"
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/presentation/runtime_layout_manager.hpp"
+#include "noveltea/world_presentation.hpp"
 #include "platform/sdl/sdl_cursor_realizer.hpp"
 #include "noveltea/script/script_runtime.hpp"
 #include "script/lua/script_runtime_internal.hpp"
@@ -47,6 +48,85 @@ namespace noveltea {
 using presentation::RuntimeLayoutBuiltinDocument;
 
 namespace {
+
+std::string css_pixels(float value) { return std::to_string(value) + "px"; }
+
+struct RoomLayoutGeometryStyleSnapshot {
+    std::optional<Rml::Property> left;
+    std::optional<Rml::Property> top;
+    std::optional<Rml::Property> width;
+    std::optional<Rml::Property> height;
+    std::optional<Rml::Property> transform_origin_x;
+    std::optional<Rml::Property> transform_origin_y;
+    std::optional<Rml::Property> transform;
+};
+
+std::optional<Rml::Property> local_property(Rml::ElementDocument& document,
+                                            Rml::PropertyId property)
+{
+    if (const auto* value = document.GetLocalProperty(property))
+        return *value;
+    return std::nullopt;
+}
+
+RoomLayoutGeometryStyleSnapshot capture_room_layout_geometry_style(Rml::ElementDocument& document)
+{
+    return {
+        .left = local_property(document, Rml::PropertyId::Left),
+        .top = local_property(document, Rml::PropertyId::Top),
+        .width = local_property(document, Rml::PropertyId::Width),
+        .height = local_property(document, Rml::PropertyId::Height),
+        .transform_origin_x = local_property(document, Rml::PropertyId::TransformOriginX),
+        .transform_origin_y = local_property(document, Rml::PropertyId::TransformOriginY),
+        .transform = local_property(document, Rml::PropertyId::Transform),
+    };
+}
+
+void restore_local_property(Rml::ElementDocument& document, Rml::PropertyId property,
+                            const std::optional<Rml::Property>& value)
+{
+    if (value)
+        (void)document.SetProperty(property, *value);
+    else
+        document.RemoveProperty(property);
+}
+
+void restore_room_layout_geometry_style(Rml::ElementDocument& document,
+                                        const RoomLayoutGeometryStyleSnapshot& style)
+{
+    restore_local_property(document, Rml::PropertyId::Left, style.left);
+    restore_local_property(document, Rml::PropertyId::Top, style.top);
+    restore_local_property(document, Rml::PropertyId::Width, style.width);
+    restore_local_property(document, Rml::PropertyId::Height, style.height);
+    restore_local_property(document, Rml::PropertyId::TransformOriginX, style.transform_origin_x);
+    restore_local_property(document, Rml::PropertyId::TransformOriginY, style.transform_origin_y);
+    restore_local_property(document, Rml::PropertyId::Transform, style.transform);
+}
+
+void apply_room_layout_geometry(Rml::ElementDocument& document,
+                                const core::PresentationLayoutRoomGeometry& geometry)
+{
+    auto* context = document.GetContext();
+    if (!context)
+        return;
+    const auto dimensions = context->GetDimensions();
+    const Size viewport{static_cast<float>(dimensions.x), static_cast<float>(dimensions.y)};
+    if (viewport.width <= 0.0f || viewport.height <= 0.0f)
+        return;
+    const auto projected = WorldPresentationLayoutPolicy::project_room_rect(
+        geometry.bounds, geometry.camera, viewport);
+    (void)document.SetProperty("left", css_pixels(projected.rect.x));
+    (void)document.SetProperty("top", css_pixels(projected.rect.y));
+    (void)document.SetProperty("width", css_pixels(projected.rect.width));
+    (void)document.SetProperty("height", css_pixels(projected.rect.height));
+    (void)document.SetProperty("transform-origin-x",
+                               css_pixels(projected.rotation_origin.x - projected.rect.x));
+    (void)document.SetProperty("transform-origin-y",
+                               css_pixels(projected.rotation_origin.y - projected.rect.y));
+    (void)document.SetProperty("transform",
+                               "rotate(" + std::to_string(projected.rotation_degrees) + "deg)");
+    document.UpdateDocument();
+}
 
 char g_layout_state_null_marker;
 
@@ -781,6 +861,7 @@ struct RuntimeUI::State {
     std::optional<core::RuntimeShellViewState> runtime_shell_view;
     std::unordered_map<core::compiled::SystemLayoutRole, std::string> system_layout_documents;
     std::unordered_map<std::string, RuntimeUiLayoutMountContext> layout_mount_contexts;
+    std::unordered_map<std::string, RoomLayoutGeometryStyleSnapshot> room_layout_geometry_styles;
     std::unordered_map<std::string, std::unordered_set<host::CursorAuthority::OwnerToken>>
         layout_cursor_retirements;
     std::vector<std::string> layout_order;
@@ -2831,6 +2912,7 @@ bool RuntimeUI::unload_document(const std::string& id)
             m_state->layout_cursor_retirements.erase(retired);
         }
         m_state->layout_mount_contexts.erase(id);
+        m_state->room_layout_geometry_styles.erase(id);
         m_state->layout_cursor_image_dependencies.erase(id);
         std::erase(m_state->layout_order, id);
         m_state->refresh_cursor_eligibility();
@@ -2908,6 +2990,19 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
             m_state->host->set_context_presentation_order(
                 document_context,
                 ordered_world_mount ? std::optional{context->local_order} : std::nullopt);
+            if (auto* document = m_state->document_registry->document(id)) {
+                if (context->room_geometry) {
+                    if (!m_state->room_layout_geometry_styles.contains(id))
+                        m_state->room_layout_geometry_styles.emplace(
+                            id, capture_room_layout_geometry_style(*document));
+                    apply_room_layout_geometry(*document, *context->room_geometry);
+                } else if (const auto style = m_state->room_layout_geometry_styles.find(id);
+                           style != m_state->room_layout_geometry_styles.end()) {
+                    restore_room_layout_geometry_style(*document, style->second);
+                    m_state->room_layout_geometry_styles.erase(style);
+                    document->UpdateDocument();
+                }
+            }
         }
         m_state->layout_mount_contexts.insert_or_assign(id, std::move(*context));
     } else {
@@ -2916,6 +3011,14 @@ void RuntimeUI::set_layout_mount_context(const std::string& id,
             m_state->host->set_context_material_parameters(document_context, std::nullopt, {}, {},
                                                            1.0);
             m_state->host->set_context_presentation_order(document_context, std::nullopt);
+            if (auto* document = m_state->document_registry->document(id); document != nullptr) {
+                if (const auto style = m_state->room_layout_geometry_styles.find(id);
+                    style != m_state->room_layout_geometry_styles.end()) {
+                    restore_room_layout_geometry_style(*document, style->second);
+                    m_state->room_layout_geometry_styles.erase(style);
+                }
+                document->UpdateDocument();
+            }
         }
         m_state->layout_mount_contexts.erase(id);
     }

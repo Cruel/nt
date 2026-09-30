@@ -321,6 +321,7 @@ RuntimeLayoutManager::MountResult RuntimeLayoutManager::mount(RuntimeLayoutMount
         .trigger_context = std::move(request.trigger_context),
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
+        .room_geometry = std::move(request.room_geometry),
     });
     auto reconciled = reconcile_candidate(candidate);
     if (!reconciled)
@@ -383,6 +384,7 @@ RuntimeLayoutManager::UpdateResult RuntimeLayoutManager::update(core::MountedLay
         .trigger_context = std::move(request.trigger_context),
         .composition_group = request.composition_group,
         .publication_revision = request.publication_revision,
+        .room_geometry = std::move(request.room_geometry),
     };
     auto reconciled = reconcile_candidate(candidate);
     if (!reconciled)

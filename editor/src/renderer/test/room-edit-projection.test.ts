@@ -680,6 +680,142 @@ describe('Room Edit spatial projection', () => {
     ]);
   });
 
+  it('keeps authored Prop and Environment visibility authoritative until native resolution arrives', () => {
+    const project = createAuthoringProject({ id: 'fallback-visibility-test' });
+    const room = defaultRoomData('Fallback Visibility Room');
+    room.placements = [
+      {
+        id: 'slot',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'hidden-prop',
+        condition: { kind: 'always' },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: false,
+        order: 1,
+      },
+    ];
+    room.environments = [
+      {
+        id: 'hidden-environment',
+        condition: { kind: 'always' },
+        asset: null,
+        materialApplication: emptyMaterialApplication('hidden-material'),
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        plane: 'world-background',
+        order: 0,
+        clock: 'gameplay',
+        scrollPerSecond: { x: 0, y: 0 },
+        opacity: 1,
+        visible: false,
+      },
+    ];
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+
+    const fallback = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1920, height: 1080 },
+      backgroundImageSize: null,
+    });
+    expect(fallback.props).toEqual([]);
+    expect(fallback.environments).toEqual([]);
+
+    const resolved = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1920, height: 1080 },
+      backgroundImageSize: null,
+      resolvedVisibility: {
+        castEntryIds: [],
+        interactableOccurrenceIds: [],
+        propIds: ['hidden-prop'],
+        environmentIds: ['hidden-environment'],
+      },
+    });
+    expect(resolved.props.map((item) => item.occurrenceId)).toEqual(['hidden-prop']);
+    expect(resolved.environments.map((item) => item.occurrenceId)).toEqual(['hidden-environment']);
+  });
+
+  it('lets native resolved visibility show authored-hidden cast and Interactable occurrences', () => {
+    const project = createAuthoringProject({ id: 'native-visibility-test' });
+    const room = defaultRoomData('Native Visibility Room');
+    room.placements = [
+      {
+        id: 'slot',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.cast = [
+      {
+        id: 'hero-cast',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'slot',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: null,
+        visible: false,
+        order: 1,
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-occurrence',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'slot',
+        visible: false,
+        order: 2,
+      },
+    ];
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+
+    const character = defaultCharacterData('Hero');
+    character.initialWorldState = {
+      location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'room' } } },
+      enabled: false,
+      visible: false,
+    };
+    project.characters.hero = { id: 'hero', label: 'Hero', data: character };
+    project.interactables.key = { id: 'key', label: 'Key', data: defaultInteractableData('Key') };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'room' } } },
+    );
+    project.interactableInstances['key-instance']!.enabled = false;
+    project.interactableInstances['key-instance']!.visible = false;
+
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1920, height: 1080 },
+      backgroundImageSize: null,
+      resolvedVisibility: {
+        castEntryIds: ['hero-cast'],
+        interactableOccurrenceIds: ['key-occurrence'],
+        propIds: [],
+        environmentIds: [],
+      },
+    });
+
+    expect(projection.cast.map((item) => item.occurrenceId)).toEqual(['hero-cast']);
+    expect(projection.interactables.map((item) => item.occurrenceId)).toEqual(['key-occurrence']);
+  });
+
   it('matches runtime contain camera clamping and background fit geometry', () => {
     const project = createAuthoringProject({ id: 'camera-test' });
     const room = defaultRoomData('Camera Room');

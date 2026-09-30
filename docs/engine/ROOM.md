@@ -102,7 +102,9 @@ A `RoomPlacement` is an occupant-free anchor with stable nested identity, normal
 presentation metadata. Placement geometry has no stacking order. Character and Interactable
 presentation occurrences may reference the same valid anchor, while each authored presentation
 occurrence owns its own order. A placement may also attach one Layout; that attachment owns a separate
-`layoutOrder` in `WorldOverlay` rather than borrowing order from the placement. Interactable semantic
+`layoutOrder` in `WorldOverlay` rather than borrowing order from the placement. The attached Layout is
+spatially realized at the placement's projected bounds and follows the same active Room Camera
+translation, zoom, and rotation as world content. Interactable semantic
 Location, enabled state, and visible state remain in `SessionState`; a Room occurrence is a separate
 presentation identity that references one exact Interactable Instance. One Instance may therefore
 have zero, one, or multiple authored occurrences without duplicating the gameplay object.
@@ -198,7 +200,9 @@ composition, Environment opacity/UV motion, engine-2d Material specialization, t
 Property parameter bindings, and standard facets. Material animation uses the shared workbench-group
 authoring clock. Every Room placement is outlined even when it has no occupant; a placement-attached
 Layout is represented by a labeled placeholder at that exact projected placement bounds and is
-visually subdued when rendered occupants share the placement. `Preview` remains the existing focused
+visually subdued when rendered occupants share the placement. That placeholder represents the same
+spatial footprint used by native placement-attached Layout realization; Edit still does not instantiate
+the RmlUi document itself. `Preview` remains the existing focused
 native engine preview and the authority for realized RmlUi, runtime Hotspot highlight rendering,
 postprocess, transitions, and other player-only effects.
 
@@ -218,7 +222,9 @@ focused query capabilities, Layout realizations, RuntimeUI values, passive input
 Room preview. Room overlays use `RoomOverlayLayoutMountKey`; placement-attached Layouts use
 `RoomPlacementLayoutMountKey`. Both are Room-owned `WorldOverlay` semantic Mounts with preview-local
 `room` and `session` Layout State, and both preserve their authored order relative to the rest of the
-plane. State commits survive ordinary same-Mount preview rebuilds without becoming runtime save state.
+plane. Placement-attached Layouts additionally receive the exact placement bounds plus Room Camera and
+are positioned, sized, and rotated to that projected footprint. State commits survive ordinary
+same-Mount preview rebuilds without becoming runtime save state.
 Gameplay actions emitted by Layout Lua remain passive in focused preview. World, Layout, UI,
 environment, and resource ownership commit as one focused-owner swap. A failed or superseded
 candidate releases its temporary state and cannot disturb the prior same-root visual.

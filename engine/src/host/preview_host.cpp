@@ -1051,10 +1051,14 @@ void PreviewHost::complete_focused_request(
                     std::get_if<core::RoomInteractableEntryId>(&interactable.occurrence))
                 room_resolution_summary["interactableOccurrenceIds"].push_back(occurrence->text());
         }
-        for (const auto& prop : room_resolution->presentation.props)
-            room_resolution_summary["propIds"].push_back(prop.prop.text());
-        for (const auto& environment : room_resolution->presentation.environments)
-            room_resolution_summary["environmentIds"].push_back(environment.environment.text());
+        for (const auto& prop : room_resolution->presentation.props) {
+            if (prop.visible)
+                room_resolution_summary["propIds"].push_back(prop.prop.text());
+        }
+        for (const auto& environment : room_resolution->presentation.environments) {
+            if (environment.visible)
+                room_resolution_summary["environmentIds"].push_back(environment.environment.text());
+        }
     }
     const auto room_resolution_text =
         room_resolution != nullptr ? room_resolution_summary.dump() : "";

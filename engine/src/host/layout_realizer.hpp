@@ -124,12 +124,19 @@ public:
         const core::RoomId& focused_room);
     [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+        const core::RoomId& focused_room,
+        const std::unordered_map<std::string, core::PresentationLayoutRoomGeometry>&
+            room_geometries);
+    [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
+        const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
         script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
         const runtime::RuntimeCapabilitySet& capabilities);
     [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview(
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
         script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
-        const runtime::RuntimeCapabilitySet& capabilities, const core::RoomId& focused_room);
+        const runtime::RuntimeCapabilitySet& capabilities, const core::RoomId& focused_room,
+        const std::unordered_map<std::string, core::PresentationLayoutRoomGeometry>&
+            room_geometries);
     void commit_focused_preview() noexcept;
     void rollback_focused_preview() noexcept;
     void clear_focused_preview() noexcept;
@@ -206,7 +213,9 @@ private:
     [[nodiscard]] core::Result<void, core::Diagnostics> stage_focused_preview_impl(
         const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
         script::ScriptRuntime* scripts, script::ScriptEnvironmentHandle environment,
-        const runtime::RuntimeCapabilitySet* capabilities, const core::RoomId* focused_room);
+        const runtime::RuntimeCapabilitySet* capabilities, const core::RoomId* focused_room,
+        const std::unordered_map<std::string, core::PresentationLayoutRoomGeometry>*
+            room_geometries);
     [[nodiscard]] core::Result<PreparedSource, core::Diagnostics>
     prepare_source(const presentation::RuntimeMountedLayout& desired) const;
     [[nodiscard]] core::Result<core::LayoutScalePolicy, core::Diagnostics>

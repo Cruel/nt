@@ -700,8 +700,8 @@ compare_scalar(const core::editor::TypedFocusedRoomQueryState& state,
         [](const auto& left, const auto& right) -> std::optional<int> {
             using L = std::decay_t<decltype(left)>;
             using R = std::decay_t<decltype(right)>;
-            if constexpr ((std::is_same_v<L, std::int64_t> || std::is_same_v<L, double>) &&
-                          (std::is_same_v<R, std::int64_t> || std::is_same_v<R, double>)) {
+            if constexpr ((std::is_same_v<L, std::int64_t> || std::is_same_v<L, double>)&&(
+                              std::is_same_v<R, std::int64_t> || std::is_same_v<R, double>)) {
                 const double a = static_cast<double>(left);
                 const double b = static_cast<double>(right);
                 return a < b ? -1 : a > b ? 1 : 0;
@@ -2088,9 +2088,22 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         release_state(candidate.state);
         return;
     }
+    std::unordered_map<std::string, core::PresentationLayoutRoomGeometry> room_layout_geometries;
+    if (candidate.state.snapshot && candidate.state.snapshot->camera) {
+        for (const auto& placement : candidate.document.world.placements) {
+            if (!placement.layout_id)
+                continue;
+            room_layout_geometries.insert_or_assign(
+                placement.id, core::PresentationLayoutRoomGeometry{
+                                  {placement.bounds.x, placement.bounds.y, placement.bounds.width,
+                                   placement.bounds.height},
+                                  *candidate.state.snapshot->camera});
+        }
+    }
     auto layout_result = m_dependencies.layouts.stage_focused_preview(
         candidate.mounted_layouts, m_dependencies.scripts, candidate.state.script_environment,
-        *layout_capabilities, decoded_id<core::RoomId>(candidate.document.room_id));
+        *layout_capabilities, decoded_id<core::RoomId>(candidate.document.room_id),
+        room_layout_geometries);
     if (!layout_result) {
         m_dependencies.complete(candidate.request, "failed", std::move(layout_result).error(),
                                 nullptr);
