@@ -3370,9 +3370,9 @@ void Engine::Impl::render()
                 if (index < batches.size())
                     m_renderer.draw_world_overlay_2d(batches[index].batch, view);
             };
-            const bool rendered = source
-                                      ? m_runtime_ui.render_world_overlay_source(orders, draw_external)
-                                      : m_runtime_ui.render_world_overlay_target(orders, draw_external);
+            const bool rendered =
+                source ? m_runtime_ui.render_world_overlay_source(orders, draw_external)
+                       : m_runtime_ui.render_world_overlay_target(orders, draw_external);
             if (!rendered)
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                              "[runtime-presentation] WorldOverlay ordered pass range exhausted");

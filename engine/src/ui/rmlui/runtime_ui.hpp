@@ -90,12 +90,10 @@ public:
     void render_world_overlay_source();
     void render_world_overlay_target();
     using WorldOverlayExternalDraw = ui::rmlui::RmlUiHost::WorldOverlayExternalDraw;
-    [[nodiscard]] bool
-    render_world_overlay_source(std::span<const std::int32_t> external_orders,
-                                const WorldOverlayExternalDraw& draw_external);
-    [[nodiscard]] bool
-    render_world_overlay_target(std::span<const std::int32_t> external_orders,
-                                const WorldOverlayExternalDraw& draw_external);
+    [[nodiscard]] bool render_world_overlay_source(std::span<const std::int32_t> external_orders,
+                                                   const WorldOverlayExternalDraw& draw_external);
+    [[nodiscard]] bool render_world_overlay_target(std::span<const std::int32_t> external_orders,
+                                                   const WorldOverlayExternalDraw& draw_external);
     void end_frame(bool include_debug_plane = true);
     void shutdown();
 

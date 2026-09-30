@@ -747,9 +747,10 @@ WorldTransitionBackend::compose_targeted_world_batch() const
                         return same_draw_identity(candidate, target_draw);
                     });
                 if (source_draw == source->draws.end())
-                    return core::Result<TargetedWorldComposition, core::Diagnostics>::failure({failure(
-                        "presentation.camera_draw_identity_mismatch",
-                        "Camera motion requires stable world draw identities across revisions")});
+                    return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
+                        {failure("presentation.camera_draw_identity_mismatch",
+                                 "Camera motion requires stable world draw identities across "
+                                 "revisions")});
                 LayeredDraw draw{target_draw, 1};
                 draw.draw.command.rect =
                     interpolate_rect(source_draw->command.rect, target_draw.command.rect, progress);
@@ -995,7 +996,8 @@ WorldTransitionBackend::compose_targeted_world_batch() const
     }
     if (flash_overlay) {
         if (!composition.world_overlay_batches.empty() &&
-            composition.world_overlay_batches.back().order == std::numeric_limits<std::int32_t>::max()) {
+            composition.world_overlay_batches.back().order ==
+                std::numeric_limits<std::int32_t>::max()) {
             composition.world_overlay_batches.back().batch.draw(std::move(*flash_overlay));
         } else {
             OrderedWorldOverlayBatch batch;

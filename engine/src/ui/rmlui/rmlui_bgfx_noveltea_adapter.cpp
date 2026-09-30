@@ -879,8 +879,7 @@ void BgfxRenderInterface::begin_frame(bool continue_view_range)
 #endif
 }
 
-std::optional<std::uint16_t>
-BgfxRenderInterface::reserve_external_pass(bool continue_view_range)
+std::optional<std::uint16_t> BgfxRenderInterface::reserve_external_pass(bool continue_view_range)
 {
 #if defined(RMLUI_BGFX_HAS_EXTERNAL_PASS_RESERVATION)
     const auto view = m_core->reserve_external_pass(continue_view_range);

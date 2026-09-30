@@ -262,12 +262,11 @@ void RmlUiHost::render_context(ContextRecord& record)
 #else
         false;
 #endif
-    const auto renderer = std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(),
-                                       [&](const PlaneRenderer& value) {
-                                           return value.plane == record.key.plane &&
-                                                  value.world_transition_source == is_source &&
-                                                  value.host_surface == host_surface;
-                                       });
+    const auto renderer = std::find_if(
+        m_plane_renderers.begin(), m_plane_renderers.end(), [&](const PlaneRenderer& value) {
+            return value.plane == record.key.plane && value.world_transition_source == is_source &&
+                   value.host_surface == host_surface;
+        });
     if (renderer != m_plane_renderers.end() && renderer->bgfx) {
         renderer->bgfx->configure_context(m_presentation, record.metrics);
         renderer->bgfx->set_material_parameters(
@@ -309,9 +308,9 @@ void RmlUiHost::render_contexts(bool world_source_only, bool world_target_only,
     }
 }
 
-bool RmlUiHost::render_world_overlay_sequence(
-    bool source, std::span<const std::int32_t> external_orders,
-    const WorldOverlayExternalDraw& draw_external)
+bool RmlUiHost::render_world_overlay_sequence(bool source,
+                                              std::span<const std::int32_t> external_orders,
+                                              const WorldOverlayExternalDraw& draw_external)
 {
     if (m_world_transition_active) {
         const bool enabled =
@@ -330,28 +329,28 @@ bool RmlUiHost::render_world_overlay_sequence(
         if (is_source == source)
             ordered_contexts.push_back(&record);
     }
-    std::sort(ordered_contexts.begin(), ordered_contexts.end(), [](const auto* lhs, const auto* rhs) {
-        return std::tie(*lhs->presentation_order, lhs->name) <
-               std::tie(*rhs->presentation_order, rhs->name);
-    });
+    std::sort(ordered_contexts.begin(), ordered_contexts.end(),
+              [](const auto* lhs, const auto* rhs) {
+                  return std::tie(*lhs->presentation_order, lhs->name) <
+                         std::tie(*rhs->presentation_order, rhs->name);
+              });
 
     PlaneRenderer* plane_renderer = nullptr;
     const auto find_renderer = [&]() -> PlaneRenderer* {
-        const auto found = std::find_if(m_plane_renderers.begin(), m_plane_renderers.end(),
-                                        [&](const PlaneRenderer& value) {
-                                            return value.plane == core::PresentationPlane::WorldOverlay &&
-                                                   value.world_transition_source == source &&
-                                                   !value.host_surface;
-                                        });
+        const auto found = std::find_if(
+            m_plane_renderers.begin(), m_plane_renderers.end(), [&](const PlaneRenderer& value) {
+                return value.plane == core::PresentationPlane::WorldOverlay &&
+                       value.world_transition_source == source && !value.host_surface;
+            });
         return found == m_plane_renderers.end() ? nullptr : &*found;
     };
     plane_renderer = find_renderer();
     if (!plane_renderer && !external_orders.empty()) {
         ContextKey key;
         key.plane = core::PresentationPlane::WorldOverlay;
-        key.composition_group = source ? host::kWorldTransitionSourceCompositionGroup
-                                       : host::layout_composition_group(
-                                             core::PresentationCompositionGroup::World);
+        key.composition_group =
+            source ? host::kWorldTransitionSourceCompositionGroup
+                   : host::layout_composition_group(core::PresentationCompositionGroup::World);
         auto metrics = resolve_context_environment(key, m_presentation, m_user_settings);
         if (!metrics || !renderer_for(key, *metrics.value_if()))
             return false;
