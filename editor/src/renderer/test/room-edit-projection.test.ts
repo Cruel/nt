@@ -19,6 +19,101 @@ import {
 import { fitRoomEditSurfaceFrame } from '@/editors/rooms/room-edit-navigation';
 
 describe('Room Edit spatial projection', () => {
+  it('resolves explicit and default Character idle presentation onto cast draw layers', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'hero-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.5 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.cast = [
+      {
+        id: 'default-idle',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'hero-placement',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: null,
+        visible: true,
+        order: 0,
+      },
+      {
+        id: 'explicit-idle',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'hero-placement',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: 'sway',
+        visible: true,
+        order: 1,
+      },
+    ];
+    project.assets.hero = {
+      id: 'hero',
+      label: 'Hero',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/hero.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 200, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const character = defaultCharacterData('Hero');
+    character.initialWorldState = {
+      location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+      enabled: true,
+      visible: true,
+    };
+    character.profiles[0]!.poses[0]!.layers[0] = {
+      ...character.profiles[0]!.poses[0]!.layers[0]!,
+      sprite: { $ref: { collection: 'assets', id: 'hero' } },
+    };
+    character.idles = [
+      {
+        id: 'bob',
+        label: 'Bob',
+        kind: 'bob',
+        amplitude: 0.03,
+        periodMs: 1000,
+        clock: 'gameplay',
+      },
+      {
+        id: 'sway',
+        label: 'Sway',
+        kind: 'sway',
+        amplitude: 0.02,
+        periodMs: 2000,
+        clock: 'unscaled-presentation',
+      },
+    ];
+    character.defaults.idleId = 'bob';
+    project.characters.hero = { id: 'hero', label: 'Hero', data: character };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'foyer',
+      room,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+    });
+
+    expect(projection.cast[0]?.layers[0]?.idle).toMatchObject({ id: 'bob', kind: 'bob' });
+    expect(projection.cast[1]?.layers[0]?.idle).toMatchObject({ id: 'sway', kind: 'sway' });
+  });
+
   it('fits the canonical authored frame inside wide, tall, and matching-aspect viewports', () => {
     expect(
       fitRoomEditSurfaceFrame({ width: 1200, height: 300 }, { width: 1920, height: 1080 }),

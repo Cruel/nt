@@ -398,6 +398,8 @@ describe('Material preview Project resources', () => {
         message: 'Shader preview compilation was cancelled.',
       }),
     ]);
+    expect(material?.requiresCompiledShader).toBe(true);
+    expect(material?.fragmentShaderSource).toBeNull();
   });
 
   it('retains the last successful browser program and marks it stale after a live compile failure', async () => {
@@ -445,6 +447,7 @@ describe('Material preview Project resources', () => {
     resources.updateProject(project, 'source-tab:first', { materialIds: ['panel'] });
     const first = await resources.getMaterial('panel');
     expect(first?.stale).toBe(false);
+    expect(first?.requiresCompiledShader).toBe(true);
     expect(first?.fragmentShaderSource).toContain('void main');
 
     fail = true;
@@ -452,6 +455,7 @@ describe('Material preview Project resources', () => {
     const broken = await resources.getMaterial('panel');
 
     expect(broken?.stale).toBe(true);
+    expect(broken?.requiresCompiledShader).toBe(true);
     expect(broken?.fragmentShaderSource).toBe(first?.fragmentShaderSource);
     expect(broken?.compileDiagnostics).toEqual([
       expect.objectContaining({ severity: 'error', message: 'broken shader' }),

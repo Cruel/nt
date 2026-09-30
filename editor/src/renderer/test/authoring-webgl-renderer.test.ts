@@ -6,6 +6,10 @@ import {
   type AuthoringWebGlFrame,
   type AuthoringWebGlScheduler,
 } from '@/authoring-renderer/authoring-webgl-renderer';
+import {
+  AuthoringWebGlShaderProgramError,
+  resolveAuthoringWebGlProgramSources,
+} from '@/authoring-renderer/authoring-webgl-backend';
 
 function manualScheduler() {
   let nextId = 1;
@@ -53,6 +57,43 @@ function fakeBackendFactory() {
 }
 
 describe('workbench-group authoring WebGL renderer', () => {
+  it('preserves CPU-side stale and hard Material failure status before browser compilation', () => {
+    const base = {
+      materialId: 'panel',
+      resolved: { role: 'engine-2d' as const, textures: {}, parameters: {} },
+      vertexShaderSource: '#version 300 es\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\nvoid main() {}',
+      textures: {},
+      requiresCompiledShader: true,
+      requiresCompiledFragmentShader: true,
+      compileDiagnostics: [{ severity: 'error', message: 'CPU compile failed' }],
+      diagnostics: [],
+    };
+
+    const stale = resolveAuthoringWebGlProgramSources({ ...base, stale: true });
+    expect(stale.staleError).toBeInstanceOf(AuthoringWebGlShaderProgramError);
+    expect(stale.staleError).toMatchObject({ stale: true, message: 'CPU compile failed' });
+    expect(stale.vertexSource).toBe(base.vertexShaderSource);
+
+    const fragmentOnly = resolveAuthoringWebGlProgramSources({
+      ...base,
+      stale: false,
+      vertexShaderSource: null,
+    });
+    expect(fragmentOnly.vertexSource).toContain('u_modelViewProj');
+    expect(fragmentOnly.fragmentSource).toBe(base.fragmentShaderSource);
+
+    expect(() =>
+      resolveAuthoringWebGlProgramSources({
+        ...base,
+        stale: false,
+        fragmentShaderSource: null,
+      }),
+    ).toThrowError(
+      expect.objectContaining({ stale: false, message: 'CPU compile failed' }) as Error,
+    );
+  });
+
   it('runs ordered consumers on one backend and one shared frame clock', () => {
     const clock = manualScheduler();
     const gpu = fakeBackendFactory();

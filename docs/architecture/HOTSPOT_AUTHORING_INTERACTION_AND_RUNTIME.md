@@ -70,7 +70,10 @@ ID, and label. `Edit geometry` opens **Hotspot Focus**, a reusable temporary ful
 the owner's source image. The shared React image stage inside Hotspot Focus provides selection,
 rectangle creation, move, resize, entity deletion, zoom, pan, Fit, native 100% view, and
 image-coordinate conversion. Sprite-alpha Interactables use the same focused source-image workspace
-for inspection without exposing rectangle creation.
+for inspection without exposing rectangle creation. Focus derives an alpha-coverage overlay directly
+from the full-resolution source image so transparent versus interactive pixels remain visible, while
+the geometry-less sprite-alpha Hotspot behavior still appears in the shared item list and can be
+selected for inspection without manufacturing a fake rectangle.
 
 Room Edit projects authored Room Hotspots back through the background's source-image UV mapping, so
 cover cropping, contain/center geometry, stretch, authored Camera View, and editor navigation all

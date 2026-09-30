@@ -306,11 +306,14 @@ export function roomEditSelectionCandidates(
           ),
         );
         if (!cast) break;
-        const rect = unionRects(cast.layers.map((layer) => layer.rect));
+        const drawableLayers = cast.layers.filter(
+          (layer) => layer.spriteAssetId || layer.materialApplication,
+        );
+        const rect = unionRects(drawableLayers.map((layer) => layer.rect));
         if (!rect) break;
         push({
           selection: { kind: 'cast', id: cast.occurrenceId },
-          projected: { rect, rotationDegrees: cast.layers[0]?.rotationDegrees ?? 0 },
+          projected: { rect, rotationDegrees: drawableLayers[0]?.rotationDegrees ?? 0 },
           label: describeRoomEditSelection(
             project,
             room,

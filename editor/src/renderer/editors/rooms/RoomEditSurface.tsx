@@ -69,6 +69,13 @@ import {
   type RoomEditSelection,
   type RoomEditSelectionCandidate,
 } from './room-edit-selection';
+import {
+  applyCharacterIdleProjection,
+  occurrenceElapsedSeconds,
+  retainOccurrenceEpochs,
+  type RoomEditClockDomain,
+  type RoomEditOccurrenceEpoch,
+} from './room-edit-animation';
 
 type RoomEditResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
@@ -89,6 +96,7 @@ type RoomEditDirectGesture =
       candidate: RoomEditSelectionCandidate;
       additive: boolean;
       dragging: boolean;
+      selectionCommitted: boolean;
     }
   | {
       kind: 'marquee';
@@ -141,6 +149,18 @@ function materialResource(resource: MaterialPreviewResource): AuthoringWebGlMate
     vertexShaderSource: resource.vertexShaderSource,
     fragmentShaderSource: resource.fragmentShaderSource,
     textures: resource.textures,
+    stale: resource.stale,
+    requiresCompiledShader: resource.requiresCompiledShader,
+    requiresCompiledVertexShader: resource.requiresCompiledVertexShader,
+    requiresCompiledFragmentShader: resource.requiresCompiledFragmentShader,
+    diagnostics: resource.diagnostics.map((diagnostic) => ({
+      severity: diagnostic.severity,
+      message: diagnostic.message,
+    })),
+    compileDiagnostics: resource.compileDiagnostics.map((diagnostic) => ({
+      severity: diagnostic.severity,
+      message: diagnostic.message,
+    })),
   };
 }
 
@@ -242,7 +262,8 @@ function drawVisual(
   canonicalProjected: RoomEditProjectedRect,
   prepared: PreparedVisual,
   application: MaterialApplication | null,
-  timeSeconds: number,
+  frameTimeSeconds: number,
+  occurrenceTimeSeconds: number,
   propertyValues?: Readonly<Record<string, unknown>>,
   uv?: RoomEditUvRect,
   color?: readonly [number, number, number, number],
@@ -252,7 +273,7 @@ function drawVisual(
     geometry: { kind: 'quad', ...(uv ? { uv } : {}), ...(color ? { color } : {}) },
     modelViewProjection: modelViewProjection(displayProjected, displayProjection.viewport),
     semanticInputs: {
-      'engine.time': timeSeconds,
+      'engine.time': frameTimeSeconds,
       'engine.paint_dimensions': [canonicalProjected.rect.width, canonicalProjected.rect.height],
       'engine.reference_to_world_raster_scale': [1, 1],
       'engine.context_logical_to_raster_scale': [1, 1],
@@ -267,7 +288,7 @@ function drawVisual(
       application,
       canonicalProjected,
       canonicalProjection,
-      timeSeconds,
+      occurrenceTimeSeconds,
       propertyValues,
     ),
     textureOverrides: prepared.textureOverrides,
@@ -467,6 +488,7 @@ export function RoomEditSurface({
   onNavigationChange = () => {},
   gestureCancellationToken = 0,
   interactionEnabled = true,
+  visible = true,
   selection = [],
   onSelectionChange = () => {},
   onTranslateSelection = () => {},
@@ -488,6 +510,7 @@ export function RoomEditSurface({
   onNavigationChange?: (navigation: RoomEditNavigation) => void;
   gestureCancellationToken?: number;
   interactionEnabled?: boolean;
+  visible?: boolean;
   selection?: readonly RoomEditSelection[];
   onSelectionChange?: (selection: readonly RoomEditSelection[]) => void;
   onTranslateSelection?: (
@@ -527,6 +550,7 @@ export function RoomEditSurface({
   const pointerInsideRef = useRef(false);
   const suppressSelectionClickRef = useRef(false);
   const directGestureRef = useRef<RoomEditDirectGesture | null>(null);
+  const occurrenceEpochsRef = useRef<Map<string, RoomEditOccurrenceEpoch>>(new Map());
   const [panning, setPanning] = useState(false);
   const [directGestureVersion, setDirectGestureVersion] = useState(0);
   const [hoveredPlacementId, setHoveredPlacementId] = useState<string | null>(null);
@@ -819,7 +843,7 @@ export function RoomEditSurface({
   useEffect(() => {
     const registration = renderer.registerSceneWork({
       order: 0,
-      visible: true,
+      visible,
       render: (frame) => {
         const projections = projectionRef.current;
         const canvas = canvasRef.current;
@@ -828,6 +852,16 @@ export function RoomEditSurface({
         const canonicalWorldDraws = new Map(
           canonical.worldDraws.map((item) => [`${item.kind}:${item.occurrenceId}`, item] as const),
         );
+        const activeEpochKeys = new Set<string>();
+        const elapsed = (key: string, clock: RoomEditClockDomain = 'unscaled-presentation') => {
+          activeEpochKeys.add(key);
+          return occurrenceElapsedSeconds(
+            occurrenceEpochsRef.current,
+            key,
+            clock,
+            frame.timeSeconds,
+          );
+        };
         let staleShaderError: AuthoringWebGlShaderProgramError | null = null;
         const draw = (materialDraw: AuthoringWebGlMaterialDraw) => {
           try {
@@ -839,6 +873,7 @@ export function RoomEditSurface({
         };
         frame.beginTarget(display.viewport.width, display.viewport.height, [0, 0, 0, 0]);
         if (display.background.color) {
+          const backgroundTime = elapsed('background:color');
           draw(
             drawVisual(
               display,
@@ -852,10 +887,14 @@ export function RoomEditSurface({
               },
               null,
               frame.timeSeconds,
+              backgroundTime,
             ),
           );
         }
         if (preparedScene?.background) {
+          const backgroundTime = elapsed(
+            `background:${display.background.assetId ?? 'none'}:${display.background.materialApplication?.material.$ref.id ?? 'none'}`,
+          );
           draw(
             drawVisual(
               display,
@@ -865,6 +904,7 @@ export function RoomEditSurface({
               preparedScene.background,
               display.background.materialApplication,
               frame.timeSeconds,
+              backgroundTime,
               roomPropertyValues,
               display.background.uv,
             ),
@@ -882,30 +922,52 @@ export function RoomEditSurface({
             item.kind === 'environment' && item.opacity < 1
               ? ([1, 1, 1, item.opacity] as const)
               : undefined;
+          const clock: RoomEditClockDomain =
+            item.kind === 'environment'
+              ? item.clock
+              : item.kind === 'cast-layer' && item.idle
+                ? item.idle.clock
+                : 'unscaled-presentation';
+          const occurrenceTime = elapsed(`${item.kind}:${item.occurrenceId}`, clock);
           const uv =
             item.kind === 'environment'
               ? {
-                  x: item.scrollPerSecond.x * frame.timeSeconds,
-                  y: item.scrollPerSecond.y * frame.timeSeconds,
+                  x: item.scrollPerSecond.x * occurrenceTime,
+                  y: item.scrollPerSecond.y * occurrenceTime,
                   width: 1,
                   height: 1,
                 }
               : undefined;
+          const displayProjected =
+            item.kind === 'cast-layer'
+              ? applyCharacterIdleProjection(item, item.idle, occurrenceTime, display.viewport)
+              : item;
+          const canonicalProjected =
+            canonicalItem.kind === 'cast-layer'
+              ? applyCharacterIdleProjection(
+                  canonicalItem,
+                  canonicalItem.idle,
+                  occurrenceTime,
+                  canonical.viewport,
+                )
+              : canonicalItem;
           draw(
             drawVisual(
               display,
-              item,
+              displayProjected,
               canonical,
-              canonicalItem,
+              canonicalProjected,
               prepared,
               item.materialApplication,
               frame.timeSeconds,
+              occurrenceTime,
               propertyValues,
               uv,
               color,
             ),
           );
         }
+        retainOccurrenceEpochs(occurrenceEpochsRef.current, activeEpochKeys);
         frame.copyTargetToCanvas(canvas, display.viewport.width, display.viewport.height);
         setShaderDiagnostic((current) => {
           const next = staleShaderError ? { stale: true, message: staleShaderError.message } : null;
@@ -922,7 +984,7 @@ export function RoomEditSurface({
       },
     });
     return () => registration.unregister();
-  }, [preparedScene, renderer, roomPropertyValues]);
+  }, [preparedScene, renderer, roomPropertyValues, visible]);
 
   const committedCandidates = selection.flatMap((item) => {
     const candidate = candidateForRoomEditSelection(selectionCandidates, item);
@@ -1046,10 +1108,15 @@ export function RoomEditSurface({
                 pointerId: event.pointerId,
                 start: { x: point.x, y: point.y },
                 current: { x: point.x, y: point.y },
-                selection: alreadySelected ? [...selection] : [dragCandidate.selection],
+                selection: alreadySelected
+                  ? [...selection]
+                  : additive
+                    ? [...selection, dragCandidate.selection]
+                    : [dragCandidate.selection],
                 candidate,
                 additive,
                 dragging: false,
+                selectionCommitted: false,
               };
             } else {
               directGestureRef.current = {
@@ -1107,8 +1174,13 @@ export function RoomEditSurface({
                   direct.selection.every(
                     (selection) => roomEditSelectionCapabilities(selection).move,
                   )
-                )
+                ) {
                   direct.dragging = true;
+                  if (!direct.selectionCommitted) {
+                    direct.selectionCommitted = true;
+                    onSelectionChange(direct.selection);
+                  }
+                }
               }
             }
             setDirectGestureVersion((value) => value + 1);
