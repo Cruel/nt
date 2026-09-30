@@ -155,7 +155,15 @@ import {
   resolveGameplayInstanceRecord,
 } from '../../../shared/project-schema/authoring-archetypes';
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
-import { allocateRoomPresentationOrder } from '../../../shared/project-schema/room-presentation-order';
+import {
+  allocateRoomPresentationOrder,
+  ROOM_PRESENTATION_ORDER_MAX,
+  ROOM_PRESENTATION_ORDER_MIN,
+  roomPresentationOrderEntries,
+  roomPresentationPlaneForTarget,
+  type RoomPresentationOrderTarget,
+  type RoomPresentationReorderAction,
+} from '../../../shared/project-schema/room-presentation-order';
 import { analyzeHookRegistry } from '../../../shared/hook-registry-analysis';
 import type { AppliedPreviewDocumentResult } from '../../../shared/focused-preview-contracts';
 import { resolveRoomEditProjection, type RoomEditResolvedVisibility } from './room-edit-projection';
@@ -183,6 +191,24 @@ type RoomEditorCategory =
   | 'contents'
   | 'properties'
   | 'behavior';
+
+function roomPresentationTargetForSelection(
+  selection: RoomEditSelection,
+): RoomPresentationOrderTarget | null {
+  switch (selection.kind) {
+    case 'cast':
+    case 'prop':
+    case 'interactable':
+    case 'environment':
+    case 'overlay':
+      return { kind: selection.kind, id: selection.id };
+    case 'placement-layout':
+      return { kind: 'placement-layout', id: selection.id };
+    case 'placement':
+    case 'hotspot':
+      return null;
+  }
+}
 
 type RoomEditorCategoryDefinition = Pick<
   CategorizedEditorCategory<RoomEditorCategory>,
@@ -1024,6 +1050,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  const bulkPresentationTargets = (() => {
+    if (roomSelection.length < 2) return null;
+    const targets = roomSelection.map(roomPresentationTargetForSelection);
+    if (targets.some((target) => target === null)) return null;
+    const concreteTargets = targets as RoomPresentationOrderTarget[];
+    const planes = concreteTargets.map((target) => roomPresentationPlaneForTarget(data, target));
+    const plane = planes[0];
+    if (!plane || planes.some((candidate) => candidate !== plane)) return null;
+    return concreteTargets;
+  })();
+  const reorderBulkPresentation = (action: RoomPresentationReorderAction, label: string) => {
+    if (!bulkPresentationTargets) return;
+    executeRoomEditCommand('room.reorderPresentationSelection', label, {
+      targets: bulkPresentationTargets,
+      action,
+    });
+  };
   const commitLocalProperties = (
     localProperties: OwnerLocalProperty[],
     change?: { kind: 'rename'; fromId: string; toId: string },
@@ -1720,51 +1763,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         );
       }
     }
-    const presentationOrder = (() => {
-      switch (selection.kind) {
-        case 'cast': {
-          const item = data.cast.find((candidate) => candidate.id === selection.id);
-          return item
-            ? { target: { kind: 'cast' as const, id: item.id }, order: item.order }
-            : null;
-        }
-        case 'prop': {
-          const item = data.props.find((candidate) => candidate.id === selection.id);
-          return item
-            ? { target: { kind: 'prop' as const, id: item.id }, order: item.order }
-            : null;
-        }
-        case 'interactable': {
-          const item = data.interactables.find((candidate) => candidate.id === selection.id);
-          return item
-            ? { target: { kind: 'interactable' as const, id: item.id }, order: item.order }
-            : null;
-        }
-        case 'environment': {
-          const item = data.environments.find((candidate) => candidate.id === selection.id);
-          return item
-            ? { target: { kind: 'environment' as const, id: item.id }, order: item.order }
-            : null;
-        }
-        case 'overlay': {
-          const item = data.overlays.find((candidate) => candidate.id === selection.id);
-          return item
-            ? { target: { kind: 'overlay' as const, id: item.id }, order: item.order }
-            : null;
-        }
-        case 'placement-layout': {
-          const item = data.placements.find((candidate) => candidate.id === selection.id);
-          return item?.presentation.layout
-            ? {
-                target: { kind: 'placement-layout' as const, id: item.id },
-                order: item.presentation.layoutOrder,
-              }
-            : null;
-        }
-        default:
-          return null;
-      }
-    })();
+    const presentationTarget = roomPresentationTargetForSelection(selection);
+    const presentationEntry = presentationTarget
+      ? roomPresentationOrderEntries(data).find(
+          (entry) =>
+            entry.target.kind === presentationTarget.kind &&
+            entry.target.id === presentationTarget.id,
+        )
+      : null;
+    const presentationOrder =
+      presentationTarget && presentationEntry
+        ? { target: presentationTarget, order: presentationEntry.order }
+        : null;
     return (
       <div className="space-y-3 rounded-md border bg-background/50 p-3">
         <div className="text-sm font-semibold">
@@ -1813,10 +1823,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 key={`${roomEditSelectionKey(selection)}:${presentationOrder.order}`}
                 id={`room-order-${roomEditSelectionKey(selection)}`}
                 type="number"
+                min={ROOM_PRESENTATION_ORDER_MIN}
+                max={ROOM_PRESENTATION_ORDER_MAX}
                 defaultValue={presentationOrder.order}
                 onBlur={(event) => {
                   const order = Number(event.currentTarget.value);
-                  if (!Number.isSafeInteger(order) || order === presentationOrder.order) return;
+                  if (
+                    !Number.isInteger(order) ||
+                    order < ROOM_PRESENTATION_ORDER_MIN ||
+                    order > ROOM_PRESENTATION_ORDER_MAX ||
+                    order === presentationOrder.order
+                  )
+                    return;
                   executeRoomEditCommand(
                     'room.setPresentationOrder',
                     t('roomEditor.compositionPane.setOrder'),
@@ -3064,6 +3082,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   executeRoomAdd(actionId, { placementId })
                 }
                 onDeleteSelection={deleteCurrentRoomSelection}
+                bulkStackingActions={
+                  bulkPresentationTargets
+                    ? [
+                        {
+                          action: 'backward',
+                          label: t('roomEditor.compositionPane.sendBackward'),
+                        },
+                        {
+                          action: 'forward',
+                          label: t('roomEditor.compositionPane.bringForward'),
+                        },
+                        { action: 'back', label: t('roomEditor.compositionPane.sendToBack') },
+                        { action: 'front', label: t('roomEditor.compositionPane.bringToFront') },
+                      ]
+                    : undefined
+                }
+                onBulkStackingAction={reorderBulkPresentation}
                 onEditHotspots={() => beginRoomHotspotFocus(null)}
               />
             </section>

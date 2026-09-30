@@ -467,6 +467,26 @@ function representativeWireFixture() {
   };
 }
 
+it('limits compiled Room presentation orders to the native signed 32-bit range', () => {
+  const fixture = representativeWireFixture() as ReturnType<typeof representativeWireFixture> & {
+    definitions: { rooms: Array<Record<string, unknown>> };
+  };
+  const room = fixture.definitions.rooms[0]! as Record<string, unknown> & {
+    overlays: unknown[];
+  };
+  room.overlays = [
+    {
+      id: 'hud',
+      layout: { kind: 'layout', id: 'hud' },
+      condition: { kind: 'always' },
+      visible: true,
+      order: 2147483648,
+    },
+  ];
+
+  expect(compiledProjectWireSchema.safeParse(fixture).success).toBe(false);
+});
+
 describe('compiled project wire', () => {
   it('round-trips a representative wire document for every runtime-content family', () => {
     const parsed = parseCompiledProjectWire(representativeWireFixture());

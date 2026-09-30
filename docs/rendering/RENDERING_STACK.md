@@ -113,7 +113,10 @@ The backend centralizes:
   pose anchors, offsets, scale, and expression overlay;
 - typed environment visuals with optional image, material, bounds, opacity, plane/order, clock, and
   UV-scroll parameters;
-- deterministic `PresentationPlane`, family, authored order, stable identity, and sublayer sorting;
+- deterministic `PresentationPlane`, authored occurrence order, stable identity, and internal
+  sublayer sorting. Object family is not a stacking tier: Props, Characters, Interactables,
+  Environments, Room overlay Layouts, and placement-attached Layouts interleave according to the
+  authored order namespace of their plane;
 - Map imagery as an engine-rendered `GameUi` underlay below the ordinary RmlUi Map Layout.
 
 Committed hotspot hit targets and highlight surfaces copy the exact owner draw rectangle, UV crop,

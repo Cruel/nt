@@ -1681,6 +1681,7 @@ describe('RoomEditor', () => {
     renderEditor();
     expect(screen.getByText('2 selected')).toBeInTheDocument();
     expect(screen.getByTestId('room-multi-selection-inspectors')).toBeInTheDocument();
+    expect(screen.queryByTestId('room-bulk-presentation-order-controls')).toBeNull();
     captureWorkbenchTabState(tab.id);
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
       payload: {
@@ -1691,6 +1692,59 @@ describe('RoomEditor', () => {
         expandedSelectionKeys: ['placement:desk'],
       },
     });
+  });
+
+  it('shows bulk stacking controls only for a multi-selection in one Presentation Plane', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['lamp', 'book'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'desk',
+      asset: null,
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [
+          { kind: 'prop', id: 'lamp' },
+          { kind: 'prop', id: 'book' },
+        ],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+
+    renderEditor();
+
+    const controls = screen.getByTestId('room-bulk-presentation-order-controls');
+    expect(within(controls).getByRole('button', { name: 'Send Backward' })).toBeInTheDocument();
+    expect(within(controls).getByRole('button', { name: 'Bring Forward' })).toBeInTheDocument();
+    expect(within(controls).getByRole('button', { name: 'Send to Back' })).toBeInTheDocument();
+    expect(within(controls).getByRole('button', { name: 'Bring to Front' })).toBeInTheDocument();
   });
 
   it('uses placement-first click, exact drill-in, overlap candidates, and explicit deselection', async () => {
