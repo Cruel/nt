@@ -80,6 +80,28 @@ mounted. Within that item it renders each visible surface through the shared fra
 scratch result to the surface's ordinary canvas. This preserves the existing lightweight-preview
 lifecycle while leaving the lower-level authority reusable by Room Edit and other scene renderers.
 
+## Room Edit Adapter
+
+The Room editor's `Edit` mode is the second production consumer of the shared authority. It resolves
+the authored Room through one browser-side spatial projection seam, then uses that exact projection
+for both WebGL world draws and React authoring overlays. The initial Room Edit slice draws the Room
+background and exact Interactable occurrences while React outlines every `RoomPlacement`, including
+empty placements.
+
+Room Edit deliberately reuses runtime world-presentation semantics for the authored default Camera
+View, `contain` camera clamping, normalized placement geometry, background
+`cover`/`contain`/`stretch`/`center` fitting, Interactable occurrence order, engine-2d Material
+specialization, texture overrides, Property-backed parameters, and standard Material facets.
+Background `cover` uses the same cropped UV rectangle as runtime rather than emulating the crop with
+a DOM image.
+
+The existing focused engine Room preview remains a separate persistent `Preview` mode. Only the
+active direct-edit surface registers Room Edit scene work, and the focused preview continues to use
+the existing dedicated-while-open preview-host ownership when enabled. Room Edit never creates a
+private WebGL context and deliberately excludes RmlUi, runtime Hotspot highlights, postprocess,
+transitions, and other player-facing runtime effects. Full world-composition parity beyond the
+initial background/placement/Interactable tracer is a later Room Editor slice.
+
 ## Implementation
 
 Primary files:
@@ -90,10 +112,13 @@ editor/src/renderer/authoring-renderer/authoring-webgl-backend.ts
 editor/src/renderer/authoring-renderer/authoring-webgl-provider.tsx
 editor/src/renderer/material-preview/material-preview-renderer.ts
 editor/src/renderer/material-preview/material-preview-provider.tsx
+editor/src/renderer/editors/rooms/RoomEditSurface.tsx
+editor/src/renderer/editors/rooms/room-edit-projection.ts
 editor/src/renderer/workbench/workbench-group-services.tsx
 ```
 
 The group authority contract is covered by `authoring-webgl-renderer.test.ts`. Material binding,
-preview lifecycle, invalidation, and recovery remain covered by `material-preview-renderer.test.ts`,
-while `shader-material-preview-pooling.test.tsx` proves that a Material preview and a second authoring
-scene consumer share one provider-owned GPU authority.
+preview lifecycle, invalidation, and recovery remain covered by `material-preview-renderer.test.ts`.
+`room-edit-projection.test.ts` covers the Room spatial seam, and
+`shader-material-preview-pooling.test.tsx` proves that Material Preview and Room Edit share one
+provider-owned GPU authority.

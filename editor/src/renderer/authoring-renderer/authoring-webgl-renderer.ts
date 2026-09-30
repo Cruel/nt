@@ -3,6 +3,12 @@ import type { ResolvedMaterialData } from '../../shared/project-schema/authoring
 export interface AuthoringWebGlGeometry {
   kind: 'quad';
   inset?: number;
+  uv?: {
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  };
 }
 
 export interface AuthoringWebGlTextureResource {

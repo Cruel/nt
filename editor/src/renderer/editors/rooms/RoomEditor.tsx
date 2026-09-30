@@ -61,6 +61,7 @@ import {
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
 import { RoomCompositionStage } from '@/components/room-composition-stage';
+import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -234,11 +235,15 @@ function BackgroundFitOption({ fit }: { fit: BackgroundFitMode }) {
 }
 
 const ROOM_EDITOR_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.room';
+type RoomPresentationMode = 'edit' | 'preview';
+const isRoomPresentationMode = (value: unknown): value is RoomPresentationMode =>
+  value === 'edit' || value === 'preview';
 type RoomEditorTabState = WorkbenchTabStatePayload & {
   schema: typeof ROOM_EDITOR_TAB_STATE_SCHEMA;
   payload: {
     scroll?: ScrollViewState;
     activeCategory: RoomEditorCategory;
+    presentationMode: RoomPresentationMode;
     previewCollapsed: boolean;
     hotspotView: HotspotEditorViewState;
   };
@@ -258,6 +263,7 @@ function parseRoomEditorTabState(
   const hotspotView = parseHotspotViewTabState(payload.hotspotView);
   if (
     !isRoomEditorCategory(payload.activeCategory) ||
+    !isRoomPresentationMode(payload.presentationMode) ||
     typeof payload.previewCollapsed !== 'boolean' ||
     !hotspotView
   )
@@ -265,6 +271,7 @@ function parseRoomEditorTabState(
   return {
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
     activeCategory: payload.activeCategory,
+    presentationMode: payload.presentationMode,
     previewCollapsed: payload.previewCollapsed,
     hotspotView,
   };
@@ -426,6 +433,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       ? (parseRoomEditorTabState(savedState)?.activeCategory ?? 'general')
       : 'general';
   });
+  const [presentationMode, setPresentationMode] = useState<RoomPresentationMode>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState
+      ? (parseRoomEditorTabState(savedState)?.presentationMode ?? 'preview')
+      : 'preview';
+  });
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -526,6 +539,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           payload: {
             scroll: captureScrollViewState(scrollRef.current),
             activeCategory,
+            presentationMode,
             previewCollapsed,
             hotspotView,
           },
@@ -534,6 +548,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           const parsed = parseRoomEditorTabState(state);
           if (!parsed) return;
           setActiveCategory(parsed.activeCategory);
+          setPresentationMode(parsed.presentationMode);
           setPreviewCollapsed(parsed.previewCollapsed);
           setHotspotView(
             restoreHotspotViewState(
@@ -546,7 +561,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           );
         },
       }),
-      [activeCategory, data.hotspots, hotspotView, previewCollapsed],
+      [activeCategory, data.hotspots, hotspotView, presentationMode, previewCollapsed],
     ),
   );
   useEffect(() => {
@@ -638,6 +653,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const roomMaterialProperties = [...materialPropertyOptionsById.values()].sort((left, right) =>
     left.id.localeCompare(right.id),
   );
+  const roomPropertyValues: Record<string, unknown> = {};
+  for (const traitId of effectiveRecord?.traits ?? record.traits ?? [])
+    for (const property of project.traits[traitId]?.properties ?? [])
+      if (property.defaultValue !== undefined)
+        roomPropertyValues[property.id] = property.defaultValue;
+  for (const property of inheritedPropertyConfiguration?.defaultProperties ?? [])
+    if (property.defaultValue !== undefined)
+      roomPropertyValues[property.id] = property.defaultValue;
+  for (const property of record.localProperties ?? [])
+    roomPropertyValues[property.id] = property.value;
   const previewSplitOrientation = resolveEditorPreviewSplitOrientation(
     editorPreviewLayout,
     projectSettingsFromProject(project).display,
@@ -1192,13 +1217,60 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         setPreviewCollapsed(collapsed);
       }}
       preview={
-        <DerivedPreviewPane
-          ownerTabId={tab.id}
-          previewMode="room"
-          enabled={!previewCollapsed}
-          root={{ kind: 'room-preview', recordId: roomId }}
-          inputs={{ displayPreference: { mode: 'project' } }}
-        />
+        <div className="flex h-full min-h-0 flex-col bg-background">
+          <div
+            className="flex shrink-0 items-center gap-1 border-b bg-muted/20 p-1"
+            role="group"
+            aria-label={t('roomEditor.presentationModes.label')}
+          >
+            <Button
+              type="button"
+              size="sm"
+              variant={presentationMode === 'edit' ? 'secondary' : 'ghost'}
+              aria-pressed={presentationMode === 'edit'}
+              onClick={() => setPresentationMode('edit')}
+            >
+              {t('roomEditor.presentationModes.edit')}
+            </Button>
+            <Button
+              type="button"
+              size="sm"
+              variant={presentationMode === 'preview' ? 'secondary' : 'ghost'}
+              aria-pressed={presentationMode === 'preview'}
+              onClick={() => setPresentationMode('preview')}
+            >
+              {t('roomEditor.presentationModes.preview')}
+            </Button>
+          </div>
+          <div className="relative min-h-0 flex-1 overflow-hidden">
+            {presentationMode === 'edit' ? (
+              <div className="flex h-full min-h-0 items-center justify-center overflow-auto p-2">
+                <RoomEditSurface
+                  project={project}
+                  roomId={roomId}
+                  room={data}
+                  referenceResolution={referenceResolution}
+                  backgroundImageSize={compositionBackgroundSize}
+                  roomPropertyValues={roomPropertyValues}
+                />
+              </div>
+            ) : null}
+            <div
+              className={
+                presentationMode === 'preview' ? 'absolute inset-0' : 'invisible absolute inset-0'
+              }
+              aria-hidden={presentationMode !== 'preview'}
+            >
+              <DerivedPreviewPane
+                ownerTabId={tab.id}
+                previewMode="room"
+                enabled={!previewCollapsed && presentationMode === 'preview'}
+                root={{ kind: 'room-preview', recordId: roomId }}
+                inputs={{ displayPreference: { mode: 'project' } }}
+              />
+            </div>
+          </div>
+        </div>
       }
     >
       <CategorizedEditorLayout

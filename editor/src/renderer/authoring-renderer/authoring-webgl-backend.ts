@@ -403,7 +403,8 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
   private bindGeometry(program: WebGLProgram, geometry: AuthoringWebGlMaterialDraw['geometry']) {
     const gl = this.gl;
     const inset = Math.max(0, geometry.inset ?? 0);
-    const geometryKey = `${geometry.kind}:${inset}`;
+    const uv = geometry.uv ?? { x: 0, y: 0, width: 1, height: 1 };
+    const geometryKey = `${geometry.kind}:${inset}:${uv.x}:${uv.y}:${uv.width}:${uv.height}`;
     let cached = this.geometryCache.get(geometryKey);
     if (!cached) {
       const positions = new Float32Array([
@@ -416,7 +417,16 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
         1 - inset,
         1 - inset,
       ]);
-      const texcoords = new Float32Array([0, 1, 1, 1, 0, 0, 1, 0]);
+      const texcoords = new Float32Array([
+        uv.x,
+        uv.y + uv.height,
+        uv.x + uv.width,
+        uv.y + uv.height,
+        uv.x,
+        uv.y,
+        uv.x + uv.width,
+        uv.y,
+      ]);
       const colors = new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
       const positionBuffer = gl.createBuffer();
       const texcoordBuffer = gl.createBuffer();

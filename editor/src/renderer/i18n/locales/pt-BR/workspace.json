@@ -968,6 +968,12 @@
     }
   },
   "roomEditor": {
+    "presentationModes": {
+      "label": "Modo de apresentação da sala",
+      "edit": "Editar",
+      "preview": "Prévia",
+      "editWorldRendering": "Renderização do mundo na edição da sala"
+    },
     "categories": {
       "navigationLabel": "Categorias do editor de sala",
       "general": {

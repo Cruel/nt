@@ -932,6 +932,12 @@
     }
   },
   "roomEditor": {
+    "presentationModes": {
+      "label": "⟦Room presentation mode⟧",
+      "edit": "⟦Edit⟧",
+      "preview": "⟦Preview⟧",
+      "editWorldRendering": "⟦Room Edit world rendering⟧"
+    },
     "categories": {
       "navigationLabel": "⟦Room editor categories⟧",
       "general": {

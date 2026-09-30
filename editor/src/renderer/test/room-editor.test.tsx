@@ -13,6 +13,8 @@ import { defaultRoomData, parseRoomData } from '../../shared/project-schema/auth
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { AuthoringWebGlGroupProvider } from '@/authoring-renderer/authoring-webgl-provider';
+import { MaterialPreviewProjectProvider } from '@/material-preview/material-preview-provider';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
 import { setTabPreviewVisible } from '@/workbench/preview-visibility-command';
@@ -35,9 +37,13 @@ const tab: WorkbenchTab = {
 };
 function renderEditor() {
   return render(
-    <div style={{ width: 800, height: 600 }}>
-      <RoomEditor tab={tab} />
-    </div>,
+    <MaterialPreviewProjectProvider>
+      <AuthoringWebGlGroupProvider>
+        <div style={{ width: 800, height: 600 }}>
+          <RoomEditor tab={tab} />
+        </div>
+      </AuthoringWebGlGroupProvider>
+    </MaterialPreviewProjectProvider>,
   );
 }
 function selectRoomCategory(
@@ -940,6 +946,37 @@ describe('RoomEditor', () => {
 
     expect(screen.getByRole('separator', { name: 'Resize room preview' })).toBeInTheDocument();
     expect(screen.getByRole('main')).toHaveClass('overflow-y-auto');
+  });
+  it('persists the Room Edit and Preview mode independently from preview collapse', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const view = renderEditor();
+
+    const modes = screen.getByRole('group', { name: 'Room presentation mode' });
+    expect(within(modes).getByRole('button', { name: 'Preview' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
+    expect(within(modes).getByRole('button', { name: 'Edit' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+
+    captureWorkbenchTabState(tab.id);
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      schema: 'noveltea.editor.tab-state.room',
+      payload: { presentationMode: 'edit', previewCollapsed: false },
+    });
+
+    view.unmount();
+    renderEditor();
+    const restoredModes = screen.getByRole('group', { name: 'Room presentation mode' });
+    expect(within(restoredModes).getByRole('button', { name: 'Edit' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
   });
   it('captures and restores its tab-scoped preview collapse state', async () => {
     const project = createAuthoringProject();

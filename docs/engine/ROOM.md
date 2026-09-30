@@ -179,6 +179,17 @@ Room background `cover`,
 `contain`, `stretch`, and `center` transforms use the same normalized image-coordinate policy consumed
 by runtime projection. No editor-preview-only manipulation contract exists.
 
+The Room visual pane has persistent `Edit` and `Preview` modes stored with the Room tab state. `Edit`
+is a browser-native authoring surface: it submits the Room world tracer through the workbench group's
+shared authoring WebGL authority and keeps authoring overlays in React/DOM. Its canonical projection
+applies the authored World Presentation Space and default Camera View, including `contain` clamping,
+to the same background and placement geometry used by both layers. The initial direct-edit tracer
+renders the Room background plus exact Interactable occurrences with runtime-equivalent background
+fit, occurrence order, engine-2d Material specialization, texture overrides, Property parameter
+bindings, and standard facets; every Room placement is outlined even when it has no occupant.
+`Preview` remains the existing focused native engine preview. Direct Edit intentionally omits RmlUi,
+runtime Hotspot highlight rendering, postprocess, transitions, and other player-only effects.
+
 ## Editor preview
 
 Derived Room preview is graph-backed and does not compile or load a complete project or runtime
