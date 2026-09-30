@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthoringWebGlGroupRenderer } from '@/authoring-renderer/authoring-webgl-provider';
 import {
@@ -457,6 +457,7 @@ export function RoomEditSurface({
   pendingAddActionId = null,
   onPendingAddActionCancel = () => {},
   onAddAtPoint = () => {},
+  onSurfaceElementChange,
 }: {
   project: AuthoringProject;
   roomId: string;
@@ -483,6 +484,7 @@ export function RoomEditSurface({
   pendingAddActionId?: string | null;
   onPendingAddActionCancel?: () => void;
   onAddAtPoint?: (actionId: string, point: { x: number; y: number }) => void;
+  onSurfaceElementChange?: (element: HTMLDivElement | null) => void;
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useAuthoringWebGlGroupRenderer();
@@ -513,6 +515,13 @@ export function RoomEditSurface({
     y: number;
   } | null>(null);
   const [preparedScene, setPreparedScene] = useState<PreparedRoomEditScene | null>(null);
+  const handleSurfaceElement = useCallback(
+    (element: HTMLDivElement | null) => {
+      surfaceRef.current = element;
+      onSurfaceElementChange?.(element);
+    },
+    [onSurfaceElementChange],
+  );
   navigationRef.current = navigation;
   const canonicalSurface = useMemo(
     () =>
@@ -866,7 +875,7 @@ export function RoomEditSurface({
     >
       <ContextMenuTrigger className="contents">
         <div
-          ref={surfaceRef}
+          ref={handleSurfaceElement}
           className="relative w-full min-h-0 min-w-0 shrink-0 overflow-hidden bg-muted/20"
           style={{ aspectRatio: `${referenceResolution.width} / ${referenceResolution.height}` }}
           data-testid="room-edit-surface"
@@ -1155,6 +1164,16 @@ export function RoomEditSurface({
                 data-testid={`room-edit-placement-${placement.id}`}
               />
             ))}
+            {selectionCandidates
+              .filter((candidate) => candidate.category === 'hotspot')
+              .map((candidate) => (
+                <div
+                  key={`hotspot:${candidate.selection.id}`}
+                  className="absolute border border-dashed border-sky-400/80 bg-sky-400/5"
+                  style={overlayStyle(candidate.projected, projection)}
+                  data-testid={`room-edit-hotspot-${candidate.selection.id}`}
+                />
+              ))}
             {committedCandidates.map((candidate) => {
               const key = roomEditSelectionKey(candidate.selection);
               const resizable =

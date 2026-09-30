@@ -948,6 +948,7 @@
       "environments": "⟦Environments⟧",
       "overlays": "⟦Overlays⟧",
       "hotspots": "⟦Hotspots⟧",
+      "editHotspots": "⟦Edit Hotspots⟧",
       "selectedCount_one": "⟦{{count}} selected⟧",
       "selectedCount_other": "⟦{{count}} selected⟧",
       "candidatePlacement": "⟦Placement⟧",

@@ -331,6 +331,150 @@ describe('RoomEditor', () => {
     expect(bubbledShortcut).not.toHaveBeenCalled();
   });
 
+  it('selects Room Hotspots in direct Edit for semantic inspection and opens Focus from both entry points', () => {
+    const project = createAuthoringProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/room.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 64,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    room.hotspots = [
+      {
+        id: 'door',
+        label: 'Door',
+        condition: { kind: 'always' },
+        inputOrder: 3,
+        highlight: { kind: 'default' },
+        target: { kind: 'none' },
+        shape: { kind: 'rect', bounds: { x: 0.2, y: 0.2, width: 0.25, height: 0.3 } },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [{ kind: 'hotspot', id: 'door' }],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: 'door',
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+    renderEditor();
+
+    expect(screen.getByText('Target')).toBeInTheDocument();
+    expect(screen.getByText('Condition')).toBeInTheDocument();
+    expect(screen.getByText('Highlight')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit geometry' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit Hotspots' })).toBeInTheDocument();
+    expect(document.querySelector('[data-testid="room-edit-hotspot-door"]')).not.toBeNull();
+    expect(document.querySelector('[data-testid^="room-edit-resize-"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
+    expect(document.querySelector('[data-hotspot-focus]')).not.toBeNull();
+
+    act(() => {
+      useHotspotFocusStore.getState().discard(tab.id);
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Room Contents' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Hotspots' }));
+    expect(document.querySelector('[data-hotspot-focus]')).not.toBeNull();
+  });
+
+  it('finishes the Hotspot Focus entry transition when tools or camera change mid-animation', async () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 400 },
+    });
+    const project = createAuthoringProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/room.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 64,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+    renderEditor();
+
+    const surface = screen.getByTestId('room-edit-surface');
+    Object.defineProperty(surface, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 120,
+        y: 80,
+        left: 120,
+        top: 80,
+        right: 720,
+        bottom: 380,
+        width: 600,
+        height: 300,
+        toJSON: () => ({}),
+      }),
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Edit Hotspots' }));
+
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).not.toBeNull(),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Pan' }));
+    fireEvent.click(screen.getByRole('button', { name: '100%' }));
+
+    const stage = document.querySelector<HTMLElement>('[data-hotspot-image-stage]');
+    expect(stage).not.toBeNull();
+    await waitFor(() => expect(stage).toHaveClass('opacity-100'), { timeout: 600 });
+    expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).toBeNull();
+  });
+
   it('suspends retained Room composition shortcuts while Hotspot Focus owns the tab', () => {
     const project = createAuthoringProject();
     project.assets.image = {
@@ -389,7 +533,7 @@ describe('RoomEditor', () => {
       'desk',
     ]);
   });
-  it('creates Room hotspot geometry inert until the author assigns a target', () => {
+  it('creates Room hotspot geometry inert until the author assigns a target', async () => {
     Object.defineProperties(HTMLElement.prototype, {
       clientWidth: { configurable: true, get: () => 400 },
       clientHeight: { configurable: true, get: () => 400 },
@@ -438,6 +582,8 @@ describe('RoomEditor', () => {
 
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
+    await waitFor(() => expect(document.querySelector('[data-hotspot-focus]')).toBeNull());
+
     updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
     if (!isAuthoringProject(updated)) return;
@@ -447,6 +593,8 @@ describe('RoomEditor', () => {
     expect(updatedRoom?.hotspots.map((item) => item.inputOrder)).toEqual([0, 1]);
     expect(updatedRoom?.hotspots[0]?.target).toEqual({ kind: 'none' });
     expect(updatedRoom?.hotspots[1]?.target).toEqual({ kind: 'none' });
+    expect(screen.getByDisplayValue('hotspot-2')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true');
   });
   it('selects the owning Room category for workbench targets', () => {
     const project = createAuthoringProject();

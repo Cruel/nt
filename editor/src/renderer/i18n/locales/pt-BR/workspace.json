@@ -984,6 +984,7 @@
       "environments": "Ambientes",
       "overlays": "Sobreposições",
       "hotspots": "Áreas interativas",
+      "editHotspots": "Editar áreas interativas",
       "selectedCount_one": "{{count}} selecionado",
       "selectedCount_other": "{{count}} selecionados",
       "candidatePlacement": "Posicionamento",
