@@ -1,6 +1,9 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
-import type { FocusedRecordPreviewDocument } from '../../shared/focused-preview-contracts';
+import type {
+  AppliedPreviewDocumentResult,
+  FocusedRecordPreviewDocument,
+} from '../../shared/focused-preview-contracts';
 import type { EnginePreviewController } from '@/hooks/use-engine-preview';
 import type { PreviewHostLease } from '@/preview/preview-host-pool';
 import { FocusedPreviewFreshnessCoordinator } from '@/preview/focused-preview-coordinator';
@@ -18,6 +21,20 @@ const focusedDocument: FocusedRecordPreviewDocument = {
   resourceRevision: revision,
   resources: [],
   data: {},
+};
+const appliedResult: AppliedPreviewDocumentResult = {
+  disposition: 'applied',
+  projectInstanceId: 'project-one',
+  kind: 'room-preview',
+  recordId: 'room-a',
+  revision,
+  resourceStageGeneration: 0,
+  roomResolution: {
+    castEntryIds: [],
+    interactableOccurrenceIds: [],
+    propIds: [],
+    environmentIds: [],
+  },
 };
 
 vi.mock('@/preview/focused-preview-adapters', () => ({
@@ -49,9 +66,11 @@ async function runNextFrame() {
 function createLease(
   applyFocusedEditorDocument: ReturnType<typeof vi.fn>,
   initialCommittedContentKey: string | null = null,
+  initialFocusedResult: AppliedPreviewDocumentResult | null = null,
 ) {
   let applySequence = 0;
   let committedContentKey = initialCommittedContentKey;
+  let committedFocusedResult = initialFocusedResult;
   const controller = { applyFocusedEditorDocument } as unknown as EnginePreviewController;
   return {
     leaseId: 'lease-one',
@@ -65,12 +84,17 @@ function createLease(
     transportGeneration: () => 1,
     activeShaderVariant: () => 'glsl-330',
     committedContentKey: () => committedContentKey,
+    committedFocusedResult: () => committedFocusedResult,
     commitContent: (key: string) => {
       committedContentKey = key;
+    },
+    commitFocusedResult: (result: AppliedPreviewDocumentResult) => {
+      committedFocusedResult = result;
     },
     nextFocusedApplySequence: () => ++applySequence,
     subscribeReady: () => () => undefined,
     reveal: vi.fn(),
+    conceal: vi.fn(),
     send: <TResult>(command: (value: EnginePreviewController) => Promise<TResult>) =>
       command(controller),
   } satisfies PreviewHostLease;
@@ -91,11 +115,12 @@ afterEach(() => {
 });
 
 describe('FocusedPreviewFreshnessCoordinator', () => {
-  it('reuses a retained committed document without another native apply', async () => {
-    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
+  it('reuses retained committed content and its native resolution after a coordinator remount', async () => {
+    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(appliedResult);
     const lease = createLease(
       applyFocusedEditorDocument,
       `focused:project-one:room-preview:room-a:${revision}:glsl-330`,
+      appliedResult,
     );
     const coordinator = new FocusedPreviewFreshnessCoordinator();
 
@@ -147,7 +172,7 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
   });
 
   it('does not reuse committed content from another project instance', async () => {
-    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
+    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(appliedResult);
     const lease = createLease(
       applyFocusedEditorDocument,
       `focused:project-one:room-preview:room-a:${revision}:glsl-330`,
@@ -171,6 +196,34 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
 
     expect(applyFocusedEditorDocument).toHaveBeenCalledTimes(1);
     expect(lease.reveal).toHaveBeenCalledTimes(1);
+  });
+
+  it('returns the native Room resolution while keeping a semantic-only focused host concealed', async () => {
+    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(appliedResult);
+    const lease = createLease(applyFocusedEditorDocument);
+    const onApplied = vi.fn();
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+
+    coordinator.submit({
+      project: createAuthoringProject(),
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+      projectInstanceId: 'project-one',
+      projectRevision: 1,
+      affectedPaths: ['/'],
+      graph: null,
+      sourceAnalysis: [],
+      root: { kind: 'room-preview', recordId: 'room-a' },
+      inputs: { displayPreference: { mode: 'project' } },
+      lease,
+      onApplied,
+      revealOnApplied: false,
+    });
+
+    await runNextFrame();
+
+    expect(onApplied).toHaveBeenCalledWith(appliedResult);
+    expect(lease.conceal).toHaveBeenCalledTimes(1);
+    expect(lease.reveal).not.toHaveBeenCalled();
   });
 
   it('reports a current apply failure without retrying the same document every frame', async () => {

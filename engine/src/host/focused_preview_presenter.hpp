@@ -73,7 +73,7 @@ public:
         std::function<std::string_view()> active_shader_variant;
         std::function<std::string(bool fragment)> standalone_layout_style_prefix;
         std::function<void(const core::editor::FocusedEditorDocumentRequest&, std::string_view,
-                           const core::Diagnostics&)>
+                           const core::Diagnostics&, const core::RoomPresentationResolution*)>
             complete;
         std::function<void(core::Diagnostics)> report;
     };

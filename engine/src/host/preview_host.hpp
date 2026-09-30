@@ -184,9 +184,10 @@ public:
     void report_diagnostics(core::Diagnostics diagnostics);
 
 private:
-    void complete_focused_request(const core::editor::FocusedEditorDocumentRequest& request,
-                                  std::string_view status,
-                                  const core::Diagnostics& diagnostics = {}) const;
+    void complete_focused_request(
+        const core::editor::FocusedEditorDocumentRequest& request, std::string_view status,
+        const core::Diagnostics& diagnostics = {},
+        const core::RoomPresentationResolution* room_resolution = nullptr) const;
     [[nodiscard]] bool running_game_available() const noexcept;
     void report_diagnostic(core::Diagnostic diagnostic);
     void emit_diagnostic(const core::Diagnostic& diagnostic) const;

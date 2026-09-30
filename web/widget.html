@@ -1772,6 +1772,7 @@ thead, tbody, tfoot {
               recordId: completion.recordId,
               revision: completion.revision,
               resourceStageGeneration: completion.resourceStageGeneration,
+              ...(completion.roomResolution ? {roomResolution: completion.roomResolution} : {}),
             },
             diagnostics,
           });
@@ -1796,6 +1797,7 @@ thead, tbody, tfoot {
             recordId: completion.recordId,
             revision: completion.revision,
             resourceStageGeneration: completion.resourceStageGeneration,
+            ...(completion.roomResolution ? {roomResolution: completion.roomResolution} : {}),
           },
           diagnostics,
         });

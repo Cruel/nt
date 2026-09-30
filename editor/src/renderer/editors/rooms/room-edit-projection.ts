@@ -138,6 +138,13 @@ export interface RoomEditProjection {
   worldDraws: readonly RoomEditWorldDraw[];
 }
 
+export interface RoomEditResolvedVisibility {
+  castEntryIds: readonly string[];
+  interactableOccurrenceIds: readonly string[];
+  propIds: readonly string[];
+  environmentIds: readonly string[];
+}
+
 const fullUv: RoomEditUvRect = { x: 0, y: 0, width: 1, height: 1 };
 
 export function fitRoomEditBackground(
@@ -290,7 +297,16 @@ function conditionActivity(project: AuthoringProject, condition: Condition): Con
 }
 
 function conditionContributesDraw(project: AuthoringProject, condition: Condition): boolean {
-  return conditionActivity(project, condition) !== 'inactive';
+  return conditionActivity(project, condition) === 'active';
+}
+
+function resolvedOccurrenceContributesDraw(
+  resolvedIds: ReadonlySet<string> | null,
+  occurrenceId: string,
+  project: AuthoringProject,
+  condition: Condition,
+) {
+  return resolvedIds ? resolvedIds.has(occurrenceId) : conditionContributesDraw(project, condition);
 }
 
 function imageSize(project: AuthoringProject, assetId: string | null): RoomEditSize | null {
@@ -382,12 +398,14 @@ export function resolveRoomEditProjection({
   room,
   viewport,
   backgroundImageSize,
+  resolvedVisibility = null,
 }: {
   project: AuthoringProject;
   roomId: string;
   room: RoomData;
   viewport: RoomEditSize;
   backgroundImageSize: RoomEditSize | null;
+  resolvedVisibility?: RoomEditResolvedVisibility | null;
 }): RoomEditProjection {
   const camera = resolveRoomEditCamera(room.presentationSpace, room.presentationSpace.defaultView);
   const backgroundColor = projectRoomEditRect(
@@ -414,9 +432,25 @@ export function resolveRoomEditProjection({
     ),
   }));
   const placementsById = new Map(placements.map((placement) => [placement.id, placement]));
+  const resolvedInteractables = resolvedVisibility
+    ? new Set(resolvedVisibility.interactableOccurrenceIds)
+    : null;
+  const resolvedProps = resolvedVisibility ? new Set(resolvedVisibility.propIds) : null;
+  const resolvedEnvironments = resolvedVisibility
+    ? new Set(resolvedVisibility.environmentIds)
+    : null;
+  const resolvedCast = resolvedVisibility ? new Set(resolvedVisibility.castEntryIds) : null;
   const interactables = room.interactables.flatMap(
     (occurrence): RoomEditInteractableProjection[] => {
-      if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition))
+      if (
+        !occurrence.visible ||
+        !resolvedOccurrenceContributesDraw(
+          resolvedInteractables,
+          occurrence.id,
+          project,
+          occurrence.condition,
+        )
+      )
         return [];
       const instance = project.interactableInstances[occurrence.interactable.$ref.id];
       if (
@@ -463,7 +497,16 @@ export function resolveRoomEditProjection({
   );
 
   const props = room.props.flatMap((occurrence): RoomEditPropProjection[] => {
-    if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition)) return [];
+    if (
+      !occurrence.visible ||
+      !resolvedOccurrenceContributesDraw(
+        resolvedProps,
+        occurrence.id,
+        project,
+        occurrence.condition,
+      )
+    )
+      return [];
     const placement = placementsById.get(occurrence.placementId);
     if (!placement) return [];
     return [
@@ -482,7 +525,16 @@ export function resolveRoomEditProjection({
   });
 
   const environments = room.environments.flatMap((occurrence): RoomEditEnvironmentProjection[] => {
-    if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition)) return [];
+    if (
+      !occurrence.visible ||
+      !resolvedOccurrenceContributesDraw(
+        resolvedEnvironments,
+        occurrence.id,
+        project,
+        occurrence.condition,
+      )
+    )
+      return [];
     const projected = projectRoomEditRect(
       normalizedRect(occurrence.bounds, viewport),
       viewport,
@@ -506,7 +558,11 @@ export function resolveRoomEditProjection({
   });
 
   const cast = room.cast.flatMap((occurrence): RoomEditCastProjection[] => {
-    if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition)) return [];
+    if (
+      !occurrence.visible ||
+      !resolvedOccurrenceContributesDraw(resolvedCast, occurrence.id, project, occurrence.condition)
+    )
+      return [];
     const placement = placementsById.get(occurrence.placementId);
     if (!placement) return [];
     const characterRecord = project.characters[occurrence.character.$ref.id];

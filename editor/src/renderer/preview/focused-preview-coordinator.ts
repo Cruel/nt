@@ -9,6 +9,7 @@ import {
   serializeAuthoringDependencyNodeKey,
 } from '../../shared/authoring-dependency-graph';
 import type {
+  AppliedPreviewDocumentResult,
   FocusedPreviewHostCapabilities,
   FocusedRecordPreviewDocument,
   PreviewRootKey,
@@ -35,6 +36,8 @@ export interface FocusedPreviewDesiredState {
   inputs: unknown;
   lease: PreviewHostLease;
   onLoadingChange?(loading: boolean): void;
+  onApplied?(result: AppliedPreviewDocumentResult): void;
+  revealOnApplied?: boolean;
   reportBuildFailure?(message: string): void;
 }
 
@@ -54,6 +57,7 @@ export class FocusedPreviewFreshnessCoordinator {
     rootKeyText: string;
     inputRevision: string;
     activeShaderVariant: string;
+    result: AppliedPreviewDocumentResult;
   } | null = null;
   private disposed = false;
 
@@ -254,22 +258,31 @@ export class FocusedPreviewFreshnessCoordinator {
       if (this.disposed || this.desired !== state || desiredGeneration !== this.desiredGeneration)
         return;
       const contentKey = this.contentKey(document, activeShaderVariant);
-      if (state.lease.committedContentKey() === contentKey) {
-        this.lastApplied = {
-          leaseId: state.lease.leaseId,
-          revision: document.revision,
-          transportGeneration,
-          projectInstanceId: state.projectInstanceId,
-          projectRevision: state.projectRevision,
-          rootKeyText: this.rootKeyText(state),
-          inputRevision,
-          activeShaderVariant,
-        };
-        state.lease.reveal();
+      const retainedContent = state.lease.committedContentKey() === contentKey;
+      const retainedResult = state.lease.committedFocusedResult();
+      const matchingLastApplied =
+        this.lastApplied?.leaseId === state.lease.leaseId &&
+        this.lastApplied.revision === document.revision;
+      const reusableResult = matchingLastApplied
+        ? this.lastApplied!.result
+        : retainedResult?.projectInstanceId === state.projectInstanceId &&
+            retainedResult.kind === state.root.kind &&
+            retainedResult.recordId === state.root.recordId &&
+            retainedResult.revision === document.revision
+          ? retainedResult
+          : null;
+      if (retainedContent && reusableResult) {
+        state.onApplied?.(reusableResult);
+        if (state.revealOnApplied === false) state.lease.conceal();
+        else state.lease.reveal();
         state.onLoadingChange?.(false);
         return;
       }
-      const impactedResult = replay || this.impacted(state, inputRevision, activeShaderVariant);
+      const retainedContentNeedsResult = retainedContent && !reusableResult;
+      const impactedResult =
+        retainedContentNeedsResult ||
+        replay ||
+        this.impacted(state, inputRevision, activeShaderVariant);
       if (!impactedResult) {
         state.onLoadingChange?.(false);
         return;
@@ -286,7 +299,7 @@ export class FocusedPreviewFreshnessCoordinator {
       const sequence = state.lease.nextFocusedApplySequence();
       this.currentApplySequence = sequence;
       try {
-        await state.lease.send((controller) =>
+        const result = await state.lease.send((controller) =>
           controller.applyFocusedEditorDocument(document, sequence),
         );
         if (
@@ -304,9 +317,13 @@ export class FocusedPreviewFreshnessCoordinator {
           rootKeyText: this.rootKeyText(state),
           inputRevision,
           activeShaderVariant,
+          result,
         };
+        state.onApplied?.(result);
         state.lease.commitContent(contentKey);
-        state.lease.reveal();
+        state.lease.commitFocusedResult(result);
+        if (state.revealOnApplied === false) state.lease.conceal();
+        else state.lease.reveal();
         state.onLoadingChange?.(false);
       } catch (error) {
         if (

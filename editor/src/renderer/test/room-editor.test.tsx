@@ -963,6 +963,10 @@ describe('RoomEditor', () => {
       'aria-pressed',
       'true',
     );
+    expect(document.querySelector('[data-preview-pane-mode="room"]')).toHaveAttribute(
+      'data-preview-pane-enabled',
+      'true',
+    );
 
     captureWorkbenchTabState(tab.id);
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({

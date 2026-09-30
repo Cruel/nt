@@ -95,6 +95,7 @@ vi.mock('@/hooks/use-engine-preview', () => ({
           kind: string;
           recordId: string;
           revision: string;
+          projectInstanceId: string;
           data: Record<string, unknown>;
         }) => {
           previewControllers.loadPreviewDocumentCalls.push(document);
@@ -106,12 +107,31 @@ vi.mock('@/hooks/use-engine-preview', () => ({
           kind: string;
           recordId: string;
           revision: string;
+          projectInstanceId: string;
           data: Record<string, unknown>;
         }) => {
           previewControllers.applyFocusedDocumentCalls.push(document);
           const pending = previewControllers.nextApplyFocusedPromise;
           previewControllers.nextApplyFocusedPromise = null;
-          return pending ?? Promise.resolve();
+          const result = {
+            disposition: 'applied' as const,
+            projectInstanceId: document.projectInstanceId,
+            kind: document.kind as 'layout-preview' | 'room-preview',
+            recordId: document.recordId,
+            revision: document.revision,
+            resourceStageGeneration: 0,
+            ...(document.kind === 'room-preview'
+              ? {
+                  roomResolution: {
+                    castEntryIds: [],
+                    interactableOccurrenceIds: [],
+                    propIds: [],
+                    environmentIds: [],
+                  },
+                }
+              : {}),
+          };
+          return pending ? pending.then(() => result) : Promise.resolve(result);
         },
       ),
     };

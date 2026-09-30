@@ -73,10 +73,11 @@ EM_JS(void, nt_preview_emit_focused_document_applied,
       (const char* request_id, double host_generation, double apply_sequence,
        const char* project_instance_id, double resource_stage_generation, const char* kind,
        const char* record_id, const char* revision, const char* disposition,
-       const char* diagnostics_json), {
+       const char* diagnostics_json, const char* room_resolution_json), {
     const bridge = globalThis.NovelTeaPreviewBridge;
     if (!bridge || typeof bridge.focusedDocumentApplied !== 'function') return;
     const diagnostics = JSON.parse(UTF8ToString(diagnostics_json));
+    const roomResolutionText = UTF8ToString(room_resolution_json);
     bridge.focusedDocumentApplied({
         requestId: UTF8ToString(request_id),
         hostGeneration: Number(host_generation),
@@ -87,7 +88,8 @@ EM_JS(void, nt_preview_emit_focused_document_applied,
         recordId: UTF8ToString(record_id),
         revision: UTF8ToString(revision),
         disposition: UTF8ToString(disposition),
-        diagnostics
+        diagnostics,
+        roomResolution: roomResolutionText.length > 0 ? JSON.parse(roomResolutionText) : undefined
     });
 });
 #endif
@@ -157,7 +159,8 @@ void emit_focused_document_applied(const char* request_id, std::uint64_t host_ge
                                    std::uint64_t apply_sequence, const char* project_instance_id,
                                    std::uint64_t resource_stage_generation, const char* kind,
                                    const char* record_id, const char* revision,
-                                   const char* disposition, const char* diagnostics_json)
+                                   const char* disposition, const char* diagnostics_json,
+                                   const char* room_resolution_json)
 {
 #if defined(__EMSCRIPTEN__)
     nt_preview_emit_focused_document_applied(
@@ -165,7 +168,8 @@ void emit_focused_document_applied(const char* request_id, std::uint64_t host_ge
         static_cast<double>(apply_sequence), project_instance_id ? project_instance_id : "",
         static_cast<double>(resource_stage_generation), kind ? kind : "",
         record_id ? record_id : "", revision ? revision : "", disposition ? disposition : "failed",
-        diagnostics_json ? diagnostics_json : "[]");
+        diagnostics_json ? diagnostics_json : "[]",
+        room_resolution_json ? room_resolution_json : "");
 #else
     (void)request_id;
     (void)host_generation;
@@ -177,6 +181,7 @@ void emit_focused_document_applied(const char* request_id, std::uint64_t host_ge
     (void)revision;
     (void)disposition;
     (void)diagnostics_json;
+    (void)room_resolution_json;
 #endif
 }
 

@@ -6,7 +6,10 @@ import {
   type PreviewPanePolicy,
 } from '@/preview/preview-host-pool';
 import type { PreviewDocument, PreviewMode } from '../../shared/preview-protocol';
-import type { PreviewRootKey } from '../../shared/focused-preview-contracts';
+import type {
+  AppliedPreviewDocumentResult,
+  PreviewRootKey,
+} from '../../shared/focused-preview-contracts';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useProjectStore } from '@/project/project-store';
 import {
@@ -30,6 +33,8 @@ type FocusedProps = {
   className?: string;
   hostPolicy?: PreviewPanePolicy;
   enabled?: boolean;
+  onFocusedDocumentApplied?: (result: AppliedPreviewDocumentResult) => void;
+  revealFocusedDocument?: boolean;
 };
 
 type LegacyProps = {
@@ -104,6 +109,8 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
   const inputs = props.inputs;
   const previewDocument = props.previewDocument;
   const resetBeforeLoad = props.resetBeforeLoad ?? false;
+  const onFocusedDocumentApplied = props.root ? props.onFocusedDocumentApplied : undefined;
+  const revealFocusedDocument = props.root ? (props.revealFocusedDocument ?? true) : true;
   const projectSettings = useMemo(
     () =>
       isAuthoringProject(projectDocument) ? projectSettingsFromProject(projectDocument) : undefined,
@@ -160,6 +167,8 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
       inputs: effectiveInputs,
       lease,
       onLoadingChange: root.kind === 'room-preview' ? setFocusedLoading : undefined,
+      onApplied: onFocusedDocumentApplied,
+      revealOnApplied: revealFocusedDocument,
       reportBuildFailure: (message) =>
         usePreviewManagerStore.getState().recordPreviewDiagnostic({
           severity: 'error',
@@ -190,6 +199,8 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
     publication,
     readyRevision,
     root,
+    onFocusedDocumentApplied,
+    revealFocusedDocument,
   ]);
 
   useEffect(() => {

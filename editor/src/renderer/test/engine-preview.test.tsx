@@ -691,7 +691,9 @@ describe('EnginePreview', () => {
   });
 
   it('allows focused native publication to exceed the generic command timeout', async () => {
-    let focusedRequest: Promise<void> | null = null;
+    let focusedRequest: ReturnType<
+      import('@/hooks/use-engine-preview').EnginePreviewController['applyFocusedEditorDocument']
+    > | null = null;
     const revision = `sha256:${'0'.repeat(64)}` as const;
     render(
       <EnginePreview

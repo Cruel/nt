@@ -412,7 +412,7 @@ describe('Room Edit spatial projection', () => {
     ).toEqual(['a-instance', 'z-instance']);
   });
 
-  it('keeps unsupported conditions visible instead of silently treating them as false', () => {
+  it('does not guess unsupported condition results before native focused-preview resolution arrives', () => {
     const project = createAuthoringProject({ id: 'condition-test' });
     const room = defaultRoomData('Condition Room');
     room.placements = [
@@ -464,7 +464,83 @@ describe('Room Edit spatial projection', () => {
       backgroundImageSize: null,
     });
 
-    expect(projection.props.map((item) => item.occurrenceId)).toEqual(['lua-true', 'not-lua']);
+    expect(projection.props.map((item) => item.occurrenceId)).toEqual([]);
+  });
+
+  it('uses native focused-preview resolution as the condition authority for world draws', () => {
+    const project = createAuthoringProject({ id: 'native-condition-test' });
+    const room = defaultRoomData('Native Condition Room');
+    room.placements = [
+      {
+        id: 'slot',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'lua-true',
+        condition: { kind: 'lua-predicate', source: 'return true' },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 1,
+      },
+      {
+        id: 'lua-false',
+        condition: { kind: 'lua-predicate', source: 'return false' },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 2,
+      },
+      {
+        id: 'not-lua-true',
+        condition: {
+          kind: 'not',
+          condition: { kind: 'lua-predicate', source: 'return true' },
+        },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 3,
+      },
+      {
+        id: 'not-lua-false',
+        condition: {
+          kind: 'not',
+          condition: { kind: 'lua-predicate', source: 'return false' },
+        },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 4,
+      },
+    ];
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1920, height: 1080 },
+      backgroundImageSize: null,
+      resolvedVisibility: {
+        castEntryIds: [],
+        interactableOccurrenceIds: [],
+        propIds: ['lua-true', 'not-lua-false'],
+        environmentIds: [],
+      },
+    });
+
+    expect(projection.props.map((item) => item.occurrenceId)).toEqual([
+      'lua-true',
+      'not-lua-false',
+    ]);
   });
 
   it('matches runtime contain camera clamping and background fit geometry', () => {
