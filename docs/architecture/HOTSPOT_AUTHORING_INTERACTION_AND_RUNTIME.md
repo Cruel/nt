@@ -80,11 +80,16 @@ the newest rectangle becomes selected. Escape cancels the current rectangle gest
 committing project data.
 
 Geometry changes are session-local. Draw, move, resize, and delete participate in a local undo/redo
-history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y. Deleting required rectangle geometry removes the whole
-Hotspot entity from the draft. `Done` publishes the complete resulting collection through one
-project command and therefore one project-level undo step; `Cancel` discards the draft. Switching
-tabs may leave the focus session alive. A modified session registers with the workbench draft-close
-boundary so closing the owning tab must apply or discard it rather than silently losing geometry.
+history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y; Focus consumes those shortcuts so they never also reach
+project undo/redo. Deleting required rectangle geometry removes the whole Hotspot entity from the
+draft, while parent-editor composition shortcuts are suspended for the lifetime of Focus. `Done`
+publishes geometry through one project command and therefore one project-level undo step. It performs
+a three-way merge against the geometry seen on entry and the latest Project geometry: untouched
+shapes preserve concurrent changes, disjoint geometry edits compose, and conflicting edits to the
+same shape fail closed. `Cancel` discards the draft. Switching tabs may leave the focus session alive.
+A modified session registers as a versioned serializable workbench draft so Project/window recovery
+can restore it, and closing its owning tab requires explicit apply/discard even when another visual
+tab shares the same record save unit.
 
 Hotspot semantic editing chooses a target rather than a Verb. Room targets include local Features,
 other admitted subjects, and local Exits. Interactable targets additionally include the owning

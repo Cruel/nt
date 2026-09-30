@@ -166,6 +166,38 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
   });
   const hotspotFocusSession = useHotspotFocusStore((state) => state.sessionsByTabId[tab.id]);
   const startHotspotFocus = useHotspotFocusStore((state) => state.start);
+  const restoreHotspotFocus = useHotspotFocusStore((state) => state.restore);
+  const hotspotMode = data.presentation.hotspots;
+  const hotspotItems = useMemo(
+    () =>
+      hotspotMode.kind === 'none'
+        ? []
+        : hotspotMode.kind === 'sprite-alpha'
+          ? [hotspotMode.hotspot]
+          : hotspotMode.hotspots,
+    [hotspotMode],
+  );
+  useEffect(() => {
+    if (!project || !record || !interactableId || hotspotFocusSession) return;
+    restoreHotspotFocus({
+      tabId: tab.id,
+      ownerKind: 'interactable',
+      ownerId: interactableId,
+      assetId: data.presentation.sprite?.$ref.id ?? null,
+      mode: hotspotMode.kind === 'custom' ? 'rectangles' : 'sprite-alpha',
+      items: hotspotItems,
+    });
+  }, [
+    data.presentation.sprite?.$ref.id,
+    hotspotFocusSession,
+    hotspotItems,
+    hotspotMode.kind,
+    interactableId,
+    project,
+    record,
+    restoreHotspotFocus,
+    tab.id,
+  ]);
   useWorkbenchEditorTabState<InteractableEditorTabState>(
     tab.id,
     useMemo(
@@ -223,15 +255,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('interactables', interactableId),
       persistencePolicy: 'manual-save',
     });
-  const hotspotMode = data.presentation.hotspots;
   const presentationNamedCursorId =
     data.presentation.cursor?.kind === 'named' ? data.presentation.cursor.id : null;
-  const hotspotItems =
-    hotspotMode.kind === 'none'
-      ? []
-      : hotspotMode.kind === 'sprite-alpha'
-        ? [hotspotMode.hotspot]
-        : hotspotMode.hotspots;
   const chooseSprite = (item: SelectorItem) => {
     if (!item.entityId) return;
     commit(

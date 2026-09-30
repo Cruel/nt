@@ -89,18 +89,28 @@ export function mergeHotspotFocusGeometry(
   current: readonly EditableHotspot[],
   latest: readonly EditableHotspot[],
 ): readonly EditableHotspot[] | null {
-  const initialIds = new Set(initial.map((item) => item.id));
+  const initialById = new Map(initial.map((item) => [item.id, item] as const));
+  const initialIds = new Set(initialById.keys());
   const currentById = new Map(current.map((item) => [item.id, item] as const));
   const latestIds = new Set(latest.map((item) => item.id));
   const added = current.filter((item) => !initialIds.has(item.id));
 
   if (added.some((item) => latestIds.has(item.id))) return null;
 
+  const shapeEqual = (left: EditableHotspot['shape'], right: EditableHotspot['shape']) =>
+    JSON.stringify(left) === JSON.stringify(right);
+
   const merged = latest.flatMap((item) => {
     if (!initialIds.has(item.id)) return [item];
+    const original = initialById.get(item.id)!;
     const draft = currentById.get(item.id);
-    if (!draft) return [];
+    if (!draft) return shapeEqual(item.shape, original.shape) ? [] : [null];
+    const draftChanged = !shapeEqual(draft.shape, original.shape);
+    if (!draftChanged) return [item];
+    const latestChanged = !shapeEqual(item.shape, original.shape);
+    if (latestChanged && !shapeEqual(item.shape, draft.shape)) return [null];
     return [{ ...item, shape: draft.shape }];
   });
-  return [...merged, ...added];
+  if (merged.some((item) => item === null)) return null;
+  return [...(merged as EditableHotspot[]), ...added];
 }

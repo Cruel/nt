@@ -549,6 +549,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   });
   const hotspotFocusSession = useHotspotFocusStore((state) => state.sessionsByTabId[tab.id]);
   const startHotspotFocus = useHotspotFocusStore((state) => state.start);
+  const restoreHotspotFocus = useHotspotFocusStore((state) => state.restore);
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
@@ -571,6 +572,26 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       : null;
   const data =
     parseRoomData(effectiveRecord?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
+  useEffect(() => {
+    if (!project || !record || !roomId || hotspotFocusSession) return;
+    restoreHotspotFocus({
+      tabId: tab.id,
+      ownerKind: 'room',
+      ownerId: roomId,
+      assetId: data.background.asset?.$ref.id ?? null,
+      mode: 'rectangles',
+      items: data.hotspots,
+    });
+  }, [
+    data.background.asset?.$ref.id,
+    data.hotspots,
+    hotspotFocusSession,
+    project,
+    record,
+    restoreHotspotFocus,
+    roomId,
+    tab.id,
+  ]);
   const [roomEditResolution, setRoomEditResolution] = useState<{
     projectRevision: number;
     roomId: string;
@@ -750,7 +771,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   }, [data, project, roomId, roomSelection, t]);
 
   useEffect(() => {
-    if (presentationMode !== 'edit') return;
+    if (presentationMode !== 'edit' || hotspotFocusSession) return;
     const onKeyDown = (event: KeyboardEvent) => {
       if (
         editorLocation &&
@@ -788,6 +809,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     activeGroupId,
     deleteCurrentRoomSelection,
     editorLocation,
+    hotspotFocusSession,
     presentationMode,
     roomSelection.length,
   ]);

@@ -1544,6 +1544,7 @@ export function WorkspacePage() {
 
   useEffect(() => {
     function onKeyDown(event: KeyboardEvent) {
+      if (event.defaultPrevented) return;
       if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
       if (event.key === '`') {
         event.preventDefault();
