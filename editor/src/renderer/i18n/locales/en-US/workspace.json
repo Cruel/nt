@@ -925,6 +925,15 @@
     }
   },
   "roomEditor": {
+    "commandFallbacks": {
+      "moveSelection": "Move Room selection",
+      "resizeSelection": "Resize Room selection",
+      "deleteSelection": "Delete Room selection",
+      "addPresentationContent": "Add Room presentation content",
+      "reorderPresentation": "Reorder Room presentation",
+      "reorderPresentationSelection": "Reorder Room presentation selection",
+      "setPresentationOrder": "Set Room presentation order"
+    },
     "presentationModes": {
       "label": "Room presentation mode",
       "edit": "Edit",
@@ -1039,6 +1048,7 @@
         "profileId": "Profile",
         "appearanceId": "Appearance",
         "none": "None",
+        "characterDefault": "Character default",
         "poseId": "Pose ID",
         "expressionId": "Expression ID",
         "idleId": "Idle ID",

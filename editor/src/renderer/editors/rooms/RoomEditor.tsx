@@ -100,6 +100,7 @@ import {
   type SelectorItem,
 } from '@/workspace/command-palette-search';
 import { escapeJsonPointerSegment } from '@/project/json-pointer';
+import { resolveOwnerPropertyValues } from '@/project/owner-property-values';
 
 const roomPrecommitGameplayCommandKinds: readonly GameplayCommandKind[] = [
   'set-global-property',
@@ -620,12 +621,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [roomEditViewportSize, setRoomEditViewportSize] = useState({ width: 0, height: 0 });
   const roomEditSurfaceElementRef = useRef<HTMLDivElement | null>(null);
   const roomPreviewSurfaceElementRef = useRef<HTMLDivElement | null>(null);
-  const [hotspotFocusRoomViewportScreenRect, setHotspotFocusRoomViewportScreenRect] = useState<{
-    x: number;
-    y: number;
-    width: number;
-    height: number;
-  } | null>(null);
   const handleRoomEditSurfaceElementChange = useCallback((element: HTMLDivElement | null) => {
     roomEditSurfaceElementRef.current = element;
   }, []);
@@ -1201,16 +1196,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const roomMaterialProperties = [...materialPropertyOptionsById.values()].sort((left, right) =>
     left.id.localeCompare(right.id),
   );
-  const roomPropertyValues: Record<string, unknown> = {};
-  for (const traitId of effectiveRecord?.traits ?? record.traits ?? [])
-    for (const property of project.traits[traitId]?.properties ?? [])
-      if (property.defaultValue !== undefined)
-        roomPropertyValues[property.id] = property.defaultValue;
-  for (const property of inheritedPropertyConfiguration?.defaultProperties ?? [])
-    if (property.defaultValue !== undefined)
-      roomPropertyValues[property.id] = property.defaultValue;
-  for (const property of record.localProperties ?? [])
-    roomPropertyValues[property.id] = property.value;
+  const roomPropertyValues = resolveOwnerPropertyValues(project, record, effectiveRecord);
   const previewSplitOrientation = resolveEditorPreviewSplitOrientation(
     editorPreviewLayout,
     projectSettingsFromProject(project).display,
@@ -1309,7 +1295,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       presentationMode === 'preview' && bounds
         ? containRect({ width: bounds.width, height: bounds.height }, referenceResolution)
         : null;
-    setHotspotFocusRoomViewportScreenRect(
+    const returnViewportScreenRect =
       bounds && bounds.width > 0 && bounds.height > 0
         ? previewViewport
           ? {
@@ -1319,8 +1305,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               height: previewViewport.height,
             }
           : { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }
-        : null,
-    );
+        : null;
     startHotspotFocus({
       tabId: tab.id,
       ownerKind: 'room',
@@ -1329,6 +1314,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       mode: 'rectangles',
       items: data.hotspots,
       selectedHotspotId,
+      returnViewportScreenRect,
     });
   };
   const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label }));
@@ -2573,7 +2559,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     </SelectTrigger>
                     <SelectContent>
                       <SelectItem value="__none__">
-                        {t('roomEditor.compositionPane.editor.none')}
+                        {t('roomEditor.compositionPane.editor.characterDefault')}
                       </SelectItem>
                       {appearanceItems.map((item) => (
                         <SelectItem key={item.value} value={item.value}>
@@ -3030,7 +3016,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     );
   };
   const hotspotFocusRoomPresentation =
-    hotspotFocusSession && hotspotFocusRoomViewportScreenRect
+    hotspotFocusSession && hotspotFocusSession.returnViewportScreenRect
       ? (() => {
           const projection = resolveRoomEditProjection({
             project,
@@ -3044,7 +3030,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           });
           return {
             viewport: referenceResolution,
-            displayedViewportScreenRect: hotspotFocusRoomViewportScreenRect,
+            displayedViewportScreenRect: hotspotFocusSession.returnViewportScreenRect,
             visibleImageRect: projection.background.rect,
             visibleImageUv: projection.background.uv,
             rotationDegrees: projection.background.rotationDegrees,

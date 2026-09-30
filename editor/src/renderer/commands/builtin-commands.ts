@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { editorI18n } from '@/i18n';
 import {
   assignAssetAliasPatches,
   importAssetRecordsPatches,
@@ -1988,19 +1989,19 @@ export function labelForCommand(type: string): string {
     case 'room.setPlacementBounds':
       return 'Update room placement bounds';
     case 'room.translateSelection':
-      return 'Move room selection';
+      return editorI18n.t('workspace:roomEditor.commandFallbacks.moveSelection');
     case 'room.resizeSelection':
-      return 'Resize room selection';
+      return editorI18n.t('workspace:roomEditor.commandFallbacks.resizeSelection');
     case 'room.deleteSelection':
-      return 'Delete room selection';
+      return editorI18n.t('workspace:roomEditor.commandFallbacks.deleteSelection');
     case 'room.addPresentationContent':
-      return 'Add room presentation content';
+      return editorI18n.t('workspace:roomEditor.commandFallbacks.addPresentationContent');
     case 'room.reorderPresentation':
-      return 'Reorder room presentation';
+      return editorI18n.t('workspace:roomEditor.commandFallbacks.reorderPresentation');
     case 'room.reorderPresentationSelection':
-      return 'Reorder room presentation selection';
+      return editorI18n.t('workspace:roomEditor.commandFallbacks.reorderPresentationSelection');
     case 'room.setPresentationOrder':
-      return 'Set room presentation order';
+      return editorI18n.t('workspace:roomEditor.commandFallbacks.setPresentationOrder');
     case 'room.placeInteractable':
       return 'Place interactable';
     case 'room.addInteractableOccurrence':

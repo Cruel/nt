@@ -621,6 +621,61 @@ describe('RoomEditor', () => {
     );
   });
 
+  it('retains the Hotspot Focus Room return endpoint across active-only remounts', () => {
+    const project = createAuthoringProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/room.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 64,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const first = renderEditor();
+
+    const previewSurface = document.querySelector<HTMLElement>('[data-room-preview-surface]');
+    expect(previewSurface).not.toBeNull();
+    Object.defineProperty(previewSurface!, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 100,
+        y: 50,
+        left: 100,
+        top: 50,
+        right: 1300,
+        bottom: 850,
+        width: 1200,
+        height: 800,
+        toJSON: () => ({}),
+      }),
+    });
+    selectRoomCategory('Hotspots');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
+    const retainedEndpoint =
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.returnViewportScreenRect;
+    expect(retainedEndpoint).not.toBeNull();
+
+    first.unmount();
+    renderEditor();
+
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.returnViewportScreenRect,
+    ).toEqual(retainedEndpoint);
+    expect(document.querySelector('[data-hotspot-focus]')).toHaveAttribute(
+      'data-room-presentation-endpoint',
+      'ready',
+    );
+  });
+
   it('suspends retained Room composition shortcuts while Hotspot Focus owns the tab', () => {
     const project = createAuthoringProject();
     project.assets.image = {
@@ -2063,6 +2118,9 @@ describe('RoomEditor', () => {
     renderEditor();
     expect(screen.getByTestId('room-edit-selected-cast:hero-cast')).toBeInTheDocument();
     expect(screen.queryByTestId(/^room-edit-resize-/)).toBeNull();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Appearance' }));
+    expect(screen.getByRole('option', { name: 'Character default' })).toBeInTheDocument();
+    fireEvent.keyDown(screen.getByRole('combobox', { name: 'Appearance' }), { key: 'Escape' });
     fireEvent.click(screen.getByRole('combobox', { name: 'Profile' }));
     await user.click(screen.getByRole('option', { name: 'Closeup' }));
     fireEvent.click(screen.getByRole('combobox', { name: 'Appearance' }));
