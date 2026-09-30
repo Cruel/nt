@@ -12,6 +12,8 @@ test("public release manifest names exact public editor and CLI downloads", () =
   const sourceRevision = "0".repeat(40);
   try {
     const names = [
+      `noveltea-editor-${tag}-macos-arm64-release.dmg`,
+      `noveltea-editor-${tag}-macos-arm64-release.zip`,
       `noveltea-editor-${tag}-windows-x64-release.setup.exe`,
       `noveltea-editor-${tag}-linux-x64-release.AppImage`,
       `noveltea-editor-${tag}-linux-x64-release.deb`,
@@ -43,13 +45,25 @@ test("public release manifest names exact public editor and CLI downloads", () =
       sourceRevision,
       repository: "Cruel/noveltea-releases",
     });
-    assert.equal(manifest.editor.length, 4);
+    assert.equal(manifest.editor.length, 6);
     assert.equal(manifest.cli.length, 2);
     assert.equal(manifest.examples.sourceRevision, "a".repeat(40));
     assert.equal(manifest.examples.playerBuildId, `${tag}-web-wasm32-threads-release`);
     assert.equal(manifest.examples.archive.file, `noveltea-examples-${tag}.zip`);
-    assert.equal(manifest.editor[0].platform, "windows");
-    assert.equal(manifest.editor[1].platform, "linux");
+    assert.deepEqual(
+      manifest.editor.slice(0, 2).map(({ platform, arch, format, primary }) => ({
+        platform,
+        arch,
+        format,
+        primary,
+      })),
+      [
+        { platform: "macos", arch: "arm64", format: "dmg", primary: true },
+        { platform: "macos", arch: "arm64", format: "zip", primary: false },
+      ],
+    );
+    assert.equal(manifest.editor[2].platform, "windows");
+    assert.equal(manifest.editor[3].platform, "linux");
     assert.match(
       manifest.editor[0].url,
       /^https:\/\/github\.com\/Cruel\/noveltea-releases\/releases\/download\/v1\.2\.3\//,

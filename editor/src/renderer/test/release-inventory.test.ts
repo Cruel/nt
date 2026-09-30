@@ -74,6 +74,8 @@ function completeInventory() {
   for (const name of [
     `noveltea-${tag}-linux-x64.tar.gz`,
     `noveltea-${tag}-windows-x64.zip`,
+    `noveltea-editor-${tag}-macos-arm64-release.dmg`,
+    `noveltea-editor-${tag}-macos-arm64-release.zip`,
     `noveltea-editor-${tag}-linux-x64-release.AppImage`,
     `noveltea-editor-${tag}-linux-x64-release.deb`,
     `noveltea-editor-${tag}-linux-x64-release.rpm`,
@@ -125,6 +127,20 @@ function completeInventory() {
         }),
       },
       editor: [
+        publicAsset(root, `noveltea-editor-${tag}-macos-arm64-release.dmg`, {
+          platform: 'macos',
+          arch: 'arm64',
+          format: 'dmg',
+          label: 'macOS DMG',
+          primary: true,
+        }),
+        publicAsset(root, `noveltea-editor-${tag}-macos-arm64-release.zip`, {
+          platform: 'macos',
+          arch: 'arm64',
+          format: 'zip',
+          label: 'macOS ZIP',
+          primary: false,
+        }),
         publicAsset(root, `noveltea-editor-${tag}-windows-x64-release.setup.exe`, {
           platform: 'windows',
           arch: 'x64',
