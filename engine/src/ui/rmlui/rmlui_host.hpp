@@ -160,12 +160,10 @@ public:
                                         bool transition_active);
     void render_world_overlay_source();
     void render_world_overlay_target();
-    [[nodiscard]] bool
-    render_world_overlay_source(std::span<const std::int32_t> external_orders,
-                                const WorldOverlayExternalDraw& draw_external);
-    [[nodiscard]] bool
-    render_world_overlay_target(std::span<const std::int32_t> external_orders,
-                                const WorldOverlayExternalDraw& draw_external);
+    [[nodiscard]] bool render_world_overlay_source(std::span<const std::int32_t> external_orders,
+                                                   const WorldOverlayExternalDraw& draw_external);
+    [[nodiscard]] bool render_world_overlay_target(std::span<const std::int32_t> external_orders,
+                                                   const WorldOverlayExternalDraw& draw_external);
     void end_frame(bool include_debug_plane = true);
     void reset_backend_state();
 
@@ -228,9 +226,9 @@ private:
     void configure_plane_output_framebuffers();
     void render_contexts(bool world_source_only, bool world_target_only, bool include_debug_plane);
     void render_context(ContextRecord& record);
-    [[nodiscard]] bool
-    render_world_overlay_sequence(bool source, std::span<const std::int32_t> external_orders,
-                                  const WorldOverlayExternalDraw& draw_external);
+    [[nodiscard]] bool render_world_overlay_sequence(bool source,
+                                                     std::span<const std::int32_t> external_orders,
+                                                     const WorldOverlayExternalDraw& draw_external);
 
     const assets::AssetManager* m_assets = nullptr;
     SDL_Window* m_window = nullptr;

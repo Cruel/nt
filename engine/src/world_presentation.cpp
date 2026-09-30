@@ -62,9 +62,9 @@ GameLayer layer_for_plane(core::PresentationPlane plane)
 void append_world_overlay_command(std::vector<OrderedWorldOverlayBatch>& batches,
                                   std::int32_t order, QuadCommand command)
 {
-    const auto found = std::lower_bound(
-        batches.begin(), batches.end(), order,
-        [](const OrderedWorldOverlayBatch& batch, std::int32_t value) { return batch.order < value; });
+    const auto found = std::lower_bound(batches.begin(), batches.end(), order,
+                                        [](const OrderedWorldOverlayBatch& batch,
+                                           std::int32_t value) { return batch.order < value; });
     if (found != batches.end() && found->order == order) {
         found->batch.draw(std::move(command));
         return;
