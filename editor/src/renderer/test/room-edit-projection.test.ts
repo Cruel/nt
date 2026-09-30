@@ -338,6 +338,53 @@ describe('Room Edit spatial projection', () => {
     expect(projection.interactables.map((item) => item.propertyValues.heat)).toEqual([0.25, 0.75]);
   });
 
+  it('applies editor navigation after authored camera projection without changing authored Room geometry', () => {
+    const project = createAuthoringProject({ id: 'navigation-projection-test' });
+    const room = defaultRoomData('Navigation Room');
+    room.presentationSpace = {
+      size: { width: 1000, height: 500 },
+      bounds: null,
+      edgePolicy: 'overscan',
+      defaultView: { center: { x: 500, y: 250 }, zoom: 1, rotationDegrees: 0 },
+      views: [],
+    };
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.25, y: 0.2, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+      navigation: { zoom: 2, pan: { x: 100, y: -50 } },
+    });
+
+    expect(projection.camera).toEqual(room.presentationSpace.defaultView);
+    expect(projection.placements[0]).toMatchObject({
+      normalizedBounds: room.placements[0]!.bounds,
+      rect: { x: 100, y: -100, width: 400, height: 200 },
+    });
+    expect(projection.backgroundColor.rect).toEqual({
+      x: -400,
+      y: -300,
+      width: 2000,
+      height: 1000,
+    });
+    expect(room.presentationSpace.defaultView).toEqual({
+      center: { x: 500, y: 250 },
+      zoom: 1,
+      rotationDegrees: 0,
+    });
+    expect(room.placements[0]!.bounds).toEqual({ x: 0.25, y: 0.2, width: 0.2, height: 0.2 });
+  });
+
   it('matches runtime Interactable tie-breaking by exact Instance identity', () => {
     const project = createAuthoringProject({ id: 'stack-tie-test' });
     const room = defaultRoomData('Stack Tie Room');

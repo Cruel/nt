@@ -936,6 +936,8 @@
       "label": "⟦Room presentation mode⟧",
       "edit": "⟦Edit⟧",
       "preview": "⟦Preview⟧",
+      "fit": "⟦Fit⟧",
+      "zoom": "⟦Edit zoom⟧",
       "editWorldRendering": "⟦Room Edit world rendering⟧"
     },
     "categories": {
