@@ -77,8 +77,9 @@ field-level pending input in recovery metadata.
   only writes never advance `savedDocument` or adopt newer tracked-file revisions. A scheduled recovery
   debounce is canceled/settled before Save, Save All, Save As, or Keep Mine so it cannot race a content
   commit and overwrite the new recovery-baseline marker.
-- Closing a non-final duplicate view never prompts. Closing the final dirty view uses the shared
-  Save / Don't Save / Cancel dialog for the logical save unit.
+- Closing a non-final duplicate view does not prompt for shared save-unit dirtiness alone. A
+  tab-local dirty draft still requires resolution before that visual view can close. Closing the
+  final dirty view uses the shared Save / Don't Save / Cancel dialog for the logical save unit.
 
 The renderer exposes only scoped content Save, metadata-only persistence, and Save As copy IPC.
 Content commits cross that boundary with selected save-unit IDs, affected logical paths, and their
@@ -206,10 +207,12 @@ field-level pending input instead of a whole-form draft.
 
 Hotspot Focus is one such tab-local serializable draft. Its versioned payload retains the Focus
 owner/source identity, initial and current geometry, selection/tool, and camera state. Recovery
-restores it only when the current schema/version and owning tab identity still match, then reattaches
-its live apply/discard callbacks. Because that draft belongs to a visual Focus session rather than
-the record save unit itself, closing that tab requires draft resolution even when another duplicate
-view of the same record remains open.
+restores it only when the current schema/version and owning tab identity still match and the complete
+owner-specific Hotspot records validate at the runtime boundary, then reattaches its live
+apply/discard callbacks. Because that draft belongs to a visual Focus session rather than the record
+save unit itself, closing that tab requires draft resolution even when another duplicate view of the
+same record remains open. In that duplicate-view case, Apply/Don't Save resolve only the tab-local
+draft; they do not save or roll back the shared record state still owned by the remaining view.
 
 Persisted tab and draft payloads are independent current-only contracts. Their owner restores a
 payload only when both the schema identity and `schemaVersion` exactly match its current declaration;

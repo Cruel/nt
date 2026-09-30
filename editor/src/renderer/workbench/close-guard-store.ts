@@ -35,7 +35,7 @@ function orderedRequestedTabIds(groupTabIds: string[], tabIds: string[]): string
   return groupTabIds.filter((tabId) => requested.has(tabId));
 }
 
-function hasRemainingViewForSaveUnit(
+export function hasRemainingViewForSaveUnit(
   saveUnitId: string,
   requestedTabIds: ReadonlySet<string>,
 ): boolean {
