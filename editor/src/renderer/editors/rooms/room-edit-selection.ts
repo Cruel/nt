@@ -321,7 +321,7 @@ export function defaultRoomEditSelectionCandidate(
       ) ?? top
     );
   }
-  return top;
+  return candidates.find((candidate) => candidate.category === 'placement') ?? top;
 }
 
 export function topmostRoomEditOccupantCandidate(

@@ -47,4 +47,32 @@ describe('Room Edit semantic selection', () => {
     });
     expect(topmostRoomEditOccupantCandidate(hits)?.selection).toEqual({ kind: 'prop', id: 'lamp' });
   });
+
+  it('prefers an empty Placement over a full-room background Environment', () => {
+    const candidates: RoomEditSelectionCandidate[] = [
+      {
+        selection: { kind: 'environment', id: 'fog' },
+        projected: { rect: { x: 0, y: 0, width: 500, height: 500 }, rotationDegrees: 0 },
+        label: 'Environment · fog',
+        category: 'independent',
+        placementId: null,
+      },
+      {
+        selection: { kind: 'placement', id: 'empty' },
+        projected: { rect: { x: 100, y: 100, width: 100, height: 100 }, rotationDegrees: 0 },
+        label: 'Placement · empty',
+        category: 'placement',
+        placementId: 'empty',
+      },
+    ];
+    const hits = hitTestRoomEditCandidates(
+      candidates,
+      { x: 150, y: 150 },
+      { width: 500, height: 500 },
+    );
+    expect(defaultRoomEditSelectionCandidate(hits)?.selection).toEqual({
+      kind: 'placement',
+      id: 'empty',
+    });
+  });
 });

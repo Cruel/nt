@@ -292,6 +292,7 @@ export function RoomEditSurface({
     pointerId: number;
     clientX: number;
     clientY: number;
+    suppressSelectionClick: boolean;
   } | null>(null);
   const spaceHeldRef = useRef(false);
   const pointerInsideRef = useRef(false);
@@ -386,6 +387,7 @@ export function RoomEditSurface({
   useEffect(() => {
     const gesture = panGestureRef.current;
     panGestureRef.current = null;
+    suppressSelectionClickRef.current = false;
     setPanning(false);
     if (gesture && surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
       surfaceRef.current.releasePointerCapture(gesture.pointerId);
@@ -574,11 +576,13 @@ export function RoomEditSurface({
             const shouldPan = event.button === 1 || (event.button === 0 && spaceHeldRef.current);
             if (!shouldPan) return;
             event.preventDefault();
-            suppressSelectionClickRef.current = true;
+            const suppressSelectionClick = event.button === 0;
+            suppressSelectionClickRef.current = suppressSelectionClick;
             panGestureRef.current = {
               pointerId: event.pointerId,
               clientX: event.clientX,
               clientY: event.clientY,
+              suppressSelectionClick,
             };
             surfaceRef.current?.setPointerCapture?.(event.pointerId);
             setPanning(true);
@@ -600,6 +604,7 @@ export function RoomEditSurface({
             const gesture = panGestureRef.current;
             if (!gesture || gesture.pointerId !== event.pointerId) return;
             panGestureRef.current = null;
+            if (!gesture.suppressSelectionClick) suppressSelectionClickRef.current = false;
             setPanning(false);
             if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
               surfaceRef.current.releasePointerCapture(event.pointerId);
@@ -608,6 +613,7 @@ export function RoomEditSurface({
             const gesture = panGestureRef.current;
             if (!gesture || gesture.pointerId !== event.pointerId) return;
             panGestureRef.current = null;
+            suppressSelectionClickRef.current = false;
             setPanning(false);
           }}
           onClick={(event) => {
