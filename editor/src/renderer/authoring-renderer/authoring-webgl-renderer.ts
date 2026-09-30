@@ -26,6 +26,12 @@ export interface AuthoringWebGlMaterialResource {
   vertexShaderSource: string | null;
   fragmentShaderSource: string | null;
   textures: Readonly<Record<string, AuthoringWebGlTextureResource>>;
+  stale?: boolean;
+  requiresCompiledShader?: boolean;
+  requiresCompiledVertexShader?: boolean;
+  requiresCompiledFragmentShader?: boolean;
+  diagnostics?: readonly { severity?: string; message: string }[];
+  compileDiagnostics?: readonly { severity?: string; message: string }[];
 }
 
 export interface AuthoringWebGlMaterialDraw {

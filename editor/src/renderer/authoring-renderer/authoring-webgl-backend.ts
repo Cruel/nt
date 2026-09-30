@@ -3,6 +3,7 @@ import type {
   AuthoringWebGlBackend,
   AuthoringWebGlBackendFactory,
   AuthoringWebGlMaterialDraw,
+  AuthoringWebGlMaterialResource,
   AuthoringWebGlTextureResource,
 } from './authoring-webgl-renderer';
 
@@ -174,6 +175,44 @@ export class AuthoringWebGlShaderProgramError extends Error {
   }
 }
 
+export function resolveAuthoringWebGlProgramSources(resource: AuthoringWebGlMaterialResource) {
+  const diagnosticMessage = [
+    ...(resource.compileDiagnostics ?? []),
+    ...(resource.diagnostics ?? []),
+  ]
+    .map((diagnostic) => diagnostic.message)
+    .filter(Boolean)
+    .join('\n');
+  if (
+    (resource.requiresCompiledVertexShader && !resource.vertexShaderSource) ||
+    (resource.requiresCompiledFragmentShader && !resource.fragmentShaderSource) ||
+    (resource.requiresCompiledShader &&
+      resource.requiresCompiledVertexShader === undefined &&
+      resource.requiresCompiledFragmentShader === undefined &&
+      !resource.vertexShaderSource &&
+      !resource.fragmentShaderSource)
+  ) {
+    throw new AuthoringWebGlShaderProgramError(
+      false,
+      diagnosticMessage || 'Material shader compilation produced no usable browser output.',
+    );
+  }
+  return {
+    vertexSource: resource.vertexShaderSource ?? FALLBACK_VERTEX_SOURCE,
+    fragmentSource:
+      resource.fragmentShaderSource ??
+      (resource.resolved.role === 'postprocess'
+        ? POSTPROCESS_TINT_FRAGMENT_SOURCE
+        : FALLBACK_FRAGMENT_SOURCE),
+    staleError: resource.stale
+      ? new AuthoringWebGlShaderProgramError(
+          true,
+          diagnosticMessage || 'Material preview is using stale last-good shader output.',
+        )
+      : null,
+  };
+}
+
 class WebGlAuthoringBackend implements AuthoringWebGlBackend {
   private readonly canvas: HTMLCanvasElement;
   private readonly gl: WebGL2RenderingContext;
@@ -268,15 +307,11 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
   private drawMaterial(draw: AuthoringWebGlMaterialDraw) {
     const gl = this.gl;
     const { resource } = draw;
-    const vertexSource = resource.vertexShaderSource ?? FALLBACK_VERTEX_SOURCE;
-    const fragmentSource =
-      resource.fragmentShaderSource ??
-      (resource.resolved.role === 'postprocess'
-        ? POSTPROCESS_TINT_FRAGMENT_SOURCE
-        : FALLBACK_FRAGMENT_SOURCE);
+    const { vertexSource, fragmentSource, staleError } =
+      resolveAuthoringWebGlProgramSources(resource);
     const programKey = `${vertexSource}\u0000${fragmentSource}`;
     let program = this.programCache.get(programKey);
-    let shaderProgramError: AuthoringWebGlShaderProgramError | null = null;
+    let shaderProgramError: AuthoringWebGlShaderProgramError | null = staleError;
     const cachedFailure = this.programFailureCache.get(programKey);
     if (!program && cachedFailure) {
       const lastGood = this.lastGoodProgramByMaterialId.get(resource.materialId) ?? null;

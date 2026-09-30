@@ -34,6 +34,9 @@ export interface MaterialPreviewResource {
   diagnostics: ReadonlyArray<MaterialSchemaDiagnostic | ShaderMaterialProjectDiagnostic>;
   compileDiagnostics: readonly ShaderCompileDiagnostic[];
   stale: boolean;
+  requiresCompiledShader?: boolean;
+  requiresCompiledVertexShader?: boolean;
+  requiresCompiledFragmentShader?: boolean;
 }
 
 export interface MaterialPreviewCompileResult {
@@ -346,6 +349,15 @@ export class MaterialPreviewProjectResources {
       diagnostics: [...resolution.diagnostics, ...snapshot.built.diagnostics],
       compileDiagnostics: snapshot.compileDiagnostics,
       stale: sourceProgramId ? snapshot.stalePrograms.has(sourceProgramId) : false,
+      requiresCompiledShader: sourceProgramId !== null,
+      requiresCompiledVertexShader:
+        sourceProgramId !== null &&
+        (resolution.data.vertexSource !== resolution.data.preset.vertexSource ||
+          resolution.data.varyingDefinition !== resolution.data.preset.varyingDefinition),
+      requiresCompiledFragmentShader:
+        sourceProgramId !== null &&
+        (resolution.data.fragmentSource !== resolution.data.preset.fragmentSource ||
+          resolution.data.varyingDefinition !== resolution.data.preset.varyingDefinition),
     };
   }
 

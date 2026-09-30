@@ -3147,6 +3147,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     onNavigationChange={handleRoomEditNavigationChange}
                     gestureCancellationToken={roomEditGestureCancellationToken}
                     interactionEnabled={!roomEditTransitioning}
+                    visible={!previewCollapsed && presentationMode === 'edit'}
                     selection={roomSelection}
                     onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
                     onTranslateSelection={(nextSelection, delta) =>

@@ -160,13 +160,57 @@ describe('HotspotImageStage', () => {
   it('supports list selection, alpha visualization, and keyboard deletion without owner wrappers', () => {
     const onSelectionChange = vi.fn();
     const onDelete = vi.fn();
+    const putImageData = vi.fn();
+    const getContext = vi
+      .spyOn(HTMLCanvasElement.prototype, 'getContext')
+      .mockImplementation(() => ({ putImageData }) as unknown as CanvasRenderingContext2D);
+    try {
+      const alphaCoverage = {
+        width: 2,
+        height: 1,
+        data: new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 0]),
+      } as ImageData;
+      render(
+        <HotspotImageStage
+          imageSize={{ width: 100, height: 100 }}
+          hotspots={[
+            { id: 'door', label: 'Door', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+          ]}
+          selectedHotspotId="door"
+          tool="select"
+          camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
+          alphaVisualization
+          alphaCoverage={alphaCoverage}
+          onSelectionChange={onSelectionChange}
+          onCameraChange={vi.fn()}
+          onCreate={vi.fn()}
+          onCommitBounds={vi.fn()}
+          onDelete={onDelete}
+        />,
+      );
+      expect(document.querySelector('[data-alpha-visualization]')).not.toBeNull();
+      expect(putImageData).toHaveBeenCalledWith(alphaCoverage, 0, 0);
+      expect(document.querySelector('[data-geometry-layer]')).not.toBeNull();
+      expect(document.querySelector('[data-handles-feedback-layer]')).not.toBeNull();
+      fireEvent.click(screen.getAllByRole('button', { name: 'Door' })[1]!);
+      expect(onSelectionChange).toHaveBeenCalledWith('door');
+      const stage = document.querySelector<HTMLElement>(
+        '[data-hotspot-image-stage] > div[tabindex]',
+      )!;
+      fireEvent.keyDown(stage, { key: 'Delete' });
+      expect(onDelete).toHaveBeenCalledWith('door');
+    } finally {
+      getContext.mockRestore();
+    }
+  });
+
+  it('keeps geometry-less sprite-alpha entries selectable in the item list without inventing rectangles', () => {
+    const onSelectionChange = vi.fn();
     render(
       <HotspotImageStage
         imageSize={{ width: 100, height: 100 }}
-        hotspots={[
-          { id: 'door', label: 'Door', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
-        ]}
-        selectedHotspotId="door"
+        hotspots={[{ id: 'alpha', label: 'Opaque pixels', inputOrder: 3 }]}
+        selectedHotspotId="alpha"
         tool="select"
         camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
         alphaVisualization
@@ -174,19 +218,15 @@ describe('HotspotImageStage', () => {
         onCameraChange={vi.fn()}
         onCreate={vi.fn()}
         onCommitBounds={vi.fn()}
-        onDelete={onDelete}
+        onDelete={vi.fn()}
+        keyboardDeleteEnabled={false}
       />,
     );
-    expect(document.querySelector('[data-alpha-visualization]')).not.toBeNull();
-    expect(document.querySelector('[data-geometry-layer]')).not.toBeNull();
-    expect(document.querySelector('[data-handles-feedback-layer]')).not.toBeNull();
-    fireEvent.click(screen.getAllByRole('button', { name: 'Door' })[1]!);
-    expect(onSelectionChange).toHaveBeenCalledWith('door');
-    const stage = document.querySelector<HTMLElement>(
-      '[data-hotspot-image-stage] > div[tabindex]',
-    )!;
-    fireEvent.keyDown(stage, { key: 'Delete' });
-    expect(onDelete).toHaveBeenCalledWith('door');
+
+    expect(document.querySelector('[data-hotspot-id="alpha"]')).toBeNull();
+    fireEvent.click(screen.getByRole('button', { name: /Opaque pixels/ }));
+    expect(onSelectionChange).toHaveBeenCalledWith('alpha');
+    expect(screen.getByText('Order 3')).toBeInTheDocument();
   });
 
   it('renders the Room runtime-visible image guide without changing editable UV geometry', () => {

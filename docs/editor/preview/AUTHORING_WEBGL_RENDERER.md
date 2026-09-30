@@ -99,10 +99,14 @@ Room Edit deliberately reuses runtime world-presentation semantics for the autho
 View, `contain` camera clamping, normalized placement/environment geometry, background
 `cover`/`contain`/`stretch`/`center` fitting, Character layer composition, occurrence visibility,
 Presentation Plane/order interleaving, engine-2d Material specialization, texture overrides,
-Property-backed parameters, Environment opacity/UV motion, and standard Material facets. Background
+Property-backed parameters, Character `bob`/`sway`/`pulse` idles, Environment opacity/UV motion, and
+standard Material facets. Background
 `cover` uses the same cropped UV rectangle as runtime rather than emulating the crop with a DOM image.
 All Material draws receive the workbench-group frame timestamp, so animated Materials in Room Edit and
-Material preview surfaces advance from the same authoring clock.
+Material preview surfaces advance from the same authoring clock. Occurrence-bound animation state does
+not use that absolute timestamp directly: Environment scrolling and the `occurrence-time` Material
+facet establish a per-occurrence epoch in the authored clock domain and restart at zero when that
+occurrence disappears and is later recreated, matching native world presentation.
 
 Room Edit precision navigation is a second, editor-only transform applied after that authored Camera
 projection. Wheel zoom is pointer-centered and owned by a non-passive native wheel listener so the
@@ -139,6 +143,9 @@ to Room bounds before both WebGL and DOM consume the transient draft. Single spa
 resize handles and use the same draft path, including shared-placement splitting; a handle click with
 no geometry change is a no-op and creates no command. Pointer-up commits the already-previewed semantic
 operation as one undoable command, while Escape or switching to Preview discards the transient draft.
+When a direct drag begins on an unselected entity, that entity is committed to the shared semantic
+selection immediately (or added under Ctrl/Cmd), so the viewport, Room Contents hierarchy, and
+inspector describe the same entity being moved throughout the gesture.
 
 New rendered Room content also follows one semantic Add path. Composition-pane Add enters a positioned
 ghost/drop flow, right-click Add seeds the clicked Room point, and the legacy Contents Add controls use
@@ -157,7 +164,10 @@ shader-program failure with no last-good state aborts that frame before it is co
 as a distinct hard render diagnostic, avoiding publication of a partially rendered Room image. Room
 Edit reads WebGL2 availability and context-loss state from the same workbench-group authoring renderer
 status used by Material Preview, so recovery clears the author-facing diagnostic without introducing a
-second renderer authority.
+second renderer authority. CPU-side preview compilation status is retained on the shared Material
+resource: a stale last-good browser payload remains visibly stale, while a required custom shader stage
+with no usable browser output fails hard instead of silently substituting the built-in authoring shader.
+Preset stages that were not customized may still use their certified built-in browser fallback.
 
 Shader parameter bindings are likewise resolved by the shared authoring backend from each parameter's
 declared engine semantic rather than from a privileged uniform spelling. Material Preview and Room Edit
@@ -182,6 +192,11 @@ creates a private WebGL context and deliberately excludes RmlUi, runtime Hotspot
 postprocess, transitions, and other player-facing runtime effects. Runtime Preview therefore remains
 the authority for those complete gameplay-presentation concerns even though Edit now covers the
 agreed base world composition subset.
+
+Collapsing the Room visual pane suspends Room Edit scene work as well as its target-copy loop. The
+prepared CPU resources and workbench-group GPU authority remain owned by their existing lifetimes, so
+expanding the pane resumes rendering without constructing a parallel renderer or needlessly rebuilding
+Project resources.
 
 Mode switching preserves one visible/input-owning surface. Edit → Preview cancels any active pan,
 animates editor navigation to Fit over 180 ms, and only then reveals the retained engine Preview.

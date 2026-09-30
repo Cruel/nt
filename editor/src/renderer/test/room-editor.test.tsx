@@ -2773,6 +2773,93 @@ describe('RoomEditor', () => {
     }
   });
 
+  it('commits direct-drag semantic selection when a move gesture starts', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+      {
+        id: 'chair',
+        bounds: { x: 0.5, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
+      });
+
+      fireEvent.click(surface, { clientX: 200, clientY: 100 });
+      expect(screen.getByTestId('room-edit-selected-placement:desk')).toBeInTheDocument();
+
+      fireEvent.pointerDown(surface, {
+        pointerId: 81,
+        button: 0,
+        clientX: 600,
+        clientY: 100,
+      });
+      fireEvent.pointerMove(surface, { pointerId: 81, clientX: 650, clientY: 125 });
+      expect(screen.getByTestId('room-edit-selected-placement:chair')).toBeInTheDocument();
+      expect(screen.queryByTestId('room-edit-selected-placement:desk')).toBeNull();
+      fireEvent.pointerUp(surface, { pointerId: 81, button: 0, clientX: 650, clientY: 125 });
+
+      fireEvent.pointerDown(surface, {
+        pointerId: 82,
+        button: 0,
+        clientX: 200,
+        clientY: 100,
+        ctrlKey: true,
+      });
+      fireEvent.pointerMove(surface, {
+        pointerId: 82,
+        clientX: 250,
+        clientY: 125,
+        ctrlKey: true,
+      });
+      expect(screen.getByText('2 selected')).toBeInTheDocument();
+      fireEvent.pointerUp(surface, {
+        pointerId: 82,
+        button: 0,
+        clientX: 250,
+        clientY: 125,
+        ctrlKey: true,
+      });
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
   it('uses the clamped draft projection during a move before committing it', () => {
     const originalMatchMedia = window.matchMedia;
     window.matchMedia = vi.fn().mockImplementation((query: string) => ({

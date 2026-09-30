@@ -13,8 +13,95 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import { resolveRoomEditProjection } from '@/editors/rooms/room-edit-projection';
 
 describe('Room Edit semantic selection', () => {
+  it('derives Character pick bounds only from drawable layers', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'hero-placement',
+        bounds: { x: 0.2, y: 0.2, width: 0.2, height: 0.4 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.cast = [
+      {
+        id: 'hero-cast',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'hero-placement',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: null,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.assets.hero = {
+      id: 'hero',
+      label: 'Hero',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/hero.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 200, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const character = defaultCharacterData('Hero');
+    character.initialWorldState = {
+      location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+      enabled: true,
+      visible: true,
+    };
+    const pose = character.profiles[0]!.poses[0]!;
+    pose.layers[0] = {
+      ...pose.layers[0]!,
+      sprite: { $ref: { collection: 'assets', id: 'hero' } },
+      scale: 0.5,
+    };
+    character.profiles[0]!.layers.push({
+      id: 'empty-far-away',
+      label: 'Empty far away',
+      role: 'accessory',
+    });
+    pose.layers.push({
+      layerId: 'empty-far-away',
+      sprite: null,
+      materialApplication: null,
+      visible: true,
+      offset: { x: 5000, y: 5000 },
+      scale: 1,
+      anchor: { x: 0.5, y: 1 },
+    });
+    project.characters.hero = { id: 'hero', label: 'Hero', data: character };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'foyer',
+      room,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+    });
+    const drawableLayer = projection.cast[0]?.layers.find((layer) => layer.layerId === 'body');
+    const candidate = roomEditSelectionCandidates(
+      project,
+      room,
+      projection,
+      ((key: string) => key) as never,
+    ).find((item) => item.selection.kind === 'cast');
+
+    expect(drawableLayer).toBeDefined();
+    expect(candidate?.projected.rect).toEqual(drawableLayer?.rect);
+  });
+
   it('models move and resize capability independently for semantic selections', () => {
     expect(roomEditSelectionCapabilities({ kind: 'placement', id: 'desk' })).toEqual({
       move: true,

@@ -67,6 +67,35 @@ beforeEach(() => {
 
 describe('InteractableEditor', () => {
   it('loads hotspot geometry from the full-resolution bounded Asset source', async () => {
+    const originalImage = window.Image;
+    class LoadedImage {
+      onload: (() => void) | null = null;
+      onerror: (() => void) | null = null;
+      set src(_value: string) {
+        queueMicrotask(() => this.onload?.());
+      }
+    }
+    Object.defineProperty(window, 'Image', { configurable: true, value: LoadedImage });
+    const putImageData = vi.fn();
+    const sourcePixels = {
+      width: 2,
+      height: 1,
+      data: new Uint8ClampedArray([20, 30, 40, 255, 50, 60, 70, 0]),
+    } as ImageData;
+    const coveragePixels = {
+      width: 2,
+      height: 1,
+      data: new Uint8ClampedArray(8),
+    } as ImageData;
+    const getContext = vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(
+      () =>
+        ({
+          drawImage: vi.fn(),
+          getImageData: vi.fn(() => sourcePixels),
+          createImageData: vi.fn(() => coveragePixels),
+          putImageData,
+        }) as unknown as CanvasRenderingContext2D,
+    );
     const project = createAuthoringProject();
     project.assets.sprite = {
       id: 'sprite',
@@ -104,20 +133,34 @@ describe('InteractableEditor', () => {
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
 
-    const view = renderEditor();
-    await userEvent.setup().click(screen.getByRole('button', { name: 'Inspect geometry' }));
+    try {
+      const view = renderEditor();
+      await userEvent.setup().click(screen.getByRole('button', { name: 'Inspect geometry' }));
 
-    await waitFor(() =>
-      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
-        '11111111-1111-4111-8111-111111111111',
-        'sprite',
-      ),
-    );
-    expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledTimes(1);
-    expect(view.container.querySelector('[data-image-layer] img')).toHaveAttribute(
-      'src',
-      'noveltea-asset://source/11111111-1111-4111-8111-111111111111/sprite',
-    );
+      await waitFor(() =>
+        expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(
+          '11111111-1111-4111-8111-111111111111',
+          'sprite',
+        ),
+      );
+      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledTimes(1);
+      expect(view.container.querySelector('[data-image-layer] img')).toHaveAttribute(
+        'src',
+        'noveltea-asset://source/11111111-1111-4111-8111-111111111111/sprite',
+      );
+      expect(screen.getByRole('button', { name: /DoorOrder 0/ })).toBeInTheDocument();
+      await userEvent.setup().click(screen.getByRole('button', { name: /DoorOrder 0/ }));
+      expect(useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.selectedHotspotId).toBe(
+        'primary',
+      );
+      await waitFor(() => expect(putImageData).toHaveBeenCalled());
+      expect(coveragePixels.data).toEqual(
+        new Uint8ClampedArray([255, 255, 255, 255, 255, 255, 255, 0]),
+      );
+    } finally {
+      getContext.mockRestore();
+      Object.defineProperty(window, 'Image', { configurable: true, value: originalImage });
+    }
   });
 
   it('fails closed for unavailable or non-image hotspot sources without thumbnail fallback', async () => {

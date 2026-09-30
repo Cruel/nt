@@ -9,7 +9,10 @@ import type { AuthoringProject } from '../../../shared/project-schema/authoring-
 import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import { effectiveMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
-import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
+import {
+  parseCharacterData,
+  type CharacterIdleData,
+} from '../../../shared/project-schema/authoring-characters';
 import { resolveCharacterPresentationLayers } from '../../../shared/project-schema/character-project';
 import type { Condition } from '../../../shared/project-schema/authoring-flow';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
@@ -92,6 +95,7 @@ export interface RoomEditCastLayerProjection extends RoomEditProjectedRect {
   spriteAssetId: string | null;
   materialApplication: MaterialApplication | null;
   propertyValues: Readonly<Record<string, unknown>>;
+  idle: CharacterIdleData | null;
 }
 
 export interface RoomEditCastProjection {
@@ -575,6 +579,8 @@ export function resolveRoomEditProjection({
     )
       return [];
     const propertyValues = resolveOwnerPropertyValues(project, characterRecord, effectiveRecord);
+    const idleId = occurrence.idleId ?? character.defaults.idleId;
+    const idle = idleId ? (character.idles.find((item) => item.id === idleId) ?? null) : null;
     const layers = resolveCharacterPresentationLayers(
       character,
       occurrence.profileId ?? character.defaults.profileId,
@@ -601,6 +607,7 @@ export function resolveRoomEditProjection({
           spriteAssetId,
           materialApplication: layer.materialApplication,
           propertyValues,
+          idle,
           ...projectRoomEditRect(rawRect, viewport, room.presentationSpace, camera, navigation),
         },
       ];

@@ -38,6 +38,7 @@ export type HotspotStageItem = HotspotStageItemBase &
   (
     | { bounds: ImageNormalizedRect; geometry?: never }
     | { bounds?: never; geometry: HotspotStageGeometry }
+    | { bounds?: never; geometry?: never }
   );
 
 export const HOTSPOT_STAGE_GEOMETRY_CAPABILITIES = {
@@ -403,12 +404,12 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     return () => element.removeEventListener('wheel', wheel);
   }, []);
 
-  const geometry = (item: HotspotStageItem): HotspotStageGeometry =>
-    item.geometry ?? { kind: 'rect', bounds: item.bounds };
-  const draftBounds = (item: HotspotStageItem, itemGeometry: HotspotStageGeometry) =>
+  const geometry = (item: HotspotStageItem): HotspotStageGeometry | null =>
+    item.geometry ?? (item.bounds ? { kind: 'rect', bounds: item.bounds } : null);
+  const draftBounds = (item: HotspotStageItem, itemGeometry: HotspotStageGeometry | null) =>
     gesture && (gesture.kind === 'move' || gesture.kind === 'resize') && gesture.id === item.id
       ? gesture.draft
-      : itemGeometry.kind === 'rect'
+      : itemGeometry?.kind === 'rect'
         ? itemGeometry.bounds
         : null;
 
@@ -482,6 +483,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
               event.stopPropagation();
               props.onSelectionChange(item.id);
             };
+            if (!itemGeometry) return null;
             if (itemGeometry.kind === 'polygon') {
               const points = itemGeometry.vertices
                 .map((vertex) => imageUvToStage(vertex, imageRect))

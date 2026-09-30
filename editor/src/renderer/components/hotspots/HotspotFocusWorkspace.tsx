@@ -61,6 +61,7 @@ export function HotspotFocusWorkspace({
   );
   const [viewport, setViewport] = useState<StageSize>({ width: 0, height: 0 });
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [alphaCoverage, setAlphaCoverage] = useState<ImageData | null>(null);
   const [transitionPhase, setTransitionPhase] = useState<'room' | 'native' | 'focused' | null>(
     null,
   );
@@ -138,6 +139,39 @@ export function HotspotFocusWorkspace({
       cancelled = true;
     };
   }, [assetData?.kind, assetData?.source.path, projectSessionId, session?.assetId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    setAlphaCoverage(null);
+    if (session?.mode !== 'sprite-alpha' || !imageUrl || !imageSize) return undefined;
+    const image = new Image();
+    image.onload = () => {
+      if (cancelled) return;
+      const canvas = document.createElement('canvas');
+      canvas.width = imageSize.width;
+      canvas.height = imageSize.height;
+      const context = canvas.getContext('2d', { willReadFrequently: true });
+      if (!context) return;
+      context.drawImage(image, 0, 0, imageSize.width, imageSize.height);
+      const source = context.getImageData(0, 0, imageSize.width, imageSize.height);
+      const coverage = context.createImageData(imageSize.width, imageSize.height);
+      for (let index = 0; index < source.data.length; index += 4) {
+        const alpha = source.data[index + 3] ?? 0;
+        coverage.data[index] = 255;
+        coverage.data[index + 1] = 255;
+        coverage.data[index + 2] = 255;
+        coverage.data[index + 3] = alpha;
+      }
+      if (!cancelled) setAlphaCoverage(coverage);
+    };
+    image.onerror = () => {
+      if (!cancelled) setAlphaCoverage(null);
+    };
+    image.src = imageUrl;
+    return () => {
+      cancelled = true;
+    };
+  }, [imageSize, imageUrl, session?.mode]);
 
   useEffect(() => {
     if (
@@ -367,22 +401,21 @@ export function HotspotFocusWorkspace({
             imageUrl={imageUrl}
             imageSize={imageSize}
             zoomBasis="native"
-            hotspots={hotspots.flatMap((item) =>
+            hotspots={hotspots.map((item) =>
               item.shape
-                ? [
-                    {
-                      id: item.id,
-                      label: item.label,
-                      inputOrder: item.inputOrder,
-                      bounds: item.shape.bounds,
-                    },
-                  ]
-                : [],
+                ? {
+                    id: item.id,
+                    label: item.label,
+                    inputOrder: item.inputOrder,
+                    bounds: item.shape.bounds,
+                  }
+                : { id: item.id, label: item.label, inputOrder: item.inputOrder },
             )}
             selectedHotspotId={session.selectedHotspotId}
             tool={session.tool}
             camera={session.camera}
             alphaVisualization={session.mode === 'sprite-alpha'}
+            alphaCoverage={alphaCoverage}
             onViewportChange={setViewport}
             onSelectionChange={(selectedHotspotId) => setSelection(tabId, selectedHotspotId)}
             onCameraChange={(camera) => setCamera(tabId, camera)}
