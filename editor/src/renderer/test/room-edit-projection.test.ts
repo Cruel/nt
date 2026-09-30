@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
   defaultInteractableData,
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   fitRoomEditBackground,
@@ -11,6 +15,236 @@ import {
 } from '@/editors/rooms/room-edit-projection';
 
 describe('Room Edit spatial projection', () => {
+  it('resolves the authored world-composition subset with cross-family plane/order and exact Layout placeholder geometry', () => {
+    const project = createAuthoringProject({ id: 'world-composition-test' });
+    const room = defaultRoomData('Composition Room');
+    room.presentationSpace = {
+      size: { width: 1000, height: 500 },
+      bounds: null,
+      edgePolicy: 'overscan',
+      defaultView: { center: { x: 500, y: 250 }, zoom: 1, rotationDegrees: 0 },
+      views: [],
+    };
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+        presentation: {
+          label: null,
+          layout: { $ref: { collection: 'layouts', id: 'speech-ui' } },
+          layoutOrder: 7,
+        },
+      },
+      {
+        id: 'empty',
+        bounds: { x: 0.75, y: 0.1, width: 0.1, height: 0.15 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.cast = [
+      {
+        id: 'hero-cast',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        profileId: 'stage',
+        poseId: 'default',
+        expressionId: 'neutral',
+        appearanceId: null,
+        idleId: null,
+        visible: true,
+        order: 20,
+      },
+    ];
+    room.props = [
+      {
+        id: 'desk',
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        asset: { $ref: { collection: 'assets', id: 'desk-image' } },
+        materialApplication: emptyMaterialApplication('world-material'),
+        visible: true,
+        order: 10,
+      },
+      {
+        id: 'hidden-prop',
+        condition: { kind: 'not', condition: { kind: 'always' } },
+        placementId: 'empty',
+        asset: { $ref: { collection: 'assets', id: 'desk-image' } },
+        materialApplication: null,
+        visible: true,
+        order: 11,
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'terminal',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'terminal-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        visible: true,
+        order: 30,
+      },
+    ];
+    room.environments = [
+      {
+        id: 'back-fog',
+        condition: { kind: 'always' },
+        asset: { $ref: { collection: 'assets', id: 'fog-image' } },
+        materialApplication: emptyMaterialApplication('world-material'),
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        plane: 'world-background',
+        order: -5,
+        clock: 'unscaled-presentation',
+        scrollPerSecond: { x: 0, y: 0 },
+        opacity: 0.5,
+        visible: true,
+      },
+      {
+        id: 'front-fog',
+        condition: { kind: 'always' },
+        asset: { $ref: { collection: 'assets', id: 'fog-image' } },
+        materialApplication: emptyMaterialApplication('world-material'),
+        bounds: { x: 0.6, y: 0.1, width: 0.2, height: 0.4 },
+        plane: 'world-content',
+        order: 15,
+        clock: 'gameplay',
+        scrollPerSecond: { x: 0, y: 0 },
+        opacity: 1,
+        visible: true,
+      },
+    ];
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+    project.layouts['speech-ui'] = {
+      id: 'speech-ui',
+      label: 'Speech UI',
+      data: defaultLayoutData('Speech UI'),
+    };
+    project.materials['world-material'] = {
+      id: 'world-material',
+      label: 'World Material',
+      data: defaultMaterialData('World Material', 'engine-2d'),
+    };
+    for (const [id, width, height] of [
+      ['hero-image', 100, 200],
+      ['desk-image', 300, 160],
+      ['fog-image', 400, 200],
+    ] as const) {
+      project.assets[id] = {
+        id,
+        label: id,
+        data: {
+          kind: 'image',
+          source: { type: 'project-file', path: `assets/${id}.png` },
+          aliases: [],
+          sampling: 'linear',
+          byteSize: 1,
+          contentHash: `sha256:${'a'.repeat(64)}`,
+          imageMetadata: { width, height, hasAlpha: true, orientation: 1 },
+        },
+      };
+    }
+
+    const character = defaultCharacterData('Hero');
+    character.initialWorldState = {
+      location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'room' } } },
+      enabled: true,
+      visible: true,
+    };
+    project.characters.hero = {
+      id: 'hero',
+      label: 'Hero',
+      localProperties: [
+        {
+          id: 'glow',
+          label: 'Glow',
+          type: 'number',
+          nullable: false,
+          value: 0.75,
+        },
+      ],
+      data: character,
+    };
+    character.profiles[0]!.poses[0]!.layers[0] = {
+      ...character.profiles[0]!.poses[0]!.layers[0]!,
+      sprite: { $ref: { collection: 'assets', id: 'hero-image' } },
+      materialApplication: emptyMaterialApplication('world-material'),
+      offset: { x: 10, y: -20 },
+      scale: 0.5,
+      anchor: { x: 0.5, y: 1 },
+    };
+    project.characters.hero!.data = character;
+
+    project.interactables.terminal = {
+      id: 'terminal',
+      label: 'Terminal',
+      data: {
+        ...defaultInteractableData('Terminal'),
+        presentation: {
+          ...defaultInteractableData('Terminal').presentation,
+          sprite: { $ref: { collection: 'assets', id: 'desk-image' } },
+          materialApplication: emptyMaterialApplication('world-material'),
+        },
+      },
+    };
+    project.interactableInstances['terminal-instance'] = defaultInteractableInstanceData(
+      'terminal-instance',
+      'terminal',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'room' } } },
+    );
+
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+    });
+
+    expect(projection.placements.map((item) => item.id)).toEqual(['shared', 'empty']);
+    expect(projection.props.map((item) => [item.occurrenceId, item.rect])).toEqual([
+      ['desk', { x: 100, y: 100, width: 300, height: 200 }],
+    ]);
+    expect(
+      projection.environments.map((item) => [item.occurrenceId, item.plane, item.rect]),
+    ).toEqual([
+      ['back-fog', 'world-background', { x: 0, y: 0, width: 1000, height: 500 }],
+      ['front-fog', 'world-content', { x: 600, y: 50, width: 200, height: 200 }],
+    ]);
+    expect(projection.cast[0]).toMatchObject({
+      occurrenceId: 'hero-cast',
+      plane: 'world-content',
+      order: 20,
+      layers: [
+        {
+          layerId: 'body',
+          rect: { x: 230, y: 190, width: 50, height: 100 },
+          spriteAssetId: 'hero-image',
+          propertyValues: { glow: 0.75 },
+        },
+      ],
+    });
+    expect(projection.layoutPlaceholders).toEqual([
+      expect.objectContaining({
+        placementId: 'shared',
+        layoutId: 'speech-ui',
+        label: 'Speech UI',
+        order: 7,
+        rect: { x: 100, y: 100, width: 300, height: 200 },
+        hasRenderedOccupants: true,
+      }),
+    ]);
+    expect(
+      projection.worldDraws.map((item) => `${item.plane}:${item.kind}:${item.occurrenceId}`),
+    ).toEqual([
+      'world-background:environment:back-fog',
+      'world-content:prop:desk',
+      'world-content:environment:front-fog',
+      'world-content:cast-layer:hero-cast:body',
+      'world-content:interactable:terminal',
+    ]);
+  });
+
   it('projects placements and Interactable occurrences through the authored camera with independent stack order', () => {
     const project = createAuthoringProject({ id: 'projection-test' });
     const room = defaultRoomData('Projection Room');

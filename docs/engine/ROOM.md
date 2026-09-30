@@ -180,15 +180,19 @@ Room background `cover`,
 by runtime projection. No editor-preview-only manipulation contract exists.
 
 The Room visual pane has persistent `Edit` and `Preview` modes stored with the Room tab state. `Edit`
-is a browser-native authoring surface: it submits the Room world tracer through the workbench group's
+is a browser-native authoring surface: it submits the Room world composition through the workbench group's
 shared authoring WebGL authority and keeps authoring overlays in React/DOM. Its canonical projection
 applies the authored World Presentation Space and default Camera View, including `contain` clamping,
-to the same background and placement geometry used by both layers. The initial direct-edit tracer
-renders the Room background plus exact Interactable occurrences with runtime-equivalent background
-fit, occurrence order, engine-2d Material specialization, texture overrides, Property parameter
-bindings, and standard facets; every Room placement is outlined even when it has no occupant.
-`Preview` remains the existing focused native engine preview. Direct Edit intentionally omits RmlUi,
-runtime Hotspot highlight rendering, postprocess, transitions, and other player-only effects.
+to the same background, placement, Environment, Prop, Interactable, and Character/cast geometry used
+by both layers. Direct Edit renders the agreed base world-composition subset with runtime-equivalent
+background fit, shared Presentation Plane/order stacking, occurrence visibility, Character layer
+composition, Environment opacity/UV motion, engine-2d Material specialization, texture overrides,
+Property parameter bindings, and standard facets. Material animation uses the shared workbench-group
+authoring clock. Every Room placement is outlined even when it has no occupant; a placement-attached
+Layout is represented by a labeled placeholder at that exact projected placement bounds and is
+visually subdued when rendered occupants share the placement. `Preview` remains the existing focused
+native engine preview and the authority for realized RmlUi, runtime Hotspot highlight rendering,
+postprocess, transitions, and other player-only effects.
 
 ## Editor preview
 
