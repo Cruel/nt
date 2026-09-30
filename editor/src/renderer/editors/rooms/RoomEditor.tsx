@@ -141,6 +141,7 @@ import {
 import { recordTabPreviewVisible } from '@/workbench/preview-visibility-command';
 import { buildRoomDetailTabForRecord } from '@/workbench/editor-registry';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useOptionalWorkbenchEditorLocation } from '@/workbench/workbench-editor-location';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import {
   registerWorkbenchTargetHandler,
@@ -326,19 +327,13 @@ function parseRoomEditorTabState(
     return null;
   const payload = value.payload as Record<string, unknown>;
   const hotspotView = parseHotspotViewTabState(payload.hotspotView);
-  const editNavigation =
-    payload.editNavigation === undefined
-      ? ROOM_EDIT_FIT_NAVIGATION
-      : parseRoomEditNavigation(payload.editNavigation);
-  const selection =
-    payload.selection === undefined ? [] : parseRoomEditSelection(payload.selection);
+  const editNavigation = parseRoomEditNavigation(payload.editNavigation);
+  const selection = parseRoomEditSelection(payload.selection);
   const expandedSelectionKeys =
-    payload.expandedSelectionKeys === undefined
-      ? []
-      : Array.isArray(payload.expandedSelectionKeys) &&
-          payload.expandedSelectionKeys.every((key) => typeof key === 'string')
-        ? payload.expandedSelectionKeys
-        : null;
+    Array.isArray(payload.expandedSelectionKeys) &&
+    payload.expandedSelectionKeys.every((key) => typeof key === 'string')
+      ? payload.expandedSelectionKeys
+      : null;
   if (
     !isRoomEditorCategory(payload.activeCategory) ||
     !isRoomPresentationMode(payload.presentationMode) ||
@@ -484,6 +479,8 @@ function TextContentEditor({
 }
 
 export function RoomEditor({ tab }: WorkbenchEditorProps) {
+  const editorLocation = useOptionalWorkbenchEditorLocation();
+  const activeGroupId = useWorkbenchStore((state) => state.activeGroupId);
   const { t } = useTranslation('workspace');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
@@ -705,6 +702,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   useEffect(() => {
     if (presentationMode !== 'edit') return;
     const onKeyDown = (event: KeyboardEvent) => {
+      if (
+        editorLocation &&
+        (!editorLocation.isActiveInGroup || editorLocation.groupId !== activeGroupId)
+      )
+        return;
       if (!(event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'd'))
         return;
       const target = event.target instanceof HTMLElement ? event.target : null;
@@ -721,7 +723,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [presentationMode]);
+  }, [activeGroupId, editorLocation, presentationMode]);
 
   const animateRoomEditNavigation = useCallback(
     (from: RoomEditNavigation, to: RoomEditNavigation, onComplete?: () => void) => {

@@ -38,10 +38,17 @@ export function applyRoomEditNavigation(
   const value = sanitizeRoomEditNavigation(navigation);
   const centerX = viewport.width * 0.5;
   const centerY = viewport.height * 0.5;
+  const radians = (-projected.rotationDegrees * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const authoredPan = {
+    x: value.pan.x * cosine - value.pan.y * sine,
+    y: value.pan.x * sine + value.pan.y * cosine,
+  };
   return {
     rect: {
-      x: centerX + (projected.rect.x - centerX) * value.zoom + value.pan.x,
-      y: centerY + (projected.rect.y - centerY) * value.zoom + value.pan.y,
+      x: centerX + (projected.rect.x - centerX) * value.zoom + authoredPan.x,
+      y: centerY + (projected.rect.y - centerY) * value.zoom + authoredPan.y,
       width: projected.rect.width * value.zoom,
       height: projected.rect.height * value.zoom,
     },

@@ -979,7 +979,7 @@ describe('RoomEditor', () => {
       'true',
     );
   });
-  it('restores pre-navigation Room tab state with Fit as the navigation default', () => {
+  it('discards replaced Room tab-state shapes instead of migrating missing fields', () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -1002,10 +1002,8 @@ describe('RoomEditor', () => {
 
     renderEditor();
 
-    expect(screen.getByRole('heading', { name: 'Composition' })).toBeInTheDocument();
-    expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true');
-    expect(screen.getByLabelText('Edit zoom')).toHaveTextContent('100%');
+    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
   });
   it('keeps precision Edit navigation tab-scoped across reduced-motion Preview round trips', () => {
     const project = createAuthoringProject();
@@ -1056,6 +1054,9 @@ describe('RoomEditor', () => {
       expect(zoomLabel).not.toHaveTextContent('100%');
       const rememberedZoomText = zoomLabel.textContent;
 
+      fireEvent.click(surface, { clientX: 300, clientY: 150 });
+      expect(screen.getByTestId('room-edit-selected-placement:desk')).toBeInTheDocument();
+
       captureWorkbenchTabState(tab.id);
       const afterWheel = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
       expect(afterWheel).toBeDefined();
@@ -1078,6 +1079,8 @@ describe('RoomEditor', () => {
       ).editNavigation?.pan;
       expect(middlePan?.x).not.toBe(afterWheelPan?.x);
       expect(middlePan?.y).not.toBe(afterWheelPan?.y);
+      fireEvent.click(surface, { clientX: 900, clientY: 450 });
+      expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { code: 'Space' });
       fireEvent.pointerDown(surface, {
