@@ -1,5 +1,6 @@
 import { describe, expect, it, beforeEach, vi } from 'vite-plus/test';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
 import {
   createAuthoringProject,
@@ -985,9 +986,48 @@ describe('RoomEditor', () => {
     });
   });
 
-  it('retains the current Composition Hotspot selection across an ID rename', async () => {
+  it('edits the fallback Interactable placement from the Composition pane', async () => {
+    const user = userEvent.setup();
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const label = screen.getByText('Fallback Interactable placement');
+    const control = label.parentElement;
+    expect(control).not.toBeNull();
+    fireEvent.click(within(control as HTMLElement).getByRole('combobox'));
+    await user.click(screen.getByRole('option', { name: 'desk' }));
+
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.fallbackInteractablePlacementId).toBe(
+        'desk',
+      );
+    });
+  });
+
+  it('retains Hotspot selection and expanded multi-selection inspector state across an ID rename', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
     room.hotspots = [
       {
         id: 'door',
@@ -1001,11 +1041,31 @@ describe('RoomEditor', () => {
     ];
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [
+          { kind: 'hotspot', id: 'door' },
+          { kind: 'placement', id: 'desk' },
+        ],
+        expandedSelectionKeys: ['hotspot:door'],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: 'door',
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
     renderEditor();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
-    const composition = screen.getByTestId('room-composition-pane');
-    fireEvent.click(within(composition).getByRole('button', { name: /Hotspot.*Door.*door/i }));
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
     const idInput = screen.getByDisplayValue('door');
     fireEvent.change(idInput, { target: { value: 'doorway' } });
     fireEvent.blur(idInput);
@@ -1016,6 +1076,16 @@ describe('RoomEditor', () => {
       if (!isAuthoringProject(current)) return;
       expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.id).toBe('doorway');
       expect(screen.getByDisplayValue('doorway')).toBeInTheDocument();
+    });
+    captureWorkbenchTabState(tab.id);
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      payload: {
+        selection: [
+          { kind: 'hotspot', id: 'doorway' },
+          { kind: 'placement', id: 'desk' },
+        ],
+        expandedSelectionKeys: ['hotspot:doorway'],
+      },
     });
   });
   it('updates the display name through the command bus', async () => {

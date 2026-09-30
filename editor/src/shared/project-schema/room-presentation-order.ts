@@ -239,13 +239,7 @@ export function reorderRoomPresentation(
   entries.splice(destinationIndex, 0, moved!);
   const previous = entries[destinationIndex - 1];
   const next = entries[destinationIndex + 1];
-  let sparseOrder: number | null = null;
-  if (!previous && next && next.order >= ROOM_PRESENTATION_ORDER_MIN + SPARSE_ORDER_STEP)
-    sparseOrder = next.order - SPARSE_ORDER_STEP;
-  else if (previous && !next && previous.order <= ROOM_PRESENTATION_ORDER_MAX - SPARSE_ORDER_STEP)
-    sparseOrder = previous.order + SPARSE_ORDER_STEP;
-  else if (previous && next && next.order - previous.order > 1)
-    sparseOrder = previous.order + Math.floor((next.order - previous.order) / 2);
+  const sparseOrder = orderBetween(previous?.order, next?.order);
 
   if (sparseOrder !== null) return replaceOrder(room, target, sparseOrder);
   return applyOrders(room, entries, deterministicSparseOrders(entries.length));
