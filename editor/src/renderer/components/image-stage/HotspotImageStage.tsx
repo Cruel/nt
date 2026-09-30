@@ -16,6 +16,7 @@ import {
   resizeNormalizedRect,
   stageToImageUv,
   type ImageStageCamera,
+  type ImageStageZoomBasis,
   type ResizeHandle,
   type StagePoint,
   type StageSize,
@@ -53,10 +54,12 @@ export interface HotspotImageStageProps {
   alphaVisualization?: boolean;
   alphaCoverage?: ImageData | null;
   visibleImageGuide?: ImageNormalizedRect | null;
+  zoomBasis?: ImageStageZoomBasis;
   placedObjectLayer?: ReactNode;
   className?: string;
   onSelectionChange: (id: string | null) => void;
   onCameraChange: (camera: ImageStageCamera) => void;
+  onViewportChange?: (viewport: StageSize) => void;
   onCreate: (bounds: ImageNormalizedRect) => void;
   onCancelCreate?: () => void;
   onCommitBounds: (id: string, bounds: ImageNormalizedRect) => void;
@@ -120,6 +123,7 @@ function pointInElement(element: HTMLElement | null, clientX: number, clientY: n
 
 export function HotspotImageStage(props: HotspotImageStageProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const onViewportChange = props.onViewportChange;
   const gestureRef = useRef<Gesture | null>(null);
   const [viewport, setViewport] = useState<StageSize>({ width: 0, height: 0 });
   const [gesture, setGestureState] = useState<Gesture | null>(null);
@@ -136,7 +140,14 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     observer.observe(element);
     return () => observer.disconnect();
   }, []);
-  const restoredCamera = clampImageStageCamera(viewport, props.imageSize, props.camera);
+  useEffect(() => onViewportChange?.(viewport), [onViewportChange, viewport]);
+  const restoredCamera = clampImageStageCamera(
+    viewport,
+    props.imageSize,
+    props.camera,
+    32,
+    props.zoomBasis,
+  );
   useEffect(() => {
     if (viewport.width <= 0 || viewport.height <= 0) return;
     if (
@@ -148,20 +159,32 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
   }, [props, restoredCamera, viewport]);
   const cameraPan =
     gesture?.kind === 'pan'
-      ? clampImageStageCamera(viewport, props.imageSize, {
-          zoom: restoredCamera.zoom,
-          pan: gesture.draft,
-        }).pan
+      ? clampImageStageCamera(
+          viewport,
+          props.imageSize,
+          {
+            zoom: restoredCamera.zoom,
+            pan: gesture.draft,
+          },
+          32,
+          props.zoomBasis,
+        ).pan
       : restoredCamera.pan;
-  const imageRect = imageStageRect(viewport, props.imageSize, {
-    zoom: restoredCamera.zoom,
-    pan: cameraPan,
-  });
+  const imageRect = imageStageRect(
+    viewport,
+    props.imageSize,
+    {
+      zoom: restoredCamera.zoom,
+      pan: cameraPan,
+    },
+    props.zoomBasis,
+  );
   const stageStateRef = useRef({
     viewport,
     imageSize: props.imageSize,
     restoredCamera,
     imageRect,
+    zoomBasis: props.zoomBasis,
     onSelectionChange: props.onSelectionChange,
     onCameraChange: props.onCameraChange,
     onCreate: props.onCreate,
@@ -172,6 +195,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     imageSize: props.imageSize,
     restoredCamera,
     imageRect,
+    zoomBasis: props.zoomBasis,
     onSelectionChange: props.onSelectionChange,
     onCameraChange: props.onCameraChange,
     onCreate: props.onCreate,
@@ -191,13 +215,19 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       }
       if (active.kind === 'pan') {
         const delta = { x: current.x - active.start.x, y: current.y - active.start.y };
-        const next = clampImageStageCamera(state.viewport, state.imageSize, {
-          zoom: state.restoredCamera.zoom,
-          pan: {
-            x: active.initial.x + delta.x,
-            y: active.initial.y + delta.y,
+        const next = clampImageStageCamera(
+          state.viewport,
+          state.imageSize,
+          {
+            zoom: state.restoredCamera.zoom,
+            pan: {
+              x: active.initial.x + delta.x,
+              y: active.initial.y + delta.y,
+            },
           },
-        });
+          32,
+          state.zoomBasis,
+        );
         setGesture({
           ...active,
           draft: next.pan,
@@ -281,6 +311,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     imageSize: props.imageSize,
     pan: restoredCamera.pan,
     viewport,
+    zoomBasis: props.zoomBasis,
     onCameraChange: (camera: ImageStageCamera) => props.onCameraChange(camera),
   });
   wheelStateRef.current = {
@@ -288,6 +319,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     imageSize: props.imageSize,
     pan: restoredCamera.pan,
     viewport,
+    zoomBasis: props.zoomBasis,
     onCameraChange: (camera: ImageStageCamera) => props.onCameraChange(camera),
   };
 
@@ -297,12 +329,24 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     const wheel = (event: WheelEvent) => {
       event.preventDefault();
       const state = wheelStateRef.current;
-      const nextZoom = Math.min(16, Math.max(0.1, state.zoom * Math.exp(-event.deltaY * 0.001)));
+      const nextZoom = Math.min(
+        16,
+        Math.max(
+          state.zoomBasis === 'native' ? 0.001 : 0.1,
+          state.zoom * Math.exp(-event.deltaY * 0.001),
+        ),
+      );
       state.onCameraChange(
-        clampImageStageCamera(state.viewport, state.imageSize, {
-          zoom: nextZoom,
-          pan: state.pan,
-        }),
+        clampImageStageCamera(
+          state.viewport,
+          state.imageSize,
+          {
+            zoom: nextZoom,
+            pan: state.pan,
+          },
+          32,
+          state.zoomBasis,
+        ),
       );
     };
 
@@ -395,7 +439,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
             const itemGeometry = geometry(item);
             const selected = item.id === props.selectedHotspotId;
             const selectOnly = (event: ReactMouseEvent<SVGGElement>) => {
-              if (props.tool === 'draw-rect' || event.button !== 0) return;
+              if (props.tool !== 'select' || event.button !== 0) return;
               event.preventDefault();
               event.stopPropagation();
               props.onSelectionChange(item.id);
@@ -440,7 +484,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
             const bounds = draftBounds(item, itemGeometry) ?? itemGeometry.bounds;
             const rect = imageRectToStage(bounds, imageRect);
             const beginMove = (event: ReactMouseEvent<SVGGElement>) => {
-              if (props.tool === 'draw-rect' || event.button !== 0) return;
+              if (props.tool !== 'select' || event.button !== 0) return;
               event.preventDefault();
               event.stopPropagation();
               props.onSelectionChange(item.id);
@@ -509,7 +553,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
                     fill="transparent"
                     style={{ cursor: handleCursor[handle], pointerEvents: 'all' }}
                     onMouseDown={(event) => {
-                      if (props.tool === 'draw-rect' || event.button !== 0) return;
+                      if (props.tool !== 'select' || event.button !== 0) return;
                       event.preventDefault();
                       event.stopPropagation();
                       setGesture({

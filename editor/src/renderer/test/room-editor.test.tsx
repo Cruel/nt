@@ -25,6 +25,8 @@ import {
   clearWorkbenchTabStates,
   useWorkbenchTabStateStore,
 } from '@/workbench/workbench-tab-state';
+import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 
 const tab: WorkbenchTab = {
   id: 'tab:room-detail:rooms:foyer',
@@ -58,6 +60,8 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
+  useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
+  useDraftDirtyStore.getState().resetDraftDirty();
   clearWorkbenchTabStates();
   vi.mocked(window.noveltea.requestImageThumbnail).mockClear();
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockReset();
@@ -276,9 +280,23 @@ describe('RoomEditor', () => {
     expect(screen.getByText('Room definition')).toBeInTheDocument();
     expect(screen.getAllByText('gameplay-effect').length).toBeGreaterThanOrEqual(1);
   });
-  it('uses one temporary add action instead of persistent hotspot interaction modes', () => {
+  it('moves geometry interaction into the temporary full-tab Hotspot Focus workspace', () => {
     const project = createAuthoringProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/room.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 64,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    };
     const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
     room.features.push({
       id: 'surface',
       label: 'Surface',
@@ -292,27 +310,17 @@ describe('RoomEditor', () => {
     renderEditor();
 
     selectRoomCategory('Hotspots');
-    expect(screen.getByRole('button', { name: 'Add hotspot' })).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Select' })).toBeNull();
-    expect(screen.queryByRole('button', { name: 'Draw' })).toBeNull();
+    expect(screen.queryByRole('button', { name: 'Rectangle' })).toBeNull();
     expect(screen.queryByRole('button', { name: 'Pan' })).toBeNull();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Add hotspot' }));
-    expect(screen.getByRole('button', { name: 'Cancel add' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    expect(
-      screen.getByText(
-        'Drag on the image to create a rectangular hotspot. Press Escape to cancel.',
-      ),
-    ).toBeInTheDocument();
-
-    fireEvent.click(screen.getByRole('button', { name: 'Cancel add' }));
-    expect(screen.getByRole('button', { name: 'Add hotspot' })).toHaveAttribute(
-      'aria-pressed',
-      'false',
-    );
+    fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
+    expect(document.querySelector('[data-hotspot-focus]')).not.toBeNull();
+    expect(screen.getByRole('button', { name: 'Select' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Rectangle' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Pan' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Fit' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '100%' })).toBeInTheDocument();
   });
   it('creates Room hotspot geometry inert until the author assigns a target', () => {
     Object.defineProperties(HTMLElement.prototype, {
@@ -340,21 +348,38 @@ describe('RoomEditor', () => {
     renderEditor();
 
     selectRoomCategory('Hotspots');
-    fireEvent.click(screen.getByRole('button', { name: 'Add hotspot' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Rectangle' }));
     const stage = document.querySelector<HTMLElement>('[data-hotspot-image-stage] > div[tabindex]');
     expect(stage).not.toBeNull();
     if (!stage) return;
-    fireEvent.mouseDown(stage, { button: 0, clientX: 40, clientY: 40 });
-    fireEvent.mouseMove(window, { clientX: 120, clientY: 120 });
-    fireEvent.mouseUp(window, { clientX: 120, clientY: 120 });
+    fireEvent.mouseDown(stage, { button: 0, clientX: 160, clientY: 160 });
+    fireEvent.mouseMove(window, { clientX: 220, clientY: 220 });
+    fireEvent.mouseUp(window, { clientX: 220, clientY: 220 });
 
-    const updated = useProjectStore.getState().document;
+    let updated = useProjectStore.getState().document;
+    expect(isAuthoringProject(updated)).toBe(true);
+    if (!isAuthoringProject(updated)) return;
+    expect(parseRoomData(updated.rooms.foyer?.data)?.hotspots).toHaveLength(0);
+    expect(screen.getByRole('button', { name: 'Rectangle' })).toHaveAttribute(
+      'aria-pressed',
+      'true',
+    );
+    fireEvent.mouseDown(stage, { button: 0, clientX: 240, clientY: 240 });
+    fireEvent.mouseMove(window, { clientX: 300, clientY: 300 });
+    fireEvent.mouseUp(window, { clientX: 300, clientY: 300 });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+    updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
     if (!isAuthoringProject(updated)) return;
     const updatedRoom = parseRoomData(updated.rooms.foyer?.data);
-    expect(updatedRoom?.hotspots).toHaveLength(1);
+    expect(updatedRoom?.hotspots).toHaveLength(2);
+    expect(updatedRoom?.hotspots.map((item) => item.id)).toEqual(['hotspot', 'hotspot-2']);
+    expect(updatedRoom?.hotspots.map((item) => item.inputOrder)).toEqual([0, 1]);
     expect(updatedRoom?.hotspots[0]?.target).toEqual({ kind: 'none' });
-    expect(screen.getByText('No target')).toBeInTheDocument();
+    expect(updatedRoom?.hotspots[1]?.target).toEqual({ kind: 'none' });
   });
   it('selects the owning Room category for workbench targets', () => {
     const project = createAuthoringProject();

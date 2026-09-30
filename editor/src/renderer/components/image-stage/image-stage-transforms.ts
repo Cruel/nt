@@ -24,6 +24,8 @@ export interface ImageStageCamera {
   pan: StagePoint;
 }
 
+export type ImageStageZoomBasis = 'fit' | 'native';
+
 export interface RoomBackgroundTransform {
   imageRect: StageRect;
   visibleImageUv: ImageNormalizedRect;
@@ -52,9 +54,10 @@ export function imageStageRect(
   viewport: StageSize,
   image: StageSize,
   camera: ImageStageCamera,
+  zoomBasis: ImageStageZoomBasis = 'fit',
 ): StageRect {
-  const base = containRect(viewport, image);
-  const zoom = clamp(camera.zoom, 0.1, 16);
+  const base = zoomBasis === 'native' ? { x: 0, y: 0, ...image } : containRect(viewport, image);
+  const zoom = clamp(camera.zoom, zoomBasis === 'native' ? 0.001 : 0.1, 16);
   const width = base.width * zoom;
   const height = base.height * zoom;
   return {
@@ -70,11 +73,12 @@ export function clampImageStageCamera(
   image: StageSize,
   camera: ImageStageCamera,
   minimumVisiblePixels = 32,
+  zoomBasis: ImageStageZoomBasis = 'fit',
 ): ImageStageCamera {
-  const zoom = clamp(camera.zoom, 0.1, 16);
+  const zoom = clamp(camera.zoom, zoomBasis === 'native' ? 0.001 : 0.1, 16);
   if (viewport.width <= 0 || viewport.height <= 0 || image.width <= 0 || image.height <= 0)
     return { zoom, pan: { ...camera.pan } };
-  const fitted = containRect(viewport, image);
+  const fitted = zoomBasis === 'native' ? { x: 0, y: 0, ...image } : containRect(viewport, image);
   const imageWidth = fitted.width * zoom;
   const imageHeight = fitted.height * zoom;
   const visibleX = Math.min(minimumVisiblePixels, viewport.width, imageWidth);
@@ -88,6 +92,17 @@ export function clampImageStageCamera(
       y: clamp(camera.pan.y, -maximumPanY, maximumPanY),
     },
   };
+}
+
+export function fitImageStageZoom(
+  viewport: StageSize,
+  image: StageSize,
+  zoomBasis: ImageStageZoomBasis = 'fit',
+) {
+  if (zoomBasis === 'fit') return 1;
+  if (viewport.width <= 0 || viewport.height <= 0 || image.width <= 0 || image.height <= 0)
+    return 1;
+  return Math.min(1, viewport.width / image.width, viewport.height / image.height);
 }
 
 export function imageUvToStage(point: StagePoint, imageRect: StageRect): StagePoint {

@@ -1367,6 +1367,23 @@
     "noMatchingRecords": "Nenhum registro compatível.",
     "defaultLabel": "Hotspot",
     "roomTitle": "Hotspots do plano de fundo",
+    "geometryDescription": "A geometria é editada em um espaço focado na imagem; os campos semânticos permanecem aqui.",
+    "editGeometry": "Editar geometria",
+    "inspectGeometry": "Inspecionar geometria",
+    "focus": {
+      "title": "Foco de hotspot",
+      "rectangleHelp": "Edite retângulos de hotspots sobre a imagem de origem. O modo Retângulo permanece ativo para criação em lote.",
+      "alphaHelp": "Inspecione o hotspot alfa do sprite sobre a imagem de origem.",
+      "select": "Selecionar",
+      "rectangle": "Retângulo",
+      "pan": "Mover visão",
+      "fit": "Ajustar",
+      "native": "100%",
+      "undo": "Desfazer",
+      "redo": "Refazer",
+      "cancel": "Cancelar",
+      "done": "Concluir"
+    },
     "mode": {
       "label": "Modo de hotspot",
       "none": "Nenhum",
@@ -1377,7 +1394,7 @@
       "customTitle": "Hotspots personalizados"
     },
     "delete": "Excluir hotspot",
-    "selectPrompt": "Selecione um hotspot para editar sua geometria e seu alvo semântico.",
+    "selectPrompt": "Selecione um hotspot para editar suas propriedades semânticas.",
     "targets": {
       "none": "Sem alvo",
       "owner": "Este interagível",

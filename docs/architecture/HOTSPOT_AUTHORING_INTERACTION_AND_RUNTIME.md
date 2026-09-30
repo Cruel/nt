@@ -64,15 +64,33 @@ unsupported image/mask combinations, incompatible highlight Materials, and inval
 
 ## Editor behavior
 
-The shared React Hotspot image stage provides selection, create, move, resize, delete, zoom, pan,
-fit, and image-coordinate conversion. Its normal interaction state has no persistent select/pan tool
-switch. `Add hotspot` temporarily changes the next drag into rectangular creation, then returns to
-normal interaction after a successful create; Escape or Cancel exits creation without mutation.
+Hotspot authoring separates geometry from semantics. The owning Room or Interactable editor keeps
+the Hotspot collection and semantic fields such as target, condition, cursor, highlight, input order,
+ID, and label. `Edit geometry` opens **Hotspot Focus**, a reusable temporary full-tab workspace over
+the owner's source image. The shared React image stage inside Hotspot Focus provides selection,
+rectangle creation, move, resize, entity deletion, zoom, pan, Fit, native 100% view, and
+image-coordinate conversion. Sprite-alpha Interactables use the same focused source-image workspace
+for inspection without exposing rectangle creation.
 
-Hotspot editing chooses a semantic target rather than a Verb. Room targets include local Features,
+Hotspot Focus keeps view state independently per owner/source target. Its native zoom basis makes
+100% correspond to one source-image pixel per CSS pixel; first entry uses 100% when the complete
+source fits and Fit otherwise. Select, Rectangle, and Pan are explicit geometry tools. Rectangle
+mode remains active after a successful draw so several Hotspots can be created in sequence, while
+the newest rectangle becomes selected. Escape cancels the current rectangle gesture/tool without
+committing project data.
+
+Geometry changes are session-local. Draw, move, resize, and delete participate in a local undo/redo
+history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y. Deleting required rectangle geometry removes the whole
+Hotspot entity from the draft. `Done` publishes the complete resulting collection through one
+project command and therefore one project-level undo step; `Cancel` discards the draft. Switching
+tabs may leave the focus session alive. A modified session registers with the workbench draft-close
+boundary so closing the owning tab must apply or discard it rather than silently losing geometry.
+
+Hotspot semantic editing chooses a target rather than a Verb. Room targets include local Features,
 other admitted subjects, and local Exits. Interactable targets additionally include the owning
 Interactable directly. The target selector may also reference owner-qualified Features elsewhere in
-the project when that is the intended semantic subject.
+the project when that is the intended semantic subject. New Room rectangles start at the inert
+`none` target, while custom Interactable rectangles start at `owner`.
 
 Room and Interactable editors also expose nested Feature editing: stable ID, label, compatible Trait
 attachments, and compatible Property assignments. Feature mutation uses the ordinary command bus so

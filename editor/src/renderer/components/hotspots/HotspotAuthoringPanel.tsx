@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTranslation } from 'react-i18next';
 import { CollectionMasterDetail } from '@/components/collection-master-detail';
 import { EditorSectionHeading } from '@/components/editor-section-heading';
@@ -6,49 +6,19 @@ import { MaterialApplicationEditor } from '@/components/materials/MaterialApplic
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Select, SelectItem } from '@/components/ui/select';
-import { HotspotImageStage } from '@/components/image-stage/HotspotImageStage';
 import type { HotspotEditorViewState } from '@/components/image-stage/hotspot-view-state';
-import {
-  roomBackgroundTransform,
-  type RoomBackgroundFit,
-  type StageSize,
-} from '@/components/image-stage/image-stage-transforms';
-import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
-import type {
-  InteractionSubjectData,
-  InteractableHotspotTarget,
-  RoomHotspotTarget,
-} from '../../../shared/project-schema/authoring-features';
+import type { InteractionSubjectData } from '../../../shared/project-schema/authoring-features';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
-import {
-  emptyMaterialApplication,
-  type MaterialApplication,
-} from '../../../shared/project-schema/authoring-material-applications';
+import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import { parseRoomData } from '../../../shared/project-schema/authoring-rooms';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
-import type { Condition } from '../../../shared/project-schema/authoring-flow';
-import {
-  systemCursorNames,
-  type CursorTarget,
-} from '../../../shared/project-schema/authoring-cursor-vocabulary';
-import { useProjectStore } from '@/project/project-store';
+import { systemCursorNames } from '../../../shared/project-schema/authoring-cursor-vocabulary';
+import { Button } from '@/components/ui/button';
+import type { EditableHotspot, EditableHotspotTarget } from './hotspot-types';
 
-type EditableHotspotTarget = RoomHotspotTarget | InteractableHotspotTarget;
-
-export interface EditableHotspot {
-  id: string;
-  label: string;
-  condition: Condition;
-  inputOrder: number;
-  highlight:
-    | { kind: 'default' | 'none' }
-    | { kind: 'material'; materialApplication: MaterialApplication };
-  cursor?: CursorTarget | null;
-  target: EditableHotspotTarget;
-  shape?: { kind: 'rect'; bounds: ImageNormalizedRect };
-}
+export type { EditableHotspot } from './hotspot-types';
 
 interface Props {
   project: AuthoringProject;
@@ -66,14 +36,12 @@ interface Props {
   localFeatures: readonly { id: string; label: string }[];
   exits?: readonly { id: string; label: string }[];
   alphaMode?: boolean;
-  roomVisibleGuide?: { referenceSize: StageSize; fit: RoomBackgroundFit };
   anchorPrefix: 'room' | 'interactable';
   onViewChange(next: HotspotEditorViewState): void;
-  onAdd(bounds: ImageNormalizedRect, target: EditableHotspotTarget): void;
   onDelete(id: string): void;
   onRename(id: string, nextId: string): void;
   onUpdate(id: string, next: Omit<EditableHotspot, 'id' | 'shape'>): void;
-  onBounds(id: string, bounds: ImageNormalizedRect): void;
+  onEditGeometry(selectedHotspotId?: string | null): void;
 }
 
 interface TargetOption {
@@ -92,26 +60,8 @@ function subjectTarget(subject: InteractionSubjectData): EditableHotspotTarget {
 
 export function HotspotAuthoringPanel(props: Props) {
   const { t } = useTranslation('workspace');
-  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const asset = props.assetId ? props.project.assets[props.assetId] : null;
   const assetData = parseAssetData(asset?.data);
-  const [imageUrl, setImageUrl] = useState<string | null>(null);
-  useEffect(() => {
-    let canceled = false;
-    setImageUrl(null);
-    if (!projectSessionId || !props.assetId || assetData?.kind !== 'image') return;
-    void window.noveltea
-      .resolveProjectOriginalAssetUrl(projectSessionId, props.assetId)
-      .then((result) => {
-        if (!canceled) setImageUrl(result.ok ? result.url : null);
-      })
-      .catch(() => {
-        if (!canceled) setImageUrl(null);
-      });
-    return () => {
-      canceled = true;
-    };
-  }, [assetData?.kind, assetData?.source.path, projectSessionId, props.assetId]);
 
   const selected =
     props.hotspots.find((item) => item.id === props.selectedView.selectedHotspotId) ?? null;
@@ -226,19 +176,7 @@ export function HotspotAuthoringPanel(props: Props) {
       ...patch,
     });
   };
-  const addingRectangle = props.selectedView.tool === 'draw-rect';
   const metadata = assetData?.kind === 'image' ? assetData.imageMetadata : null;
-  const visibleImageGuide = useMemo(
-    () =>
-      metadata && props.roomVisibleGuide
-        ? roomBackgroundTransform(
-            props.roomVisibleGuide.referenceSize,
-            { width: metadata.width, height: metadata.height },
-            props.roomVisibleGuide.fit,
-          ).visibleImageUv
-        : null,
-    [metadata, props.roomVisibleGuide],
-  );
   const selectedTargetOption = selected
     ? targetOptions.find((option) => targetKey(option.target) === targetKey(selected.target))
     : null;
@@ -259,49 +197,19 @@ export function HotspotAuthoringPanel(props: Props) {
         help={t('hotspots.subtitle')}
         helpLabel={`About ${props.title}`}
       />
-      {addingRectangle ? (
-        <p className="rounded-md border border-dashed bg-muted/30 px-3 py-2 text-xs text-muted-foreground">
-          {t('hotspots.addInstruction')}
-        </p>
-      ) : null}
       {!metadata ? <p className="text-sm text-destructive">{t('hotspots.invalidImage')}</p> : null}
-      {metadata ? (
-        <HotspotImageStage
-          imageUrl={imageUrl}
-          imageSize={{ width: metadata.width, height: metadata.height }}
-          hotspots={props.hotspots.flatMap((item) =>
-            item.shape
-              ? [
-                  {
-                    id: item.id,
-                    label: item.label,
-                    inputOrder: item.inputOrder,
-                    bounds: item.shape.bounds,
-                  },
-                ]
-              : [],
-          )}
-          selectedHotspotId={props.selectedView.selectedHotspotId}
-          tool={props.selectedView.tool}
-          camera={{
-            zoom: props.selectedView.zoom,
-            pan: { x: props.selectedView.panX, y: props.selectedView.panY },
-          }}
-          alphaVisualization={props.alphaMode}
-          visibleImageGuide={visibleImageGuide}
-          onSelectionChange={(selectedHotspotId) => updateView({ selectedHotspotId })}
-          onCameraChange={(camera) =>
-            updateView({ zoom: camera.zoom, panX: camera.pan.x, panY: camera.pan.y })
-          }
-          onCreate={(bounds) => {
-            const target = targetOptions[0]?.target;
-            if (target) props.onAdd(bounds, target);
-          }}
-          onCancelCreate={() => updateView({ tool: 'select' })}
-          onCommitBounds={(id, bounds) => props.onBounds(id, bounds)}
-          onDelete={(id) => props.onDelete(id)}
-        />
-      ) : null}
+      <div className="flex items-center justify-between gap-3 rounded-md border bg-muted/20 px-3 py-2">
+        <p className="text-xs text-muted-foreground">{t('hotspots.geometryDescription')}</p>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={!metadata}
+          onClick={() => props.onEditGeometry(props.selectedView.selectedHotspotId)}
+        >
+          {props.alphaMode ? t('hotspots.inspectGeometry') : t('hotspots.editGeometry')}
+        </Button>
+      </div>
       <CollectionMasterDetail
         items={props.hotspots}
         getKey={(item) => item.id}
@@ -310,12 +218,6 @@ export function HotspotAuthoringPanel(props: Props) {
         listAriaLabel={props.title}
         emptyState={t('hotspots.selectPrompt')}
         layoutClassName="gap-3 @5xl:grid-cols-[14rem_1fr]"
-        listAction={{
-          label: addingRectangle ? t('hotspots.cancelAdd') : t('hotspots.add'),
-          pressed: addingRectangle,
-          disabled: !addingRectangle && targetOptions.length === 0,
-          onClick: () => updateView({ tool: addingRectangle ? 'select' : 'draw-rect' }),
-        }}
         getItemAnchor={(item) => `${props.anchorPrefix}.hotspot.${item.id}`}
         getDeleteLabel={() => t('hotspots.delete')}
         onDeleteItem={(item) => props.onDelete(item.id)}

@@ -1331,6 +1331,23 @@
     "noMatchingRecords": "⟦No compatible records.⟧",
     "defaultLabel": "⟦Hotspot⟧",
     "roomTitle": "⟦Background hotspots⟧",
+    "geometryDescription": "⟦Geometry is edited in a focused image workspace; semantic fields remain here.⟧",
+    "editGeometry": "⟦Edit geometry⟧",
+    "inspectGeometry": "⟦Inspect geometry⟧",
+    "focus": {
+      "title": "⟦Hotspot Focus⟧",
+      "rectangleHelp": "⟦Edit hotspot rectangles against the source image. Rectangle mode stays active for batch creation.⟧",
+      "alphaHelp": "⟦Inspect the sprite-alpha hotspot against the source image.⟧",
+      "select": "⟦Select⟧",
+      "rectangle": "⟦Rectangle⟧",
+      "pan": "⟦Pan⟧",
+      "fit": "⟦Fit⟧",
+      "native": "⟦100%⟧",
+      "undo": "⟦Undo⟧",
+      "redo": "⟦Redo⟧",
+      "cancel": "⟦Cancel⟧",
+      "done": "⟦Done⟧"
+    },
     "mode": {
       "label": "⟦Hotspot mode⟧",
       "none": "⟦None⟧",
@@ -1341,7 +1358,7 @@
       "customTitle": "⟦Custom hotspots⟧"
     },
     "delete": "⟦Delete hotspot⟧",
-    "selectPrompt": "⟦Select a hotspot to edit its geometry and semantic target.⟧",
+    "selectPrompt": "⟦Select a hotspot to edit its semantic properties.⟧",
     "targets": {
       "none": "⟦No target⟧",
       "owner": "⟦This Interactable⟧",
