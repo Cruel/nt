@@ -113,6 +113,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         std::optional<core::TriggerContext> trigger_context;
         core::PresentationCompositionGroup composition_group =
             core::PresentationCompositionGroup::Interface;
+        std::optional<core::PresentationLayoutRoomGeometry> room_geometry;
     };
 
     std::vector<Desired> desired;
@@ -137,7 +138,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
              mount.connected_signals, mount.state_shape, mount.state_values,
              std::move(material_parameters), mount.material_textures,
              snapshot.camera ? snapshot.camera->view.zoom : 1.0, mount.trigger_context,
-             mount.composition_group});
+             mount.composition_group, mount.room_geometry});
     }
     std::sort(desired.begin(), desired.end(),
               [](const auto& lhs, const auto& rhs) { return lhs.identity < rhs.identity; });
@@ -202,7 +203,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             existing->second.material_textures == item.material_textures &&
             existing->second.material_camera_zoom == item.material_camera_zoom &&
             existing->second.trigger_context == item.trigger_context &&
-            existing->second.composition_group == item.composition_group) {
+            existing->second.composition_group == item.composition_group &&
+            existing->second.room_geometry == item.room_geometry) {
             auto reused = existing->second;
             reused.key = item.key;
             reused.revision = snapshot.revision;
@@ -226,6 +228,7 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
         request.material_textures = item.material_textures;
         request.material_camera_zoom = item.material_camera_zoom;
         request.trigger_context = item.trigger_context;
+        request.room_geometry = item.room_geometry;
         request.source =
             builtin_inventory
                 ? presentation::RuntimeLayoutSource{presentation::RuntimeLayoutBuiltinSource{
@@ -249,7 +252,8 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                     item.owner, item.policy, item.scale_overrides, item.occurrence, item.inputs,
                     item.connected_signals, item.state_shape, item.state_values,
                     item.material_parameters, item.material_textures, item.material_camera_zoom,
-                    item.trigger_context, item.composition_group, snapshot.revision});
+                    item.trigger_context, item.composition_group, snapshot.revision,
+                    item.room_geometry});
             continue;
         }
         if (retained_match && retained_revision != m_retained.end() &&
@@ -264,14 +268,15 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
                                             static_cast<std::ptrdiff_t>(*retained_match));
             if (retained_revision->second.empty())
                 m_retained.erase(retained_revision);
-            next.insert_or_assign(
-                item.identity,
-                MountedPresentationLayout{
-                    item.key, retained_instance, item.layout, item.semantic_owner, item.owner,
-                    item.policy, item.scale_overrides, item.occurrence, item.inputs,
-                    item.connected_signals, item.state_shape, item.state_values,
-                    item.material_parameters, item.material_textures, item.material_camera_zoom,
-                    item.trigger_context, item.composition_group, snapshot.revision});
+            next.insert_or_assign(item.identity,
+                                  MountedPresentationLayout{
+                                      item.key, retained_instance, item.layout, item.semantic_owner,
+                                      item.owner, item.policy, item.scale_overrides,
+                                      item.occurrence, item.inputs, item.connected_signals,
+                                      item.state_shape, item.state_values, item.material_parameters,
+                                      item.material_textures, item.material_camera_zoom,
+                                      item.trigger_context, item.composition_group,
+                                      snapshot.revision, item.room_geometry});
             continue;
         }
 
@@ -281,14 +286,14 @@ PresentationLayoutReconciler::reconcile(const core::RuntimePresentationSnapshot&
             return core::Result<void, core::Diagnostics>::failure(std::move(mounted).error());
         }
         newly_mounted.push_back(*mounted.value_if());
-        next.insert_or_assign(item.identity,
-                              MountedPresentationLayout{
-                                  item.key, *mounted.value_if(), item.layout, item.semantic_owner,
-                                  item.owner, item.policy, item.scale_overrides, item.occurrence,
-                                  item.inputs, item.connected_signals, item.state_shape,
-                                  item.state_values, item.material_parameters,
-                                  item.material_textures, item.material_camera_zoom,
-                                  item.trigger_context, item.composition_group, snapshot.revision});
+        next.insert_or_assign(
+            item.identity, MountedPresentationLayout{
+                               item.key, *mounted.value_if(), item.layout, item.semantic_owner,
+                               item.owner, item.policy, item.scale_overrides, item.occurrence,
+                               item.inputs, item.connected_signals, item.state_shape,
+                               item.state_values, item.material_parameters, item.material_textures,
+                               item.material_camera_zoom, item.trigger_context,
+                               item.composition_group, snapshot.revision, item.room_geometry});
     }
 
     for (const auto& [identity, previous] : m_current) {

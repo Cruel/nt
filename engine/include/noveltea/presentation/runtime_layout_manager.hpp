@@ -81,6 +81,7 @@ struct RuntimeMountedLayout {
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =
         core::PresentationSnapshotRevision::from_number(0);
+    std::optional<core::PresentationLayoutRoomGeometry> room_geometry;
 };
 
 struct RuntimeSystemLayoutDocumentBinding {
@@ -126,6 +127,7 @@ struct RuntimeLayoutMountRequest {
         core::PresentationCompositionGroup::Interface;
     core::PresentationSnapshotRevision publication_revision =
         core::PresentationSnapshotRevision::from_number(0);
+    std::optional<core::PresentationLayoutRoomGeometry> room_geometry;
 };
 
 enum class GameplayInputDisposition : std::uint8_t {

@@ -72,6 +72,7 @@ private:
             core::PresentationCompositionGroup::Interface;
         core::PresentationSnapshotRevision revision =
             core::PresentationSnapshotRevision::from_number(0);
+        std::optional<core::PresentationLayoutRoomGeometry> room_geometry;
     };
 
     void release_retained(const WorldTransitionBackend& transitions,

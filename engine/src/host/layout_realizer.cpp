@@ -91,7 +91,7 @@ public:
                     layout.connected_signals, layout.state_shape, layout.state_values,
                     layout.material_parameters, layout.material_camera_zoom, layout.trigger_context,
                     layout.material_textures, layout.mounted.layout.text(),
-                    layout.mounted.policy.local_order});
+                    layout.mounted.policy.local_order, layout.room_geometry});
         } else {
             m_runtime_ui.set_layout_mount_context(document_id, std::nullopt);
         }
@@ -469,14 +469,23 @@ void LayoutRealizer::clear_authored_preview() noexcept
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts)
 {
-    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr, nullptr);
+    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr, nullptr, nullptr);
 }
 
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
     const core::RoomId& focused_room)
 {
-    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr, &focused_room);
+    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr, &focused_room, nullptr);
+}
+
+core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
+    const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
+    const core::RoomId& focused_room,
+    const std::unordered_map<std::string, core::PresentationLayoutRoomGeometry>& room_geometries)
+{
+    return stage_focused_preview_impl(layouts, nullptr, {}, nullptr, &focused_room,
+                                      &room_geometries);
 }
 
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
@@ -484,21 +493,25 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
     script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
     const runtime::RuntimeCapabilitySet& capabilities)
 {
-    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities, nullptr);
+    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities, nullptr,
+                                      nullptr);
 }
 
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview(
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
     script::ScriptRuntime& scripts, script::ScriptEnvironmentHandle environment,
-    const runtime::RuntimeCapabilitySet& capabilities, const core::RoomId& focused_room)
+    const runtime::RuntimeCapabilitySet& capabilities, const core::RoomId& focused_room,
+    const std::unordered_map<std::string, core::PresentationLayoutRoomGeometry>& room_geometries)
 {
-    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities, &focused_room);
+    return stage_focused_preview_impl(layouts, &scripts, environment, &capabilities, &focused_room,
+                                      &room_geometries);
 }
 
 core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl(
     const std::vector<core::editor::TypedFocusedRoomLayoutDefinition>& layouts,
     script::ScriptRuntime* scripts, script::ScriptEnvironmentHandle environment,
-    const runtime::RuntimeCapabilitySet* capabilities, const core::RoomId* focused_room)
+    const runtime::RuntimeCapabilitySet* capabilities, const core::RoomId* focused_room,
+    const std::unordered_map<std::string, core::PresentationLayoutRoomGeometry>* room_geometries)
 {
     rollback_focused_preview();
     script::ScriptRuntime::ScopedEnvironmentActivation activation;
@@ -714,7 +727,15 @@ core::Result<void, core::Diagnostics> LayoutRealizer::stage_focused_preview_impl
                 .composition_group = game_hud ? core::PresentationCompositionGroup::Interface
                                               : core::PresentationCompositionGroup::World,
                 .publication_revision = core::PresentationSnapshotRevision::from_number(0),
+                .room_geometry = std::nullopt,
             };
+            if (layout.mount_kind ==
+                    core::editor::TypedFocusedRoomLayoutDefinition::MountKind::RoomPlacement &&
+                layout.placement_id && room_geometries != nullptr) {
+                const auto geometry = room_geometries->find(*layout.placement_id);
+                if (geometry != room_geometries->end())
+                    semantic_mount.room_geometry = geometry->second;
+            }
             if (!m_backend.set_mount_context(document_id, semantic_mount)) {
                 rollback_focused_preview();
                 return core::Result<void, core::Diagnostics>::failure(
@@ -1005,7 +1026,8 @@ LayoutRealizationResult LayoutRealizer::apply_layout_realization(LayoutRealizati
                                              .material_camera_zoom = 1.0,
                                              .trigger_context = std::nullopt,
                                              .composition_group = value.composition_group,
-                                             .publication_revision = value.publication_revision};
+                                             .publication_revision = value.publication_revision,
+                                             .room_geometry = std::nullopt};
                 if (!m_host_generation || value.host_generation != *m_host_generation)
                     return stale_result(value.host_generation, value.mounted.instance, &desired,
                                         "realize");

@@ -463,7 +463,6 @@ export function resolveRoomEditProjection({
   const interactables = room.interactables.flatMap(
     (occurrence): RoomEditInteractableProjection[] => {
       if (
-        !occurrence.visible ||
         !resolvedOccurrenceContributesDraw(
           resolvedInteractables,
           occurrence.id,
@@ -473,12 +472,14 @@ export function resolveRoomEditProjection({
       )
         return [];
       const instance = project.interactableInstances[occurrence.interactable.$ref.id];
+      if (!instance) return [];
       if (
-        !instance ||
-        !instance.enabled ||
-        !instance.visible ||
-        instance.location.kind !== 'room' ||
-        instance.location.room.$ref.id !== roomId
+        resolvedInteractables === null &&
+        (!occurrence.visible ||
+          !instance.enabled ||
+          !instance.visible ||
+          instance.location.kind !== 'room' ||
+          instance.location.room.$ref.id !== roomId)
       )
         return [];
       const definitionRecord = project.interactables[instance.definition.$ref.id];
@@ -518,7 +519,7 @@ export function resolveRoomEditProjection({
 
   const props = room.props.flatMap((occurrence): RoomEditPropProjection[] => {
     if (
-      !occurrence.visible ||
+      (!resolvedProps && !occurrence.visible) ||
       !resolvedOccurrenceContributesDraw(
         resolvedProps,
         occurrence.id,
@@ -546,7 +547,7 @@ export function resolveRoomEditProjection({
 
   const environments = room.environments.flatMap((occurrence): RoomEditEnvironmentProjection[] => {
     if (
-      !occurrence.visible ||
+      (!resolvedEnvironments && !occurrence.visible) ||
       !resolvedOccurrenceContributesDraw(
         resolvedEnvironments,
         occurrence.id,
@@ -580,7 +581,6 @@ export function resolveRoomEditProjection({
 
   const cast = room.cast.flatMap((occurrence): RoomEditCastProjection[] => {
     if (
-      !occurrence.visible ||
       !resolvedOccurrenceContributesDraw(resolvedCast, occurrence.id, project, occurrence.condition)
     )
       return [];
@@ -591,13 +591,14 @@ export function resolveRoomEditProjection({
       ? resolveGameplayInstanceRecord(project, 'character', characterRecord)
       : null;
     const character = parseCharacterData(effectiveRecord?.data);
+    if (!effectiveRecord || !character) return [];
     if (
-      !effectiveRecord ||
-      !character ||
-      !character.initialWorldState.enabled ||
-      !character.initialWorldState.visible ||
-      character.initialWorldState.location.kind !== 'room' ||
-      character.initialWorldState.location.room.$ref.id !== roomId
+      resolvedCast === null &&
+      (!occurrence.visible ||
+        !character.initialWorldState.enabled ||
+        !character.initialWorldState.visible ||
+        character.initialWorldState.location.kind !== 'room' ||
+        character.initialWorldState.location.room.$ref.id !== roomId)
     )
       return [];
     const propertyValues = ownerPropertyValues(project, characterRecord, effectiveRecord);

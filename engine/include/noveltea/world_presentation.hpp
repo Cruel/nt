@@ -92,10 +92,19 @@ struct WorldFittedRect {
     Rect uv{0.0f, 0.0f, 1.0f, 1.0f};
 };
 
+struct WorldProjectedRect {
+    Rect rect{};
+    float rotation_degrees = 0.0f;
+    Vec2 rotation_origin{};
+};
+
 class WorldPresentationLayoutPolicy {
 public:
     [[nodiscard]] static Rect normalized_rect(const core::compiled::NormalizedRect& bounds,
                                               Size viewport) noexcept;
+    [[nodiscard]] static WorldProjectedRect
+    project_room_rect(const core::compiled::NormalizedRect& bounds,
+                      const core::PresentationCamera& camera, Size viewport) noexcept;
     [[nodiscard]] static WorldFittedRect fit_background(Size viewport, Size texture,
                                                         core::compiled::BackgroundFit fit) noexcept;
     [[nodiscard]] static Rect actor_rect(const core::PresentationActor& actor,

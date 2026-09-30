@@ -13,6 +13,7 @@ import {
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
+import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -2075,6 +2076,144 @@ describe('RoomEditor', () => {
         appearanceId: 'formal',
       });
     });
+  });
+
+  it('offers inherited Character profiles and appearances in the cast inspector', async () => {
+    const project = createAuthoringProject();
+    const character = defaultCharacterData('Hero');
+    character.initialWorldState = {
+      location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+      enabled: true,
+      visible: true,
+    };
+    const inheritedProfile = {
+      ...structuredClone(character.profiles[0]!),
+      id: 'closeup',
+      label: 'Inherited Closeup',
+    };
+    const inheritedAppearance = { id: 'formal', label: 'Inherited Formal', profiles: [] };
+    project.archetypes['hero-base'] = {
+      id: 'hero-base',
+      label: 'Hero Base',
+      data: {
+        ...defaultArchetypeData('character'),
+        overrides: {
+          '/data/profiles': [...character.profiles, inheritedProfile],
+          '/data/appearances': [inheritedAppearance],
+        },
+      },
+    };
+    project.characters.hero = {
+      id: 'hero',
+      label: 'Hero',
+      data: character,
+      archetype: { $ref: { collection: 'archetypes', id: 'hero-base' } },
+      archetypeOverrides: {},
+      traits: [],
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'hero-placement',
+        bounds: { x: 0.4, y: 0.2, width: 0.2, height: 0.4 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.cast = [
+      {
+        id: 'hero-cast',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'hero-placement',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: null,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [{ kind: 'cast', id: 'hero-cast' }],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+
+    renderEditor();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Profile' }));
+    expect(screen.getByRole('option', { name: 'Inherited Closeup' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Appearance' }));
+    expect(screen.getByRole('option', { name: 'Inherited Formal' })).toBeInTheDocument();
+  });
+
+  it('reattaches Fit sizing to the Edit viewport after Hotspot Focus remounts it', async () => {
+    const observe = vi.spyOn(ResizeObserver.prototype, 'observe');
+    try {
+      const project = createAuthoringProject();
+      project.assets.image = {
+        id: 'image',
+        label: 'Image',
+        data: {
+          kind: 'image',
+          source: { type: 'project-file', path: 'assets/images/room.png' },
+          aliases: [],
+          sampling: 'linear',
+          byteSize: 64,
+          contentHash: `sha256:${'c'.repeat(64)}`,
+          imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+        },
+      };
+      const room = defaultRoomData('Foyer');
+      room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+      room.hotspots = [
+        {
+          id: 'door',
+          label: 'Door',
+          condition: { kind: 'always' },
+          inputOrder: 0,
+          highlight: { kind: 'default' },
+          target: { kind: 'none' },
+          shape: { kind: 'rect', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+        },
+      ];
+      project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+      useProjectStore.getState().loadUnsavedProjectDocument(project);
+      renderEditor();
+
+      const modes = screen.getByRole('group', { name: 'Room presentation mode' });
+      fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
+      const firstViewport = await screen.findByTestId('room-edit-viewport');
+      expect(observe.mock.calls.some(([element]) => element === firstViewport)).toBe(true);
+      observe.mockClear();
+
+      selectRoomCategory('Hotspots');
+      fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
+      expect(screen.queryByTestId('room-edit-viewport')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+
+      const nextViewport = await screen.findByTestId('room-edit-viewport');
+      expect(nextViewport).not.toBe(firstViewport);
+      expect(observe.mock.calls.some(([element]) => element === nextViewport)).toBe(true);
+    } finally {
+      observe.mockRestore();
+    }
   });
   it('cancels an active Edit pan before the animated Preview transition owns the surface', async () => {
     const project = createAuthoringProject();

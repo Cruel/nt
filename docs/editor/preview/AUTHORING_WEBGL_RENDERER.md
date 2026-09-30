@@ -91,7 +91,9 @@ Edit draws the Room background, Props,
 exact Interactable occurrences, Character/cast layers, and Environments while React outlines every
 `RoomPlacement`, including empty placements. Placement-attached Layouts stay editor metadata rather
 than RmlUi documents: Edit shows a labeled placeholder at the exact projected placement bounds and
-reduces its emphasis when rendered occupants share that placement.
+reduces its emphasis when rendered occupants share that placement. Native Preview/runtime realize the
+attached RmlUi document at that same placement footprint, including the Room Camera transform; Edit's
+placeholder therefore represents runtime spatial geometry rather than a merely illustrative region.
 
 Room Edit deliberately reuses runtime world-presentation semantics for the authored default Camera
 View, `contain` camera clamping, normalized placement/environment geometry, background

@@ -669,6 +669,10 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(placement_layout->policy.plane == PresentationPlane::WorldOverlay);
     CHECK(placement_layout->policy.local_order == 1024);
     CHECK(placement_layout->composition_group == PresentationCompositionGroup::World);
+    REQUIRE(placement_layout->room_geometry);
+    CHECK(placement_layout->room_geometry->bounds == compiled::NormalizedRect{0.1, 0.2, 0.2, 0.2});
+    REQUIRE(snapshot.camera);
+    CHECK(placement_layout->room_geometry->camera == *snapshot.camera);
     const auto* hud = find_layout(snapshot, ReservedLayoutMountKey{compiled::LayoutSlot::Hud});
     REQUIRE(hud);
     CHECK(hud->layout == id<LayoutId>("hud-inline"));
@@ -678,6 +682,41 @@ TEST_CASE("presentation projector assembles the complete effective target")
     REQUIRE(snapshot.desired_audio.size() == 1);
     CHECK(snapshot.desired_audio.front().instance ==
           id<DesiredAudioInstanceId>("background-music"));
+}
+
+TEST_CASE("presentation projector uses effective runtime Room placement geometry for Layout mounts")
+{
+    const auto project = fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    RuntimeWorld world(project, state);
+
+    auto runtime_room = world.create_room(
+        noveltea::runtime::CompiledInstanceConfiguration{GameplayInstanceRef{id<RoomId>("start")}});
+    REQUIRE(runtime_room);
+    CHECK(project.find_room(runtime_room.value()) == nullptr);
+    REQUIRE(state.commit_room_entry(project, runtime_room.value(), std::nullopt));
+    REQUIRE(state.room_visit());
+
+    RoomPresentationResolver resolver;
+    auto resolution = resolver.resolve(
+        project, world, state, *state.room_visit(),
+        [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
+        });
+    REQUIRE(resolution);
+    auto projected =
+        PresentationProjector::project(project, world, state, &resolution.value().presentation);
+    REQUIRE(projected);
+
+    const auto* placement_layout = find_layout(
+        projected.value(),
+        RoomPlacementLayoutMountKey{runtime_room.value(), id<RoomPlacementId>("key-placement")});
+    REQUIRE(placement_layout);
+    REQUIRE(placement_layout->room_geometry);
+    CHECK(placement_layout->room_geometry->bounds == compiled::NormalizedRect{0.1, 0.2, 0.2, 0.2});
 }
 
 TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
