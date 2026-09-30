@@ -16,6 +16,7 @@
 #include <string_view>
 #include <type_traits>
 #include <utility>
+#include <variant>
 
 namespace noveltea::host {
 namespace {
@@ -397,8 +398,9 @@ PreviewHost::PreviewHost(Dependencies dependencies) noexcept
               },
           .complete =
               [this](const core::editor::FocusedEditorDocumentRequest& request,
-                     std::string_view status, const core::Diagnostics& diagnostics) {
-                  complete_focused_request(request, status, diagnostics);
+                     std::string_view status, const core::Diagnostics& diagnostics,
+                     const core::RoomPresentationResolution* room_resolution) {
+                  complete_focused_request(request, status, diagnostics, room_resolution);
               },
           .report =
               [this](core::Diagnostics diagnostics) { report_diagnostics(std::move(diagnostics)); },
@@ -1009,7 +1011,8 @@ bool PreviewHost::apply_editor_document(core::editor::TypedEditorPreviewDocument
 
 void PreviewHost::complete_focused_request(
     const core::editor::FocusedEditorDocumentRequest& request, std::string_view status,
-    const core::Diagnostics& diagnostics) const
+    const core::Diagnostics& diagnostics,
+    const core::RoomPresentationResolution* room_resolution) const
 {
     nlohmann::json encoded = nlohmann::json::array();
     for (const auto& diagnostic : diagnostics) {
@@ -1027,12 +1030,36 @@ void PreviewHost::complete_focused_request(
         : request.kind == core::editor::FocusedEditorDocumentKind::Shader ? "shader-preview"
                                                                           : "room-preview";
     const auto encoded_text = encoded.dump();
+    nlohmann::json room_resolution_summary;
+    if (room_resolution != nullptr) {
+        room_resolution_summary = nlohmann::json{
+            {"castEntryIds", nlohmann::json::array()},
+            {"interactableOccurrenceIds", nlohmann::json::array()},
+            {"propIds", nlohmann::json::array()},
+            {"environmentIds", nlohmann::json::array()},
+        };
+        for (const auto& actor : room_resolution->presentation.actors) {
+            if (const auto* cast = std::get_if<core::RoomCastPresentationId>(&actor.id))
+                room_resolution_summary["castEntryIds"].push_back(cast->entry.text());
+        }
+        for (const auto& interactable : room_resolution->presentation.interactables) {
+            if (const auto* occurrence =
+                    std::get_if<core::RoomInteractableEntryId>(&interactable.occurrence))
+                room_resolution_summary["interactableOccurrenceIds"].push_back(occurrence->text());
+        }
+        for (const auto& prop : room_resolution->presentation.props)
+            room_resolution_summary["propIds"].push_back(prop.prop.text());
+        for (const auto& environment : room_resolution->presentation.environments)
+            room_resolution_summary["environmentIds"].push_back(environment.environment.text());
+    }
+    const auto room_resolution_text =
+        room_resolution != nullptr ? room_resolution_summary.dump() : "";
     const auto status_text = std::string(status);
     preview_bridge::emit_focused_document_applied(
         request.request_id.c_str(), host_generation(), request.apply_sequence,
         request.project_instance_id.c_str(), request.resource_stage_generation, kind,
         request.record_id.c_str(), request.revision.c_str(), status_text.c_str(),
-        encoded_text.c_str());
+        encoded_text.c_str(), room_resolution_text.c_str());
 }
 
 bool PreviewHost::apply_focused_editor_document(core::editor::FocusedEditorDocumentRequest request)

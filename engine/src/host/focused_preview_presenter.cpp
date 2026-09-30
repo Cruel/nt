@@ -1388,14 +1388,14 @@ void FocusedPreviewPresenter::supersede_candidate()
 {
     if (m_non_room_candidate) {
         m_non_room_candidate->asset_group->cancel_on_owner();
-        m_dependencies.complete(m_non_room_candidate->request, "superseded", {});
+        m_dependencies.complete(m_non_room_candidate->request, "superseded", {}, nullptr);
         m_non_room_candidate.reset();
     }
     if (!m_candidate)
         return;
     m_candidate->asset_group->cancel_on_owner();
     release_state(m_candidate->state);
-    m_dependencies.complete(m_candidate->request, "superseded", {});
+    m_dependencies.complete(m_candidate->request, "superseded", {}, nullptr);
     m_candidate.reset();
 }
 
@@ -1781,7 +1781,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         if (!requests) {
             auto diagnostics = std::move(requests).error();
             m_dependencies.report(diagnostics);
-            m_dependencies.complete(request, "failed", diagnostics);
+            m_dependencies.complete(request, "failed", diagnostics, nullptr);
             return false;
         }
         m_dependencies.bind_candidate_materials(&materials);
@@ -1809,7 +1809,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
     if (!manifest_closure) {
         auto diagnostics = std::move(manifest_closure).error();
         m_dependencies.report(diagnostics);
-        m_dependencies.complete(request, "failed", diagnostics);
+        m_dependencies.complete(request, "failed", diagnostics, nullptr);
         return false;
     }
     std::vector<core::editor::TypedFocusedRoomLayoutDefinition> mounted_layouts;
@@ -1817,7 +1817,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
     if (!prepared) {
         auto diagnostics = std::move(prepared).error();
         m_dependencies.report(diagnostics);
-        m_dependencies.complete(request, "failed", diagnostics);
+        m_dependencies.complete(request, "failed", diagnostics, nullptr);
         return false;
     }
     const auto source_generation = m_dependencies.assets.source_generation_on_owner();
@@ -1828,7 +1828,7 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         auto prepared_state = std::move(*prepared.value_if());
         release_state(prepared_state);
         m_dependencies.report(diagnostics);
-        m_dependencies.complete(request, "failed", diagnostics);
+        m_dependencies.complete(request, "failed", diagnostics, nullptr);
         return false;
     }
     m_dependencies.bind_candidate_materials(&decoded.value_if()->shader_materials);
@@ -1852,7 +1852,7 @@ void FocusedPreviewPresenter::fail_candidate(core::Diagnostics diagnostics)
 {
     if (!m_candidate)
         return;
-    m_dependencies.complete(m_candidate->request, "failed", diagnostics);
+    m_dependencies.complete(m_candidate->request, "failed", diagnostics, nullptr);
     release_state(m_candidate->state);
     m_candidate.reset();
 }
@@ -1861,7 +1861,7 @@ void FocusedPreviewPresenter::fail_non_room_candidate(core::Diagnostics diagnost
 {
     if (!m_non_room_candidate)
         return;
-    m_dependencies.complete(m_non_room_candidate->request, "failed", diagnostics);
+    m_dependencies.complete(m_non_room_candidate->request, "failed", diagnostics, nullptr);
     m_non_room_candidate.reset();
 }
 
@@ -1874,7 +1874,7 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
     if (candidate.request.project_instance_id != m_project_instance_id ||
         candidate.request.apply_sequence != m_latest_apply_sequence) {
         candidate.asset_group->cancel_on_owner();
-        m_dependencies.complete(candidate.request, "superseded", {});
+        m_dependencies.complete(candidate.request, "superseded", {}, nullptr);
         return;
     }
     auto transaction = m_publication_scope.begin_transaction_on_owner(std::move(leases),
@@ -1891,7 +1891,7 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
         m_dependencies.layouts.rollback_focused_preview();
         release_state(prepared_state);
         m_dependencies.report(diagnostics);
-        m_dependencies.complete(candidate.request, "failed", diagnostics);
+        m_dependencies.complete(candidate.request, "failed", diagnostics, nullptr);
     };
 
     std::function<void()> environment_commit;
@@ -2040,7 +2040,7 @@ void FocusedPreviewPresenter::commit_non_room_candidate(assets::StructuredAssetL
     if (m_dependencies.world_presentation_changed)
         m_dependencies.world_presentation_changed();
     m_dependencies.world_resources.clear();
-    m_dependencies.complete(candidate.request, "applied", {});
+    m_dependencies.complete(candidate.request, "applied", {}, nullptr);
 }
 
 void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet leases)
@@ -2052,7 +2052,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     if (candidate.request.project_instance_id != m_project_instance_id ||
         candidate.request.apply_sequence != m_latest_apply_sequence) {
         candidate.asset_group->cancel_on_owner();
-        m_dependencies.complete(candidate.request, "superseded", {});
+        m_dependencies.complete(candidate.request, "superseded", {}, nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2063,14 +2063,16 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     if (!generation) {
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.focused_layout_capabilities_failed",
-                                       "Focused Layout capabilities could not be issued")});
+                                       "Focused Layout capabilities could not be issued")},
+                                nullptr);
         release_state(candidate.state);
         return;
     }
     if (!candidate.state.cursor_commands) {
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.focused_layout_cursor_commands_missing",
-                                       "Focused Layout cursor commands are unavailable")});
+                                       "Focused Layout cursor commands are unavailable")},
+                                nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2081,7 +2083,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     if (!layout_capabilities) {
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.focused_layout_capabilities_failed",
-                                       "Focused Layout capabilities could not be issued")});
+                                       "Focused Layout capabilities could not be issued")},
+                                nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2089,7 +2092,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         candidate.mounted_layouts, m_dependencies.scripts, candidate.state.script_environment,
         *layout_capabilities, decoded_id<core::RoomId>(candidate.document.room_id));
     if (!layout_result) {
-        m_dependencies.complete(candidate.request, "failed", std::move(layout_result).error());
+        m_dependencies.complete(candidate.request, "failed", std::move(layout_result).error(),
+                                nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2102,7 +2106,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         m_dependencies.layouts.rollback_focused_preview();
         m_dependencies.complete(candidate.request, "failed",
                                 {error("editor_preview.room_snapshot_missing",
-                                       "Focused Room candidate has no prepared snapshot.")});
+                                       "Focused Room candidate has no prepared snapshot.")},
+                                nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2112,7 +2117,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
          static_cast<float>(candidate.document.environment.reference_resolution.height)});
     if (!world_result) {
         m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.complete(candidate.request, "failed", std::move(world_result).error());
+        m_dependencies.complete(candidate.request, "failed", std::move(world_result).error(),
+                                nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2120,7 +2126,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     if (!prepared_environment) {
         m_dependencies.layouts.rollback_focused_preview();
         m_dependencies.complete(candidate.request, "failed",
-                                std::move(prepared_environment).error());
+                                std::move(prepared_environment).error(), nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2128,7 +2134,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         candidate.request.apply_sequence, candidate.state.static_gameplay_values});
     if (!prepared_ui) {
         m_dependencies.layouts.rollback_focused_preview();
-        m_dependencies.complete(candidate.request, "failed", std::move(prepared_ui).error());
+        m_dependencies.complete(candidate.request, "failed", std::move(prepared_ui).error(),
+                                nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2139,7 +2146,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         m_dependencies.layouts.rollback_focused_preview();
         auto diagnostics = core::Diagnostics{std::move(committed).error()};
         m_dependencies.report(diagnostics);
-        m_dependencies.complete(candidate.request, "failed", diagnostics);
+        m_dependencies.complete(candidate.request, "failed", diagnostics, nullptr);
         release_state(candidate.state);
         return;
     }
@@ -2165,7 +2172,8 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
     release_state(m_rollback);
     m_rollback = std::move(m_committed);
     m_committed = std::move(candidate.state);
-    m_dependencies.complete(candidate.request, "applied", {});
+    m_dependencies.complete(candidate.request, "applied", {},
+                            m_committed.room_resolution ? &*m_committed.room_resolution : nullptr);
 }
 
 void FocusedPreviewPresenter::update()

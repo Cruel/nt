@@ -382,6 +382,12 @@ export const appliedPreviewDocumentResultSchema = strict({
   recordId: z.string().min(1),
   revision: sha256Schema,
   resourceStageGeneration: z.number().int().nonnegative().safe(),
+  roomResolution: strict({
+    castEntryIds: z.array(z.string().min(1)),
+    interactableOccurrenceIds: z.array(z.string().min(1)),
+    propIds: z.array(z.string().min(1)),
+    environmentIds: z.array(z.string().min(1)),
+  }).optional(),
 });
 export type AppliedPreviewDocumentResult = z.infer<typeof appliedPreviewDocumentResultSchema>;
 export interface PreviewDiagnosticScope {

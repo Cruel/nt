@@ -20,6 +20,7 @@ void emit_focused_document_applied(const char* request_id, std::uint64_t host_ge
                                    std::uint64_t apply_sequence, const char* project_instance_id,
                                    std::uint64_t resource_stage_generation, const char* kind,
                                    const char* record_id, const char* revision,
-                                   const char* disposition, const char* diagnostics_json);
+                                   const char* disposition, const char* diagnostics_json,
+                                   const char* room_resolution_json);
 
 } // namespace noveltea::preview_bridge

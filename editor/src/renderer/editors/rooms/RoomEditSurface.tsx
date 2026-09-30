@@ -19,6 +19,7 @@ import {
   resolveRoomEditProjection,
   type RoomEditProjectedRect,
   type RoomEditProjection,
+  type RoomEditResolvedVisibility,
   type RoomEditUvRect,
 } from './room-edit-projection';
 
@@ -232,6 +233,7 @@ export function RoomEditSurface({
   referenceResolution,
   backgroundImageSize,
   roomPropertyValues,
+  resolvedVisibility = null,
 }: {
   project: AuthoringProject;
   roomId: string;
@@ -239,6 +241,7 @@ export function RoomEditSurface({
   referenceResolution: { width: number; height: number };
   backgroundImageSize: { width: number; height: number } | null;
   roomPropertyValues: Readonly<Record<string, unknown>>;
+  resolvedVisibility?: RoomEditResolvedVisibility | null;
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useAuthoringWebGlGroupRenderer();
@@ -254,8 +257,9 @@ export function RoomEditSurface({
         room,
         viewport: referenceResolution,
         backgroundImageSize,
+        resolvedVisibility,
       }),
-    [backgroundImageSize, project, referenceResolution, room, roomId],
+    [backgroundImageSize, project, referenceResolution, resolvedVisibility, room, roomId],
   );
 
   useEffect(() => {

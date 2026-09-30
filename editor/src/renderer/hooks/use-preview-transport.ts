@@ -15,7 +15,10 @@ import {
 } from '../../shared/preview-protocol';
 import type { AssetProfilerWirePayload } from '../../shared/asset-profiler-protocol';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
-import type { FocusedRecordPreviewDocument } from '../../shared/focused-preview-contracts';
+import type {
+  AppliedPreviewDocumentResult,
+  FocusedRecordPreviewDocument,
+} from '../../shared/focused-preview-contracts';
 
 type EditorCommandWithoutRequest = EditorToPreviewMessage extends infer Message
   ? Message extends EditorToPreviewMessage
@@ -27,8 +30,8 @@ interface PendingRequest {
   resolve: (value?: unknown) => void;
   reject: (error: Error) => void;
   timeout: number;
-  expectedPayload?: 'asset-profiler' | 'debug-report';
-  payload?: AssetProfilerWirePayload | DevtoolsDebugReport;
+  expectedPayload?: 'asset-profiler' | 'debug-report' | 'focused-document';
+  payload?: AssetProfilerWirePayload | DevtoolsDebugReport | AppliedPreviewDocumentResult;
 }
 
 const FOCUSED_PREVIEW_COMMAND_TIMEOUT_MS = 30_000;
@@ -183,6 +186,24 @@ export function usePreviewTransport({
             pending.payload = message.report;
           }
         }
+        if (message.type === 'focused-document-applied') {
+          const pending = pendingRef.current.get(message.requestId);
+          if (!pending || pending.expectedPayload !== 'focused-document' || pending.payload) {
+            onErrorRef.current('Preview sent an unmatched focused-document result.');
+            if (pending?.expectedPayload === 'focused-document') {
+              window.clearTimeout(pending.timeout);
+              pendingRef.current.delete(message.requestId);
+              pending.reject(
+                new PreviewCommandError(
+                  'Preview sent more than one focused-document result for a request.',
+                  'focused-preview.duplicate-result',
+                ),
+              );
+            }
+          } else {
+            pending.payload = message.result;
+          }
+        }
         if (message.type === 'command-result' || message.type === 'runtime-fast-forward-result') {
           const pending = pendingRef.current.get(message.requestId);
           if (pending) {
@@ -196,10 +217,14 @@ export function usePreviewTransport({
                   new PreviewCommandError(
                     pending.expectedPayload === 'asset-profiler'
                       ? 'Preview acknowledged an asset profiler request without a payload.'
-                      : 'Preview acknowledged a debug-report request without a payload.',
+                      : pending.expectedPayload === 'debug-report'
+                        ? 'Preview acknowledged a debug-report request without a payload.'
+                        : 'Preview acknowledged a focused-document request without a result.',
                     pending.expectedPayload === 'asset-profiler'
                       ? 'asset-profiler.missing-payload'
-                      : 'devtools.missing-debug-report',
+                      : pending.expectedPayload === 'debug-report'
+                        ? 'devtools.missing-debug-report'
+                        : 'focused-preview.missing-result',
                   ),
                 );
               } else {
@@ -407,9 +432,12 @@ export function usePreviewTransport({
           ? send({ type: 'update-preview-document', document })
           : send({ type: 'update-preview-document', document, environment }),
       applyFocusedEditorDocument: (document: FocusedRecordPreviewDocument, applySequence: number) =>
-        send(
+        send<AppliedPreviewDocumentResult>(
           { type: 'apply-focused-editor-document', document, applySequence },
-          { timeoutMs: FOCUSED_PREVIEW_COMMAND_TIMEOUT_MS },
+          {
+            expectedPayload: 'focused-document',
+            timeoutMs: FOCUSED_PREVIEW_COMMAND_TIMEOUT_MS,
+          },
         ),
       setPreviewMode: (mode: PreviewMode) => send({ type: 'set-preview-mode', mode }),
       setEngineSettings: (settings: EnginePreviewSettings) =>

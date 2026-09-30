@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { CollectionMasterDetail } from '@/components/collection-master-detail';
@@ -161,6 +161,8 @@ import { parseInteractableData } from '../../../shared/project-schema/authoring-
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
 import { allocateRoomPresentationOrder } from '../../../shared/project-schema/room-presentation-order';
 import { analyzeHookRegistry } from '../../../shared/hook-registry-analysis';
+import type { AppliedPreviewDocumentResult } from '../../../shared/focused-preview-contracts';
+import type { RoomEditResolvedVisibility } from './room-edit-projection';
 
 const backgroundFitLabels = {
   cover: 'Cover',
@@ -456,6 +458,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
+  const projectRevision = useProjectStore((state) => state.projectRevision);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(document) ? document : null;
   const hookRegistryAnalysis = useMemo(
@@ -471,6 +474,38 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       : null;
   const data =
     parseRoomData(effectiveRecord?.data) ?? defaultRoomData(record?.label ?? roomId ?? 'Room');
+  const [roomEditResolution, setRoomEditResolution] = useState<{
+    projectRevision: number;
+    roomId: string;
+    value: RoomEditResolvedVisibility;
+  } | null>(null);
+  const activeRoomEditResolution =
+    roomEditResolution?.projectRevision === projectRevision && roomEditResolution.roomId === roomId
+      ? roomEditResolution.value
+      : null;
+  const handleFocusedRoomApplied = useCallback(
+    (result: AppliedPreviewDocumentResult) => {
+      if (
+        !roomId ||
+        result.kind !== 'room-preview' ||
+        result.recordId !== roomId ||
+        !result.roomResolution
+      )
+        return;
+      setRoomEditResolution((current) =>
+        current?.projectRevision === projectRevision &&
+        current.roomId === roomId &&
+        current.value === result.roomResolution
+          ? current
+          : {
+              projectRevision,
+              roomId,
+              value: result.roomResolution!,
+            },
+      );
+    },
+    [projectRevision, roomId],
+  );
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const imageAssetItems = useMemo(
     () =>
@@ -1252,6 +1287,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   referenceResolution={referenceResolution}
                   backgroundImageSize={compositionBackgroundSize}
                   roomPropertyValues={roomPropertyValues}
+                  resolvedVisibility={activeRoomEditResolution}
                 />
               </div>
             ) : null}
@@ -1264,9 +1300,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <DerivedPreviewPane
                 ownerTabId={tab.id}
                 previewMode="room"
-                enabled={!previewCollapsed && presentationMode === 'preview'}
+                enabled={!previewCollapsed}
                 root={{ kind: 'room-preview', recordId: roomId }}
                 inputs={{ displayPreference: { mode: 'project' } }}
+                onFocusedDocumentApplied={handleFocusedRoomApplied}
+                revealFocusedDocument={presentationMode === 'preview'}
               />
             </div>
           </div>

@@ -19,6 +19,7 @@ import {
   type PreviewWheelMessage,
 } from '@/preview/preview-wheel-routing';
 import type { PreviewMode, PreviewToEditorMessage } from '../../shared/preview-protocol';
+import type { AppliedPreviewDocumentResult } from '../../shared/focused-preview-contracts';
 import type { ShaderVariant } from '../../shared/shader-variants';
 import type { PreviewWheelPolicy } from '../../shared/preview-wheel-routing';
 
@@ -58,10 +59,13 @@ export interface PreviewHostLease {
   transportGeneration(): number | null;
   activeShaderVariant(): ShaderVariant | null;
   committedContentKey(): string | null;
+  committedFocusedResult(): AppliedPreviewDocumentResult | null;
   commitContent(key: string): void;
+  commitFocusedResult(result: AppliedPreviewDocumentResult): void;
   nextFocusedApplySequence(): number;
   subscribeReady(listener: () => void): () => void;
   reveal(): void;
+  conceal(): void;
   send<TResult>(
     command: (controller: EnginePreviewController) => Promise<TResult>,
   ): Promise<TResult>;
@@ -83,6 +87,7 @@ interface PreviewHostRecord {
   retention: PreviewHostRetention | null;
   retainedRect?: PreviewHostRect;
   committedContentKey: string | null;
+  committedFocusedResult: AppliedPreviewDocumentResult | null;
   lease: PreviewHostLeaseInfo | null;
 }
 
@@ -109,6 +114,7 @@ export interface PreviewHostPoolApi {
   ) => void;
   releaseHost: (leaseId: string) => void;
   revealHost: (leaseId: string) => void;
+  concealHost: (leaseId: string) => void;
   updateHostRect: (leaseId: string, rect: PreviewHostRect | undefined) => void;
   registerPlaceholder: (leaseId: string, element: HTMLElement | null) => void;
 }
@@ -126,6 +132,7 @@ interface PreviewHostManagerApi {
   markHostReady: PreviewHostPoolApi['markHostReady'];
   releaseHost: PreviewHostPoolApi['releaseHost'];
   revealHost: PreviewHostPoolApi['revealHost'];
+  concealHost: PreviewHostPoolApi['concealHost'];
   updateHostRect: PreviewHostPoolApi['updateHostRect'];
   registerPlaceholder: PreviewHostPoolApi['registerPlaceholder'];
   registerGroup: (groupId: string, owner: object, activeTabId: string | null) => void;
@@ -581,7 +588,7 @@ export function PreviewHostManagerProvider({
           updateHosts((current) =>
             current.map((host) =>
               host.hostId === hostId && host.committedContentKey
-                ? { ...host, committedContentKey: null }
+                ? { ...host, committedContentKey: null, committedFocusedResult: null }
                 : host,
             ),
           );
@@ -608,6 +615,7 @@ export function PreviewHostManagerProvider({
               ? {
                   ...host,
                   committedContentKey: null,
+                  committedFocusedResult: null,
                   lease: host.lease ? { ...host.lease, visible: false } : null,
                 }
               : host,
@@ -746,6 +754,26 @@ export function PreviewHostManagerProvider({
     [updateHosts],
   );
 
+  const concealHost = useCallback(
+    (leaseId: string) => {
+      const host = hostsRef.current.find((candidate) => candidate.lease?.leaseId === leaseId);
+      if (host) {
+        const element = hostElementsRef.current.get(host.hostId);
+        if (element) concealHostElement(element);
+      }
+      updateHosts((current) => {
+        let changed = false;
+        const next = current.map((host) => {
+          if (host.lease?.leaseId !== leaseId || !host.lease.visible) return host;
+          changed = true;
+          return { ...host, lease: { ...host.lease, visible: false } };
+        });
+        return changed ? next : current;
+      });
+    },
+    [updateHosts],
+  );
+
   const sendForLease = useCallback(
     <TResult,>(
       leaseId: string,
@@ -871,6 +899,9 @@ export function PreviewHostManagerProvider({
       const hostGeneration = (leaseGenerationByHostIdRef.current.get(claimedHostId) ?? 0) + 1;
       leaseGenerationByHostIdRef.current.set(claimedHostId, hostGeneration);
       const retainedContentKey = retention ? (currentHost?.committedContentKey ?? null) : null;
+      const retainedFocusedResult = retention
+        ? (currentHost?.committedFocusedResult ?? null)
+        : null;
       const leaseInfo: PreviewHostLeaseInfo = {
         leaseId,
         groupId,
@@ -893,6 +924,7 @@ export function PreviewHostManagerProvider({
                   retention: retention ?? host.retention,
                   retainedRect: request.initialRect ?? host.retainedRect,
                   committedContentKey: retainedContentKey,
+                  committedFocusedResult: retainedFocusedResult,
                   lease: leaseInfo,
                 }
               : host,
@@ -906,6 +938,7 @@ export function PreviewHostManagerProvider({
             retention,
             retainedRect: request.initialRect,
             committedContentKey: null,
+            committedFocusedResult: null,
             lease: leaseInfo,
           },
         ];
@@ -927,11 +960,22 @@ export function PreviewHostManagerProvider({
         committedContentKey: () =>
           hostsRef.current.find((host) => host.hostId === claimedHostId)?.committedContentKey ??
           null,
+        committedFocusedResult: () =>
+          hostsRef.current.find((host) => host.hostId === claimedHostId)?.committedFocusedResult ??
+          null,
         commitContent: (key) => {
           if (!isCurrentLease(leaseId, claimedHostId)) return;
           updateHosts((current) =>
             current.map((host) =>
               host.hostId === claimedHostId ? { ...host, committedContentKey: key } : host,
+            ),
+          );
+        },
+        commitFocusedResult: (result) => {
+          if (!isCurrentLease(leaseId, claimedHostId)) return;
+          updateHosts((current) =>
+            current.map((host) =>
+              host.hostId === claimedHostId ? { ...host, committedFocusedResult: result } : host,
             ),
           );
         },
@@ -950,10 +994,11 @@ export function PreviewHostManagerProvider({
           };
         },
         reveal: () => revealHost(leaseId),
+        conceal: () => concealHost(leaseId),
         send: (command) => sendForLease(leaseId, claimedHostId, command),
       };
     },
-    [cancelLeaseWork, isCurrentLease, layerId, revealHost, sendForLease, updateHosts],
+    [cancelLeaseWork, concealHost, isCurrentLease, layerId, revealHost, sendForLease, updateHosts],
   );
 
   useLayoutEffect(() => {
@@ -1074,6 +1119,7 @@ export function PreviewHostManagerProvider({
       markHostReady,
       releaseHost,
       revealHost,
+      concealHost,
       updateHostRect,
       registerPlaceholder,
       registerGroup,
@@ -1086,6 +1132,7 @@ export function PreviewHostManagerProvider({
       registerPlaceholder,
       releaseHost,
       revealHost,
+      concealHost,
       unregisterGroup,
       updateHostRect,
     ],
@@ -1154,6 +1201,7 @@ function PreviewHostPoolScope({
       markHostReady: manager.markHostReady,
       releaseHost: manager.releaseHost,
       revealHost: manager.revealHost,
+      concealHost: manager.concealHost,
       updateHostRect: manager.updateHostRect,
       registerPlaceholder: manager.registerPlaceholder,
     }),

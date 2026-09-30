@@ -176,6 +176,42 @@ describe('preview protocol validation', () => {
     ).toBe(true);
   });
 
+  it('accepts native focused Room resolution membership and rejects malformed identities', () => {
+    const message = {
+      version: 1,
+      type: 'focused-document-applied',
+      requestId: 'focused-room',
+      hostGeneration: 1,
+      applySequence: 3,
+      result: {
+        disposition: 'applied',
+        projectInstanceId: 'project-one',
+        kind: 'room-preview',
+        recordId: 'foyer',
+        revision: `sha256:${'a'.repeat(64)}`,
+        resourceStageGeneration: 2,
+        roomResolution: {
+          castEntryIds: ['hero'],
+          interactableOccurrenceIds: ['key'],
+          propIds: ['desk'],
+          environmentIds: ['fog'],
+        },
+      },
+      diagnostics: [],
+    };
+
+    expect(isPreviewToEditorMessage(message)).toBe(true);
+    expect(
+      isPreviewToEditorMessage({
+        ...message,
+        result: {
+          ...message.result,
+          roomResolution: { ...message.result.roomResolution, propIds: [''] },
+        },
+      }),
+    ).toBe(false);
+  });
+
   it('accepts and rejects authoring preview protocol messages', () => {
     const document = {
       kind: 'symbolic',

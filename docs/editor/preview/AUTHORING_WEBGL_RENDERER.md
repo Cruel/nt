@@ -99,13 +99,22 @@ Property-backed parameters, Environment opacity/UV motion, and standard Material
 All Material draws receive the workbench-group frame timestamp, so animated Materials in Room Edit and
 Material preview surfaces advance from the same authoring clock.
 
+Condition truth is not reimplemented in the browser. While Edit is active, the Room's focused-preview
+host stays logically connected but visually concealed and returns the native `RoomPresentationResolution`
+membership for cast entries, Interactable occurrences, Props, and Environments. Room Edit uses that
+resolved membership as its visibility authority, so Lua predicates and nested boolean conditions run
+through the same sandbox/query-provider path as focused Preview. Until a native resolution exists for
+the current Project revision, conditions that the browser cannot resolve deterministically are omitted
+rather than guessed.
+
 The existing focused engine Room preview remains a separate persistent `Preview` mode. Only the
 active direct-edit surface registers Room Edit scene work, and the focused preview continues to use
-the existing dedicated-while-open preview-host ownership when enabled. Room Edit never creates a
-private WebGL context and deliberately excludes RmlUi, runtime Hotspot highlights, postprocess,
-transitions, and other player-facing runtime effects. Runtime Preview therefore remains the authority
-for those complete gameplay-presentation concerns even though Edit now covers the agreed base world
-composition subset.
+the existing dedicated-while-open preview-host ownership. In Edit the host is concealed and serves
+only as the native semantic resolver; switching to Preview reveals that same host. Room Edit never
+creates a private WebGL context and deliberately excludes RmlUi, runtime Hotspot highlights,
+postprocess, transitions, and other player-facing runtime effects. Runtime Preview therefore remains
+the authority for those complete gameplay-presentation concerns even though Edit now covers the
+agreed base world composition subset.
 
 ## Implementation
 

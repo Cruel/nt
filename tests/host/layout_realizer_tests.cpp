@@ -1131,6 +1131,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     script::ScriptRuntime scripts;
     REQUIRE(scripts.initialize({&script_sources}));
     std::vector<std::pair<std::string, std::string>> completions;
+    std::vector<std::string> completed_room_prop_ids;
     std::string last_diagnostic;
     std::size_t environment_commits = 0;
     std::size_t material_applies = 0;
@@ -1202,8 +1203,14 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
             [](bool) { return std::string{"/* standalone-preview-defaults */"}; },
         .complete =
             [&](const core::editor::FocusedEditorDocumentRequest& request, std::string_view status,
-                const core::Diagnostics& diagnostics) {
+                const core::Diagnostics& diagnostics,
+                const core::RoomPresentationResolution* room_resolution) {
                 completions.emplace_back(request.request_id, std::string(status));
+                completed_room_prop_ids.clear();
+                if (room_resolution != nullptr) {
+                    for (const auto& prop : room_resolution->presentation.props)
+                        completed_room_prop_ids.push_back(prop.prop.text());
+                }
                 if (!diagnostics.empty())
                     last_diagnostic = diagnostics.front().code + ": " + diagnostics.front().message;
             },
@@ -1570,6 +1577,34 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     lua_predicate_room["luaAdmission"]["variableIds"] = nlohmann::json::array({"count"});
     lua_predicate_room["queryState"]["variables"] =
         nlohmann::json::array({{{"id", "count"}, {"type", "integer"}, {"value", 2}}});
+    lua_predicate_room["world"]["placements"] = nlohmann::json::array(
+        {{{"id", "condition-slot"},
+          {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+          {"layoutOrder", nullptr},
+          {"label", nullptr},
+          {"layoutId", nullptr}}});
+    const auto focused_prop = [](std::string id, nlohmann::json condition, std::int32_t order) {
+        return nlohmann::json{{"propId", std::move(id)},
+                              {"condition", std::move(condition)},
+                              {"placementId", "condition-slot"},
+                              {"assetId", nullptr},
+                              {"materialId", nullptr},
+                              {"materialParameters", nlohmann::json::array()},
+                              {"materialTextures", nlohmann::json::array()},
+                              {"visible", true},
+                              {"order", order}};
+    };
+    lua_predicate_room["world"]["props"] = nlohmann::json::array(
+        {focused_prop("lua-true", {{"kind", "lua-predicate"}, {"source", "return true"}}, 1),
+         focused_prop("lua-false", {{"kind", "lua-predicate"}, {"source", "return false"}}, 2),
+         focused_prop("not-lua-true",
+                      {{"kind", "not"},
+                       {"condition", {{"kind", "lua-predicate"}, {"source", "return true"}}}},
+                      3),
+         focused_prop("not-lua-false",
+                      {{"kind", "not"},
+                       {"condition", {{"kind", "lua-predicate"}, {"source", "return false"}}}},
+                      4)});
     lua_predicate_room["world"]["overlays"] = nlohmann::json::array(
         {{{"overlayId", "focused-overlay"},
           {"condition", {{"kind", "lua-predicate"}, {"source", "Game.prop('count') == 2"}}},
@@ -1584,6 +1619,12 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     REQUIRE(presenter.committed_room_resolution_for_testing()->view.overlays.size() == 1);
     CHECK(presenter.committed_room_resolution_for_testing()->view.overlays.front().layout.text() ==
           "focused-layout");
+    REQUIRE(presenter.committed_room_resolution_for_testing()->presentation.props.size() == 2);
+    CHECK(presenter.committed_room_resolution_for_testing()->presentation.props[0].prop.text() ==
+          "lua-true");
+    CHECK(presenter.committed_room_resolution_for_testing()->presentation.props[1].prop.text() ==
+          "not-lua-false");
+    CHECK(completed_room_prop_ids == std::vector<std::string>{"lua-true", "not-lua-false"});
 
     auto composition_room = room;
     composition_room["world"]["placements"] = nlohmann::json::array(
