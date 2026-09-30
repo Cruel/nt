@@ -12,8 +12,43 @@ import {
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
 import { roomDestroyInteractableInstanceCommand } from '@/commands/builtin-commands';
+import {
+  allocateRoomPresentationOrders,
+  ROOM_PRESENTATION_ORDER_MAX,
+  ROOM_PRESENTATION_ORDER_MIN,
+} from '../../shared/project-schema/room-presentation-order';
 
 describe('Room placement commands', () => {
+  it('uses remaining int32 append slots before rebalancing presentation order', () => {
+    const room = defaultRoomData('Foyer');
+    room.props = [
+      {
+        id: 'front',
+        placementId: 'front-placement',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        condition: { kind: 'always' },
+        order: ROOM_PRESENTATION_ORDER_MAX - 1,
+      },
+    ];
+    const single = allocateRoomPresentationOrders(room, 'world-content', 1);
+    expect(single.orders).toEqual([ROOM_PRESENTATION_ORDER_MAX]);
+    expect(single.room.props[0]?.order).toBe(ROOM_PRESENTATION_ORDER_MAX - 1);
+
+    room.props[0]!.order = ROOM_PRESENTATION_ORDER_MIN;
+    const fromMinimum = allocateRoomPresentationOrders(room, 'world-content', 2);
+    expect(fromMinimum.orders).toEqual([
+      ROOM_PRESENTATION_ORDER_MIN + 1024,
+      ROOM_PRESENTATION_ORDER_MIN + 2048,
+    ]);
+
+    room.props[0]!.order = ROOM_PRESENTATION_ORDER_MAX;
+    const exhausted = allocateRoomPresentationOrders(room, 'world-content', 1);
+    expect(exhausted.orders).toEqual([1024]);
+    expect(exhausted.room.props[0]?.order).toBe(0);
+  });
+
   it('places an Interactable with exact defaults and undoes both records atomically', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

@@ -17,6 +17,16 @@ export const ROOM_EDIT_NAVIGATION_TRANSITION_MS = 180;
 const clamp = (value: number, minimum: number, maximum: number) =>
   Math.min(maximum, Math.max(minimum, value));
 
+export function fitRoomEditSurfaceFrame(
+  available: RoomEditSize,
+  authored: RoomEditSize,
+): RoomEditSize {
+  if (available.width <= 0 || available.height <= 0 || authored.width <= 0 || authored.height <= 0)
+    return { width: 0, height: 0 };
+  const scale = Math.min(available.width / authored.width, available.height / authored.height);
+  return { width: authored.width * scale, height: authored.height * scale };
+}
+
 export function sanitizeRoomEditNavigation(value: RoomEditNavigation): RoomEditNavigation {
   const zoom = Number.isFinite(value.zoom)
     ? clamp(value.zoom, ROOM_EDIT_MIN_ZOOM, ROOM_EDIT_MAX_ZOOM)

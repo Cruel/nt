@@ -16,8 +16,30 @@ import {
   resolveRoomEditProjection,
   resolveRoomEditProjectionPair,
 } from '@/editors/rooms/room-edit-projection';
+import { fitRoomEditSurfaceFrame } from '@/editors/rooms/room-edit-navigation';
 
 describe('Room Edit spatial projection', () => {
+  it('fits the canonical authored frame inside wide, tall, and matching-aspect viewports', () => {
+    expect(
+      fitRoomEditSurfaceFrame({ width: 1200, height: 300 }, { width: 1920, height: 1080 }),
+    ).toEqual({
+      width: 1600 / 3,
+      height: 300,
+    });
+    expect(
+      fitRoomEditSurfaceFrame({ width: 320, height: 900 }, { width: 1920, height: 1080 }),
+    ).toEqual({
+      width: 320,
+      height: 180,
+    });
+    expect(
+      fitRoomEditSurfaceFrame({ width: 960, height: 540 }, { width: 1920, height: 1080 }),
+    ).toEqual({
+      width: 960,
+      height: 540,
+    });
+  });
+
   it('keeps canonical authored geometry stable while Edit navigation changes display geometry', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

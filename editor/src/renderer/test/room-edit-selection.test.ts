@@ -68,11 +68,22 @@ describe('Room Edit semantic selection', () => {
       kind: 'placement',
       id: 'desk',
     });
+    expect(ordinaryRoomEditSelectionCandidate(hits)?.selection).toEqual({
+      kind: 'placement',
+      id: 'desk',
+    });
     expect(topmostRoomEditOccupantCandidate(hits)?.selection).toEqual({ kind: 'prop', id: 'lamp' });
   });
 
-  it('prefers an empty Placement over a full-room background Environment', () => {
+  it('uses the same default resolver for ordinary click and context preview', () => {
     const candidates: RoomEditSelectionCandidate[] = [
+      {
+        selection: { kind: 'hotspot', id: 'door' },
+        projected: { rect: { x: 100, y: 100, width: 100, height: 100 }, rotationDegrees: 0 },
+        label: 'Hotspot · door',
+        category: 'hotspot',
+        placementId: null,
+      },
       {
         selection: { kind: 'environment', id: 'fog' },
         projected: { rect: { x: 0, y: 0, width: 500, height: 500 }, rotationDegrees: 0 },
@@ -94,8 +105,8 @@ describe('Room Edit semantic selection', () => {
       { width: 500, height: 500 },
     );
     expect(defaultRoomEditSelectionCandidate(hits)?.selection).toEqual({
-      kind: 'placement',
-      id: 'empty',
+      kind: 'environment',
+      id: 'fog',
     });
     expect(ordinaryRoomEditSelectionCandidate(hits)?.selection).toEqual({
       kind: 'environment',
