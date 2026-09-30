@@ -83,8 +83,11 @@ lifecycle while leaving the lower-level authority reusable by Room Edit and othe
 ## Room Edit Adapter
 
 The Room editor's `Edit` mode is the second production consumer of the shared authority. It resolves
-the authored Room through one browser-side spatial projection seam, then uses that exact projection
-for both WebGL world draws and React authoring overlays. Room Edit draws the Room background, Props,
+the authored Room through one browser-side spatial projection seam with two explicit stages: a
+canonical authored projection and a display projection with editor-only precision navigation applied.
+WebGL transforms and React authoring overlays consume the display projection, while Material semantic
+facets such as paint width/height and authored Camera zoom come from the canonical projection. Room
+Edit draws the Room background, Props,
 exact Interactable occurrences, Character/cast layers, and Environments while React outlines every
 `RoomPlacement`, including empty placements. Placement-attached Layouts stay editor metadata rather
 than RmlUi documents: Edit shows a labeled placeholder at the exact projected placement bounds and
@@ -100,22 +103,30 @@ All Material draws receive the workbench-group frame timestamp, so animated Mate
 Material preview surfaces advance from the same authoring clock.
 
 Room Edit precision navigation is a second, editor-only transform applied after that authored Camera
-projection. Wheel zoom is pointer-centered; middle-mouse drag and Space+left-drag pan the projected
-surface with bounded overscroll; and Fit is exactly the identity navigation transform used for parity
-with Preview. The navigation transform is retained in the Room tab state rather than written to the
-Room or Camera View. WebGL draws and DOM overlays both consume the already-navigated projection, so
-navigation cannot create a renderer/selection-geometry split.
+projection. Wheel zoom is pointer-centered and owned by a non-passive native wheel listener so the
+browser cannot also scroll the enclosing editor; middle-mouse drag and Space+left-drag pan the
+projected surface with bounded overscroll; and Fit is exactly the identity navigation transform used
+for parity with Preview. Escape cancels an active pan before lower-priority tools. The navigation
+transform is retained in the Room tab state rather than written to the Room or Camera View. WebGL
+draws and DOM overlays both consume the display projection, so navigation cannot create a
+renderer/selection-geometry split or alter authored Material semantic dimensions.
 
 Room Edit selection is semantic rather than draw-index based. A selected Placement is distinct from
 an exact Interactable occurrence, Prop, cast occurrence, Environment, placement-attached Layout,
 Room overlay, or Hotspot. The viewport and Room Composition pane share that same tab-scoped selection
-state. Ordinary click resolves through an occupant to its containing Placement, including when the
-occupant visual extends beyond the Placement rectangle; double-click selects the topmost exact
+state. Ordinary click ignores Hotspots and resolves through an occupant to its containing Placement,
+including when the occupant visual extends beyond the Placement rectangle; double-click selects the topmost exact
 occupant. Right-click exposes every overlapping candidate plus associated containing Placements and
 uses a temporary hover outline without replacing the committed selection. The Composition pane shows
 a placement-oriented Room Contents hierarchy when selection is empty and switches to semantic entity
 inspection when selection is present. Preview retains this pane and its selection state but makes it
 inert while the engine surface owns presentation input.
+
+The same authoritative ordinary-hit geometry drives a lightweight Placement hover emphasis. Hover does
+not create selection state and is suppressed for the already-selected Placement. Direct-manipulation
+capabilities are modeled independently: cast/Character occurrences are movable, but they do not expose
+generic Placement-rectangle resize handles because their visible geometry is derived from Character
+layer composition rather than from the Placement rectangle itself.
 
 Direct manipulation uses the same semantic command rules as committed edits. Empty-space drag creates
 a Placement-oriented marquee, while Ctrl/Cmd-click can extend that selection with exact occurrences
@@ -132,8 +143,16 @@ ghost/drop flow, right-click Add seeds the clicked Room point, and the legacy Co
 the same operation with a centered seed. Props, cast occurrences, and Interactable occurrences receive
 a dedicated Placement by default; sharing an existing Placement is an explicit action. Multi-selection
 Delete is one command, with confirmation only when deleting a selected Placement would remove multiple
-occupants. Presentation reordering stays within the selected entity's current Presentation Plane, and
+occupants. That consequential delete uses the shared editor Dialog, enumerates the affected occupants,
+and commits exactly one deletion command only after confirmation. Presentation reordering stays within
+the selected entity's current Presentation Plane, and
 editing the advanced numeric order inserts at an occupied order rather than authoring a duplicate.
+
+Room Edit also follows the shared authoring WebGL last-good shader contract. If a Material draw reports
+a stale shader while a last-good program is available, Room Edit keeps rendering subsequent draws,
+copies the completed frame, and then reports the stale diagnostic. A hard shader-program failure with
+no last-good state aborts that frame before it is copied, avoiding publication of a partially rendered
+Room image.
 
 Condition truth is not reimplemented in the browser. While Edit is active, the Room's focused-preview
 host stays logically connected but visually concealed and returns the native `RoomPresentationResolution`

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthoringWebGlGroupRenderer } from '@/authoring-renderer/authoring-webgl-provider';
+import { AuthoringWebGlShaderProgramError } from '@/authoring-renderer/authoring-webgl-backend';
 import {
   ContextMenu,
   ContextMenuContent,
@@ -32,6 +33,7 @@ import {
 import {
   projectRoomEditRect,
   resolveRoomEditProjection,
+  resolveRoomEditProjectionPair,
   type RoomEditProjectedRect,
   type RoomEditProjection,
   type RoomEditResolvedVisibility,
@@ -49,7 +51,9 @@ import {
   defaultRoomEditSelectionCandidate,
   hitTestRoomEditCandidates,
   marqueeRoomEditSelections,
+  ordinaryRoomEditSelectionCandidate,
   roomEditSelectionCandidates,
+  roomEditSelectionCapabilities,
   roomEditSelectionKey,
   topmostRoomEditOccupantCandidate,
   type RoomEditSelection,
@@ -183,8 +187,8 @@ function modelViewProjection(
 
 function parameterOverrides(
   application: MaterialApplication | null,
-  projected: RoomEditProjectedRect,
-  projection: RoomEditProjection,
+  canonicalProjected: RoomEditProjectedRect,
+  canonicalProjection: RoomEditProjection,
   timeSeconds: number,
   propertyValues?: Readonly<Record<string, unknown>>,
 ) {
@@ -198,19 +202,19 @@ function parameterOverrides(
     } else if (override.source.kind === 'standard-facet') {
       switch (override.source.facet) {
         case 'paint-width':
-          result[name] = projected.rect.width;
+          result[name] = canonicalProjected.rect.width;
           break;
         case 'paint-height':
-          result[name] = projected.rect.height;
+          result[name] = canonicalProjected.rect.height;
           break;
         case 'viewport-width':
-          result[name] = projection.viewport.width;
+          result[name] = canonicalProjection.viewport.width;
           break;
         case 'viewport-height':
-          result[name] = projection.viewport.height;
+          result[name] = canonicalProjection.viewport.height;
           break;
         case 'camera-zoom':
-          result[name] = projection.camera.zoom;
+          result[name] = canonicalProjection.camera.zoom;
           break;
         case 'occurrence-time':
           result[name] = timeSeconds;
@@ -222,8 +226,10 @@ function parameterOverrides(
 }
 
 function drawVisual(
-  projection: RoomEditProjection,
-  projected: RoomEditProjectedRect,
+  displayProjection: RoomEditProjection,
+  displayProjected: RoomEditProjectedRect,
+  canonicalProjection: RoomEditProjection,
+  canonicalProjected: RoomEditProjectedRect,
   prepared: PreparedVisual,
   application: MaterialApplication | null,
   timeSeconds: number,
@@ -234,11 +240,11 @@ function drawVisual(
   return {
     resource: prepared.material,
     geometry: { kind: 'quad', ...(uv ? { uv } : {}), ...(color ? { color } : {}) },
-    modelViewProjection: modelViewProjection(projected, projection.viewport),
+    modelViewProjection: modelViewProjection(displayProjected, displayProjection.viewport),
     parameterOverrides: parameterOverrides(
       application,
-      projected,
-      projection,
+      canonicalProjected,
+      canonicalProjection,
       timeSeconds,
       propertyValues,
     ),
@@ -295,16 +301,6 @@ function overlayStyle(projected: RoomEditProjectedRect, projection: RoomEditProj
     transform: `rotate(${projected.rotationDegrees}deg)`,
     transformOrigin: `${centerX}% ${centerY}%`,
   };
-}
-
-function roomEditSelectionIsMovable(selection: RoomEditSelection) {
-  return (
-    selection.kind === 'placement' ||
-    selection.kind === 'interactable' ||
-    selection.kind === 'prop' ||
-    selection.kind === 'cast' ||
-    selection.kind === 'environment'
-  );
 }
 
 function normalizedBoundsForSelection(room: RoomData, selection: RoomEditSelection) {
@@ -492,8 +488,12 @@ export function RoomEditSurface({
   const resourcesGeneration = useMaterialPreviewProjectGeneration();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const [surfaceElement, setSurfaceElement] = useState<HTMLDivElement | null>(null);
   const navigationRef = useRef(navigation);
-  const projectionRef = useRef<RoomEditProjection | null>(null);
+  const projectionRef = useRef<{
+    canonical: RoomEditProjection;
+    display: RoomEditProjection;
+  } | null>(null);
   const panGestureRef = useRef<{
     pointerId: number;
     clientX: number;
@@ -506,6 +506,7 @@ export function RoomEditSurface({
   const directGestureRef = useRef<RoomEditDirectGesture | null>(null);
   const [panning, setPanning] = useState(false);
   const [directGestureVersion, setDirectGestureVersion] = useState(0);
+  const [hoveredPlacementId, setHoveredPlacementId] = useState<string | null>(null);
   const [contextCandidates, setContextCandidates] = useState<RoomEditSelectionCandidate[]>([]);
   const [contextPreviewCandidate, setContextPreviewCandidate] =
     useState<RoomEditSelectionCandidate | null>(null);
@@ -518,6 +519,7 @@ export function RoomEditSurface({
   const handleSurfaceElement = useCallback(
     (element: HTMLDivElement | null) => {
       surfaceRef.current = element;
+      setSurfaceElement(element);
       onSurfaceElementChange?.(element);
     },
     [onSurfaceElementChange],
@@ -533,9 +535,9 @@ export function RoomEditSurface({
       ),
     [referenceResolution, room.presentationSpace],
   );
-  const committedProjection = useMemo(
+  const committedProjections = useMemo(
     () =>
-      resolveRoomEditProjection({
+      resolveRoomEditProjectionPair({
         project,
         roomId,
         room,
@@ -563,7 +565,7 @@ export function RoomEditSurface({
           x: gesture.current.x - gesture.start.x,
           y: gesture.current.y - gesture.start.y,
         },
-        committedProjection,
+        committedProjections.display,
         navigationRef.current,
       );
       return translateRoomSelectionData(room, gesture.selection, delta) ?? room;
@@ -574,17 +576,17 @@ export function RoomEditSurface({
           x: gesture.current.x - gesture.start.x,
           y: gesture.current.y - gesture.start.y,
         },
-        committedProjection,
+        committedProjections.display,
         navigationRef.current,
       );
       const bounds = resizeNormalizedBounds(gesture.bounds, delta, gesture.handle);
       return resizeRoomSelectionData(room, gesture.selection, bounds) ?? room;
     }
     return room;
-  }, [committedProjection, directGestureVersion, room]);
-  const projection = useMemo(
+  }, [committedProjections.display, directGestureVersion, room]);
+  const projections = useMemo(
     () =>
-      resolveRoomEditProjection({
+      resolveRoomEditProjectionPair({
         project,
         roomId,
         room: draftRoom,
@@ -604,10 +606,11 @@ export function RoomEditSurface({
     ],
   );
   const selectionCandidates = useMemo(
-    () => roomEditSelectionCandidates(project, draftRoom, projection, t),
-    [draftRoom, project, projection, t],
+    () => roomEditSelectionCandidates(project, draftRoom, projections.display, t),
+    [draftRoom, project, projections.display, t],
   );
-  projectionRef.current = projection;
+  projectionRef.current = projections;
+  const projection = projections.display;
   const preparationProjection = useMemo(
     () =>
       resolveRoomEditProjection({
@@ -670,6 +673,16 @@ export function RoomEditSurface({
   useEffect(() => {
     const keyDown = (event: KeyboardEvent) => {
       if (!interactionEnabled || event.key !== 'Escape') return;
+      const panGesture = panGestureRef.current;
+      if (panGesture) {
+        event.preventDefault();
+        panGestureRef.current = null;
+        suppressSelectionClickRef.current = true;
+        if (surfaceRef.current?.hasPointerCapture?.(panGesture.pointerId))
+          surfaceRef.current.releasePointerCapture(panGesture.pointerId);
+        setPanning(false);
+        return;
+      }
       if (pendingAddActionId) {
         event.preventDefault();
         setAddGhostViewportPoint(null);
@@ -689,25 +702,55 @@ export function RoomEditSurface({
     return () => window.removeEventListener('keydown', keyDown);
   }, [interactionEnabled, onPendingAddActionCancel, pendingAddActionId]);
 
-  const viewportPoint = (clientX: number, clientY: number) => {
-    const bounds = surfaceRef.current?.getBoundingClientRect();
-    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
-    return {
-      x: ((clientX - bounds.left) / bounds.width) * referenceResolution.width,
-      y: ((clientY - bounds.top) / bounds.height) * referenceResolution.height,
-      scaleX: referenceResolution.width / bounds.width,
-      scaleY: referenceResolution.height / bounds.height,
+  const viewportPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const bounds = surfaceRef.current?.getBoundingClientRect();
+      if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
+      return {
+        x: ((clientX - bounds.left) / bounds.width) * referenceResolution.width,
+        y: ((clientY - bounds.top) / bounds.height) * referenceResolution.height,
+        scaleX: referenceResolution.width / bounds.width,
+        scaleY: referenceResolution.height / bounds.height,
+      };
+    },
+    [referenceResolution],
+  );
+
+  const updateNavigation = useCallback(
+    (next: RoomEditNavigation) =>
+      onNavigationChange(clampRoomEditNavigation(next, referenceResolution, canonicalSurface)),
+    [canonicalSurface, onNavigationChange, referenceResolution],
+  );
+
+  const candidatesAtClientPoint = useCallback(
+    (clientX: number, clientY: number) => {
+      const point = viewportPoint(clientX, clientY);
+      if (!point) return [];
+      return hitTestRoomEditCandidates(selectionCandidates, point, referenceResolution);
+    },
+    [referenceResolution, selectionCandidates, viewportPoint],
+  );
+
+  useEffect(() => {
+    if (!surfaceElement) return;
+    const wheel = (event: WheelEvent) => {
+      if (!interactionEnabled) return;
+      event.preventDefault();
+      const point = viewportPoint(event.clientX, event.clientY);
+      if (!point) return;
+      const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+      updateNavigation(
+        zoomRoomEditNavigationAtPoint(
+          navigationRef.current,
+          referenceResolution,
+          point,
+          navigationRef.current.zoom * zoomFactor,
+        ),
+      );
     };
-  };
-
-  const updateNavigation = (next: RoomEditNavigation) =>
-    onNavigationChange(clampRoomEditNavigation(next, referenceResolution, canonicalSurface));
-
-  const candidatesAtClientPoint = (clientX: number, clientY: number) => {
-    const point = viewportPoint(clientX, clientY);
-    if (!point) return [];
-    return hitTestRoomEditCandidates(selectionCandidates, point, referenceResolution);
-  };
+    surfaceElement.addEventListener('wheel', wheel, { passive: false });
+    return () => surfaceElement.removeEventListener('wheel', wheel);
+  }, [interactionEnabled, referenceResolution, surfaceElement, updateNavigation, viewportPoint]);
 
   useEffect(() => {
     let active = true;
@@ -751,17 +794,32 @@ export function RoomEditSurface({
       order: 0,
       visible: true,
       render: (frame) => {
-        const projection = projectionRef.current;
+        const projections = projectionRef.current;
         const canvas = canvasRef.current;
-        if (!canvas || !projection) return;
-        frame.beginTarget(projection.viewport.width, projection.viewport.height, [0, 0, 0, 0]);
-        if (projection.background.color) {
-          frame.drawMaterial(
+        if (!canvas || !projections) return;
+        const { canonical, display } = projections;
+        const canonicalWorldDraws = new Map(
+          canonical.worldDraws.map((item) => [`${item.kind}:${item.occurrenceId}`, item] as const),
+        );
+        let staleShaderError: AuthoringWebGlShaderProgramError | null = null;
+        const draw = (materialDraw: AuthoringWebGlMaterialDraw) => {
+          try {
+            frame.drawMaterial(materialDraw);
+          } catch (error) {
+            if (!(error instanceof AuthoringWebGlShaderProgramError) || !error.stale) throw error;
+            staleShaderError ??= error;
+          }
+        };
+        frame.beginTarget(display.viewport.width, display.viewport.height, [0, 0, 0, 0]);
+        if (display.background.color) {
+          draw(
             drawVisual(
-              projection,
-              projection.backgroundColor,
+              display,
+              display.backgroundColor,
+              canonical,
+              canonical.backgroundColor,
               {
-                texture: colorTexture(colorChannels(projection.background.color)),
+                texture: colorTexture(colorChannels(display.background.color)),
                 material: fallbackEngine2dMaterial,
                 textureOverrides: {},
               },
@@ -771,21 +829,24 @@ export function RoomEditSurface({
           );
         }
         if (preparedScene?.background) {
-          frame.drawMaterial(
+          draw(
             drawVisual(
-              projection,
-              projection.background,
+              display,
+              display.background,
+              canonical,
+              canonical.background,
               preparedScene.background,
-              projection.background.materialApplication,
+              display.background.materialApplication,
               frame.timeSeconds,
               roomPropertyValues,
-              projection.background.uv,
+              display.background.uv,
             ),
           );
         }
-        for (const item of projection.worldDraws) {
+        for (const item of display.worldDraws) {
           const prepared = preparedScene?.worldDraws.get(`${item.kind}:${item.occurrenceId}`);
-          if (!prepared) continue;
+          const canonicalItem = canonicalWorldDraws.get(`${item.kind}:${item.occurrenceId}`);
+          if (!prepared || !canonicalItem) continue;
           const propertyValues =
             item.kind === 'interactable' || item.kind === 'cast-layer'
               ? item.propertyValues
@@ -803,10 +864,12 @@ export function RoomEditSurface({
                   height: 1,
                 }
               : undefined;
-          frame.drawMaterial(
+          draw(
             drawVisual(
-              projection,
+              display,
               item,
+              canonical,
+              canonicalItem,
               prepared,
               item.materialApplication,
               frame.timeSeconds,
@@ -816,7 +879,8 @@ export function RoomEditSurface({
             ),
           );
         }
-        frame.copyTargetToCanvas(canvas, projection.viewport.width, projection.viewport.height);
+        frame.copyTargetToCanvas(canvas, display.viewport.width, display.viewport.height);
+        if (staleShaderError) throw staleShaderError;
       },
       onError: (error) => {
         console.error('Room Edit authoring render failed.', error);
@@ -886,22 +950,8 @@ export function RoomEditSurface({
           }}
           onPointerLeave={() => {
             pointerInsideRef.current = false;
+            setHoveredPlacementId(null);
             if (pendingAddActionId) setAddGhostViewportPoint(null);
-          }}
-          onWheel={(event) => {
-            if (!interactionEnabled) return;
-            event.preventDefault();
-            const point = viewportPoint(event.clientX, event.clientY);
-            if (!point) return;
-            const zoomFactor = Math.exp(-event.deltaY * 0.0015);
-            updateNavigation(
-              zoomRoomEditNavigationAtPoint(
-                navigationRef.current,
-                referenceResolution,
-                point,
-                navigationRef.current.zoom * zoomFactor,
-              ),
-            );
           }}
           onPointerDown={(event) => {
             if (!interactionEnabled) return;
@@ -938,13 +988,17 @@ export function RoomEditSurface({
               return;
             }
             const hits = candidatesAtClientPoint(event.clientX, event.clientY);
-            const selectedKeys = new Set(selection.map(roomEditSelectionKey));
-            const candidate =
-              hits.find((item) => selectedKeys.has(roomEditSelectionKey(item.selection))) ??
-              defaultRoomEditSelectionCandidate(hits);
+            const candidate = ordinaryRoomEditSelectionCandidate(hits);
             const additive = event.ctrlKey || event.metaKey;
             if (candidate) {
-              const candidateKey = roomEditSelectionKey(candidate.selection);
+              const selectedKeys = new Set(selection.map(roomEditSelectionKey));
+              const dragCandidate =
+                hits.find(
+                  (item) =>
+                    item.category !== 'hotspot' &&
+                    selectedKeys.has(roomEditSelectionKey(item.selection)),
+                ) ?? candidate;
+              const candidateKey = roomEditSelectionKey(dragCandidate.selection);
               const alreadySelected = selection.some(
                 (item) => roomEditSelectionKey(item) === candidateKey,
               );
@@ -953,7 +1007,7 @@ export function RoomEditSurface({
                 pointerId: event.pointerId,
                 start: { x: point.x, y: point.y },
                 current: { x: point.x, y: point.y },
-                selection: alreadySelected ? [...selection] : [candidate.selection],
+                selection: alreadySelected ? [...selection] : [dragCandidate.selection],
                 candidate,
                 additive,
                 dragging: false,
@@ -990,7 +1044,15 @@ export function RoomEditSurface({
               return;
             }
             const direct = directGestureRef.current;
-            if (!direct || direct.pointerId !== event.pointerId) return;
+            if (!direct || direct.pointerId !== event.pointerId) {
+              const hovered = ordinaryRoomEditSelectionCandidate(
+                candidatesAtClientPoint(event.clientX, event.clientY),
+              );
+              setHoveredPlacementId(
+                hovered?.selection.kind === 'placement' ? hovered.selection.id : null,
+              );
+              return;
+            }
             const point = viewportPoint(event.clientX, event.clientY);
             if (!point) return;
             direct.current = { x: point.x, y: point.y };
@@ -1002,7 +1064,12 @@ export function RoomEditSurface({
               const threshold = 4 * Math.max(point.scaleX, point.scaleY);
               if (distance >= threshold) {
                 if (direct.kind === 'marquee') direct.dragging = true;
-                else if (direct.selection.every(roomEditSelectionIsMovable)) direct.dragging = true;
+                else if (
+                  direct.selection.every(
+                    (selection) => roomEditSelectionCapabilities(selection).move,
+                  )
+                )
+                  direct.dragging = true;
               }
             }
             setDirectGestureVersion((value) => value + 1);
@@ -1034,7 +1101,7 @@ export function RoomEditSurface({
                       x: direct.current.x - direct.start.x,
                       y: direct.current.y - direct.start.y,
                     },
-                    committedProjection,
+                    committedProjections.display,
                     navigationRef.current,
                   ),
                 );
@@ -1068,7 +1135,7 @@ export function RoomEditSurface({
                   x: direct.current.x - direct.start.x,
                   y: direct.current.y - direct.start.y,
                 },
-                committedProjection,
+                committedProjections.display,
                 navigationRef.current,
               );
               const bounds = resizeNormalizedBounds(direct.bounds, delta, direct.handle);
@@ -1099,7 +1166,7 @@ export function RoomEditSurface({
               suppressSelectionClickRef.current = false;
               return;
             }
-            const candidate = defaultRoomEditSelectionCandidate(
+            const candidate = ordinaryRoomEditSelectionCandidate(
               candidatesAtClientPoint(event.clientX, event.clientY),
             );
             onSelectionChange(
@@ -1156,14 +1223,26 @@ export function RoomEditSurface({
                 </span>
               </div>
             ))}
-            {projection.placements.map((placement) => (
-              <div
-                key={placement.id}
-                className="absolute border border-dashed border-foreground/30"
-                style={overlayStyle(placement, projection)}
-                data-testid={`room-edit-placement-${placement.id}`}
-              />
-            ))}
+            {projection.placements.map((placement) => {
+              const hovered =
+                hoveredPlacementId === placement.id &&
+                !selection.some(
+                  (selected) => selected.kind === 'placement' && selected.id === placement.id,
+                );
+              return (
+                <div
+                  key={placement.id}
+                  className={`absolute border border-dashed ${
+                    hovered
+                      ? 'border-primary/80 bg-primary/5 shadow-[0_0_0_1px_color-mix(in_oklch,var(--primary),transparent_45%)]'
+                      : 'border-foreground/30'
+                  }`}
+                  style={overlayStyle(placement, projection)}
+                  data-testid={`room-edit-placement-${placement.id}`}
+                  data-hovered={hovered ? 'true' : 'false'}
+                />
+              );
+            })}
             {selectionCandidates
               .filter((candidate) => candidate.category === 'hotspot')
               .map((candidate) => (
@@ -1178,7 +1257,7 @@ export function RoomEditSurface({
               const key = roomEditSelectionKey(candidate.selection);
               const resizable =
                 selection.length === 1 &&
-                roomEditSelectionIsMovable(candidate.selection) &&
+                roomEditSelectionCapabilities(candidate.selection).resize &&
                 normalizedBoundsForSelection(draftRoom, candidate.selection);
               return (
                 <div

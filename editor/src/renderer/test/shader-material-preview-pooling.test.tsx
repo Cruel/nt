@@ -34,6 +34,7 @@ import { emptyMaterialApplication } from '../../shared/project-schema/authoring-
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
+import { AuthoringWebGlShaderProgramError } from '@/authoring-renderer/authoring-webgl-backend';
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -266,6 +267,220 @@ describe('Material lightweight previews', () => {
       .map(([draw]) => draw)
       .find((draw) => draw.resource.materialId === 'panel');
     expect(materialOnlyDraw?.rendererTextures?.s_texColor?.fallbackColor).toEqual([1, 1, 1, 1]);
+  });
+
+  it('keeps Room Material authored geometry facets independent from Edit navigation', async () => {
+    const clock = manualScheduler();
+    const drawMaterial = vi.fn();
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.materialApplication = {
+      ...emptyMaterialApplication('panel'),
+      parameters: {
+        u_width: { type: 'float', source: { kind: 'standard-facet', facet: 'paint-width' } },
+        u_height: { type: 'float', source: { kind: 'standard-facet', facet: 'paint-height' } },
+        u_camera: { type: 'float', source: { kind: 'standard-facet', facet: 'camera-zoom' } },
+      },
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
+      frame: vi.fn((timeSeconds) => ({
+        timeSeconds,
+        beginTarget: vi.fn(),
+        drawMaterial,
+        copyTargetToCanvas: vi.fn(),
+      })),
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+    }));
+
+    const renderSurface = (navigation: { zoom: number; pan: { x: number; y: number } }) => (
+      <MaterialPreviewProjectProvider>
+        <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+          <MaterialPreviewGroupProvider>
+            <RoomEditSurface
+              project={project}
+              roomId="foyer"
+              room={room}
+              referenceResolution={{ width: 1920, height: 1080 }}
+              backgroundImageSize={null}
+              roomPropertyValues={{}}
+              navigation={navigation}
+            />
+          </MaterialPreviewGroupProvider>
+        </AuthoringWebGlGroupProvider>
+      </MaterialPreviewProjectProvider>
+    );
+    const view = render(renderSurface({ zoom: 1, pan: { x: 0, y: 0 } }));
+
+    await waitFor(() => {
+      act(() => clock.flush(1000));
+      expect(drawMaterial.mock.calls.some(([draw]) => draw.resource.materialId === 'panel')).toBe(
+        true,
+      );
+    });
+    const first = drawMaterial.mock.calls
+      .map(([draw]) => draw)
+      .find((draw) => draw.resource.materialId === 'panel');
+    drawMaterial.mockClear();
+
+    view.rerender(renderSurface({ zoom: 2, pan: { x: 100, y: -50 } }));
+    act(() => clock.flush(2000));
+    const second = drawMaterial.mock.calls
+      .map(([draw]) => draw)
+      .find((draw) => draw.resource.materialId === 'panel');
+
+    expect(first?.parameterOverrides).toMatchObject({ u_width: 1920, u_height: 1080, u_camera: 1 });
+    expect(second?.parameterOverrides).toEqual(first?.parameterOverrides);
+    expect(second?.modelViewProjection).not.toEqual(first?.modelViewProjection);
+  });
+
+  it('completes Room draws and copies the frame before reporting a stale shader', async () => {
+    const clock = manualScheduler();
+    const copyTargetToCanvas = vi.fn();
+    let materialDraws = 0;
+    const drawMaterial = vi.fn((draw) => {
+      if (draw.resource.materialId !== 'panel') return;
+      materialDraws += 1;
+      if (materialDraws === 1) throw new AuthoringWebGlShaderProgramError(true, 'stale shader');
+    });
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.materialApplication = emptyMaterialApplication('panel');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'lamp',
+        condition: { kind: 'always' },
+        placementId: 'desk',
+        asset: null,
+        materialApplication: emptyMaterialApplication('panel'),
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
+      frame: vi.fn((timeSeconds) => ({
+        timeSeconds,
+        beginTarget: vi.fn(),
+        drawMaterial,
+        copyTargetToCanvas,
+      })),
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+    }));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      render(
+        <MaterialPreviewProjectProvider>
+          <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+            <MaterialPreviewGroupProvider>
+              <RoomEditSurface
+                project={project}
+                roomId="foyer"
+                room={room}
+                referenceResolution={{ width: 1920, height: 1080 }}
+                backgroundImageSize={null}
+                roomPropertyValues={{}}
+              />
+            </MaterialPreviewGroupProvider>
+          </AuthoringWebGlGroupProvider>
+        </MaterialPreviewProjectProvider>,
+      );
+      await waitFor(() => {
+        act(() => clock.flush(1000));
+        expect(materialDraws).toBeGreaterThanOrEqual(2);
+      });
+      expect(copyTargetToCanvas).toHaveBeenCalled();
+      expect(consoleError).toHaveBeenCalledWith(
+        'Room Edit authoring render failed.',
+        expect.objectContaining({ stale: true }),
+      );
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
+  it('does not copy a Room frame after a hard shader failure without last-good state', async () => {
+    const clock = manualScheduler();
+    const renderEvents: string[] = [];
+    const copyTargetToCanvas = vi.fn(() => renderEvents.push('copy'));
+    const drawMaterial = vi.fn((draw) => {
+      if (draw.resource.materialId === 'panel') {
+        renderEvents.push('hard-failure');
+        throw new AuthoringWebGlShaderProgramError(false, 'hard shader failure');
+      }
+    });
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.materialApplication = emptyMaterialApplication('panel');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
+      frame: vi.fn((timeSeconds) => ({
+        timeSeconds,
+        beginTarget: vi.fn(),
+        drawMaterial,
+        copyTargetToCanvas,
+      })),
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+    }));
+    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
+    try {
+      render(
+        <MaterialPreviewProjectProvider>
+          <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+            <MaterialPreviewGroupProvider>
+              <RoomEditSurface
+                project={project}
+                roomId="foyer"
+                room={room}
+                referenceResolution={{ width: 1920, height: 1080 }}
+                backgroundImageSize={null}
+                roomPropertyValues={{}}
+              />
+            </MaterialPreviewGroupProvider>
+          </AuthoringWebGlGroupProvider>
+        </MaterialPreviewProjectProvider>,
+      );
+      await waitFor(() => {
+        act(() => clock.flush(1000));
+        expect(consoleError).toHaveBeenCalled();
+      });
+      const hardFailureIndex = renderEvents.indexOf('hard-failure');
+      expect(hardFailureIndex).toBeGreaterThanOrEqual(0);
+      expect(renderEvents.slice(hardFailureIndex + 1)).not.toContain('copy');
+    } finally {
+      consoleError.mockRestore();
+    }
   });
 
   it('refreshes prepared Room Edit resources when the Project resource generation changes', async () => {

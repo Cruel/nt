@@ -11,6 +11,7 @@ import {
 } from '../../shared/project-schema/authoring-interactables';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -624,6 +625,85 @@ describe('RoomEditor', () => {
     expect(parseRoomData(current.rooms.foyer?.data)?.placements.map((item) => item.id)).toEqual([
       'desk',
     ]);
+  });
+  it('uses the shared dialog for consequential multi-occupant Placement deletion', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'book',
+        condition: { kind: 'always' },
+        placementId: 'desk',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 0,
+      },
+      {
+        id: 'lamp',
+        condition: { kind: 'always' },
+        placementId: 'desk',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 1024,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [{ kind: 'placement', id: 'desk' }],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+    const confirm = vi.spyOn(window, 'confirm');
+    try {
+      renderEditor();
+      fireEvent.keyDown(window, { key: 'Delete' });
+
+      const dialog = screen.getByRole('dialog');
+      expect(within(dialog).getByText('Delete occupied Placements?')).toBeInTheDocument();
+      expect(within(dialog).getByText('Prop · book')).toBeInTheDocument();
+      expect(within(dialog).getByText('Prop · lamp')).toBeInTheDocument();
+      expect(confirm).not.toHaveBeenCalled();
+
+      fireEvent.click(within(dialog).getByRole('button', { name: 'Cancel' }));
+      let current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.placements).toHaveLength(1);
+
+      fireEvent.keyDown(window, { key: 'Delete' });
+      fireEvent.click(within(screen.getByRole('dialog')).getByRole('button', { name: 'Delete' }));
+      current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.placements).toHaveLength(0);
+      expect(useCommandStore.getState().history.entries).toHaveLength(1);
+    } finally {
+      confirm.mockRestore();
+    }
   });
   it('creates Room hotspot geometry inert until the author assigns a target', async () => {
     Object.defineProperties(HTMLElement.prototype, {
@@ -1564,7 +1644,7 @@ describe('RoomEditor', () => {
           toJSON: () => ({}),
         }),
       });
-      fireEvent.wheel(surface, { clientX: 750, clientY: 250, deltaY: -300 });
+      expect(fireEvent.wheel(surface, { clientX: 750, clientY: 250, deltaY: -300 })).toBe(false);
       const zoomLabel = screen.getByLabelText('Edit zoom');
       expect(zoomLabel).not.toHaveTextContent('100%');
       const rememberedZoomText = zoomLabel.textContent;
@@ -1647,6 +1727,174 @@ describe('RoomEditor', () => {
     } finally {
       window.matchMedia = originalMatchMedia;
     }
+  });
+  it('cancels an active middle-mouse pan on Escape before any lower-priority action', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+    renderEditor();
+    const surface = screen.getByTestId('room-edit-surface');
+
+    fireEvent.pointerDown(surface, {
+      button: 1,
+      pointerId: 42,
+      clientX: 400,
+      clientY: 250,
+    });
+    expect(surface).toHaveAttribute('data-panning', 'true');
+
+    fireEvent.keyDown(window, { key: 'Escape' });
+    expect(surface).toHaveAttribute('data-panning', 'false');
+    fireEvent.pointerUp(surface, { button: 1, pointerId: 42, clientX: 420, clientY: 250 });
+    expect(screen.queryByTestId(/^room-edit-selected-/)).toBeNull();
+  });
+
+  it('emphasizes only an unselected hovered Placement from ordinary hit geometry', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+    renderEditor();
+    const surface = screen.getByTestId('room-edit-surface');
+    Object.defineProperty(surface, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        x: 0,
+        y: 0,
+        toJSON: () => ({}),
+      }),
+    });
+    fireEvent.pointerMove(surface, { pointerId: 1, clientX: 150, clientY: 75 });
+    expect(screen.getByTestId('room-edit-placement-desk')).toHaveAttribute('data-hovered', 'true');
+    fireEvent.click(surface, { clientX: 150, clientY: 75 });
+    fireEvent.pointerMove(surface, { pointerId: 1, clientX: 150, clientY: 75 });
+    expect(screen.getByTestId('room-edit-placement-desk')).toHaveAttribute('data-hovered', 'false');
+  });
+
+  it('does not expose placement-rectangle resize handles for Character occurrences', () => {
+    const project = createAuthoringProject();
+    project.assets.hero = {
+      id: 'hero',
+      label: 'Hero sprite',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/hero.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 200, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const character = defaultCharacterData('Hero');
+    character.initialWorldState = {
+      location: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+      enabled: true,
+      visible: true,
+    };
+    character.profiles[0]!.poses[0]!.layers[0] = {
+      ...character.profiles[0]!.poses[0]!.layers[0]!,
+      sprite: { $ref: { collection: 'assets', id: 'hero' } },
+    };
+    project.characters.hero = { id: 'hero', label: 'Hero', data: character };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'hero-placement',
+        bounds: { x: 0.4, y: 0.2, width: 0.2, height: 0.4 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.cast = [
+      {
+        id: 'hero-cast',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'hero-placement',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: null,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [{ kind: 'cast', id: 'hero-cast' }],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+    renderEditor();
+    expect(screen.getByTestId('room-edit-selected-cast:hero-cast')).toBeInTheDocument();
+    expect(screen.queryByTestId(/^room-edit-resize-/)).toBeNull();
   });
   it('cancels an active Edit pan before the animated Preview transition owns the surface', async () => {
     const project = createAuthoringProject();

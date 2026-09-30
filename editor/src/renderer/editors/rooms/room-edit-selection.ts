@@ -32,8 +32,31 @@ export interface RoomEditSelectionCandidate {
   placementId: string | null;
 }
 
+export interface RoomEditSelectionCapabilities {
+  move: boolean;
+  resize: boolean;
+}
+
 export function roomEditSelectionKey(selection: RoomEditSelection) {
   return `${selection.kind}:${selection.id}`;
+}
+
+export function roomEditSelectionCapabilities(
+  selection: RoomEditSelection,
+): RoomEditSelectionCapabilities {
+  switch (selection.kind) {
+    case 'placement':
+    case 'interactable':
+    case 'prop':
+    case 'environment':
+      return { move: true, resize: true };
+    case 'cast':
+      return { move: true, resize: false };
+    case 'placement-layout':
+    case 'overlay':
+    case 'hotspot':
+      return { move: false, resize: false };
+  }
 }
 
 export function roomEditSelectionsEqual(
@@ -459,6 +482,14 @@ export function defaultRoomEditSelectionCandidate(
     candidates.find((candidate) => candidate.category === 'placement') ??
     candidates.find((candidate) => candidate.category !== 'hotspot') ??
     top
+  );
+}
+
+export function ordinaryRoomEditSelectionCandidate(
+  candidates: readonly RoomEditSelectionCandidate[],
+) {
+  return defaultRoomEditSelectionCandidate(
+    candidates.filter((candidate) => candidate.category !== 'hotspot'),
   );
 }
 
