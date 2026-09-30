@@ -48,6 +48,20 @@ export function createPublicReleaseManifest(directory, tag, sourceRevision) {
       repository: RELEASE_REPOSITORY,
     },
     editor: [
+      asset(`noveltea-editor-${tag}-macos-arm64-release.dmg`, {
+        platform: "macos",
+        arch: "arm64",
+        format: "dmg",
+        label: "macOS DMG",
+        primary: true,
+      }),
+      asset(`noveltea-editor-${tag}-macos-arm64-release.zip`, {
+        platform: "macos",
+        arch: "arm64",
+        format: "zip",
+        label: "macOS ZIP",
+        primary: false,
+      }),
       asset(`noveltea-editor-${tag}-windows-x64-release.setup.exe`, {
         platform: "windows",
         arch: "x64",
