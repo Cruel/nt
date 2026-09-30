@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { toJsonValue } from '@/project/json-value';
+import { createInitialCommandBusState, executeCommand } from './command-test-utils';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -242,6 +244,38 @@ describe('Room Edit spatial projection', () => {
       'world-content:environment:front-fog',
       'world-content:cast-layer:hero-cast:body',
       'world-content:interactable:terminal',
+    ]);
+
+    const reordered = executeCommand(createInitialCommandBusState(toJsonValue(project)), {
+      type: 'room.reorderPresentation',
+      payload: {
+        roomId: 'room',
+        target: { kind: 'prop', id: 'desk' },
+        action: 'front',
+      },
+    });
+    expect(reordered.ok, JSON.stringify(reordered.diagnostics)).toBe(true);
+    const reorderedProject = reordered.document as typeof project;
+    const reorderedRoom = reorderedProject.rooms.room!.data;
+    expect(reorderedRoom.props.find((item) => item.id === 'desk')!.order).toBeGreaterThan(
+      reorderedRoom.interactables.find((item) => item.id === 'terminal')!.order,
+    );
+    const reorderedProjection = resolveRoomEditProjection({
+      project: reorderedProject,
+      roomId: 'room',
+      room: reorderedRoom,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+    });
+    expect(
+      reorderedProjection.worldDraws
+        .filter((item) => item.plane === 'world-content')
+        .map((item) => `${item.kind}:${item.occurrenceId}`),
+    ).toEqual([
+      'environment:front-fog',
+      'cast-layer:hero-cast:body',
+      'interactable:terminal',
+      'prop:desk',
     ]);
   });
 

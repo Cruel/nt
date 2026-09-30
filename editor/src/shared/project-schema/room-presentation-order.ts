@@ -247,3 +247,28 @@ export function reorderRoomPresentation(
   if (sparseOrder !== null) return replaceOrder(room, target, sparseOrder);
   return applyOrders(room, entries, deterministicSparseOrders(entries.length));
 }
+
+export function setRoomPresentationOrder(
+  room: RoomData,
+  target: RoomPresentationOrderTarget,
+  requestedOrder: number,
+): RoomData | null {
+  if (!Number.isSafeInteger(requestedOrder)) return null;
+  const plane = roomPresentationPlaneForTarget(room, target);
+  if (!plane) return null;
+  const entries = orderedPlaneEntries(room, plane);
+  const currentIndex = entries.findIndex((entry) => targetKey(entry.target) === targetKey(target));
+  if (currentIndex < 0) return null;
+  const current = entries[currentIndex]!;
+  if (current.order === requestedOrder) return room;
+
+  const occupied = entries.some(
+    (entry, index) => index !== currentIndex && entry.order === requestedOrder,
+  );
+  if (!occupied) return replaceOrder(room, target, requestedOrder);
+
+  entries.splice(currentIndex, 1);
+  const insertionIndex = entries.findIndex((entry) => entry.order >= requestedOrder);
+  entries.splice(insertionIndex < 0 ? entries.length : insertionIndex, 0, current);
+  return applyOrders(room, entries, deterministicSparseOrders(entries.length));
+}

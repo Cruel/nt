@@ -6,6 +6,9 @@ import {
   ContextMenuContent,
   ContextMenuItem,
   ContextMenuSeparator,
+  ContextMenuSub,
+  ContextMenuSubContent,
+  ContextMenuSubTrigger,
   ContextMenuTrigger,
 } from '@/components/ui/context-menu';
 import type {
@@ -22,6 +25,10 @@ import type { MaterialPreviewResource } from '@/material-preview/material-previe
 import type { MaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { RoomData } from '../../../shared/project-schema/authoring-rooms';
+import {
+  resizeRoomSelectionData,
+  translateRoomSelectionData,
+} from '../../project/room-placement-operations';
 import {
   projectRoomEditRect,
   resolveRoomEditProjection,
@@ -41,12 +48,51 @@ import {
   candidateForRoomEditSelection,
   defaultRoomEditSelectionCandidate,
   hitTestRoomEditCandidates,
+  marqueeRoomEditSelections,
   roomEditSelectionCandidates,
   roomEditSelectionKey,
   topmostRoomEditOccupantCandidate,
   type RoomEditSelection,
   type RoomEditSelectionCandidate,
 } from './room-edit-selection';
+
+type RoomEditResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
+
+const roomEditResizeCursorClass: Record<RoomEditResizeHandle, string> = {
+  nw: 'cursor-nw-resize',
+  ne: 'cursor-ne-resize',
+  sw: 'cursor-sw-resize',
+  se: 'cursor-se-resize',
+};
+
+type RoomEditDirectGesture =
+  | {
+      kind: 'candidate';
+      pointerId: number;
+      start: { x: number; y: number };
+      current: { x: number; y: number };
+      selection: RoomEditSelection[];
+      candidate: RoomEditSelectionCandidate;
+      additive: boolean;
+      dragging: boolean;
+    }
+  | {
+      kind: 'marquee';
+      pointerId: number;
+      start: { x: number; y: number };
+      current: { x: number; y: number };
+      additive: boolean;
+      dragging: boolean;
+    }
+  | {
+      kind: 'resize';
+      pointerId: number;
+      start: { x: number; y: number };
+      current: { x: number; y: number };
+      selection: RoomEditSelection;
+      handle: RoomEditResizeHandle;
+      bounds: { x: number; y: number; width: number; height: number };
+    };
 
 interface PreparedVisual {
   texture: AuthoringWebGlTextureResource | null;
@@ -251,6 +297,146 @@ function overlayStyle(projected: RoomEditProjectedRect, projection: RoomEditProj
   };
 }
 
+function roomEditSelectionIsMovable(selection: RoomEditSelection) {
+  return (
+    selection.kind === 'placement' ||
+    selection.kind === 'interactable' ||
+    selection.kind === 'prop' ||
+    selection.kind === 'cast' ||
+    selection.kind === 'environment'
+  );
+}
+
+function normalizedBoundsForSelection(room: RoomData, selection: RoomEditSelection) {
+  if (selection.kind === 'placement')
+    return room.placements.find((item) => item.id === selection.id)?.bounds ?? null;
+  if (selection.kind === 'environment')
+    return room.environments.find((item) => item.id === selection.id)?.bounds ?? null;
+  const placementId =
+    selection.kind === 'interactable'
+      ? room.interactables.find((item) => item.id === selection.id)?.placementId
+      : selection.kind === 'prop'
+        ? room.props.find((item) => item.id === selection.id)?.placementId
+        : selection.kind === 'cast'
+          ? room.cast.find((item) => item.id === selection.id)?.placementId
+          : null;
+  return placementId
+    ? (room.placements.find((item) => item.id === placementId)?.bounds ?? null)
+    : null;
+}
+
+function pointerDeltaToNormalized(
+  delta: { x: number; y: number },
+  projection: RoomEditProjection,
+  navigation: RoomEditNavigation,
+) {
+  const radians = (projection.camera.rotationDegrees * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const authored = {
+    x: delta.x * cosine - delta.y * sine,
+    y: delta.x * sine + delta.y * cosine,
+  };
+  const scale = Math.max(0.000001, projection.camera.zoom * navigation.zoom);
+  return {
+    x: authored.x / scale / projection.viewport.width,
+    y: authored.y / scale / projection.viewport.height,
+  };
+}
+
+function resizeNormalizedBounds(
+  bounds: { x: number; y: number; width: number; height: number },
+  delta: { x: number; y: number },
+  handle: RoomEditResizeHandle,
+) {
+  const minimum = 0.01;
+  let left = bounds.x;
+  let top = bounds.y;
+  let right = bounds.x + bounds.width;
+  let bottom = bounds.y + bounds.height;
+  if (handle.includes('w')) left = Math.min(right - minimum, Math.max(0, left + delta.x));
+  if (handle.includes('e')) right = Math.max(left + minimum, Math.min(1, right + delta.x));
+  if (handle.includes('n')) top = Math.min(bottom - minimum, Math.max(0, top + delta.y));
+  if (handle.includes('s')) bottom = Math.max(top + minimum, Math.min(1, bottom + delta.y));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function marqueeRect(start: { x: number; y: number }, current: { x: number; y: number }) {
+  return {
+    x: Math.min(start.x, current.x),
+    y: Math.min(start.y, current.y),
+    width: Math.abs(current.x - start.x),
+    height: Math.abs(current.y - start.y),
+  };
+}
+
+function rotateProjectedPoint(
+  point: { x: number; y: number },
+  rotationDegrees: number,
+  viewport: { width: number; height: number },
+) {
+  const radians = (rotationDegrees * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const centerX = viewport.width * 0.5;
+  const centerY = viewport.height * 0.5;
+  const localX = point.x - centerX;
+  const localY = point.y - centerY;
+  return {
+    x: centerX + localX * cosine - localY * sine,
+    y: centerY + localX * sine + localY * cosine,
+  };
+}
+
+function normalizedRoomPointFromViewport(
+  point: { x: number; y: number },
+  room: RoomData,
+  projection: RoomEditProjection,
+  navigation: RoomEditNavigation,
+) {
+  const projectPoint = (normalized: { x: number; y: number }) => {
+    const projected = projectRoomEditRect(
+      {
+        x: normalized.x * projection.viewport.width,
+        y: normalized.y * projection.viewport.height,
+        width: 0,
+        height: 0,
+      },
+      projection.viewport,
+      room.presentationSpace,
+      projection.camera,
+      navigation,
+    );
+    return rotateProjectedPoint(
+      { x: projected.rect.x, y: projected.rect.y },
+      projected.rotationDegrees,
+      projection.viewport,
+    );
+  };
+  const origin = projectPoint({ x: 0, y: 0 });
+  const xAxis = projectPoint({ x: 1, y: 0 });
+  const yAxis = projectPoint({ x: 0, y: 1 });
+  const xx = xAxis.x - origin.x;
+  const xy = xAxis.y - origin.y;
+  const yx = yAxis.x - origin.x;
+  const yy = yAxis.y - origin.y;
+  const determinant = xx * yy - yx * xy;
+  if (Math.abs(determinant) < 0.000001) return null;
+  const localX = point.x - origin.x;
+  const localY = point.y - origin.y;
+  return {
+    x: Math.max(0, Math.min(1, (localX * yy - yx * localY) / determinant)),
+    y: Math.max(0, Math.min(1, (xx * localY - localX * xy) / determinant)),
+  };
+}
+
+function toggleRoomEditSelection(selection: readonly RoomEditSelection[], item: RoomEditSelection) {
+  const key = roomEditSelectionKey(item);
+  return selection.some((candidate) => roomEditSelectionKey(candidate) === key)
+    ? selection.filter((candidate) => roomEditSelectionKey(candidate) !== key)
+    : [...selection, item];
+}
+
 export function RoomEditSurface({
   project,
   roomId,
@@ -265,6 +451,12 @@ export function RoomEditSurface({
   interactionEnabled = true,
   selection = [],
   onSelectionChange = () => {},
+  onTranslateSelection = () => {},
+  onResizeSelection = () => {},
+  addActions = [],
+  pendingAddActionId = null,
+  onPendingAddActionCancel = () => {},
+  onAddAtPoint = () => {},
 }: {
   project: AuthoringProject;
   roomId: string;
@@ -279,6 +471,18 @@ export function RoomEditSurface({
   interactionEnabled?: boolean;
   selection?: readonly RoomEditSelection[];
   onSelectionChange?: (selection: readonly RoomEditSelection[]) => void;
+  onTranslateSelection?: (
+    selection: readonly RoomEditSelection[],
+    delta: { x: number; y: number },
+  ) => void;
+  onResizeSelection?: (
+    selection: RoomEditSelection,
+    bounds: { x: number; y: number; width: number; height: number },
+  ) => void;
+  addActions?: readonly { id: string; label: string; disabled?: boolean }[];
+  pendingAddActionId?: string | null;
+  onPendingAddActionCancel?: () => void;
+  onAddAtPoint?: (actionId: string, point: { x: number; y: number }) => void;
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useAuthoringWebGlGroupRenderer();
@@ -297,10 +501,17 @@ export function RoomEditSurface({
   const spaceHeldRef = useRef(false);
   const pointerInsideRef = useRef(false);
   const suppressSelectionClickRef = useRef(false);
+  const directGestureRef = useRef<RoomEditDirectGesture | null>(null);
   const [panning, setPanning] = useState(false);
+  const [directGestureVersion, setDirectGestureVersion] = useState(0);
   const [contextCandidates, setContextCandidates] = useState<RoomEditSelectionCandidate[]>([]);
   const [contextPreviewCandidate, setContextPreviewCandidate] =
     useState<RoomEditSelectionCandidate | null>(null);
+  const [contextAddPoint, setContextAddPoint] = useState<{ x: number; y: number } | null>(null);
+  const [addGhostViewportPoint, setAddGhostViewportPoint] = useState<{
+    x: number;
+    y: number;
+  } | null>(null);
   const [preparedScene, setPreparedScene] = useState<PreparedRoomEditScene | null>(null);
   navigationRef.current = navigation;
   const canonicalSurface = useMemo(
@@ -313,7 +524,7 @@ export function RoomEditSurface({
       ),
     [referenceResolution, room.presentationSpace],
   );
-  const projection = useMemo(
+  const committedProjection = useMemo(
     () =>
       resolveRoomEditProjection({
         project,
@@ -334,9 +545,58 @@ export function RoomEditSurface({
       roomId,
     ],
   );
+  const draftRoom = useMemo(() => {
+    void directGestureVersion;
+    const gesture = directGestureRef.current;
+    if (gesture?.kind === 'candidate' && gesture.dragging) {
+      const delta = pointerDeltaToNormalized(
+        {
+          x: gesture.current.x - gesture.start.x,
+          y: gesture.current.y - gesture.start.y,
+        },
+        committedProjection,
+        navigationRef.current,
+      );
+      return translateRoomSelectionData(room, gesture.selection, delta) ?? room;
+    }
+    if (gesture?.kind === 'resize') {
+      const delta = pointerDeltaToNormalized(
+        {
+          x: gesture.current.x - gesture.start.x,
+          y: gesture.current.y - gesture.start.y,
+        },
+        committedProjection,
+        navigationRef.current,
+      );
+      const bounds = resizeNormalizedBounds(gesture.bounds, delta, gesture.handle);
+      return resizeRoomSelectionData(room, gesture.selection, bounds) ?? room;
+    }
+    return room;
+  }, [committedProjection, directGestureVersion, room]);
+  const projection = useMemo(
+    () =>
+      resolveRoomEditProjection({
+        project,
+        roomId,
+        room: draftRoom,
+        viewport: referenceResolution,
+        backgroundImageSize,
+        resolvedVisibility,
+        navigation,
+      }),
+    [
+      backgroundImageSize,
+      draftRoom,
+      navigation,
+      project,
+      referenceResolution,
+      resolvedVisibility,
+      roomId,
+    ],
+  );
   const selectionCandidates = useMemo(
-    () => roomEditSelectionCandidates(project, room, projection, t),
-    [project, projection, room, t],
+    () => roomEditSelectionCandidates(project, draftRoom, projection, t),
+    [draftRoom, project, projection, t],
   );
   projectionRef.current = projection;
   const preparationProjection = useMemo(
@@ -387,11 +647,38 @@ export function RoomEditSurface({
   useEffect(() => {
     const gesture = panGestureRef.current;
     panGestureRef.current = null;
+    const directGesture = directGestureRef.current;
+    directGestureRef.current = null;
     suppressSelectionClickRef.current = false;
-    setPanning(false);
+    if (gesture) setPanning(false);
+    if (directGesture) setDirectGestureVersion((value) => value + 1);
     if (gesture && surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
       surfaceRef.current.releasePointerCapture(gesture.pointerId);
+    if (directGesture && surfaceRef.current?.hasPointerCapture?.(directGesture.pointerId))
+      surfaceRef.current.releasePointerCapture(directGesture.pointerId);
   }, [gestureCancellationToken, interactionEnabled]);
+
+  useEffect(() => {
+    const keyDown = (event: KeyboardEvent) => {
+      if (!interactionEnabled || event.key !== 'Escape') return;
+      if (pendingAddActionId) {
+        event.preventDefault();
+        setAddGhostViewportPoint(null);
+        onPendingAddActionCancel();
+        return;
+      }
+      if (!directGestureRef.current) return;
+      event.preventDefault();
+      const gesture = directGestureRef.current;
+      directGestureRef.current = null;
+      suppressSelectionClickRef.current = true;
+      if (surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
+        surfaceRef.current.releasePointerCapture(gesture.pointerId);
+      setDirectGestureVersion((value) => value + 1);
+    };
+    window.addEventListener('keydown', keyDown);
+    return () => window.removeEventListener('keydown', keyDown);
+  }, [interactionEnabled, onPendingAddActionCancel, pendingAddActionId]);
 
   const viewportPoint = (clientX: number, clientY: number) => {
     const bounds = surfaceRef.current?.getBoundingClientRect();
@@ -533,6 +820,40 @@ export function RoomEditSurface({
     const candidate = candidateForRoomEditSelection(selectionCandidates, item);
     return candidate ? [candidate] : [];
   });
+  const directGesture = directGestureRef.current;
+  const activeMarquee =
+    directGesture?.kind === 'marquee' && directGesture.dragging
+      ? marqueeRect(directGesture.start, directGesture.current)
+      : null;
+  const addGhostProjected = (() => {
+    if (!pendingAddActionId || !addGhostViewportPoint) return null;
+    const point = normalizedRoomPointFromViewport(
+      addGhostViewportPoint,
+      room,
+      projection,
+      navigationRef.current,
+    );
+    if (!point) return null;
+    const size = pendingAddActionId === 'environment' ? 0.5 : 0.2;
+    const bounds = {
+      x: Math.max(0, Math.min(1 - size, point.x - size * 0.5)),
+      y: Math.max(0, Math.min(1 - size, point.y - size * 0.5)),
+      width: size,
+      height: size,
+    };
+    return projectRoomEditRect(
+      {
+        x: bounds.x * projection.viewport.width,
+        y: bounds.y * projection.viewport.height,
+        width: bounds.width * projection.viewport.width,
+        height: bounds.height * projection.viewport.height,
+      },
+      projection.viewport,
+      room.presentationSpace,
+      projection.camera,
+      navigationRef.current,
+    );
+  })();
 
   return (
     <ContextMenu
@@ -540,6 +861,7 @@ export function RoomEditSurface({
         if (open) return;
         setContextCandidates([]);
         setContextPreviewCandidate(null);
+        setContextAddPoint(null);
       }}
     >
       <ContextMenuTrigger className="contents">
@@ -555,6 +877,7 @@ export function RoomEditSurface({
           }}
           onPointerLeave={() => {
             pointerInsideRef.current = false;
+            if (pendingAddActionId) setAddGhostViewportPoint(null);
           }}
           onWheel={(event) => {
             if (!interactionEnabled) return;
@@ -574,47 +897,192 @@ export function RoomEditSurface({
           onPointerDown={(event) => {
             if (!interactionEnabled) return;
             const shouldPan = event.button === 1 || (event.button === 0 && spaceHeldRef.current);
-            if (!shouldPan) return;
-            event.preventDefault();
-            const suppressSelectionClick = event.button === 0;
-            suppressSelectionClickRef.current = suppressSelectionClick;
-            panGestureRef.current = {
-              pointerId: event.pointerId,
-              clientX: event.clientX,
-              clientY: event.clientY,
-              suppressSelectionClick,
-            };
+            if (shouldPan) {
+              event.preventDefault();
+              const suppressSelectionClick = event.button === 0;
+              suppressSelectionClickRef.current = suppressSelectionClick;
+              panGestureRef.current = {
+                pointerId: event.pointerId,
+                clientX: event.clientX,
+                clientY: event.clientY,
+                suppressSelectionClick,
+              };
+              surfaceRef.current?.setPointerCapture?.(event.pointerId);
+              setPanning(true);
+              return;
+            }
+            if (event.button !== 0) return;
+            const point = viewportPoint(event.clientX, event.clientY);
+            if (!point) return;
+            if (pendingAddActionId) {
+              event.preventDefault();
+              suppressSelectionClickRef.current = true;
+              const normalized = normalizedRoomPointFromViewport(
+                point,
+                room,
+                projection,
+                navigationRef.current,
+              );
+              if (normalized) onAddAtPoint(pendingAddActionId, normalized);
+              setAddGhostViewportPoint(null);
+              onPendingAddActionCancel();
+              return;
+            }
+            const hits = candidatesAtClientPoint(event.clientX, event.clientY);
+            const selectedKeys = new Set(selection.map(roomEditSelectionKey));
+            const candidate =
+              hits.find((item) => selectedKeys.has(roomEditSelectionKey(item.selection))) ??
+              defaultRoomEditSelectionCandidate(hits);
+            const additive = event.ctrlKey || event.metaKey;
+            if (candidate) {
+              const candidateKey = roomEditSelectionKey(candidate.selection);
+              const alreadySelected = selection.some(
+                (item) => roomEditSelectionKey(item) === candidateKey,
+              );
+              directGestureRef.current = {
+                kind: 'candidate',
+                pointerId: event.pointerId,
+                start: { x: point.x, y: point.y },
+                current: { x: point.x, y: point.y },
+                selection: alreadySelected ? [...selection] : [candidate.selection],
+                candidate,
+                additive,
+                dragging: false,
+              };
+            } else {
+              directGestureRef.current = {
+                kind: 'marquee',
+                pointerId: event.pointerId,
+                start: { x: point.x, y: point.y },
+                current: { x: point.x, y: point.y },
+                additive,
+                dragging: false,
+              };
+            }
             surfaceRef.current?.setPointerCapture?.(event.pointerId);
-            setPanning(true);
           }}
           onPointerMove={(event) => {
             const gesture = panGestureRef.current;
-            if (!gesture || gesture.pointerId !== event.pointerId) return;
+            if (gesture && gesture.pointerId === event.pointerId) {
+              const point = viewportPoint(event.clientX, event.clientY);
+              if (!point) return;
+              const delta = {
+                x: (event.clientX - gesture.clientX) * point.scaleX,
+                y: (event.clientY - gesture.clientY) * point.scaleY,
+              };
+              gesture.clientX = event.clientX;
+              gesture.clientY = event.clientY;
+              updateNavigation(panRoomEditNavigation(navigationRef.current, delta));
+              return;
+            }
+            if (pendingAddActionId) {
+              const point = viewportPoint(event.clientX, event.clientY);
+              if (point) setAddGhostViewportPoint({ x: point.x, y: point.y });
+              return;
+            }
+            const direct = directGestureRef.current;
+            if (!direct || direct.pointerId !== event.pointerId) return;
             const point = viewportPoint(event.clientX, event.clientY);
             if (!point) return;
-            const delta = {
-              x: (event.clientX - gesture.clientX) * point.scaleX,
-              y: (event.clientY - gesture.clientY) * point.scaleY,
-            };
-            gesture.clientX = event.clientX;
-            gesture.clientY = event.clientY;
-            updateNavigation(panRoomEditNavigation(navigationRef.current, delta));
+            direct.current = { x: point.x, y: point.y };
+            if (direct.kind !== 'resize') {
+              const distance = Math.hypot(
+                direct.current.x - direct.start.x,
+                direct.current.y - direct.start.y,
+              );
+              const threshold = 4 * Math.max(point.scaleX, point.scaleY);
+              if (distance >= threshold) {
+                if (direct.kind === 'marquee') direct.dragging = true;
+                else if (direct.selection.every(roomEditSelectionIsMovable)) direct.dragging = true;
+              }
+            }
+            setDirectGestureVersion((value) => value + 1);
           }}
           onPointerUp={(event) => {
             const gesture = panGestureRef.current;
-            if (!gesture || gesture.pointerId !== event.pointerId) return;
-            panGestureRef.current = null;
-            if (!gesture.suppressSelectionClick) suppressSelectionClickRef.current = false;
-            setPanning(false);
+            if (gesture && gesture.pointerId === event.pointerId) {
+              panGestureRef.current = null;
+              if (!gesture.suppressSelectionClick) suppressSelectionClickRef.current = false;
+              setPanning(false);
+              if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
+                surfaceRef.current.releasePointerCapture(event.pointerId);
+              return;
+            }
+            const direct = directGestureRef.current;
+            if (!direct || direct.pointerId !== event.pointerId) return;
+            const point = viewportPoint(event.clientX, event.clientY);
+            if (point) direct.current = { x: point.x, y: point.y };
+            directGestureRef.current = null;
+            suppressSelectionClickRef.current = true;
             if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
               surfaceRef.current.releasePointerCapture(event.pointerId);
+            if (direct.kind === 'candidate') {
+              if (direct.dragging) {
+                onTranslateSelection(
+                  direct.selection,
+                  pointerDeltaToNormalized(
+                    {
+                      x: direct.current.x - direct.start.x,
+                      y: direct.current.y - direct.start.y,
+                    },
+                    committedProjection,
+                    navigationRef.current,
+                  ),
+                );
+              } else {
+                onSelectionChange(
+                  direct.additive
+                    ? toggleRoomEditSelection(selection, direct.candidate.selection)
+                    : [direct.candidate.selection],
+                );
+              }
+            } else if (direct.kind === 'marquee') {
+              if (!direct.dragging) {
+                if (!direct.additive) onSelectionChange([]);
+              } else {
+                const marquee = marqueeRect(direct.start, direct.current);
+                const matches = marqueeRoomEditSelections(
+                  selectionCandidates,
+                  marquee,
+                  referenceResolution,
+                );
+                if (!direct.additive) onSelectionChange(matches);
+                else {
+                  let next = [...selection];
+                  for (const item of matches) next = toggleRoomEditSelection(next, item);
+                  onSelectionChange(next);
+                }
+              }
+            } else {
+              const delta = pointerDeltaToNormalized(
+                {
+                  x: direct.current.x - direct.start.x,
+                  y: direct.current.y - direct.start.y,
+                },
+                committedProjection,
+                navigationRef.current,
+              );
+              const bounds = resizeNormalizedBounds(direct.bounds, delta, direct.handle);
+              const changed = (['x', 'y', 'width', 'height'] as const).some(
+                (field) => Math.abs(bounds[field] - direct.bounds[field]) > 1e-9,
+              );
+              if (changed) onResizeSelection(direct.selection, bounds);
+            }
+            setDirectGestureVersion((value) => value + 1);
           }}
           onPointerCancel={(event) => {
             const gesture = panGestureRef.current;
-            if (!gesture || gesture.pointerId !== event.pointerId) return;
-            panGestureRef.current = null;
-            suppressSelectionClickRef.current = false;
-            setPanning(false);
+            if (gesture && gesture.pointerId === event.pointerId) {
+              panGestureRef.current = null;
+              suppressSelectionClickRef.current = false;
+              setPanning(false);
+            }
+            const direct = directGestureRef.current;
+            if (direct?.pointerId === event.pointerId) {
+              directGestureRef.current = null;
+              suppressSelectionClickRef.current = true;
+              setDirectGestureVersion((value) => value + 1);
+            }
           }}
           onClick={(event) => {
             if (!interactionEnabled) return;
@@ -625,7 +1093,15 @@ export function RoomEditSurface({
             const candidate = defaultRoomEditSelectionCandidate(
               candidatesAtClientPoint(event.clientX, event.clientY),
             );
-            onSelectionChange(candidate ? [candidate.selection] : []);
+            onSelectionChange(
+              candidate
+                ? event.ctrlKey || event.metaKey
+                  ? toggleRoomEditSelection(selection, candidate.selection)
+                  : [candidate.selection]
+                : event.ctrlKey || event.metaKey
+                  ? selection
+                  : [],
+            );
           }}
           onDoubleClick={(event) => {
             if (!interactionEnabled) return;
@@ -642,6 +1118,12 @@ export function RoomEditSurface({
             const candidates = candidatesAtClientPoint(event.clientX, event.clientY);
             setContextCandidates(candidates);
             setContextPreviewCandidate(defaultRoomEditSelectionCandidate(candidates));
+            const point = viewportPoint(event.clientX, event.clientY);
+            setContextAddPoint(
+              point
+                ? normalizedRoomPointFromViewport(point, room, projection, navigationRef.current)
+                : null,
+            );
           }}
         >
           <canvas
@@ -673,18 +1155,82 @@ export function RoomEditSurface({
                 data-testid={`room-edit-placement-${placement.id}`}
               />
             ))}
-            {committedCandidates.map((candidate) => (
+            {committedCandidates.map((candidate) => {
+              const key = roomEditSelectionKey(candidate.selection);
+              const resizable =
+                selection.length === 1 &&
+                roomEditSelectionIsMovable(candidate.selection) &&
+                normalizedBoundsForSelection(draftRoom, candidate.selection);
+              return (
+                <div
+                  key={`selected:${key}`}
+                  className="absolute border-2 border-primary shadow-[0_0_0_1px_color-mix(in_oklch,var(--background),transparent_30%)]"
+                  style={overlayStyle(candidate.projected, projection)}
+                  data-testid={`room-edit-selected-${key}`}
+                >
+                  <span className="absolute left-0 top-0 max-w-[min(24rem,80vw)] -translate-y-full truncate rounded-t bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                    {candidate.label}
+                  </span>
+                  {resizable
+                    ? (['nw', 'ne', 'sw', 'se'] as const).map((handle) => (
+                        <span
+                          key={handle}
+                          className={`pointer-events-auto absolute size-2.5 rounded-sm border border-background bg-primary ${
+                            handle.includes('n') ? '-top-1.5' : '-bottom-1.5'
+                          } ${handle.includes('w') ? '-left-1.5' : '-right-1.5'} ${roomEditResizeCursorClass[handle]}`}
+                          data-testid={`room-edit-resize-${handle}`}
+                          onPointerDown={(event) => {
+                            if (!interactionEnabled || event.button !== 0) return;
+                            event.preventDefault();
+                            event.stopPropagation();
+                            const point = viewportPoint(event.clientX, event.clientY);
+                            const bounds = normalizedBoundsForSelection(
+                              draftRoom,
+                              candidate.selection,
+                            );
+                            if (!point || !bounds) return;
+                            directGestureRef.current = {
+                              kind: 'resize',
+                              pointerId: event.pointerId,
+                              start: { x: point.x, y: point.y },
+                              current: { x: point.x, y: point.y },
+                              selection: candidate.selection,
+                              handle,
+                              bounds,
+                            };
+                            surfaceRef.current?.setPointerCapture?.(event.pointerId);
+                            setDirectGestureVersion((value) => value + 1);
+                          }}
+                        />
+                      ))
+                    : null}
+                </div>
+              );
+            })}
+            {activeMarquee ? (
               <div
-                key={`selected:${roomEditSelectionKey(candidate.selection)}`}
-                className="absolute border-2 border-primary shadow-[0_0_0_1px_color-mix(in_oklch,var(--background),transparent_30%)]"
-                style={overlayStyle(candidate.projected, projection)}
-                data-testid={`room-edit-selected-${roomEditSelectionKey(candidate.selection)}`}
+                className="absolute border border-primary bg-primary/10"
+                style={{
+                  left: `${(activeMarquee.x / referenceResolution.width) * 100}%`,
+                  top: `${(activeMarquee.y / referenceResolution.height) * 100}%`,
+                  width: `${(activeMarquee.width / referenceResolution.width) * 100}%`,
+                  height: `${(activeMarquee.height / referenceResolution.height) * 100}%`,
+                }}
+                data-testid="room-edit-marquee"
+              />
+            ) : null}
+            {addGhostProjected ? (
+              <div
+                className="absolute border-2 border-dashed border-primary bg-primary/10"
+                style={overlayStyle(addGhostProjected, projection)}
+                data-testid="room-edit-add-ghost"
               >
-                <span className="absolute left-0 top-0 max-w-[min(24rem,80vw)] -translate-y-full truncate rounded-t bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
-                  {candidate.label}
+                <span className="absolute left-0 top-0 -translate-y-full rounded-t bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                  {addActions.find((action) => action.id === pendingAddActionId)?.label ??
+                    pendingAddActionId}
                 </span>
               </div>
-            ))}
+            ) : null}
             {contextPreviewCandidate ? (
               <div
                 className="absolute bg-amber-400/5 outline-2 outline-offset-2 outline-dashed outline-amber-400"
@@ -721,6 +1267,25 @@ export function RoomEditSurface({
         ) : (
           <ContextMenuItem disabled>{t('roomEditor.compositionPane.noCandidates')}</ContextMenuItem>
         )}
+        {contextAddPoint && addActions.length > 0 ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuSub>
+              <ContextMenuSubTrigger>{t('roomEditor.compositionPane.add')}</ContextMenuSubTrigger>
+              <ContextMenuSubContent>
+                {addActions.map((action) => (
+                  <ContextMenuItem
+                    key={action.id}
+                    disabled={action.disabled}
+                    onClick={() => onAddAtPoint(action.id, contextAddPoint)}
+                  >
+                    {action.label}
+                  </ContextMenuItem>
+                ))}
+              </ContextMenuSubContent>
+            </ContextMenuSub>
+          </>
+        ) : null}
         {selection.length > 0 ? (
           <>
             <ContextMenuSeparator />

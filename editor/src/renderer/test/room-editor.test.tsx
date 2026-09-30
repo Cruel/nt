@@ -86,6 +86,38 @@ describe('RoomEditor', () => {
     selectRoomCategory('Composition');
     expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
   });
+
+  it('routes Contents Add through dedicated-placement semantics instead of implicitly sharing', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    selectRoomCategory('Contents');
+    fireEvent.click(screen.getByRole('button', { name: 'Add prop' }));
+
+    const updated = useProjectStore.getState().document;
+    expect(isAuthoringProject(updated)).toBe(true);
+    if (!isAuthoringProject(updated)) return;
+    const room = parseRoomData(updated.rooms.foyer?.data)!;
+    expect(room.props).toHaveLength(1);
+    expect(room.placements).toHaveLength(1);
+    expect(room.props[0]?.placementId).toBe(room.placements[0]?.id);
+    expect(room.placements[0]?.bounds).toEqual({ x: 0.4, y: 0.4, width: 0.2, height: 0.2 });
+  });
   it('counts effective Room Properties from Traits in the category sidebar', () => {
     const project = createAuthoringProject();
     project.traits.inspectable = {
@@ -1227,6 +1259,19 @@ describe('RoomEditor', () => {
       dispatchEvent: vi.fn(),
     }));
     const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
     const room = defaultRoomData('Foyer');
     room.placements = [
       {
@@ -1405,6 +1450,353 @@ describe('RoomEditor', () => {
       fireEvent.click(screen.getByRole('button', { name: /Layout · Desk UI/i }));
       fireEvent.click(screen.getByRole('button', { name: 'Room Contents' }));
       expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('marquee-selects placements and moves a mixed explicit-occurrence selection atomically', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+      {
+        id: 'chair',
+        bounds: { x: 0.5, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'book',
+        condition: { kind: 'always' },
+        placementId: 'desk',
+        asset: { $ref: { collection: 'assets', id: 'pixel' } },
+        materialApplication: null,
+        visible: true,
+        order: 0,
+      },
+      {
+        id: 'lamp',
+        condition: { kind: 'always' },
+        placementId: 'desk',
+        asset: { $ref: { collection: 'assets', id: 'pixel' } },
+        materialApplication: null,
+        visible: true,
+        order: 1024,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
+      });
+
+      fireEvent.pointerDown(surface, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
+      fireEvent.pointerMove(surface, { pointerId: 1, clientX: 750, clientY: 200 });
+      expect(screen.getByTestId('room-edit-marquee')).toBeInTheDocument();
+      fireEvent.pointerUp(surface, { pointerId: 1, button: 0, clientX: 750, clientY: 200 });
+      expect(screen.getByText('2 selected')).toBeInTheDocument();
+
+      fireEvent.doubleClick(surface, { clientX: 200, clientY: 100 });
+      expect(screen.getByTestId('room-edit-selected-prop:lamp')).toBeInTheDocument();
+      fireEvent.pointerDown(surface, {
+        pointerId: 2,
+        button: 0,
+        clientX: 600,
+        clientY: 100,
+        ctrlKey: true,
+      });
+      fireEvent.pointerUp(surface, {
+        pointerId: 2,
+        button: 0,
+        clientX: 600,
+        clientY: 100,
+        ctrlKey: true,
+      });
+      expect(screen.getByText('2 selected')).toBeInTheDocument();
+
+      fireEvent.pointerDown(surface, { pointerId: 3, button: 0, clientX: 200, clientY: 100 });
+      fireEvent.pointerMove(surface, { pointerId: 3, clientX: 300, clientY: 150 });
+      fireEvent.pointerUp(surface, { pointerId: 3, button: 0, clientX: 300, clientY: 150 });
+
+      const updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      const updatedRoom = parseRoomData(updated.rooms.foyer?.data)!;
+      expect(updatedRoom.placements).toHaveLength(3);
+      expect(updatedRoom.placements.find((item) => item.id === 'desk')?.bounds).toEqual({
+        x: 0.1,
+        y: 0.1,
+        width: 0.2,
+        height: 0.2,
+      });
+      expect(updatedRoom.props.find((item) => item.id === 'book')?.placementId).toBe('desk');
+      const lamp = updatedRoom.props.find((item) => item.id === 'lamp')!;
+      expect(lamp.placementId).not.toBe('desk');
+      expect(
+        updatedRoom.placements.find((item) => item.id === lamp.placementId)?.bounds.x,
+      ).toBeCloseTo(0.2);
+      expect(updatedRoom.placements.find((item) => item.id === 'chair')?.bounds.x).toBeCloseTo(0.6);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('uses the clamped draft projection during a move before committing it', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'edge',
+        bounds: { x: 0.7, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      fireEvent.click(screen.getByRole('button', { name: /Placement · edge/i }));
+
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
+      });
+      const selected = screen.getByTestId('room-edit-selected-placement:edge');
+      const initialLeft = Number.parseFloat(selected.style.left);
+
+      fireEvent.pointerDown(surface, { pointerId: 71, button: 0, clientX: 800, clientY: 100 });
+      fireEvent.pointerMove(surface, { pointerId: 71, clientX: 1000, clientY: 100 });
+
+      const draftLeft = Number.parseFloat(
+        screen.getByTestId('room-edit-selected-placement:edge').style.left,
+      );
+      expect(draftLeft).toBeGreaterThan(initialLeft);
+      expect(draftLeft).toBeLessThan(90);
+      const duringDrag = useProjectStore.getState().document;
+      expect(isAuthoringProject(duringDrag)).toBe(true);
+      if (!isAuthoringProject(duringDrag)) return;
+      expect(parseRoomData(duringDrag.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.7);
+
+      fireEvent.pointerUp(surface, { pointerId: 71, button: 0, clientX: 1000, clientY: 100 });
+      const committed = useProjectStore.getState().document;
+      expect(isAuthoringProject(committed)).toBe(true);
+      if (!isAuthoringProject(committed)) return;
+      expect(parseRoomData(committed.rooms.foyer?.data)?.placements[0]?.bounds.x).toBeCloseTo(0.8);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('does not split a shared placement when a resize handle is clicked without moving', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['book', 'lamp'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'shared',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
+      });
+
+      fireEvent.doubleClick(surface, { clientX: 200, clientY: 100 });
+      expect(screen.getByTestId('room-edit-selected-prop:lamp')).toBeInTheDocument();
+      const handle = screen.getByTestId('room-edit-resize-se');
+      fireEvent.pointerDown(handle, { pointerId: 72, button: 0, clientX: 300, clientY: 150 });
+      fireEvent.pointerUp(surface, { pointerId: 72, button: 0, clientX: 300, clientY: 150 });
+
+      const updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      const updatedRoom = parseRoomData(updated.rooms.foyer?.data)!;
+      expect(updatedRoom.placements).toHaveLength(1);
+      expect(updatedRoom.props.every((item) => item.placementId === 'shared')).toBe(true);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('shares pane ghost/drop and positioned context Add while Preview cancels the transient Add tool', async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      let surface = screen.getByTestId('room-edit-surface');
+      const rect = {
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        toJSON: () => ({}),
+      };
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => rect,
+      });
+
+      const addActions = screen.getByTestId('room-composition-add-actions');
+      fireEvent.click(within(addActions).getByRole('button', { name: 'Placement' }));
+      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
+      expect(screen.getByTestId('room-edit-add-ghost')).toBeInTheDocument();
+
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      expect(screen.queryByTestId('room-edit-add-ghost')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => rect,
+      });
+      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
+      expect(screen.queryByTestId('room-edit-add-ghost')).toBeNull();
+
+      fireEvent.click(
+        within(screen.getByTestId('room-composition-add-actions')).getByRole('button', {
+          name: 'Placement',
+        }),
+      );
+      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
+      fireEvent.pointerDown(surface, { pointerId: 41, button: 0, clientX: 300, clientY: 200 });
+      let updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      expect(parseRoomData(updated.rooms.foyer?.data)?.placements).toHaveLength(1);
+
+      fireEvent.contextMenu(surface, { clientX: 700, clientY: 300 });
+      const addMenu = await screen.findByRole('menuitem', { name: 'Add' });
+      fireEvent.focus(addMenu);
+      fireEvent.keyDown(addMenu, { key: 'ArrowRight' });
+      const placementItems = await screen.findAllByRole('menuitem', { name: 'Placement' });
+      fireEvent.click(placementItems.at(-1)!);
+      updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      expect(parseRoomData(updated.rooms.foyer?.data)?.placements).toHaveLength(2);
     } finally {
       window.matchMedia = originalMatchMedia;
     }
