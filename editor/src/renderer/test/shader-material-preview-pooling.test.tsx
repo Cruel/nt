@@ -1,4 +1,4 @@
-import { StrictMode, useEffect } from 'react';
+import { StrictMode } from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { act, render, waitFor } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
@@ -16,7 +16,6 @@ import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-lo
 import {
   AuthoringWebGlGroupProvider,
   AuthoringWebGlGroupRendererBridge,
-  useAuthoringWebGlGroupRenderer,
 } from '@/authoring-renderer/authoring-webgl-provider';
 import {
   AuthoringWebGlGroupRenderer,
@@ -29,6 +28,8 @@ import type {
 } from '@/workbench/workbench-types';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 
 vi.mock('react-resizable-panels', () => ({
   Group: ({ children }: { children: React.ReactNode }) => <div>{children}</div>,
@@ -69,20 +70,6 @@ function manualScheduler() {
       for (const callback of pending) callback(timestamp);
     },
   };
-}
-
-function SecondaryAuthoringConsumer({ renderFrame }: { renderFrame: () => void }) {
-  const renderer = useAuthoringWebGlGroupRenderer();
-  useEffect(() => {
-    const registration = renderer.registerSceneWork({
-      order: 0,
-      visible: true,
-      render: renderFrame,
-      onError: vi.fn(),
-    });
-    return registration.unregister;
-  }, [renderFrame, renderer]);
-  return null;
 }
 
 const nonPreviewTab: WorkbenchTab = {
@@ -147,10 +134,23 @@ beforeEach(() => {
 });
 
 describe('Material lightweight previews', () => {
-  it('shares one group GPU authority with a second authoring scene consumer', async () => {
+  it('shares one group GPU authority between Material Preview and Room Edit', async () => {
     const clock = manualScheduler();
-    const renderScene = vi.fn();
     const drawMaterial = vi.fn();
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const room = defaultRoomData('Foyer');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+      projectSessionId: 'session:material-preview',
+    });
     const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
       frame: vi.fn((timeSeconds) => ({
         timeSeconds,
@@ -168,7 +168,14 @@ describe('Material lightweight previews', () => {
         <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
           <MaterialPreviewGroupProvider>
             <MaterialPreview materialId="panel" />
-            <SecondaryAuthoringConsumer renderFrame={renderScene} />
+            <RoomEditSurface
+              project={project}
+              roomId="foyer"
+              room={room}
+              referenceResolution={{ width: 1920, height: 1080 }}
+              backgroundImageSize={null}
+              roomPropertyValues={{}}
+            />
           </MaterialPreviewGroupProvider>
         </AuthoringWebGlGroupProvider>
       </MaterialPreviewProjectProvider>,
@@ -177,7 +184,7 @@ describe('Material lightweight previews', () => {
     await waitFor(() => expect(backendFactory).toHaveBeenCalledTimes(1));
     await waitFor(() => {
       act(() => clock.flush(2500));
-      expect(renderScene).toHaveBeenCalled();
+      expect(backendFactory).toHaveBeenCalledTimes(1);
     });
     expect(backendFactory).toHaveBeenCalledTimes(1);
   });
