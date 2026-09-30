@@ -99,6 +99,13 @@ Property-backed parameters, Environment opacity/UV motion, and standard Material
 All Material draws receive the workbench-group frame timestamp, so animated Materials in Room Edit and
 Material preview surfaces advance from the same authoring clock.
 
+Room Edit precision navigation is a second, editor-only transform applied after that authored Camera
+projection. Wheel zoom is pointer-centered; middle-mouse drag and Space+left-drag pan the projected
+surface with bounded overscroll; and Fit is exactly the identity navigation transform used for parity
+with Preview. The navigation transform is retained in the Room tab state rather than written to the
+Room or Camera View. WebGL draws and DOM overlays both consume the already-navigated projection, so
+navigation cannot create a renderer/selection-geometry split.
+
 Condition truth is not reimplemented in the browser. While Edit is active, the Room's focused-preview
 host stays logically connected but visually concealed and returns the native `RoomPresentationResolution`
 membership for cast entries, Interactable occurrences, Props, and Environments. Room Edit uses that
@@ -116,6 +123,12 @@ postprocess, transitions, and other player-facing runtime effects. Runtime Previ
 the authority for those complete gameplay-presentation concerns even though Edit now covers the
 agreed base world composition subset.
 
+Mode switching preserves one visible/input-owning surface. Edit → Preview cancels any active pan,
+animates editor navigation to Fit over 180 ms, and only then reveals the retained engine Preview.
+Preview → Edit reveals Edit at Fit and animates back to that tab's remembered precision navigation.
+`prefers-reduced-motion: reduce` skips the interpolation while preserving the same final states. The
+retained preview host lifecycle is unchanged by these visual transitions.
+
 ## Implementation
 
 Primary files:
@@ -127,6 +140,7 @@ editor/src/renderer/authoring-renderer/authoring-webgl-provider.tsx
 editor/src/renderer/material-preview/material-preview-renderer.ts
 editor/src/renderer/material-preview/material-preview-provider.tsx
 editor/src/renderer/editors/rooms/RoomEditSurface.tsx
+editor/src/renderer/editors/rooms/room-edit-navigation.ts
 editor/src/renderer/editors/rooms/room-edit-projection.ts
 editor/src/renderer/workbench/workbench-group-services.tsx
 ```

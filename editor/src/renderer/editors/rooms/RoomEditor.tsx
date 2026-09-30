@@ -63,6 +63,13 @@ import {
 import { RoomCompositionStage } from '@/components/room-composition-stage';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import {
+  interpolateRoomEditNavigation,
+  ROOM_EDIT_FIT_NAVIGATION,
+  ROOM_EDIT_NAVIGATION_TRANSITION_MS,
+  sanitizeRoomEditNavigation,
+  type RoomEditNavigation,
+} from '@/editors/rooms/room-edit-navigation';
+import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
 } from '@/components/CategorizedEditorLayout';
@@ -246,10 +253,33 @@ type RoomEditorTabState = WorkbenchTabStatePayload & {
     scroll?: ScrollViewState;
     activeCategory: RoomEditorCategory;
     presentationMode: RoomPresentationMode;
+    editNavigation: RoomEditNavigation;
     previewCollapsed: boolean;
     hotspotView: HotspotEditorViewState;
   };
 };
+
+function parseRoomEditNavigation(value: unknown): RoomEditNavigation | null {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
+  const navigation = value as Record<string, unknown>;
+  if (
+    typeof navigation.zoom !== 'number' ||
+    typeof navigation.pan !== 'object' ||
+    navigation.pan === null ||
+    Array.isArray(navigation.pan)
+  )
+    return null;
+  const pan = navigation.pan as Record<string, unknown>;
+  if (typeof pan.x !== 'number' || typeof pan.y !== 'number') return null;
+  return sanitizeRoomEditNavigation({ zoom: navigation.zoom, pan: { x: pan.x, y: pan.y } });
+}
+
+function prefersReducedRoomEditMotion() {
+  return (
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(prefers-reduced-motion: reduce)').matches
+  );
+}
 
 function parseRoomEditorTabState(
   value: WorkbenchTabStatePayload,
@@ -263,9 +293,14 @@ function parseRoomEditorTabState(
     return null;
   const payload = value.payload as Record<string, unknown>;
   const hotspotView = parseHotspotViewTabState(payload.hotspotView);
+  const editNavigation =
+    payload.editNavigation === undefined
+      ? ROOM_EDIT_FIT_NAVIGATION
+      : parseRoomEditNavigation(payload.editNavigation);
   if (
     !isRoomEditorCategory(payload.activeCategory) ||
     !isRoomPresentationMode(payload.presentationMode) ||
+    !editNavigation ||
     typeof payload.previewCollapsed !== 'boolean' ||
     !hotspotView
   )
@@ -274,6 +309,7 @@ function parseRoomEditorTabState(
     scroll: isScrollViewState(payload.scroll) ? payload.scroll : undefined,
     activeCategory: payload.activeCategory,
     presentationMode: payload.presentationMode,
+    editNavigation,
     previewCollapsed: payload.previewCollapsed,
     hotspotView,
   };
@@ -441,6 +477,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       ? (parseRoomEditorTabState(savedState)?.presentationMode ?? 'preview')
       : 'preview';
   });
+  const [rememberedEditNavigation, setRememberedEditNavigation] = useState<RoomEditNavigation>(
+    () => {
+      const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+      return savedState
+        ? (parseRoomEditorTabState(savedState)?.editNavigation ?? ROOM_EDIT_FIT_NAVIGATION)
+        : ROOM_EDIT_FIT_NAVIGATION;
+    },
+  );
+  const [visibleEditNavigation, setVisibleEditNavigation] = useState<RoomEditNavigation>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState
+      ? (parseRoomEditorTabState(savedState)?.editNavigation ?? ROOM_EDIT_FIT_NAVIGATION)
+      : ROOM_EDIT_FIT_NAVIGATION;
+  });
+  const [roomEditTransitioning, setRoomEditTransitioning] = useState(false);
+  const [roomEditGestureCancellationToken, setRoomEditGestureCancellationToken] = useState(0);
+  const roomEditAnimationFrameRef = useRef<number | null>(null);
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -575,6 +628,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             scroll: captureScrollViewState(scrollRef.current),
             activeCategory,
             presentationMode,
+            editNavigation: rememberedEditNavigation,
             previewCollapsed,
             hotspotView,
           },
@@ -584,6 +638,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           if (!parsed) return;
           setActiveCategory(parsed.activeCategory);
           setPresentationMode(parsed.presentationMode);
+          setRememberedEditNavigation(parsed.editNavigation);
+          setVisibleEditNavigation(parsed.editNavigation);
           setPreviewCollapsed(parsed.previewCollapsed);
           setHotspotView(
             restoreHotspotViewState(
@@ -596,9 +652,92 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           );
         },
       }),
-      [activeCategory, data.hotspots, hotspotView, presentationMode, previewCollapsed],
+      [
+        activeCategory,
+        data.hotspots,
+        hotspotView,
+        presentationMode,
+        previewCollapsed,
+        rememberedEditNavigation,
+      ],
     ),
   );
+  const animateRoomEditNavigation = useCallback(
+    (from: RoomEditNavigation, to: RoomEditNavigation, onComplete?: () => void) => {
+      if (roomEditAnimationFrameRef.current !== null) {
+        window.cancelAnimationFrame(roomEditAnimationFrameRef.current);
+        roomEditAnimationFrameRef.current = null;
+      }
+      if (prefersReducedRoomEditMotion()) {
+        setVisibleEditNavigation(to);
+        setRoomEditTransitioning(false);
+        onComplete?.();
+        return;
+      }
+      const startedAt = performance.now();
+      setRoomEditTransitioning(true);
+      const tick = (now: number) => {
+        const progress = Math.min(1, (now - startedAt) / ROOM_EDIT_NAVIGATION_TRANSITION_MS);
+        setVisibleEditNavigation(interpolateRoomEditNavigation(from, to, progress));
+        if (progress < 1) {
+          roomEditAnimationFrameRef.current = window.requestAnimationFrame(tick);
+          return;
+        }
+        roomEditAnimationFrameRef.current = null;
+        setVisibleEditNavigation(to);
+        setRoomEditTransitioning(false);
+        onComplete?.();
+      };
+      roomEditAnimationFrameRef.current = window.requestAnimationFrame(tick);
+    },
+    [],
+  );
+  useEffect(
+    () => () => {
+      if (roomEditAnimationFrameRef.current !== null)
+        window.cancelAnimationFrame(roomEditAnimationFrameRef.current);
+    },
+    [],
+  );
+  const changeRoomPresentationMode = useCallback(
+    (nextMode: RoomPresentationMode) => {
+      if (roomEditTransitioning || nextMode === presentationMode) return;
+      setRoomEditGestureCancellationToken((value) => value + 1);
+      if (nextMode === 'preview') {
+        const remembered = visibleEditNavigation;
+        setRememberedEditNavigation(remembered);
+        animateRoomEditNavigation(visibleEditNavigation, ROOM_EDIT_FIT_NAVIGATION, () =>
+          setPresentationMode('preview'),
+        );
+        return;
+      }
+      setPresentationMode('edit');
+      setVisibleEditNavigation(ROOM_EDIT_FIT_NAVIGATION);
+      animateRoomEditNavigation(ROOM_EDIT_FIT_NAVIGATION, rememberedEditNavigation);
+    },
+    [
+      animateRoomEditNavigation,
+      presentationMode,
+      rememberedEditNavigation,
+      roomEditTransitioning,
+      visibleEditNavigation,
+    ],
+  );
+  const handleRoomEditNavigationChange = useCallback(
+    (navigation: RoomEditNavigation) => {
+      if (roomEditTransitioning) return;
+      const next = sanitizeRoomEditNavigation(navigation);
+      setVisibleEditNavigation(next);
+      setRememberedEditNavigation(next);
+    },
+    [roomEditTransitioning],
+  );
+  const fitRoomEditNavigation = useCallback(() => {
+    if (roomEditTransitioning) return;
+    setRoomEditGestureCancellationToken((value) => value + 1);
+    setVisibleEditNavigation(ROOM_EDIT_FIT_NAVIGATION);
+    setRememberedEditNavigation(ROOM_EDIT_FIT_NAVIGATION);
+  }, [roomEditTransitioning]);
   useEffect(() => {
     const handleRoomTarget = (target: PendingWorkbenchRevealTarget) => {
       setActiveCategory(roomEditorCategoryForTarget(target.id));
@@ -1263,7 +1402,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               size="sm"
               variant={presentationMode === 'edit' ? 'secondary' : 'ghost'}
               aria-pressed={presentationMode === 'edit'}
-              onClick={() => setPresentationMode('edit')}
+              disabled={roomEditTransitioning}
+              onClick={() => changeRoomPresentationMode('edit')}
             >
               {t('roomEditor.presentationModes.edit')}
             </Button>
@@ -1272,10 +1412,31 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               size="sm"
               variant={presentationMode === 'preview' ? 'secondary' : 'ghost'}
               aria-pressed={presentationMode === 'preview'}
-              onClick={() => setPresentationMode('preview')}
+              disabled={roomEditTransitioning}
+              onClick={() => changeRoomPresentationMode('preview')}
             >
               {t('roomEditor.presentationModes.preview')}
             </Button>
+            {presentationMode === 'edit' ? (
+              <>
+                <div className="mx-1 h-4 w-px bg-border" aria-hidden="true" />
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="ghost"
+                  disabled={roomEditTransitioning}
+                  onClick={fitRoomEditNavigation}
+                >
+                  {t('roomEditor.presentationModes.fit')}
+                </Button>
+                <span
+                  className="min-w-10 text-right text-xs tabular-nums text-muted-foreground"
+                  aria-label={t('roomEditor.presentationModes.zoom')}
+                >
+                  {Math.round(visibleEditNavigation.zoom * 100)}%
+                </span>
+              </>
+            ) : null}
           </div>
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {presentationMode === 'edit' ? (
@@ -1288,6 +1449,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   backgroundImageSize={compositionBackgroundSize}
                   roomPropertyValues={roomPropertyValues}
                   resolvedVisibility={activeRoomEditResolution}
+                  navigation={visibleEditNavigation}
+                  onNavigationChange={handleRoomEditNavigationChange}
+                  gestureCancellationToken={roomEditGestureCancellationToken}
+                  interactionEnabled={!roomEditTransitioning}
                 />
               </div>
             ) : null}

@@ -16,12 +16,20 @@ import type { MaterialApplication } from '../../../shared/project-schema/authori
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { RoomData } from '../../../shared/project-schema/authoring-rooms';
 import {
+  projectRoomEditRect,
   resolveRoomEditProjection,
   type RoomEditProjectedRect,
   type RoomEditProjection,
   type RoomEditResolvedVisibility,
   type RoomEditUvRect,
 } from './room-edit-projection';
+import {
+  clampRoomEditNavigation,
+  panRoomEditNavigation,
+  ROOM_EDIT_FIT_NAVIGATION,
+  zoomRoomEditNavigationAtPoint,
+  type RoomEditNavigation,
+} from './room-edit-navigation';
 
 interface PreparedVisual {
   texture: AuthoringWebGlTextureResource | null;
@@ -234,6 +242,10 @@ export function RoomEditSurface({
   backgroundImageSize,
   roomPropertyValues,
   resolvedVisibility = null,
+  navigation = ROOM_EDIT_FIT_NAVIGATION,
+  onNavigationChange = () => {},
+  gestureCancellationToken = 0,
+  interactionEnabled = true,
 }: {
   project: AuthoringProject;
   roomId: string;
@@ -242,14 +254,62 @@ export function RoomEditSurface({
   backgroundImageSize: { width: number; height: number } | null;
   roomPropertyValues: Readonly<Record<string, unknown>>;
   resolvedVisibility?: RoomEditResolvedVisibility | null;
+  navigation?: RoomEditNavigation;
+  onNavigationChange?: (navigation: RoomEditNavigation) => void;
+  gestureCancellationToken?: number;
+  interactionEnabled?: boolean;
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useAuthoringWebGlGroupRenderer();
   const resources = useMaterialPreviewProjectResources();
   const resourcesGeneration = useMaterialPreviewProjectGeneration();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const surfaceRef = useRef<HTMLDivElement | null>(null);
+  const navigationRef = useRef(navigation);
+  const projectionRef = useRef<RoomEditProjection | null>(null);
+  const panGestureRef = useRef<{
+    pointerId: number;
+    clientX: number;
+    clientY: number;
+  } | null>(null);
+  const spaceHeldRef = useRef(false);
+  const pointerInsideRef = useRef(false);
+  const [panning, setPanning] = useState(false);
   const [preparedScene, setPreparedScene] = useState<PreparedRoomEditScene | null>(null);
+  navigationRef.current = navigation;
+  const canonicalSurface = useMemo(
+    () =>
+      projectRoomEditRect(
+        { x: 0, y: 0, ...referenceResolution },
+        referenceResolution,
+        room.presentationSpace,
+        room.presentationSpace.defaultView,
+      ).rect,
+    [referenceResolution, room.presentationSpace],
+  );
   const projection = useMemo(
+    () =>
+      resolveRoomEditProjection({
+        project,
+        roomId,
+        room,
+        viewport: referenceResolution,
+        backgroundImageSize,
+        resolvedVisibility,
+        navigation,
+      }),
+    [
+      backgroundImageSize,
+      navigation,
+      project,
+      referenceResolution,
+      resolvedVisibility,
+      room,
+      roomId,
+    ],
+  );
+  projectionRef.current = projection;
+  const preparationProjection = useMemo(
     () =>
       resolveRoomEditProjection({
         project,
@@ -263,17 +323,71 @@ export function RoomEditSurface({
   );
 
   useEffect(() => {
+    const isTextInput = (target: EventTarget | null) => {
+      const element = target instanceof HTMLElement ? target : null;
+      return Boolean(
+        element &&
+        (element.isContentEditable ||
+          element.tagName === 'INPUT' ||
+          element.tagName === 'TEXTAREA' ||
+          element.tagName === 'SELECT'),
+      );
+    };
+    const keyDown = (event: KeyboardEvent) => {
+      if (!interactionEnabled || event.code !== 'Space' || isTextInput(event.target)) return;
+      spaceHeldRef.current = true;
+      if (pointerInsideRef.current) event.preventDefault();
+    };
+    const keyUp = (event: KeyboardEvent) => {
+      if (event.code === 'Space') spaceHeldRef.current = false;
+    };
+    const blur = () => {
+      spaceHeldRef.current = false;
+    };
+    window.addEventListener('keydown', keyDown);
+    window.addEventListener('keyup', keyUp);
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('keydown', keyDown);
+      window.removeEventListener('keyup', keyUp);
+      window.removeEventListener('blur', blur);
+    };
+  }, [interactionEnabled]);
+
+  useEffect(() => {
+    const gesture = panGestureRef.current;
+    panGestureRef.current = null;
+    setPanning(false);
+    if (gesture && surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
+      surfaceRef.current.releasePointerCapture(gesture.pointerId);
+  }, [gestureCancellationToken, interactionEnabled]);
+
+  const viewportPoint = (clientX: number, clientY: number) => {
+    const bounds = surfaceRef.current?.getBoundingClientRect();
+    if (!bounds || bounds.width <= 0 || bounds.height <= 0) return null;
+    return {
+      x: ((clientX - bounds.left) / bounds.width) * referenceResolution.width,
+      y: ((clientY - bounds.top) / bounds.height) * referenceResolution.height,
+      scaleX: referenceResolution.width / bounds.width,
+      scaleY: referenceResolution.height / bounds.height,
+    };
+  };
+
+  const updateNavigation = (next: RoomEditNavigation) =>
+    onNavigationChange(clampRoomEditNavigation(next, referenceResolution, canonicalSurface));
+
+  useEffect(() => {
     let active = true;
     const generation = resourcesGeneration;
     void (async () => {
       const [background, worldDrawEntries] = await Promise.all([
         prepareVisual(
           resources,
-          projection.background.assetId,
-          projection.background.materialApplication,
+          preparationProjection.background.assetId,
+          preparationProjection.background.materialApplication,
         ),
         Promise.all(
-          projection.worldDraws.map(async (item) => {
+          preparationProjection.worldDraws.map(async (item) => {
             const assetId =
               item.kind === 'interactable' || item.kind === 'cast-layer'
                 ? item.spriteAssetId
@@ -297,15 +411,16 @@ export function RoomEditSurface({
     return () => {
       active = false;
     };
-  }, [projection, resources, resourcesGeneration]);
+  }, [preparationProjection, resources, resourcesGeneration]);
 
   useEffect(() => {
     const registration = renderer.registerSceneWork({
       order: 0,
       visible: true,
       render: (frame) => {
+        const projection = projectionRef.current;
         const canvas = canvasRef.current;
-        if (!canvas) return;
+        if (!canvas || !projection) return;
         frame.beginTarget(projection.viewport.width, projection.viewport.height, [0, 0, 0, 0]);
         if (projection.background.color) {
           frame.drawMaterial(
@@ -375,13 +490,77 @@ export function RoomEditSurface({
       },
     });
     return () => registration.unregister();
-  }, [preparedScene, projection, renderer, roomPropertyValues]);
+  }, [preparedScene, renderer, roomPropertyValues]);
 
   return (
     <div
+      ref={surfaceRef}
       className="relative w-full min-h-0 min-w-0 shrink-0 overflow-hidden bg-muted/20"
       style={{ aspectRatio: `${referenceResolution.width} / ${referenceResolution.height}` }}
       data-testid="room-edit-surface"
+      data-panning={panning ? 'true' : 'false'}
+      data-interaction-enabled={interactionEnabled ? 'true' : 'false'}
+      onPointerEnter={() => {
+        pointerInsideRef.current = true;
+      }}
+      onPointerLeave={() => {
+        pointerInsideRef.current = false;
+      }}
+      onWheel={(event) => {
+        if (!interactionEnabled) return;
+        event.preventDefault();
+        const point = viewportPoint(event.clientX, event.clientY);
+        if (!point) return;
+        const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+        updateNavigation(
+          zoomRoomEditNavigationAtPoint(
+            navigationRef.current,
+            referenceResolution,
+            point,
+            navigationRef.current.zoom * zoomFactor,
+          ),
+        );
+      }}
+      onPointerDown={(event) => {
+        if (!interactionEnabled) return;
+        const shouldPan = event.button === 1 || (event.button === 0 && spaceHeldRef.current);
+        if (!shouldPan) return;
+        event.preventDefault();
+        panGestureRef.current = {
+          pointerId: event.pointerId,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        };
+        surfaceRef.current?.setPointerCapture?.(event.pointerId);
+        setPanning(true);
+      }}
+      onPointerMove={(event) => {
+        const gesture = panGestureRef.current;
+        if (!gesture || gesture.pointerId !== event.pointerId) return;
+        const point = viewportPoint(event.clientX, event.clientY);
+        if (!point) return;
+        const delta = {
+          x: (event.clientX - gesture.clientX) * point.scaleX,
+          y: (event.clientY - gesture.clientY) * point.scaleY,
+        };
+        gesture.clientX = event.clientX;
+        gesture.clientY = event.clientY;
+        updateNavigation(panRoomEditNavigation(navigationRef.current, delta));
+      }}
+      onPointerUp={(event) => {
+        const gesture = panGestureRef.current;
+        if (!gesture || gesture.pointerId !== event.pointerId) return;
+        panGestureRef.current = null;
+        setPanning(false);
+        if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
+          surfaceRef.current.releasePointerCapture(event.pointerId);
+      }}
+      onPointerCancel={(event) => {
+        const gesture = panGestureRef.current;
+        if (!gesture || gesture.pointerId !== event.pointerId) return;
+        panGestureRef.current = null;
+        setPanning(false);
+      }}
     >
       <canvas
         ref={canvasRef}

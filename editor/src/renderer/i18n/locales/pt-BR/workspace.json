@@ -972,6 +972,8 @@
       "label": "Modo de apresentação da sala",
       "edit": "Editar",
       "preview": "Prévia",
+      "fit": "Ajustar",
+      "zoom": "Zoom da edição",
       "editWorldRendering": "Renderização do mundo na edição da sala"
     },
     "categories": {

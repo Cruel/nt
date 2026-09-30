@@ -982,6 +982,206 @@ describe('RoomEditor', () => {
       'true',
     );
   });
+  it('restores pre-navigation Room tab state with Fit as the navigation default', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'camera',
+        presentationMode: 'edit',
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+
+    renderEditor();
+
+    expect(screen.getByRole('heading', { name: 'Camera' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByLabelText('Edit zoom')).toHaveTextContent('100%');
+  });
+  it('keeps precision Edit navigation tab-scoped across reduced-motion Preview round trips', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.25, y: 0.25, width: 0.25, height: 0.25 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const authoredBefore = structuredClone(useProjectStore.getState().document);
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    try {
+      renderEditor();
+      const modes = screen.getByRole('group', { name: 'Room presentation mode' });
+      fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
+
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
+      });
+      fireEvent.wheel(surface, { clientX: 750, clientY: 250, deltaY: -300 });
+      const zoomLabel = screen.getByLabelText('Edit zoom');
+      expect(zoomLabel).not.toHaveTextContent('100%');
+      const rememberedZoomText = zoomLabel.textContent;
+
+      captureWorkbenchTabState(tab.id);
+      const afterWheel = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+      expect(afterWheel).toBeDefined();
+      const afterWheelPan = (
+        afterWheel!.payload as { editNavigation?: { pan?: { x?: number; y?: number } } }
+      ).editNavigation?.pan;
+      fireEvent.pointerDown(surface, {
+        button: 1,
+        pointerId: 1,
+        clientX: 500,
+        clientY: 250,
+      });
+      fireEvent.pointerMove(surface, { pointerId: 1, clientX: 550, clientY: 275 });
+      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 550, clientY: 275 });
+      captureWorkbenchTabState(tab.id);
+      const afterMiddlePan = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+      expect(afterMiddlePan).toBeDefined();
+      const middlePan = (
+        afterMiddlePan!.payload as { editNavigation?: { pan?: { x?: number; y?: number } } }
+      ).editNavigation?.pan;
+      expect(middlePan?.x).not.toBe(afterWheelPan?.x);
+      expect(middlePan?.y).not.toBe(afterWheelPan?.y);
+
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(surface, {
+        button: 0,
+        pointerId: 2,
+        clientX: 550,
+        clientY: 275,
+      });
+      fireEvent.pointerMove(surface, { pointerId: 2, clientX: 525, clientY: 250 });
+      fireEvent.pointerUp(surface, { pointerId: 2, clientX: 525, clientY: 250 });
+      fireEvent.keyUp(window, { code: 'Space' });
+      captureWorkbenchTabState(tab.id);
+      const afterSpacePan = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+      expect(afterSpacePan).toBeDefined();
+      const spacePan = (
+        afterSpacePan!.payload as { editNavigation?: { pan?: { x?: number; y?: number } } }
+      ).editNavigation?.pan;
+      expect(spacePan?.x).not.toBe(middlePan?.x);
+      expect(spacePan?.y).not.toBe(middlePan?.y);
+
+      captureWorkbenchTabState(tab.id);
+      const captured = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+      expect(captured).toMatchObject({
+        schema: 'noveltea.editor.tab-state.room',
+        payload: {
+          presentationMode: 'edit',
+          editNavigation: {
+            zoom: expect.any(Number),
+            pan: { x: expect.any(Number), y: expect.any(Number) },
+          },
+        },
+      });
+      expect(captured).toBeDefined();
+      expect(
+        (captured!.payload as { editNavigation?: { zoom?: number } }).editNavigation?.zoom,
+      ).toBeGreaterThan(1);
+      expect(useProjectStore.getState().document).toEqual(authoredBefore);
+
+      fireEvent.click(within(modes).getByRole('button', { name: 'Preview' }));
+      expect(within(modes).getByRole('button', { name: 'Preview' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
+      expect(screen.getByLabelText('Edit zoom')).toHaveTextContent(rememberedZoomText ?? '');
+      fireEvent.click(screen.getByRole('button', { name: 'Fit' }));
+      expect(screen.getByLabelText('Edit zoom')).toHaveTextContent('100%');
+      expect(useProjectStore.getState().document).toEqual(authoredBefore);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+  it('cancels an active Edit pan before the animated Preview transition owns the surface', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const originalMatchMedia = window.matchMedia;
+    const originalRequestAnimationFrame = window.requestAnimationFrame;
+    const originalCancelAnimationFrame = window.cancelAnimationFrame;
+    let reducedMotion = true;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)' && reducedMotion,
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    try {
+      renderEditor();
+      const modes = screen.getByRole('group', { name: 'Room presentation mode' });
+      fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
+      const surface = screen.getByTestId('room-edit-surface');
+
+      fireEvent.pointerDown(surface, {
+        button: 1,
+        pointerId: 7,
+        clientX: 400,
+        clientY: 250,
+      });
+      expect(surface).toHaveAttribute('data-panning', 'true');
+
+      reducedMotion = false;
+      window.requestAnimationFrame = vi.fn(() => 91);
+      window.cancelAnimationFrame = vi.fn();
+      fireEvent.click(within(modes).getByRole('button', { name: 'Preview' }));
+
+      await waitFor(() => expect(surface).toHaveAttribute('data-panning', 'false'));
+      expect(surface).toHaveAttribute('data-interaction-enabled', 'false');
+      expect(within(modes).getByRole('button', { name: 'Edit' })).toHaveAttribute(
+        'aria-pressed',
+        'true',
+      );
+      expect(within(modes).getByRole('button', { name: 'Preview' })).toBeDisabled();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+      window.requestAnimationFrame = originalRequestAnimationFrame;
+      window.cancelAnimationFrame = originalCancelAnimationFrame;
+    }
+  });
   it('captures and restores its tab-scoped preview collapse state', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };

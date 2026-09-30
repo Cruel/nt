@@ -20,6 +20,11 @@ import { parseInteractableData } from '../../../shared/project-schema/authoring-
 import { effectiveInteractableInstanceProperties } from '../../../shared/project-schema/authoring-interactable-properties';
 import { parseVariableData } from '../../../shared/project-schema/authoring-variables';
 import type { RoomPresentationPlane } from '../../../shared/project-schema/room-presentation-order';
+import {
+  applyRoomEditNavigation,
+  ROOM_EDIT_FIT_NAVIGATION,
+  type RoomEditNavigation,
+} from './room-edit-navigation';
 
 export interface RoomEditSize {
   width: number;
@@ -221,19 +226,24 @@ export function projectRoomEditRect(
   viewport: RoomEditSize,
   presentationSpace: RoomPresentationSpace,
   camera: RoomCameraView,
+  navigation: RoomEditNavigation = ROOM_EDIT_FIT_NAVIGATION,
 ): RoomEditProjectedRect {
   const resolved = resolveRoomEditCamera(presentationSpace, camera);
   const centerX = (resolved.center.x / presentationSpace.size.width) * viewport.width;
   const centerY = (resolved.center.y / presentationSpace.size.height) * viewport.height;
-  return {
-    rect: {
-      x: (rect.x - centerX) * resolved.zoom + viewport.width * 0.5,
-      y: (rect.y - centerY) * resolved.zoom + viewport.height * 0.5,
-      width: rect.width * resolved.zoom,
-      height: rect.height * resolved.zoom,
+  return applyRoomEditNavigation(
+    {
+      rect: {
+        x: (rect.x - centerX) * resolved.zoom + viewport.width * 0.5,
+        y: (rect.y - centerY) * resolved.zoom + viewport.height * 0.5,
+        width: rect.width * resolved.zoom,
+        height: rect.height * resolved.zoom,
+      },
+      rotationDegrees: -resolved.rotationDegrees,
     },
-    rotationDegrees: -resolved.rotationDegrees,
-  };
+    viewport,
+    navigation,
+  );
 }
 
 function normalizedRect(bounds: RoomNormalizedRect, viewport: RoomEditSize): RoomEditRect {
@@ -399,6 +409,7 @@ export function resolveRoomEditProjection({
   viewport,
   backgroundImageSize,
   resolvedVisibility = null,
+  navigation = ROOM_EDIT_FIT_NAVIGATION,
 }: {
   project: AuthoringProject;
   roomId: string;
@@ -406,6 +417,7 @@ export function resolveRoomEditProjection({
   viewport: RoomEditSize;
   backgroundImageSize: RoomEditSize | null;
   resolvedVisibility?: RoomEditResolvedVisibility | null;
+  navigation?: RoomEditNavigation;
 }): RoomEditProjection {
   const camera = resolveRoomEditCamera(room.presentationSpace, room.presentationSpace.defaultView);
   const backgroundColor = projectRoomEditRect(
@@ -413,6 +425,7 @@ export function resolveRoomEditProjection({
     viewport,
     room.presentationSpace,
     camera,
+    navigation,
   );
   const backgroundFit = fitRoomEditBackground(viewport, backgroundImageSize, room.background.fit);
   const projectedBackground = projectRoomEditRect(
@@ -420,6 +433,7 @@ export function resolveRoomEditProjection({
     viewport,
     room.presentationSpace,
     camera,
+    navigation,
   );
   const placements = room.placements.map((placement) => ({
     id: placement.id,
@@ -429,6 +443,7 @@ export function resolveRoomEditProjection({
       viewport,
       room.presentationSpace,
       camera,
+      navigation,
     ),
   }));
   const placementsById = new Map(placements.map((placement) => [placement.id, placement]));
@@ -540,6 +555,7 @@ export function resolveRoomEditProjection({
       viewport,
       room.presentationSpace,
       camera,
+      navigation,
     );
     return [
       {
@@ -606,7 +622,7 @@ export function resolveRoomEditProjection({
           spriteAssetId,
           materialApplication: layer.materialApplication,
           propertyValues,
-          ...projectRoomEditRect(rawRect, viewport, room.presentationSpace, camera),
+          ...projectRoomEditRect(rawRect, viewport, room.presentationSpace, camera, navigation),
         },
       ];
     });
