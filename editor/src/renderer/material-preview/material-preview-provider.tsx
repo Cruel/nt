@@ -109,6 +109,10 @@ export function useOptionalMaterialPreviewProjectResources() {
   return useOptionalMaterialPreviewProjectContext()?.resources ?? null;
 }
 
+export function useMaterialPreviewProjectGeneration() {
+  return useMaterialPreviewProjectContext().generation;
+}
+
 export function useMaterialPreviewResource(materialId: string | null) {
   const context = useOptionalMaterialPreviewProjectContext();
   const resources = context?.resources ?? null;

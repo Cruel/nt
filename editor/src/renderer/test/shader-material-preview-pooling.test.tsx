@@ -26,7 +26,11 @@ import type {
   WorkbenchGroup as WorkbenchGroupModel,
   WorkbenchTab,
 } from '@/workbench/workbench-types';
-import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import {
+  defaultMaterialData,
+  resolveMaterialData,
+} from '../../shared/project-schema/authoring-materials';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
@@ -187,6 +191,160 @@ describe('Material lightweight previews', () => {
       expect(backendFactory).toHaveBeenCalledTimes(1);
     });
     expect(backendFactory).toHaveBeenCalledTimes(1);
+  });
+
+  it('renders Room color through projected geometry and binds white for Material-only visuals', async () => {
+    const clock = manualScheduler();
+    const beginTarget = vi.fn();
+    const drawMaterial = vi.fn();
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.color = '#336699';
+    room.background.materialApplication = emptyMaterialApplication('panel');
+    room.presentationSpace.defaultView = {
+      center: { x: 960, y: 540 },
+      zoom: 0.5,
+      rotationDegrees: 15,
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+      projectSessionId: 'session:material-preview',
+    });
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
+      frame: vi.fn((timeSeconds) => ({
+        timeSeconds,
+        beginTarget,
+        drawMaterial,
+        copyTargetToCanvas: vi.fn(),
+      })),
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+    }));
+
+    render(
+      <MaterialPreviewProjectProvider>
+        <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+          <MaterialPreviewGroupProvider>
+            <RoomEditSurface
+              project={project}
+              roomId="foyer"
+              room={room}
+              referenceResolution={{ width: 1920, height: 1080 }}
+              backgroundImageSize={null}
+              roomPropertyValues={{}}
+            />
+          </MaterialPreviewGroupProvider>
+        </AuthoringWebGlGroupProvider>
+      </MaterialPreviewProjectProvider>,
+    );
+
+    await waitFor(() => {
+      act(() => clock.flush(2500));
+      expect(drawMaterial.mock.calls.some(([draw]) => draw.resource.materialId === 'panel')).toBe(
+        true,
+      );
+    });
+
+    expect(beginTarget).toHaveBeenCalledWith(1920, 1080, [0, 0, 0, 0]);
+    const colorDraw = drawMaterial.mock.calls
+      .map(([draw]) => draw)
+      .find((draw) => draw.resource.materialId === '__room-edit-default-engine-2d');
+    expect(colorDraw?.rendererTextures?.s_texColor?.fallbackColor).toEqual([0.2, 0.4, 0.6, 1]);
+    expect(colorDraw?.modelViewProjection).not.toEqual(
+      new Float32Array([1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1, 0, 0, 0, 0, 1]),
+    );
+    const materialOnlyDraw = drawMaterial.mock.calls
+      .map(([draw]) => draw)
+      .find((draw) => draw.resource.materialId === 'panel');
+    expect(materialOnlyDraw?.rendererTextures?.s_texColor?.fallbackColor).toEqual([1, 1, 1, 1]);
+  });
+
+  it('refreshes prepared Room Edit resources when the Project resource generation changes', async () => {
+    const clock = manualScheduler();
+    const project = createAuthoringProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.materialApplication = emptyMaterialApplication('panel');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+      projectSessionId: 'session:material-preview',
+    });
+    const getMaterial = vi
+      .spyOn(MaterialPreviewProjectResources.prototype, 'getMaterial')
+      .mockResolvedValue({
+        materialId: 'panel',
+        revision: 'test',
+        resolved: resolveMaterialData(project, 'panel').data!,
+        derivedInterface: null,
+        vertexShaderSource: null,
+        fragmentShaderSource: null,
+        textures: {},
+        diagnostics: [],
+        compileDiagnostics: [],
+        stale: false,
+      });
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
+      frame: vi.fn((timeSeconds) => ({
+        timeSeconds,
+        beginTarget: vi.fn(),
+        drawMaterial: vi.fn(),
+        copyTargetToCanvas: vi.fn(),
+      })),
+      invalidateProjectResources: vi.fn(),
+      reset: vi.fn(),
+      dispose: vi.fn(),
+    }));
+
+    try {
+      render(
+        <MaterialPreviewProjectProvider>
+          <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+            <MaterialPreviewGroupProvider>
+              <RoomEditSurface
+                project={project}
+                roomId="foyer"
+                room={room}
+                referenceResolution={{ width: 1920, height: 1080 }}
+                backgroundImageSize={null}
+                roomPropertyValues={{}}
+              />
+            </MaterialPreviewGroupProvider>
+          </AuthoringWebGlGroupProvider>
+        </MaterialPreviewProjectProvider>,
+      );
+
+      await waitFor(() => expect(getMaterial).toHaveBeenCalled());
+      const initialCalls = getMaterial.mock.calls.length;
+      const nextProject = structuredClone(project);
+      act(() => {
+        useProjectStore.getState().loadProjectDocument({
+          document: nextProject,
+          projectPath: '/mock',
+          projectFilePath: '/mock/project.json',
+          projectSessionId: 'session:material-preview',
+        });
+      });
+
+      await waitFor(() => expect(getMaterial.mock.calls.length).toBeGreaterThan(initialCalls));
+    } finally {
+      getMaterial.mockRestore();
+    }
   });
 
   it('keeps the group renderer alive through React StrictMode effect replay', async () => {

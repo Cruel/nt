@@ -55,6 +55,7 @@ export interface RoomEditInteractableProjection extends RoomEditProjectedRect {
 export interface RoomEditProjection {
   viewport: RoomEditSize;
   camera: RoomCameraView;
+  backgroundColor: RoomEditProjectedRect;
   background: RoomEditBackgroundProjection;
   placements: readonly RoomEditPlacementProjection[];
   interactables: readonly RoomEditInteractableProjection[];
@@ -174,6 +175,12 @@ export function resolveRoomEditProjection({
   backgroundImageSize: RoomEditSize | null;
 }): RoomEditProjection {
   const camera = resolveRoomEditCamera(room.presentationSpace, room.presentationSpace.defaultView);
+  const backgroundColor = projectRoomEditRect(
+    { x: 0, y: 0, ...viewport },
+    viewport,
+    room.presentationSpace,
+    camera,
+  );
   const backgroundFit = fitRoomEditBackground(viewport, backgroundImageSize, room.background.fit);
   const projectedBackground = projectRoomEditRect(
     backgroundFit.rect,
@@ -235,13 +242,13 @@ export function resolveRoomEditProjection({
     },
   );
   interactables.sort(
-    (left, right) =>
-      left.order - right.order || left.occurrenceId.localeCompare(right.occurrenceId),
+    (left, right) => left.order - right.order || left.instanceId.localeCompare(right.instanceId),
   );
 
   return {
     viewport,
     camera,
+    backgroundColor,
     background: {
       assetId: room.background.asset?.$ref.id ?? null,
       fit: room.background.fit,
