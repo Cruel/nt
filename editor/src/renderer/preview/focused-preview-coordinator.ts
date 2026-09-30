@@ -153,10 +153,11 @@ export class FocusedPreviewFreshnessCoordinator {
     );
   }
 
-  private async build(state: FocusedPreviewDesiredState): Promise<{
-    document: FocusedRecordPreviewDocument;
-    inputRevision: string;
-    activeShaderVariant: string;
+  private async prepareBuild(state: FocusedPreviewDesiredState): Promise<{
+    adapter: ReturnType<typeof focusedPreviewAdapterFor>;
+    inputs: unknown;
+    inputRevision: Awaited<ReturnType<typeof canonicalFocusedPreviewInputRevision>>;
+    activeShaderVariant: FocusedPreviewHostCapabilities['activeShaderVariant'];
   } | null> {
     const adapter = focusedPreviewAdapterFor(state.root.kind);
     if (
@@ -171,22 +172,28 @@ export class FocusedPreviewFreshnessCoordinator {
     if (!activeShaderVariant) return null;
     const hostCapabilities: FocusedPreviewHostCapabilities = { activeShaderVariant };
     const inputRevision = await canonicalFocusedPreviewInputRevision({ inputs, hostCapabilities });
-    return {
-      document: await adapter.build({
-        project: state.project,
-        projectSessionId: state.projectSessionId,
-        projectInstanceId: state.projectInstanceId,
-        projectRevision: state.projectRevision,
-        root: state.root,
-        inputs,
-        inputRevision,
-        graph: state.graph,
-        sourceAnalysis: state.sourceAnalysis,
-        hostCapabilities,
-      }),
-      inputRevision,
-      activeShaderVariant,
+    return { adapter, inputs, inputRevision, activeShaderVariant };
+  }
+
+  private async build(
+    state: FocusedPreviewDesiredState,
+    prepared: NonNullable<Awaited<ReturnType<FocusedPreviewFreshnessCoordinator['prepareBuild']>>>,
+  ): Promise<FocusedRecordPreviewDocument> {
+    const hostCapabilities: FocusedPreviewHostCapabilities = {
+      activeShaderVariant: prepared.activeShaderVariant,
     };
+    return prepared.adapter.build({
+      project: state.project,
+      projectSessionId: state.projectSessionId,
+      projectInstanceId: state.projectInstanceId,
+      projectRevision: state.projectRevision,
+      root: state.root,
+      inputs: prepared.inputs,
+      inputRevision: prepared.inputRevision,
+      graph: state.graph,
+      sourceAnalysis: state.sourceAnalysis,
+      hostCapabilities,
+    });
   }
 
   private contentKey(document: FocusedRecordPreviewDocument, activeShaderVariant: string): string {
@@ -213,9 +220,30 @@ export class FocusedPreviewFreshnessCoordinator {
       const replay =
         this.lastApplied?.leaseId === state.lease.leaseId &&
         this.lastApplied.transportGeneration !== transportGeneration;
-      let built: Awaited<ReturnType<FocusedPreviewFreshnessCoordinator['build']>>;
+      let prepared: Awaited<ReturnType<FocusedPreviewFreshnessCoordinator['prepareBuild']>>;
       try {
-        built = await this.build(state);
+        prepared = await this.prepareBuild(state);
+      } catch (error) {
+        state.reportBuildFailure?.(
+          error instanceof Error ? error.message : 'Focused preview input preparation failed.',
+        );
+        state.onLoadingChange?.(false);
+        return;
+      }
+      if (this.disposed || this.desired !== state || desiredGeneration !== this.desiredGeneration)
+        return;
+      if (!prepared) {
+        this.pending = true;
+        return;
+      }
+      const { inputRevision, activeShaderVariant } = prepared;
+      if (!replay && !this.impacted(state, inputRevision, activeShaderVariant)) {
+        state.onLoadingChange?.(false);
+        return;
+      }
+      let document: FocusedRecordPreviewDocument;
+      try {
+        document = await this.build(state, prepared);
       } catch (error) {
         state.reportBuildFailure?.(
           error instanceof Error ? error.message : 'Focused preview document construction failed.',
@@ -225,11 +253,6 @@ export class FocusedPreviewFreshnessCoordinator {
       }
       if (this.disposed || this.desired !== state || desiredGeneration !== this.desiredGeneration)
         return;
-      if (!built) {
-        this.pending = true;
-        return;
-      }
-      const { document, inputRevision, activeShaderVariant } = built;
       const contentKey = this.contentKey(document, activeShaderVariant);
       if (state.lease.committedContentKey() === contentKey) {
         this.lastApplied = {

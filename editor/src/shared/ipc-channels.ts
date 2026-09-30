@@ -18,6 +18,7 @@ export const IPC_CHANNELS = {
   COMPLETE_APP_WINDOW_EXIT: 'noveltea:complete-app-window-exit',
   APP_WINDOW_BEFORE_CLOSE: 'noveltea:app-window-before-close',
   EDITOR_SHORTCUT: 'noveltea:editor-shortcut',
+  TOOLING_ACTIVITY_EVENT: 'noveltea:tooling-activity-event',
   IS_APP_WINDOW_MAXIMIZED: 'noveltea:is-app-window-maximized',
   SET_NATIVE_WINDOW_FRAME: 'noveltea:set-native-window-frame',
   TERMINAL_ENSURE_STATE: 'noveltea:terminal-ensure-state',

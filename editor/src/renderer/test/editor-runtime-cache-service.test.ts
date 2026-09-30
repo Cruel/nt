@@ -325,6 +325,10 @@ describe('editor persistent runtime cache', () => {
     };
 
     const result = await service.preparePlay(workspace, dirty, {});
+    const compileCountAfterDirtyPrepare = nativeCalls.filter(
+      (call) => call.operation === 'compile-shaders',
+    ).length;
+    const repeated = await service.preparePlay(workspace, cloneProject(dirty), {});
 
     expect(result).toMatchObject({
       status: 'prepared',
@@ -345,7 +349,20 @@ describe('editor persistent runtime cache', () => {
         },
       },
     });
-    expect(nativeCalls.some((call) => call.operation === 'compile-shaders')).toBe(true);
+    expect(repeated).toMatchObject({
+      status: 'prepared',
+      cache: { scope: 'session-local', status: 'hit' },
+    });
+    expect(nativeCalls.filter((call) => call.operation === 'compile-shaders')).toHaveLength(
+      compileCountAfterDirtyPrepare,
+    );
+
+    const changedDirty = cloneProject(dirty);
+    changedDirty.rooms.start!.label = 'Unsaved changed label';
+    await service.preparePlay(workspace, changedDirty, {});
+    expect(nativeCalls.filter((call) => call.operation === 'compile-shaders')).toHaveLength(
+      compileCountAfterDirtyPrepare + 1,
+    );
     expect(await playPreviewGeneration(root)).toBe(generation);
   });
 

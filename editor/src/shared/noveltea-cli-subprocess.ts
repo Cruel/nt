@@ -3,8 +3,33 @@ import { existsSync } from 'node:fs';
 import { mkdtemp, open, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import type { ToolingActivityRecord } from './tooling-activity';
 
 const MAX_TOOL_INPUT_BYTES = 32 * 1024 * 1024;
+let nativeInvocationSequence = 0;
+let nativeInvocationObserver: ((record: ToolingActivityRecord) => void) | null = null;
+
+export function setNovelTeaNativeOperationObserver(
+  observer: ((record: ToolingActivityRecord) => void) | null,
+) {
+  nativeInvocationObserver = observer;
+}
+
+function nativeOperationDetail(command: string, payload: unknown): string | undefined {
+  if (!payload || typeof payload !== 'object') return undefined;
+  const record = payload as Record<string, unknown>;
+  if (command === 'compile-shaders') {
+    const shaderProject = record.shaderProject as
+      | { programs?: Record<string, unknown> }
+      | undefined;
+    const options = record.options as { shaderVariants?: unknown[] } | undefined;
+    return `programs=${Object.keys(shaderProject?.programs ?? {}).length} variants=${options?.shaderVariants?.length ?? 0}`;
+  }
+  const keys = Object.keys(record);
+  return keys.length > 0
+    ? `keys=${keys.slice(0, 8).join(',')}${keys.length > 8 ? ',…' : ''}`
+    : undefined;
+}
 
 function electronRuntimeState(): { packaged: boolean; resourcesPath?: string } {
   const runtime = process as NodeJS.Process & {
@@ -57,6 +82,18 @@ export async function invokeNovelTeaNativeOperation(
   command: string,
   payload: unknown,
 ): Promise<unknown> {
+  const invocationId = `native-${++nativeInvocationSequence}`;
+  const startedAt = Date.now();
+  const report = (status: ToolingActivityRecord['status'], detail?: string) =>
+    nativeInvocationObserver?.({
+      id: invocationId,
+      layer: 'native',
+      operation: command,
+      status,
+      startedAt,
+      durationMs: Math.max(0, Date.now() - startedAt),
+      detail: detail ?? nativeOperationDetail(command, payload),
+    });
   const input = JSON.stringify(payload ?? {});
   if (Buffer.byteLength(input, 'utf8') > MAX_TOOL_INPUT_BYTES) {
     return Promise.reject(new Error('Editor tool payload is too large.'));
@@ -74,6 +111,7 @@ export async function invokeNovelTeaNativeOperation(
         (resolve, reject) => {
           const child = spawn(bridge, [command, inputPath, responsePath], {
             stdio: ['ignore', 'ignore', 'pipe'],
+            windowsHide: true,
           });
           let stderr = '';
           child.stderr?.setEncoding('utf8');
@@ -90,14 +128,17 @@ export async function invokeNovelTeaNativeOperation(
             `NovelTea native tooling bridge failed with exit code ${result.code ?? 'unknown'}.`,
         );
       const response = await readFile(responsePath, 'utf8');
-      return JSON.parse(response) as unknown;
+      const parsed = JSON.parse(response) as unknown;
+      report('success');
+      return parsed;
     }
     inputFile = await open(inputPath, 'r');
-    return await new Promise((resolve, reject) => {
+    const result = await new Promise((resolve, reject) => {
       // Use a private regular file so the standalone native bridge receives a seekable, portable
       // stdin payload instead of depending on child-process pipe behavior.
       const child = spawn(resolveNovelTeaCliPath(), ['__editor-native', command], {
         stdio: [inputFile!.fd, 'pipe', 'pipe'],
+        windowsHide: true,
       });
       if (!child.stdout || !child.stderr) {
         child.kill();
@@ -152,6 +193,11 @@ export async function invokeNovelTeaNativeOperation(
         resolve(parsed);
       });
     });
+    report('success');
+    return result;
+  } catch (error) {
+    report('error', error instanceof Error ? error.message : String(error));
+    throw error;
   } finally {
     await inputFile?.close().catch(() => undefined);
     await rm(inputRoot, { recursive: true, force: true });

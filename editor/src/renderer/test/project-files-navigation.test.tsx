@@ -184,6 +184,26 @@ describe('project Files navigation', () => {
     });
   });
 
+  it('does not refresh source inventory for same-session Project document replacements', async () => {
+    const sessionId = '11111111-1111-4111-8111-111111111111';
+    const project = loadProject('project');
+    render(<ProjectExplorer nodes={[]} />);
+
+    await waitFor(() => expect(window.noveltea.listProjectSourceFiles).toHaveBeenCalledTimes(1));
+
+    const updated = structuredClone(project);
+    updated.rooms.utility!.label = 'Unsaved Room label';
+    act(() => {
+      expect(useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(updated), 0)).toBe(
+        true,
+      );
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(useProjectStore.getState().projectSessionId).toBe(sessionId);
+    expect(window.noveltea.listProjectSourceFiles).toHaveBeenCalledTimes(1);
+  });
+
   it('coalesces concurrent source refreshes onto the actual in-flight load', async () => {
     let resolveList!: (value: { files: readonly ProjectSourceFile[] }) => void;
     vi.mocked(window.noveltea.listProjectSourceFiles).mockImplementationOnce(

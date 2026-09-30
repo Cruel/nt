@@ -157,6 +157,7 @@ export interface ShaderMaterialProjectBuildResult {
 }
 export interface ShaderMaterialProjectBuildOptions {
   certifyPresetPrograms?: boolean;
+  materialIds?: ReadonlySet<string>;
 }
 type RuntimeShaderDefinition = z.infer<typeof runtimeShaderDefinitionSchema>;
 type RuntimeMaterialDefinition = z.infer<typeof runtimeMaterialDefinitionSchema>;
@@ -301,6 +302,7 @@ export async function buildShaderMaterialProject(
   }
 
   for (const [materialId, record] of Object.entries(project.materials)) {
+    if (options.materialIds && !options.materialIds.has(materialId)) continue;
     const resolution = resolveMaterialData(project, materialId);
     diagnostics.push(...resolution.diagnostics);
     const resolved = resolution.data;

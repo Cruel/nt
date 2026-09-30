@@ -9,6 +9,7 @@ import {
 } from '@/workbench/editor-registry';
 import { consumeWorkbenchRevealTarget } from '@/workbench/workbench-navigation';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useToolingActivityStore } from '@/workbench/tooling-activity-store';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
@@ -45,6 +46,7 @@ beforeEach(() => {
   usePreferencesStore.setState({ developerMode: false });
   useBottomPanelStore.getState().hydrate({ visible: true, activePanelId: 'problems' });
   useWorkbenchStore.getState().resetWorkbench();
+  useToolingActivityStore.getState().clear();
 });
 
 describe('BottomPanel', () => {
@@ -124,6 +126,7 @@ describe('BottomPanel', () => {
 
     expect(screen.queryByRole('button', { name: 'Shader Compile' })).not.toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Command History' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Tooling' })).not.toBeInTheDocument();
 
     act(() => {
       usePreferencesStore.setState({ developerMode: true });
@@ -131,6 +134,30 @@ describe('BottomPanel', () => {
 
     expect(screen.getByRole('button', { name: 'Shader Compile' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Command History' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Tooling' })).toBeInTheDocument();
+  });
+
+  it('keeps Tooling available in developer mode without a Project', () => {
+    useProjectStore.getState().clearProject();
+    act(() => {
+      usePreferencesStore.setState({ developerMode: true });
+      useToolingActivityStore.getState().add({
+        id: 'native-1',
+        layer: 'native',
+        operation: 'compile-shaders',
+        status: 'success',
+        startedAt: 1,
+        durationMs: 12,
+        detail: 'programs=1 variants=1',
+      });
+      useBottomPanelStore.getState().setActivePanelId('tooling');
+    });
+
+    render(<BottomPanel />);
+
+    expect(screen.getByRole('button', { name: 'Tooling' })).toHaveClass('bg-accent');
+    expect(screen.getByText('compile-shaders')).toBeInTheDocument();
+    expect(screen.getByText('programs=1 variants=1')).toBeInTheDocument();
   });
 
   it('falls back when a result-driven active panel is cleared', () => {

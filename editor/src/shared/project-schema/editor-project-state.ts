@@ -175,6 +175,7 @@ export const editorBottomPanelStateSchema = z
         'asset-performance',
         'command-history',
         'terminal',
+        'tooling',
       ])
       .default('problems'),
   })

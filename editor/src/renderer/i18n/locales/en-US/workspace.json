@@ -135,7 +135,8 @@
       "output": "No activity entries yet.",
       "previewEvents": "No Console entries yet.",
       "previewTrace": "No Trace entries yet.",
-      "problems": "No validation diagnostics."
+      "problems": "No validation diagnostics.",
+      "tooling": "No internal tooling calls yet."
     },
     "labels": {
       "commandHistory": "Command History",
@@ -149,7 +150,8 @@
       "references": "References",
       "shaderCompile": "Shader Compile",
       "testPlayback": "Test Playback",
-      "terminal": "Terminal"
+      "terminal": "Terminal",
+      "tooling": "Tooling"
     },
     "console": {
       "severityLabel": "Console severity",
@@ -192,6 +194,28 @@
       "historyGap_other": "Trace history gap: {{count}} records were evicted.",
       "frozen": "Trace view frozen; capture continues.",
       "noMatches": "No Trace entries match the filters."
+    },
+    "tooling": {
+      "layerLabel": "Tooling layer",
+      "statusLabel": "Tooling status",
+      "textFilterLabel": "Tooling text filter",
+      "layers": {
+        "all": "All layers",
+        "ipc": "IPC",
+        "native": "Native"
+      },
+      "statuses": {
+        "all": "All statuses",
+        "success": "Success",
+        "error": "Error"
+      },
+      "filterPlaceholder": "Filter tooling calls",
+      "freeze": "Freeze",
+      "unfreeze": "Unfreeze",
+      "autoscroll": "Autoscroll",
+      "clear": "Clear",
+      "frozen": "Tooling view frozen; capture continues.",
+      "noMatches": "No tooling calls match the filters."
     },
     "lastCommandDiagnostics": "Last command diagnostics",
     "toggle": "Toggle Bottom Panel"

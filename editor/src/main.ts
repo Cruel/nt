@@ -14,6 +14,7 @@ import {
 import fs from 'node:fs';
 import path from 'node:path';
 import { IPC_CHANNELS } from './shared/ipc-channels';
+import { setNovelTeaNativeOperationObserver } from './shared/noveltea-cli-subprocess';
 import { NOVELTEA_VERSION } from './shared/product-version';
 import { EnginePreviewServer } from './main/engine-preview-server';
 import {
@@ -286,6 +287,13 @@ app.commandLine.appendSwitch('ignore-gpu-blocklist');
 app.commandLine.appendSwitch('enable-unsafe-swiftshader');
 
 let mainWindow: BrowserWindow | null = null;
+
+function emitToolingActivity(record: import('./shared/tooling-activity').ToolingActivityRecord) {
+  if (!mainWindow || mainWindow.isDestroyed() || mainWindow.webContents.isDestroyed()) return;
+  mainWindow.webContents.send(IPC_CHANNELS.TOOLING_ACTIVITY_EVENT, record);
+}
+
+setNovelTeaNativeOperationObserver(emitToolingActivity);
 const pendingProjectImports: DesktopProjectImportRequest[] = [];
 
 function queueProjectImportArgument(argument: string, workingDirectory = process.cwd()): boolean {
@@ -838,6 +846,7 @@ void app.whenReady().then(async () => {
     },
     getOwner: () => mainWindow,
     documentPolicy: editorDocumentPolicy,
+    onInvocation: emitToolingActivity,
   });
 
   guardedIpc.handle(

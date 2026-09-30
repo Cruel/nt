@@ -128,6 +128,10 @@ function observationWithPublication(
 export class EditorRuntimeCacheService {
   private readonly fileSystem = new NodeProjectWorkspaceFileSystem();
   private readonly processLiveness = new NodeProjectWorkspaceProcessLiveness();
+  private readonly sessionLocalPlayCache = new Map<
+    string,
+    Promise<EditorRuntimePreparationResult>
+  >();
   constructor(
     private readonly invokeNative: (
       operation: string,
@@ -159,6 +163,27 @@ export class EditorRuntimeCacheService {
           options,
         }) as Promise<ShaderCompileResponse>,
     );
+  }
+
+  private sessionLocalPlayKey(
+    workspace: ActiveProjectWorkspaceSession,
+    project: AuthoringProject,
+    context: EditorRuntimeBuildContext,
+  ) {
+    return `${workspace.projectRoot()}\u0000${contextKey(context)}\u0000${runtimeProjectContentJson(project)}`;
+  }
+
+  private rememberSessionLocalPlay(
+    key: string,
+    value: Promise<EditorRuntimePreparationResult>,
+  ): Promise<EditorRuntimePreparationResult> {
+    this.sessionLocalPlayCache.set(key, value);
+    while (this.sessionLocalPlayCache.size > 8) {
+      const oldest = this.sessionLocalPlayCache.keys().next().value;
+      if (oldest === undefined) break;
+      this.sessionLocalPlayCache.delete(oldest);
+    }
+    return value;
   }
 
   private runtimePaths(projectRoot: string) {
@@ -313,25 +338,37 @@ export class EditorRuntimeCacheService {
       };
     }
     if (!this.currentRuntimeProjectMatchesSaved(workspace, project)) {
-      const prepared = await this.preparePreviewArtifact(
-        projectWithPreviewLocale(project),
-        workspace.projectRoot(),
-        shaderVariant,
-      );
-      if (prepared.status !== 'prepared') {
+      const previewProject = projectWithPreviewLocale(project);
+      const key = this.sessionLocalPlayKey(workspace, previewProject, context);
+      const cached = this.sessionLocalPlayCache.get(key);
+      if (cached) {
+        const result = await cached;
+        return result.status === 'prepared'
+          ? { ...result, cache: { ...result.cache, status: 'hit' } }
+          : result;
+      }
+      const pending = (async (): Promise<EditorRuntimePreparationResult> => {
+        const prepared = await this.preparePreviewArtifact(
+          previewProject,
+          workspace.projectRoot(),
+          shaderVariant,
+        );
+        if (prepared.status !== 'prepared') {
+          return {
+            status: 'blocked',
+            diagnostics: prepared.diagnostics,
+            buildContext: context,
+            cache: { scope: 'session-local', status: 'prepared' },
+          };
+        }
         return {
-          status: 'blocked',
-          diagnostics: prepared.diagnostics,
+          status: 'prepared',
+          artifact: prepared.artifact,
           buildContext: context,
           cache: { scope: 'session-local', status: 'prepared' },
         };
-      }
-      return {
-        status: 'prepared',
-        artifact: prepared.artifact,
-        buildContext: context,
-        cache: { scope: 'session-local', status: 'prepared' },
-      };
+      })();
+      return await this.rememberSessionLocalPlay(key, pending);
     }
 
     const snapshot = workspace.snapshot();

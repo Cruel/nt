@@ -138,7 +138,8 @@
       "output": "Ainda não há entradas de atividade.",
       "previewEvents": "Ainda não há entradas no Console.",
       "previewTrace": "Ainda não há entradas no Trace.",
-      "problems": "Nenhum diagnóstico de validação."
+      "problems": "Nenhum diagnóstico de validação.",
+      "tooling": "Ainda não há chamadas internas de ferramentas."
     },
     "labels": {
       "commandHistory": "Histórico de comandos",
@@ -152,7 +153,8 @@
       "references": "Referências",
       "shaderCompile": "Compilação de shaders",
       "testPlayback": "Reprodução de testes",
-      "terminal": "Terminal"
+      "terminal": "Terminal",
+      "tooling": "Ferramentas"
     },
     "console": {
       "severityLabel": "Severidade do Console",
@@ -195,6 +197,28 @@
       "historyGap_other": "Lacuna no histórico do Trace: {{count}} registros foram removidos da retenção.",
       "frozen": "Visualização do Trace congelada; a captura continua.",
       "noMatches": "Nenhuma entrada do Trace corresponde aos filtros."
+    },
+    "tooling": {
+      "layerLabel": "Camada de ferramentas",
+      "statusLabel": "Status das ferramentas",
+      "textFilterLabel": "Filtro de texto das ferramentas",
+      "layers": {
+        "all": "Todas as camadas",
+        "ipc": "IPC",
+        "native": "Nativo"
+      },
+      "statuses": {
+        "all": "Todos os status",
+        "success": "Sucesso",
+        "error": "Erro"
+      },
+      "filterPlaceholder": "Filtrar chamadas de ferramentas",
+      "freeze": "Congelar",
+      "unfreeze": "Descongelar",
+      "autoscroll": "Rolagem automática",
+      "clear": "Limpar",
+      "frozen": "Visualização de ferramentas congelada; a captura continua.",
+      "noMatches": "Nenhuma chamada de ferramenta corresponde aos filtros."
     },
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"

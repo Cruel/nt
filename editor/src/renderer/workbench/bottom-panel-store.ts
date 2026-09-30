@@ -12,7 +12,8 @@ export type BottomPanelId =
   | 'package-export'
   | 'asset-performance'
   | 'command-history'
-  | 'terminal';
+  | 'terminal'
+  | 'tooling';
 
 export interface BottomPanelWorkbenchContext {
   hasProject: boolean;
@@ -47,6 +48,7 @@ const packageExportAvailable = (context: BottomPanelWorkbenchContext) =>
   context.hasProject && context.hasPackageExport;
 const developerProjectAvailable = (context: BottomPanelWorkbenchContext) =>
   context.hasProject && context.developerMode;
+const developerAvailable = (context: BottomPanelWorkbenchContext) => context.developerMode;
 const previewRelevant = (context: BottomPanelWorkbenchContext) =>
   context.activeTabResourceKind === 'preview';
 
@@ -54,6 +56,7 @@ export const bottomPanelDefinitions: BottomPanelDefinition[] = [
   { id: 'problems', labelKey: 'bottomPanel.labels.problems', isAvailable: projectAvailable },
   { id: 'output', labelKey: 'bottomPanel.labels.output', isAvailable: globallyAvailable },
   { id: 'terminal', labelKey: 'bottomPanel.labels.terminal', isAvailable: globallyAvailable },
+  { id: 'tooling', labelKey: 'bottomPanel.labels.tooling', isAvailable: developerAvailable },
   {
     id: 'preview-events',
     labelKey: 'bottomPanel.labels.previewEvents',

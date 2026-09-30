@@ -431,6 +431,8 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
           recordMetadata: currentEditor.recordMetadata,
         }),
       ) as JsonValue;
+      const currentEditorState = toJsonValue((document as Record<string, unknown>).editor ?? null);
+      if (jsonValuesEqual(currentEditorState, serializedEditorState)) return document;
       return { ...cloneJsonValue(document), editor: serializedEditorState };
     };
     set({
