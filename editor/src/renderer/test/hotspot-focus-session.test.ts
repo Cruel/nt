@@ -8,10 +8,14 @@ import {
   setHotspotGeometryBounds,
   undoHotspotGeometry,
 } from '@/components/hotspots/hotspot-focus-session';
-import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
+import {
+  HOTSPOT_FOCUS_DRAFT_SCHEMA,
+  useHotspotFocusStore,
+} from '@/components/hotspots/hotspot-focus-store';
 import type { EditableHotspot } from '@/components/hotspots/hotspot-types';
 import { useProjectStore } from '@/project/project-store';
-import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { serializeDraftDirtyState, useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { tabCloseRequiresDirtyPrompt } from '@/workbench/close-guard-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
@@ -90,6 +94,31 @@ describe('Hotspot Focus session', () => {
     ]);
   });
 
+  it('preserves untouched concurrent geometry and rejects conflicting edits to the same shape', () => {
+    const initial = [hotspot('door'), { ...hotspot('window'), inputOrder: 1 }];
+    const draft = [
+      { ...initial[0], shape: { kind: 'rect' as const, bounds: movedBounds } },
+      initial[1],
+    ];
+    const externalWindowBounds = { x: 0.6, y: 0.1, width: 0.2, height: 0.2 };
+    const latest = [
+      initial[0],
+      { ...initial[1], shape: { kind: 'rect' as const, bounds: externalWindowBounds } },
+    ];
+
+    expect(
+      mergeHotspotFocusGeometry(initial, draft, latest)?.map((item) => item.shape?.bounds),
+    ).toEqual([movedBounds, externalWindowBounds]);
+
+    const conflictingDoorBounds = { x: 0.7, y: 0.2, width: 0.2, height: 0.2 };
+    expect(
+      mergeHotspotFocusGeometry(initial, draft, [
+        { ...initial[0], shape: { kind: 'rect' as const, bounds: conflictingDoorBounds } },
+        initial[1],
+      ]),
+    ).toBeNull();
+  });
+
   it('keeps Rectangle active after creation and exposes the edited draft to close resolution', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(projectWithRoomHotspot());
     const store = useHotspotFocusStore.getState();
@@ -111,6 +140,70 @@ describe('Hotspot Focus session', () => {
     expect(draft?.dirty).toBe(true);
     expect(draft?.apply).toBeTypeOf('function');
     expect(draft?.discard).toBeTypeOf('function');
+    expect(draft?.schema).toBe(HOTSPOT_FOCUS_DRAFT_SCHEMA);
+    expect(draft?.payload).toMatchObject({ schemaVersion: 1 });
+  });
+
+  it('serializes and restores a dirty Focus draft with live apply/discard callbacks', () => {
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithRoomHotspot());
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: null,
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+    const serialized = serializeDraftDirtyState(useDraftDirtyStore.getState());
+
+    useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useDraftDirtyStore.getState().restoreSerializedDrafts(serialized);
+
+    expect(
+      useHotspotFocusStore.getState().restore({
+        tabId: 'room-tab',
+        ownerKind: 'room',
+        ownerId: 'foyer',
+        assetId: null,
+        mode: 'rectangles',
+        items: [hotspot()],
+      }),
+    ).toBe(true);
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId['room-tab']?.history.present[0]?.shape
+        ?.bounds,
+    ).toEqual(movedBounds);
+    const restored = useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab'];
+    expect(restored?.apply).toBeTypeOf('function');
+    expect(restored?.discard).toBeTypeOf('function');
+  });
+
+  it('requires close resolution for a tab-local Focus draft even when a duplicate record view remains', () => {
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithRoomHotspot());
+    const workbench = useWorkbenchStore.getState();
+    const resource = {
+      kind: 'record' as const,
+      stableId: 'record:rooms:foyer',
+      collection: 'rooms',
+      entityId: 'foyer',
+    };
+    workbench.openTab({ id: 'room-a', title: 'Foyer A', editorType: 'room-detail', resource });
+    workbench.openTab({ id: 'room-b', title: 'Foyer B', editorType: 'room-detail', resource });
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-a',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: null,
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-a', 'door', movedBounds);
+
+    expect(tabCloseRequiresDirtyPrompt('room-a', new Set(['room-a']))).toBe(true);
   });
 
   it('commits all geometry edits as one project undo step', () => {

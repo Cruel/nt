@@ -1,5 +1,9 @@
 import { create } from 'zustand';
-import { useDraftDirtyStore, selectDraftDirtyByTabId } from './draft-dirty-store';
+import {
+  useDraftDirtyStore,
+  selectDraftDirtyByTabId,
+  selectDraftEntriesForTab,
+} from './draft-dirty-store';
 import { getTabDirtyState } from './dirty-state';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from './workbench-store';
@@ -52,7 +56,9 @@ export function tabCloseRequiresDirtyPrompt(
   const tab = workbench.tabsById[tabId];
   if (!tab) return false;
   const project = useProjectStore.getState();
-  const draftDirtyByTabId = selectDraftDirtyByTabId(useDraftDirtyStore.getState());
+  const draftStore = useDraftDirtyStore.getState();
+  const draftDirtyByTabId = selectDraftDirtyByTabId(draftStore);
+  if (selectDraftEntriesForTab(draftStore, tabId).some((entry) => entry.dirty)) return true;
   const pendingSaveUnitIds = selectPendingSaveUnitIds(usePendingInputStore.getState());
   const recoveryDirtySaveUnitIds = currentRecoveryDirtySaveUnitIds();
   const dirty = getTabDirtyState(

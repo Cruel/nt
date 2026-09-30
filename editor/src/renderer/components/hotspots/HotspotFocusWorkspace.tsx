@@ -107,9 +107,11 @@ export function HotspotFocusWorkspace({ tabId, projectAssets, createHotspot }: P
         const key = event.key.toLowerCase();
         if (key === 'z' && !event.shiftKey) {
           event.preventDefault();
+          event.stopPropagation();
           undo(tabId);
         } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
           event.preventDefault();
+          event.stopPropagation();
           redo(tabId);
         }
       }}

@@ -204,6 +204,13 @@ independent persistent dirty state. Serializable local drafts that remain for ot
 stored separately from project content; Project Settings uses authoritative commands plus
 field-level pending input instead of a whole-form draft.
 
+Hotspot Focus is one such tab-local serializable draft. Its versioned payload retains the Focus
+owner/source identity, initial and current geometry, selection/tool, and camera state. Recovery
+restores it only when the current schema/version and owning tab identity still match, then reattaches
+its live apply/discard callbacks. Because that draft belongs to a visual Focus session rather than
+the record save unit itself, closing that tab requires draft resolution even when another duplicate
+view of the same record remains open.
+
 Persisted tab and draft payloads are independent current-only contracts. Their owner restores a
 payload only when both the schema identity and `schemaVersion` exactly match its current declaration;
 unsupported state is discarded without a migration path.
