@@ -1174,4 +1174,188 @@ describe('Room placement commands', () => {
       'shared',
     ]);
   });
+
+  it('rejects non-image Assets for image-backed Prop and Environment Add', () => {
+    const project = createAuthoringProject();
+    project.assets.theme = {
+      id: 'theme',
+      label: 'Theme',
+      data: {
+        kind: 'audio',
+        source: { type: 'project-file', path: 'assets/audio/theme.mp3' },
+        aliases: [],
+        extension: '.mp3',
+        imageMetadata: null,
+      },
+    };
+    project.materials.surface = {
+      id: 'surface',
+      label: 'Surface',
+      data: defaultMaterialData('Surface'),
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    for (const payload of [
+      {
+        roomId: 'foyer',
+        kind: 'prop' as const,
+        assetId: 'theme',
+        point: { x: 0.5, y: 0.5 },
+      },
+      {
+        roomId: 'foyer',
+        kind: 'environment' as const,
+        assetId: 'theme',
+        materialId: 'surface',
+        point: { x: 0.5, y: 0.5 },
+      },
+    ]) {
+      const result = executeCommand(state, {
+        type: 'room.addPresentationContent',
+        payload,
+      });
+      expect(result.ok).toBe(false);
+      expect(result.state.document).toEqual(state.document);
+      expect(result.diagnostics).toEqual([
+        expect.objectContaining({ severity: 'error', message: expect.stringContaining('image') }),
+      ]);
+    }
+  });
+
+  it('places an explicitly selected existing Interactable Instance without creating another Instance', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass key',
+      data: defaultInteractableData('Brass key'),
+    };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+    );
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const result = executeCommand(state, {
+      type: 'room.addPresentationContent',
+      payload: {
+        roomId: 'foyer',
+        kind: 'interactable',
+        source: { kind: 'existing', instanceId: 'key-instance' },
+        point: { x: 0.65, y: 0.45 },
+      },
+    });
+
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+    const document = result.document as typeof project;
+    expect(Object.keys(document.interactableInstances)).toEqual(['key-instance']);
+    expect(document.interactableInstances['key-instance']?.location).toEqual({
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+    expect(document.rooms.foyer?.data.interactables).toEqual([
+      expect.objectContaining({
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+      }),
+    ]);
+  });
+
+  it('adds an existing same-Room Interactable Instance to an explicit placement without duplicating it', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass key',
+      data: defaultInteractableData('Brass key'),
+    };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+    );
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const result = executeCommand(state, {
+      type: 'room.addPresentationContent',
+      payload: {
+        roomId: 'foyer',
+        kind: 'interactable',
+        source: { kind: 'existing', instanceId: 'key-instance' },
+        placementId: 'shared',
+      },
+    });
+
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+    const document = result.document as typeof project;
+    expect(Object.keys(document.interactableInstances)).toEqual(['key-instance']);
+    expect(document.rooms.foyer?.data.placements).toHaveLength(1);
+    expect(document.rooms.foyer?.data.interactables).toEqual([
+      expect.objectContaining({
+        placementId: 'shared',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+      }),
+    ]);
+  });
+
+  it('adds another dedicated occurrence for an existing same-Room exact Instance with a unique occurrence ID', () => {
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass key',
+      data: defaultInteractableData('Brass key'),
+    };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'foyer' } } },
+    );
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'existing-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-instance',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'existing-placement',
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const state = createInitialCommandBusState(toJsonValue(project));
+
+    const result = executeCommand(state, {
+      type: 'room.addPresentationContent',
+      payload: {
+        roomId: 'foyer',
+        kind: 'interactable',
+        source: { kind: 'existing', instanceId: 'key-instance' },
+        point: { x: 0.7, y: 0.6 },
+      },
+    });
+
+    expect(result.ok, JSON.stringify(result.diagnostics)).toBe(true);
+    const document = result.document as typeof project;
+    expect(Object.keys(document.interactableInstances)).toEqual(['key-instance']);
+    expect(document.rooms.foyer?.data.interactables.map((item) => item.id)).toEqual([
+      'key-instance',
+      'key-instance-2',
+    ]);
+    expect(document.rooms.foyer?.data.placements).toHaveLength(2);
+  });
 });

@@ -814,7 +814,10 @@ const roomAddPresentationContentSchema = z.discriminatedUnion('kind', [
     kind: z.literal('interactable'),
     point: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
     placementId: entityIdSchema.optional(),
-    interactableId: entityIdSchema,
+    source: z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('new'), definitionId: entityIdSchema }),
+      z.object({ kind: z.literal('existing'), instanceId: entityIdSchema }),
+    ]),
   }),
   z.object({
     roomId: entityIdSchema,

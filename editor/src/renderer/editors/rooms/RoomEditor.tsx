@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useTranslation } from 'react-i18next';
 import { GameplayArchetypeControls } from '@/components/GameplayArchetypeControls';
 import { CollectionMasterDetail } from '@/components/collection-master-detail';
@@ -51,6 +51,7 @@ import {
   OwnerLocalPropertiesEditor,
   type OwnerPropertyTraitState,
 } from '@/components/properties/OwnerLocalPropertiesEditor';
+import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { HotspotFocusWorkspace } from '@/components/hotspots/HotspotFocusWorkspace';
 import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
@@ -83,7 +84,12 @@ import {
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
+import {
+  buildCommandPaletteItems,
+  filterSelectorItems,
+  type SelectorItem,
+} from '@/workspace/command-palette-search';
+import { escapeJsonPointerSegment } from '@/project/json-pointer';
 
 const roomPrecommitGameplayCommandKinds: readonly GameplayCommandKind[] = [
   'set-global-property',
@@ -122,12 +128,14 @@ import {
   type RoomData,
   type RoomEnvironmentData,
   type RoomExitData,
+  type RoomInteractableData,
   type RoomOverlayData,
+  type RoomPlacementData,
   type RoomPropData,
 } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
-import type { TextContent } from '../../../shared/project-schema/authoring-flow';
+import { inlineTextContent, type TextContent } from '../../../shared/project-schema/authoring-flow';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -191,6 +199,27 @@ type RoomEditorCategory =
   | 'contents'
   | 'properties'
   | 'behavior';
+
+type RoomAddSpatialTarget =
+  | { kind: 'drop' }
+  | { kind: 'point'; point: { x: number; y: number } }
+  | { kind: 'placement'; placementId: string };
+type RoomAddContent =
+  | { kind: 'placement' }
+  | {
+      kind: 'prop';
+      source: { kind: 'asset'; assetId: string } | { kind: 'material'; materialId: string };
+    }
+  | { kind: 'cast'; characterId: string }
+  | {
+      kind: 'interactable';
+      source: { kind: 'new'; definitionId: string } | { kind: 'existing'; instanceId: string };
+    }
+  | { kind: 'environment'; materialId: string; assetId?: string };
+
+type RoomAddRequest =
+  | { kind: 'prop' | 'cast' | 'interactable'; target: RoomAddSpatialTarget }
+  | { kind: 'environment'; target: RoomAddSpatialTarget; materialId?: string };
 
 function roomPresentationTargetForSelection(
   selection: RoomEditSelection,
@@ -529,10 +558,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [selectedPropIndex, setSelectedPropIndex] = useState(0);
   const [selectedEnvironmentIndex, setSelectedEnvironmentIndex] = useState(0);
   const [contentEntitySelector, setContentEntitySelector] = useState<{
-    kind: 'overlay-layout' | 'cast-character' | 'prop-asset' | 'environment-asset';
+    kind:
+      | 'overlay-layout'
+      | 'placement-layout'
+      | 'new-overlay-layout'
+      | 'cast-character'
+      | 'prop-asset'
+      | 'environment-asset';
     id: string;
   } | null>(null);
-  const [roomAddGhostActionId, setRoomAddGhostActionId] = useState<string | null>(null);
+  const [roomAddGhost, setRoomAddGhost] = useState<RoomAddContent | null>(null);
+  const [roomAddRequest, setRoomAddRequest] = useState<RoomAddRequest | null>(null);
+  const continueRoomAddSelectionRef = useRef(false);
   const [activeCategory, setActiveCategory] = useState<RoomEditorCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     const parsed = savedState ? parseRoomEditorTabState(savedState) : null;
@@ -687,10 +724,116 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       filterSelectorItems(selectorItems, { collections: ['characters'], includeActions: false }),
     [selectorItems],
   );
-  const assetSelectorItems = useMemo(
-    () => filterSelectorItems(selectorItems, { collections: ['assets'], includeActions: false }),
+  const materialSelectorItems = useMemo(
+    () =>
+      filterSelectorItems(selectorItems, {
+        collections: ['materials'],
+        includeActions: false,
+      }).filter(
+        (item) =>
+          item.entityId &&
+          project &&
+          resolveMaterialData(project, item.entityId).data?.role === 'engine-2d',
+      ),
+    [project, selectorItems],
+  );
+  const interactableDefinitionSelectorItems = useMemo(
+    () =>
+      filterSelectorItems(selectorItems, {
+        collections: ['interactables'],
+        includeActions: false,
+      }),
     [selectorItems],
   );
+  const compatibleInteractableInstanceItems = useMemo<SelectorItem[]>(
+    () =>
+      !project || !roomId
+        ? []
+        : Object.entries(project.interactableInstances).flatMap(([instanceId, instance]) => {
+            const compatible =
+              instance.location.kind === 'unplaced' ||
+              (instance.location.kind === 'room' && instance.location.room.$ref.id === roomId);
+            if (!compatible || !project.interactables[instance.definition.$ref.id]) return [];
+            const definition = project.interactables[instance.definition.$ref.id]!;
+            return [
+              {
+                id: `room-add:existing:${instanceId}`,
+                kind: 'record' as const,
+                title: t('roomEditor.compositionPane.editor.existingInstanceOption', {
+                  label: instance.editorLabel ?? instanceId,
+                }),
+                subtitle: t('roomEditor.compositionPane.editor.existingInstanceSubtitle', {
+                  definition: definition.label,
+                  id: instanceId,
+                }),
+                entityId: instanceId,
+                tags: [],
+                collectionTerms: [t('roomEditor.compositionPane.editor.interactableInstances')],
+                actionTerms: [],
+              },
+            ];
+          }),
+    [project, roomId, t],
+  );
+  const roomAddSelectorItems = useMemo<SelectorItem[]>(() => {
+    if (!roomAddRequest) return [];
+    switch (roomAddRequest.kind) {
+      case 'prop':
+        return [
+          ...imageAssetItems.map((item) => ({
+            ...item,
+            id: `room-add:asset:${item.id}`,
+            title: t('roomEditor.compositionPane.editor.imageOption', { label: item.title }),
+          })),
+          ...materialSelectorItems.map((item) => ({
+            ...item,
+            id: `room-add:material:${item.id}`,
+            title: t('roomEditor.compositionPane.editor.materialOption', { label: item.title }),
+          })),
+        ];
+      case 'cast':
+        return characterSelectorItems;
+      case 'interactable':
+        return [
+          ...interactableDefinitionSelectorItems.map((item) => ({
+            ...item,
+            id: `room-add:new:${item.id}`,
+            title: t('roomEditor.compositionPane.editor.newInstanceOption', { label: item.title }),
+          })),
+          ...compatibleInteractableInstanceItems,
+        ];
+      case 'environment':
+        return roomAddRequest.materialId
+          ? [
+              {
+                id: 'room-add:environment-no-image',
+                kind: 'record' as const,
+                title: t('roomEditor.compositionPane.editor.noImageOption'),
+                tags: [],
+                collectionTerms: [],
+                actionTerms: [],
+              },
+              ...imageAssetItems.map((item) => ({
+                ...item,
+                id: `room-add:environment-image:${item.id}`,
+                title: t('roomEditor.compositionPane.editor.imageOption', { label: item.title }),
+              })),
+            ]
+          : materialSelectorItems.map((item) => ({
+              ...item,
+              id: `room-add:environment-material:${item.id}`,
+              title: t('roomEditor.compositionPane.editor.materialOption', { label: item.title }),
+            }));
+    }
+  }, [
+    characterSelectorItems,
+    compatibleInteractableInstanceItems,
+    imageAssetItems,
+    interactableDefinitionSelectorItems,
+    materialSelectorItems,
+    roomAddRequest,
+    t,
+  ]);
   useWorkbenchEditorTabState<RoomEditorTabState>(
     tab.id,
     useMemo(
@@ -891,7 +1034,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     (nextMode: RoomPresentationMode) => {
       if (roomEditTransitioning || nextMode === presentationMode) return;
       setRoomEditGestureCancellationToken((value) => value + 1);
-      setRoomAddGhostActionId(null);
+      setRoomAddGhost(null);
+      setRoomAddRequest(null);
       if (nextMode === 'preview') {
         const remembered = visibleEditNavigation;
         setRememberedEditNavigation(remembered);
@@ -1153,18 +1297,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const selectedDestinationItem = roomItems.find(
     (item) => item.entityId === destinationSelectorExit?.target.$ref.id,
   );
-  const materials = Object.entries(project.materials).flatMap(([id, value]) =>
-    resolveMaterialData(project, id).data?.role === 'engine-2d' ? [{ id, label: value.label }] : [],
-  );
   const layouts = Object.entries(project.layouts).map(([id, value]) => ({
     id,
     label: value.label,
   }));
   const characters = Object.entries(project.characters).map(([id, value]) => ({
-    id,
-    label: value.label,
-  }));
-  const interactableDefinitions = Object.entries(project.interactables).map(([id, value]) => ({
     id,
     label: value.label,
   }));
@@ -1176,65 +1313,87 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     {
       id: 'prop',
       label: t('roomEditor.compositionPane.addProp'),
-      disabled: !assets[0] && !materials[0],
+      disabled: imageAssetItems.length === 0 && materialSelectorItems.length === 0,
     },
     {
       id: 'cast',
       label: t('roomEditor.compositionPane.addCast'),
-      disabled: !characters[0],
+      disabled: characterSelectorItems.length === 0,
     },
     {
       id: 'interactable',
       label: t('roomEditor.compositionPane.addInteractable'),
-      disabled: !interactableDefinitions[0],
+      disabled:
+        interactableDefinitionSelectorItems.length === 0 &&
+        compatibleInteractableInstanceItems.length === 0,
     },
     {
       id: 'environment',
       label: t('roomEditor.compositionPane.addEnvironment'),
-      disabled: !materials[0],
+      disabled: materialSelectorItems.length === 0,
     },
   ] as const;
   const executeRoomAdd = (
-    actionId: string,
+    content: RoomAddContent,
     target: { point: { x: number; y: number } } | { placementId: string },
   ) => {
     let payload: Record<string, unknown> | null = null;
-    switch (actionId) {
+    switch (content.kind) {
       case 'placement':
         if (!('point' in target)) return;
         payload = { kind: 'placement', point: target.point };
         break;
-      case 'prop':
-        if (!assets[0] && !materials[0]) return;
+      case 'prop': {
+        const source = content.source;
+        if (source.kind === 'asset') {
+          if (!imageAssetItems.some((item) => item.entityId === source.assetId)) return;
+        } else if (!materialSelectorItems.some((item) => item.entityId === source.materialId)) {
+          return;
+        }
         payload = {
           kind: 'prop',
           ...target,
-          ...(assets[0] ? { assetId: assets[0].id } : { materialId: materials[0]!.id }),
+          ...(source.kind === 'asset'
+            ? { assetId: source.assetId }
+            : { materialId: source.materialId }),
         };
         break;
+      }
       case 'cast':
-        if (!characters[0]) return;
-        payload = { kind: 'cast', ...target, characterId: characters[0].id };
+        if (!project.characters[content.characterId]) return;
+        payload = { kind: 'cast', ...target, characterId: content.characterId };
         break;
-      case 'interactable':
-        if (!interactableDefinitions[0]) return;
+      case 'interactable': {
+        const source = content.source;
+        if (source.kind === 'new') {
+          if (!project.interactables[source.definitionId]) return;
+        } else if (
+          !compatibleInteractableInstanceItems.some((item) => item.entityId === source.instanceId)
+        ) {
+          return;
+        }
         payload = {
           kind: 'interactable',
           ...target,
-          interactableId: interactableDefinitions[0].id,
+          source,
         };
         break;
+      }
       case 'environment':
-        if (!('point' in target) || !materials[0]) return;
+        if (
+          !('point' in target) ||
+          !materialSelectorItems.some((item) => item.entityId === content.materialId) ||
+          (content.assetId !== undefined &&
+            !imageAssetItems.some((item) => item.entityId === content.assetId))
+        )
+          return;
         payload = {
           kind: 'environment',
           point: target.point,
-          materialId: materials[0].id,
-          ...(assets[0] ? { assetId: assets[0].id } : {}),
+          materialId: content.materialId,
+          ...(content.assetId ? { assetId: content.assetId } : {}),
         };
         break;
-      default:
-        return;
     }
     executeRoomEditCommand(
       'room.addPresentationContent',
@@ -1242,6 +1401,124 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       payload,
     );
   };
+  const completeRoomAdd = (content: RoomAddContent, target: RoomAddSpatialTarget) => {
+    setRoomAddRequest(null);
+    if (target.kind === 'drop') {
+      setRoomAddGhost(content);
+      return;
+    }
+    setRoomAddGhost(null);
+    executeRoomAdd(
+      content,
+      target.kind === 'point' ? { point: target.point } : { placementId: target.placementId },
+    );
+  };
+  const beginRoomAdd = (actionId: string, target: RoomAddSpatialTarget) => {
+    if (
+      actionId !== 'placement' &&
+      actionId !== 'prop' &&
+      actionId !== 'cast' &&
+      actionId !== 'interactable' &&
+      actionId !== 'environment'
+    )
+      return;
+    setRoomAddGhost(null);
+    if (actionId === 'placement') {
+      if (target.kind === 'placement') return;
+      completeRoomAdd(
+        { kind: 'placement' },
+        target.kind === 'drop' ? target : { kind: 'point', point: target.point },
+      );
+      return;
+    }
+    setRoomAddRequest({ kind: actionId, target });
+  };
+  const selectRoomAddContent = (item: SelectorItem) => {
+    if (!roomAddRequest) return;
+    if (roomAddRequest.kind === 'environment' && roomAddRequest.materialId) {
+      if (item.id === 'room-add:environment-no-image') {
+        completeRoomAdd(
+          { kind: 'environment', materialId: roomAddRequest.materialId },
+          roomAddRequest.target,
+        );
+        return;
+      }
+      if (
+        !item.entityId ||
+        !item.id.startsWith('room-add:environment-image:') ||
+        !imageAssetItems.some((candidate) => candidate.entityId === item.entityId)
+      )
+        return;
+      completeRoomAdd(
+        {
+          kind: 'environment',
+          materialId: roomAddRequest.materialId,
+          assetId: item.entityId,
+        },
+        roomAddRequest.target,
+      );
+      return;
+    }
+    if (!item.entityId) return;
+    switch (roomAddRequest.kind) {
+      case 'prop':
+        if (item.id.startsWith('room-add:asset:')) {
+          if (!imageAssetItems.some((candidate) => candidate.entityId === item.entityId)) return;
+          completeRoomAdd(
+            { kind: 'prop', source: { kind: 'asset', assetId: item.entityId } },
+            roomAddRequest.target,
+          );
+          return;
+        }
+        if (!item.id.startsWith('room-add:material:')) return;
+        if (!materialSelectorItems.some((candidate) => candidate.entityId === item.entityId))
+          return;
+        completeRoomAdd(
+          { kind: 'prop', source: { kind: 'material', materialId: item.entityId } },
+          roomAddRequest.target,
+        );
+        return;
+      case 'cast':
+        if (!project.characters[item.entityId]) return;
+        completeRoomAdd({ kind: 'cast', characterId: item.entityId }, roomAddRequest.target);
+        return;
+      case 'interactable':
+        if (item.id.startsWith('room-add:existing:')) {
+          if (!compatibleInteractableInstanceItems.some((candidate) => candidate.id === item.id))
+            return;
+          completeRoomAdd(
+            { kind: 'interactable', source: { kind: 'existing', instanceId: item.entityId } },
+            roomAddRequest.target,
+          );
+          return;
+        }
+        if (!item.id.startsWith('room-add:new:') || !project.interactables[item.entityId]) return;
+        completeRoomAdd(
+          { kind: 'interactable', source: { kind: 'new', definitionId: item.entityId } },
+          roomAddRequest.target,
+        );
+        return;
+      case 'environment':
+        if (
+          !item.id.startsWith('room-add:environment-material:') ||
+          !materialSelectorItems.some((candidate) => candidate.entityId === item.entityId)
+        )
+          return;
+        continueRoomAddSelectionRef.current = true;
+        setRoomAddRequest({ ...roomAddRequest, materialId: item.entityId });
+        return;
+    }
+  };
+  const roomAddSelectorTitle =
+    roomAddRequest?.kind === 'prop'
+      ? t('roomEditor.compositionPane.editor.choosePropSource')
+      : roomAddRequest?.kind === 'cast'
+        ? t('roomEditor.compositionPane.editor.chooseCharacter')
+        : roomAddRequest?.kind === 'interactable'
+          ? t('roomEditor.compositionPane.editor.chooseInteractable')
+          : roomAddRequest?.kind === 'environment' && roomAddRequest.materialId
+            ? t('roomEditor.compositionPane.editor.chooseEnvironmentImage')
+            : t('roomEditor.compositionPane.editor.chooseEnvironmentMaterial');
   const scripts = Object.entries(project.scripts).map(([id, value]) => ({
     id,
     label: value.label,
@@ -1288,6 +1565,71 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       },
       'Update room environment',
     );
+  const replaceInteractableOccurrence = (id: string, patch: Partial<RoomInteractableData>) =>
+    commit(
+      {
+        ...data,
+        interactables: data.interactables.map((entry) =>
+          entry.id === id ? { ...entry, ...patch } : entry,
+        ),
+      },
+      'Update room Interactable occurrence',
+    );
+  const replacePlacement = (id: string, patch: Partial<RoomPlacementData>, label: string) =>
+    commit(
+      {
+        ...data,
+        placements: data.placements.map((placement) =>
+          placement.id === id ? { ...placement, ...patch } : placement,
+        ),
+      },
+      label,
+    );
+  const commitInteractableInstance = (
+    instanceId: string,
+    instance: (typeof project.interactableInstances)[string],
+    change?: { kind: 'rename'; fromId: string; toId: string },
+  ) =>
+    useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: 'Update Interactable Instance Properties',
+      payload: [
+        {
+          op: 'replace',
+          path: `/interactableInstances/${escapeJsonPointerSegment(instanceId)}`,
+          value: instance,
+        },
+        ...(change
+          ? renameOwnerLocalPropertyReferencePatches(
+              project,
+              { kind: 'interactable', id: instanceId },
+              change.fromId,
+              change.toId,
+            )
+          : []),
+      ],
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+  const renameRoomHotspot = (hotspotId: string, nextId: string) => {
+    const result = executeHotspot('room.renameHotspot', 'Rename room hotspot', {
+      hotspotId,
+      nextId,
+    });
+    if (!result.ok) return;
+    setRoomSelection((current) =>
+      current.map((selection) =>
+        selection.kind === 'hotspot' && selection.id === hotspotId
+          ? { kind: 'hotspot', id: nextId }
+          : selection,
+      ),
+    );
+    setHotspotView((current) => ({
+      ...current,
+      selectedHotspotId:
+        current.selectedHotspotId === hotspotId ? nextId : current.selectedHotspotId,
+    }));
+  };
   const effectiveRoomPropertyCount = new Set([
     ...(record.localProperties ?? []).map((property) => property.id),
     ...(inheritedPropertyConfiguration?.defaultProperties ?? []).map((property) => property.id),
@@ -1520,11 +1862,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     </div>
   );
   const contentEntitySelectorItems =
-    contentEntitySelector?.kind === 'overlay-layout'
+    contentEntitySelector?.kind === 'overlay-layout' ||
+    contentEntitySelector?.kind === 'placement-layout' ||
+    contentEntitySelector?.kind === 'new-overlay-layout'
       ? layoutSelectorItems
       : contentEntitySelector?.kind === 'cast-character'
         ? characterSelectorItems
-        : assetSelectorItems;
+        : imageAssetItems;
   const contentEntitySelectorCurrentEntityId = (() => {
     if (!contentEntitySelector) return null;
     switch (contentEntitySelector.kind) {
@@ -1532,6 +1876,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         return (
           data.overlays.find((item) => item.id === contentEntitySelector.id)?.layout.$ref.id ?? null
         );
+      case 'placement-layout':
+        return (
+          data.placements.find((item) => item.id === contentEntitySelector.id)?.presentation.layout
+            ?.$ref.id ?? null
+        );
+      case 'new-overlay-layout':
+        return null;
       case 'cast-character':
         return (
           data.cast.find((item) => item.id === contentEntitySelector.id)?.character.$ref.id ?? null
@@ -1548,7 +1899,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     }
   })();
   const contentEntitySelectorTitle =
-    contentEntitySelector?.kind === 'overlay-layout'
+    contentEntitySelector?.kind === 'overlay-layout' ||
+    contentEntitySelector?.kind === 'placement-layout' ||
+    contentEntitySelector?.kind === 'new-overlay-layout'
       ? 'Choose Layout'
       : contentEntitySelector?.kind === 'cast-character'
         ? 'Choose Character'
@@ -1559,6 +1912,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     )?.id ?? null;
   const renderRoomSelectionInspector = (selection: RoomEditSelection) => {
     const fields: Array<{ label: string; value: string }> = [];
+    let semanticEditor: ReactNode = null;
     switch (selection.kind) {
       case 'placement': {
         const placement = data.placements.find((item) => item.id === selection.id);
@@ -1577,6 +1931,148 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               label: t('roomEditor.compositionPane.inspectorLayout'),
               value: placement.presentation.layout?.$ref.id ?? '—',
             },
+          );
+          semanticEditor = (
+            <div className="space-y-3 border-t pt-3">
+              <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-4">
+                {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                  <div key={field} className="space-y-1">
+                    <Label htmlFor={`room-placement-${placement.id}-${field}`}>
+                      {t('roomEditor.compositionPane.editor.boundsField', { field })}
+                    </Label>
+                    <Input
+                      id={`room-placement-${placement.id}-${field}`}
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={placement.bounds[field]}
+                      onChange={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (
+                          !Number.isFinite(value) ||
+                          value < 0 ||
+                          value > 1 ||
+                          ((field === 'width' || field === 'height') && value <= 0)
+                        )
+                          return;
+                        executeRoomEditCommand(
+                          'room.setPlacementBounds',
+                          'Update Room placement bounds',
+                          {
+                            placementId: placement.id,
+                            bounds: { ...placement.bounds, [field]: value },
+                          },
+                        );
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="space-y-1.5">
+                <div className="flex items-center justify-between gap-2">
+                  <Label>{t('roomEditor.compositionPane.inspectorLabel')}</Label>
+                  {placement.presentation.label ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        replacePlacement(
+                          placement.id,
+                          {
+                            presentation: {
+                              ...placement.presentation,
+                              label: null,
+                            } as RoomPlacementData['presentation'],
+                          },
+                          'Clear Room placement label',
+                        )
+                      }
+                    >
+                      {t('roomEditor.compositionPane.editor.clear')}
+                    </Button>
+                  ) : null}
+                </div>
+                {placement.presentation.label ? (
+                  <TextContentEditor
+                    value={placement.presentation.label}
+                    onChange={(label) =>
+                      replacePlacement(
+                        placement.id,
+                        {
+                          presentation: {
+                            ...placement.presentation,
+                            label,
+                          } as RoomPlacementData['presentation'],
+                        },
+                        'Update Room placement label',
+                      )
+                    }
+                  />
+                ) : (
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() =>
+                      replacePlacement(
+                        placement.id,
+                        {
+                          presentation: {
+                            ...placement.presentation,
+                            label: inlineTextContent(''),
+                          } as RoomPlacementData['presentation'],
+                        },
+                        'Add Room placement label',
+                      )
+                    }
+                  >
+                    {t('roomEditor.compositionPane.editor.addLabel')}
+                  </Button>
+                )}
+              </div>
+              <div className="space-y-1">
+                <Label>{t('roomEditor.compositionPane.editor.attachedLayout')}</Label>
+                <div className="flex gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="min-w-0 flex-1 justify-start font-normal"
+                    onClick={() =>
+                      setContentEntitySelector({ kind: 'placement-layout', id: placement.id })
+                    }
+                  >
+                    {placement.presentation.layout
+                      ? (project.layouts[placement.presentation.layout.$ref.id]?.label ??
+                        placement.presentation.layout.$ref.id)
+                      : t('roomEditor.compositionPane.editor.chooseLayout')}
+                  </Button>
+                  {placement.presentation.layout ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() =>
+                        replacePlacement(
+                          placement.id,
+                          {
+                            presentation: {
+                              label: placement.presentation.label,
+                              layout: null,
+                            },
+                          },
+                          'Detach Room placement Layout',
+                        )
+                      }
+                    >
+                      {t('roomEditor.compositionPane.editor.clear')}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+            </div>
           );
         }
         break;
@@ -1598,6 +2094,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               label: t('roomEditor.compositionPane.inspectorOrder'),
               value: String(placement.presentation.layoutOrder),
             },
+          );
+          semanticEditor = (
+            <div className="space-y-1 border-t pt-3">
+              <Label>{t('roomEditor.compositionPane.editor.attachedLayout')}</Label>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                className="w-full justify-start font-normal"
+                onClick={() =>
+                  setContentEntitySelector({ kind: 'placement-layout', id: placement.id })
+                }
+              >
+                {project.layouts[placement.presentation.layout.$ref.id]?.label ??
+                  placement.presentation.layout.$ref.id}
+              </Button>
+            </div>
           );
         }
         break;
@@ -1631,6 +2144,66 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               value: String(occurrence.order),
             },
           );
+          semanticEditor = (
+            <div className="space-y-3 border-t pt-3">
+              <div className="grid gap-2 @3xl:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.inspectorPlacement')}</Label>
+                  <Select
+                    items={data.placements.map((item) => ({ value: item.id, label: item.id }))}
+                    value={occurrence.placementId}
+                    onValueChange={(value) =>
+                      replaceInteractableOccurrence(occurrence.id, {
+                        placementId: String(value),
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {data.placements.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="flex items-end gap-2 pb-2">
+                  <input
+                    type="checkbox"
+                    checked={occurrence.visible}
+                    onChange={(event) =>
+                      replaceInteractableOccurrence(occurrence.id, {
+                        visible: event.currentTarget.checked,
+                      })
+                    }
+                  />
+                  {t('roomEditor.compositionPane.editor.visible')}
+                </label>
+              </div>
+              <RecursiveConditionEditor
+                value={occurrence.condition}
+                project={project}
+                scope={{ currentRoom: true }}
+                onChange={(condition) =>
+                  replaceInteractableOccurrence(occurrence.id, { condition })
+                }
+              />
+              {instance ? (
+                <InteractableInstancePropertiesEditor
+                  compact
+                  project={project}
+                  instanceId={occurrence.interactable.$ref.id}
+                  instance={instance}
+                  onChange={(next, change) =>
+                    commitInteractableInstance(occurrence.interactable.$ref.id, next, change)
+                  }
+                />
+              ) : null}
+            </div>
+          );
         }
         break;
       }
@@ -1655,6 +2228,89 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               label: t('roomEditor.compositionPane.inspectorOrder'),
               value: String(occurrence.order),
             },
+          );
+          semanticEditor = (
+            <div className="space-y-3 border-t pt-3">
+              <div className="grid gap-2 @3xl:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.inspectorPlacement')}</Label>
+                  <Select
+                    items={data.placements.map((item) => ({ value: item.id, label: item.id }))}
+                    value={occurrence.placementId}
+                    onValueChange={(value) =>
+                      replaceProp(occurrence.id, { placementId: String(value) })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {data.placements.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="flex items-end gap-2 pb-2">
+                  <input
+                    type="checkbox"
+                    checked={occurrence.visible}
+                    onChange={(event) =>
+                      replaceProp(occurrence.id, { visible: event.currentTarget.checked })
+                    }
+                  />
+                  {t('roomEditor.compositionPane.editor.visible')}
+                </label>
+              </div>
+              <div className="space-y-1">
+                <Label>{t('roomEditor.compositionPane.editor.imageAsset')}</Label>
+                <div className="flex gap-1">
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="min-w-0 flex-1 justify-start font-normal"
+                    onClick={() =>
+                      setContentEntitySelector({ kind: 'prop-asset', id: occurrence.id })
+                    }
+                  >
+                    {occurrence.asset
+                      ? (project.assets[occurrence.asset.$ref.id]?.label ??
+                        occurrence.asset.$ref.id)
+                      : t('roomEditor.compositionPane.editor.chooseImage')}
+                  </Button>
+                  {occurrence.asset ? (
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="ghost"
+                      onClick={() => replaceProp(occurrence.id, { asset: null })}
+                    >
+                      {t('roomEditor.compositionPane.editor.clear')}
+                    </Button>
+                  ) : null}
+                </div>
+              </div>
+              <MaterialApplicationEditor
+                project={project}
+                value={occurrence.materialApplication}
+                expectedRole="engine-2d"
+                properties={roomMaterialProperties}
+                ariaLabel={`Room prop ${occurrence.id} Material`}
+                overrideLabel="Prop override"
+                onChange={(materialApplication) =>
+                  replaceProp(occurrence.id, { materialApplication })
+                }
+              />
+              <RecursiveConditionEditor
+                value={occurrence.condition}
+                project={project}
+                scope={{ currentRoom: true }}
+                onChange={(condition) => replaceProp(occurrence.id, { condition })}
+              />
+            </div>
           );
         }
         break;
@@ -1681,6 +2337,85 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               value: String(occurrence.order),
             },
           );
+          semanticEditor = (
+            <div className="space-y-3 border-t pt-3">
+              <div className="grid gap-2 @3xl:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.inspectorCharacter')}</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full justify-start font-normal"
+                    onClick={() =>
+                      setContentEntitySelector({ kind: 'cast-character', id: occurrence.id })
+                    }
+                  >
+                    {project.characters[occurrence.character.$ref.id]?.label ??
+                      occurrence.character.$ref.id}
+                  </Button>
+                </div>
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.inspectorPlacement')}</Label>
+                  <Select
+                    items={data.placements.map((item) => ({ value: item.id, label: item.id }))}
+                    value={occurrence.placementId}
+                    onValueChange={(value) =>
+                      replaceCast(occurrence.id, { placementId: String(value) })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {data.placements.map((item) => (
+                        <SelectItem key={item.id} value={item.id}>
+                          {item.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <label className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  checked={occurrence.visible}
+                  onChange={(event) =>
+                    replaceCast(occurrence.id, { visible: event.currentTarget.checked })
+                  }
+                />
+                {t('roomEditor.compositionPane.editor.visible')}
+              </label>
+              <div className="grid gap-2 @3xl:grid-cols-3">
+                {(
+                  [
+                    ['poseId', t('roomEditor.compositionPane.editor.poseId')],
+                    ['expressionId', t('roomEditor.compositionPane.editor.expressionId')],
+                    ['idleId', t('roomEditor.compositionPane.editor.idleId')],
+                  ] as const
+                ).map(([field, label]) => (
+                  <div key={field} className="space-y-1">
+                    <Label>{label}</Label>
+                    <Input
+                      value={occurrence[field] ?? ''}
+                      onChange={(event) =>
+                        replaceCast(occurrence.id, {
+                          [field]: event.currentTarget.value || null,
+                        })
+                      }
+                    />
+                  </div>
+                ))}
+              </div>
+              <RecursiveConditionEditor
+                value={occurrence.condition}
+                project={project}
+                scope={{ currentRoom: true }}
+                onChange={(condition) => replaceCast(occurrence.id, { condition })}
+              />
+            </div>
+          );
         }
         break;
       }
@@ -1703,6 +2438,200 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               value: occurrence.asset?.$ref.id ?? '—',
             },
           );
+          semanticEditor = (
+            <div className="space-y-3 border-t pt-3">
+              <div className="grid gap-2 @3xl:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.editor.imageAsset')}</Label>
+                  <div className="flex gap-1">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      className="min-w-0 flex-1 justify-start font-normal"
+                      onClick={() =>
+                        setContentEntitySelector({ kind: 'environment-asset', id: occurrence.id })
+                      }
+                    >
+                      {occurrence.asset
+                        ? (project.assets[occurrence.asset.$ref.id]?.label ??
+                          occurrence.asset.$ref.id)
+                        : t('roomEditor.compositionPane.editor.chooseImage')}
+                    </Button>
+                    {occurrence.asset ? (
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        onClick={() => replaceEnvironment(occurrence.id, { asset: null })}
+                      >
+                        {t('roomEditor.compositionPane.editor.clear')}
+                      </Button>
+                    ) : null}
+                  </div>
+                </div>
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.inspectorPlane')}</Label>
+                  <Select
+                    items={roomEnvironmentPlaneValues.map((plane) => ({
+                      value: plane,
+                      label: plane,
+                    }))}
+                    value={occurrence.plane}
+                    onValueChange={(value) => {
+                      const plane = value as RoomEnvironmentData['plane'];
+                      if (plane === occurrence.plane) return;
+                      const allocated = allocateRoomPresentationOrder(data, plane);
+                      commit(
+                        {
+                          ...allocated.room,
+                          environments: allocated.room.environments.map((environment) =>
+                            environment.id === occurrence.id
+                              ? { ...environment, plane, order: allocated.order }
+                              : environment,
+                          ),
+                        },
+                        'Update room environment plane',
+                      );
+                    }}
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roomEnvironmentPlaneValues.map((plane) => (
+                        <SelectItem key={plane} value={plane}>
+                          {plane}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <MaterialApplicationEditor
+                project={project}
+                value={occurrence.materialApplication}
+                expectedRole="engine-2d"
+                properties={roomMaterialProperties}
+                ariaLabel={`Room environment ${occurrence.id} Material`}
+                overrideLabel="Environment override"
+                allowClear={false}
+                onChange={(materialApplication) => {
+                  if (materialApplication)
+                    replaceEnvironment(occurrence.id, { materialApplication });
+                }}
+              />
+              <div className="grid gap-2 @3xl:grid-cols-3">
+                <label className="flex items-center gap-2">
+                  <input
+                    type="checkbox"
+                    checked={occurrence.visible}
+                    onChange={(event) =>
+                      replaceEnvironment(occurrence.id, { visible: event.currentTarget.checked })
+                    }
+                  />
+                  {t('roomEditor.compositionPane.editor.visible')}
+                </label>
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.editor.opacity')}</Label>
+                  <Input
+                    type="number"
+                    min={0}
+                    max={1}
+                    step={0.05}
+                    value={occurrence.opacity}
+                    onChange={(event) => {
+                      const opacity = Number(event.currentTarget.value);
+                      if (!Number.isFinite(opacity) || opacity < 0 || opacity > 1) return;
+                      replaceEnvironment(occurrence.id, { opacity });
+                    }}
+                  />
+                </div>
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.editor.clock')}</Label>
+                  <Select
+                    items={roomEnvironmentClockValues.map((clock) => ({
+                      value: clock,
+                      label: clock,
+                    }))}
+                    value={occurrence.clock}
+                    onValueChange={(value) =>
+                      replaceEnvironment(occurrence.id, {
+                        clock: value as RoomEnvironmentData['clock'],
+                      })
+                    }
+                  >
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {roomEnvironmentClockValues.map((clock) => (
+                        <SelectItem key={clock} value={clock}>
+                          {clock}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-4">
+                {(['x', 'y', 'width', 'height'] as const).map((field) => (
+                  <div key={field} className="space-y-1">
+                    <Label>{t('roomEditor.compositionPane.editor.boundsField', { field })}</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={occurrence.bounds[field]}
+                      onChange={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (
+                          !Number.isFinite(value) ||
+                          value < 0 ||
+                          value > 1 ||
+                          ((field === 'width' || field === 'height') && value <= 0)
+                        )
+                          return;
+                        replaceEnvironment(occurrence.id, {
+                          bounds: { ...occurrence.bounds, [field]: value },
+                        });
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <div className="grid gap-2 @3xl:grid-cols-2">
+                {(['x', 'y'] as const).map((axis) => (
+                  <div key={axis} className="space-y-1">
+                    <Label>
+                      {t('roomEditor.compositionPane.editor.scrollPerSecond', {
+                        axis: axis.toUpperCase(),
+                      })}
+                    </Label>
+                    <Input
+                      type="number"
+                      step={0.01}
+                      value={occurrence.scrollPerSecond[axis]}
+                      onChange={(event) => {
+                        const value = Number(event.currentTarget.value);
+                        if (!Number.isFinite(value)) return;
+                        replaceEnvironment(occurrence.id, {
+                          scrollPerSecond: { ...occurrence.scrollPerSecond, [axis]: value },
+                        });
+                      }}
+                    />
+                  </div>
+                ))}
+              </div>
+              <RecursiveConditionEditor
+                value={occurrence.condition}
+                project={project}
+                scope={{ currentRoom: true }}
+                onChange={(condition) => replaceEnvironment(occurrence.id, { condition })}
+              />
+            </div>
+          );
         }
         break;
       }
@@ -1720,6 +2649,42 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               value: overlay.layout.$ref.id,
             },
             { label: t('roomEditor.compositionPane.inspectorOrder'), value: String(overlay.order) },
+          );
+          semanticEditor = (
+            <div className="space-y-3 border-t pt-3">
+              <div className="grid gap-2 @3xl:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.inspectorLayout')}</Label>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    className="w-full justify-start font-normal"
+                    onClick={() =>
+                      setContentEntitySelector({ kind: 'overlay-layout', id: overlay.id })
+                    }
+                  >
+                    {project.layouts[overlay.layout.$ref.id]?.label ?? overlay.layout.$ref.id}
+                  </Button>
+                </div>
+                <label className="flex items-end gap-2 pb-2">
+                  <input
+                    type="checkbox"
+                    checked={overlay.visible}
+                    onChange={(event) =>
+                      replaceOverlay(overlay.id, { visible: event.currentTarget.checked })
+                    }
+                  />
+                  {t('roomEditor.compositionPane.editor.visible')}
+                </label>
+              </div>
+              <RecursiveConditionEditor
+                value={overlay.condition}
+                project={project}
+                scope={{ currentRoom: true }}
+                onChange={(condition) => replaceOverlay(overlay.id, { condition })}
+              />
+            </div>
           );
         }
         break;
@@ -1749,9 +2714,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             onDelete={(hotspotId) =>
               executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
             }
-            onRename={(hotspotId, nextId) =>
-              executeHotspot('room.renameHotspot', 'Rename room hotspot', { hotspotId, nextId })
-            }
+            onRename={renameRoomHotspot}
             onUpdate={(hotspotId, nextHotspot) =>
               executeHotspot('room.updateHotspot', 'Update room hotspot', {
                 hotspotId,
@@ -1788,6 +2751,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
           ))}
         </dl>
+        {semanticEditor}
         {presentationOrder ? (
           <div className="space-y-2 border-t pt-3" data-testid="room-presentation-order-controls">
             <div className="grid grid-cols-2 gap-1">
@@ -1983,9 +2947,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     })
                   }
                   addActions={roomAddActions}
-                  pendingAddActionId={roomAddGhostActionId}
-                  onPendingAddActionCancel={() => setRoomAddGhostActionId(null)}
-                  onAddAtPoint={(actionId, point) => executeRoomAdd(actionId, { point })}
+                  pendingAddActionId={roomAddGhost?.kind ?? null}
+                  onPendingAddActionCancel={() => setRoomAddGhost(null)}
+                  onAddAtPoint={(actionId, point) => {
+                    if (roomAddGhost && roomAddGhost.kind === actionId) {
+                      executeRoomAdd(roomAddGhost, { point });
+                      setRoomAddGhost(null);
+                      return;
+                    }
+                    beginRoomAdd(actionId, { kind: 'point', point });
+                  }}
                   onSurfaceElementChange={handleRoomEditSurfaceElementChange}
                 />
               </div>
@@ -2259,9 +3230,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               onDelete={(hotspotId) =>
                 executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
               }
-              onRename={(hotspotId, nextId) =>
-                executeHotspot('room.renameHotspot', 'Rename room hotspot', { hotspotId, nextId })
-              }
+              onRename={renameRoomHotspot}
               onUpdate={(hotspotId, hotspot) =>
                 executeHotspot('room.updateHotspot', 'Update room hotspot', { hotspotId, hotspot })
               }
@@ -3077,9 +4046,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
                 renderInspector={renderRoomSelectionInspector}
                 addActions={roomAddActions}
-                onBeginAdd={(actionId) => setRoomAddGhostActionId(actionId)}
+                onBeginAdd={(actionId) => beginRoomAdd(actionId, { kind: 'drop' })}
                 onAddToPlacement={(actionId, placementId) =>
-                  executeRoomAdd(actionId, { placementId })
+                  beginRoomAdd(actionId, { kind: 'placement', placementId })
                 }
                 onDeleteSelection={deleteCurrentRoomSelection}
                 bulkStackingActions={
@@ -3124,31 +4093,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 label: 'Add overlay',
                 icon: <Plus className="size-3.5" aria-hidden="true" />,
                 disabled: layouts.length === 0,
-                onClick: () => {
-                  const layout = layouts[0];
-                  if (!layout) return;
-                  const allocated = allocateRoomPresentationOrder(data, 'world-overlay');
-                  setSelectedOverlayIndex(data.overlays.length);
-                  commit(
-                    {
-                      ...allocated.room,
-                      overlays: [
-                        ...allocated.room.overlays,
-                        {
-                          id: nextId(
-                            data.overlays.map((overlay) => overlay.id),
-                            'overlay',
-                          ),
-                          layout: roomLayoutRef(layout.id),
-                          condition: { kind: 'always' },
-                          visible: true,
-                          order: allocated.order,
-                        },
-                      ],
-                    },
-                    'Add room overlay',
-                  );
-                },
+                onClick: () =>
+                  setContentEntitySelector({ kind: 'new-overlay-layout', id: 'new-overlay' }),
               }}
               getDeleteLabel={(overlay) => `Delete overlay ${overlay.id}`}
               onDeleteItem={(_, index) => {
@@ -3217,11 +4163,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               listAction={{
                 label: 'Add cast',
                 icon: <Plus className="size-3.5" aria-hidden="true" />,
-                disabled: !characters[0],
+                disabled: characterSelectorItems.length === 0,
                 onClick: () => {
-                  if (!characters[0]) return;
                   setSelectedCastIndex(data.cast.length);
-                  executeRoomAdd('cast', { point: { x: 0.5, y: 0.5 } });
+                  beginRoomAdd('cast', { kind: 'point', point: { x: 0.5, y: 0.5 } });
                 },
               }}
               getDeleteLabel={(entry) => `Delete cast entry ${entry.id}`}
@@ -3346,10 +4291,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               listAction={{
                 label: 'Add prop',
                 icon: <Plus className="size-3.5" aria-hidden="true" />,
-                disabled: !assets[0] && !materials[0],
+                disabled: imageAssetItems.length === 0 && materialSelectorItems.length === 0,
                 onClick: () => {
                   setSelectedPropIndex(data.props.length);
-                  executeRoomAdd('prop', { point: { x: 0.5, y: 0.5 } });
+                  beginRoomAdd('prop', { kind: 'point', point: { x: 0.5, y: 0.5 } });
                 },
               }}
               getDeleteLabel={(entry) => `Delete prop ${entry.id}`}
@@ -3460,12 +4405,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               listAction={{
                 label: 'Add environment',
                 icon: <Plus className="size-3.5" aria-hidden="true" />,
-                disabled: !materials[0],
+                disabled: materialSelectorItems.length === 0,
                 onClick: () => {
-                  const material = materials[0];
-                  if (!material) return;
                   setSelectedEnvironmentIndex(data.environments.length);
-                  executeRoomAdd('environment', { point: { x: 0.5, y: 0.5 } });
+                  beginRoomAdd('environment', {
+                    kind: 'point',
+                    point: { x: 0.5, y: 0.5 },
+                  });
                 },
               }}
               getDeleteLabel={(entry) => `Delete environment ${entry.id}`}
@@ -3797,6 +4743,22 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ) : null}
 
         <SearchSelectorDialog
+          open={roomAddRequest !== null}
+          title={roomAddSelectorTitle}
+          placeholder={t('roomEditor.compositionPane.editor.searchCompatibleContent')}
+          emptyMessage={t('roomEditor.compositionPane.editor.noCompatibleContent')}
+          items={roomAddSelectorItems}
+          onOpenChange={(open) => {
+            if (open) return;
+            if (continueRoomAddSelectionRef.current) {
+              continueRoomAddSelectionRef.current = false;
+              return;
+            }
+            setRoomAddRequest(null);
+          }}
+          onSelect={selectRoomAddContent}
+        />
+        <SearchSelectorDialog
           open={contentEntitySelector !== null}
           title={contentEntitySelectorTitle}
           placeholder="Search project entities..."
@@ -3812,6 +4774,72 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               case 'overlay-layout':
                 replaceOverlay(contentEntitySelector.id, { layout: roomLayoutRef(item.entityId) });
                 break;
+              case 'placement-layout': {
+                const layoutId = item.entityId;
+                const placement = data.placements.find(
+                  (candidate) => candidate.id === contentEntitySelector.id,
+                );
+                if (!placement || !project.layouts[layoutId]) return;
+                if (placement.presentation.layout) {
+                  replacePlacement(
+                    placement.id,
+                    {
+                      presentation: {
+                        ...placement.presentation,
+                        layout: roomLayoutRef(layoutId),
+                      },
+                    },
+                    'Update Room placement Layout',
+                  );
+                  break;
+                }
+                const allocated = allocateRoomPresentationOrder(data, 'world-overlay');
+                commit(
+                  {
+                    ...allocated.room,
+                    placements: allocated.room.placements.map((candidate) =>
+                      candidate.id === placement.id
+                        ? {
+                            ...candidate,
+                            presentation: {
+                              label: candidate.presentation.label,
+                              layout: roomLayoutRef(layoutId),
+                              layoutOrder: allocated.order,
+                            },
+                          }
+                        : candidate,
+                    ),
+                  },
+                  'Attach Room placement Layout',
+                );
+                break;
+              }
+              case 'new-overlay-layout': {
+                if (!project.layouts[item.entityId]) return;
+                const allocated = allocateRoomPresentationOrder(data, 'world-overlay');
+                const id = nextId(
+                  allocated.room.overlays.map((overlay) => overlay.id),
+                  'overlay',
+                );
+                setSelectedOverlayIndex(allocated.room.overlays.length);
+                commit(
+                  {
+                    ...allocated.room,
+                    overlays: [
+                      ...allocated.room.overlays,
+                      {
+                        id,
+                        layout: roomLayoutRef(item.entityId),
+                        condition: { kind: 'always' },
+                        visible: true,
+                        order: allocated.order,
+                      },
+                    ],
+                  },
+                  'Add room overlay',
+                );
+                break;
+              }
               case 'cast-character':
                 replaceCast(contentEntitySelector.id, {
                   character: { $ref: { collection: 'characters', id: item.entityId } },

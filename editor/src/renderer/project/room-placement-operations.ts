@@ -16,6 +16,7 @@ import {
   type RoomPlacementData,
 } from '../../shared/project-schema/authoring-rooms';
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { replaceRoomDataPatches } from './room-operations';
 import { toJsonValue } from './json-value';
 import {
@@ -554,7 +555,7 @@ export type RoomAddPresentationContentPayload =
       kind: 'interactable';
       point?: { x: number; y: number };
       placementId?: string;
-      interactableId: string;
+      source: { kind: 'new'; definitionId: string } | { kind: 'existing'; instanceId: string };
     }
   | {
       roomId: string;
@@ -625,6 +626,8 @@ export function addRoomPresentationContentPatches(
       return { patches: [], diagnostics: [error('A Prop requires an Asset or Material.')] };
     if (payload.assetId && !document.assets[payload.assetId])
       return { patches: [], diagnostics: [error('Prop Asset does not exist.')] };
+    if (payload.assetId && parseAssetData(document.assets[payload.assetId]?.data)?.kind !== 'image')
+      return { patches: [], diagnostics: [error('Prop Asset must be an image.')] };
     if (payload.materialId && !document.materials[payload.materialId])
       return { patches: [], diagnostics: [error('Prop Material does not exist.')] };
     const placement = resolvePlacement('prop');
@@ -691,6 +694,8 @@ export function addRoomPresentationContentPatches(
       return { patches: [], diagnostics: [error('Environment Material does not exist.')] };
     if (payload.assetId && !document.assets[payload.assetId])
       return { patches: [], diagnostics: [error('Environment Asset does not exist.')] };
+    if (payload.assetId && parseAssetData(document.assets[payload.assetId]?.data)?.kind !== 'image')
+      return { patches: [], diagnostics: [error('Environment Asset must be an image.')] };
     const id = uniqueId(
       loaded.room.environments.map((item) => item.id),
       'environment',
@@ -719,19 +724,47 @@ export function addRoomPresentationContentPatches(
     });
   }
 
-  if (!document.interactables[payload.interactableId])
+  const existingInstance =
+    payload.source.kind === 'existing'
+      ? document.interactableInstances[payload.source.instanceId]
+      : undefined;
+  if (payload.source.kind === 'existing' && !existingInstance)
+    return { patches: [], diagnostics: [error('Interactable Instance does not exist.')] };
+  const interactableId =
+    payload.source.kind === 'new'
+      ? payload.source.definitionId
+      : existingInstance!.definition.$ref.id;
+  if (!document.interactables[interactableId])
     return { patches: [], diagnostics: [error('Interactable definition does not exist.')] };
+  if (
+    existingInstance &&
+    existingInstance.location.kind !== 'unplaced' &&
+    (existingInstance.location.kind !== 'room' ||
+      existingInstance.location.room.$ref.id !== payload.roomId)
+  )
+    return {
+      patches: [],
+      diagnostics: [error('Interactable Instance is not compatible with this Room.')],
+    };
   if (!payload.placementId) {
     if (!payload.point)
       return { patches: [], diagnostics: [error('Interactable placement point is required.')] };
-    const instanceId = uniqueId(
-      Object.keys(document.interactableInstances),
-      payload.interactableId,
-    );
+    const instanceId =
+      payload.source.kind === 'existing'
+        ? payload.source.instanceId
+        : uniqueId(Object.keys(document.interactableInstances), interactableId);
     return placeInteractablePatches(document, {
       roomId: payload.roomId,
-      interactableId: payload.interactableId,
+      interactableId,
       instanceId,
+      ...(payload.source.kind === 'existing'
+        ? {
+            occurrenceId: uniqueId(
+              loaded.room.interactables.map((item) => item.id),
+              instanceId,
+            ),
+          }
+        : {}),
       placementId: uniquePlacementId(loaded.room, instanceId),
       bounds: centeredBounds(payload.point),
     });
@@ -739,7 +772,10 @@ export function addRoomPresentationContentPatches(
 
   if (!loaded.room.placements.some((item) => item.id === payload.placementId))
     return { patches: [], diagnostics: [error('Room placement does not exist.')] };
-  const instanceId = uniqueId(Object.keys(document.interactableInstances), payload.interactableId);
+  const instanceId =
+    payload.source.kind === 'existing'
+      ? payload.source.instanceId
+      : uniqueId(Object.keys(document.interactableInstances), interactableId);
   const occurrenceId = uniqueId(
     loaded.room.interactables.map((item) => item.id),
     instanceId,
@@ -749,11 +785,9 @@ export function addRoomPresentationContentPatches(
     room: { $ref: { collection: 'rooms' as const, id: payload.roomId } },
   };
   const prospective = structuredClone(document);
-  prospective.interactableInstances[instanceId] = defaultInteractableInstanceData(
-    instanceId,
-    payload.interactableId,
-    location,
-  );
+  prospective.interactableInstances[instanceId] = existingInstance
+    ? { ...existingInstance, location }
+    : defaultInteractableInstanceData(instanceId, interactableId, location);
   const allocated = allocateRoomPresentationOrder(loaded.room, 'world-content');
   const result = roomResult(prospective, payload.roomId, {
     ...allocated.room,
@@ -770,12 +804,20 @@ export function addRoomPresentationContentPatches(
     ],
   });
   if (result.diagnostics?.some((item) => item.severity === 'error')) return result;
-  const addInstance = {
-    op: 'add' as const,
-    path: buildJsonPointer(['interactableInstances', instanceId]),
-    value: toJsonValue(prospective.interactableInstances[instanceId]!),
-  };
-  const patches = [addInstance, ...result.patches];
+  const instancePatch = existingInstance
+    ? existingInstance.location.kind === 'room'
+      ? null
+      : {
+          op: 'replace' as const,
+          path: buildJsonPointer(['interactableInstances', instanceId]),
+          value: toJsonValue(prospective.interactableInstances[instanceId]!),
+        }
+    : {
+        op: 'add' as const,
+        path: buildJsonPointer(['interactableInstances', instanceId]),
+        value: toJsonValue(prospective.interactableInstances[instanceId]!),
+      };
+  const patches = [...(instancePatch ? [instancePatch] : []), ...result.patches];
   return { patches, affectedPaths: patches.map((patch) => patch.path) };
 }
 
