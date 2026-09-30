@@ -114,12 +114,13 @@
         {
           "id": "initial-world-state",
           "title": "Initial Room and world state",
-          "action": "Launch the scenario and inspect the bedroom, door Feature, and wall-button Interactable.",
+          "action": "Inspect the bedroom, door, and wall button.",
+          "guideSubtext": "The door starts locked.",
           "expected": "The bedroom is current, the wall button is present and enabled, and the door begins locked.",
           "status": "ready",
           "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-15T09:54:47Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-room-backdrop", "pilot-button-sprite"],
           "automation": [
             { "kind": "semantic-test", "id": "rooms-interactions-flow" }
@@ -129,11 +130,12 @@
           "id": "rejected-exit",
           "title": "Locked exit rejects navigation",
           "action": "Click the bedroom door while it is locked.",
+          "guideSubtext": "The locked-door notification should appear.",
           "expected": "The door remains hoverable and clickable, navigation is rejected, the bedroom remains current, and the locked-door notification appears.",
           "status": "ready",
           "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-25T04:40:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": [],
           "automation": [
             { "kind": "semantic-test", "id": "rooms-interactions-flow" }
@@ -142,12 +144,12 @@
         {
           "id": "interaction-mutation",
           "title": "Interaction mutates authored state",
-          "action": "Activate the wall button using its normal Use Verb/Interaction.",
+          "action": "Press the wall button.",
           "expected": "The Interaction handles the command, sets gate-unlocked true, and emits the button notification.",
           "status": "ready",
           "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-25T04:40:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-button-sprite"],
           "automation": [
             { "kind": "semantic-test", "id": "rooms-interactions-flow" }
@@ -156,12 +158,12 @@
         {
           "id": "successful-exit",
           "title": "Unlocked exit navigates",
-          "action": "Click the bedroom door after pressing the wall button.",
+          "action": "Click the bedroom door again.",
           "expected": "Navigation succeeds and the destination Room becomes current.",
           "status": "ready",
           "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-25T04:40:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-room-backdrop"],
           "automation": [
             { "kind": "semantic-test", "id": "rooms-interactions-flow" }
@@ -170,24 +172,25 @@
         {
           "id": "fade-transition",
           "title": "Non-Cut Room transition",
-          "action": "Observe the successful bedroom-door navigation.",
+          "action": "Watch the transition after the door opens.",
+          "guideSubtext": "It should Fade, not Cut.",
           "expected": "The destination is presented through a skippable 300 ms Fade rather than an immediate Cut.",
           "status": "ready",
           "verification": "manual",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-15T09:54:47Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-room-backdrop"],
           "automation": []
         },
         {
           "id": "destination-lifecycle",
           "title": "Destination lifecycle executes",
-          "action": "Complete the unlocked navigation and read the HUD notification.",
+          "action": "Read the arrival notification.",
           "expected": "The destination after-enter lifecycle emits its arrival notification after the Room becomes current.",
           "status": "ready",
           "verification": "semantic",
           "created": "2026-09-15T00:45:00Z",
-          "modified": "2026-09-25T04:40:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": [],
           "automation": [
             { "kind": "semantic-test", "id": "rooms-interactions-flow" }
@@ -208,12 +211,13 @@
         {
           "id": "engine2d-draw-texture",
           "title": "Renderer-owned draw texture is automatic",
-          "action": "Launch the scenario and inspect both button sprites.",
+          "action": "Inspect both button sprites.",
+          "guideSubtext": "Both should still use the authored button image.",
           "expected": "Both sprites retain the authored button image through the custom Engine2D Material even though the Material and both applications author no texture source for s_texColor.",
           "status": "ready",
           "verification": "visual",
           "created": "2026-09-23T18:30:00Z",
-          "modified": "2026-09-23T18:30:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-button-sprite"],
           "automation": []
         },
@@ -221,11 +225,12 @@
           "id": "definition-instance-specialization",
           "title": "Definition and Instance parameter specialization",
           "action": "Compare the left Definition sample with the right Instance sample.",
+          "guideSubtext": "The right sample should have a stronger cyan tint.",
           "expected": "Both use the same Material and sprite, while the right sample has the visibly stronger cyan tint from its Instance u_strength override over the Definition value.",
           "status": "ready",
           "verification": "visual",
           "created": "2026-09-23T18:30:00Z",
-          "modified": "2026-09-23T18:30:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-button-sprite"],
           "automation": []
         }
@@ -244,48 +249,50 @@
         {
           "id": "dialogue-open-continue",
           "title": "Dialogue opens and continues normally",
-          "action": "Launch the scenario, reveal the opening line, then continue to the choice.",
+          "action": "Reveal the opening line, then continue to the choice.",
           "expected": "The authored Dialogue becomes active, the line reveals through normal continue behavior, and advancing reaches the choice without replacing the flow.",
           "status": "ready",
           "verification": "semantic",
           "created": "2026-09-15T01:55:00Z",
-          "modified": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": [],
           "automation": [{ "kind": "semantic-test", "id": "dialogue-presentation-flow" }]
         },
         {
           "id": "character-presentation-change",
           "title": "Character presentation changes mid-line",
-          "action": "Watch the Guide while the opening line reveals past the expression cue.",
+          "action": "Watch the Guide as the opening line reaches the expression cue.",
+          "guideSubtext": "The Guide should switch to the smile expression.",
           "expected": "The Guide changes from the neutral presentation to the visibly distinct smile expression through the Dialogue cue.",
           "status": "ready",
           "verification": "visual",
           "created": "2026-09-15T01:55:00Z",
-          "modified": "2026-09-15T09:54:47Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-character-neutral", "pilot-character-smile"],
           "automation": []
         },
         {
           "id": "timed-presentation-cue",
           "title": "Timed presentation cue fires during reveal",
-          "action": "Observe the opening line as it reaches the synchronized attention point.",
+          "action": "Watch the opening line at the attention point.",
+          "guideSubtext": "A brief flash should appear.",
           "expected": "A brief skippable flash occurs at the authored text offset without blocking normal Dialogue continuation.",
           "status": "ready",
           "verification": "manual",
           "created": "2026-09-15T01:55:00Z",
-          "modified": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": [],
           "automation": []
         },
         {
           "id": "dialogue-sfx",
           "title": "Dialogue sound-effect cue plays",
-          "action": "Listen as the opening line reaches its attention cue.",
+          "action": "Listen at the attention cue.",
           "expected": "The causal sound-effect cue is submitted through the normal Dialogue audio path.",
           "status": "ready",
           "verification": "audio",
           "created": "2026-09-15T01:55:00Z",
-          "modified": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": ["pilot-dialogue-sfx"],
           "automation": []
         },
@@ -304,12 +311,12 @@
         {
           "id": "clickable-dialogue-choice",
           "title": "Real Dialogue choice is clickable",
-          "action": "Advance to the choice and click Accept the signal in the runtime Dialogue UI.",
+          "action": "Advance to the choice and click Accept the signal.",
           "expected": "The real RmlUi choice dispatches the authored Dialogue edge rather than a Lab-specific shortcut.",
           "status": "ready",
           "verification": "ui",
           "created": "2026-09-15T01:55:00Z",
-          "modified": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": [],
           "automation": [{ "kind": "ui-test", "id": "dialogue-presentation-ui" }]
         },
@@ -317,11 +324,12 @@
           "id": "choice-state-consequence",
           "title": "Choice branch mutates authoritative state",
           "action": "Choose Accept the signal and inspect the scenario state.",
+          "guideSubtext": "presentation-accepted should become true.",
           "expected": "The choice edge sets presentation-accepted to true and the accepted Dialogue branch becomes active.",
           "status": "ready",
           "verification": "semantic",
           "created": "2026-09-15T01:55:00Z",
-          "modified": "2026-09-15T01:55:00Z",
+          "modified": "2026-09-30T02:10:00Z",
           "assetRequirements": [],
           "automation": [
             { "kind": "semantic-test", "id": "dialogue-presentation-flow" },

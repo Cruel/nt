@@ -22,6 +22,10 @@ test('canonical Feature Lab manifest satisfies the project-specific contract', a
   assert.equal(catalog.schema, 'noveltea.feature-lab.catalog');
   assert.equal(Object.hasOwn(catalog, 'schemaVersion'), false);
   assert.equal(catalog.scenarios[0].id, 'rooms-interactions');
+  assert.equal(
+    catalog.scenarios.every((scenario) => !scenario.checks[0]?.action.startsWith('Launch the scenario')),
+    true,
+  );
 });
 
 test('Feature Lab HUD preserves world input and presents active Dialogue text', async () => {
@@ -36,10 +40,21 @@ test('Feature Lab HUD preserves world input and presents active Dialogue text', 
 
   assert.match(rml, /<nt-active-text\s+id="rt_body"/u);
   assert.match(rml, /id="feature-lab-scenario-guide"/u);
+  assert.match(rml, /id="feature-lab-restart"[^>]*feature_lab\.restart_current/u);
   assert.doesNotMatch(rml, /feature-lab-(?:use-lever|east-gate)/u);
   assert.match(rcss, /#feature-lab-toolbar\s*\{[^}]*pointer-events:\s*none;/u);
   assert.match(rcss, /#feature-lab-text-panel\s*\{[^}]*pointer-events:\s*none;/u);
+  assert.match(rcss, /\.feature-lab-scenario\s*\{[^}]*width:\s*46%;/u);
+  assert.match(rcss, /\.feature-lab-check-instruction\s*\{[^}]*font-size:\s*17px;/u);
   assert.match(lua, /feature_lab\.render_scenario_guide/u);
+  assert.match(lua, /<section class="feature-lab-category"><h2>/u);
+  assert.match(lua, /<button class="feature-lab-scenario"[^>]*feature_lab\.launch/u);
+  assert.doesNotMatch(lua, /feature-lab-category-label/u);
+  assert.match(lua, /feature_lab\.restart_current/u);
+  assert.match(lua, /feature-lab-check-number/u);
+  assert.match(lua, /check\.guideSubtext/u);
+  assert.doesNotMatch(lua, /escape\(check\.expected\).*feature-lab-check-subtext/u);
+  assert.doesNotMatch(lua, /Launch fresh/u);
   assert.doesNotMatch(rcss, /border:\s*2px\s+solid\b/u);
 
   assert.deepEqual(workshop.data.description.source, {
