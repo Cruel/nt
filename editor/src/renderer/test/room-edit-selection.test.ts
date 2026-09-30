@@ -97,6 +97,10 @@ describe('Room Edit semantic selection', () => {
       kind: 'placement',
       id: 'empty',
     });
+    expect(ordinaryRoomEditSelectionCandidate(hits)?.selection).toEqual({
+      kind: 'environment',
+      id: 'fog',
+    });
   });
 
   it('maps source-image Hotspots through the projected background while keeping ordinary clicks placement-oriented', () => {
@@ -228,7 +232,7 @@ describe('Room Edit semantic selection', () => {
     ).toEqual([{ kind: 'environment', id: 'fog' }]);
   });
 
-  it('orders all visible WorldOverlay candidates by authored plane order before target family', () => {
+  it('orders realized WorldOverlay candidates and excludes non-realized Room overlays from picking', () => {
     const project = createAuthoringProject();
     project.layouts.placement = {
       id: 'placement',
@@ -256,7 +260,7 @@ describe('Room Edit semantic selection', () => {
       {
         id: 'hud',
         layout: { $ref: { collection: 'layouts', id: 'overlay' } },
-        condition: { kind: 'always' },
+        condition: { kind: 'not', condition: { kind: 'always' } },
         visible: true,
         order: 2048,
       },
@@ -337,10 +341,10 @@ describe('Room Edit semantic selection', () => {
 
     const candidates = roomEditSelectionCandidates(project, room, projection, t);
 
-    expect(candidates.slice(0, 3).map((candidate) => candidate.selection)).toEqual([
+    expect(candidates.slice(0, 2).map((candidate) => candidate.selection)).toEqual([
       { kind: 'environment', id: 'rain' },
-      { kind: 'overlay', id: 'hud' },
       { kind: 'placement-layout', id: 'desk' },
     ]);
+    expect(candidates.some((candidate) => candidate.selection.kind === 'overlay')).toBe(false);
   });
 });

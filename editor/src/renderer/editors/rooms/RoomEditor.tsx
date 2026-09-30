@@ -1554,7 +1554,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ...data,
         cast: data.cast.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
       },
-      'Update room cast',
+      t('roomEditor.compositionPane.editor.updateRoomCast'),
     );
   const replaceProp = (id: string, patch: Partial<RoomPropData>) =>
     commit(
@@ -1562,7 +1562,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         ...data,
         props: data.props.map((entry) => (entry.id === id ? { ...entry, ...patch } : entry)),
       },
-      'Update room prop',
+      t('roomEditor.compositionPane.editor.updateRoomProp'),
     );
   const replaceEnvironment = (id: string, patch: Partial<RoomEnvironmentData>) =>
     commit(
@@ -1572,7 +1572,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           entry.id === id ? { ...entry, ...patch } : entry,
         ),
       },
-      'Update room environment',
+      t('roomEditor.compositionPane.editor.updateRoomEnvironment'),
     );
   const replaceInteractableOccurrence = (id: string, patch: Partial<RoomInteractableData>) =>
     commit(
@@ -1582,7 +1582,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           entry.id === id ? { ...entry, ...patch } : entry,
         ),
       },
-      'Update room Interactable occurrence',
+      t('roomEditor.compositionPane.editor.updateRoomInteractableOccurrence'),
     );
   const replacePlacement = (id: string, patch: Partial<RoomPlacementData>, label: string) =>
     commit(
@@ -1601,7 +1601,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   ) =>
     useCommandStore.getState().executeCommand({
       type: 'project.applyPatch',
-      label: 'Update Interactable Instance Properties',
+      label: t('roomEditor.compositionPane.editor.updateInteractableInstanceProperties'),
       payload: [
         {
           op: 'replace',
@@ -1621,11 +1621,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const renameRoomHotspot = (hotspotId: string, nextId: string) => {
-    const result = executeHotspot('room.renameHotspot', 'Rename room hotspot', {
-      hotspotId,
-      nextId,
-    });
+    const result = executeHotspot(
+      'room.renameHotspot',
+      t('roomEditor.compositionPane.editor.renameRoomHotspot'),
+      {
+        hotspotId,
+        nextId,
+      },
+    );
     if (!result.ok) return;
+    const previousSelectionKey = roomEditSelectionKey({ kind: 'hotspot', id: hotspotId });
+    const nextSelectionKey = roomEditSelectionKey({ kind: 'hotspot', id: nextId });
     setRoomSelection((current) =>
       current.map((selection) =>
         selection.kind === 'hotspot' && selection.id === hotspotId
@@ -1638,6 +1644,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       selectedHotspotId:
         current.selectedHotspotId === hotspotId ? nextId : current.selectedHotspotId,
     }));
+    setExpandedRoomSelectionKeys((current) => {
+      if (!current.has(previousSelectionKey)) return current;
+      const next = new Set(current);
+      next.delete(previousSelectionKey);
+      next.add(nextSelectionKey);
+      return next;
+    });
   };
   const effectiveRoomPropertyCount = new Set([
     ...(record.localProperties ?? []).map((property) => property.id),
@@ -1911,10 +1924,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     contentEntitySelector?.kind === 'overlay-layout' ||
     contentEntitySelector?.kind === 'placement-layout' ||
     contentEntitySelector?.kind === 'new-overlay-layout'
-      ? 'Choose Layout'
+      ? t('roomEditor.compositionPane.editor.chooseLayout')
       : contentEntitySelector?.kind === 'cast-character'
-        ? 'Choose Character'
-        : 'Choose Asset';
+        ? t('roomEditor.compositionPane.editor.chooseCharacter')
+        : t('roomEditor.compositionPane.editor.chooseAsset');
   const contentEntitySelectorSelectedId =
     contentEntitySelectorItems.find(
       (item) => item.entityId === contentEntitySelectorCurrentEntityId,
@@ -1967,7 +1980,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           return;
                         executeRoomEditCommand(
                           'room.setPlacementBounds',
-                          'Update Room placement bounds',
+                          t('roomEditor.compositionPane.editor.updatePlacementBounds'),
                           {
                             placementId: placement.id,
                             bounds: { ...placement.bounds, [field]: value },
@@ -1995,7 +2008,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                               label: null,
                             } as RoomPlacementData['presentation'],
                           },
-                          'Clear Room placement label',
+                          t('roomEditor.compositionPane.editor.clearPlacementLabel'),
                         )
                       }
                     >
@@ -2015,7 +2028,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                             label,
                           } as RoomPlacementData['presentation'],
                         },
-                        'Update Room placement label',
+                        t('roomEditor.compositionPane.editor.updatePlacementLabel'),
                       )
                     }
                   />
@@ -2033,7 +2046,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                             label: inlineTextContent(''),
                           } as RoomPlacementData['presentation'],
                         },
-                        'Add Room placement label',
+                        t('roomEditor.compositionPane.editor.addPlacementLabel'),
                       )
                     }
                   >
@@ -2072,7 +2085,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                               layout: null,
                             },
                           },
-                          'Detach Room placement Layout',
+                          t('roomEditor.compositionPane.editor.detachPlacementLayout'),
                         )
                       }
                     >
@@ -2307,8 +2320,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 value={occurrence.materialApplication}
                 expectedRole="engine-2d"
                 properties={roomMaterialProperties}
-                ariaLabel={`Room prop ${occurrence.id} Material`}
-                overrideLabel="Prop override"
+                ariaLabel={t('roomEditor.compositionPane.editor.propMaterialAriaLabel', {
+                  id: occurrence.id,
+                })}
+                overrideLabel={t('roomEditor.compositionPane.editor.propOverride')}
                 onChange={(materialApplication) =>
                   replaceProp(occurrence.id, { materialApplication })
                 }
@@ -2500,7 +2515,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                               : environment,
                           ),
                         },
-                        'Update room environment plane',
+                        t('roomEditor.compositionPane.editor.updateRoomEnvironmentPlane'),
                       );
                     }}
                   >
@@ -2522,8 +2537,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 value={occurrence.materialApplication}
                 expectedRole="engine-2d"
                 properties={roomMaterialProperties}
-                ariaLabel={`Room environment ${occurrence.id} Material`}
-                overrideLabel="Environment override"
+                ariaLabel={t('roomEditor.compositionPane.editor.environmentMaterialAriaLabel', {
+                  id: occurrence.id,
+                })}
+                overrideLabel={t('roomEditor.compositionPane.editor.environmentOverride')}
                 allowClear={false}
                 onChange={(materialApplication) => {
                   if (materialApplication)
@@ -4043,6 +4060,47 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               className="space-y-3 rounded-xl border bg-card/20 p-4"
               data-workbench-anchor="room.composition"
             >
+              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-2">
+                <Label className="text-xs">
+                  {t('roomEditor.compositionPane.editor.fallbackInteractablePlacement')}
+                </Label>
+                <Select
+                  items={data.placements.map((placement) => ({
+                    value: placement.id,
+                    label: placement.id,
+                  }))}
+                  placeholderItem={t(
+                    'roomEditor.compositionPane.editor.noFallbackInteractablePlacement',
+                  )}
+                  value={data.fallbackInteractablePlacementId}
+                  onValueChange={(placementId) =>
+                    useCommandStore.getState().executeCommand({
+                      type: 'room.setFallbackInteractablePlacement',
+                      label: t(
+                        'roomEditor.compositionPane.editor.setFallbackInteractablePlacement',
+                      ),
+                      payload: { roomId, placementId },
+                      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+                      persistencePolicy: 'manual-save',
+                    })
+                  }
+                >
+                  <SelectTrigger className="h-8 w-56">
+                    <SelectValue
+                      placeholder={t(
+                        'roomEditor.compositionPane.editor.noFallbackInteractablePlacement',
+                      )}
+                    />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {data.placements.map((placement) => (
+                      <SelectItem key={placement.id} value={placement.id}>
+                        {placement.id}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
               <RoomCompositionPane
                 project={project}
                 room={data}
@@ -4379,8 +4437,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       value={entry.materialApplication}
                       expectedRole="engine-2d"
                       properties={roomMaterialProperties}
-                      ariaLabel={`Room prop ${entry.id} Material`}
-                      overrideLabel="Prop override"
+                      ariaLabel={t('roomEditor.compositionPane.editor.propMaterialAriaLabel', {
+                        id: entry.id,
+                      })}
+                      overrideLabel={t('roomEditor.compositionPane.editor.propOverride')}
                       onChange={(materialApplication) =>
                         replaceProp(entry.id, { materialApplication })
                       }
@@ -4482,8 +4542,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       value={entry.materialApplication}
                       expectedRole="engine-2d"
                       properties={roomMaterialProperties}
-                      ariaLabel={`Room environment ${entry.id} Material`}
-                      overrideLabel="Environment override"
+                      ariaLabel={t(
+                        'roomEditor.compositionPane.editor.environmentMaterialAriaLabel',
+                        { id: entry.id },
+                      )}
+                      overrideLabel={t('roomEditor.compositionPane.editor.environmentOverride')}
                       allowClear={false}
                       onChange={(materialApplication) => {
                         if (materialApplication)
@@ -4798,7 +4861,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         layout: roomLayoutRef(layoutId),
                       },
                     },
-                    'Update Room placement Layout',
+                    t('roomEditor.compositionPane.editor.updatePlacementLayout'),
                   );
                   break;
                 }
@@ -4819,7 +4882,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         : candidate,
                     ),
                   },
-                  'Attach Room placement Layout',
+                  t('roomEditor.compositionPane.editor.attachPlacementLayout'),
                 );
                 break;
               }

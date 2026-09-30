@@ -948,6 +948,55 @@ describe('Room placement commands', () => {
     });
   });
 
+  it('uses a one-slot signed-32-bit boundary gap before rebalancing a plane', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['rear', 'front'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'stage',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: -2147483646 + index,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const reordered = executeCommand(initial, {
+      type: 'room.reorderPresentation',
+      payload: {
+        roomId: 'foyer',
+        target: { kind: 'prop', id: 'front' },
+        action: 'backward',
+      },
+    });
+
+    expect(reordered.ok, JSON.stringify(reordered.diagnostics)).toBe(true);
+    const props = (reordered.document as typeof project).rooms.foyer!.data.props;
+    expect(Object.fromEntries(props.map((item) => [item.id, item.order]))).toEqual({
+      rear: -2147483646,
+      front: -2147483647,
+    });
+  });
+
   it('rejects Room presentation orders outside the native signed 32-bit range', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

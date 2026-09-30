@@ -29,6 +29,7 @@ import {
   type RoomHotspotData,
 } from '../../shared/project-schema/authoring-rooms';
 import { editorI18n } from '@/i18n';
+import { defaultArchetypeData } from '../../shared/project-schema/authoring-archetypes';
 
 const originalBounds = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 };
 const movedBounds = { x: 0.2, y: 0.25, width: 0.3, height: 0.4 };
@@ -83,6 +84,37 @@ function projectWithRoomHotspotImage() {
   if (!room) throw new Error('Expected Room data.');
   room.background.asset = { $ref: { collection: 'assets', id: 'background' } };
   project.rooms.foyer = { ...project.rooms.foyer!, data: room };
+  return project;
+}
+
+function projectWithArchetypedRoomHotspotImage(
+  rawAssetId: string | null,
+  inheritedAssetId: string,
+) {
+  const project = projectWithRoomHotspotImage();
+  const room = parseRoomData(project.rooms.foyer?.data);
+  if (!room) throw new Error('Expected Room data.');
+  room.background.asset = rawAssetId ? { $ref: { collection: 'assets', id: rawAssetId } } : null;
+  const inheritedRoom = structuredClone(room);
+  inheritedRoom.background.asset = {
+    $ref: { collection: 'assets', id: inheritedAssetId },
+  };
+  project.rooms.foyer = {
+    ...project.rooms.foyer!,
+    archetype: { $ref: { collection: 'archetypes', id: 'room-base' } },
+    archetypeOverrides: {},
+    data: room,
+  };
+  project.archetypes['room-base'] = {
+    id: 'room-base',
+    label: 'Room Base',
+    data: {
+      ...defaultArchetypeData('room'),
+      overrides: {
+        '/data': inheritedRoom,
+      },
+    },
+  };
   return project;
 }
 
@@ -372,6 +404,63 @@ describe('Hotspot Focus session', () => {
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.dirty).toBe(true);
     expect(useCommandStore.getState().history.entries).toHaveLength(1);
 
+    const current = useProjectStore.getState().document as typeof project;
+    expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.shape.bounds).toEqual(
+      originalBounds,
+    );
+  });
+
+  it('accepts Focus commits when the effective Room background is inherited from an Archetype', () => {
+    const project = projectWithArchetypedRoomHotspotImage(null, 'background');
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: 'background',
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+
+    expect(store.commit('room-tab')).toBe(true);
+    const current = useProjectStore.getState().document as typeof project;
+    expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.shape.bounds).toEqual(
+      movedBounds,
+    );
+  });
+
+  it('rejects stale geometry when an Archetype changes the effective Room background source', () => {
+    const project = projectWithArchetypedRoomHotspotImage('background', 'background');
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: 'background',
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+
+    const sourceChange = useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: 'Replace inherited Room background',
+      payload: [
+        {
+          op: 'replace',
+          path: '/archetypes/room-base/data/overrides/~1data/background/asset',
+          value: { $ref: { collection: 'assets', id: 'replacement' } },
+        },
+      ],
+      originSaveUnitId: 'record:archetypes:room-base',
+      persistencePolicy: 'manual-save',
+    });
+    expect(sourceChange.ok).toBe(true);
+
+    expect(store.commit('room-tab')).toBe(false);
     const current = useProjectStore.getState().document as typeof project;
     expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.shape.bounds).toEqual(
       originalBounds,

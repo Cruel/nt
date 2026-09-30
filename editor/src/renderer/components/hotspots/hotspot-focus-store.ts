@@ -16,6 +16,7 @@ import {
   imageAssetMetadataSchema,
   parseAssetData,
 } from '../../../shared/project-schema/authoring-assets';
+import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
 import {
   interactableHotspotBehaviorSchema,
@@ -139,10 +140,16 @@ function currentOwnerAssetId(
 ): string | null | undefined {
   if (!isAuthoringProject(document)) return undefined;
   if (ownerKind === 'room') {
-    const room = parseRoomData(document.rooms[ownerId]?.data);
+    const record = document.rooms[ownerId];
+    if (!record) return undefined;
+    const room = parseRoomData(resolveGameplayInstanceRecord(document, 'room', record)?.data);
     return room ? (room.background.asset?.$ref.id ?? null) : undefined;
   }
-  const interactable = parseInteractableData(document.interactables[ownerId]?.data);
+  const record = document.interactables[ownerId];
+  if (!record) return undefined;
+  const interactable = parseInteractableData(
+    resolveGameplayInstanceRecord(document, 'interactable', record)?.data,
+  );
   return interactable ? (interactable.presentation.sprite?.$ref.id ?? null) : undefined;
 }
 

@@ -248,27 +248,9 @@ export function roomEditSelectionCandidates(
       });
       continue;
     }
-    if (entry.target.kind === 'overlay') {
-      const overlay = room.overlays.find(
-        (candidate) => candidate.id === entry.target.id && candidate.visible,
-      );
-      if (!overlay) continue;
-      push({
-        selection: entry.target,
-        projected: {
-          rect: {
-            x: 0,
-            y: 0,
-            width: projection.viewport.width,
-            height: projection.viewport.height,
-          },
-          rotationDegrees: 0,
-        },
-        label: describeRoomEditSelection(project, room, entry.target, t),
-        category: 'independent',
-        placementId: null,
-      });
-    }
+    // Room overlay Layouts are not realized in Room Edit. Keep them discoverable
+    // through Room Contents/inspectors instead of inventing fullscreen hit geometry
+    // that can intercept picking for visible world content.
   }
 
   // worldDraws are back-to-front; candidate order is front-to-back.
@@ -488,8 +470,14 @@ export function defaultRoomEditSelectionCandidate(
 export function ordinaryRoomEditSelectionCandidate(
   candidates: readonly RoomEditSelectionCandidate[],
 ) {
-  return defaultRoomEditSelectionCandidate(
-    candidates.filter((candidate) => candidate.category !== 'hotspot'),
+  const top = candidates.find((candidate) => candidate.category !== 'hotspot');
+  if (!top) return null;
+  if (!top.placementId) return top;
+  return (
+    candidates.find(
+      (candidate) =>
+        candidate.selection.kind === 'placement' && candidate.selection.id === top.placementId,
+    ) ?? top
   );
 }
 
