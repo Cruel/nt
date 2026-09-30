@@ -208,6 +208,14 @@ export function allocateRoomPresentationOrders(
     };
   }
 
+  const remainingBoundarySlots = ROOM_PRESENTATION_ORDER_MAX - last.order;
+  if (remainingBoundarySlots >= count) {
+    return {
+      room,
+      orders: Array.from({ length: count }, (_, index) => last.order + index + 1),
+    };
+  }
+
   const orders = deterministicSparseOrders(entries.length + count);
   return {
     room: applyOrders(room, entries, orders.slice(0, entries.length)),

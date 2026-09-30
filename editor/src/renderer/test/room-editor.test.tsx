@@ -923,12 +923,36 @@ describe('RoomEditor', () => {
 
   it('authors Placement bounds, label, and attached Layout from the Composition inspector with undo', async () => {
     const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
     const room = defaultRoomData('Foyer');
     room.placements = [
       {
         id: 'desk',
         bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
         presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'lamp',
+        condition: { kind: 'always' },
+        placementId: 'desk',
+        asset: { $ref: { collection: 'assets', id: 'pixel' } },
+        materialApplication: null,
+        visible: true,
+        order: 0,
       },
     ];
     project.layouts['desk-ui'] = {
@@ -958,8 +982,23 @@ describe('RoomEditor', () => {
       expect(parseRoomData(current.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.1);
     });
 
+    const placementIdEditor = screen.getByRole('textbox', { name: 'Placement ID' });
+    fireEvent.change(placementIdEditor, { target: { value: 'writing-desk' } });
+    fireEvent.blur(placementIdEditor);
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      const nextRoom = parseRoomData(current.rooms.foyer?.data);
+      expect(nextRoom?.placements[0]?.id).toBe('writing-desk');
+      expect(nextRoom?.props[0]?.placementId).toBe('writing-desk');
+      expect(screen.getByRole('textbox', { name: 'Placement ID' })).toHaveValue('writing-desk');
+    });
+
     fireEvent.click(screen.getByRole('button', { name: 'Add label' }));
-    const labelEditor = screen.getByRole('textbox');
+    const labelEditor = document.querySelector('textarea');
+    expect(labelEditor).not.toBeNull();
+    if (!labelEditor) return;
     fireEvent.change(labelEditor, { target: { value: 'Writing desk' } });
     fireEvent.click(screen.getByRole('button', { name: 'Choose Layout' }));
     fireEvent.click(screen.getByRole('button', { name: /Desk UI/i }));
@@ -1943,7 +1982,8 @@ describe('RoomEditor', () => {
     expect(screen.getByTestId('room-edit-placement-desk')).toHaveAttribute('data-hovered', 'false');
   });
 
-  it('does not expose placement-rectangle resize handles for Character occurrences', () => {
+  it('does not expose placement-rectangle resize handles for Character occurrences', async () => {
+    const user = userEvent.setup();
     const project = createAuthoringProject();
     project.assets.hero = {
       id: 'hero',
@@ -1968,6 +2008,12 @@ describe('RoomEditor', () => {
       ...character.profiles[0]!.poses[0]!.layers[0]!,
       sprite: { $ref: { collection: 'assets', id: 'hero' } },
     };
+    character.profiles.push({
+      ...structuredClone(character.profiles[0]!),
+      id: 'closeup',
+      label: 'Closeup',
+    });
+    character.appearances.push({ id: 'formal', label: 'Formal', profiles: [] });
     project.characters.hero = { id: 'hero', label: 'Hero', data: character };
     const room = defaultRoomData('Foyer');
     room.placements = [
@@ -2016,6 +2062,19 @@ describe('RoomEditor', () => {
     renderEditor();
     expect(screen.getByTestId('room-edit-selected-cast:hero-cast')).toBeInTheDocument();
     expect(screen.queryByTestId(/^room-edit-resize-/)).toBeNull();
+    fireEvent.click(screen.getByRole('combobox', { name: 'Profile' }));
+    await user.click(screen.getByRole('option', { name: 'Closeup' }));
+    fireEvent.click(screen.getByRole('combobox', { name: 'Appearance' }));
+    await user.click(screen.getByRole('option', { name: 'Formal' }));
+    await waitFor(() => {
+      const updated = useProjectStore.getState().document;
+      expect(isAuthoringProject(updated)).toBe(true);
+      if (!isAuthoringProject(updated)) return;
+      expect(parseRoomData(updated.rooms.foyer?.data)?.cast[0]).toMatchObject({
+        profileId: 'closeup',
+        appearanceId: 'formal',
+      });
+    });
   });
   it('cancels an active Edit pan before the animated Preview transition owns the surface', async () => {
     const project = createAuthoringProject();
@@ -2147,6 +2206,31 @@ describe('RoomEditor', () => {
         expect(screen.getByTestId('room-composition-pane')).toHaveAttribute(
           'data-disabled',
           'true',
+        ),
+      );
+      expect(screen.getAllByText('Placement · desk')).not.toHaveLength(0);
+      const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
+      for (const category of [
+        'General',
+        'Camera',
+        'Hotspots',
+        'Navigation',
+        'Contents',
+        'Properties',
+        'Behavior',
+      ]) {
+        fireEvent.click(within(navigation).getByRole('button', { name: category }));
+        expect(screen.getByRole('heading', { name: category })).toBeInTheDocument();
+      }
+      fireEvent.click(within(navigation).getByRole('button', { name: 'Composition' }));
+      expect(screen.getByTestId('room-composition-pane')).toHaveAttribute('data-disabled', 'true');
+      expect(screen.getAllByText('Placement · desk')).not.toHaveLength(0);
+
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      await waitFor(() =>
+        expect(screen.getByTestId('room-composition-pane')).toHaveAttribute(
+          'data-disabled',
+          'false',
         ),
       );
       expect(screen.getAllByText('Placement · desk')).not.toHaveLength(0);
@@ -2615,6 +2699,16 @@ describe('RoomEditor', () => {
       fireEvent.doubleClick(surface, { clientX: 200, clientY: 100 });
       expect(screen.getByTestId('room-edit-selected-prop:lamp')).toBeInTheDocument();
       const handle = screen.getByTestId('room-edit-resize-se');
+      const beforePan = structuredClone(useProjectStore.getState().document);
+      fireEvent.keyDown(window, { code: 'Space' });
+      fireEvent.pointerDown(handle, { pointerId: 73, button: 0, clientX: 300, clientY: 150 });
+      expect(surface).toHaveAttribute('data-panning', 'true');
+      fireEvent.pointerMove(surface, { pointerId: 73, clientX: 340, clientY: 180 });
+      fireEvent.pointerUp(surface, { pointerId: 73, button: 0, clientX: 340, clientY: 180 });
+      fireEvent.keyUp(window, { code: 'Space' });
+      expect(surface).toHaveAttribute('data-panning', 'false');
+      expect(useProjectStore.getState().document).toEqual(beforePan);
+
       fireEvent.pointerDown(handle, { pointerId: 72, button: 0, clientX: 300, clientY: 150 });
       fireEvent.pointerUp(surface, { pointerId: 72, button: 0, clientX: 300, clientY: 150 });
 

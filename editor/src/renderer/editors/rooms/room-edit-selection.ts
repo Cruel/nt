@@ -450,7 +450,7 @@ export function hitTestRoomEditCandidates(
 export function defaultRoomEditSelectionCandidate(
   candidates: readonly RoomEditSelectionCandidate[],
 ) {
-  const top = candidates[0];
+  const top = candidates.find((candidate) => candidate.category !== 'hotspot');
   if (!top) return null;
   if (top.placementId) {
     return (
@@ -460,25 +460,13 @@ export function defaultRoomEditSelectionCandidate(
       ) ?? top
     );
   }
-  return (
-    candidates.find((candidate) => candidate.category === 'placement') ??
-    candidates.find((candidate) => candidate.category !== 'hotspot') ??
-    top
-  );
+  return top;
 }
 
 export function ordinaryRoomEditSelectionCandidate(
   candidates: readonly RoomEditSelectionCandidate[],
 ) {
-  const top = candidates.find((candidate) => candidate.category !== 'hotspot');
-  if (!top) return null;
-  if (!top.placementId) return top;
-  return (
-    candidates.find(
-      (candidate) =>
-        candidate.selection.kind === 'placement' && candidate.selection.id === top.placementId,
-    ) ?? top
-  );
+  return defaultRoomEditSelectionCandidate(candidates);
 }
 
 export function topmostRoomEditOccupantCandidate(

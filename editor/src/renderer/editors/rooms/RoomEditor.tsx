@@ -73,6 +73,7 @@ import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
 import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
 import {
   interpolateRoomEditNavigation,
+  fitRoomEditSurfaceFrame,
   ROOM_EDIT_FIT_NAVIGATION,
   ROOM_EDIT_NAVIGATION_TRANSITION_MS,
   sanitizeRoomEditNavigation,
@@ -167,6 +168,7 @@ import {
 } from '@/workbench/workbench-navigation';
 import { RoomExitDirectionSelector } from './RoomExitDirectionSelector';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
 import {
   resolveArchetypeConfiguration,
   resolveGameplayInstanceRecord,
@@ -613,6 +615,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [roomEditTransitioning, setRoomEditTransitioning] = useState(false);
   const [roomEditGestureCancellationToken, setRoomEditGestureCancellationToken] = useState(0);
   const roomEditAnimationFrameRef = useRef<number | null>(null);
+  const roomEditViewportElementRef = useRef<HTMLDivElement | null>(null);
+  const [roomEditViewportSize, setRoomEditViewportSize] = useState({ width: 0, height: 0 });
   const roomEditSurfaceElementRef = useRef<HTMLDivElement | null>(null);
   const roomPreviewSurfaceElementRef = useRef<HTMLDivElement | null>(null);
   const [hotspotFocusRoomViewportScreenRect, setHotspotFocusRoomViewportScreenRect] = useState<{
@@ -624,6 +628,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const handleRoomEditSurfaceElementChange = useCallback((element: HTMLDivElement | null) => {
     roomEditSurfaceElementRef.current = element;
   }, []);
+  useEffect(() => {
+    const element = roomEditViewportElementRef.current;
+    if (!element) return;
+    const update = () => {
+      const rect = element.getBoundingClientRect();
+      setRoomEditViewportSize({ width: rect.width, height: rect.height });
+    };
+    update();
+    const observer = new ResizeObserver(update);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [presentationMode]);
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -1554,6 +1570,13 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       'Update room exit',
     );
   const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
+  const fittedRoomEditSurfaceSize = fitRoomEditSurfaceFrame(
+    {
+      width: Math.max(0, roomEditViewportSize.width - 16),
+      height: Math.max(0, roomEditViewportSize.height - 16),
+    },
+    referenceResolution,
+  );
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
     commit(
       {
@@ -1667,6 +1690,48 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       next.add(nextSelectionKey);
       return next;
     });
+  };
+  const renameRoomPlacement = (placementId: string, requestedId: string) => {
+    const nextId = requestedId.trim();
+    if (!nextId || nextId === placementId) return;
+    const result = useCommandStore.getState().executeCommand({
+      type: 'room.replaceData',
+      label: t('roomEditor.compositionPane.editor.renamePlacement'),
+      payload: {
+        roomId,
+        data: {
+          ...data,
+          placements: data.placements.map((placement) =>
+            placement.id === placementId ? { ...placement, id: nextId } : placement,
+          ),
+        },
+      },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    if (!result.ok) return;
+    const remap = (selection: RoomEditSelection): RoomEditSelection =>
+      (selection.kind === 'placement' || selection.kind === 'placement-layout') &&
+      selection.id === placementId
+        ? { ...selection, id: nextId }
+        : selection;
+    setRoomSelection((current) => current.map(remap));
+    setExpandedRoomSelectionKeys((current) => {
+      const next = new Set<string>();
+      for (const key of current) {
+        if (key === roomEditSelectionKey({ kind: 'placement', id: placementId }))
+          next.add(roomEditSelectionKey({ kind: 'placement', id: nextId }));
+        else if (key === roomEditSelectionKey({ kind: 'placement-layout', id: placementId }))
+          next.add(roomEditSelectionKey({ kind: 'placement-layout', id: nextId }));
+        else next.add(key);
+      }
+      return next;
+    });
+    setContentEntitySelector((current) =>
+      current?.kind === 'placement-layout' && current.id === placementId
+        ? { ...current, id: nextId }
+        : current,
+    );
   };
   const effectiveRoomPropertyCount = new Set([
     ...(record.localProperties ?? []).map((property) => property.id),
@@ -1972,6 +2037,20 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           );
           semanticEditor = (
             <div className="space-y-3 border-t pt-3">
+              <div className="space-y-1">
+                <Label htmlFor={`room-placement-${placement.id}-id`}>
+                  {t('roomEditor.compositionPane.editor.placementId')}
+                </Label>
+                <Input
+                  key={placement.id}
+                  id={`room-placement-${placement.id}-id`}
+                  defaultValue={placement.id}
+                  onBlur={(event) => renameRoomPlacement(placement.id, event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === 'Enter') event.currentTarget.blur();
+                  }}
+                />
+              </div>
               <div className="grid grid-cols-2 gap-2 @3xl:grid-cols-4">
                 {(['x', 'y', 'width', 'height'] as const).map((field) => (
                   <div key={field} className="space-y-1">
@@ -2358,6 +2437,20 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       case 'cast': {
         const occurrence = data.cast.find((item) => item.id === selection.id);
         if (occurrence) {
+          const characterData = parseCharacterData(
+            project.characters[occurrence.character.$ref.id]?.data,
+          );
+          const profileItems =
+            characterData?.profiles.map((profile) => ({
+              value: profile.id,
+              label: profile.label,
+            })) ?? [];
+          const appearanceItems =
+            characterData?.appearances.map((appearance) => ({
+              value: appearance.id,
+              label: appearance.label,
+            })) ?? [];
+          const selectedProfileId = occurrence.profileId ?? characterData?.defaults.profileId ?? '';
           fields.push(
             {
               label: t('roomEditor.compositionPane.inspectorKind'),
@@ -2411,6 +2504,67 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                       {data.placements.map((item) => (
                         <SelectItem key={item.id} value={item.id}>
                           {item.id}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+              </div>
+              <div className="grid gap-2 @3xl:grid-cols-2">
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.editor.profileId')}</Label>
+                  <Select
+                    items={profileItems}
+                    value={selectedProfileId}
+                    onValueChange={(value) =>
+                      replaceCast(occurrence.id, { profileId: String(value) })
+                    }
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      aria-label={t('roomEditor.compositionPane.editor.profileId')}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {profileItems.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1">
+                  <Label>{t('roomEditor.compositionPane.editor.appearanceId')}</Label>
+                  <Select
+                    items={[
+                      {
+                        value: '__none__',
+                        label: t('roomEditor.compositionPane.editor.none'),
+                      },
+                      ...appearanceItems,
+                    ]}
+                    value={occurrence.appearanceId ?? '__none__'}
+                    onValueChange={(value) =>
+                      replaceCast(occurrence.id, {
+                        appearanceId: value === '__none__' ? null : String(value),
+                      })
+                    }
+                  >
+                    <SelectTrigger
+                      className="w-full"
+                      aria-label={t('roomEditor.compositionPane.editor.appearanceId')}
+                    >
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="__none__">
+                        {t('roomEditor.compositionPane.editor.none')}
+                      </SelectItem>
+                      {appearanceItems.map((item) => (
+                        <SelectItem key={item.value} value={item.value}>
+                          {item.label}
                         </SelectItem>
                       ))}
                     </SelectContent>
@@ -2969,54 +3123,66 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           </div>
           <div className="relative min-h-0 flex-1 overflow-hidden">
             {presentationMode === 'edit' ? (
-              <div className="flex h-full min-h-0 items-center justify-center overflow-auto p-2">
-                <RoomEditSurface
-                  project={project}
-                  roomId={roomId}
-                  room={data}
-                  referenceResolution={referenceResolution}
-                  backgroundImageSize={compositionBackgroundSize}
-                  roomPropertyValues={roomPropertyValues}
-                  resolvedVisibility={activeRoomEditResolution}
-                  navigation={visibleEditNavigation}
-                  onNavigationChange={handleRoomEditNavigationChange}
-                  gestureCancellationToken={roomEditGestureCancellationToken}
-                  interactionEnabled={!roomEditTransitioning}
-                  selection={roomSelection}
-                  onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
-                  onTranslateSelection={(nextSelection, delta) =>
-                    executeRoomEditCommand(
-                      'room.translateSelection',
-                      t('roomEditor.compositionPane.editor.moveRoomSelection'),
-                      {
-                        selection: nextSelection,
-                        delta,
-                      },
-                    )
-                  }
-                  onResizeSelection={(nextSelection, bounds) =>
-                    executeRoomEditCommand(
-                      'room.resizeSelection',
-                      t('roomEditor.compositionPane.editor.resizeRoomSelection'),
-                      {
-                        selection: nextSelection,
-                        bounds,
-                      },
-                    )
-                  }
-                  addActions={roomAddActions}
-                  pendingAddActionId={roomAddGhost?.kind ?? null}
-                  onPendingAddActionCancel={() => setRoomAddGhost(null)}
-                  onAddAtPoint={(actionId, point) => {
-                    if (roomAddGhost && roomAddGhost.kind === actionId) {
-                      executeRoomAdd(roomAddGhost, { point });
-                      setRoomAddGhost(null);
-                      return;
-                    }
-                    beginRoomAdd(actionId, { kind: 'point', point });
+              <div
+                ref={roomEditViewportElementRef}
+                className="flex h-full min-h-0 items-center justify-center overflow-hidden p-2"
+              >
+                <div
+                  className="shrink-0"
+                  style={{
+                    width: fittedRoomEditSurfaceSize.width || undefined,
+                    height: fittedRoomEditSurfaceSize.height || undefined,
                   }}
-                  onSurfaceElementChange={handleRoomEditSurfaceElementChange}
-                />
+                  data-testid="room-edit-fit-frame"
+                >
+                  <RoomEditSurface
+                    project={project}
+                    roomId={roomId}
+                    room={data}
+                    referenceResolution={referenceResolution}
+                    backgroundImageSize={compositionBackgroundSize}
+                    roomPropertyValues={roomPropertyValues}
+                    resolvedVisibility={activeRoomEditResolution}
+                    navigation={visibleEditNavigation}
+                    onNavigationChange={handleRoomEditNavigationChange}
+                    gestureCancellationToken={roomEditGestureCancellationToken}
+                    interactionEnabled={!roomEditTransitioning}
+                    selection={roomSelection}
+                    onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
+                    onTranslateSelection={(nextSelection, delta) =>
+                      executeRoomEditCommand(
+                        'room.translateSelection',
+                        t('roomEditor.compositionPane.editor.moveRoomSelection'),
+                        {
+                          selection: nextSelection,
+                          delta,
+                        },
+                      )
+                    }
+                    onResizeSelection={(nextSelection, bounds) =>
+                      executeRoomEditCommand(
+                        'room.resizeSelection',
+                        t('roomEditor.compositionPane.editor.resizeRoomSelection'),
+                        {
+                          selection: nextSelection,
+                          bounds,
+                        },
+                      )
+                    }
+                    addActions={roomAddActions}
+                    pendingAddActionId={roomAddGhost?.kind ?? null}
+                    onPendingAddActionCancel={() => setRoomAddGhost(null)}
+                    onAddAtPoint={(actionId, point) => {
+                      if (roomAddGhost && roomAddGhost.kind === actionId) {
+                        executeRoomAdd(roomAddGhost, { point });
+                        setRoomAddGhost(null);
+                        return;
+                      }
+                      beginRoomAdd(actionId, { kind: 'point', point });
+                    }}
+                    onSurfaceElementChange={handleRoomEditSurfaceElementChange}
+                  />
+                </div>
               </div>
             ) : null}
             <div
@@ -3044,10 +3210,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       <CategorizedEditorLayout
         categories={categorizedRoomEditorCategories}
         activeCategory={activeCategory}
-        onCategoryChange={(category) => {
-          if (presentationMode === 'preview' && activeCategory === 'composition') return;
-          setActiveCategory(category);
-        }}
+        onCategoryChange={setActiveCategory}
         navigationLabel={t('roomEditor.categories.navigationLabel')}
         contentRef={scrollRef}
         contentContainerClassName="max-w-6xl pb-8"
