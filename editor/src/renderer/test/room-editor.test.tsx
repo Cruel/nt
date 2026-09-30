@@ -297,6 +297,17 @@ describe('RoomEditor', () => {
     };
     const room = defaultRoomData('Foyer');
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    room.hotspots = [
+      {
+        id: 'door',
+        label: 'Door',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'default' },
+        target: { kind: 'none' },
+        shape: { kind: 'rect', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+      },
+    ];
     room.features.push({
       id: 'surface',
       label: 'Surface',
@@ -307,6 +318,16 @@ describe('RoomEditor', () => {
     });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchStore.getState().openTab(tab);
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'project.applyPatch',
+        label: 'Rename Room externally',
+        payload: [{ op: 'replace', path: '/rooms/foyer/label', value: 'Foyer renamed' }],
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
     renderEditor();
 
     selectRoomCategory('Hotspots');
@@ -322,13 +343,80 @@ describe('RoomEditor', () => {
     expect(screen.getByRole('button', { name: 'Fit' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '100%' })).toBeInTheDocument();
 
-    const bubbledShortcut = vi.fn();
-    window.addEventListener('keydown', bubbledShortcut);
-    const focus = document.querySelector<HTMLElement>('[data-hotspot-focus]');
-    expect(focus).not.toBeNull();
-    if (focus) fireEvent.keyDown(focus, { key: 'z', ctrlKey: true });
-    window.removeEventListener('keydown', bubbledShortcut);
-    expect(bubbledShortcut).not.toHaveBeenCalled();
+    act(() => {
+      useHotspotFocusStore
+        .getState()
+        .setBounds(tab.id, 'door', { x: 0.25, y: 0.3, width: 0.3, height: 0.4 });
+    });
+    const projectUndo = vi.fn(() => useCommandStore.getState().undo());
+    const projectRedo = vi.fn(() => useCommandStore.getState().redo());
+    const globalProjectShortcut = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      if (key === 'z' && !event.shiftKey) projectUndo();
+      else if (key === 'y' || (key === 'z' && event.shiftKey)) projectRedo();
+    };
+    window.addEventListener('keydown', globalProjectShortcut);
+
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape?.bounds,
+    ).toEqual({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
+    expect(projectUndo).not.toHaveBeenCalled();
+    expect(useCommandStore.getState().history.cursor).toBe(0);
+
+    const selectButton = screen.getByRole('button', { name: 'Select' });
+    selectButton.focus();
+    fireEvent.keyDown(selectButton, { key: 'z', ctrlKey: true, shiftKey: true });
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape?.bounds,
+    ).toEqual({ x: 0.25, y: 0.3, width: 0.3, height: 0.4 });
+    expect(projectRedo).not.toHaveBeenCalled();
+
+    const focusRoot = document.querySelector<HTMLElement>('[data-hotspot-focus]');
+    expect(focusRoot).not.toBeNull();
+    if (focusRoot) {
+      focusRoot.focus();
+      fireEvent.keyDown(focusRoot, { key: 'z', ctrlKey: true });
+    }
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape?.bounds,
+    ).toEqual({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
+    expect(projectUndo).not.toHaveBeenCalled();
+
+    const stage = document.querySelector<HTMLElement>('[data-hotspot-image-stage] > div[tabindex]');
+    expect(stage).not.toBeNull();
+    if (stage) {
+      stage.focus();
+      fireEvent.keyDown(stage, { key: 'y', ctrlKey: true });
+    }
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape?.bounds,
+    ).toEqual({ x: 0.25, y: 0.3, width: 0.3, height: 0.4 });
+    expect(projectRedo).not.toHaveBeenCalled();
+    if (stage) {
+      fireEvent.keyDown(stage, { key: 'z', ctrlKey: true });
+    }
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape?.bounds,
+    ).toEqual({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
+    expect(projectUndo).not.toHaveBeenCalled();
+    expect(useCommandStore.getState().history.cursor).toBe(0);
+
+    useWorkbenchStore.getState().openTab({
+      id: 'tab:other-tool',
+      title: 'Other tool',
+      editorType: 'settings',
+      resource: { kind: 'tool', stableId: 'tool:other' },
+    });
+    fireEvent.keyDown(document.body, { key: 'z', ctrlKey: true });
+    expect(projectUndo).toHaveBeenCalledTimes(1);
+    expect(useCommandStore.getState().history.cursor).toBe(-1);
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape?.bounds,
+    ).toEqual({ x: 0.1, y: 0.2, width: 0.3, height: 0.4 });
+
+    window.removeEventListener('keydown', globalProjectShortcut);
   });
 
   it('selects Room Hotspots in direct Edit for semantic inspection and opens Focus from both entry points', () => {

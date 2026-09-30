@@ -1387,7 +1387,7 @@ export function WorkspacePage() {
           (entry) => !entry.apply && (!entry.schema || entry.payload === undefined),
         );
         if (nonSerializableDraft) {
-          const message = 'Apply the active tab draft before saving, or discard it.';
+          const message = t('dirtyClose.applyActiveDraftBeforeSave');
           setProjectSaveError(message);
           setStatusMessage(message);
           return false;
@@ -1396,7 +1396,7 @@ export function WorkspacePage() {
         if (applicableDrafts.length > 0) {
           const applied = await runDraftActions(applicableDrafts, 'apply');
           if (!applied) {
-            const message = 'Apply the active tab draft before saving, or discard it.';
+            const message = t('dirtyClose.applyActiveDraftBeforeSave');
             setProjectSaveError(message);
             setStatusMessage(message);
             return false;
@@ -1463,7 +1463,7 @@ export function WorkspacePage() {
         (entry) => !entry.apply && (!entry.schema || entry.payload === undefined),
       );
       if (unappliedNonSerializableDrafts.length > 0) {
-        const message = 'Apply local drafts before saving all, or discard them.';
+        const message = t('dirtyClose.applyDraftsBeforeSaveAll');
         setProjectSaveError(message);
         setStatusMessage(message);
         return false;
@@ -1472,7 +1472,7 @@ export function WorkspacePage() {
       if (applicableDrafts.length > 0) {
         const applied = await runDraftActions(applicableDrafts, 'apply');
         if (!applied) {
-          const message = 'Apply local drafts before saving all, or discard them.';
+          const message = t('dirtyClose.applyDraftsBeforeSaveAll');
           setProjectSaveError(message);
           setStatusMessage(message);
           return false;

@@ -1,20 +1,31 @@
 import { create } from 'zustand';
+import { z } from 'zod';
 import { useCommandStore } from '@/commands/command-store';
 import type { HotspotTool } from '@/components/image-stage/hotspot-view-state';
 import type { ImageStageCamera } from '@/components/image-stage/image-stage-transforms';
+import { editorI18n } from '@/i18n';
 import { useProjectStore } from '@/project/project-store';
 import { toJsonValue, type JsonValue } from '@/project/json-value';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import { updateInteractableHotspots, updateRoomHotspots } from '@/project/hotspot-operations';
 import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useWorkspaceStore } from '@/stores/workspace-store';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import {
+  imageAssetMetadataSchema,
+  parseAssetData,
+} from '../../../shared/project-schema/authoring-assets';
 import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
 import {
   interactableHotspotBehaviorSchema,
   interactableHotspotsSchema,
+  parseInteractableData,
 } from '../../../shared/project-schema/authoring-interactables';
-import { roomHotspotDataSchema } from '../../../shared/project-schema/authoring-rooms';
+import {
+  parseRoomData,
+  roomHotspotDataSchema,
+} from '../../../shared/project-schema/authoring-rooms';
 import type { EditableHotspot } from './hotspot-types';
 import {
   addHotspotGeometry,
@@ -31,11 +42,24 @@ import {
 export type HotspotFocusOwnerKind = 'room' | 'interactable';
 export type HotspotFocusMode = 'rectangles' | 'sprite-alpha';
 
+const hotspotFocusSourceIdentitySchema = z
+  .object({
+    sourcePath: z.string().min(1),
+    contentHash: z.string().nullable(),
+    byteSize: z.number().nonnegative().nullable(),
+    importedAt: z.string().nullable(),
+    thumbnailRevision: z.string().nullable(),
+    imageMetadata: imageAssetMetadataSchema,
+  })
+  .strict();
+export type HotspotFocusSourceIdentity = z.infer<typeof hotspotFocusSourceIdentitySchema>;
+
 export interface HotspotFocusSession {
   tabId: string;
   ownerKind: HotspotFocusOwnerKind;
   ownerId: string;
   assetId: string | null;
+  sourceIdentity: HotspotFocusSourceIdentity | null;
   mode: HotspotFocusMode;
   initialItems: readonly EditableHotspot[];
   history: HotspotFocusHistory;
@@ -86,19 +110,63 @@ const draftKey = (tabId: string) => `hotspot-focus:${tabId}`;
 const targetKey = (session: Pick<HotspotFocusSession, 'ownerKind' | 'ownerId' | 'assetId'>) =>
   `${session.ownerKind}:${session.ownerId}:${session.assetId ?? 'none'}`;
 
+function sourceIdentityForAsset(
+  document: ReturnType<typeof useProjectStore.getState>['document'],
+  assetId: string | null,
+): HotspotFocusSourceIdentity | null {
+  if (!assetId || !isAuthoringProject(document)) return null;
+  const data = parseAssetData(document.assets[assetId]?.data);
+  if (data?.kind !== 'image' || !data.imageMetadata) return null;
+  return {
+    sourcePath: data.source.path,
+    contentHash: data.contentHash ?? null,
+    byteSize: data.byteSize ?? null,
+    importedAt: data.importedAt ?? null,
+    thumbnailRevision: data.preview?.thumbnailRevision ?? null,
+    imageMetadata: {
+      width: data.imageMetadata.width,
+      height: data.imageMetadata.height,
+      hasAlpha: data.imageMetadata.hasAlpha,
+      orientation: data.imageMetadata.orientation,
+    },
+  };
+}
+
+function currentOwnerAssetId(
+  document: ReturnType<typeof useProjectStore.getState>['document'],
+  ownerKind: HotspotFocusOwnerKind,
+  ownerId: string,
+): string | null | undefined {
+  if (!isAuthoringProject(document)) return undefined;
+  if (ownerKind === 'room') {
+    const room = parseRoomData(document.rooms[ownerId]?.data);
+    return room ? (room.background.asset?.$ref.id ?? null) : undefined;
+  }
+  const interactable = parseInteractableData(document.interactables[ownerId]?.data);
+  return interactable ? (interactable.presentation.sprite?.$ref.id ?? null) : undefined;
+}
+
+function sameSourceIdentity(
+  left: HotspotFocusSourceIdentity | null,
+  right: HotspotFocusSourceIdentity | null,
+) {
+  return JSON.stringify(left) === JSON.stringify(right);
+}
+
 function syncDraftEntry(session: HotspotFocusSession | undefined) {
   if (!session) return;
   const dirty = hotspotGeometryChanged(session.initialItems, session.history.present);
   useDraftDirtyStore.getState().setDraftDirty(draftKey(session.tabId), {
     tabId: session.tabId,
     dirty,
-    label: 'Hotspot geometry',
+    label: editorI18n.t('workspace:hotspots.focus.draftLabel'),
     schema: HOTSPOT_FOCUS_DRAFT_SCHEMA,
     payload: toJsonValue({
       schemaVersion: HOTSPOT_FOCUS_DRAFT_VERSION,
       ownerKind: session.ownerKind,
       ownerId: session.ownerId,
       assetId: session.assetId,
+      sourceIdentity: session.sourceIdentity,
       mode: session.mode,
       initialItems: session.initialItems,
       currentItems: session.history.present,
@@ -119,6 +187,11 @@ function parseDraftPayload(value: JsonValue | undefined) {
   if (payload.ownerKind !== 'room' && payload.ownerKind !== 'interactable') return null;
   if (typeof payload.ownerId !== 'string') return null;
   if (payload.assetId !== null && typeof payload.assetId !== 'string') return null;
+  const parsedSourceIdentity = hotspotFocusSourceIdentitySchema
+    .nullable()
+    .safeParse(payload.sourceIdentity);
+  if (!parsedSourceIdentity.success) return null;
+  const sourceIdentity = parsedSourceIdentity.data;
   if (payload.mode !== 'rectangles' && payload.mode !== 'sprite-alpha') return null;
   if (!Array.isArray(payload.initialItems) || !Array.isArray(payload.currentItems)) return null;
   if (payload.selectedHotspotId !== null && typeof payload.selectedHotspotId !== 'string')
@@ -156,6 +229,7 @@ function parseDraftPayload(value: JsonValue | undefined) {
     ownerKind: payload.ownerKind,
     ownerId: payload.ownerId,
     assetId: payload.assetId as string | null,
+    sourceIdentity,
     mode: payload.mode,
     initialItems,
     currentItems,
@@ -209,6 +283,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       ownerKind: input.ownerKind,
       ownerId: input.ownerId,
       assetId: input.assetId,
+      sourceIdentity: sourceIdentityForAsset(useProjectStore.getState().document, input.assetId),
       mode: input.mode,
       initialItems: input.items,
       history: createHotspotFocusHistory(input.items),
@@ -243,6 +318,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       ownerKind: payload.ownerKind,
       ownerId: payload.ownerId,
       assetId: payload.assetId,
+      sourceIdentity: payload.sourceIdentity,
       mode: payload.mode,
       initialItems: payload.initialItems,
       history: hotspotGeometryChanged(payload.initialItems, payload.currentItems)
@@ -385,6 +461,20 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
     }
     const document = useProjectStore.getState().document;
     if (!isAuthoringProject(document)) return false;
+    const latestOwnerAssetId = currentOwnerAssetId(document, session.ownerKind, session.ownerId);
+    if (
+      latestOwnerAssetId === undefined ||
+      latestOwnerAssetId !== session.assetId ||
+      !sameSourceIdentity(
+        sourceIdentityForAsset(document, latestOwnerAssetId),
+        session.sourceIdentity,
+      )
+    ) {
+      useWorkspaceStore
+        .getState()
+        .setStatusMessage(editorI18n.t('workspace:hotspots.focus.staleSourceStatus'));
+      return false;
+    }
     const operation =
       session.ownerKind === 'room'
         ? updateRoomHotspots(document, session.ownerId, (data) => {
@@ -423,8 +513,8 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       type: 'project.applyPatch',
       label:
         session.ownerKind === 'room'
-          ? 'Edit Room hotspot geometry'
-          : 'Edit Interactable hotspot geometry',
+          ? editorI18n.t('workspace:hotspots.focus.roomCommandLabel')
+          : editorI18n.t('workspace:hotspots.focus.interactableCommandLabel'),
       payload: operation.patches,
       originSaveUnitId: recordSaveUnitId(
         session.ownerKind === 'room' ? 'rooms' : 'interactables',

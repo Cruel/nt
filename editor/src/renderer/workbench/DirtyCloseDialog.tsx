@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/command-store';
@@ -25,6 +26,7 @@ import { tabCloseRequiresDirtyPrompt } from './close-guard-store';
 import { selectPendingSaveUnitIds, usePendingInputStore } from './pending-input-store';
 
 export function DirtyCloseDialog() {
+  const { t } = useTranslation('workspace');
   const [saving, setSaving] = useState(false);
   const pendingClose = useCloseGuardStore((state) => state.pendingClose);
   const clearPendingClose = useCloseGuardStore((state) => state.clearPendingClose);
@@ -111,7 +113,7 @@ export function DirtyCloseDialog() {
           );
           if (!applied) {
             clearPendingClose();
-            const message = 'Apply the local draft before saving, or discard it.';
+            const message = t('dirtyClose.applyDraftBeforeSave');
             setProjectSaveError(message);
             setStatusMessage(message);
             return;
@@ -130,7 +132,7 @@ export function DirtyCloseDialog() {
         const result = await saveActiveSaveUnit(saveUnitId);
         if (!result.success && result.status !== 'nothing-to-save') {
           const message =
-            result.response?.error ?? result.diagnostics[0]?.message ?? 'Save failed.';
+            result.response?.error ?? result.diagnostics[0]?.message ?? t('dirtyClose.saveFailed');
           setProjectSaveError(message);
           setStatusMessage(message);
           setDiagnostics(result.diagnostics);
@@ -138,8 +140,7 @@ export function DirtyCloseDialog() {
           return;
         }
         if (result.remainingDirtySaveUnitIds.includes(saveUnitId)) {
-          const message =
-            'This item changed again while it was being saved. Save the newer edits before closing.';
+          const message = t('dirtyClose.changedDuringSave');
           setProjectSaveError(message);
           setStatusMessage(message);
           addTimelineEntry({ source: 'command', message, detail: result });
@@ -148,15 +149,13 @@ export function DirtyCloseDialog() {
       }
       const message =
         saveUnitIds.length === 0
-          ? 'Applied local draft'
-          : saveUnitIds.length > 1
-            ? 'Saved modified items'
-            : 'Saved modified item';
+          ? t('dirtyClose.appliedDraft')
+          : t('dirtyClose.savedItems', { count: saveUnitIds.length });
       setStatusMessage(message);
       addTimelineEntry({ source: 'command', message, detail: { saveUnitIds } });
       closeApprovedTabs();
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Save failed.';
+      const message = error instanceof Error ? error.message : t('dirtyClose.saveFailed');
       setProjectSaveError(message);
       setStatusMessage(message);
       addTimelineEntry({ source: 'command', message, detail: error });
@@ -202,8 +201,8 @@ export function DirtyCloseDialog() {
         ...MUTATION_SURFACE_ATTRIBUTIONS.discardDirtyUnits,
         label:
           dirtyTabStates.length === 1 && primaryDirtyTab
-            ? `Discard changes to ${primaryDirtyTab.title}`
-            : `Discard changes to ${dirtyTabStates.length} tabs`,
+            ? t('dirtyClose.discardNamed', { title: primaryDirtyTab.title })
+            : t('dirtyClose.discardTabs', { count: dirtyTabStates.length }),
         payload: patches,
       });
     }
@@ -220,20 +219,24 @@ export function DirtyCloseDialog() {
     dirtyTabStates.every(({ tab: dirtyTab }) => draftOnlyTabIds.has(dirtyTab.id));
   const title =
     closeCount > 1
-      ? `Close ${closeCount} tabs?`
+      ? t('dirtyClose.titleTabs', { count: closeCount })
       : primaryDirtyTab
-        ? `Close ${primaryDirtyTab.title}?`
-        : 'Close modified tab?';
+        ? t('dirtyClose.titleNamed', { title: primaryDirtyTab.title })
+        : t('dirtyClose.titleModified');
   const description =
     closeCount > 1
       ? draftOnlyTabIds.size > 0
-        ? `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves changes owned only by tabs being fully closed; Don't Save drops those changes and the closing views' local drafts. Shared changes remain with duplicate views that stay open.`
-        : `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves the selected items; Don't Save closes all requested tabs and drops dirty changes.`
+        ? t('dirtyClose.multipleWithSharedDraft', {
+            count: dirtyCount,
+            dirtyCount,
+            closeCount,
+          })
+        : t('dirtyClose.multiple', { count: dirtyCount, dirtyCount, closeCount })
       : onlyTabLocalDraftResolution
-        ? "This view has unapplied local edits. Apply will apply this draft and close the view; Don't Save closes the view and drops only this local draft. Other unsaved changes remain in the other view."
+        ? t('dirtyClose.localDraftOnly')
         : hasDraftDirty
-          ? "This tab has unapplied local edits. Save will apply the draft and save this item; Don't Save closes the tab and drops the local edits."
-          : "This tab has unsaved project changes. Save this item, don't save its changes, or cancel.";
+          ? t('dirtyClose.draftAndProject')
+          : t('dirtyClose.projectOnly');
 
   return (
     <Dialog
@@ -247,7 +250,7 @@ export function DirtyCloseDialog() {
         <DialogDescription>{description}</DialogDescription>
         <div className="mt-4 flex flex-wrap justify-end gap-2">
           <Button size="sm" variant="ghost" onClick={clearPendingClose} disabled={saving}>
-            Cancel
+            {t('dirtyClose.cancel')}
           </Button>
           <Button
             size="sm"
@@ -255,14 +258,18 @@ export function DirtyCloseDialog() {
             onClick={discardAndClose}
             disabled={pendingTabs.length === 0 || saving}
           >
-            Don't Save
+            {t('dirtyClose.dontSave')}
           </Button>
           <Button
             size="sm"
             onClick={() => void saveAndClose()}
             disabled={pendingTabs.length === 0 || saving || (!hasPersistentDirty && !hasDraftDirty)}
           >
-            {saving ? 'Saving…' : onlyTabLocalDraftResolution ? 'Apply' : 'Save'}
+            {saving
+              ? t('dirtyClose.saving')
+              : onlyTabLocalDraftResolution
+                ? t('dirtyClose.apply')
+                : t('dirtyClose.save')}
           </Button>
         </div>
       </DialogPopup>

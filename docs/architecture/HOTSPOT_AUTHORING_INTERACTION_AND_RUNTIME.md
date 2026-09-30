@@ -94,15 +94,23 @@ framing into the remembered Focus camera; exit runs those endpoints in reverse. 
 preferences skip the animation. Focus navigation remains independent from Room Edit navigation.
 
 Geometry changes are session-local. Draw, move, resize, and delete participate in a local undo/redo
-history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y; Focus consumes those shortcuts so they never also reach
-project undo/redo. Deleting required rectangle geometry removes the whole Hotspot entity from the
-draft, while parent-editor composition shortcuts are suspended for the lifetime of Focus. `Done`
-publishes geometry through one project command and therefore one project-level undo step. It performs
-a three-way merge against the geometry seen on entry and the latest Project geometry: untouched
-shapes preserve concurrent changes, disjoint geometry edits compose, and conflicting edits to the
-same shape—including move/resize versus concurrent deletion—fail closed. `Cancel` discards the
-draft. Successful `Done` returns Room Edit with the most recently selected/created Hotspot selected
-when one remains. Switching tabs may leave the focus session alive.
+history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y. While the Focus tab owns the active workbench group,
+Focus captures those shortcuts at the window boundary regardless of whether DOM focus is on the
+workspace root, toolbar, image stage, geometry handles, or document body, so they never also reach
+project undo/redo. Inactive Focus tabs do not claim the shortcuts, and Terminal input remains outside
+Focus shortcut ownership. Deleting required rectangle geometry removes the whole Hotspot entity from
+the draft, while parent-editor composition shortcuts are suspended for the lifetime of Focus. `Done`
+publishes geometry through one project command and therefore one project-level undo step. The session
+captures the owner/source Asset relationship plus the source image identity used for image-space
+coordinates. Before the geometry merge, `Done` verifies that the owner still references that Asset
+and that the source path/content identity and image metadata still match. A stale-source mismatch
+fails closed before project mutation and keeps the Focus session and local draft intact so the author
+can cancel or restart against the current image. After that precondition succeeds, `Done` performs a
+three-way merge against the geometry seen on entry and the latest Project geometry: untouched shapes
+preserve concurrent changes, disjoint geometry edits compose, and conflicting edits to the same
+shape—including move/resize versus concurrent deletion—fail closed. `Cancel` discards the draft.
+Successful `Done` returns Room Edit with the most recently selected/created Hotspot selected when one
+remains. Switching tabs may leave the focus session alive.
 A modified session registers as a versioned serializable workbench draft so Project/window recovery
 can restore it, and closing its owning tab requires explicit apply/discard even when another visual
 tab shares the same record save unit.

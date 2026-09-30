@@ -9,6 +9,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { useProjectStore } from '@/project/project-store';
+import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { useHotspotFocusStore } from './hotspot-focus-store';
 import type { EditableHotspot } from './hotspot-types';
 import {
@@ -178,6 +179,29 @@ export function HotspotFocusWorkspace({
     };
   }, [entryTransitionFrames, imageUrl]);
 
+  useEffect(() => {
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey || event.metaKey) || event.altKey) return;
+      const key = event.key.toLowerCase();
+      const undoShortcut = key === 'z' && !event.shiftKey;
+      const redoShortcut = key === 'y' || (key === 'z' && event.shiftKey);
+      if (!undoShortcut && !redoShortcut) return;
+      const target = event.target instanceof Element ? event.target : null;
+      if (target?.closest('[data-terminal-panel]')) return;
+      const workbench = useWorkbenchStore.getState();
+      const activeTabId = workbench.groupsById[workbench.activeGroupId]?.activeTabId;
+      if (activeTabId !== tabId || !useHotspotFocusStore.getState().sessionsByTabId[tabId]) return;
+
+      event.preventDefault();
+      event.stopImmediatePropagation();
+      const focus = useHotspotFocusStore.getState();
+      if (undoShortcut) focus.undo(tabId);
+      else focus.redo(tabId);
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  }, [tabId]);
+
   if (!session) return null;
   const hotspots = session.history.present;
   const canDraw = session.mode === 'rectangles';
@@ -221,25 +245,7 @@ export function HotspotFocusWorkspace({
     );
 
   return (
-    <div
-      className="flex h-full min-h-0 flex-col bg-background"
-      data-hotspot-focus=""
-      tabIndex={-1}
-      onKeyDown={(event) => {
-        const modifier = event.ctrlKey || event.metaKey;
-        if (!modifier) return;
-        const key = event.key.toLowerCase();
-        if (key === 'z' && !event.shiftKey) {
-          event.preventDefault();
-          event.stopPropagation();
-          undo(tabId);
-        } else if (key === 'y' || (key === 'z' && event.shiftKey)) {
-          event.preventDefault();
-          event.stopPropagation();
-          redo(tabId);
-        }
-      }}
-    >
+    <div className="flex h-full min-h-0 flex-col bg-background" data-hotspot-focus="" tabIndex={-1}>
       <div className="flex flex-wrap items-center gap-2 border-b px-3 py-2">
         <div className="mr-auto min-w-0">
           <div className="truncate text-sm font-medium">{t('hotspots.focus.title')}</div>

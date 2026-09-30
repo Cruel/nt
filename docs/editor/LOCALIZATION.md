@@ -77,3 +77,4 @@ reviewer should check:
 | 2026-07-04 | Added `pt-BR` resources for the same initial namespaces using machine translation. | `pt-BR`: machine-unreviewed. |
 | 2026-07-08 | Added Project Settings ComfyUI workflow management and import/repair dialog copy to the `workspace` namespace. | `pt-BR` remains machine-unreviewed. |
 | 2026-08-28 | Added the shared typed Property Manager table, dialog, schema/value controls, Trait attachment controls, and accessibility copy to the `workspace` namespace. | Locale statuses unchanged. |
+| 2026-09-30 | Localized Hotspot Focus draft/command/status copy and the shared dirty-close/apply/save dialog copy. | `pt-BR` remains machine-unreviewed; pseudo coverage remains key-compatible. |
