@@ -66,7 +66,7 @@ end
 
 local function check_matches(check, query)
   if query == '' then return true end
-  local haystack = lower(check.id) .. ' ' .. lower(check.title) .. ' ' .. lower(check.description) .. ' ' .. lower(check.action) .. ' ' .. lower(check.expected)
+  local haystack = lower(check.id) .. ' ' .. lower(check.title) .. ' ' .. lower(check.description) .. ' ' .. lower(check.action) .. ' ' .. lower(check.expected) .. ' ' .. lower(check.guideSubtext)
   return haystack:find(query, 1, true) ~= nil
 end
 
@@ -93,7 +93,7 @@ local function matching_check_titles(scenario, query)
     if check_matches(check, query) then matches[#matches + 1] = check.title end
   end
   if #matches == 0 then return '' end
-  return '<p class="feature-lab-match">Matches: ' .. escape(table.concat(matches, ', ')) .. '</p>'
+  return '<span class="feature-lab-match">Matches: ' .. escape(table.concat(matches, ', ')) .. '</span>'
 end
 
 function feature_lab.render(document)
@@ -109,17 +109,18 @@ function feature_lab.render(document)
         local recent = recent_label(scenario.created, modified)
         if (not feature_lab.recent_only) or recent then
           category_html = category_html
-            .. '<div class="feature-lab-scenario"><div class="feature-lab-scenario-header"><h3>' .. escape(scenario.title) .. '</h3>'
+            .. '<button class="feature-lab-scenario" id="feature-lab-launch-' .. escape(scenario.id) .. '" onclick="feature_lab.launch(event, element, document)">'
+            .. '<span class="feature-lab-scenario-main"><span class="feature-lab-scenario-title">' .. escape(scenario.title) .. '</span>'
             .. '<span class="feature-lab-status">[' .. escape(scenario.status) .. ' / ' .. tostring(#scenario.checks) .. ' checks]</span>'
             .. (recent and '<span class="feature-lab-recent">' .. recent .. '</span>' or '')
-            .. '<button id="feature-lab-launch-' .. escape(scenario.id) .. '" onclick="feature_lab.launch(event, element, document)">Launch fresh</button></div>'
-            .. '<p>' .. escape(scenario.description) .. '</p>'
-            .. matching_check_titles(scenario, query) .. '</div>'
+            .. '</span>' .. matching_check_titles(scenario, query) .. '</button>'
         end
       end
     end
     if category_html ~= '' then
-      html = html .. '<h2 class="feature-lab-category">' .. escape(category.title) .. '</h2>' .. category_html
+      html = html
+        .. '<section class="feature-lab-category"><h2>' .. escape(category.title) .. '</h2>'
+        .. '<div class="feature-lab-scenario-grid">' .. category_html .. '</div></section>'
     end
   end
   if html == '' then html = '<p>No Feature Lab checks match the current view.</p>' end
@@ -135,11 +136,13 @@ function feature_lab.render_scenario_guide(document, scenario_id)
     return
   end
   local html = '<h2>' .. escape(scenario.title) .. '</h2>'
-  for _, check in ipairs(scenario.checks) do
+  for index, check in ipairs(scenario.checks) do
     html = html
-      .. '<div class="feature-lab-check"><strong>' .. escape(check.title) .. '</strong>'
-      .. '<span class="feature-lab-status"> [' .. escape(check.verification) .. ']</span>'
-      .. '<p>' .. escape(check.action) .. ' → ' .. escape(check.expected) .. '</p></div>'
+      .. '<div class="feature-lab-check"><div class="feature-lab-check-instruction">'
+      .. '<span class="feature-lab-check-number">' .. tostring(index) .. '.</span>'
+      .. '<span>' .. escape(check.action) .. '</span></div>'
+      .. (check.guideSubtext and '<p class="feature-lab-check-subtext">' .. escape(check.guideSubtext) .. '</p>' or '')
+      .. '</div>'
   end
   guide.inner_rml = html
   guide:SetClass('hidden', false)
@@ -182,21 +185,33 @@ function feature_lab.toggle_recent(event, element, document)
   feature_lab.render(document)
 end
 
+local function restart_scenario(id)
+  local scenario = scenario_by_id(id)
+  if not scenario then return end
+  for _, launch in ipairs(feature_lab.catalog.launches) do
+    if launch.id == scenario.launch.entry then
+      Game.restart({feature_lab={mode='scenario', scenario_id=id, entry_id=launch.id, room_id=launch.roomId}}, false)
+      return
+    end
+  end
+end
+
 function feature_lab.launch(event, element, document)
   local prefix = 'feature-lab-launch-'
   local element_id = element and element.id or ''
   local id = element_id:sub(1, #prefix) == prefix and element_id:sub(#prefix + 1) or ''
   local panel = document and document:GetElementById('feature-lab-panel') or nil
   if panel then panel:SetClass('hidden', true) end
-  for _, scenario in ipairs(feature_lab.catalog.scenarios) do
-    if scenario.id == id then
-      for _, launch in ipairs(feature_lab.catalog.launches) do
-        if launch.id == scenario.launch.entry then
-          Game.restart({feature_lab={mode='scenario', scenario_id=id, entry_id=launch.id, room_id=launch.roomId}}, false)
-          return
-        end
-      end
-    end
+  restart_scenario(id)
+end
+
+function feature_lab.restart_current(event, element, document)
+  local context = Game.startup_context()
+  local lab = type(context) == 'table' and type(context.feature_lab) == 'table' and context.feature_lab or nil
+  if lab and lab.mode == 'scenario' and lab.scenario_id then
+    restart_scenario(lab.scenario_id)
+  else
+    feature_lab.fresh_home(event, element, document)
   end
 end
 

@@ -2130,11 +2130,14 @@ export class ProjectWorkspaceService {
               const priorSource = prior.data[channel];
               if (selector.sourceMode === 'file') {
                 if (priorSource.sourceMode !== 'inline') return null;
-                data[channel] = {
-                  sourceMode: 'inline',
-                  sourceText: priorSource.sourceText,
-                  sourceAsset: null,
-                };
+                data[channel] =
+                  channel === 'lua'
+                    ? { sourceMode: 'inline', sourceText: priorSource.sourceText }
+                    : {
+                        sourceMode: 'inline',
+                        sourceText: priorSource.sourceText,
+                        sourceAsset: null,
+                      };
               } else if (selector.sourceMode === 'asset') {
                 if (priorSource.sourceMode !== 'asset') return null;
                 data[channel] = {
@@ -2144,7 +2147,7 @@ export class ProjectWorkspaceService {
               } else if (channel === 'lua' && selector.sourceMode === 'none') {
                 if (priorSource.sourceMode !== 'inline' || priorSource.sourceText !== '')
                   return null;
-                data[channel] = { sourceMode: 'inline', sourceText: '', sourceAsset: null };
+                data[channel] = { sourceMode: 'inline', sourceText: '' };
               } else return null;
             }
           } else if (collection === 'scripts') {
@@ -2179,11 +2182,10 @@ export class ProjectWorkspaceService {
                   ...prior,
                   data: {
                     ...prior.data,
-                    [channel]: {
-                      sourceMode: 'inline',
-                      sourceText: text,
-                      sourceAsset: null,
-                    },
+                    [channel]:
+                      channel === 'lua'
+                        ? { sourceMode: 'inline', sourceText: text }
+                        : { sourceMode: 'inline', sourceText: text, sourceAsset: null },
                   },
                 },
               },

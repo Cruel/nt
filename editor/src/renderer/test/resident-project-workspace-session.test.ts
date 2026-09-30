@@ -1609,6 +1609,38 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(second.sourceWork.wholeProjectSchemaParses).toBe(0);
   });
 
+  it('advances file-backed Layout Lua without adding noncanonical source fields', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.lua.sourceText = 'local value = "before"\n';
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const workspace = new ResidentProjectWorkspaceService(fileSystem);
+    const first = await workspace.open(ROOT);
+    expect(first.ok).toBe(true);
+
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/records/layouts/hud/layout.lua`,
+      'local value = "after"\n',
+    );
+    const second = await workspace.open(ROOT);
+    expect(second.ok).toBe(true);
+    if (!second.ok) throw new Error('Resident Layout Lua reopen failed.');
+    expect(second.snapshot.project.layouts.hud.data.lua).toEqual({
+      sourceMode: 'inline',
+      sourceText: 'local value = "after"\n',
+    });
+    expect(second.sourceWork.parsedJsonSources).toBe(0);
+    expect(second.sourceWork.readTextSources).toBe(1);
+    expect(second.sourceWork.wholeProjectSchemaParses).toBe(0);
+  });
+
   it('refreshes resident Lua source descriptors with changed file-backed text', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.scripts.bootstrap!.data.source = {
