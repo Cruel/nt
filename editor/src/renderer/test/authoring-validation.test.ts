@@ -19,6 +19,28 @@ import {
 } from '../../shared/project-schema/authoring-validation';
 
 describe('authoring validation', () => {
+  it('rejects authored Room presentation orders outside the signed 32-bit range', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.overlays = [
+      {
+        id: 'hud',
+        layout: { $ref: { collection: 'layouts', id: 'hud' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 2147483648,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+
+    expect(validateAuthoringProject(project)).toContainEqual(
+      expect.objectContaining({
+        path: '/rooms/foyer/data/overlays/0/order',
+        code: 'authoring.schema.too_big',
+      }),
+    );
+  });
+
   it('rejects duplicate authored Room presentation orders across WorldContent families', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

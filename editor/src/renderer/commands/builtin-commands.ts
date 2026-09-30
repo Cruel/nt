@@ -47,6 +47,7 @@ import {
   moveInteractableToPlacementPatches,
   placeInteractablePatches,
   reorderRoomPresentationPatches,
+  reorderRoomPresentationSelectionPatches,
   resizeRoomSelectionPatches,
   removeInteractableOccurrencePatches,
   setRoomFallbackInteractablePlacementPatches,
@@ -836,10 +837,15 @@ const roomReorderPresentationSchema = z.object({
   target: roomPresentationOrderTargetSchema,
   action: z.enum(['forward', 'backward', 'front', 'back']),
 });
+const roomReorderPresentationSelectionSchema = z.object({
+  roomId: entityIdSchema,
+  targets: z.array(roomPresentationOrderTargetSchema).min(1),
+  action: z.enum(['forward', 'backward', 'front', 'back']),
+});
 const roomSetPresentationOrderSchema = z.object({
   roomId: entityIdSchema,
   target: roomPresentationOrderTargetSchema,
-  order: z.number().int().safe(),
+  order: z.number().int().min(-2147483648).max(2147483647),
 });
 const roomPlaceInteractableSchema = z.object({
   roomId: entityIdSchema,
@@ -1480,6 +1486,10 @@ export const roomReorderPresentationCommand: CommandHandler = ({ document, paylo
   parseEntityCommand(roomReorderPresentationSchema, payload, (parsed) =>
     reorderRoomPresentationPatches(document, parsed),
   );
+export const roomReorderPresentationSelectionCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomReorderPresentationSelectionSchema, payload, (parsed) =>
+    reorderRoomPresentationSelectionPatches(document, parsed),
+  );
 export const roomSetPresentationOrderCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomSetPresentationOrderSchema, payload, (parsed) =>
     setRoomPresentationOrderPatches(document, parsed),
@@ -1858,6 +1868,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.deleteSelection': roomDeleteSelectionCommand,
     'room.addPresentationContent': roomAddPresentationContentCommand,
     'room.reorderPresentation': roomReorderPresentationCommand,
+    'room.reorderPresentationSelection': roomReorderPresentationSelectionCommand,
     'room.setPresentationOrder': roomSetPresentationOrderCommand,
     'room.placeInteractable': roomPlaceInteractableCommand,
     'room.addInteractableOccurrence': roomAddInteractableOccurrenceCommand,
@@ -1983,6 +1994,8 @@ export function labelForCommand(type: string): string {
       return 'Add room presentation content';
     case 'room.reorderPresentation':
       return 'Reorder room presentation';
+    case 'room.reorderPresentationSelection':
+      return 'Reorder room presentation selection';
     case 'room.setPresentationOrder':
       return 'Set room presentation order';
     case 'room.placeInteractable':

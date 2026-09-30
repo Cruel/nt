@@ -4,6 +4,7 @@ import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { RoomData } from '../../../shared/project-schema/authoring-rooms';
+import type { RoomPresentationReorderAction } from '../../../shared/project-schema/room-presentation-order';
 import {
   describeRoomEditSelection,
   roomEditSelectionKey,
@@ -62,6 +63,8 @@ export function RoomCompositionPane({
   onBeginAdd,
   onAddToPlacement,
   onDeleteSelection,
+  bulkStackingActions,
+  onBulkStackingAction,
   onEditHotspots,
 }: {
   project: AuthoringProject;
@@ -76,6 +79,11 @@ export function RoomCompositionPane({
   onBeginAdd: (actionId: string) => void;
   onAddToPlacement: (actionId: string, placementId: string) => void;
   onDeleteSelection: () => void;
+  bulkStackingActions?: readonly {
+    action: RoomPresentationReorderAction;
+    label: string;
+  }[];
+  onBulkStackingAction?: (action: RoomPresentationReorderAction, label: string) => void;
   onEditHotspots?: () => void;
 }) {
   const { t } = useTranslation('workspace');
@@ -287,6 +295,24 @@ export function RoomCompositionPane({
                     {action.label}
                   </Button>
                 ))}
+            </div>
+          ) : null}
+          {selection.length > 1 && bulkStackingActions && onBulkStackingAction ? (
+            <div
+              className="grid grid-cols-2 gap-1 rounded-md border bg-muted/20 p-2"
+              data-testid="room-bulk-presentation-order-controls"
+            >
+              {bulkStackingActions.map(({ action, label }) => (
+                <Button
+                  key={action}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() => onBulkStackingAction(action, label)}
+                >
+                  {label}
+                </Button>
+              ))}
             </div>
           ) : null}
           {selection.length === 1 ? (

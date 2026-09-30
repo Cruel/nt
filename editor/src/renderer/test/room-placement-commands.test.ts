@@ -5,6 +5,8 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import { defaultInteractionProgram } from '../../shared/project-schema/authoring-interaction-programs';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import {
   defaultInteractableData,
   defaultInteractableInstanceData,
@@ -886,9 +888,228 @@ describe('Room placement commands', () => {
     expect(reordered.ok, JSON.stringify(reordered.diagnostics)).toBe(true);
     const props = (reordered.document as typeof project).rooms.foyer!.data.props;
     expect(new Set(props.map((item) => item.order)).size).toBe(3);
+    expect(Object.fromEntries(props.map((item) => [item.id, item.order]))).toEqual({
+      rear: 0,
+      middle: 1024,
+      front: 512,
+    });
     expect(
       [...props].sort((left, right) => left.order - right.order).map((item) => item.id),
     ).toEqual(['rear', 'front', 'middle']);
+  });
+
+  it('rebalances the plane only when an occupied order has no available integer slot', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['rear', 'middle', 'front'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'stage',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: index,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const reordered = executeCommand(initial, {
+      type: 'room.setPresentationOrder',
+      payload: {
+        roomId: 'foyer',
+        target: { kind: 'prop', id: 'front' },
+        order: 1,
+      },
+    });
+
+    expect(reordered.ok, JSON.stringify(reordered.diagnostics)).toBe(true);
+    const props = (reordered.document as typeof project).rooms.foyer!.data.props;
+    expect(Object.fromEntries(props.map((item) => [item.id, item.order]))).toEqual({
+      rear: 0,
+      middle: 2048,
+      front: 1024,
+    });
+  });
+
+  it('rejects Room presentation orders outside the native signed 32-bit range', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'prop',
+        condition: { kind: 'always' },
+        placementId: 'stage',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const rejected = executeCommand(initial, {
+      type: 'room.setPresentationOrder',
+      payload: {
+        roomId: 'foyer',
+        target: { kind: 'prop', id: 'prop' },
+        order: 2147483648,
+      },
+    });
+
+    expect(rejected.ok).toBe(false);
+    expect(rejected.state).toEqual(initial);
+  });
+
+  it('reorders a same-plane multi-selection atomically while preserving selected relative order', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['a', 'b', 'c', 'd'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'stage',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const reordered = executeCommand(initial, {
+      type: 'room.reorderPresentationSelection',
+      payload: {
+        roomId: 'foyer',
+        targets: [
+          { kind: 'prop', id: 'b' },
+          { kind: 'prop', id: 'c' },
+        ],
+        action: 'front',
+      },
+    });
+
+    expect(reordered.ok, JSON.stringify(reordered.diagnostics)).toBe(true);
+    const props = (reordered.document as typeof project).rooms.foyer!.data.props;
+    expect(
+      [...props].sort((left, right) => left.order - right.order).map((item) => item.id),
+    ).toEqual(['a', 'd', 'b', 'c']);
+    expect(props.find((item) => item.id === 'a')?.order).toBe(0);
+    expect(props.find((item) => item.id === 'd')?.order).toBe(3072);
+    expect(new Set(props.map((item) => item.order)).size).toBe(4);
+    expect(reordered.state.history.entries).toHaveLength(initial.history.entries.length + 1);
+    expect(reordered.state.history.cursor).toBe(initial.history.cursor + 1);
+    expect(undoCommand(reordered.state).document).toEqual(initial.document);
+  });
+
+  it('rejects bulk presentation reordering across different planes', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.materials.effect = {
+      id: 'effect',
+      label: 'Effect',
+      data: defaultMaterialData('Effect', 'engine-2d'),
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'prop',
+        condition: { kind: 'always' },
+        placementId: 'stage',
+        asset: { $ref: { collection: 'assets', id: 'pixel' } },
+        materialApplication: null,
+        visible: true,
+        order: 0,
+      },
+    ];
+    room.environments = [
+      {
+        id: 'overlay-effect',
+        condition: { kind: 'always' },
+        asset: null,
+        materialApplication: emptyMaterialApplication('effect'),
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        plane: 'world-overlay',
+        order: 0,
+        clock: 'gameplay',
+        scrollPerSecond: { x: 0, y: 0 },
+        opacity: 1,
+        visible: true,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const rejected = executeCommand(initial, {
+      type: 'room.reorderPresentationSelection',
+      payload: {
+        roomId: 'foyer',
+        targets: [
+          { kind: 'prop', id: 'prop' },
+          { kind: 'environment', id: 'overlay-effect' },
+        ],
+        action: 'front',
+      },
+    });
+
+    expect(rejected.ok).toBe(false);
+    expect(rejected.state).toEqual(initial);
   });
 
   it('uses one add command for dedicated placement by default and explicit placement sharing', () => {

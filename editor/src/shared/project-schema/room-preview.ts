@@ -267,7 +267,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
     strict({
       id: z.string().min(1),
       bounds: normalizedRect,
-      layoutOrder: z.number().int().nullable(),
+      layoutOrder: z.number().int().min(-2147483648).max(2147483647).nullable(),
       label: focusedTextSchema.nullable(),
       layoutId: z.string().min(1).nullable(),
     }),
@@ -291,7 +291,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       enabled: z.boolean(),
       visible: z.boolean(),
       occurrenceVisible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
       visual: focusedCharacterVisualSchema,
     }),
   ),
@@ -306,7 +306,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       enabled: z.boolean(),
       visible: z.boolean(),
       occurrenceVisible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
     }),
   ),
   props: z.array(
@@ -319,7 +319,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
       materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
       visible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
     }),
   ),
   environments: z.array(
@@ -332,7 +332,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
       bounds: normalizedRect,
       plane: z.enum(['world-background', 'world-content', 'world-overlay']),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
       clock: z.enum(['gameplay', 'unscaled-presentation']),
       scrollPerSecond: vector2,
       opacity: z.number().finite(),
@@ -345,7 +345,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       condition: focusedConditionSchema,
       layoutId: z.string().min(1),
       visible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
     }),
   ),
   hotspots: z.array(

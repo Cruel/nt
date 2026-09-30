@@ -1,6 +1,7 @@
 import type { TFunction } from 'i18next';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { RoomData } from '../../../shared/project-schema/authoring-rooms';
+import { orderedRoomPresentationPlaneEntries } from '../../../shared/project-schema/room-presentation-order';
 import type {
   RoomEditProjectedRect,
   RoomEditProjection,
@@ -189,24 +190,67 @@ export function roomEditSelectionCandidates(
     }
   }
 
-  // Placement-attached Layouts live in WorldOverlay and therefore sit in front of world draws.
-  for (const placeholder of [...projection.layoutPlaceholders].reverse()) {
-    push({
-      selection: { kind: 'placement-layout', id: placeholder.placementId },
-      projected: placeholder,
-      label: describeRoomEditSelection(
-        project,
-        room,
-        { kind: 'placement-layout', id: placeholder.placementId },
-        t,
-      ),
-      category: 'occupant',
-      placementId: placeholder.placementId,
-    });
+  const layoutPlaceholdersByPlacement = new Map(
+    projection.layoutPlaceholders.map((placeholder) => [placeholder.placementId, placeholder]),
+  );
+  const worldOverlayEnvironments = new Map(
+    projection.worldDraws.flatMap((draw) =>
+      draw.kind === 'environment' && draw.plane === 'world-overlay'
+        ? [[draw.occurrenceId, draw] as const]
+        : [],
+    ),
+  );
+  for (const entry of [...orderedRoomPresentationPlaneEntries(room, 'world-overlay')].reverse()) {
+    if (entry.target.kind === 'placement-layout') {
+      const placeholder = layoutPlaceholdersByPlacement.get(entry.target.id);
+      if (!placeholder) continue;
+      push({
+        selection: entry.target,
+        projected: placeholder,
+        label: describeRoomEditSelection(project, room, entry.target, t),
+        category: 'occupant',
+        placementId: entry.target.id,
+      });
+      continue;
+    }
+    if (entry.target.kind === 'environment') {
+      const environment = worldOverlayEnvironments.get(entry.target.id);
+      if (!environment) continue;
+      push({
+        selection: entry.target,
+        projected: environment,
+        label: describeRoomEditSelection(project, room, entry.target, t),
+        category: 'independent',
+        placementId: null,
+      });
+      continue;
+    }
+    if (entry.target.kind === 'overlay') {
+      const overlay = room.overlays.find(
+        (candidate) => candidate.id === entry.target.id && candidate.visible,
+      );
+      if (!overlay) continue;
+      push({
+        selection: entry.target,
+        projected: {
+          rect: {
+            x: 0,
+            y: 0,
+            width: projection.viewport.width,
+            height: projection.viewport.height,
+          },
+          rotationDegrees: 0,
+        },
+        label: describeRoomEditSelection(project, room, entry.target, t),
+        category: 'independent',
+        placementId: null,
+      });
+    }
   }
 
   // worldDraws are back-to-front; candidate order is front-to-back.
   for (const draw of [...projection.worldDraws].reverse()) {
+    if (draw.plane === 'world-overlay') continue;
     switch (draw.kind) {
       case 'interactable':
         push({

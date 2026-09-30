@@ -111,7 +111,7 @@ export const roomOverlayDataSchema = strict({
   layout: roomLayoutRefSchema,
   condition: conditionSchema,
   visible: z.boolean(),
-  order: z.number().int(),
+  order: z.number().int().min(-2147483648).max(2147483647),
 });
 export const roomPlacementDataSchema = strict({
   id: entityIdSchema,
@@ -124,7 +124,7 @@ export const roomPlacementDataSchema = strict({
     strict({
       label: textContentSchema.nullable(),
       layout: roomLayoutRefSchema,
-      layoutOrder: z.number().int(),
+      layoutOrder: z.number().int().min(-2147483648).max(2147483647),
     }),
   ]),
 });
@@ -139,7 +139,7 @@ export const roomCastDataSchema = strict({
   appearanceId: entityIdSchema.nullable().optional(),
   idleId: entityIdSchema.nullable().default(null),
   visible: z.boolean(),
-  order: z.number().int(),
+  order: z.number().int().min(-2147483648).max(2147483647),
 });
 export const roomPropDataSchema = strict({
   id: entityIdSchema,
@@ -148,7 +148,7 @@ export const roomPropDataSchema = strict({
   asset: roomAssetRefSchema.nullable(),
   materialApplication: materialApplicationSchema.nullable(),
   visible: z.boolean(),
-  order: z.number().int(),
+  order: z.number().int().min(-2147483648).max(2147483647),
 });
 export const roomInteractableDataSchema = strict({
   id: entityIdSchema,
@@ -156,7 +156,7 @@ export const roomInteractableDataSchema = strict({
   condition: conditionSchema,
   placementId: entityIdSchema,
   visible: z.boolean(),
-  order: z.number().int(),
+  order: z.number().int().min(-2147483648).max(2147483647),
 });
 export const roomEnvironmentDataSchema = strict({
   id: entityIdSchema,
@@ -165,7 +165,7 @@ export const roomEnvironmentDataSchema = strict({
   materialApplication: materialApplicationSchema,
   bounds: roomNormalizedRectSchema,
   plane: z.enum(roomEnvironmentPlaneValues),
-  order: z.number().int(),
+  order: z.number().int().min(-2147483648).max(2147483647),
   clock: z.enum(roomEnvironmentClockValues),
   scrollPerSecond: strict({ x: z.number().finite(), y: z.number().finite() }),
   opacity: z.number().finite().min(0).max(1),

@@ -1240,7 +1240,7 @@ const roomPlacementSchema = strict({
   presentation: strict({
     label: compiledTextSchema.nullable(),
     layout: layoutReferenceSchema.nullable(),
-    layoutOrder: z.number().int().nullable(),
+    layoutOrder: z.number().int().min(-2147483648).max(2147483647).nullable(),
   }),
 });
 const worldRectSchema = strict({
@@ -1339,7 +1339,7 @@ const roomDefinitionSchema = strict({
       id,
       layout: layoutReferenceSchema,
       visible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
     }),
   ),
   cast: z.array(
@@ -1354,7 +1354,7 @@ const roomDefinitionSchema = strict({
       appearanceId: id.nullable(),
       idleId: id.nullable().optional(),
       visible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
     }),
   ),
   props: z.array(
@@ -1367,7 +1367,7 @@ const roomDefinitionSchema = strict({
       materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
       materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
       visible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
     }),
   ),
   interactables: z.array(
@@ -1377,7 +1377,7 @@ const roomDefinitionSchema = strict({
       condition: compiledConditionSchema,
       placementId: id,
       visible: z.boolean(),
-      order: z.number().int(),
+      order: z.number().int().min(-2147483648).max(2147483647),
     }),
   ),
   fallbackInteractablePlacementId: id.nullable(),
@@ -1392,7 +1392,7 @@ const roomDefinitionSchema = strict({
         materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
         bounds: normalizedRectSchema,
         plane: z.enum(['world-background', 'world-content', 'world-overlay']),
-        order: z.number().int(),
+        order: z.number().int().min(-2147483648).max(2147483647),
         clock: z.enum(['gameplay', 'unscaled-presentation']),
         scrollPerSecond: vector2Schema,
         opacity: finiteNumber.min(0).max(1),

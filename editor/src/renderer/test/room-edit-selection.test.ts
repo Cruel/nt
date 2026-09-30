@@ -9,6 +9,8 @@ import {
 } from '@/editors/rooms/room-edit-selection';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 
 describe('Room Edit semantic selection', () => {
   it('retains the containing Placement when an occupant visual is hit outside Placement bounds', () => {
@@ -198,5 +200,121 @@ describe('Room Edit semantic selection', () => {
         { width: 1000, height: 500 },
       ),
     ).toEqual([{ kind: 'environment', id: 'fog' }]);
+  });
+
+  it('orders all visible WorldOverlay candidates by authored plane order before target family', () => {
+    const project = createAuthoringProject();
+    project.layouts.placement = {
+      id: 'placement',
+      label: 'Placement layout',
+      data: defaultLayoutData('Placement layout', 'document'),
+    };
+    project.layouts.overlay = {
+      id: 'overlay',
+      label: 'Room overlay',
+      data: defaultLayoutData('Room overlay', 'document'),
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: {
+          label: null,
+          layout: { $ref: { collection: 'layouts', id: 'placement' } },
+          layoutOrder: 1024,
+        },
+      },
+    ];
+    room.overlays = [
+      {
+        id: 'hud',
+        layout: { $ref: { collection: 'layouts', id: 'overlay' } },
+        condition: { kind: 'always' },
+        visible: true,
+        order: 2048,
+      },
+    ];
+    room.environments = [
+      {
+        id: 'rain',
+        condition: { kind: 'always' },
+        asset: null,
+        materialApplication: emptyMaterialApplication('effect'),
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        plane: 'world-overlay',
+        order: 3072,
+        clock: 'gameplay',
+        scrollPerSecond: { x: 0, y: 0 },
+        opacity: 1,
+        visible: true,
+      },
+    ];
+    const projection = {
+      viewport: { width: 1000, height: 500 },
+      camera: room.presentationSpace.defaultView,
+      backgroundColor: {
+        rect: { x: 0, y: 0, width: 1000, height: 500 },
+        rotationDegrees: 0,
+      },
+      background: {
+        assetId: null,
+        fit: 'cover' as const,
+        uv: { x: 0, y: 0, width: 1, height: 1 },
+        color: '#000000',
+        materialApplication: null,
+        rect: { x: 0, y: 0, width: 1000, height: 500 },
+        rotationDegrees: 0,
+      },
+      placements: [
+        {
+          id: 'desk',
+          normalizedBounds: room.placements[0]!.bounds,
+          rect: { x: 100, y: 50, width: 200, height: 100 },
+          rotationDegrees: 0,
+        },
+      ],
+      interactables: [],
+      props: [],
+      environments: [],
+      cast: [],
+      layoutPlaceholders: [
+        {
+          placementId: 'desk',
+          layoutId: 'placement',
+          label: 'Placement layout',
+          plane: 'world-overlay' as const,
+          order: 1024,
+          hasRenderedOccupants: false,
+          rect: { x: 100, y: 50, width: 200, height: 100 },
+          rotationDegrees: 0,
+        },
+      ],
+      worldDraws: [
+        {
+          kind: 'environment' as const,
+          occurrenceId: 'rain',
+          normalizedBounds: room.environments[0]!.bounds,
+          plane: 'world-overlay' as const,
+          order: 3072,
+          assetId: null,
+          materialApplication: room.environments[0]!.materialApplication,
+          opacity: 1,
+          clock: 'gameplay' as const,
+          scrollPerSecond: { x: 0, y: 0 },
+          rect: { x: 0, y: 0, width: 1000, height: 500 },
+          rotationDegrees: 0,
+        },
+      ],
+    };
+    const t = ((key: string) => key) as never;
+
+    const candidates = roomEditSelectionCandidates(project, room, projection, t);
+
+    expect(candidates.slice(0, 3).map((candidate) => candidate.selection)).toEqual([
+      { kind: 'environment', id: 'rain' },
+      { kind: 'overlay', id: 'hud' },
+      { kind: 'placement-layout', id: 'desk' },
+    ]);
   });
 });

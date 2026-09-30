@@ -22,6 +22,7 @@ import {
   allocateRoomPresentationOrder,
   allocateRoomPresentationOrders,
   reorderRoomPresentation,
+  reorderRoomPresentationSelection,
   setRoomPresentationOrder,
   type RoomPresentationOrderTarget,
   type RoomPresentationReorderAction,
@@ -1174,6 +1175,31 @@ export function reorderRoomPresentationPatches(
       patches: [],
       diagnostics: [
         error('Room presentation occurrence does not exist.', roomPath(payload.roomId)),
+      ],
+    };
+  if (room === loaded.room) return { patches: [], affectedPaths: [] };
+  return roomResult(document, payload.roomId, room);
+}
+
+export function reorderRoomPresentationSelectionPatches(
+  document: unknown,
+  payload: {
+    roomId: string;
+    targets: RoomPresentationOrderTarget[];
+    action: RoomPresentationReorderAction;
+  },
+): EntityOperationResult {
+  const loaded = loadedRecords(document, payload.roomId);
+  if ('patches' in loaded) return loaded;
+  const room = reorderRoomPresentationSelection(loaded.room, payload.targets, payload.action);
+  if (!room)
+    return {
+      patches: [],
+      diagnostics: [
+        error(
+          'Room presentation selection must contain unique occurrences in one Presentation Plane.',
+          roomPath(payload.roomId),
+        ),
       ],
     };
   if (room === loaded.room) return { patches: [], affectedPaths: [] };

@@ -1420,6 +1420,18 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.duplicate_room_presentation_order"));
     }
 
+    SECTION("Room presentation order rejects values outside signed 32-bit range")
+    {
+        auto document = fixture("comprehensive");
+        auto* order =
+            path_member(document, {"definitions", "rooms", "0", "overlays", "0", "order"});
+        REQUIRE(order != nullptr);
+        *order = 2147483648LL;
+        auto result =
+            noveltea::core::decode_compiled_project(document, "room-presentation-order-range.json");
+        REQUIRE_FALSE(result);
+    }
+
     SECTION("hotspot rectangles cannot cross normalized image bounds")
     {
         auto document = fixture("interaction-program");
