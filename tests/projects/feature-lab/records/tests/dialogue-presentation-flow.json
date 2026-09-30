@@ -39,12 +39,38 @@
         ]
       },
       {
-        "id": "reveal-line",
+        "id": "reveal-ready-line",
         "input": "continue",
-        "label": "Reveal the current Dialogue line",
+        "label": "Reveal the neutral ready line",
         "expectations": [
           {
-            "id": "dialogue-still-active-after-reveal",
+            "id": "dialogue-still-active-after-ready-reveal",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
+          }
+        ]
+      },
+      {
+        "id": "advance-to-presentation-line",
+        "input": "continue",
+        "label": "Advance explicitly into the presentation cue line",
+        "expectations": [
+          {
+            "id": "dialogue-still-active-at-presentation-line",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
+          }
+        ]
+      },
+      {
+        "id": "reveal-presentation-line",
+        "input": "continue",
+        "label": "Reveal the presentation cue line",
+        "expectations": [
+          {
+            "id": "dialogue-still-active-after-presentation-reveal",
             "type": "active-flow",
             "operator": "eq",
             "activeFlow": { "kind": "dialogue", "flowId": "dialogue-presentation-pilot" }
@@ -54,7 +80,7 @@
       {
         "id": "advance-to-choice",
         "input": "continue",
-        "label": "Advance from the completed line to the Dialogue choice",
+        "label": "Advance from the completed presentation line to the Dialogue choice",
         "expectations": [
           {
             "id": "dialogue-still-active-at-choice",

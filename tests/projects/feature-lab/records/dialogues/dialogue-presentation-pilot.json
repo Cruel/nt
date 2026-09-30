@@ -34,10 +34,21 @@
         "defaultSpeaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
         "segments": [
           {
-            "id": "intro-line",
+            "id": "ready-line",
             "type": "line",
             "speaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
-            "text": { "source": { "kind": "inline", "text": "You did it. Now choose." }, "markup": "plain" },
+            "text": { "source": { "kind": "inline", "text": "Ready when you are. Continue to begin the presentation checks." }, "markup": "plain" },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "presentation-line",
+            "type": "line",
+            "speaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+            "text": { "source": { "kind": "inline", "text": "You did it. Watch closely while I change expression. Keep watching until the attention cue sounds and the brief flash appears. Then continue to the choice." }, "markup": "plain" },
             "cues": [
               {
                 "id": "dialogue-voice",
@@ -53,13 +64,13 @@
               {
                 "id": "smile-expression",
                 "kind": "speaker-expression",
-                "position": { "offset": 7, "order": 0 },
+                "position": { "offset": 38, "order": 0 },
                 "expressionId": "smile"
               },
               {
                 "id": "attention-sfx",
                 "kind": "sound-effect",
-                "position": { "offset": 14, "order": 0 },
+                "position": { "offset": 92, "order": 0 },
                 "asset": { "$ref": { "collection": "assets", "id": "pilot-cue-audio" } },
                 "pausePolicy": "owner",
                 "gain": 0.7,
@@ -72,7 +83,7 @@
               {
                 "id": "attention-flash",
                 "kind": "camera",
-                "position": { "offset": 14, "order": 1 },
+                "position": { "offset": 92, "order": 1 },
                 "emphasis": {
                   "kind": "flash",
                   "color": "#fff2c2",

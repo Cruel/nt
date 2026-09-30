@@ -15,7 +15,7 @@
       "color": "#151827"
     },
     "description": {
-      "source": { "kind": "inline", "text": "Advance the line normally, observe its presentation cues, then choose a response." },
+      "source": { "kind": "inline", "text": "Start from the neutral ready prompt, continue into the presentation cues, then choose a response." },
       "markup": "active-text"
     },
     "presentationSpace": {

@@ -26,9 +26,21 @@
         ]
       },
       {
-        "id": "reveal-line",
+        "id": "reveal-ready-line",
         "input": "continue",
-        "label": "Reveal the Dialogue line semantically",
+        "label": "Reveal the neutral ready line semantically",
+        "expectations": []
+      },
+      {
+        "id": "advance-to-presentation-line",
+        "input": "continue",
+        "label": "Advance explicitly into the presentation cue line",
+        "expectations": []
+      },
+      {
+        "id": "reveal-presentation-line",
+        "input": "continue",
+        "label": "Reveal the presentation cue line semantically",
         "expectations": []
       },
       {
