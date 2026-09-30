@@ -3,7 +3,9 @@ import {
   defaultRoomEditSelectionCandidate,
   hitTestRoomEditCandidates,
   marqueeRoomEditSelections,
+  ordinaryRoomEditSelectionCandidate,
   roomEditSelectionCandidates,
+  roomEditSelectionCapabilities,
   topmostRoomEditOccupantCandidate,
   type RoomEditSelectionCandidate,
 } from '@/editors/rooms/room-edit-selection';
@@ -13,6 +15,21 @@ import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 
 describe('Room Edit semantic selection', () => {
+  it('models move and resize capability independently for semantic selections', () => {
+    expect(roomEditSelectionCapabilities({ kind: 'placement', id: 'desk' })).toEqual({
+      move: true,
+      resize: true,
+    });
+    expect(roomEditSelectionCapabilities({ kind: 'cast', id: 'hero' })).toEqual({
+      move: true,
+      resize: false,
+    });
+    expect(roomEditSelectionCapabilities({ kind: 'hotspot', id: 'door' })).toEqual({
+      move: false,
+      resize: false,
+    });
+  });
+
   it('retains the containing Placement when an occupant visual is hit outside Placement bounds', () => {
     const candidates: RoomEditSelectionCandidate[] = [
       {
@@ -158,6 +175,15 @@ describe('Room Edit semantic selection', () => {
       kind: 'placement',
       id: 'door-placement',
     });
+    expect(ordinaryRoomEditSelectionCandidate(hits)?.selection).toEqual({
+      kind: 'placement',
+      id: 'door-placement',
+    });
+    expect(
+      ordinaryRoomEditSelectionCandidate(
+        hits.filter((candidate) => candidate.selection.kind !== 'hotspot'),
+      )?.selection,
+    ).toEqual({ kind: 'placement', id: 'door-placement' });
     expect(topmostRoomEditOccupantCandidate(hits)).toBeNull();
   });
 

@@ -14,9 +14,43 @@ import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   fitRoomEditBackground,
   resolveRoomEditProjection,
+  resolveRoomEditProjectionPair,
 } from '@/editors/rooms/room-edit-projection';
 
 describe('Room Edit spatial projection', () => {
+  it('keeps canonical authored geometry stable while Edit navigation changes display geometry', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+
+    const fit = resolveRoomEditProjectionPair({
+      project,
+      roomId: 'foyer',
+      room,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+    });
+    const navigated = resolveRoomEditProjectionPair({
+      project,
+      roomId: 'foyer',
+      room,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+      navigation: { zoom: 2, pan: { x: 125, y: -40 } },
+    });
+
+    expect(navigated.canonical.placements[0]?.rect).toEqual(fit.canonical.placements[0]?.rect);
+    expect(navigated.canonical.camera).toEqual(fit.canonical.camera);
+    expect(navigated.display.placements[0]?.rect).not.toEqual(fit.display.placements[0]?.rect);
+    expect(navigated.display.camera).toEqual(fit.display.camera);
+  });
+
   it('resolves the authored world-composition subset with cross-family plane/order and exact Layout placeholder geometry', () => {
     const project = createAuthoringProject({ id: 'world-composition-test' });
     const room = defaultRoomData('Composition Room');

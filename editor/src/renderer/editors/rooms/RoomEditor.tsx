@@ -21,6 +21,14 @@ import {
   Workflow,
 } from 'lucide-react';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { ColorField } from '@/components/ui/color-field';
 import {
   backgroundFitIconByMode,
@@ -545,6 +553,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.selection ?? []) : [];
   });
+  const [pendingPlacementDeletion, setPendingPlacementDeletion] = useState<{
+    selection: RoomEditSelection[];
+    placements: { placementId: string; occupants: RoomEditSelection[] }[];
+  } | null>(null);
   const [expandedRoomSelectionKeys, setExpandedRoomSelectionKeys] = useState<Set<string>>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return new Set(
@@ -903,9 +915,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     });
   }, [roomSelection]);
 
+  const executeRoomSelectionDelete = useCallback(
+    (selection: readonly RoomEditSelection[]) => {
+      if (!roomId || selection.length === 0) return;
+      useCommandStore.getState().executeCommand({
+        type: 'room.deleteSelection',
+        label: t('roomEditor.compositionPane.deleteSelection'),
+        payload: { roomId, selection },
+        originSaveUnitId: recordSaveUnitId('rooms', roomId),
+        persistencePolicy: 'manual-save',
+      });
+      setRoomSelection([]);
+    },
+    [roomId, t],
+  );
+
   const deleteCurrentRoomSelection = useCallback(() => {
     if (!project || !roomId || roomSelection.length === 0) return;
-    const crowdedPlacements = roomSelection.flatMap((selection) => {
+    const selectionSnapshot = [...roomSelection];
+    const crowdedPlacements = selectionSnapshot.flatMap((selection) => {
       if (selection.kind !== 'placement') return [];
       const occupants: RoomEditSelection[] = [
         ...data.interactables
@@ -924,30 +952,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       return occupants.length > 1 ? [{ placementId: selection.id, occupants }] : [];
     });
     if (crowdedPlacements.length > 0) {
-      const details = crowdedPlacements
-        .flatMap(({ placementId, occupants }) => [
-          t('roomEditor.compositionPane.deletePlacementHeading', { id: placementId }),
-          ...occupants.map(
-            (occupant) => `• ${describeRoomEditSelection(project, data, occupant, t)}`,
-          ),
-        ])
-        .join('\n');
-      if (
-        !window.confirm(
-          `${t('roomEditor.compositionPane.deletePlacementConfirmation')}\n\n${details}`,
-        )
-      )
-        return;
+      setPendingPlacementDeletion({ selection: selectionSnapshot, placements: crowdedPlacements });
+      return;
     }
-    useCommandStore.getState().executeCommand({
-      type: 'room.deleteSelection',
-      label: t('roomEditor.compositionPane.deleteSelection'),
-      payload: { roomId, selection: roomSelection },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    setRoomSelection([]);
-  }, [data, project, roomId, roomSelection, t]);
+    executeRoomSelectionDelete(selectionSnapshot);
+  }, [data, executeRoomSelectionDelete, project, roomId, roomSelection]);
 
   useEffect(() => {
     if (presentationMode !== 'edit' || hotspotFocusSession) return;
@@ -4892,6 +4901,53 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             replaceExit(destinationSelectorExitId, { target: roomRoomRef(item.entityId) });
           }}
         />
+        <Dialog
+          open={pendingPlacementDeletion !== null}
+          onOpenChange={(open) => {
+            if (!open) setPendingPlacementDeletion(null);
+          }}
+        >
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>{t('roomEditor.compositionPane.deletePlacementTitle')}</DialogTitle>
+              <DialogDescription>
+                {t('roomEditor.compositionPane.deletePlacementConfirmation')}
+              </DialogDescription>
+            </DialogHeader>
+            <div className="max-h-64 space-y-3 overflow-auto rounded-md border bg-muted/20 p-2">
+              {pendingPlacementDeletion?.placements.map(({ placementId, occupants }) => (
+                <div key={placementId} className="space-y-1">
+                  <div className="font-medium">
+                    {t('roomEditor.compositionPane.deletePlacementHeading', { id: placementId })}
+                  </div>
+                  <ul className="space-y-0.5 pl-4 text-muted-foreground">
+                    {occupants.map((occupant) => (
+                      <li key={roomEditSelectionKey(occupant)} className="list-disc">
+                        {describeRoomEditSelection(project, data, occupant, t)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              ))}
+            </div>
+            <DialogFooter>
+              <Button variant="outline" onClick={() => setPendingPlacementDeletion(null)}>
+                {t('roomEditor.compositionPane.deletePlacementCancel')}
+              </Button>
+              <Button
+                variant="destructive"
+                onClick={() => {
+                  const pending = pendingPlacementDeletion;
+                  if (!pending) return;
+                  setPendingPlacementDeletion(null);
+                  executeRoomSelectionDelete(pending.selection);
+                }}
+              >
+                {t('roomEditor.compositionPane.deleteSelection')}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
       </CategorizedEditorLayout>
     </EditorPreviewSplit>
   );

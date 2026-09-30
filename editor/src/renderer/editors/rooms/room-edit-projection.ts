@@ -143,6 +143,11 @@ export interface RoomEditProjection {
   worldDraws: readonly RoomEditWorldDraw[];
 }
 
+export interface RoomEditProjectionPair {
+  canonical: RoomEditProjection;
+  display: RoomEditProjection;
+}
+
 export interface RoomEditResolvedVisibility {
   castEntryIds: readonly string[];
   interactableOccurrenceIds: readonly string[];
@@ -734,5 +739,29 @@ export function resolveRoomEditProjection({
     cast,
     layoutPlaceholders,
     worldDraws,
+  };
+}
+
+export function resolveRoomEditProjectionPair({
+  project,
+  roomId,
+  room,
+  viewport,
+  backgroundImageSize,
+  resolvedVisibility = null,
+  navigation = ROOM_EDIT_FIT_NAVIGATION,
+}: {
+  project: AuthoringProject;
+  roomId: string;
+  room: RoomData;
+  viewport: RoomEditSize;
+  backgroundImageSize: RoomEditSize | null;
+  resolvedVisibility?: RoomEditResolvedVisibility | null;
+  navigation?: RoomEditNavigation;
+}): RoomEditProjectionPair {
+  const base = { project, roomId, room, viewport, backgroundImageSize, resolvedVisibility };
+  return {
+    canonical: resolveRoomEditProjection(base),
+    display: resolveRoomEditProjection({ ...base, navigation }),
   };
 }
