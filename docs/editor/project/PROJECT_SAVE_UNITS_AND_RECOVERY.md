@@ -206,13 +206,17 @@ stored separately from project content; Project Settings uses authoritative comm
 field-level pending input instead of a whole-form draft.
 
 Hotspot Focus is one such tab-local serializable draft. Its versioned payload retains the Focus
-owner/source identity, initial and current geometry, selection/tool, and camera state. Recovery
-restores it only when the current schema/version and owning tab identity still match and the complete
-owner-specific Hotspot records validate at the runtime boundary, then reattaches its live
-apply/discard callbacks. Because that draft belongs to a visual Focus session rather than the record
-save unit itself, closing that tab requires draft resolution even when another duplicate view of the
-same record remains open. In that duplicate-view case, Apply/Don't Save resolve only the tab-local
-draft; they do not save or roll back the shared record state still owned by the remaining view.
+owner/source identity—including the referenced image Asset and source-image revision facts—initial
+and current geometry, selection/tool, and camera state. Recovery restores it only when the current
+schema/version and owning tab identity still match and the complete owner-specific Hotspot records
+validate at the runtime boundary, then reattaches its live apply/discard callbacks. Applying the draft
+revalidates the current Room-background or Interactable-sprite relationship and source identity before
+publishing geometry; a stale source leaves the draft unresolved instead of projecting old image-space
+coordinates onto a replacement image. Because that draft belongs to a visual Focus session rather
+than the record save unit itself, closing that tab requires draft resolution even when another
+duplicate view of the same record remains open. In that duplicate-view case, Apply/Don't Save resolve
+only the tab-local draft; they do not save or roll back the shared record state still owned by the
+remaining view.
 
 Persisted tab and draft payloads are independent current-only contracts. Their owner restores a
 payload only when both the schema identity and `schemaVersion` exactly match its current declaration;

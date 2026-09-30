@@ -19,10 +19,16 @@ import { tabCloseRequiresDirtyPrompt } from '@/workbench/close-guard-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
+  defaultInteractableData,
+  interactableAssetRef,
+  parseInteractableData,
+} from '../../shared/project-schema/authoring-interactables';
+import {
   defaultRoomData,
   parseRoomData,
   type RoomHotspotData,
 } from '../../shared/project-schema/authoring-rooms';
+import { editorI18n } from '@/i18n';
 
 const originalBounds = { x: 0.1, y: 0.2, width: 0.3, height: 0.4 };
 const movedBounds = { x: 0.2, y: 0.25, width: 0.3, height: 0.4 };
@@ -44,6 +50,39 @@ function projectWithRoomHotspot() {
   const room = defaultRoomData('Foyer');
   room.hotspots = [hotspot() as RoomHotspotData];
   project.rooms.foyer = { id: 'foyer', label: 'Foyer', traits: [], data: room };
+  return project;
+}
+
+function projectWithRoomHotspotImage() {
+  const project = projectWithRoomHotspot();
+  project.assets.background = {
+    id: 'background',
+    label: 'Background',
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/background.png' },
+      aliases: [],
+      byteSize: 64,
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+    },
+  };
+  project.assets.replacement = {
+    id: 'replacement',
+    label: 'Replacement',
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/replacement.png' },
+      aliases: [],
+      byteSize: 128,
+      contentHash: `sha256:${'b'.repeat(64)}`,
+      imageMetadata: { width: 200, height: 100, hasAlpha: true, orientation: 1 },
+    },
+  };
+  const room = parseRoomData(project.rooms.foyer?.data);
+  if (!room) throw new Error('Expected Room data.');
+  room.background.asset = { $ref: { collection: 'assets', id: 'background' } };
+  project.rooms.foyer = { ...project.rooms.foyer!, data: room };
   return project;
 }
 
@@ -287,6 +326,170 @@ describe('Hotspot Focus session', () => {
     const undoneRoom = parseRoomData(undone.rooms.foyer?.data);
     expect(undoneRoom?.hotspots).toHaveLength(1);
     expect(undoneRoom?.hotspots[0]?.shape.bounds).toEqual(originalBounds);
+  });
+
+  it('refuses stale geometry when another edit replaces the Room background source', () => {
+    const project = projectWithRoomHotspotImage();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: 'background',
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+    expect(
+      useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.payload,
+    ).toMatchObject({
+      sourceIdentity: {
+        sourcePath: 'assets/images/background.png',
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        byteSize: 64,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    });
+
+    const sourceChange = useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: 'Replace Room background',
+      payload: [
+        {
+          op: 'replace',
+          path: '/rooms/foyer/data/background/asset',
+          value: { $ref: { collection: 'assets', id: 'replacement' } },
+        },
+      ],
+      originSaveUnitId: 'record:rooms:foyer',
+      persistencePolicy: 'manual-save',
+    });
+    expect(sourceChange.ok).toBe(true);
+
+    expect(store.commit('room-tab')).toBe(false);
+    expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']).toBeDefined();
+    expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.dirty).toBe(true);
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+
+    const current = useProjectStore.getState().document as typeof project;
+    expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.shape.bounds).toEqual(
+      originalBounds,
+    );
+  });
+
+  it('refuses stale geometry when the source Asset is replaced in place', () => {
+    const project = projectWithRoomHotspotImage();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: 'background',
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+
+    const sourceChange = useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: 'Reimport Room background',
+      payload: [
+        {
+          op: 'replace',
+          path: '/assets/background/data/contentHash',
+          value: `sha256:${'c'.repeat(64)}`,
+        },
+      ],
+      originSaveUnitId: 'record:assets:background',
+      persistencePolicy: 'manual-save',
+    });
+    expect(sourceChange.ok).toBe(true);
+
+    expect(store.commit('room-tab')).toBe(false);
+    expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']).toBeDefined();
+    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+  });
+
+  it('refuses stale geometry when another edit replaces the Interactable sprite source', () => {
+    const project = projectWithRoomHotspotImage();
+    const data = defaultInteractableData('Door');
+    const interactableHotspot = {
+      id: 'door',
+      label: 'Door',
+      condition: { kind: 'always' as const },
+      inputOrder: 0,
+      highlight: { kind: 'default' as const },
+      target: { kind: 'owner' as const },
+      shape: { kind: 'rect' as const, bounds: originalBounds },
+    };
+    data.presentation.sprite = interactableAssetRef('background');
+    data.presentation.hotspots = {
+      kind: 'custom',
+      hotspots: [interactableHotspot],
+    };
+    project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'interactable-tab',
+      ownerKind: 'interactable',
+      ownerId: 'door',
+      assetId: 'background',
+      mode: 'rectangles',
+      items: [interactableHotspot],
+    });
+    store.setBounds('interactable-tab', 'door', movedBounds);
+
+    const sourceChange = useCommandStore.getState().executeCommand({
+      type: 'project.applyPatch',
+      label: 'Replace Interactable sprite',
+      payload: [
+        {
+          op: 'replace',
+          path: '/interactables/door/data/presentation/sprite',
+          value: interactableAssetRef('replacement'),
+        },
+      ],
+      originSaveUnitId: 'record:interactables:door',
+      persistencePolicy: 'manual-save',
+    });
+    expect(sourceChange.ok).toBe(true);
+
+    expect(store.commit('interactable-tab')).toBe(false);
+    expect(useHotspotFocusStore.getState().sessionsByTabId['interactable-tab']).toBeDefined();
+    const current = useProjectStore.getState().document as typeof project;
+    const currentInteractable = parseInteractableData(current.interactables.door?.data);
+    expect(
+      currentInteractable?.presentation.hotspots.kind === 'custom'
+        ? currentInteractable.presentation.hotspots.hotspots[0]?.shape.bounds
+        : null,
+    ).toEqual(originalBounds);
+  });
+
+  it('localizes Focus draft and project-command labels', async () => {
+    await editorI18n.changeLanguage('pseudo');
+    const project = projectWithRoomHotspot();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: null,
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+    expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.label).toBe(
+      '⟦Hotspot geometry⟧',
+    );
+
+    expect(store.commit('room-tab')).toBe(true);
+    expect(useCommandStore.getState().history.entries[0]?.label).toBe(
+      '⟦Edit Room hotspot geometry⟧',
+    );
   });
 
   it('cancels the Focus draft without project mutation or command history', () => {
