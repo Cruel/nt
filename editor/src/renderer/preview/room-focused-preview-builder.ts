@@ -1355,7 +1355,9 @@ export async function buildFocusedRoomPreview(
   const materialClosure = completeMaterialClosure(project, visual.materials);
   for (const id of materialClosure.assetIds) visual.assets.add(id);
   for (const cursor of project.settings.cursors.named) visual.assets.add(cursor.image.$ref.id);
-  const materialSourceProject = await buildShaderMaterialProject(project);
+  const materialSourceProject = await buildShaderMaterialProject(project, [], {
+    materialIds: visual.materials,
+  });
   let materialCompileOutputs: ShaderCompileOutput[] = [];
   if (Object.keys(materialSourceProject.compilation.programs).length > 0) {
     const response = parseShaderCompileResponse(
@@ -1367,7 +1369,9 @@ export async function buildFocusedRoomPreview(
       throw new Error(response.error ?? 'Focused Room Material shader compilation failed.');
     materialCompileOutputs = response.outputs;
   }
-  const materialProject = await buildShaderMaterialProject(project, materialCompileOutputs);
+  const materialProject = await buildShaderMaterialProject(project, materialCompileOutputs, {
+    materialIds: visual.materials,
+  });
   diagnostics.push(
     ...materialProject.diagnostics.map((item) => ({
       severity: item.severity === 'info' ? ('warning' as const) : item.severity,

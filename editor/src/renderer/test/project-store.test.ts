@@ -114,6 +114,11 @@ describe('project store selectors', () => {
     useProjectStore.getState().markEditorMetadataPersisted(working.editor);
 
     const state = useProjectStore.getState();
+    const persistedWorking = state.document;
+    const persistedSaved = state.savedDocument;
+    useProjectStore.getState().markEditorMetadataPersisted(working.editor);
+    expect(useProjectStore.getState().document).toBe(persistedWorking);
+    expect(useProjectStore.getState().savedDocument).toBe(persistedSaved);
     expect((state.document as typeof working).editor.recordMetadata.rooms?.hall?.tags).toEqual([
       'dirty',
     ]);

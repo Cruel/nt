@@ -24,6 +24,7 @@ import { PackageExportPanel } from '@/export/PackageExportPanel';
 import { usePackageExportStore } from '@/export/package-export-store';
 import { TestPlaybackPanel } from './TestPlaybackPanel';
 import { TerminalPanel } from './TerminalPanel';
+import { ToolingPanel } from './ToolingPanel';
 import { AssetPerformancePanel } from '@/asset-profiler/AssetPerformancePanel';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { terminalHasUnreadAttention, useTerminalAttentionStore } from './terminal-attention-store';
@@ -525,6 +526,8 @@ function PanelContent({ panelId }: { panelId: BottomPanelId }) {
       return <CommandHistoryPanel />;
     case 'terminal':
       return <TerminalPanel />;
+    case 'tooling':
+      return <ToolingPanel />;
   }
 }
 
@@ -705,7 +708,9 @@ export function BottomPanel() {
         </Button>
       </div>
       {visible && resolvedActivePanelId ? (
-        <div className="min-h-0 flex-1 overflow-auto">
+        <div
+          className={`min-h-0 flex-1 ${resolvedActivePanelId === 'tooling' ? 'overflow-hidden' : 'overflow-auto'}`}
+        >
           <PanelContent panelId={resolvedActivePanelId} />
         </div>
       ) : null}

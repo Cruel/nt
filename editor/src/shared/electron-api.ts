@@ -40,6 +40,9 @@ interface NovelTeaElectronApiContract {
     callback: (request: import('./terminal').TerminalWindowCloseRequest) => void,
   ): () => void;
   onEditorShortcut(callback: (command: EditorShortcutCommand) => void): () => void;
+  onToolingActivity(
+    callback: (record: import('./tooling-activity').ToolingActivityRecord) => void,
+  ): () => void;
   isAppWindowMaximized(): Promise<boolean>;
   setNativeWindowFrame(nativeFrame: boolean): Promise<AppInfo>;
   ensureTerminalState(): Promise<import('./terminal').TerminalHostSnapshot>;

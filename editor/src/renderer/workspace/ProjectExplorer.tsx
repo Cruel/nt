@@ -1721,7 +1721,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
 
   useEffect(() => {
     let active = true;
-    if (!project || !projectSessionId) {
+    if (!projectSessionId) {
       restoredSourceRecoverySessionId.current = null;
       clearProjectSources();
       return () => {
@@ -1745,7 +1745,7 @@ export function ProjectExplorer(_props: { nodes: AssetNode[] }) {
     return () => {
       active = false;
     };
-  }, [clearProjectSources, project, projectSessionId, refreshProjectSources]);
+  }, [clearProjectSources, projectSessionId, refreshProjectSources]);
 
   const explorer = useMemo(
     () => ({

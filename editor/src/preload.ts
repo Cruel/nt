@@ -44,6 +44,12 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.on(IPC_CHANNELS.EDITOR_SHORTCUT, listener);
     return () => ipcRenderer.removeListener(IPC_CHANNELS.EDITOR_SHORTCUT, listener);
   },
+  onToolingActivity: (callback) => {
+    const listener = (_event: Electron.IpcRendererEvent, record: unknown) =>
+      callback(record as never);
+    ipcRenderer.on(IPC_CHANNELS.TOOLING_ACTIVITY_EVENT, listener);
+    return () => ipcRenderer.removeListener(IPC_CHANNELS.TOOLING_ACTIVITY_EVENT, listener);
+  },
   isAppWindowMaximized: () => invokeGuarded(IPC_CHANNELS.IS_APP_WINDOW_MAXIMIZED),
   setNativeWindowFrame: (nativeFrame: boolean) =>
     invokeGuarded(IPC_CHANNELS.SET_NATIVE_WINDOW_FRAME, nativeFrame),

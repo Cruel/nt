@@ -6,6 +6,8 @@ import type { PreviewHostLease } from '@/preview/preview-host-pool';
 import { FocusedPreviewFreshnessCoordinator } from '@/preview/focused-preview-coordinator';
 
 const revision = `sha256:${'0'.repeat(64)}` as const;
+const adapterBuild = vi.hoisted(() => vi.fn());
+
 const focusedDocument: FocusedRecordPreviewDocument = {
   kind: 'room-preview',
   recordId: 'room-a',
@@ -24,11 +26,14 @@ vi.mock('@/preview/focused-preview-adapters', () => ({
   focusedPreviewAdapterFor: () => ({
     topologyDependent: false,
     owningPath: () => '/rooms/room-a',
-    build: (input: { projectInstanceId: string; projectRevision: number }) => ({
-      ...focusedDocument,
-      projectInstanceId: input.projectInstanceId,
-      projectRevision: input.projectRevision,
-    }),
+    build: (input: { projectInstanceId: string; projectRevision: number }) => {
+      adapterBuild(input);
+      return {
+        ...focusedDocument,
+        projectInstanceId: input.projectInstanceId,
+        projectRevision: input.projectRevision,
+      };
+    },
   }),
 }));
 
@@ -73,6 +78,7 @@ function createLease(
 
 beforeEach(() => {
   frames = [];
+  adapterBuild.mockClear();
   vi.stubGlobal('requestAnimationFrame', (callback: FrameRequestCallback) => {
     frames.push(callback);
     return frames.length;
@@ -110,6 +116,34 @@ describe('FocusedPreviewFreshnessCoordinator', () => {
 
     expect(applyFocusedEditorDocument).not.toHaveBeenCalled();
     expect(lease.reveal).toHaveBeenCalledTimes(1);
+  });
+
+  it('rejects an equivalent resubmission before rebuilding focused preview content', async () => {
+    const applyFocusedEditorDocument = vi.fn().mockResolvedValue(undefined);
+    const lease = createLease(applyFocusedEditorDocument);
+    const coordinator = new FocusedPreviewFreshnessCoordinator();
+    const project = createAuthoringProject();
+    const submit = () =>
+      coordinator.submit({
+        project,
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+        projectInstanceId: 'project-one',
+        projectRevision: 1,
+        affectedPaths: ['/'],
+        graph: null,
+        sourceAnalysis: [],
+        root: { kind: 'room-preview', recordId: 'room-a' },
+        inputs: { displayPreference: { mode: 'project' } },
+        lease,
+      });
+
+    submit();
+    await runNextFrame();
+    submit();
+    await runNextFrame();
+
+    expect(adapterBuild).toHaveBeenCalledTimes(1);
+    expect(applyFocusedEditorDocument).toHaveBeenCalledTimes(1);
   });
 
   it('does not reuse committed content from another project instance', async () => {

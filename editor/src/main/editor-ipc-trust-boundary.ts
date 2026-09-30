@@ -48,6 +48,7 @@ import { novelTeaUserPreferencesSchema } from '../shared/user-config';
 import { completeDesktopProjectImportRequestSchema } from '../shared/project-import-handoff';
 import { TERMINAL_LIMITS } from '../shared/terminal';
 import { shaderVariantSchema } from '../shared/shader-variants';
+import type { ToolingActivityRecord } from '../shared/tooling-activity';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
 const MAX_DIALOG_TITLE_LENGTH = 512;
@@ -191,10 +192,13 @@ export function createEditorDocumentPolicy(developmentUrl?: string): EditorDocum
   return { documentUrl: url.href, origin: editorOrigin(url) };
 }
 
+let ipcInvocationSequence = 0;
+
 export function createGuardedIpcRegistrar(options: {
   ipcMain: EditorIpcMain;
   getOwner(): EditorWindow | null;
   documentPolicy: EditorDocumentPolicy;
+  onInvocation?: (record: ToolingActivityRecord) => void;
 }) {
   return {
     handle<Arguments extends unknown[], Result>(
@@ -213,7 +217,32 @@ export function createGuardedIpcRegistrar(options: {
         } catch {
           throw new EditorIpcBoundaryError(EDITOR_IPC_FAILURE.INVALID_REQUEST);
         }
-        return handler(...parsedArguments);
+        const id = `ipc-${++ipcInvocationSequence}`;
+        const startedAt = Date.now();
+        try {
+          const result = await handler(...parsedArguments);
+          options.onInvocation?.({
+            id,
+            layer: 'ipc',
+            operation: channel,
+            status: 'success',
+            startedAt,
+            durationMs: Math.max(0, Date.now() - startedAt),
+            detail: parsedArguments.length > 0 ? `arguments=${parsedArguments.length}` : undefined,
+          });
+          return result;
+        } catch (error) {
+          options.onInvocation?.({
+            id,
+            layer: 'ipc',
+            operation: channel,
+            status: 'error',
+            startedAt,
+            durationMs: Math.max(0, Date.now() - startedAt),
+            detail: error instanceof Error ? error.message : String(error),
+          });
+          throw error;
+        }
       });
     },
   };

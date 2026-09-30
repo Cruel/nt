@@ -461,6 +461,45 @@ describe('RoomEditor', () => {
       expect.stringContaining('noveltea-asset://'),
     );
   });
+  it('does not re-resolve the same Room background for local editor metadata changes', async () => {
+    const project = createAuthoringProject();
+    project.assets['foyer-background'] = {
+      id: 'foyer-background',
+      label: 'Foyer Background',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/foyer.png' },
+        aliases: [],
+        byteSize: 3,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'foyer-background' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    renderEditor();
+
+    await waitFor(() =>
+      expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledTimes(1),
+    );
+    act(() => {
+      useProjectStore.getState().markEditorMetadataPersisted({
+        ...project.editor,
+        bottomPanel: { ...project.editor.bottomPanel, visible: false },
+      });
+    });
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledTimes(1);
+  });
+
   it('falls back safely when the bounded Room background source is unavailable', async () => {
     const project = createAuthoringProject();
     project.assets['foyer-background'] = {

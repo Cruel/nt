@@ -588,10 +588,9 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       disposeInstanceProperty();
     };
   }, [data.hotspots, data.interactables, data.placements, tab.id]);
+  const backgroundAssetId = data.background.asset?.$ref.id ?? null;
   const backgroundAssetData =
-    project && data.background.asset
-      ? parseAssetData(project.assets[data.background.asset.$ref.id]?.data)
-      : null;
+    project && backgroundAssetId ? parseAssetData(project.assets[backgroundAssetId]?.data) : null;
   const compositionBackgroundSize =
     backgroundAssetData?.kind === 'image' && backgroundAssetData.imageMetadata
       ? {
@@ -601,18 +600,18 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       : null;
   useEffect(() => {
     let cancelled = false;
-    if (!projectSessionId || !data.background.asset || backgroundAssetData?.kind !== 'image') {
+    if (!projectSessionId || !backgroundAssetId || backgroundAssetData?.kind !== 'image') {
       setCompositionBackgroundUrl(null);
       return;
     }
     window.noveltea
-      .resolveProjectOriginalAssetUrl(projectSessionId, data.background.asset.$ref.id)
+      .resolveProjectOriginalAssetUrl(projectSessionId, backgroundAssetId)
       .then((result) => !cancelled && setCompositionBackgroundUrl(result.ok ? result.url : null))
       .catch(() => !cancelled && setCompositionBackgroundUrl(null));
     return () => {
       cancelled = true;
     };
-  }, [backgroundAssetData, data.background.asset, projectSessionId]);
+  }, [backgroundAssetData?.kind, backgroundAssetId, projectSessionId]);
   if (!project || !record || !roomId)
     return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
   const materialPropertyOptionsById = new Map<
