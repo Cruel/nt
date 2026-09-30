@@ -1,11 +1,14 @@
 import { Badge } from '@/components/ui/badge';
 import { visualForEditorType } from '@/workspace/collection-visuals';
+import { useTranslation } from 'react-i18next';
 import {
   navigateToWorkbenchTarget,
   type WorkbenchNavigationRequest,
 } from '@/workbench/workbench-navigation';
+import { localizedDiagnosticMessage } from './diagnostic-i18n';
 
 export interface EditorDiagnosticItem {
+  code?: string;
   severity: 'error' | 'warning' | 'info';
   message: string;
   path?: string;
@@ -41,6 +44,8 @@ export function DiagnosticCard({
   showPath?: boolean;
   compact?: boolean;
 }) {
+  const { t } = useTranslation('workspace');
+  const message = localizedDiagnosticMessage(item, t);
   if (compact) {
     const targetTab = item.target?.tab;
     const targetVisual = targetTab
@@ -61,7 +66,7 @@ export function DiagnosticCard({
             <span className="truncate">{targetLabel}</span>
           </span>
         ) : null}
-        <span className="min-w-0 truncate">{item.message}</span>
+        <span className="min-w-0 truncate">{message}</span>
         {showPath && item.path ? (
           <span className="min-w-0 truncate font-mono text-[10px] text-muted-foreground">
             {item.path}
@@ -94,7 +99,7 @@ export function DiagnosticCard({
           <span className="truncate font-mono text-[10px] text-muted-foreground">{item.path}</span>
         ) : null}
       </div>
-      <div>{item.message}</div>
+      <div>{message}</div>
     </>
   );
 

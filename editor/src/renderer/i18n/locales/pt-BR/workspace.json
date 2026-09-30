@@ -223,6 +223,9 @@
     "lastCommandDiagnostics": "Diagnósticos do último comando",
     "toggle": "Alternar painel inferior"
   },
+  "diagnosticMessages": {
+    "hotspotAuthoringTargetNone": "O hotspot não tem alvo e não será interativo."
+  },
   "terminal": {
     "new": "Novo terminal",
     "close": "Fechar {{label}}",

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { createTestI18n } from '@/i18n/test-utils';
 import { resolveEditorLanguage } from '@/i18n';
+import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
 import {
   buildCommandPaletteItems,
   searchCommandPaletteItems,
@@ -15,6 +16,15 @@ describe('pt-BR editor localization', () => {
     const i18n = await createTestI18n('pt-BR');
     expect(i18n.t('settings:page.title')).toBe('Configurações');
     expect(i18n.t('menu:menus.file')).toBe('Arquivo');
+    expect(
+      localizedDiagnosticMessage(
+        {
+          code: 'hotspot.authoring.target.none',
+          message: 'Hotspot has no target and will not be interactive.',
+        },
+        i18n.getFixedT('pt-BR', 'workspace'),
+      ),
+    ).toBe('O hotspot não tem alvo e não será interativo.');
   });
 
   it('uses localized command palette metadata while keeping English aliases searchable', async () => {
