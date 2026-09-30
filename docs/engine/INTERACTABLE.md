@@ -146,6 +146,12 @@ same-kind Archetype, and an optional sprite. Without an Archetype, creation uses
 is selected and `sprite-alpha` when an image sprite is selected. With an Archetype, the sprite choice
 defaults to the Archetype's sprite; choosing a specific sprite or `No sprite` creates an explicit
 presentation override while the Archetype's Hotspot mode and behavior remain inherited.
+Custom Interactable Hotspot geometry is edited through the same full-tab Hotspot Focus workflow used
+by Rooms. The normal Interactable editor retains semantic fields, while Focus owns only source-image
+geometry, local undo/redo, Fit/native zoom, and transactional Done/Cancel behavior. Rectangle mode
+stays active for batch creation and new custom rectangles default to the owning Interactable.
+`sprite-alpha` mode can open the same focused source-image surface for inspection but does not expose
+rectangle drawing.
 Alpha or non-empty custom Hotspots without a sprite are authoring errors because that configuration
 cannot compile into a loadable runtime project. A
 visible Room occurrence whose Interactable has no sprite is allowed but produces an authoring warning

@@ -2,7 +2,7 @@
 
 exports[`image thumbnail characterization > locks every current project asset URL consumer to the reviewed direct-image boundary 1`] = `
 [
-  "src/renderer/components/hotspots/HotspotAuthoringPanel.tsx",
+  "src/renderer/components/hotspots/HotspotFocusWorkspace.tsx",
   "src/renderer/editors/assets/AssetPreview.tsx",
   "src/renderer/editors/comfyui/ImageGenerationEditor.tsx",
   "src/renderer/editors/project/ProjectSettingsEditor.tsx",

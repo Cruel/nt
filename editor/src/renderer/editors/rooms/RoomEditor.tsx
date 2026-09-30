@@ -52,6 +52,8 @@ import {
   type OwnerPropertyTraitState,
 } from '@/components/properties/OwnerLocalPropertiesEditor';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
+import { HotspotFocusWorkspace } from '@/components/hotspots/HotspotFocusWorkspace';
+import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
 import {
@@ -545,6 +547,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       ? (parseRoomEditorTabState(savedState)?.hotspotView ?? defaultHotspotViewState())
       : defaultHotspotViewState();
   });
+  const hotspotFocusSession = useHotspotFocusStore((state) => state.sessionsByTabId[tab.id]);
+  const startHotspotFocus = useHotspotFocusStore((state) => state.start);
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
@@ -1040,16 +1044,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
-  const nextHotspotId = () => {
-    const ids = new Set(data.hotspots.map((item) => item.id));
-    let index = 1;
-    while (ids.has(index === 1 ? 'hotspot' : `hotspot-${index}`)) index += 1;
-    return index === 1 ? 'hotspot' : `hotspot-${index}`;
-  };
-  const nextHotspotInputOrder = data.hotspots.reduce(
-    (maximum, item) => Math.max(maximum, item.inputOrder),
-    -1,
-  );
   const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label }));
   const exitDestinationItems = data.exits.map((exit) => ({
     id: exit.target.$ref.id,
@@ -1768,6 +1762,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
   };
+  if (hotspotFocusSession) {
+    return (
+      <HotspotFocusWorkspace
+        tabId={tab.id}
+        projectAssets={project.assets}
+        createHotspot={(id, inputOrder, bounds) => ({
+          id,
+          label: t('hotspots.defaultLabel'),
+          condition: { kind: 'always' },
+          inputOrder,
+          highlight: { kind: 'default' },
+          target: { kind: 'none' },
+          shape: { kind: 'rect', bounds },
+        })}
+      />
+    );
+  }
   return (
     <EditorPreviewSplit
       orientation={previewSplitOrientation}
@@ -2125,27 +2136,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               ownerId={roomId}
               materialProperties={roomMaterialProperties}
               localFeatures={data.features}
-              roomVisibleGuide={{
-                referenceSize: projectSettingsFromProject(project).display.referenceResolution,
-                fit: data.background.fit,
-              }}
               exits={data.exits.map((exit) => ({ id: exit.id, label: exit.id }))}
               onViewChange={setHotspotView}
-              onAdd={(bounds, target) => {
-                const id = nextHotspotId();
-                executeHotspot('room.addHotspot', 'Add room hotspot', {
-                  hotspot: {
-                    id,
-                    label: t('hotspots.defaultLabel'),
-                    condition: { kind: 'always' },
-                    inputOrder: Math.min(2147483647, nextHotspotInputOrder + 1),
-                    highlight: { kind: 'default' },
-                    target,
-                    shape: { kind: 'rect', bounds },
-                  },
-                });
-                setHotspotView((view) => ({ ...view, selectedHotspotId: id, tool: 'select' }));
-              }}
               onDelete={(hotspotId) =>
                 executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
               }
@@ -2155,10 +2147,15 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               onUpdate={(hotspotId, hotspot) =>
                 executeHotspot('room.updateHotspot', 'Update room hotspot', { hotspotId, hotspot })
               }
-              onBounds={(hotspotId, bounds) =>
-                executeHotspot('room.setHotspotBounds', 'Set room hotspot bounds', {
-                  hotspotId,
-                  bounds,
+              onEditGeometry={(selectedHotspotId) =>
+                startHotspotFocus({
+                  tabId: tab.id,
+                  ownerKind: 'room',
+                  ownerId: roomId,
+                  assetId: data.background.asset?.$ref.id ?? null,
+                  mode: 'rectangles',
+                  items: data.hotspots,
+                  selectedHotspotId,
                 })
               }
             />

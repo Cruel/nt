@@ -24,6 +24,8 @@ import {
 } from '@/workbench/workbench-tab-state';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
 import { invokeWorkbenchTargetHandler } from '@/workbench/workbench-navigation';
+import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 
 const noWebGlBackend = () => null;
 
@@ -53,6 +55,8 @@ beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
   clearWorkbenchTabStates();
+  useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
+  useDraftDirtyStore.getState().resetDraftDirty();
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockReset();
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: false,
@@ -101,6 +105,7 @@ describe('InteractableEditor', () => {
     });
 
     const view = renderEditor();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Inspect geometry' }));
 
     await waitFor(() =>
       expect(window.noveltea.resolveProjectOriginalAssetUrl).toHaveBeenCalledWith(

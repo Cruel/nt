@@ -18,6 +18,8 @@ import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { FeatureAuthoringPanel } from '@/components/features/FeatureAuthoringPanel';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
+import { HotspotFocusWorkspace } from '@/components/hotspots/HotspotFocusWorkspace';
+import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -162,6 +164,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       ? (parseInteractableEditorTabState(savedState)?.hotspotView ?? defaultHotspotViewState())
       : defaultHotspotViewState();
   });
+  const hotspotFocusSession = useHotspotFocusStore((state) => state.sessionsByTabId[tab.id]);
+  const startHotspotFocus = useHotspotFocusStore((state) => state.start);
   useWorkbenchEditorTabState<InteractableEditorTabState>(
     tab.id,
     useMemo(
@@ -228,13 +232,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       : hotspotMode.kind === 'sprite-alpha'
         ? [hotspotMode.hotspot]
         : hotspotMode.hotspots;
-  const nextHotspotId = () => {
-    const ids = new Set(hotspotItems.map((item) => item.id));
-    let index = 1;
-    while (ids.has(index === 1 ? 'hotspot' : `hotspot-${index}`)) index += 1;
-    return index === 1 ? 'hotspot' : `hotspot-${index}`;
-  };
-  const nextInputOrder = hotspotItems.reduce((max, item) => Math.max(max, item.inputOrder), -1);
   const chooseSprite = (item: SelectorItem) => {
     if (!item.entityId) return;
     commit(
@@ -245,6 +242,23 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       'Update interactable sprite',
     );
   };
+  if (hotspotFocusSession) {
+    return (
+      <HotspotFocusWorkspace
+        tabId={tab.id}
+        projectAssets={project.assets}
+        createHotspot={(id, inputOrder, bounds) => ({
+          id,
+          label: t('hotspots.defaultLabel'),
+          condition: { kind: 'always' },
+          inputOrder,
+          highlight: { kind: 'default' },
+          target: { kind: 'owner' },
+          shape: { kind: 'rect', bounds },
+        })}
+      />
+    );
+  }
   return (
     <div
       ref={scrollRef}
@@ -782,22 +796,6 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
               localFeatures={data.features}
               alphaMode={hotspotMode.kind === 'sprite-alpha'}
               onViewChange={setHotspotView}
-              onAdd={(bounds, target) => {
-                if (hotspotMode.kind !== 'custom') return;
-                const id = nextHotspotId();
-                executeHotspot('interactable.addHotspot', 'Add interactable hotspot', {
-                  hotspot: {
-                    id,
-                    label: t('hotspots.defaultLabel'),
-                    condition: { kind: 'always' },
-                    inputOrder: Math.min(2147483647, nextInputOrder + 1),
-                    highlight: { kind: 'default' },
-                    target,
-                    shape: { kind: 'rect', bounds },
-                  },
-                });
-                setHotspotView((view) => ({ ...view, selectedHotspotId: id, tool: 'select' }));
-              }}
               onDelete={(hotspotId) =>
                 executeHotspot('interactable.deleteHotspot', 'Delete interactable hotspot', {
                   hotspotId,
@@ -815,10 +813,15 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                   hotspot,
                 })
               }
-              onBounds={(hotspotId, bounds) =>
-                executeHotspot('interactable.setHotspotBounds', 'Set interactable hotspot bounds', {
-                  hotspotId,
-                  bounds,
+              onEditGeometry={(selectedHotspotId) =>
+                startHotspotFocus({
+                  tabId: tab.id,
+                  ownerKind: 'interactable',
+                  ownerId: interactableId,
+                  assetId: data.presentation.sprite?.$ref.id ?? null,
+                  mode: hotspotMode.kind === 'custom' ? 'rectangles' : 'sprite-alpha',
+                  items: hotspotItems,
+                  selectedHotspotId,
                 })
               }
             />

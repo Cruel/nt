@@ -167,14 +167,17 @@ same values immediately. Composition contains the command-backed Interactable oc
 a separate fallback-placement selector. Creating/placing an Instance, adding/removing an occurrence,
 moving an occurrence between Room placements, moving/unplacing the semantic Instance, and destroying
 the Instance are distinct operations; removing an occurrence does not destroy the Instance.
-Hotspots contains both nested Feature authoring and the shared React image stage. New Room Hotspot
-geometry starts with target `none`, so authors can draw and refine geometry before assigning gameplay
-semantics. Feature editing
-covers stable ID, label, compatible Traits, and compatible Properties. The image stage uses direct
-manipulation: click a Hotspot to select it, drag a rectangular Hotspot or its handles to move/resize
-it, drag empty image space to pan, and use the temporary `Add hotspot` action to draw one new rectangle
-before returning to normal interaction. The selected Hotspot edits geometry, condition, highlight,
-input order, cursor selection, and semantic target rather than a Verb activation.
+Hotspots contains nested Feature authoring plus Hotspot semantic-property editing. Geometry is not
+manipulated in the normal Room form. `Edit geometry` temporarily replaces the Room tab with the
+shared Hotspot Focus workspace over the full background source image. That workspace is geometry-only:
+authors can select, repeatedly draw rectangles, move, resize, delete, pan, zoom, Fit, and use native
+100% view. It keeps a local geometry undo/redo history and independent owner/source navigation state;
+`Done` commits the complete Hotspot collection as one project undo step and `Cancel` discards it.
+New Room geometry starts with target `none`, so authors can draw and refine geometry before assigning
+gameplay semantics back in the Room editor. Feature editing covers stable ID, label, compatible
+Traits, and compatible Properties. The selected Hotspot's condition, highlight, input order, cursor,
+and semantic target remain ordinary Room-editor fields rather than controls duplicated in Hotspot
+Focus.
 Room background `cover`,
 `contain`, `stretch`, and `center` transforms use the same normalized image-coordinate policy consumed
 by runtime projection. No editor-preview-only manipulation contract exists.
