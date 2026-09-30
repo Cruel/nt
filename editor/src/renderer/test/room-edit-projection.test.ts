@@ -91,6 +91,10 @@ describe('Room Edit spatial projection', () => {
 
     expect(projection.placements[0]?.rect).toEqual({ x: 0, y: 0, width: 400, height: 200 });
     expect(projection.placements[0]?.rotationDegrees).toBe(-15);
+    expect(projection.backgroundColor).toEqual({
+      rect: { x: -500, y: -250, width: 2000, height: 1000 },
+      rotationDegrees: -15,
+    });
     expect(projection.placements.map((item) => item.id)).toEqual(['shared', 'empty']);
     expect(projection.interactables.map((item) => item.occurrenceId)).toEqual(['rear', 'front']);
     expect(projection.interactables.map((item) => item.rect)).toEqual([
@@ -98,6 +102,64 @@ describe('Room Edit spatial projection', () => {
       { x: 0, y: 0, width: 400, height: 200 },
     ]);
     expect(projection.interactables.map((item) => item.propertyValues.heat)).toEqual([0.25, 0.75]);
+  });
+
+  it('matches runtime Interactable tie-breaking by exact Instance identity', () => {
+    const project = createAuthoringProject({ id: 'stack-tie-test' });
+    const room = defaultRoomData('Stack Tie Room');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'occurrence-a',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'z-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        visible: true,
+        order: 10,
+      },
+      {
+        id: 'occurrence-z',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'a-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        visible: true,
+        order: 10,
+      },
+    ];
+    project.interactables.token = {
+      id: 'token',
+      label: 'Token',
+      data: defaultInteractableData('Token'),
+    };
+    project.interactableInstances['z-instance'] = defaultInteractableInstanceData(
+      'z-instance',
+      'token',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'room' } } },
+    );
+    project.interactableInstances['a-instance'] = defaultInteractableInstanceData(
+      'a-instance',
+      'token',
+      { kind: 'room', room: { $ref: { collection: 'rooms', id: 'room' } } },
+    );
+
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1920, height: 1080 },
+      backgroundImageSize: null,
+    });
+
+    expect(projection.interactables.map((item) => item.instanceId)).toEqual([
+      'a-instance',
+      'z-instance',
+    ]);
   });
 
   it('matches runtime contain camera clamping and background fit geometry', () => {

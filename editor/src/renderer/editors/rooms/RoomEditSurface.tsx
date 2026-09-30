@@ -6,7 +6,10 @@ import type {
   AuthoringWebGlMaterialResource,
   AuthoringWebGlTextureResource,
 } from '@/authoring-renderer/authoring-webgl-renderer';
-import { useMaterialPreviewProjectResources } from '@/material-preview/material-preview-provider';
+import {
+  useMaterialPreviewProjectGeneration,
+  useMaterialPreviewProjectResources,
+} from '@/material-preview/material-preview-provider';
 import type { MaterialPreviewProjectResources } from '@/material-preview/material-preview-resources';
 import type { MaterialPreviewResource } from '@/material-preview/material-preview-resources';
 import type { MaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
@@ -36,6 +39,13 @@ const fallbackEngine2dMaterial: AuthoringWebGlMaterialResource = {
   vertexShaderSource: null,
   fragmentShaderSource: null,
   textures: {},
+};
+
+const whiteTexture: AuthoringWebGlTextureResource = {
+  key: '__room-edit-white',
+  image: null,
+  sampling: 'linear',
+  fallbackColor: [1, 1, 1, 1],
 };
 
 function materialResource(resource: MaterialPreviewResource): AuthoringWebGlMaterialResource {
@@ -160,7 +170,18 @@ function drawVisual(
       propertyValues,
     ),
     textureOverrides: prepared.textureOverrides,
-    ...(prepared.texture ? { rendererTextures: { s_texColor: prepared.texture } } : {}),
+    rendererTextures: { s_texColor: prepared.texture ?? whiteTexture },
+  };
+}
+
+function colorTexture(
+  color: readonly [number, number, number, number],
+): AuthoringWebGlTextureResource {
+  return {
+    key: `__room-edit-color:${color.join(',')}`,
+    image: null,
+    sampling: 'linear',
+    fallbackColor: color,
   };
 }
 
@@ -221,6 +242,7 @@ export function RoomEditSurface({
   const { t } = useTranslation('workspace');
   const renderer = useAuthoringWebGlGroupRenderer();
   const resources = useMaterialPreviewProjectResources();
+  const resourcesGeneration = useMaterialPreviewProjectGeneration();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const [preparedScene, setPreparedScene] = useState<PreparedRoomEditScene | null>(null);
   const projection = useMemo(
@@ -237,7 +259,7 @@ export function RoomEditSurface({
 
   useEffect(() => {
     let active = true;
-    const generation = resources.generation;
+    const generation = resourcesGeneration;
     void (async () => {
       const [background, interactableEntries] = await Promise.all([
         prepareVisual(
@@ -268,7 +290,7 @@ export function RoomEditSurface({
     return () => {
       active = false;
     };
-  }, [projection, resources]);
+  }, [projection, resources, resourcesGeneration]);
 
   useEffect(() => {
     const registration = renderer.registerSceneWork({
@@ -277,11 +299,22 @@ export function RoomEditSurface({
       render: (frame) => {
         const canvas = canvasRef.current;
         if (!canvas) return;
-        frame.beginTarget(
-          projection.viewport.width,
-          projection.viewport.height,
-          colorChannels(projection.background.color),
-        );
+        frame.beginTarget(projection.viewport.width, projection.viewport.height, [0, 0, 0, 0]);
+        if (projection.background.color) {
+          frame.drawMaterial(
+            drawVisual(
+              projection,
+              projection.backgroundColor,
+              {
+                texture: colorTexture(colorChannels(projection.background.color)),
+                material: fallbackEngine2dMaterial,
+                textureOverrides: {},
+              },
+              null,
+              frame.timeSeconds,
+            ),
+          );
+        }
         if (preparedScene?.background) {
           frame.drawMaterial(
             drawVisual(

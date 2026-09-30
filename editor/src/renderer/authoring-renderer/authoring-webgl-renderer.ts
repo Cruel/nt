@@ -15,6 +15,7 @@ export interface AuthoringWebGlTextureResource {
   key: string;
   image: TexImageSource | null;
   sampling: 'nearest' | 'linear';
+  fallbackColor?: readonly [number, number, number, number];
 }
 
 export interface AuthoringWebGlMaterialResource {

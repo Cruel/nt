@@ -468,7 +468,8 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     filtering: TextureSampling,
     premultiplyAlpha: boolean,
   ) {
-    const cacheKey = `${resource.key}:${filtering}:${premultiplyAlpha ? 'premultiplied' : 'straight'}`;
+    const fallbackKey = resource.fallbackColor?.join(',') ?? 'checker';
+    const cacheKey = `${resource.key}:${filtering}:${premultiplyAlpha ? 'premultiplied' : 'straight'}:${fallbackKey}`;
     const existing = this.textureCache.get(cacheKey);
     if (existing) return existing;
     const gl = this.gl;
@@ -485,19 +486,17 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     if (resource.image) {
       gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, gl.RGBA, gl.UNSIGNED_BYTE, resource.image);
     } else {
-      gl.texImage2D(
-        gl.TEXTURE_2D,
-        0,
-        gl.RGBA,
-        2,
-        2,
-        0,
-        gl.RGBA,
-        gl.UNSIGNED_BYTE,
-        new Uint8Array([
-          255, 255, 255, 255, 170, 170, 170, 255, 170, 170, 170, 255, 255, 255, 255, 255,
-        ]),
-      );
+      const fallback = resource.fallbackColor
+        ? resource.fallbackColor.map((channel) =>
+            Math.round(Math.max(0, Math.min(1, channel)) * 255),
+          )
+        : null;
+      const pixels = fallback
+        ? new Uint8Array([...fallback, ...fallback, ...fallback, ...fallback])
+        : new Uint8Array([
+            255, 255, 255, 255, 170, 170, 170, 255, 170, 170, 170, 255, 255, 255, 255, 255,
+          ]);
+      gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, 2, 2, 0, gl.RGBA, gl.UNSIGNED_BYTE, pixels);
     }
     this.textureCache.set(cacheKey, texture);
     return texture;
