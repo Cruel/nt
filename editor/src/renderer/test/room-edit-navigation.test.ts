@@ -86,7 +86,7 @@ describe('Room Edit navigation', () => {
     const clamped = clampRoomEditNavigation(
       { zoom: 2, pan: { x: 100_000, y: -100_000 } },
       viewport,
-      canonicalSurface,
+      { rect: canonicalSurface, rotationDegrees: 0 },
     );
     const projected = applyRoomEditNavigation(
       { rect: canonicalSurface, rotationDegrees: 0 },
@@ -99,6 +99,31 @@ describe('Room Edit navigation', () => {
     expect(projected.y).toBeLessThan(viewport.height);
     expect(projected.y + projected.height).toBeGreaterThan(0);
     expect(Math.abs(clamped.pan.x)).toBeGreaterThan(viewport.width * 0.5);
+  });
+
+  it('clamps overscroll against the rotated screen-space surface bounds', () => {
+    const viewport = { width: 1000, height: 500 };
+    const canonicalSurface = {
+      rect: { x: 0, y: 0, width: 1000, height: 500 },
+      rotationDegrees: 90,
+    };
+
+    const clamped = clampRoomEditNavigation(
+      { zoom: 1, pan: { x: 100_000, y: 0 } },
+      viewport,
+      canonicalSurface,
+    );
+    const projected = applyRoomEditNavigation(canonicalSurface, viewport, clamped);
+    const screenWidth = projected.rect.height;
+    const rotatedCenterX =
+      viewport.width * 0.5 -
+      (projected.rect.y + projected.rect.height * 0.5 - viewport.height * 0.5);
+    const left = rotatedCenterX - screenWidth * 0.5;
+    const right = rotatedCenterX + screenWidth * 0.5;
+
+    expect(left).toBeLessThan(viewport.width);
+    expect(right).toBeGreaterThan(0);
+    expect(left).toBeLessThanOrEqual(viewport.width - 80);
   });
 
   it('interpolates exact Fit and remembered endpoints for mode transitions', () => {

@@ -1,4 +1,4 @@
-import type { RoomEditProjectedRect, RoomEditRect, RoomEditSize } from './room-edit-projection';
+import type { RoomEditProjectedRect, RoomEditSize } from './room-edit-projection';
 
 export interface RoomEditNavigation {
   zoom: number;
@@ -93,20 +93,33 @@ export function panRoomEditNavigation(
 export function clampRoomEditNavigation(
   navigation: RoomEditNavigation,
   viewport: RoomEditSize,
-  canonicalSurface: RoomEditRect,
+  canonicalSurface: RoomEditProjectedRect,
 ): RoomEditNavigation {
   const value = sanitizeRoomEditNavigation(navigation);
   const visibleMarginX = Math.min(96, Math.max(32, viewport.width * 0.08));
   const visibleMarginY = Math.min(96, Math.max(32, viewport.height * 0.08));
   const centerX = viewport.width * 0.5;
   const centerY = viewport.height * 0.5;
-  const baseLeft = centerX + (canonicalSurface.x - centerX) * value.zoom;
-  const baseTop = centerY + (canonicalSurface.y - centerY) * value.zoom;
-  const scaledWidth = canonicalSurface.width * value.zoom;
-  const scaledHeight = canonicalSurface.height * value.zoom;
-  const minPanX = visibleMarginX - (baseLeft + scaledWidth);
+  const scaledWidth = canonicalSurface.rect.width * value.zoom;
+  const scaledHeight = canonicalSurface.rect.height * value.zoom;
+  const rectCenterX =
+    centerX + (canonicalSurface.rect.x + canonicalSurface.rect.width * 0.5 - centerX) * value.zoom;
+  const rectCenterY =
+    centerY + (canonicalSurface.rect.y + canonicalSurface.rect.height * 0.5 - centerY) * value.zoom;
+  const radians = (canonicalSurface.rotationDegrees * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const localCenterX = rectCenterX - centerX;
+  const localCenterY = rectCenterY - centerY;
+  const rotatedCenterX = centerX + localCenterX * cosine - localCenterY * sine;
+  const rotatedCenterY = centerY + localCenterX * sine + localCenterY * cosine;
+  const screenWidth = Math.abs(cosine) * scaledWidth + Math.abs(sine) * scaledHeight;
+  const screenHeight = Math.abs(sine) * scaledWidth + Math.abs(cosine) * scaledHeight;
+  const baseLeft = rotatedCenterX - screenWidth * 0.5;
+  const baseTop = rotatedCenterY - screenHeight * 0.5;
+  const minPanX = visibleMarginX - (baseLeft + screenWidth);
   const maxPanX = viewport.width - visibleMarginX - baseLeft;
-  const minPanY = visibleMarginY - (baseTop + scaledHeight);
+  const minPanY = visibleMarginY - (baseTop + screenHeight);
   const maxPanY = viewport.height - visibleMarginY - baseTop;
   return {
     zoom: value.zoom,
