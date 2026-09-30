@@ -3,6 +3,7 @@ import type { ResolvedMaterialData } from '../../shared/project-schema/authoring
 export interface AuthoringWebGlGeometry {
   kind: 'quad';
   inset?: number;
+  color?: readonly [number, number, number, number];
   uv?: {
     x: number;
     y: number;

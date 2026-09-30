@@ -404,7 +404,8 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     const gl = this.gl;
     const inset = Math.max(0, geometry.inset ?? 0);
     const uv = geometry.uv ?? { x: 0, y: 0, width: 1, height: 1 };
-    const geometryKey = `${geometry.kind}:${inset}:${uv.x}:${uv.y}:${uv.width}:${uv.height}`;
+    const color = geometry.color ?? ([1, 1, 1, 1] as const);
+    const geometryKey = `${geometry.kind}:${inset}:${uv.x}:${uv.y}:${uv.width}:${uv.height}:${color.join(',')}`;
     let cached = this.geometryCache.get(geometryKey);
     if (!cached) {
       const positions = new Float32Array([
@@ -427,7 +428,7 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
         uv.x + uv.width,
         uv.y,
       ]);
-      const colors = new Float32Array([1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1, 1]);
+      const colors = new Float32Array([...color, ...color, ...color, ...color]);
       const positionBuffer = gl.createBuffer();
       const texcoordBuffer = gl.createBuffer();
       const colorBuffer = gl.createBuffer();

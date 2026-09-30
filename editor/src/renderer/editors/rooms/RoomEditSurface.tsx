@@ -30,7 +30,7 @@ interface PreparedVisual {
 
 interface PreparedRoomEditScene {
   background: PreparedVisual | null;
-  interactables: ReadonlyMap<string, PreparedVisual>;
+  worldDraws: ReadonlyMap<string, PreparedVisual>;
 }
 
 const fallbackEngine2dMaterial: AuthoringWebGlMaterialResource = {
@@ -157,10 +157,11 @@ function drawVisual(
   timeSeconds: number,
   propertyValues?: Readonly<Record<string, unknown>>,
   uv?: RoomEditUvRect,
+  color?: readonly [number, number, number, number],
 ): AuthoringWebGlMaterialDraw {
   return {
     resource: prepared.material,
-    geometry: { kind: 'quad', ...(uv ? { uv } : {}) },
+    geometry: { kind: 'quad', ...(uv ? { uv } : {}), ...(color ? { color } : {}) },
     modelViewProjection: modelViewProjection(projected, projection.viewport),
     parameterOverrides: parameterOverrides(
       application,
@@ -261,30 +262,32 @@ export function RoomEditSurface({
     let active = true;
     const generation = resourcesGeneration;
     void (async () => {
-      const [background, interactableEntries] = await Promise.all([
+      const [background, worldDrawEntries] = await Promise.all([
         prepareVisual(
           resources,
           projection.background.assetId,
           projection.background.materialApplication,
         ),
         Promise.all(
-          projection.interactables.map(
-            async (item) =>
-              [
-                item.occurrenceId,
-                await prepareVisual(resources, item.spriteAssetId, item.materialApplication),
-              ] as const,
-          ),
+          projection.worldDraws.map(async (item) => {
+            const assetId =
+              item.kind === 'interactable' || item.kind === 'cast-layer'
+                ? item.spriteAssetId
+                : item.assetId;
+            return [
+              `${item.kind}:${item.occurrenceId}`,
+              await prepareVisual(resources, assetId, item.materialApplication),
+            ] as const;
+          }),
         ),
       ]);
       if (!active || generation !== resources.generation) return;
+      const preparedWorldDrawEntries = worldDrawEntries.flatMap(([key, value]) =>
+        value ? ([[key, value]] as const) : [],
+      );
       setPreparedScene({
         background,
-        interactables: new Map(
-          interactableEntries.filter(
-            (entry): entry is readonly [string, PreparedVisual] => entry[1] !== null,
-          ),
-        ),
+        worldDraws: new Map<string, PreparedVisual>(preparedWorldDrawEntries),
       });
     })();
     return () => {
@@ -328,9 +331,26 @@ export function RoomEditSurface({
             ),
           );
         }
-        for (const item of projection.interactables) {
-          const prepared = preparedScene?.interactables.get(item.occurrenceId);
+        for (const item of projection.worldDraws) {
+          const prepared = preparedScene?.worldDraws.get(`${item.kind}:${item.occurrenceId}`);
           if (!prepared) continue;
+          const propertyValues =
+            item.kind === 'interactable' || item.kind === 'cast-layer'
+              ? item.propertyValues
+              : roomPropertyValues;
+          const color =
+            item.kind === 'environment' && item.opacity < 1
+              ? ([1, 1, 1, item.opacity] as const)
+              : undefined;
+          const uv =
+            item.kind === 'environment'
+              ? {
+                  x: item.scrollPerSecond.x * frame.timeSeconds,
+                  y: item.scrollPerSecond.y * frame.timeSeconds,
+                  width: 1,
+                  height: 1,
+                }
+              : undefined;
           frame.drawMaterial(
             drawVisual(
               projection,
@@ -338,7 +358,9 @@ export function RoomEditSurface({
               prepared,
               item.materialApplication,
               frame.timeSeconds,
-              item.propertyValues,
+              propertyValues,
+              uv,
+              color,
             ),
           );
         }
@@ -366,6 +388,18 @@ export function RoomEditSurface({
         data-testid="room-edit-canvas"
       />
       <div className="pointer-events-none absolute inset-0" data-testid="room-edit-overlays">
+        {projection.layoutPlaceholders.map((placeholder) => (
+          <div
+            key={`layout:${placeholder.placementId}`}
+            className={`absolute border border-dotted border-primary/60 bg-primary/5 ${placeholder.hasRenderedOccupants ? 'opacity-40' : 'opacity-75'}`}
+            style={overlayStyle(placeholder, projection)}
+            data-testid={`room-edit-layout-placeholder-${placeholder.placementId}`}
+          >
+            <span className="absolute bottom-0 left-0 max-w-full truncate bg-background/75 px-1 py-0.5 text-[10px] font-medium">
+              {placeholder.label} · {placeholder.layoutId}
+            </span>
+          </div>
+        ))}
         {projection.placements.map((placement) => (
           <div
             key={placement.id}

@@ -84,23 +84,28 @@ lifecycle while leaving the lower-level authority reusable by Room Edit and othe
 
 The Room editor's `Edit` mode is the second production consumer of the shared authority. It resolves
 the authored Room through one browser-side spatial projection seam, then uses that exact projection
-for both WebGL world draws and React authoring overlays. The initial Room Edit slice draws the Room
-background and exact Interactable occurrences while React outlines every `RoomPlacement`, including
-empty placements.
+for both WebGL world draws and React authoring overlays. Room Edit draws the Room background, Props,
+exact Interactable occurrences, Character/cast layers, and Environments while React outlines every
+`RoomPlacement`, including empty placements. Placement-attached Layouts stay editor metadata rather
+than RmlUi documents: Edit shows a labeled placeholder at the exact projected placement bounds and
+reduces its emphasis when rendered occupants share that placement.
 
 Room Edit deliberately reuses runtime world-presentation semantics for the authored default Camera
-View, `contain` camera clamping, normalized placement geometry, background
-`cover`/`contain`/`stretch`/`center` fitting, Interactable occurrence order, engine-2d Material
-specialization, texture overrides, Property-backed parameters, and standard Material facets.
-Background `cover` uses the same cropped UV rectangle as runtime rather than emulating the crop with
-a DOM image.
+View, `contain` camera clamping, normalized placement/environment geometry, background
+`cover`/`contain`/`stretch`/`center` fitting, Character layer composition, occurrence visibility,
+Presentation Plane/order interleaving, engine-2d Material specialization, texture overrides,
+Property-backed parameters, Environment opacity/UV motion, and standard Material facets. Background
+`cover` uses the same cropped UV rectangle as runtime rather than emulating the crop with a DOM image.
+All Material draws receive the workbench-group frame timestamp, so animated Materials in Room Edit and
+Material preview surfaces advance from the same authoring clock.
 
 The existing focused engine Room preview remains a separate persistent `Preview` mode. Only the
 active direct-edit surface registers Room Edit scene work, and the focused preview continues to use
 the existing dedicated-while-open preview-host ownership when enabled. Room Edit never creates a
 private WebGL context and deliberately excludes RmlUi, runtime Hotspot highlights, postprocess,
-transitions, and other player-facing runtime effects. Full world-composition parity beyond the
-initial background/placement/Interactable tracer is a later Room Editor slice.
+transitions, and other player-facing runtime effects. Runtime Preview therefore remains the authority
+for those complete gameplay-presentation concerns even though Edit now covers the agreed base world
+composition subset.
 
 ## Implementation
 

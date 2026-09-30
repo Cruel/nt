@@ -6,10 +6,20 @@ import type {
   RoomPresentationSpace,
 } from '../../../shared/project-schema/authoring-rooms';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
-import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
+import {
+  resolveArchetypeConfiguration,
+  resolveGameplayInstanceRecord,
+} from '../../../shared/project-schema/authoring-archetypes';
+import type { AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
 import { effectiveMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
+import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
+import { resolveCharacterPresentationLayers } from '../../../shared/project-schema/character-project';
+import type { Condition } from '../../../shared/project-schema/authoring-flow';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import { effectiveInteractableInstanceProperties } from '../../../shared/project-schema/authoring-interactable-properties';
+import { parseVariableData } from '../../../shared/project-schema/authoring-variables';
+import type { RoomPresentationPlane } from '../../../shared/project-schema/room-presentation-order';
 
 export interface RoomEditSize {
   width: number;
@@ -46,11 +56,73 @@ export interface RoomEditInteractableProjection extends RoomEditProjectedRect {
   instanceId: string;
   placementId: string;
   normalizedBounds: RoomNormalizedRect;
+  plane: 'world-content';
   order: number;
   spriteAssetId: string | null;
   materialApplication: MaterialApplication | null;
   propertyValues: Readonly<Record<string, unknown>>;
 }
+
+export interface RoomEditPropProjection extends RoomEditProjectedRect {
+  occurrenceId: string;
+  placementId: string;
+  normalizedBounds: RoomNormalizedRect;
+  plane: 'world-content';
+  order: number;
+  assetId: string | null;
+  materialApplication: MaterialApplication | null;
+}
+
+export interface RoomEditEnvironmentProjection extends RoomEditProjectedRect {
+  occurrenceId: string;
+  normalizedBounds: RoomNormalizedRect;
+  plane: RoomPresentationPlane;
+  order: number;
+  assetId: string | null;
+  materialApplication: MaterialApplication;
+  opacity: number;
+  clock: RoomData['environments'][number]['clock'];
+  scrollPerSecond: { x: number; y: number };
+}
+
+export interface RoomEditCastLayerProjection extends RoomEditProjectedRect {
+  layerId: string;
+  spriteAssetId: string | null;
+  materialApplication: MaterialApplication | null;
+  propertyValues: Readonly<Record<string, unknown>>;
+}
+
+export interface RoomEditCastProjection {
+  occurrenceId: string;
+  characterId: string;
+  placementId: string;
+  plane: 'world-content';
+  order: number;
+  layers: readonly RoomEditCastLayerProjection[];
+}
+
+export interface RoomEditLayoutPlaceholderProjection extends RoomEditProjectedRect {
+  placementId: string;
+  layoutId: string;
+  label: string;
+  plane: 'world-overlay';
+  order: number;
+  hasRenderedOccupants: boolean;
+}
+
+export type RoomEditWorldDraw =
+  | ({ kind: 'environment' } & RoomEditEnvironmentProjection)
+  | ({ kind: 'prop' } & RoomEditPropProjection)
+  | ({ kind: 'interactable' } & RoomEditInteractableProjection)
+  | ({
+      kind: 'cast-layer';
+      occurrenceId: string;
+      characterId: string;
+      placementId: string;
+      plane: 'world-content';
+      order: number;
+      sublayer: number;
+    } & RoomEditCastLayerProjection);
 
 export interface RoomEditProjection {
   viewport: RoomEditSize;
@@ -59,6 +131,11 @@ export interface RoomEditProjection {
   background: RoomEditBackgroundProjection;
   placements: readonly RoomEditPlacementProjection[];
   interactables: readonly RoomEditInteractableProjection[];
+  props: readonly RoomEditPropProjection[];
+  environments: readonly RoomEditEnvironmentProjection[];
+  cast: readonly RoomEditCastProjection[];
+  layoutPlaceholders: readonly RoomEditLayoutPlaceholderProjection[];
+  worldDraws: readonly RoomEditWorldDraw[];
 }
 
 const fullUv: RoomEditUvRect = { x: 0, y: 0, width: 1, height: 1 };
@@ -161,6 +238,128 @@ function normalizedRect(bounds: RoomNormalizedRect, viewport: RoomEditSize): Roo
   };
 }
 
+function compareScalar(left: unknown, right: unknown, operator: string): boolean | null {
+  if (operator === 'truthy') return Boolean(left);
+  if (operator === 'falsy') return !left;
+  if (operator === 'equal') return left === right;
+  if (operator === 'not-equal') return left !== right;
+  if (typeof left === 'number' && typeof right === 'number') {
+    if (operator === 'less') return left < right;
+    if (operator === 'less-equal') return left <= right;
+    if (operator === 'greater') return left > right;
+    if (operator === 'greater-equal') return left >= right;
+  }
+  if (typeof left === 'string' && typeof right === 'string') {
+    if (operator === 'less') return left < right;
+    if (operator === 'less-equal') return left <= right;
+    if (operator === 'greater') return left > right;
+    if (operator === 'greater-equal') return left >= right;
+  }
+  return null;
+}
+
+function conditionIsActive(project: AuthoringProject, condition: Condition): boolean {
+  switch (condition.kind) {
+    case 'always':
+      return true;
+    case 'all':
+      return condition.conditions.every((child) => conditionIsActive(project, child));
+    case 'any':
+      return condition.conditions.some((child) => conditionIsActive(project, child));
+    case 'not':
+      return !conditionIsActive(project, condition.condition);
+    case 'variable-comparison': {
+      const variable = parseVariableData(project.variables[condition.variable.$ref.id]?.data);
+      if (!variable) return false;
+      return compareScalar(variable.value, condition.value, condition.operator) ?? false;
+    }
+    default:
+      return false;
+  }
+}
+
+function imageSize(project: AuthoringProject, assetId: string | null): RoomEditSize | null {
+  if (!assetId) return null;
+  const asset = parseAssetData(project.assets[assetId]?.data);
+  if (asset?.kind !== 'image' || !asset.imageMetadata) return null;
+  return { width: asset.imageMetadata.width, height: asset.imageMetadata.height };
+}
+
+function ownerPropertyValues(
+  project: AuthoringProject,
+  record: AuthoringRecordBase,
+  effectiveRecord: AuthoringRecordBase,
+): Readonly<Record<string, unknown>> {
+  const values: Record<string, unknown> = {};
+  for (const traitId of effectiveRecord.traits ?? record.traits ?? []) {
+    for (const property of project.traits[traitId]?.properties ?? []) {
+      if (property.defaultValue !== undefined) values[property.id] = property.defaultValue;
+    }
+  }
+  const archetypeDefaults = record.archetype
+    ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ?? [])
+    : [];
+  for (const property of archetypeDefaults) {
+    if (property.defaultValue !== undefined) values[property.id] = property.defaultValue;
+  }
+  for (const property of record.defaultProperties ?? []) {
+    if (property.defaultValue !== undefined) values[property.id] = property.defaultValue;
+  }
+  for (const property of record.localProperties ?? []) values[property.id] = property.value;
+  return values;
+}
+
+function actorLayerRect(
+  placement: RoomEditRect,
+  layer: {
+    spriteAssetId: string | null;
+    offset: { x: number; y: number };
+    scale: number;
+    anchor: { x: number; y: number };
+  },
+  project: AuthoringProject,
+  viewport: RoomEditSize,
+): RoomEditRect {
+  const size = imageSize(project, layer.spriteAssetId) ?? {
+    width: viewport.width * 0.32,
+    height: viewport.height * 0.78,
+  };
+  const width = size.width * layer.scale;
+  const height = size.height * layer.scale;
+  const anchorX = placement.x + placement.width * 0.5 + layer.offset.x * layer.scale;
+  const anchorY = placement.y + placement.height + layer.offset.y * layer.scale;
+  return {
+    x: anchorX - layer.anchor.x * width,
+    y: anchorY - layer.anchor.y * height,
+    width,
+    height,
+  };
+}
+
+const planeRank: Record<RoomPresentationPlane, number> = {
+  'world-background': 0,
+  'world-content': 1,
+  'world-overlay': 2,
+};
+
+const drawFamilyRank: Record<RoomEditWorldDraw['kind'], number> = {
+  environment: 1,
+  prop: 2,
+  interactable: 3,
+  'cast-layer': 4,
+};
+
+function worldDrawStableIdentity(draw: RoomEditWorldDraw) {
+  switch (draw.kind) {
+    case 'environment':
+    case 'prop':
+    case 'interactable':
+      return draw.occurrenceId;
+    case 'cast-layer':
+      return draw.characterId;
+  }
+}
+
 export function resolveRoomEditProjection({
   project,
   roomId,
@@ -201,7 +400,7 @@ export function resolveRoomEditProjection({
   const placementsById = new Map(placements.map((placement) => [placement.id, placement]));
   const interactables = room.interactables.flatMap(
     (occurrence): RoomEditInteractableProjection[] => {
-      if (!occurrence.visible) return [];
+      if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
       const instance = project.interactableInstances[occurrence.interactable.$ref.id];
       if (
         !instance ||
@@ -224,6 +423,7 @@ export function resolveRoomEditProjection({
           instanceId: instance.id,
           placementId: occurrence.placementId,
           normalizedBounds: placement.normalizedBounds,
+          plane: 'world-content',
           order: occurrence.order,
           spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
           materialApplication: effectiveMaterialApplication(
@@ -245,6 +445,187 @@ export function resolveRoomEditProjection({
     (left, right) => left.order - right.order || left.instanceId.localeCompare(right.instanceId),
   );
 
+  const props = room.props.flatMap((occurrence): RoomEditPropProjection[] => {
+    if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
+    const placement = placementsById.get(occurrence.placementId);
+    if (!placement) return [];
+    return [
+      {
+        occurrenceId: occurrence.id,
+        placementId: occurrence.placementId,
+        normalizedBounds: placement.normalizedBounds,
+        plane: 'world-content',
+        order: occurrence.order,
+        assetId: occurrence.asset?.$ref.id ?? null,
+        materialApplication: occurrence.materialApplication,
+        rect: placement.rect,
+        rotationDegrees: placement.rotationDegrees,
+      },
+    ];
+  });
+
+  const environments = room.environments.flatMap((occurrence): RoomEditEnvironmentProjection[] => {
+    if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
+    const projected = projectRoomEditRect(
+      normalizedRect(occurrence.bounds, viewport),
+      viewport,
+      room.presentationSpace,
+      camera,
+    );
+    return [
+      {
+        occurrenceId: occurrence.id,
+        normalizedBounds: occurrence.bounds,
+        plane: occurrence.plane,
+        order: occurrence.order,
+        assetId: occurrence.asset?.$ref.id ?? null,
+        materialApplication: occurrence.materialApplication,
+        opacity: occurrence.opacity,
+        clock: occurrence.clock,
+        scrollPerSecond: occurrence.scrollPerSecond,
+        ...projected,
+      },
+    ];
+  });
+
+  const cast = room.cast.flatMap((occurrence): RoomEditCastProjection[] => {
+    if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
+    const placement = placementsById.get(occurrence.placementId);
+    if (!placement) return [];
+    const characterRecord = project.characters[occurrence.character.$ref.id];
+    const effectiveRecord = characterRecord
+      ? resolveGameplayInstanceRecord(project, 'character', characterRecord)
+      : null;
+    const character = parseCharacterData(effectiveRecord?.data);
+    if (
+      !effectiveRecord ||
+      !character ||
+      !character.initialWorldState.enabled ||
+      !character.initialWorldState.visible ||
+      character.initialWorldState.location.kind !== 'room' ||
+      character.initialWorldState.location.room.$ref.id !== roomId
+    )
+      return [];
+    const propertyValues = ownerPropertyValues(project, characterRecord, effectiveRecord);
+    const layers = resolveCharacterPresentationLayers(
+      character,
+      occurrence.profileId ?? character.defaults.profileId,
+      occurrence.poseId,
+      occurrence.expressionId ?? character.defaults.expressionId,
+      occurrence.appearanceId ?? character.defaults.appearanceId,
+    ).flatMap((layer): RoomEditCastLayerProjection[] => {
+      if (!layer.visible) return [];
+      const spriteAssetId = layer.sprite?.$ref.id ?? null;
+      const rawRect = actorLayerRect(
+        normalizedRect(placement.normalizedBounds, viewport),
+        {
+          spriteAssetId,
+          offset: layer.offset,
+          scale: layer.scale,
+          anchor: layer.anchor,
+        },
+        project,
+        viewport,
+      );
+      return [
+        {
+          layerId: layer.id,
+          spriteAssetId,
+          materialApplication: layer.materialApplication,
+          propertyValues,
+          ...projectRoomEditRect(rawRect, viewport, room.presentationSpace, camera),
+        },
+      ];
+    });
+    return [
+      {
+        occurrenceId: occurrence.id,
+        characterId: occurrence.character.$ref.id,
+        placementId: occurrence.placementId,
+        plane: 'world-content',
+        order: occurrence.order,
+        layers,
+      },
+    ];
+  });
+
+  const renderedPlacementIds = new Set<string>([
+    ...interactables.flatMap((item) =>
+      item.spriteAssetId || item.materialApplication ? [item.placementId] : [],
+    ),
+    ...props.flatMap((item) =>
+      item.assetId || item.materialApplication ? [item.placementId] : [],
+    ),
+    ...cast.flatMap((item) =>
+      item.layers.some((layer) => layer.spriteAssetId || layer.materialApplication)
+        ? [item.placementId]
+        : [],
+    ),
+  ]);
+  const layoutPlaceholders = room.placements.flatMap(
+    (placement): RoomEditLayoutPlaceholderProjection[] => {
+      if (!placement.presentation.layout) return [];
+      const projected = placementsById.get(placement.id);
+      if (!projected) return [];
+      const layoutId = placement.presentation.layout.$ref.id;
+      return [
+        {
+          placementId: placement.id,
+          layoutId,
+          label: project.layouts[layoutId]?.label ?? layoutId,
+          plane: 'world-overlay',
+          order: placement.presentation.layoutOrder,
+          hasRenderedOccupants: renderedPlacementIds.has(placement.id),
+          rect: projected.rect,
+          rotationDegrees: projected.rotationDegrees,
+        },
+      ];
+    },
+  );
+
+  const worldDraws: RoomEditWorldDraw[] = [
+    ...environments.map((item) => ({ kind: 'environment' as const, ...item })),
+    ...props.flatMap((item) =>
+      item.assetId || item.materialApplication ? [{ kind: 'prop' as const, ...item }] : [],
+    ),
+    ...interactables.flatMap((item) =>
+      item.spriteAssetId || item.materialApplication
+        ? [{ kind: 'interactable' as const, ...item }]
+        : [],
+    ),
+    ...cast.flatMap((item) =>
+      item.layers.flatMap((layer, sublayer) =>
+        layer.spriteAssetId || layer.materialApplication
+          ? [
+              {
+                kind: 'cast-layer' as const,
+                occurrenceId: `${item.occurrenceId}:${layer.layerId}`,
+                characterId: item.characterId,
+                placementId: item.placementId,
+                plane: item.plane,
+                order: item.order,
+                sublayer,
+                ...layer,
+              },
+            ]
+          : [],
+      ),
+    ),
+  ];
+  worldDraws.sort((left, right) => {
+    const byPlane = planeRank[left.plane] - planeRank[right.plane];
+    if (byPlane !== 0) return byPlane;
+    const byOrder = left.order - right.order;
+    if (byOrder !== 0) return byOrder;
+    const byFamily = drawFamilyRank[left.kind] - drawFamilyRank[right.kind];
+    if (byFamily !== 0) return byFamily;
+    const byIdentity = worldDrawStableIdentity(left).localeCompare(worldDrawStableIdentity(right));
+    if (byIdentity !== 0) return byIdentity;
+    const leftSublayer = left.kind === 'cast-layer' ? left.sublayer : 0;
+    const rightSublayer = right.kind === 'cast-layer' ? right.sublayer : 0;
+    return leftSublayer - rightSublayer;
+  });
+
   return {
     viewport,
     camera,
@@ -259,5 +640,10 @@ export function resolveRoomEditProjection({
     },
     placements,
     interactables,
+    props,
+    environments,
+    cast,
+    layoutPlaceholders,
+    worldDraws,
   };
 }
