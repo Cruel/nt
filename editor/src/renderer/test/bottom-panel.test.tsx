@@ -16,6 +16,7 @@ import { usePreferencesStore } from '@/stores/preferences-store';
 import { usePreviewManagerStore } from '@/preview/preview-manager-store';
 import { useEntityUsagesStore } from '@/project/entity-usages-store';
 import { emptyPackageExportResult, usePackageExportStore } from '@/export/package-export-store';
+import { editorI18n } from '@/i18n';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultCharacterData } from '../../shared/project-schema/authoring-characters';
 import {
@@ -498,6 +499,31 @@ describe('BottomPanel', () => {
     view.rerender(<BottomPanel />);
 
     expect(screen.getByText('/characters/dfs/data/preview')).toBeInTheDocument();
+  });
+
+  it('localizes coded project diagnostics at the renderer boundary', async () => {
+    useWorkspaceStore.getState().setDiagnostics([
+      {
+        code: 'hotspot.authoring.target.none',
+        severity: 'info',
+        path: '/rooms/room/data/hotspots/0/target',
+        message: 'Hotspot has no target and will not be interactive.',
+        category: 'Rooms',
+      },
+    ]);
+
+    await act(async () => editorI18n.changeLanguage('pt-BR'));
+    render(<BottomPanel />);
+
+    expect(screen.getByText('O hotspot não tem alvo e não será interativo.')).toBeInTheDocument();
+    expect(
+      screen.queryByText('Hotspot has no target and will not be interactive.'),
+    ).not.toBeInTheDocument();
+
+    await act(async () => editorI18n.changeLanguage('pseudo'));
+    expect(
+      screen.getByText('⟦Hotspot has no target and will not be interactive.⟧'),
+    ).toBeInTheDocument();
   });
 
   it('uses semantic diagnostic navigation to open a room-placed Instance Property', () => {

@@ -13,6 +13,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Copy, Plus, Trash2 } from 'lucide-react';
 import { useCommandStore } from '@/commands/command-store';
+import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { dispatchWorkspaceToolbarCommand } from '@/workspace/workspace-toolbar-events';
@@ -185,12 +186,14 @@ function DiagnosticPreview({
   project?: AuthoringProject;
   actions?: React.ReactNode;
 }) {
+  const { t } = useTranslation('workspace');
   if (diagnostics.length === 0) return null;
   return (
     <div className="rounded border p-3 text-xs">
       <div className="mb-2 font-medium">{title}</div>
       <div className="space-y-2">
         {diagnostics.slice(0, 6).map((diagnostic, index) => {
+          const message = localizedDiagnosticMessage(diagnostic, t);
           const target =
             project && isProjectValidationDiagnostic(diagnostic)
               ? resolvePlatformExportDiagnosticTarget(project, diagnostic)
@@ -199,7 +202,7 @@ function DiagnosticPreview({
             <>
               <div className="mb-1 flex flex-wrap items-center gap-2">
                 <Badge variant={severityVariant(diagnostic.severity)}>{diagnostic.severity}</Badge>
-                <span>{diagnostic.message}</span>
+                <span>{message}</span>
               </div>
             </>
           );

@@ -6,6 +6,7 @@ import { useTemplateRegistryStore } from '@/export/template-registry-store';
 import { useCommandStore } from '@/commands/command-store';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { useProjectStore } from '@/project/project-store';
+import { editorI18n } from '@/i18n';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
@@ -131,6 +132,31 @@ beforeEach(() => {
 });
 
 describe('PackageExportDialog', () => {
+  it('localizes inert Hotspot diagnostics in the runtime diagnostic preview', async () => {
+    const project = exportableProject(false);
+    const room = project.rooms.foyer!.data as ReturnType<typeof defaultRoomData>;
+    room.background.asset = { $ref: { collection: 'assets', id: 'icon' } };
+    room.hotspots.push({
+      id: 'draft-region',
+      label: 'Draft region',
+      condition: { kind: 'always' },
+      inputOrder: 0,
+      highlight: { kind: 'none' },
+      shape: { kind: 'rect', bounds: { x: 0, y: 0, width: 0.5, height: 0.5 } },
+      target: { kind: 'none' },
+    });
+    await editorI18n.changeLanguage('pt-BR');
+
+    renderExport(project, 'runtime');
+
+    expect(
+      await screen.findAllByText('O hotspot não tem alvo e não será interativo.'),
+    ).toHaveLength(2);
+    expect(
+      screen.queryByText('Hotspot has no target and will not be interactive.'),
+    ).not.toBeInTheDocument();
+  });
+
   it('uses one unified Export surface with the built-in Runtime Package pinned in the sidebar', () => {
     renderExport(exportableProject(false), 'platform');
 

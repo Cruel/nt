@@ -43,6 +43,7 @@ import { PanelResizeSeparator } from '@/components/resize-separator';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
+import { localizedDiagnosticMessage } from '@/diagnostics/diagnostic-i18n';
 import { MUTATION_SURFACE_ATTRIBUTIONS } from '@/project/save-unit-registry';
 import {
   buildDefaultRecordTab,
@@ -2149,6 +2150,7 @@ function CompiledProjectStaleWarning({
   actionAvailable: boolean;
   onReloadLatest: () => void;
 }) {
+  const { t } = useTranslation('workspace');
   const hasLoadedRuntime = freshness === 'stale';
   const distinctBlockers = [
     ...new Map(
@@ -2175,13 +2177,14 @@ function CompiledProjectStaleWarning({
             <TooltipProvider delay={150}>
               <div className="flex shrink-0 items-center gap-0.5" aria-label="Play blockers">
                 {distinctBlockers.slice(0, 6).map((diagnostic, index) => {
+                  const message = localizedDiagnosticMessage(diagnostic, t);
                   const target = project
                     ? resolveProjectDiagnosticTarget(project, diagnostic.path)
                     : null;
                   const icon = (
                     <button
                       type="button"
-                      aria-label={`Play blocker ${index + 1}: ${diagnostic.message}`}
+                      aria-label={`Play blocker ${index + 1}: ${message}`}
                       className={`flex h-5 w-5 items-center justify-center rounded-sm ${target ? 'hover:bg-amber-500/20 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-amber-500' : 'cursor-default'}`}
                       onClick={target ? () => navigateToWorkbenchTarget(target) : undefined}
                     >
@@ -2192,7 +2195,7 @@ function CompiledProjectStaleWarning({
                     <Tooltip key={`${diagnostic.code}:${diagnostic.path}:${index}`}>
                       <TooltipTrigger render={icon} />
                       <TooltipContent side="bottom" align="center" className="max-w-80 space-y-1">
-                        <div>{diagnostic.message}</div>
+                        <div>{message}</div>
                         {diagnostic.path ? (
                           <div className="break-all font-mono text-[10px] opacity-75">
                             {diagnostic.path}
@@ -2223,16 +2226,19 @@ function CompiledProjectStaleWarning({
                       align="end"
                       className="max-h-64 max-w-96 space-y-2 overflow-auto"
                     >
-                      {distinctBlockers.slice(6).map((diagnostic) => (
-                        <div key={`${diagnostic.code}:${diagnostic.path}:${diagnostic.message}`}>
-                          <div>{diagnostic.message}</div>
-                          {diagnostic.path ? (
-                            <div className="break-all font-mono text-[10px] opacity-75">
-                              {diagnostic.path}
-                            </div>
-                          ) : null}
-                        </div>
-                      ))}
+                      {distinctBlockers.slice(6).map((diagnostic) => {
+                        const message = localizedDiagnosticMessage(diagnostic, t);
+                        return (
+                          <div key={`${diagnostic.code}:${diagnostic.path}:${diagnostic.message}`}>
+                            <div>{message}</div>
+                            {diagnostic.path ? (
+                              <div className="break-all font-mono text-[10px] opacity-75">
+                                {diagnostic.path}
+                              </div>
+                            ) : null}
+                          </div>
+                        );
+                      })}
                     </TooltipContent>
                   </Tooltip>
                 ) : null}

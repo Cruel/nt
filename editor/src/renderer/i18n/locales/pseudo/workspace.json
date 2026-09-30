@@ -223,6 +223,9 @@
     "lastCommandDiagnostics": "⟦Last command diagnostics⟧",
     "toggle": "⟦Toggle Bottom Panel⟧"
   },
+  "diagnosticMessages": {
+    "hotspotAuthoringTargetNone": "⟦Hotspot has no target and will not be interactive.⟧"
+  },
   "terminal": {
     "new": "⟦New Terminal⟧",
     "close": "⟦Close {{label}}⟧",
