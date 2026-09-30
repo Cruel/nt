@@ -310,7 +310,7 @@ export function RoomEditSurface({
         referenceResolution,
         room.presentationSpace,
         room.presentationSpace.defaultView,
-      ).rect,
+      ),
     [referenceResolution, room.presentationSpace],
   );
   const projection = useMemo(

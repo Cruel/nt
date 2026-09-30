@@ -14,6 +14,7 @@ import { defaultRoomData, parseRoomData } from '../../shared/project-schema/auth
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { WorkbenchEditorLocationProvider } from '@/workbench/workbench-editor-location';
 import { AuthoringWebGlGroupProvider } from '@/authoring-renderer/authoring-webgl-provider';
 import { MaterialPreviewProjectProvider } from '@/material-preview/material-preview-provider';
 import type { WorkbenchTab } from '@/workbench/workbench-types';
@@ -1407,5 +1408,77 @@ describe('RoomEditor', () => {
     } finally {
       window.matchMedia = originalMatchMedia;
     }
+  });
+
+  it('scopes Ctrl+D deselection to the active Room editor in split groups', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.35, height: 0.35 },
+        presentation: {
+          label: null,
+          layout: { $ref: { collection: 'layouts', id: 'desk-ui' } },
+          layoutOrder: 4,
+        },
+      },
+    ];
+    project.layouts['desk-ui'] = {
+      id: 'desk-ui',
+      label: 'Desk UI',
+      data: defaultLayoutData('Desk UI'),
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useWorkbenchStore.setState({ activeGroupId: 'group:left' });
+    const rightTab = { ...tab, id: `${tab.id}:right` };
+
+    render(
+      <MaterialPreviewProjectProvider>
+        <AuthoringWebGlGroupProvider>
+          <div data-testid="left-room-editor">
+            <WorkbenchEditorLocationProvider
+              location={{
+                tabId: tab.id,
+                groupId: 'group:left',
+                isActiveInGroup: true,
+                isVisible: true,
+              }}
+            >
+              <RoomEditor tab={tab} />
+            </WorkbenchEditorLocationProvider>
+          </div>
+          <div data-testid="right-room-editor">
+            <WorkbenchEditorLocationProvider
+              location={{
+                tabId: rightTab.id,
+                groupId: 'group:right',
+                isActiveInGroup: true,
+                isVisible: true,
+              }}
+            >
+              <RoomEditor tab={rightTab} />
+            </WorkbenchEditorLocationProvider>
+          </div>
+        </AuthoringWebGlGroupProvider>
+      </MaterialPreviewProjectProvider>,
+    );
+
+    const left = within(screen.getByTestId('left-room-editor'));
+    const right = within(screen.getByTestId('right-room-editor'));
+    fireEvent.click(left.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(right.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(left.getByRole('button', { name: /Layout · Desk UI/i }));
+    fireEvent.click(right.getByRole('button', { name: /Layout · Desk UI/i }));
+
+    expect(left.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
+    expect(right.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
+
+    fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+
+    expect(left.queryByTestId('room-edit-selected-placement-layout:desk')).toBeNull();
+    expect(left.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
+    expect(right.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
   });
 });
