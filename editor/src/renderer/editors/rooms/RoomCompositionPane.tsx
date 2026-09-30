@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronLeft, Plus, Trash2 } from 'lucide-react';
+import { ChevronLeft, MousePointerClick, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -62,6 +62,7 @@ export function RoomCompositionPane({
   onBeginAdd,
   onAddToPlacement,
   onDeleteSelection,
+  onEditHotspots,
 }: {
   project: AuthoringProject;
   room: RoomData;
@@ -75,6 +76,7 @@ export function RoomCompositionPane({
   onBeginAdd: (actionId: string) => void;
   onAddToPlacement: (actionId: string, placementId: string) => void;
   onDeleteSelection: () => void;
+  onEditHotspots?: () => void;
 }) {
   const { t } = useTranslation('workspace');
   const select = (item: RoomEditSelection) => onSelectionChange([item]);
@@ -120,6 +122,12 @@ export function RoomCompositionPane({
               className="flex flex-wrap justify-end gap-1"
               data-testid="room-composition-add-actions"
             >
+              {onEditHotspots ? (
+                <Button type="button" size="sm" variant="outline" onClick={onEditHotspots}>
+                  <MousePointerClick className="size-3.5" aria-hidden="true" />
+                  {t('roomEditor.compositionPane.editHotspots')}
+                </Button>
+              ) : null}
               {addActions.map((action) => (
                 <Button
                   key={action.id}
@@ -246,6 +254,12 @@ export function RoomCompositionPane({
                 <span className="text-xs text-muted-foreground">
                   {t('roomEditor.compositionPane.selectedCount', { count: selection.length })}
                 </span>
+              ) : null}
+              {onEditHotspots ? (
+                <Button type="button" size="sm" variant="outline" onClick={onEditHotspots}>
+                  <MousePointerClick className="size-3.5" aria-hidden="true" />
+                  {t('roomEditor.compositionPane.editHotspots')}
+                </Button>
               ) : null}
               <Button type="button" size="sm" variant="outline" onClick={onDeleteSelection}>
                 <Trash2 className="size-3.5" aria-hidden="true" />

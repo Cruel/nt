@@ -1,24 +1,45 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { HotspotImageStage } from '@/components/image-stage/HotspotImageStage';
-import { fitImageStageZoom, type StageSize } from '@/components/image-stage/image-stage-transforms';
+import {
+  fitImageStageZoom,
+  type StageRect,
+  type StageSize,
+} from '@/components/image-stage/image-stage-transforms';
 import { Button } from '@/components/ui/button';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { useProjectStore } from '@/project/project-store';
 import { useHotspotFocusStore } from './hotspot-focus-store';
 import type { EditableHotspot } from './hotspot-types';
+import {
+  resolveHotspotFocusTransitionFrames,
+  type HotspotFocusTransitionFrames,
+  type HotspotFocusRoomPresentation,
+} from './hotspot-focus-transition';
+
+interface RoomFocusPresentation extends HotspotFocusRoomPresentation {
+  displayedViewportScreenRect: StageRect;
+}
 
 interface Props {
   tabId: string;
   projectAssets: Record<string, { data: unknown }>;
+  roomPresentation?: RoomFocusPresentation | null;
   createHotspot: (
     id: string,
     inputOrder: number,
     bounds: { x: number; y: number; width: number; height: number },
   ) => EditableHotspot;
+  onDone?: (selectedHotspotId: string | null) => void;
 }
 
-export function HotspotFocusWorkspace({ tabId, projectAssets, createHotspot }: Props) {
+export function HotspotFocusWorkspace({
+  tabId,
+  projectAssets,
+  roomPresentation = null,
+  createHotspot,
+  onDone,
+}: Props) {
   const { t } = useTranslation('workspace');
   const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const session = useHotspotFocusStore((state) => state.sessionsByTabId[tabId]);
@@ -35,6 +56,18 @@ export function HotspotFocusWorkspace({ tabId, projectAssets, createHotspot }: P
   const discard = useHotspotFocusStore((state) => state.discard);
   const [viewport, setViewport] = useState<StageSize>({ width: 0, height: 0 });
   const [imageUrl, setImageUrl] = useState<string | null>(null);
+  const [transitionPhase, setTransitionPhase] = useState<'room' | 'native' | 'focused' | null>(
+    null,
+  );
+  const [exiting, setExiting] = useState(false);
+  const [entryTransitionFrames, setEntryTransitionFrames] =
+    useState<HotspotFocusTransitionFrames | null>(null);
+  const [exitTransitionFrames, setExitTransitionFrames] =
+    useState<HotspotFocusTransitionFrames | null>(null);
+  const entrySnapshotRef = useRef(false);
+  const entryAnimationStartedRef = useRef(false);
+  const entryTransitionCleanupRef = useRef<(() => void) | null>(null);
+  const transitionContainerRef = useRef<HTMLDivElement | null>(null);
 
   const assetData = useMemo(() => {
     if (!session?.assetId) return null;
@@ -46,6 +79,42 @@ export function HotspotFocusWorkspace({ tabId, projectAssets, createHotspot }: P
         ? { width: assetData.imageMetadata.width, height: assetData.imageMetadata.height }
         : null,
     [assetData],
+  );
+  const displayedRoomViewport = useMemo(() => {
+    const containerBounds = transitionContainerRef.current?.getBoundingClientRect();
+    if (!roomPresentation || !containerBounds || viewport.width <= 0 || viewport.height <= 0)
+      return null;
+    return {
+      x: roomPresentation.displayedViewportScreenRect.x - containerBounds.left,
+      y: roomPresentation.displayedViewportScreenRect.y - containerBounds.top,
+      width: roomPresentation.displayedViewportScreenRect.width,
+      height: roomPresentation.displayedViewportScreenRect.height,
+    };
+  }, [roomPresentation, viewport]);
+  const currentTransitionFrames = useMemo(
+    () =>
+      session?.cameraInitialized &&
+      roomPresentation &&
+      displayedRoomViewport &&
+      imageSize &&
+      viewport.width > 0 &&
+      viewport.height > 0
+        ? resolveHotspotFocusTransitionFrames({
+            roomPresentation,
+            displayedRoomViewport,
+            focusViewport: viewport,
+            imageSize,
+            focusCamera: session.camera,
+          })
+        : null,
+    [
+      displayedRoomViewport,
+      imageSize,
+      roomPresentation,
+      session?.camera,
+      session?.cameraInitialized,
+      viewport,
+    ],
   );
 
   useEffect(() => {
@@ -80,9 +149,64 @@ export function HotspotFocusWorkspace({ tabId, projectAssets, createHotspot }: P
     });
   }, [imageSize, initializeCamera, session, tabId, viewport]);
 
+  useEffect(() => {
+    if (entrySnapshotRef.current || !currentTransitionFrames || !imageUrl) return;
+    entrySnapshotRef.current = true;
+    setEntryTransitionFrames(currentTransitionFrames);
+  }, [currentTransitionFrames, imageUrl]);
+
+  useEffect(() => {
+    if (entryAnimationStartedRef.current || !entryTransitionFrames || !imageUrl) return;
+    entryAnimationStartedRef.current = true;
+    const reducedMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    if (reducedMotion) return;
+    setTransitionPhase('room');
+    const frame = window.requestAnimationFrame(() => setTransitionPhase('native'));
+    const focusedTimer = window.setTimeout(() => setTransitionPhase('focused'), 90);
+    const doneTimer = window.setTimeout(() => setTransitionPhase(null), 180);
+    const cleanup = () => {
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(focusedTimer);
+      window.clearTimeout(doneTimer);
+    };
+    entryTransitionCleanupRef.current = cleanup;
+    return () => {
+      if (entryTransitionCleanupRef.current === cleanup) entryTransitionCleanupRef.current = null;
+      cleanup();
+    };
+  }, [entryTransitionFrames, imageUrl]);
+
   if (!session) return null;
   const hotspots = session.history.present;
   const canDraw = session.mode === 'rectangles';
+  const animateExit = (action: () => boolean) => {
+    if (exiting) return;
+    entryTransitionCleanupRef.current?.();
+    entryTransitionCleanupRef.current = null;
+    const reducedMotion =
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const frames = currentTransitionFrames;
+    if (!frames || !imageUrl || reducedMotion) {
+      action();
+      return;
+    }
+    setExitTransitionFrames(frames);
+    setExiting(true);
+    setTransitionPhase('focused');
+    window.requestAnimationFrame(() => setTransitionPhase('native'));
+    window.setTimeout(() => setTransitionPhase('room'), 90);
+    window.setTimeout(() => {
+      if (action()) return;
+      setExiting(false);
+      setExitTransitionFrames(null);
+      setTransitionPhase(null);
+    }, 180);
+  };
+  const transitionFrames = exiting ? exitTransitionFrames : entryTransitionFrames;
+  const transitionFrame = transitionPhase ? transitionFrames?.[transitionPhase] : null;
   const nextId = () => {
     const ids = new Set(hotspots.map((item) => item.id));
     for (let index = 1; ; index += 1) {
@@ -193,48 +317,84 @@ export function HotspotFocusWorkspace({ tabId, projectAssets, createHotspot }: P
         >
           {t('hotspots.focus.redo')}
         </Button>
-        <Button type="button" size="sm" variant="outline" onClick={() => discard(tabId)}>
+        <Button
+          type="button"
+          size="sm"
+          variant="outline"
+          disabled={exiting}
+          onClick={() => animateExit(() => discard(tabId))}
+        >
           {t('hotspots.focus.cancel')}
         </Button>
-        <Button type="button" size="sm" onClick={() => commit(tabId)}>
+        <Button
+          type="button"
+          size="sm"
+          disabled={exiting}
+          onClick={() => {
+            const selectedHotspotId = session.selectedHotspotId;
+            animateExit(() => {
+              const committed = commit(tabId);
+              if (committed) onDone?.(selectedHotspotId);
+              return committed;
+            });
+          }}
+        >
           {t('hotspots.focus.done')}
         </Button>
       </div>
       {!imageSize ? (
         <div className="p-4 text-sm text-destructive">{t('hotspots.invalidImage')}</div>
       ) : (
-        <HotspotImageStage
-          className="min-h-0 flex-1"
-          imageUrl={imageUrl}
-          imageSize={imageSize}
-          zoomBasis="native"
-          hotspots={hotspots.flatMap((item) =>
-            item.shape
-              ? [
-                  {
-                    id: item.id,
-                    label: item.label,
-                    inputOrder: item.inputOrder,
-                    bounds: item.shape.bounds,
-                  },
-                ]
-              : [],
-          )}
-          selectedHotspotId={session.selectedHotspotId}
-          tool={session.tool}
-          camera={session.camera}
-          alphaVisualization={session.mode === 'sprite-alpha'}
-          onViewportChange={setViewport}
-          onSelectionChange={(selectedHotspotId) => setSelection(tabId, selectedHotspotId)}
-          onCameraChange={(camera) => setCamera(tabId, camera)}
-          onCreate={(bounds) => {
-            if (!canDraw) return;
-            add(tabId, createHotspot(nextId(), nextInputOrder(), bounds));
-          }}
-          onCancelCreate={() => setTool(tabId, 'select')}
-          onCommitBounds={(id, bounds) => setBounds(tabId, id, bounds)}
-          onDelete={(id) => remove(tabId, id)}
-        />
+        <div ref={transitionContainerRef} className="relative min-h-0 flex-1 overflow-hidden">
+          <HotspotImageStage
+            className={`h-full min-h-0 transition-opacity duration-75 ${transitionPhase ? 'opacity-0' : 'opacity-100'}`}
+            imageUrl={imageUrl}
+            imageSize={imageSize}
+            zoomBasis="native"
+            hotspots={hotspots.flatMap((item) =>
+              item.shape
+                ? [
+                    {
+                      id: item.id,
+                      label: item.label,
+                      inputOrder: item.inputOrder,
+                      bounds: item.shape.bounds,
+                    },
+                  ]
+                : [],
+            )}
+            selectedHotspotId={session.selectedHotspotId}
+            tool={session.tool}
+            camera={session.camera}
+            alphaVisualization={session.mode === 'sprite-alpha'}
+            onViewportChange={setViewport}
+            onSelectionChange={(selectedHotspotId) => setSelection(tabId, selectedHotspotId)}
+            onCameraChange={(camera) => setCamera(tabId, camera)}
+            onCreate={(bounds) => {
+              if (!canDraw) return;
+              add(tabId, createHotspot(nextId(), nextInputOrder(), bounds));
+            }}
+            onCancelCreate={() => setTool(tabId, 'select')}
+            onCommitBounds={(id, bounds) => setBounds(tabId, id, bounds)}
+            onDelete={(id) => remove(tabId, id)}
+          />
+          {transitionFrame && imageUrl ? (
+            <img
+              src={imageUrl}
+              alt=""
+              className="pointer-events-none absolute max-w-none transition-[left,top,width,height,transform] duration-[90ms] ease-out"
+              style={{
+                left: transitionFrame.rect.x,
+                top: transitionFrame.rect.y,
+                width: transitionFrame.rect.width,
+                height: transitionFrame.rect.height,
+                transform: `rotate(${transitionFrame.rotationDegrees}deg)`,
+                transformOrigin: 'center',
+              }}
+              data-testid={`hotspot-focus-transition-${transitionPhase}`}
+            />
+          ) : null}
+        </div>
       )}
     </div>
   );

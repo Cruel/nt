@@ -158,7 +158,7 @@ import type { OwnerLocalProperty } from '../../../shared/project-schema/authorin
 import { allocateRoomPresentationOrder } from '../../../shared/project-schema/room-presentation-order';
 import { analyzeHookRegistry } from '../../../shared/hook-registry-analysis';
 import type { AppliedPreviewDocumentResult } from '../../../shared/focused-preview-contracts';
-import type { RoomEditResolvedVisibility } from './room-edit-projection';
+import { resolveRoomEditProjection, type RoomEditResolvedVisibility } from './room-edit-projection';
 import {
   describeRoomEditSelection,
   roomEditSelectionExists,
@@ -537,6 +537,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [roomEditTransitioning, setRoomEditTransitioning] = useState(false);
   const [roomEditGestureCancellationToken, setRoomEditGestureCancellationToken] = useState(0);
   const roomEditAnimationFrameRef = useRef<number | null>(null);
+  const roomEditSurfaceElementRef = useRef<HTMLDivElement | null>(null);
+  const [hotspotFocusRoomViewportScreenRect, setHotspotFocusRoomViewportScreenRect] = useState<{
+    x: number;
+    y: number;
+    width: number;
+    height: number;
+  } | null>(null);
+  const handleRoomEditSurfaceElementChange = useCallback((element: HTMLDivElement | null) => {
+    roomEditSurfaceElementRef.current = element;
+  }, []);
   const [previewCollapsed, setPreviewCollapsed] = useState(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     return savedState ? (parseRoomEditorTabState(savedState)?.previewCollapsed ?? false) : false;
@@ -1066,6 +1076,23 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  const beginRoomHotspotFocus = (selectedHotspotId?: string | null) => {
+    const bounds = roomEditSurfaceElementRef.current?.getBoundingClientRect();
+    setHotspotFocusRoomViewportScreenRect(
+      bounds && bounds.width > 0 && bounds.height > 0
+        ? { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }
+        : null,
+    );
+    startHotspotFocus({
+      tabId: tab.id,
+      ownerKind: 'room',
+      ownerId: roomId,
+      assetId: data.background.asset?.$ref.id ?? null,
+      mode: 'rectangles',
+      items: data.hotspots,
+      selectedHotspotId,
+    });
+  };
   const rooms = Object.entries(project.rooms).map(([id, value]) => ({ id, label: value.label }));
   const exitDestinationItems = data.exits.map((exit) => ({
     id: exit.target.$ref.id,
@@ -1656,22 +1683,41 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       }
       case 'hotspot': {
         const hotspot = data.hotspots.find((item) => item.id === selection.id);
-        if (hotspot) {
-          fields.push(
-            {
-              label: t('roomEditor.compositionPane.inspectorKind'),
-              value: t('roomEditor.compositionPane.entityKinds.hotspot'),
-            },
-            { label: t('roomEditor.compositionPane.inspectorId'), value: hotspot.id },
-            { label: t('roomEditor.compositionPane.inspectorLabel'), value: hotspot.label },
-            { label: t('roomEditor.compositionPane.inspectorTarget'), value: hotspot.target.kind },
-            {
-              label: t('roomEditor.compositionPane.inspectorInputOrder'),
-              value: String(hotspot.inputOrder),
-            },
-          );
-        }
-        break;
+        if (!hotspot) break;
+        return (
+          <HotspotAuthoringPanel
+            anchorPrefix="room"
+            project={project}
+            projectFilePath={projectFilePath}
+            title={t('roomEditor.compositionPane.selection.hotspot', {
+              label: hotspot.label,
+              id: hotspot.id,
+            })}
+            assetId={data.background.asset?.$ref.id ?? null}
+            hotspots={[hotspot]}
+            selectedView={{ ...hotspotView, selectedHotspotId: hotspot.id }}
+            ownerKind="room"
+            ownerId={roomId}
+            materialProperties={roomMaterialProperties}
+            localFeatures={data.features}
+            exits={data.exits.map((exit) => ({ id: exit.id, label: exit.id }))}
+            detailOnly
+            onViewChange={setHotspotView}
+            onDelete={(hotspotId) =>
+              executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
+            }
+            onRename={(hotspotId, nextId) =>
+              executeHotspot('room.renameHotspot', 'Rename room hotspot', { hotspotId, nextId })
+            }
+            onUpdate={(hotspotId, nextHotspot) =>
+              executeHotspot('room.updateHotspot', 'Update room hotspot', {
+                hotspotId,
+                hotspot: nextHotspot,
+              })
+            }
+            onEditGeometry={(selectedHotspotId) => beginRoomHotspotFocus(selectedHotspotId)}
+          />
+        );
       }
     }
     const presentationOrder = (() => {
@@ -1784,11 +1830,42 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
   };
+  const hotspotFocusRoomPresentation =
+    hotspotFocusSession && hotspotFocusRoomViewportScreenRect
+      ? (() => {
+          const projection = resolveRoomEditProjection({
+            project,
+            roomId,
+            room: data,
+            viewport: referenceResolution,
+            backgroundImageSize: compositionBackgroundSize,
+            resolvedVisibility: activeRoomEditResolution,
+            navigation:
+              presentationMode === 'edit' ? visibleEditNavigation : ROOM_EDIT_FIT_NAVIGATION,
+          });
+          return {
+            viewport: referenceResolution,
+            displayedViewportScreenRect: hotspotFocusRoomViewportScreenRect,
+            visibleImageRect: projection.background.rect,
+            visibleImageUv: projection.background.uv,
+            rotationDegrees: projection.background.rotationDegrees,
+          };
+        })()
+      : null;
   if (hotspotFocusSession) {
     return (
       <HotspotFocusWorkspace
         tabId={tab.id}
         projectAssets={project.assets}
+        roomPresentation={hotspotFocusRoomPresentation}
+        onDone={(selectedHotspotId) => {
+          if (selectedHotspotId) {
+            setRoomSelection([{ kind: 'hotspot', id: selectedHotspotId }]);
+            setHotspotView((current) => ({ ...current, selectedHotspotId }));
+          }
+          if (presentationMode === 'edit') setActiveCategory('composition');
+          else changeRoomPresentationMode('edit');
+        }}
         createHotspot={(id, inputOrder, bounds) => ({
           id,
           label: t('hotspots.defaultLabel'),
@@ -1891,6 +1968,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   pendingAddActionId={roomAddGhostActionId}
                   onPendingAddActionCancel={() => setRoomAddGhostActionId(null)}
                   onAddAtPoint={(actionId, point) => executeRoomAdd(actionId, { point })}
+                  onSurfaceElementChange={handleRoomEditSurfaceElementChange}
                 />
               </div>
             ) : null}
@@ -2169,17 +2247,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               onUpdate={(hotspotId, hotspot) =>
                 executeHotspot('room.updateHotspot', 'Update room hotspot', { hotspotId, hotspot })
               }
-              onEditGeometry={(selectedHotspotId) =>
-                startHotspotFocus({
-                  tabId: tab.id,
-                  ownerKind: 'room',
-                  ownerId: roomId,
-                  assetId: data.background.asset?.$ref.id ?? null,
-                  mode: 'rectangles',
-                  items: data.hotspots,
-                  selectedHotspotId,
-                })
-              }
+              onEditGeometry={(selectedHotspotId) => beginRoomHotspotFocus(selectedHotspotId)}
             />
           </div>
         ) : null}
@@ -2996,6 +3064,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   executeRoomAdd(actionId, { placementId })
                 }
                 onDeleteSelection={deleteCurrentRoomSelection}
+                onEditHotspots={() => beginRoomHotspotFocus(null)}
               />
             </section>
           </div>

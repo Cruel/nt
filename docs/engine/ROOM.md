@@ -167,17 +167,22 @@ same values immediately. Composition contains the command-backed Interactable oc
 a separate fallback-placement selector. Creating/placing an Instance, adding/removing an occurrence,
 moving an occurrence between Room placements, moving/unplacing the semantic Instance, and destroying
 the Instance are distinct operations; removing an occurrence does not destroy the Instance.
-Hotspots contains nested Feature authoring plus Hotspot semantic-property editing. Geometry is not
-manipulated in the normal Room form. `Edit geometry` temporarily replaces the Room tab with the
-shared Hotspot Focus workspace over the full background source image. That workspace is geometry-only:
-authors can select, repeatedly draw rectangles, move, resize, delete, pan, zoom, Fit, and use native
-100% view. It keeps a local geometry undo/redo history and independent owner/source navigation state;
-`Done` commits the complete Hotspot collection as one project undo step and `Cancel` discards it.
-New Room geometry starts with target `none`, so authors can draw and refine geometry before assigning
-gameplay semantics back in the Room editor. Feature editing covers stable ID, label, compatible
-Traits, and compatible Properties. The selected Hotspot's condition, highlight, input order, cursor,
-and semantic target remain ordinary Room-editor fields rather than controls duplicated in Hotspot
-Focus.
+Hotspots contains nested Feature authoring plus Hotspot semantic-property editing. In Room Edit,
+existing Hotspots are projected through the background source-image mapping and appear as distinct
+selectable overlays. They participate in Contents and right-click disambiguation while ordinary
+overlap clicks retain placement-oriented selection precedence. Selecting a Hotspot opens its normal
+semantic inspector (ID, label, condition, highlight, input order, cursor, and target) without Room-space
+move/resize handles. `Edit geometry` from that inspector, or the general `Edit Hotspots` action,
+temporarily replaces the Room tab with the shared Hotspot Focus workspace over the full background
+source image. That workspace is geometry-only: authors can select, repeatedly draw rectangles, move,
+resize, delete, pan, zoom, Fit, and use native 100% view. It keeps a local geometry undo/redo history
+and independent owner/source navigation state. Room entry/exit transitions preserve the authored
+background fit/crop/stretch and Camera rotation endpoint, pass through native-aspect framing, and then
+use the remembered Focus camera; reduced-motion skips the animation. `Done` commits the complete
+Hotspot geometry session as one project undo step and returns with the most recently selected/created
+Hotspot selected when possible; `Cancel` discards it. New Room geometry starts with target `none`, so
+authors can draw and refine geometry before assigning gameplay semantics back in the Room editor.
+Feature editing covers stable ID, label, compatible Traits, and compatible Properties.
 Room background `cover`,
 `contain`, `stretch`, and `center` transforms use the same normalized image-coordinate policy consumed
 by runtime projection. No editor-preview-only manipulation contract exists.

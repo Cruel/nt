@@ -27,7 +27,7 @@ export interface RoomEditSelectionCandidate {
   selection: RoomEditSelection;
   projected: RoomEditProjectedRect;
   label: string;
-  category: 'placement' | 'occupant' | 'independent';
+  category: 'placement' | 'occupant' | 'independent' | 'hotspot';
   placementId: string | null;
 }
 
@@ -159,6 +159,35 @@ export function roomEditSelectionCandidates(
     seen.add(key);
     candidates.push(candidate);
   };
+
+  const backgroundUv = projection.background.uv;
+  if (backgroundUv.width > 0 && backgroundUv.height > 0) {
+    for (const hotspot of [...room.hotspots].sort(
+      (left, right) => right.inputOrder - left.inputOrder || left.id.localeCompare(right.id),
+    )) {
+      const bounds = hotspot.shape.bounds;
+      push({
+        selection: { kind: 'hotspot', id: hotspot.id },
+        projected: {
+          rect: {
+            x:
+              projection.background.rect.x +
+              ((bounds.x - backgroundUv.x) / backgroundUv.width) * projection.background.rect.width,
+            y:
+              projection.background.rect.y +
+              ((bounds.y - backgroundUv.y) / backgroundUv.height) *
+                projection.background.rect.height,
+            width: (bounds.width / backgroundUv.width) * projection.background.rect.width,
+            height: (bounds.height / backgroundUv.height) * projection.background.rect.height,
+          },
+          rotationDegrees: projection.background.rotationDegrees,
+        },
+        label: describeRoomEditSelection(project, room, { kind: 'hotspot', id: hotspot.id }, t),
+        category: 'hotspot',
+        placementId: null,
+      });
+    }
+  }
 
   // Placement-attached Layouts live in WorldOverlay and therefore sit in front of world draws.
   for (const placeholder of [...projection.layoutPlaceholders].reverse()) {
@@ -382,13 +411,21 @@ export function defaultRoomEditSelectionCandidate(
       ) ?? top
     );
   }
-  return candidates.find((candidate) => candidate.category === 'placement') ?? top;
+  return (
+    candidates.find((candidate) => candidate.category === 'placement') ??
+    candidates.find((candidate) => candidate.category !== 'hotspot') ??
+    top
+  );
 }
 
 export function topmostRoomEditOccupantCandidate(
   candidates: readonly RoomEditSelectionCandidate[],
 ) {
-  return candidates.find((candidate) => candidate.category !== 'placement') ?? null;
+  return (
+    candidates.find(
+      (candidate) => candidate.category !== 'placement' && candidate.category !== 'hotspot',
+    ) ?? null
+  );
 }
 
 export function candidateForRoomEditSelection(

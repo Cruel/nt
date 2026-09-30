@@ -72,12 +72,26 @@ rectangle creation, move, resize, entity deletion, zoom, pan, Fit, native 100% v
 image-coordinate conversion. Sprite-alpha Interactables use the same focused source-image workspace
 for inspection without exposing rectangle creation.
 
+Room Edit projects authored Room Hotspots back through the background's source-image UV mapping, so
+cover cropping, contain/center geometry, stretch, authored Camera View, and editor navigation all
+produce the same selectable screen bounds as the presented background. Hotspots use a distinct
+non-runtime overlay and participate in the Contents tree and right-click candidate list. Ordinary
+click selection remains placement-oriented when a Placement or rendered occurrence overlaps a
+Hotspot. Selecting a Hotspot opens the normal semantic inspector and never exposes Room-space move or
+resize handles. Both that inspector's `Edit geometry` action and the no-selection `Edit Hotspots`
+action enter the same owner-local Hotspot Focus session.
+
 Hotspot Focus keeps view state independently per owner/source target. Its native zoom basis makes
 100% correspond to one source-image pixel per CSS pixel; first entry uses 100% when the complete
 source fits and Fit otherwise. Select, Rectangle, and Pan are explicit geometry tools. Rectangle
 mode remains active after a successful draw so several Hotspots can be created in sequence, while
 the newest rectangle becomes selected. Escape cancels the current rectangle gesture/tool without
 committing project data.
+
+For Room backgrounds, Focus transitions the full source image from the currently authored Room
+presentation mapping (including source cropping/stretch and Camera rotation) through native-aspect
+framing into the remembered Focus camera; exit runs those endpoints in reverse. Reduced-motion
+preferences skip the animation. Focus navigation remains independent from Room Edit navigation.
 
 Geometry changes are session-local. Draw, move, resize, and delete participate in a local undo/redo
 history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y; Focus consumes those shortcuts so they never also reach
@@ -87,7 +101,8 @@ publishes geometry through one project command and therefore one project-level u
 a three-way merge against the geometry seen on entry and the latest Project geometry: untouched
 shapes preserve concurrent changes, disjoint geometry edits compose, and conflicting edits to the
 same shape—including move/resize versus concurrent deletion—fail closed. `Cancel` discards the
-draft. Switching tabs may leave the focus session alive.
+draft. Successful `Done` returns Room Edit with the most recently selected/created Hotspot selected
+when one remains. Switching tabs may leave the focus session alive.
 A modified session registers as a versioned serializable workbench draft so Project/window recovery
 can restore it, and closing its owning tab requires explicit apply/discard even when another visual
 tab shares the same record save unit.

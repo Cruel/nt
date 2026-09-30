@@ -36,6 +36,7 @@ interface Props {
   localFeatures: readonly { id: string; label: string }[];
   exits?: readonly { id: string; label: string }[];
   alphaMode?: boolean;
+  detailOnly?: boolean;
   anchorPrefix: 'room' | 'interactable';
   onViewChange(next: HotspotEditorViewState): void;
   onDelete(id: string): void;
@@ -217,7 +218,11 @@ export function HotspotAuthoringPanel(props: Props) {
         onSelectedKeyChange={(selectedHotspotId) => updateView({ selectedHotspotId })}
         listAriaLabel={props.title}
         emptyState={t('hotspots.selectPrompt')}
-        layoutClassName="gap-3 @5xl:grid-cols-[14rem_1fr]"
+        layoutClassName={
+          props.detailOnly
+            ? 'grid-cols-1 gap-3 [&>div:first-child]:hidden @5xl:grid-cols-1'
+            : 'gap-3 @5xl:grid-cols-[14rem_1fr]'
+        }
         getItemAnchor={(item) => `${props.anchorPrefix}.hotspot.${item.id}`}
         getDeleteLabel={() => t('hotspots.delete')}
         onDeleteItem={(item) => props.onDelete(item.id)}
