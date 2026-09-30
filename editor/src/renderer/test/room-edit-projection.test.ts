@@ -369,7 +369,18 @@ describe('Room Edit spatial projection', () => {
     project.interactables.token = {
       id: 'token',
       label: 'Token',
-      data: defaultInteractableData('Token'),
+      data: {
+        ...defaultInteractableData('Token'),
+        presentation: {
+          ...defaultInteractableData('Token').presentation,
+          materialApplication: emptyMaterialApplication('token-material'),
+        },
+      },
+    };
+    project.materials['token-material'] = {
+      id: 'token-material',
+      label: 'Token Material',
+      data: defaultMaterialData('Token Material', 'engine-2d'),
     };
     project.interactableInstances['z-instance'] = defaultInteractableInstanceData(
       'z-instance',
@@ -394,6 +405,66 @@ describe('Room Edit spatial projection', () => {
       'a-instance',
       'z-instance',
     ]);
+    expect(
+      projection.worldDraws
+        .filter((item) => item.kind === 'interactable')
+        .map((item) => item.instanceId),
+    ).toEqual(['a-instance', 'z-instance']);
+  });
+
+  it('keeps unsupported conditions visible instead of silently treating them as false', () => {
+    const project = createAuthoringProject({ id: 'condition-test' });
+    const room = defaultRoomData('Condition Room');
+    room.placements = [
+      {
+        id: 'slot',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'lua-true',
+        condition: { kind: 'lua-predicate', source: 'return true' },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 1,
+      },
+      {
+        id: 'not-lua',
+        condition: {
+          kind: 'not',
+          condition: { kind: 'lua-predicate', source: 'return true' },
+        },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 2,
+      },
+      {
+        id: 'definitely-hidden',
+        condition: { kind: 'not', condition: { kind: 'always' } },
+        placementId: 'slot',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 3,
+      },
+    ];
+    project.rooms.room = { id: 'room', label: 'Room', data: room };
+
+    const projection = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1920, height: 1080 },
+      backgroundImageSize: null,
+    });
+
+    expect(projection.props.map((item) => item.occurrenceId)).toEqual(['lua-true', 'not-lua']);
   });
 
   it('matches runtime contain camera clamping and background fit geometry', () => {

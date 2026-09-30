@@ -258,24 +258,39 @@ function compareScalar(left: unknown, right: unknown, operator: string): boolean
   return null;
 }
 
-function conditionIsActive(project: AuthoringProject, condition: Condition): boolean {
+type ConditionActivity = 'active' | 'inactive' | 'unknown';
+
+function conditionActivity(project: AuthoringProject, condition: Condition): ConditionActivity {
   switch (condition.kind) {
     case 'always':
-      return true;
-    case 'all':
-      return condition.conditions.every((child) => conditionIsActive(project, child));
-    case 'any':
-      return condition.conditions.some((child) => conditionIsActive(project, child));
-    case 'not':
-      return !conditionIsActive(project, condition.condition);
+      return 'active';
+    case 'all': {
+      const children = condition.conditions.map((child) => conditionActivity(project, child));
+      if (children.includes('inactive')) return 'inactive';
+      return children.includes('unknown') ? 'unknown' : 'active';
+    }
+    case 'any': {
+      const children = condition.conditions.map((child) => conditionActivity(project, child));
+      if (children.includes('active')) return 'active';
+      return children.includes('unknown') ? 'unknown' : 'inactive';
+    }
+    case 'not': {
+      const child = conditionActivity(project, condition.condition);
+      return child === 'unknown' ? 'unknown' : child === 'active' ? 'inactive' : 'active';
+    }
     case 'variable-comparison': {
       const variable = parseVariableData(project.variables[condition.variable.$ref.id]?.data);
-      if (!variable) return false;
-      return compareScalar(variable.value, condition.value, condition.operator) ?? false;
+      if (!variable) return 'unknown';
+      const result = compareScalar(variable.value, condition.value, condition.operator);
+      return result === null ? 'unknown' : result ? 'active' : 'inactive';
     }
     default:
-      return false;
+      return 'unknown';
   }
+}
+
+function conditionContributesDraw(project: AuthoringProject, condition: Condition): boolean {
+  return conditionActivity(project, condition) !== 'inactive';
 }
 
 function imageSize(project: AuthoringProject, assetId: string | null): RoomEditSize | null {
@@ -353,8 +368,9 @@ function worldDrawStableIdentity(draw: RoomEditWorldDraw) {
   switch (draw.kind) {
     case 'environment':
     case 'prop':
-    case 'interactable':
       return draw.occurrenceId;
+    case 'interactable':
+      return draw.instanceId;
     case 'cast-layer':
       return draw.characterId;
   }
@@ -400,7 +416,8 @@ export function resolveRoomEditProjection({
   const placementsById = new Map(placements.map((placement) => [placement.id, placement]));
   const interactables = room.interactables.flatMap(
     (occurrence): RoomEditInteractableProjection[] => {
-      if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
+      if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition))
+        return [];
       const instance = project.interactableInstances[occurrence.interactable.$ref.id];
       if (
         !instance ||
@@ -446,7 +463,7 @@ export function resolveRoomEditProjection({
   );
 
   const props = room.props.flatMap((occurrence): RoomEditPropProjection[] => {
-    if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
+    if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition)) return [];
     const placement = placementsById.get(occurrence.placementId);
     if (!placement) return [];
     return [
@@ -465,7 +482,7 @@ export function resolveRoomEditProjection({
   });
 
   const environments = room.environments.flatMap((occurrence): RoomEditEnvironmentProjection[] => {
-    if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
+    if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition)) return [];
     const projected = projectRoomEditRect(
       normalizedRect(occurrence.bounds, viewport),
       viewport,
@@ -489,7 +506,7 @@ export function resolveRoomEditProjection({
   });
 
   const cast = room.cast.flatMap((occurrence): RoomEditCastProjection[] => {
-    if (!occurrence.visible || !conditionIsActive(project, occurrence.condition)) return [];
+    if (!occurrence.visible || !conditionContributesDraw(project, occurrence.condition)) return [];
     const placement = placementsById.get(occurrence.placementId);
     if (!placement) return [];
     const characterRecord = project.characters[occurrence.character.$ref.id];
