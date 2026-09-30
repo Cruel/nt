@@ -39,7 +39,12 @@ main prefers `pwsh.exe` from `PATH`, then Windows PowerShell. The shell inherits
 process environment; NovelTea does not inject tool-specific PATH entries. zsh integration preserves the
 normal login/interactive startup chain (`.zshenv`, `.zprofile`, `.zshrc`, and `.zlogin`) through temporary
 wrapper files, and PowerShell lifecycle escapes use syntax compatible with both Windows PowerShell 5.1
-and modern PowerShell.
+and modern PowerShell. PowerShell integration wraps the ConsoleHost `PSConsoleHostReadLine` function
+that is already responsible for accepting an interactive command; it does not import PSReadLine or
+read/write PSReadLine options during Terminal creation. If that function is unavailable, lifecycle
+tracking degrades without blocking shell startup. Integrated startup markers and BEL noise are ignored
+until the first prompt marker establishes that the shell is ready, so profile or host initialization
+cannot create a false running/unread indicator.
 
 ## Settings and keyboard behavior
 

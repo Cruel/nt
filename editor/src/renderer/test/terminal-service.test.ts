@@ -188,6 +188,40 @@ describe('TerminalService', () => {
     });
   });
 
+  it('ignores integrated startup activity until the first prompt is ready', async () => {
+    const pty = fakeProcess();
+    const events: unknown[] = [];
+    const service = new TerminalService({
+      ...serviceOptions(() => pty.process),
+      resolveShell: () => '/bin/bash',
+      emit: (event) => events.push(event),
+      sessionId: () => 'terminal-1',
+    });
+
+    await service.ensureState();
+    pty.emitData('\u001b]633;C\u0007\u0007\u001b]633;D;0\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({
+      commandState: 'unknown',
+      currentCommandStartedAt: null,
+      latestAttention: null,
+    });
+    expect(events).not.toContainEqual(
+      expect.objectContaining({ kind: 'attention', sessionId: 'terminal-1' }),
+    );
+
+    pty.emitData('\u001b]633;A\u0007');
+    expect((await service.ensureState()).sessions[0]).toMatchObject({ commandState: 'idle' });
+
+    pty.emitData('\u0007');
+    expect(events).toContainEqual(
+      expect.objectContaining({
+        kind: 'attention',
+        sessionId: 'terminal-1',
+        attention: expect.objectContaining({ kind: 'bell' }),
+      }),
+    );
+  });
+
   it('preserves a split OSC prefix instead of emitting a false BEL or losing command state', async () => {
     const pty = fakeProcess();
     const events: unknown[] = [];
@@ -199,6 +233,7 @@ describe('TerminalService', () => {
     });
 
     await service.ensureState();
+    pty.emitData('\u001b]633;A\u0007');
     pty.emitData('\u001b');
     expect(events).not.toContainEqual({ kind: 'output', sessionId: 'terminal-1', data: '\u001b' });
     pty.emitData(']633;C\u0007');
@@ -560,6 +595,17 @@ describe('terminal shell integration', () => {
     } finally {
       fs.rmSync(root, { recursive: true, force: true });
     }
+  });
+
+  it('tracks PowerShell command acceptance without mutating PSReadLine startup state', () => {
+    const prepared = prepareTerminalShell('powershell.exe', {});
+    const command = prepared.args.join(' ');
+    expect(command).toContain('$function:PSConsoleHostReadLine');
+    expect(command).toContain('function global:PSConsoleHostReadLine');
+    expect(command).not.toContain('Import-Module PSReadLine');
+    expect(command).not.toContain('Get-PSReadLineOption');
+    expect(command).not.toContain('Set-PSReadLineOption');
+    expect(prepared.args).toContain('-NoLogo');
   });
 
   it('uses PowerShell 5.1-compatible character escapes for lifecycle markers', () => {
