@@ -405,7 +405,7 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     const inset = Math.max(0, geometry.inset ?? 0);
     const uv = geometry.uv ?? { x: 0, y: 0, width: 1, height: 1 };
     const color = geometry.color ?? ([1, 1, 1, 1] as const);
-    const geometryKey = `${geometry.kind}:${inset}:${uv.x}:${uv.y}:${uv.width}:${uv.height}:${color.join(',')}`;
+    const geometryKey = `${geometry.kind}:${inset}:${color.join(',')}`;
     let cached = this.geometryCache.get(geometryKey);
     if (!cached) {
       const positions = new Float32Array([
@@ -418,16 +418,6 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
         1 - inset,
         1 - inset,
       ]);
-      const texcoords = new Float32Array([
-        uv.x,
-        uv.y + uv.height,
-        uv.x + uv.width,
-        uv.y + uv.height,
-        uv.x,
-        uv.y,
-        uv.x + uv.width,
-        uv.y,
-      ]);
       const colors = new Float32Array([...color, ...color, ...color, ...color]);
       const positionBuffer = gl.createBuffer();
       const texcoordBuffer = gl.createBuffer();
@@ -437,7 +427,7 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, texcoords, gl.STATIC_DRAW);
+      gl.bufferData(gl.ARRAY_BUFFER, 8 * Float32Array.BYTES_PER_ELEMENT, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, colors, gl.STATIC_DRAW);
       cached = { positionBuffer, texcoordBuffer, colorBuffer, count: 4 };
@@ -451,7 +441,18 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     }
     const texcoordLocation = gl.getAttribLocation(program, 'a_texcoord0');
     if (texcoordLocation >= 0) {
+      const texcoords = new Float32Array([
+        uv.x,
+        uv.y + uv.height,
+        uv.x + uv.width,
+        uv.y + uv.height,
+        uv.x,
+        uv.y,
+        uv.x + uv.width,
+        uv.y,
+      ]);
       gl.bindBuffer(gl.ARRAY_BUFFER, cached.texcoordBuffer);
+      gl.bufferSubData(gl.ARRAY_BUFFER, 0, texcoords);
       gl.enableVertexAttribArray(texcoordLocation);
       gl.vertexAttribPointer(texcoordLocation, 2, gl.FLOAT, false, 0, 0);
     }

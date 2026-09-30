@@ -111,6 +111,7 @@ function fakeWebGlContext() {
     SAMPLER_2D: 0x8b5e,
     ARRAY_BUFFER: 0x8892,
     STATIC_DRAW: 0x88e4,
+    DYNAMIC_DRAW: 0x88e8,
     TEXTURE0: 0x84c0,
     TEXTURE_2D: 0x0de1,
     TEXTURE_MIN_FILTER: 0x2801,
@@ -158,6 +159,7 @@ function fakeWebGlContext() {
     createBuffer: vi.fn(() => ({})),
     bindBuffer: vi.fn(),
     bufferData: vi.fn(),
+    bufferSubData: vi.fn(),
     getAttribLocation: vi.fn((_program: object, name: string) =>
       name === 'a_position' ? 0 : name === 'a_texcoord0' ? 1 : name === 'a_color0' ? 2 : -1,
     ),
@@ -500,6 +502,46 @@ describe('Material preview Project resources', () => {
 });
 
 describe('Material preview workbench-group renderer', () => {
+  it('reuses geometry buffers when animated draws change UV coordinates every frame', () => {
+    const gl = fakeWebGlContext();
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlAuthoringBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    expect(backend).not.toBeNull();
+    const resource = {
+      materialId: 'scrolling-environment',
+      resolved: { role: 'engine-2d' as const, textures: {}, parameters: {} },
+      vertexShaderSource: null,
+      fragmentShaderSource: null,
+      textures: {},
+    };
+    const rendererTextures = {
+      s_texColor: {
+        key: 'white',
+        image: null,
+        sampling: 'linear' as const,
+        fallbackColor: [1, 1, 1, 1] as const,
+      },
+    };
+
+    for (const x of [0, 0.25, 0.5, 0.75]) {
+      const frame = backend!.frame(x);
+      frame.beginTarget(320, 180);
+      frame.drawMaterial({
+        resource,
+        geometry: { kind: 'quad', uv: { x, y: x * 0.5, width: 1, height: 1 } },
+        rendererTextures,
+      });
+    }
+
+    expect(gl.createBuffer).toHaveBeenCalledTimes(3);
+    expect(gl.bufferSubData).toHaveBeenCalledTimes(4);
+  });
+
   it('supplies the compiled quad interface with vertex color, transform, and correctly typed vec4 engine uniforms', async () => {
     const gl = fakeWebGlContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
