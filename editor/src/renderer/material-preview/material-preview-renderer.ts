@@ -156,16 +156,24 @@ export const renderMaterialPreviewSurface: MaterialPreviewSurfaceRenderer = (
     frame.drawMaterial({
       resource,
       geometry: previewGeometry(resource),
+      semanticInputs: {
+        'engine.time': frame.timeSeconds,
+        'engine.paint_dimensions': [width, height],
+        'engine.reference_to_world_raster_scale': [1, 1],
+        'engine.context_logical_to_raster_scale': [1, 1],
+        'engine.viewport_pixel_dimensions': [width, height],
+        'engine.pointer_position': [surface.pointer.x, surface.pointer.y],
+        'engine.pointer_valid': surface.pointer.x >= 0 && surface.pointer.y >= 0,
+        'rmlui.media_query_resolution': 1,
+        'engine.hotspot_bounds': [0, 0, width, height],
+        'engine.hotspot_hovered': surface.pointer.x >= 0 && surface.pointer.y >= 0,
+        'engine.hotspot_pressed': surface.pointer.pressed,
+        'engine.hotspot_image_dimensions': [width, height],
+        'engine.hotspot_mask_dimensions': [width, height],
+      },
       parameterOverrides,
       textureOverrides: surface.textureOverrides,
       rendererTextures: rendererFixtureTextures(resource),
-      uniformOverrides: {
-        u_hotspotHovered: surface.pointer.x >= 0 && surface.pointer.y >= 0,
-        u_hotspotPressed: surface.pointer.pressed,
-        u_hotspotBounds: [0, 0, width, height],
-        u_hotspotImageDimensions: [width, height],
-        u_hotspotMaskDimensions: [width, height],
-      },
     });
   } catch (error) {
     if (!(error instanceof AuthoringWebGlShaderProgramError)) throw error;

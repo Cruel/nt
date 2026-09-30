@@ -90,11 +90,12 @@ function manualScheduler() {
   };
 }
 
-function fakeWebGlContext() {
-  const uniforms = [
+function fakeWebGlContext(
+  uniforms: Array<{ name: string; type: number }> = [
     { name: 'u_time', type: 0x8b52 },
     { name: 'u_modelViewProj', type: 0x8b5c },
-  ];
+  ],
+) {
   const gl = {
     VERTEX_SHADER: 0x8b31,
     FRAGMENT_SHADER: 0x8b30,
@@ -542,7 +543,7 @@ describe('Material preview workbench-group renderer', () => {
     expect(gl.bufferSubData).toHaveBeenCalledTimes(4);
   });
 
-  it('supplies the compiled quad interface with vertex color, transform, and correctly typed vec4 engine uniforms', async () => {
+  it('supplies the compiled quad interface with vertex color and transform', async () => {
     const gl = fakeWebGlContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
       return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
@@ -562,7 +563,9 @@ describe('Material preview workbench-group renderer', () => {
       fragmentShaderSource: '#version 300 es\nvoid main() {}',
     };
 
-    backend!.render(surface('panel'), resource, 2.5);
+    const semanticSurface = surface('panel');
+    semanticSurface.parameterOverrides = { u_phase: 9 };
+    backend!.render(semanticSurface, resource, 2.5);
 
     expect(gl.getAttribLocation).toHaveBeenCalledWith(expect.anything(), 'a_color0');
     expect(gl.vertexAttribPointer).toHaveBeenCalledWith(2, 4, gl.FLOAT, false, 0, 0);
@@ -571,13 +574,117 @@ describe('Material preview workbench-group renderer', () => {
       false,
       expect.any(Float32Array),
     );
-    expect(gl.uniform4fv).toHaveBeenCalledWith(
-      expect.objectContaining({ name: 'u_time' }),
-      [2.5, 0, 0, 0],
-    );
     expect(gl.getUniformLocation).toHaveBeenCalledWith(expect.anything(), 's_texColor');
     expect(gl.uniform1i).toHaveBeenCalledWith(expect.objectContaining({ name: 's_texColor' }), 0);
     expect(gl.pixelStorei).toHaveBeenCalledWith(gl.UNPACK_PREMULTIPLY_ALPHA_WEBGL, false);
+  });
+
+  it('binds engine semantics by parameter binding rather than uniform name', async () => {
+    const gl = fakeWebGlContext([
+      { name: 'u_modelViewProj', type: 0x8b5c },
+      { name: 'u_phase', type: 0x1406 },
+      { name: 'u_paintSize', type: 0x8b50 },
+      { name: 'u_worldScale', type: 0x8b50 },
+      { name: 'u_contextScale', type: 0x8b50 },
+      { name: 'u_viewSize', type: 0x8b50 },
+      { name: 'u_pointer', type: 0x8b50 },
+      { name: 'u_pointerValid', type: 0x8b56 },
+      { name: 'u_mediaResolution', type: 0x1406 },
+      { name: 'u_bounds', type: 0x8b52 },
+      { name: 'u_hovered', type: 0x8b56 },
+      { name: 'u_pressed', type: 0x8b56 },
+      { name: 'u_imageSize', type: 0x8b50 },
+      { name: 'u_maskSize', type: 0x8b50 },
+    ]);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlMaterialPreviewBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    const resources = createResources();
+    resources.updateProject(materialProject());
+    const base = await resources.getMaterial('panel');
+    expect(base).not.toBeNull();
+    const resource: MaterialPreviewResource = {
+      ...base!,
+      vertexShaderSource: '#version 300 es\nvoid main() {}',
+      fragmentShaderSource: '#version 300 es\nvoid main() {}',
+      resolved: {
+        ...base!.resolved,
+        parameters: {
+          u_phase: { type: 'float', binding: 'engine.time' },
+          u_paintSize: { type: 'vec2', binding: 'engine.paint_dimensions' },
+          u_worldScale: { type: 'vec2', binding: 'engine.reference_to_world_raster_scale' },
+          u_contextScale: { type: 'vec2', binding: 'engine.context_logical_to_raster_scale' },
+          u_viewSize: { type: 'vec2', binding: 'engine.viewport_pixel_dimensions' },
+          u_pointer: { type: 'vec2', binding: 'engine.pointer_position' },
+          u_pointerValid: { type: 'bool', binding: 'engine.pointer_valid' },
+          u_mediaResolution: { type: 'float', binding: 'rmlui.media_query_resolution' },
+          u_bounds: { type: 'vec4', binding: 'engine.hotspot_bounds' },
+          u_hovered: { type: 'bool', binding: 'engine.hotspot_hovered' },
+          u_pressed: { type: 'bool', binding: 'engine.hotspot_pressed' },
+          u_imageSize: { type: 'vec2', binding: 'engine.hotspot_image_dimensions' },
+          u_maskSize: { type: 'vec2', binding: 'engine.hotspot_mask_dimensions' },
+        },
+      },
+    };
+
+    const semanticSurface = surface('panel');
+    semanticSurface.parameterOverrides = { u_phase: 9 };
+    backend!.render(semanticSurface, resource, 2.5);
+
+    expect(gl.uniform1f).toHaveBeenCalledWith(expect.objectContaining({ name: 'u_phase' }), 2.5);
+    expect(
+      vi
+        .mocked(gl.uniform1f)
+        .mock.calls.filter(([location]) => location.name === 'u_phase')
+        .map(([, value]) => value),
+    ).toEqual([2.5, 9]);
+    expect(gl.uniform2fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_paintSize' }),
+      [160, 90],
+    );
+    expect(gl.uniform2fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_worldScale' }),
+      [1, 1],
+    );
+    expect(gl.uniform2fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_contextScale' }),
+      [1, 1],
+    );
+    expect(gl.uniform2fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_viewSize' }),
+      [160, 90],
+    );
+    expect(gl.uniform2fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_pointer' }),
+      [4, 8],
+    );
+    expect(gl.uniform1i).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_pointerValid' }),
+      1,
+    );
+    expect(gl.uniform1f).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_mediaResolution' }),
+      1,
+    );
+    expect(gl.uniform4fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_bounds' }),
+      [0, 0, 160, 90],
+    );
+    expect(gl.uniform1i).toHaveBeenCalledWith(expect.objectContaining({ name: 'u_hovered' }), 1);
+    expect(gl.uniform1i).toHaveBeenCalledWith(expect.objectContaining({ name: 'u_pressed' }), 0);
+    expect(gl.uniform2fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_imageSize' }),
+      [160, 90],
+    );
+    expect(gl.uniform2fv).toHaveBeenCalledWith(
+      expect.objectContaining({ name: 'u_maskSize' }),
+      [160, 90],
+    );
+    expect(gl.getUniformLocation).not.toHaveBeenCalledWith(expect.anything(), 'u_time');
   });
 
   it('binds RmlUi decorator renderer inputs from the generated contract', async () => {

@@ -1,4 +1,5 @@
 import type { ResolvedMaterialData } from '../../shared/project-schema/authoring-materials';
+import type { ShaderInputBinding } from '../../shared/project-schema/authoring-shaders';
 
 export interface AuthoringWebGlGeometry {
   kind: 'quad';
@@ -31,6 +32,7 @@ export interface AuthoringWebGlMaterialDraw {
   resource: AuthoringWebGlMaterialResource;
   geometry: AuthoringWebGlGeometry;
   modelViewProjection?: Float32Array;
+  semanticInputs?: Partial<Record<ShaderInputBinding, unknown>>;
   parameterOverrides?: Readonly<Record<string, unknown>>;
   textureOverrides?: Readonly<Record<string, AuthoringWebGlTextureResource>>;
   rendererTextures?: Readonly<Record<string, AuthoringWebGlTextureResource>>;

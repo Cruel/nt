@@ -387,6 +387,56 @@ describe('HotspotImageStage', () => {
     expect(resizedBounds.height).toBeCloseTo(0.3);
   });
 
+  it('captures Focus keyboard commands outside the stage and cancels move/resize before mouse-up', () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 400 },
+    });
+    const onCommitBounds = vi.fn();
+    const onDelete = vi.fn();
+    render(
+      <div>
+        <button type="button">Toolbar</button>
+        <input aria-label="Text field" />
+        <HotspotImageStage
+          imageSize={{ width: 100, height: 100 }}
+          hotspots={[
+            { id: 'door', label: 'Door', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+          ]}
+          selectedHotspotId="door"
+          tool="select"
+          camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
+          onSelectionChange={vi.fn()}
+          onCameraChange={vi.fn()}
+          onCreate={vi.fn()}
+          onCommitBounds={onCommitBounds}
+          onDelete={onDelete}
+          captureWindowKeyboard
+        />
+      </div>,
+    );
+    const toolbar = screen.getByRole('button', { name: 'Toolbar' });
+    const hotspot = document.querySelector<SVGGElement>('[data-hotspot-id="door"]')!;
+    fireEvent.mouseDown(hotspot, { button: 0, clientX: 40, clientY: 40 });
+    fireEvent.mouseMove(window, { clientX: 80, clientY: 80 });
+    fireEvent.keyDown(toolbar, { key: 'Escape' });
+    fireEvent.mouseUp(window, { clientX: 80, clientY: 80 });
+    expect(onCommitBounds).not.toHaveBeenCalled();
+
+    const handle = document.querySelector<SVGRectElement>('[data-resize-handle="se"]')!;
+    fireEvent.mouseDown(handle, { button: 0, clientX: 120, clientY: 120 });
+    fireEvent.mouseMove(window, { clientX: 160, clientY: 160 });
+    fireEvent.keyDown(document.body, { key: 'Escape' });
+    fireEvent.mouseUp(window, { clientX: 160, clientY: 160 });
+    expect(onCommitBounds).not.toHaveBeenCalled();
+
+    fireEvent.keyDown(toolbar, { key: 'Delete' });
+    expect(onDelete).toHaveBeenCalledWith('door');
+    const input = screen.getByRole('textbox', { name: 'Text field' });
+    fireEvent.keyDown(input, { key: 'Backspace' });
+    expect(onDelete).toHaveBeenCalledTimes(1);
+  });
+
   it('pans empty image space by default, clears selection on an empty click, and keeps wheel zoom', () => {
     Object.defineProperties(HTMLElement.prototype, {
       clientWidth: { configurable: true, get: () => 400 },

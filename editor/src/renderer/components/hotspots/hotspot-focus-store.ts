@@ -105,7 +105,27 @@ interface HotspotFocusStoreState {
 }
 
 export const HOTSPOT_FOCUS_DRAFT_SCHEMA = 'noveltea.editor.draft.hotspot-focus';
-const HOTSPOT_FOCUS_DRAFT_VERSION = 1;
+
+const hotspotFocusDraftPayloadSchema = z
+  .object({
+    ownerKind: z.enum(['room', 'interactable']),
+    ownerId: z.string(),
+    assetId: z.string().nullable(),
+    sourceIdentity: hotspotFocusSourceIdentitySchema.nullable(),
+    mode: z.enum(['rectangles', 'sprite-alpha']),
+    initialItems: z.array(z.unknown()),
+    currentItems: z.array(z.unknown()),
+    selectedHotspotId: z.string().nullable(),
+    tool: z.enum(['select', 'draw-rect', 'pan']),
+    camera: z
+      .object({
+        zoom: z.number(),
+        pan: z.object({ x: z.number(), y: z.number() }).strict(),
+      })
+      .strict(),
+    cameraInitialized: z.boolean(),
+  })
+  .strict();
 
 const draftKey = (tabId: string) => `hotspot-focus:${tabId}`;
 const targetKey = (session: Pick<HotspotFocusSession, 'ownerKind' | 'ownerId' | 'assetId'>) =>
@@ -169,7 +189,6 @@ function syncDraftEntry(session: HotspotFocusSession | undefined) {
     label: editorI18n.t('workspace:hotspots.focus.draftLabel'),
     schema: HOTSPOT_FOCUS_DRAFT_SCHEMA,
     payload: toJsonValue({
-      schemaVersion: HOTSPOT_FOCUS_DRAFT_VERSION,
       ownerKind: session.ownerKind,
       ownerId: session.ownerId,
       assetId: session.assetId,
@@ -188,35 +207,10 @@ function syncDraftEntry(session: HotspotFocusSession | undefined) {
 }
 
 function parseDraftPayload(value: JsonValue | undefined) {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const payload = value as Record<string, JsonValue>;
-  if (payload.schemaVersion !== HOTSPOT_FOCUS_DRAFT_VERSION) return null;
-  if (payload.ownerKind !== 'room' && payload.ownerKind !== 'interactable') return null;
-  if (typeof payload.ownerId !== 'string') return null;
-  if (payload.assetId !== null && typeof payload.assetId !== 'string') return null;
-  const parsedSourceIdentity = hotspotFocusSourceIdentitySchema
-    .nullable()
-    .safeParse(payload.sourceIdentity);
-  if (!parsedSourceIdentity.success) return null;
-  const sourceIdentity = parsedSourceIdentity.data;
-  if (payload.mode !== 'rectangles' && payload.mode !== 'sprite-alpha') return null;
-  if (!Array.isArray(payload.initialItems) || !Array.isArray(payload.currentItems)) return null;
-  if (payload.selectedHotspotId !== null && typeof payload.selectedHotspotId !== 'string')
-    return null;
-  if (payload.tool !== 'select' && payload.tool !== 'draw-rect' && payload.tool !== 'pan')
-    return null;
-  const camera = payload.camera;
-  if (!camera || typeof camera !== 'object' || Array.isArray(camera)) return null;
-  const pan = camera.pan;
-  if (!pan || typeof pan !== 'object' || Array.isArray(pan)) return null;
-  if (
-    typeof camera.zoom !== 'number' ||
-    typeof pan.x !== 'number' ||
-    typeof pan.y !== 'number' ||
-    typeof payload.cameraInitialized !== 'boolean'
-  )
-    return null;
-  const parseItems = (items: JsonValue[]): readonly EditableHotspot[] | null => {
+  const parsedPayload = hotspotFocusDraftPayloadSchema.safeParse(value);
+  if (!parsedPayload.success) return null;
+  const payload = parsedPayload.data;
+  const parseItems = (items: unknown[]): readonly EditableHotspot[] | null => {
     if (payload.ownerKind === 'room') {
       if (payload.mode !== 'rectangles') return null;
       const parsed = roomHotspotDataSchema.array().safeParse(items);
@@ -235,17 +229,14 @@ function parseDraftPayload(value: JsonValue | undefined) {
   return {
     ownerKind: payload.ownerKind,
     ownerId: payload.ownerId,
-    assetId: payload.assetId as string | null,
-    sourceIdentity,
+    assetId: payload.assetId,
+    sourceIdentity: payload.sourceIdentity,
     mode: payload.mode,
     initialItems,
     currentItems,
-    selectedHotspotId: payload.selectedHotspotId as string | null,
+    selectedHotspotId: payload.selectedHotspotId,
     tool: payload.tool,
-    camera: {
-      zoom: camera.zoom,
-      pan: { x: pan.x, y: pan.y },
-    },
+    camera: payload.camera,
     cameraInitialized: payload.cameraInitialized,
   } satisfies Omit<HotspotFocusSession, 'tabId' | 'history'> & {
     currentItems: readonly EditableHotspot[];
@@ -314,7 +305,6 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       !payload ||
       payload.ownerKind !== input.ownerKind ||
       payload.ownerId !== input.ownerId ||
-      payload.assetId !== input.assetId ||
       payload.mode !== input.mode
     ) {
       drafts.clearDraftDirty(draftKey(input.tabId));
@@ -342,7 +332,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
     syncDraftEntry(session);
     return true;
   },
-  setSelection: (tabId, selectedHotspotId) =>
+  setSelection: (tabId, selectedHotspotId) => {
     set((state) => {
       const session = state.sessionsByTabId[tabId];
       return session
@@ -353,15 +343,19 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
             },
           }
         : state;
-    }),
-  setTool: (tabId, tool) =>
+    });
+    syncDraftEntry(get().sessionsByTabId[tabId]);
+  },
+  setTool: (tabId, tool) => {
     set((state) => {
       const session = state.sessionsByTabId[tabId];
       return session
         ? { sessionsByTabId: { ...state.sessionsByTabId, [tabId]: { ...session, tool } } }
         : state;
-    }),
-  setCamera: (tabId, camera) =>
+    });
+    syncDraftEntry(get().sessionsByTabId[tabId]);
+  },
+  setCamera: (tabId, camera) => {
     set((state) => {
       const session = state.sessionsByTabId[tabId];
       if (!session) return state;
@@ -373,8 +367,10 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
           [targetKey(session)]: { camera, cameraInitialized: true },
         },
       };
-    }),
-  initializeCamera: (tabId, camera) =>
+    });
+    syncDraftEntry(get().sessionsByTabId[tabId]);
+  },
+  initializeCamera: (tabId, camera) => {
     set((state) => {
       const session = state.sessionsByTabId[tabId];
       if (!session || session.cameraInitialized) return state;
@@ -386,7 +382,9 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
           [targetKey(session)]: { camera, cameraInitialized: true },
         },
       };
-    }),
+    });
+    syncDraftEntry(get().sessionsByTabId[tabId]);
+  },
   add: (tabId, hotspot) => {
     set((state) => {
       const session = state.sessionsByTabId[tabId];

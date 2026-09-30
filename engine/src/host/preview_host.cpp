@@ -1039,10 +1039,14 @@ void PreviewHost::complete_focused_request(
             {"environmentIds", nlohmann::json::array()},
         };
         for (const auto& actor : room_resolution->presentation.actors) {
+            if (!actor.enabled || !actor.visible)
+                continue;
             if (const auto* cast = std::get_if<core::RoomCastPresentationId>(&actor.id))
                 room_resolution_summary["castEntryIds"].push_back(cast->entry.text());
         }
         for (const auto& interactable : room_resolution->presentation.interactables) {
+            if (!interactable.enabled || !interactable.visible)
+                continue;
             if (const auto* occurrence =
                     std::get_if<core::RoomInteractableEntryId>(&interactable.occurrence))
                 room_resolution_summary["interactableOccurrenceIds"].push_back(occurrence->text());

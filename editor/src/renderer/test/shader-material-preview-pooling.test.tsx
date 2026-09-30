@@ -267,6 +267,13 @@ describe('Material lightweight previews', () => {
       .map(([draw]) => draw)
       .find((draw) => draw.resource.materialId === 'panel');
     expect(materialOnlyDraw?.rendererTextures?.s_texColor?.fallbackColor).toEqual([1, 1, 1, 1]);
+    expect(materialOnlyDraw?.semanticInputs).toMatchObject({
+      'engine.time': 2.5,
+      'engine.paint_dimensions': [960, 540],
+      'engine.reference_to_world_raster_scale': [1, 1],
+      'engine.context_logical_to_raster_scale': [1, 1],
+      'engine.viewport_pixel_dimensions': [1920, 1080],
+    });
   });
 
   it('keeps Room Material authored geometry facets independent from Edit navigation', async () => {
@@ -390,36 +397,32 @@ describe('Material lightweight previews', () => {
       reset: vi.fn(),
       dispose: vi.fn(),
     }));
-    const consoleError = vi.spyOn(console, 'error').mockImplementation(() => {});
-    try {
-      render(
-        <MaterialPreviewProjectProvider>
-          <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
-            <MaterialPreviewGroupProvider>
-              <RoomEditSurface
-                project={project}
-                roomId="foyer"
-                room={room}
-                referenceResolution={{ width: 1920, height: 1080 }}
-                backgroundImageSize={null}
-                roomPropertyValues={{}}
-              />
-            </MaterialPreviewGroupProvider>
-          </AuthoringWebGlGroupProvider>
-        </MaterialPreviewProjectProvider>,
-      );
-      await waitFor(() => {
-        act(() => clock.flush(1000));
-        expect(materialDraws).toBeGreaterThanOrEqual(2);
-      });
-      expect(copyTargetToCanvas).toHaveBeenCalled();
-      expect(consoleError).toHaveBeenCalledWith(
-        'Room Edit authoring render failed.',
-        expect.objectContaining({ stale: true }),
-      );
-    } finally {
-      consoleError.mockRestore();
-    }
+    render(
+      <MaterialPreviewProjectProvider>
+        <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+          <MaterialPreviewGroupProvider>
+            <RoomEditSurface
+              project={project}
+              roomId="foyer"
+              room={room}
+              referenceResolution={{ width: 1920, height: 1080 }}
+              backgroundImageSize={null}
+              roomPropertyValues={{}}
+            />
+          </MaterialPreviewGroupProvider>
+        </AuthoringWebGlGroupProvider>
+      </MaterialPreviewProjectProvider>,
+    );
+    await waitFor(() => {
+      act(() => clock.flush(1000));
+      expect(materialDraws).toBeGreaterThanOrEqual(2);
+    });
+    expect(copyTargetToCanvas).toHaveBeenCalled();
+    expect(
+      document.querySelector('[data-testid="room-edit-renderer-diagnostic"]'),
+    ).toHaveTextContent(
+      'Room Edit is using the last valid shader program. Current shader error: stale shader',
+    );
   });
 
   it('does not copy a Room frame after a hard shader failure without last-good state', async () => {
@@ -473,7 +476,9 @@ describe('Material lightweight previews', () => {
       );
       await waitFor(() => {
         act(() => clock.flush(1000));
-        expect(consoleError).toHaveBeenCalled();
+        expect(
+          document.querySelector('[data-testid="room-edit-renderer-diagnostic"]'),
+        ).toHaveTextContent('Room Edit cannot render the current shader: hard shader failure');
       });
       const hardFailureIndex = renderEvents.indexOf('hard-failure');
       expect(hardFailureIndex).toBeGreaterThanOrEqual(0);
@@ -481,6 +486,87 @@ describe('Material lightweight previews', () => {
     } finally {
       consoleError.mockRestore();
     }
+  });
+
+  it('shows shared authoring renderer availability loss and clears it on recovery', async () => {
+    const clock = manualScheduler();
+    const callbacks: Array<Parameters<AuthoringWebGlBackendFactory>[0]> = [];
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const backendFactory: AuthoringWebGlBackendFactory = vi.fn((options) => {
+      callbacks.push(options);
+      return {
+        frame: vi.fn((timeSeconds) => ({
+          timeSeconds,
+          beginTarget: vi.fn(),
+          drawMaterial: vi.fn(),
+          copyTargetToCanvas: vi.fn(),
+        })),
+        invalidateProjectResources: vi.fn(),
+        reset: vi.fn(),
+        dispose: vi.fn(),
+      };
+    });
+
+    render(
+      <MaterialPreviewProjectProvider>
+        <AuthoringWebGlGroupProvider backendFactory={backendFactory} scheduler={clock.scheduler}>
+          <MaterialPreviewGroupProvider>
+            <RoomEditSurface
+              project={project}
+              roomId="foyer"
+              room={room}
+              referenceResolution={{ width: 1920, height: 1080 }}
+              backgroundImageSize={null}
+              roomPropertyValues={{}}
+            />
+          </MaterialPreviewGroupProvider>
+        </AuthoringWebGlGroupProvider>
+      </MaterialPreviewProjectProvider>,
+    );
+
+    await waitFor(() => expect(callbacks).toHaveLength(1));
+    act(() => callbacks[0]!.onContextLost());
+    expect(
+      document.querySelector('[data-testid="room-edit-renderer-diagnostic"]'),
+    ).toHaveTextContent('Room Edit rendering is temporarily unavailable while WebGL recovers.');
+
+    act(() => callbacks[0]!.onContextRestored());
+    await waitFor(() =>
+      expect(document.querySelector('[data-testid="room-edit-renderer-diagnostic"]')).toBeNull(),
+    );
+  });
+
+  it('shows WebGL2 unavailability through the shared Room Edit renderer status', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+
+    render(
+      <MaterialPreviewProjectProvider>
+        <AuthoringWebGlGroupProvider backendFactory={noWebGlBackend}>
+          <MaterialPreviewGroupProvider>
+            <RoomEditSurface
+              project={project}
+              roomId="foyer"
+              room={room}
+              referenceResolution={{ width: 1920, height: 1080 }}
+              backgroundImageSize={null}
+              roomPropertyValues={{}}
+            />
+          </MaterialPreviewGroupProvider>
+        </AuthoringWebGlGroupProvider>
+      </MaterialPreviewProjectProvider>,
+    );
+
+    await waitFor(() =>
+      expect(
+        document.querySelector('[data-testid="room-edit-renderer-diagnostic"]'),
+      ).toHaveTextContent('Room Edit rendering requires WebGL2.'),
+    );
   });
 
   it('refreshes prepared Room Edit resources when the Project resource generation changes', async () => {
