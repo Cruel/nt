@@ -10,6 +10,11 @@ import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
+import {
+  interactableHotspotBehaviorSchema,
+  interactableHotspotsSchema,
+} from '../../../shared/project-schema/authoring-interactables';
+import { roomHotspotDataSchema } from '../../../shared/project-schema/authoring-rooms';
 import type { EditableHotspot } from './hotspot-types';
 import {
   addHotspotGeometry,
@@ -131,13 +136,29 @@ function parseDraftPayload(value: JsonValue | undefined) {
     typeof payload.cameraInitialized !== 'boolean'
   )
     return null;
+  const parseItems = (items: JsonValue[]): readonly EditableHotspot[] | null => {
+    if (payload.ownerKind === 'room') {
+      if (payload.mode !== 'rectangles') return null;
+      const parsed = roomHotspotDataSchema.array().safeParse(items);
+      return parsed.success ? parsed.data : null;
+    }
+    if (payload.mode === 'rectangles') {
+      const parsed = interactableHotspotsSchema.safeParse({ kind: 'custom', hotspots: items });
+      return parsed.success && parsed.data.kind === 'custom' ? parsed.data.hotspots : null;
+    }
+    const parsed = interactableHotspotBehaviorSchema.array().safeParse(items);
+    return parsed.success ? parsed.data : null;
+  };
+  const initialItems = parseItems(payload.initialItems);
+  const currentItems = parseItems(payload.currentItems);
+  if (!initialItems || !currentItems) return null;
   return {
     ownerKind: payload.ownerKind,
     ownerId: payload.ownerId,
     assetId: payload.assetId as string | null,
     mode: payload.mode,
-    initialItems: payload.initialItems as unknown as readonly EditableHotspot[],
-    currentItems: payload.currentItems as unknown as readonly EditableHotspot[],
+    initialItems,
+    currentItems,
     selectedHotspotId: payload.selectedHotspotId as string | null,
     tool: payload.tool,
     camera: {

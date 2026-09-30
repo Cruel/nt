@@ -94,6 +94,18 @@ describe('Hotspot Focus session', () => {
     ]);
   });
 
+  it('rejects an edit when another Focus session deleted the same hotspot', () => {
+    const initial = [hotspot()];
+    const current = [
+      {
+        ...hotspot(),
+        shape: { kind: 'rect' as const, bounds: movedBounds },
+      },
+    ];
+
+    expect(mergeHotspotFocusGeometry(initial, current, [])).toBeNull();
+  });
+
   it('preserves untouched concurrent geometry and rejects conflicting edits to the same shape', () => {
     const initial = [hotspot('door'), { ...hotspot('window'), inputOrder: 1 }];
     const draft = [
@@ -191,7 +203,10 @@ describe('Hotspot Focus session', () => {
       entityId: 'foyer',
     };
     workbench.openTab({ id: 'room-a', title: 'Foyer A', editorType: 'room-detail', resource });
-    workbench.openTab({ id: 'room-b', title: 'Foyer B', editorType: 'room-detail', resource });
+    workbench.openTab(
+      { id: 'room-b', title: 'Foyer B', editorType: 'room-detail', resource },
+      { duplicate: true },
+    );
     const store = useHotspotFocusStore.getState();
     store.start({
       tabId: 'room-a',
@@ -204,6 +219,43 @@ describe('Hotspot Focus session', () => {
     store.setBounds('room-a', 'door', movedBounds);
 
     expect(tabCloseRequiresDirtyPrompt('room-a', new Set(['room-a']))).toBe(true);
+  });
+
+  it('rejects malformed recovered hotspot records instead of restoring them', () => {
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithRoomHotspot());
+    useDraftDirtyStore.getState().restoreSerializedDrafts({
+      'hotspot-focus:room-tab': {
+        schema: HOTSPOT_FOCUS_DRAFT_SCHEMA,
+        tabId: 'room-tab',
+        label: 'Hotspot geometry',
+        payload: {
+          schemaVersion: 1,
+          ownerKind: 'room',
+          ownerId: 'foyer',
+          assetId: null,
+          mode: 'rectangles',
+          initialItems: [null],
+          currentItems: [null],
+          selectedHotspotId: null,
+          tool: 'select',
+          camera: { zoom: 1, pan: { x: 0, y: 0 } },
+          cameraInitialized: true,
+        },
+      },
+    });
+
+    expect(
+      useHotspotFocusStore.getState().restore({
+        tabId: 'room-tab',
+        ownerKind: 'room',
+        ownerId: 'foyer',
+        assetId: null,
+        mode: 'rectangles',
+        items: [hotspot()],
+      }),
+    ).toBe(false);
+    expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']).toBeUndefined();
+    expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']).toBeUndefined();
   });
 
   it('commits all geometry edits as one project undo step', () => {

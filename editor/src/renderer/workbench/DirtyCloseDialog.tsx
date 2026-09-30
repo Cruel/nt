@@ -5,7 +5,7 @@ import { flushStructuralCommandPersistence, useCommandStore } from '@/commands/c
 import { useProjectStore } from '@/project/project-store';
 import { useProjectSourceStore } from '@/project/project-source-store';
 import { useWorkspaceStore } from '@/stores/workspace-store';
-import { useCloseGuardStore } from './close-guard-store';
+import { hasRemainingViewForSaveUnit, useCloseGuardStore } from './close-guard-store';
 import {
   runDraftActions,
   selectDraftDirtyByTabId,
@@ -74,6 +74,16 @@ export function DirtyCloseDialog() {
   const dirtyTabStates = pendingDirtyStates.filter(
     (entry) => entry.dirty.dirty && tabCloseRequiresDirtyPrompt(entry.tab.id, requestedTabIds),
   );
+  const draftOnlyTabIds = new Set(
+    dirtyTabStates
+      .filter(
+        ({ dirty }) =>
+          dirty.draftDirty &&
+          !!dirty.saveUnitId &&
+          hasRemainingViewForSaveUnit(dirty.saveUnitId, requestedTabIds),
+      )
+      .map(({ tab: dirtyTab }) => dirtyTab.id),
+  );
   const tab = pendingTabs[0] ?? null;
   const primaryDirtyTab = dirtyTabStates[0]?.tab ?? tab;
   const dirtyCount = dirtyTabStates.length;
@@ -111,6 +121,7 @@ export function DirtyCloseDialog() {
       const saveUnitIds = [
         ...new Set(
           dirtyTabStates
+            .filter(({ tab: dirtyTab }) => !draftOnlyTabIds.has(dirtyTab.id))
             .map(({ dirty }) => dirty.saveUnitId)
             .filter((saveUnitId): saveUnitId is string => Boolean(saveUnitId)),
         ),
@@ -135,7 +146,12 @@ export function DirtyCloseDialog() {
           return;
         }
       }
-      const message = saveUnitIds.length > 1 ? 'Saved modified items' : 'Saved modified item';
+      const message =
+        saveUnitIds.length === 0
+          ? 'Applied local draft'
+          : saveUnitIds.length > 1
+            ? 'Saved modified items'
+            : 'Saved modified item';
       setStatusMessage(message);
       addTimelineEntry({ source: 'command', message, detail: { saveUnitIds } });
       closeApprovedTabs();
@@ -172,6 +188,7 @@ export function DirtyCloseDialog() {
     }
     const restoredSaveUnitIds = new Set<string>();
     const patches = dirtyTabStates.flatMap(({ tab: dirtyTab, dirty }) => {
+      if (draftOnlyTabIds.has(dirtyTab.id)) return [];
       if (dirty.saveUnitId && restoredSaveUnitIds.has(dirty.saveUnitId)) return [];
       if (dirty.saveUnitId) restoredSaveUnitIds.add(dirty.saveUnitId);
       const recoveryPaths = dirty.saveUnitId
@@ -198,6 +215,9 @@ export function DirtyCloseDialog() {
     (entry) => entry.dirty.persistentDirty || entry.dirty.pendingInputDirty,
   );
   const hasDraftDirty = dirtyTabStates.some((entry) => entry.dirty.draftDirty);
+  const onlyTabLocalDraftResolution =
+    dirtyTabStates.length > 0 &&
+    dirtyTabStates.every(({ tab: dirtyTab }) => draftOnlyTabIds.has(dirtyTab.id));
   const title =
     closeCount > 1
       ? `Close ${closeCount} tabs?`
@@ -206,10 +226,14 @@ export function DirtyCloseDialog() {
         : 'Close modified tab?';
   const description =
     closeCount > 1
-      ? `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves the selected items; Don't Save closes all requested tabs and drops dirty changes.`
-      : hasDraftDirty
-        ? "This tab has unapplied local edits. Save will apply the draft and save this item; Don't Save closes the tab and drops the local edits."
-        : "This tab has unsaved project changes. Save this item, don't save its changes, or cancel.";
+      ? draftOnlyTabIds.size > 0
+        ? `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves changes owned only by tabs being fully closed; Don't Save drops those changes and the closing views' local drafts. Shared changes remain with duplicate views that stay open.`
+        : `${dirtyCount} of ${closeCount} requested tabs ${dirtyCount === 1 ? 'has' : 'have'} unsaved changes. Save applies local drafts and saves the selected items; Don't Save closes all requested tabs and drops dirty changes.`
+      : onlyTabLocalDraftResolution
+        ? "This view has unapplied local edits. Apply will apply this draft and close the view; Don't Save closes the view and drops only this local draft. Other unsaved changes remain in the other view."
+        : hasDraftDirty
+          ? "This tab has unapplied local edits. Save will apply the draft and save this item; Don't Save closes the tab and drops the local edits."
+          : "This tab has unsaved project changes. Save this item, don't save its changes, or cancel.";
 
   return (
     <Dialog
@@ -238,7 +262,7 @@ export function DirtyCloseDialog() {
             onClick={() => void saveAndClose()}
             disabled={pendingTabs.length === 0 || saving || (!hasPersistentDirty && !hasDraftDirty)}
           >
-            {saving ? 'Saving…' : 'Save'}
+            {saving ? 'Saving…' : onlyTabLocalDraftResolution ? 'Apply' : 'Save'}
           </Button>
         </div>
       </DialogPopup>

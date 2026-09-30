@@ -545,6 +545,46 @@ describe('dirty tab close guard', () => {
     expect(useWorkbenchStore.getState().tabsById[duplicateTab.id]).toBeDefined();
   });
 
+  it("discards only a duplicate view's local draft without reverting shared record edits", async () => {
+    const user = userEvent.setup();
+    const project = authoringProjectWithRooms();
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/game.json',
+    });
+    useProjectStore
+      .getState()
+      .replaceDocumentFromCommand(toJsonValue(authoringProjectWithRooms('New Foyer')), 0);
+    const duplicateTab: WorkbenchTab = {
+      ...tab,
+      id: 'tab:rooms:foyer:focus',
+      title: 'foyer focus',
+    };
+    useWorkbenchStore.getState().openTab(tab);
+    useWorkbenchStore.getState().openTab(duplicateTab, { duplicate: true });
+    useDraftDirtyStore.getState().setDraftDirty('focus-draft', {
+      tabId: duplicateTab.id,
+      dirty: true,
+      label: 'Hotspot geometry',
+      apply: () => true,
+      discard: () => true,
+    });
+    render(<DirtyCloseDialog />);
+
+    act(() => useCloseGuardStore.getState().requestCloseTab(ROOT_GROUP_ID, duplicateTab.id));
+    expect(await screen.findByText('Close foyer focus?')).toBeInTheDocument();
+    await user.click(screen.getByText("Don't Save"));
+
+    expect(useWorkbenchStore.getState().tabsById[duplicateTab.id]).toBeUndefined();
+    expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeDefined();
+    const current = useProjectStore.getState().document as ReturnType<
+      typeof authoringProjectWithRooms
+    >;
+    expect(current.rooms.foyer?.label).toBe('New Foyer');
+  });
+
   it('shares pending Project Settings input across duplicate views and blocks Save on final close', async () => {
     const user = userEvent.setup();
     const project = createAuthoringProject();

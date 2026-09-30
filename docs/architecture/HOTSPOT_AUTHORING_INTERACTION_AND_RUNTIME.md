@@ -86,7 +86,8 @@ draft, while parent-editor composition shortcuts are suspended for the lifetime 
 publishes geometry through one project command and therefore one project-level undo step. It performs
 a three-way merge against the geometry seen on entry and the latest Project geometry: untouched
 shapes preserve concurrent changes, disjoint geometry edits compose, and conflicting edits to the
-same shape fail closed. `Cancel` discards the draft. Switching tabs may leave the focus session alive.
+same shape—including move/resize versus concurrent deletion—fail closed. `Cancel` discards the
+draft. Switching tabs may leave the focus session alive.
 A modified session registers as a versioned serializable workbench draft so Project/window recovery
 can restore it, and closing its owning tab requires explicit apply/discard even when another visual
 tab shares the same record save unit.

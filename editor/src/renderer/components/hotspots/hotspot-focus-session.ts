@@ -100,6 +100,12 @@ export function mergeHotspotFocusGeometry(
   const shapeEqual = (left: EditableHotspot['shape'], right: EditableHotspot['shape']) =>
     JSON.stringify(left) === JSON.stringify(right);
 
+  for (const original of initial) {
+    if (latestIds.has(original.id)) continue;
+    const draft = currentById.get(original.id);
+    if (draft && !shapeEqual(draft.shape, original.shape)) return null;
+  }
+
   const merged = latest.flatMap((item) => {
     if (!initialIds.has(item.id)) return [item];
     const original = initialById.get(item.id)!;
