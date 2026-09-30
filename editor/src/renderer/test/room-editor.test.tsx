@@ -9,6 +9,7 @@ import {
   defaultInteractableData,
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
+import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -82,7 +83,7 @@ describe('RoomEditor', () => {
     expect(screen.getByText('Exits')).toBeInTheDocument();
 
     selectRoomCategory('Composition');
-    expect(screen.getByText('Placements')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
   });
   it('counts effective Room Properties from Traits in the category sidebar', () => {
     const project = createAuthoringProject();
@@ -150,7 +151,7 @@ describe('RoomEditor', () => {
     expect(parseRoomData(updated.rooms.foyer?.data)?.presentationSpace.views).toHaveLength(3);
   });
 
-  it('uses the shared master-detail editor for Placements', () => {
+  it('uses the Room Contents hierarchy to select Placements semantically', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.placements = [
@@ -170,13 +171,10 @@ describe('RoomEditor', () => {
     renderEditor();
 
     selectRoomCategory('Composition');
-    const placements = screen.getByRole('group', { name: 'Placements' });
-    expect(screen.getByDisplayValue('left-table')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('right-door')).toBeNull();
-
-    fireEvent.click(within(placements).getByRole('button', { name: /^right-door0 occupants$/i }));
-    expect(screen.getByDisplayValue('right-door')).toBeInTheDocument();
-    expect(screen.queryByDisplayValue('left-table')).toBeNull();
+    expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Placement · right-door/i }));
+    expect(screen.getAllByText('Placement · right-door')).not.toHaveLength(0);
+    expect(screen.queryByRole('heading', { name: 'Room Contents' })).toBeNull();
   });
 
   it('edits shared Gameplay Commands for every Room lifecycle command hook', () => {
@@ -343,7 +341,7 @@ describe('RoomEditor', () => {
       'aria-current',
       'page',
     );
-    expect(screen.getByText('Placements')).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
   });
 
   it('selects the Properties category for Room Property targets', () => {
@@ -422,9 +420,8 @@ describe('RoomEditor', () => {
       'aria-current',
       'page',
     );
-    expect(
-      document.querySelector('[data-workbench-anchor="instance.property.key-instance.quality"]'),
-    ).not.toBeNull();
+    expect(screen.getByText('Interactable · Brass Key · key-entry')).toBeInTheDocument();
+    expect(screen.getByText('Interactable occurrence')).toBeInTheDocument();
   });
   it('updates the display name through the command bus', async () => {
     const project = createAuthoringProject();
@@ -1005,7 +1002,8 @@ describe('RoomEditor', () => {
 
     renderEditor();
 
-    expect(screen.getByRole('heading', { name: 'Camera' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Composition' })).toBeInTheDocument();
+    expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
     expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true');
     expect(screen.getByLabelText('Edit zoom')).toHaveTextContent('100%');
   });
@@ -1212,310 +1210,199 @@ describe('RoomEditor', () => {
 
     expect(screen.queryByRole('separator', { name: 'Resize room preview' })).toBeNull();
   });
-  it('creates a generic typed placement anchor', async () => {
+  it('activates Composition for Edit and retains its inspector as inert state in Preview', async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
     const project = createAuthoringProject();
-    project.interactables.lamp = {
-      id: 'lamp',
-      label: 'Lamp',
-      traits: [],
-      data: defaultInteractableData('Lamp'),
-    };
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
-    renderEditor();
-    selectRoomCategory('Composition');
-    fireEvent.click(screen.getByText('Add placement'));
-    await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({
-        rooms: {
-          foyer: { data: { placements: [expect.objectContaining({ id: 'placement' })] } },
-        },
-      }),
-    );
-  });
-  it('places an existing Interactable through one dedicated Room placement transaction', async () => {
-    const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    project.interactables.key = {
-      id: 'key',
-      label: 'Brass Key',
-      data: defaultInteractableData('Brass Key'),
-    };
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
-    renderEditor();
-    selectRoomCategory('Composition');
+    try {
+      renderEditor();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
-    fireEvent.click(screen.getByRole('button', { name: /Brass Key/i }));
-    const stage = screen.getByTestId('room-composition-stage');
-    Object.defineProperty(stage, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({
-        x: 0,
-        y: 0,
-        left: 0,
-        top: 0,
-        right: 1000,
-        bottom: 500,
-        width: 1000,
-        height: 500,
-        toJSON: () => ({}),
-      }),
-    });
-    fireEvent.mouseDown(stage, { button: 0, clientX: 100, clientY: 100 });
-    fireEvent.mouseMove(window, { clientX: 400, clientY: 250 });
-    fireEvent.mouseUp(window, { clientX: 400, clientY: 250 });
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      expect(screen.getByRole('heading', { name: 'Composition' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Placement · desk/i }));
+      expect(screen.getAllByText('Placement · desk')).not.toHaveLength(0);
+      expect(screen.getByTestId('room-composition-pane')).toHaveAttribute('data-disabled', 'false');
 
-    await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({
-        rooms: {
-          foyer: {
-            data: {
-              placements: [
-                expect.objectContaining({
-                  id: 'key-placement',
-                }),
-              ],
-              interactables: [
-                expect.objectContaining({
-                  id: 'key',
-                  interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
-                  placementId: 'key-placement',
-                }),
-              ],
-            },
-          },
-        },
-      }),
-    );
-    const currentDocument = useProjectStore.getState().document;
-    expect(isAuthoringProject(currentDocument)).toBe(true);
-    if (!isAuthoringProject(currentDocument)) throw new Error('Expected an authoring project.');
-    const placement = parseRoomData(currentDocument.rooms.foyer?.data)?.placements[0];
-    expect(placement?.bounds.x).toBeCloseTo(0.1);
-    expect(placement?.bounds.y).toBeCloseTo(0.2);
-    expect(placement?.bounds.width).toBeCloseTo(0.3);
-    expect(placement?.bounds.height).toBeCloseTo(0.3);
-    expect(useCommandStore.getState().history.entries).toHaveLength(1);
+      fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+      await waitFor(() =>
+        expect(screen.getByTestId('room-composition-pane')).toHaveAttribute(
+          'data-disabled',
+          'true',
+        ),
+      );
+      expect(screen.getAllByText('Placement · desk')).not.toHaveLength(0);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 
-  it('places an existing exact Interactable Instance without creating a clone', async () => {
+  it('persists semantic multi-selection and expandable inspector state per Room tab', () => {
     const project = createAuthoringProject();
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
-    project.interactables.key = {
-      id: 'key',
-      label: 'Brass Key',
-      data: defaultInteractableData('Brass Key'),
-    };
-    project.interactableInstances['special-key'] = defaultInteractableInstanceData(
-      'special-key',
-      'key',
-    );
-    project.interactableInstances['special-key'].editorLabel = 'Special Key';
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'lamp',
+        condition: { kind: 'always' },
+        placementId: 'desk',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
-    renderEditor();
-    selectRoomCategory('Composition');
-
-    fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
-    fireEvent.click(screen.getByRole('button', { name: /Special Key/i }));
-    const stage = screen.getByTestId('room-composition-stage');
-    Object.defineProperty(stage, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({
-        x: 0,
-        y: 0,
-        left: 0,
-        top: 0,
-        right: 1000,
-        bottom: 500,
-        width: 1000,
-        height: 500,
-        toJSON: () => ({}),
-      }),
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'composition',
+        presentationMode: 'edit',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [
+          { kind: 'placement', id: 'desk' },
+          { kind: 'prop', id: 'lamp' },
+        ],
+        expandedSelectionKeys: ['placement:desk'],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
     });
-    fireEvent.mouseDown(stage, { button: 0, clientX: 300, clientY: 150 });
-    fireEvent.mouseUp(window, { clientX: 300, clientY: 150 });
 
-    await waitFor(() => {
-      const document = useProjectStore.getState().document;
-      expect(document).toMatchObject({
-        rooms: {
-          foyer: {
-            data: {
-              interactables: [
-                expect.objectContaining({
-                  id: 'special-key',
-                  interactable: {
-                    $ref: { registry: 'interactableInstances', id: 'special-key' },
-                  },
-                  placementId: 'special-key-placement',
-                }),
-              ],
-            },
-          },
+    renderEditor();
+    expect(screen.getByText('2 selected')).toBeInTheDocument();
+    expect(screen.getByTestId('room-multi-selection-inspectors')).toBeInTheDocument();
+    captureWorkbenchTabState(tab.id);
+    expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
+      payload: {
+        selection: [
+          { kind: 'placement', id: 'desk' },
+          { kind: 'prop', id: 'lamp' },
+        ],
+        expandedSelectionKeys: ['placement:desk'],
+      },
+    });
+  });
+
+  it('uses placement-first click, exact drill-in, overlap candidates, and explicit deselection', async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.35, height: 0.35 },
+        presentation: {
+          label: null,
+          layout: { $ref: { collection: 'layouts', id: 'desk-ui' } },
+          layoutOrder: 4,
         },
-        interactableInstances: {
-          'special-key': {
-            editorLabel: 'Special Key',
-            definition: { $ref: { collection: 'interactables', id: 'key' } },
-            location: {
-              kind: 'room',
-              room: { $ref: { collection: 'rooms', id: 'foyer' } },
-            },
-          },
-        },
+      },
+    ];
+    project.layouts['desk-ui'] = {
+      id: 'desk-ui',
+      label: 'Desk UI',
+      data: defaultLayoutData('Desk UI'),
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
       });
-      if (!isAuthoringProject(document)) throw new Error('Expected an authoring project.');
-      expect(Object.keys(document.interactableInstances)).toEqual(['special-key']);
-    });
-  });
 
-  it('moves and resizes an existing placement through window-level pointer gestures', async () => {
-    const project = createAuthoringProject();
-    const room = defaultRoomData('Foyer');
-    room.placements = [
-      {
-        id: 'key-placement',
-        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        presentation: { label: null, layout: null },
-      },
-    ];
-    const key = defaultInteractableData('Brass Key');
-    room.interactables = [
-      {
-        id: 'key',
-        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
-        condition: { kind: 'always' },
-        placementId: 'key-placement',
-        visible: true,
-        order: 0,
-      },
-    ];
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
-    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
-      kind: 'room',
-      room: { $ref: { collection: 'rooms', id: 'foyer' } },
-    });
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
-    renderEditor();
-    selectRoomCategory('Composition');
+      fireEvent.click(surface, { clientX: 200, clientY: 100 });
+      expect(screen.getByTestId('room-edit-selected-placement:desk')).toBeInTheDocument();
+      expect(screen.getAllByText('Placement · desk')).not.toHaveLength(0);
 
-    const stage = screen.getByTestId('room-composition-stage');
-    Object.defineProperty(stage, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({
-        x: 0,
-        y: 0,
-        left: 0,
-        top: 0,
-        right: 1000,
-        bottom: 500,
-        width: 1000,
-        height: 500,
-        toJSON: () => ({}),
-      }),
-    });
-    const placement = screen.getByTestId('room-placement-key-placement');
-    fireEvent.mouseDown(placement, { button: 0, clientX: 100, clientY: 50 });
-    fireEvent.mouseMove(window, { clientX: 300, clientY: 150 });
-    fireEvent.mouseUp(window, { clientX: 300, clientY: 150 });
-    await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({
-        rooms: {
-          foyer: {
-            data: {
-              placements: [
-                expect.objectContaining({
-                  bounds: { x: 0.3, y: 0.3, width: 0.2, height: 0.2 },
-                }),
-              ],
-            },
-          },
-        },
-      }),
-    );
+      fireEvent.doubleClick(surface, { clientX: 200, clientY: 100 });
+      expect(screen.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
+      expect(screen.getAllByText('Layout · Desk UI')).not.toHaveLength(0);
 
-    const resize = screen.getByRole('button', { name: 'Resize key-placement' });
-    fireEvent.mouseDown(resize, { button: 0, clientX: 500, clientY: 250 });
-    fireEvent.mouseMove(window, { clientX: 700, clientY: 350 });
-    fireEvent.mouseUp(window, { clientX: 700, clientY: 350 });
-    await waitFor(() => {
-      const document = useProjectStore.getState().document;
-      expect(isAuthoringProject(document)).toBe(true);
-      if (!isAuthoringProject(document)) return;
-      const bounds = parseRoomData(document.rooms.foyer?.data)?.placements[0]?.bounds;
-      expect(bounds?.x).toBeCloseTo(0.3);
-      expect(bounds?.y).toBeCloseTo(0.3);
-      expect(bounds?.width).toBeCloseTo(0.4);
-      expect(bounds?.height).toBeCloseTo(0.4);
-    });
-  });
+      fireEvent.click(surface, { clientX: 900, clientY: 450 });
+      expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
+      fireEvent.doubleClick(surface, { clientX: 200, clientY: 100 });
+      expect(screen.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
 
-  it('allows placing the same Interactable definition multiple times', async () => {
-    const project = createAuthoringProject();
-    const room = defaultRoomData('Foyer');
-    room.placements = [
-      {
-        id: 'key-placement',
-        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-        presentation: { label: null, layout: null },
-      },
-    ];
-    const key = defaultInteractableData('Brass Key');
-    room.interactables = [
-      {
-        id: 'key',
-        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
-        condition: { kind: 'always' },
-        placementId: 'key-placement',
-        visible: true,
-        order: 0,
-      },
-    ];
-    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
-    project.interactables.key = { id: 'key', label: 'Brass Key', data: key };
-    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
-      kind: 'room',
-      room: { $ref: { collection: 'rooms', id: 'foyer' } },
-    });
-    useProjectStore.getState().loadUnsavedProjectDocument(project);
-    renderEditor();
-    selectRoomCategory('Composition');
+      fireEvent.contextMenu(surface, { clientX: 200, clientY: 100 });
+      expect(
+        await screen.findByRole('menuitem', { name: /Layout · Desk UI/i }),
+      ).toBeInTheDocument();
+      expect(screen.getByRole('menuitem', { name: /Placement · desk/i })).toBeInTheDocument();
+      expect(screen.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
+      fireEvent.mouseEnter(screen.getByRole('menuitem', { name: /Placement · desk/i }));
+      expect(screen.getByTestId('room-edit-context-preview-placement:desk')).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole('button', { name: 'Place Interactable' }));
-    fireEvent.click(screen.getByRole('button', { name: /Brass Key/i }));
-    const stage = screen.getByTestId('room-composition-stage');
-    Object.defineProperty(stage, 'getBoundingClientRect', {
-      configurable: true,
-      value: () => ({
-        x: 0,
-        y: 0,
-        left: 0,
-        top: 0,
-        right: 1000,
-        bottom: 500,
-        width: 1000,
-        height: 500,
-        toJSON: () => ({}),
-      }),
-    });
-    fireEvent.mouseDown(stage, { button: 0, clientX: 600, clientY: 200 });
-    fireEvent.mouseUp(window, { clientX: 600, clientY: 200 });
+      fireEvent.click(screen.getByRole('menuitem', { name: /Deselect All/i }));
+      expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
+      expect(screen.queryByTestId('room-edit-selected-placement-layout:desk')).toBeNull();
 
-    await waitFor(() =>
-      expect(useProjectStore.getState().document).toMatchObject({
-        rooms: {
-          foyer: {
-            data: {
-              interactables: [
-                expect.objectContaining({ id: 'key', placementId: 'key-placement' }),
-                expect.objectContaining({ id: 'key-2', placementId: 'key-2-placement' }),
-              ],
-            },
-          },
-        },
-      }),
-    );
+      fireEvent.click(screen.getByRole('button', { name: /Layout · Desk UI/i }));
+      expect(screen.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
+      fireEvent.keyDown(window, { key: 'd', ctrlKey: true });
+      expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Layout · Desk UI/i }));
+      fireEvent.click(screen.getByRole('button', { name: 'Room Contents' }));
+      expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
   });
 });

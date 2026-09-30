@@ -20,7 +20,6 @@ import {
   Waypoints,
   Workflow,
 } from 'lucide-react';
-import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import { ColorField } from '@/components/ui/color-field';
 import {
@@ -52,7 +51,6 @@ import {
   OwnerLocalPropertiesEditor,
   type OwnerPropertyTraitState,
 } from '@/components/properties/OwnerLocalPropertiesEditor';
-import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
@@ -60,8 +58,8 @@ import {
   GameplayCommandListEditor,
   type GameplayCommandKind,
 } from '@/components/gameplay-commands/GameplayCommandEditor';
-import { RoomCompositionStage } from '@/components/room-composition-stage';
 import { RoomEditSurface } from '@/editors/rooms/RoomEditSurface';
+import { RoomCompositionPane } from '@/editors/rooms/RoomCompositionPane';
 import {
   interpolateRoomEditNavigation,
   ROOM_EDIT_FIT_NAVIGATION,
@@ -83,15 +81,7 @@ import {
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
-import {
-  buildCommandPaletteItems,
-  filterSelectorItems,
-  type SelectorItem,
-} from '@/workspace/command-palette-search';
-
-function escapePointerSegment(value: string) {
-  return value.replaceAll('~', '~0').replaceAll('/', '~1');
-}
+import { buildCommandPaletteItems, filterSelectorItems } from '@/workspace/command-palette-search';
 
 const roomPrecommitGameplayCommandKinds: readonly GameplayCommandKind[] = [
   'set-global-property',
@@ -130,14 +120,12 @@ import {
   type RoomData,
   type RoomEnvironmentData,
   type RoomExitData,
-  type RoomNormalizedRect,
   type RoomOverlayData,
-  type RoomPlacementData,
   type RoomPropData,
 } from '../../../shared/project-schema/authoring-rooms';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
-import { inlineTextContent, type TextContent } from '../../../shared/project-schema/authoring-flow';
+import type { TextContent } from '../../../shared/project-schema/authoring-flow';
 import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
@@ -164,12 +152,18 @@ import {
   resolveArchetypeConfiguration,
   resolveGameplayInstanceRecord,
 } from '../../../shared/project-schema/authoring-archetypes';
-import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import type { OwnerLocalProperty } from '../../../shared/project-schema/authoring-properties';
 import { allocateRoomPresentationOrder } from '../../../shared/project-schema/room-presentation-order';
 import { analyzeHookRegistry } from '../../../shared/hook-registry-analysis';
 import type { AppliedPreviewDocumentResult } from '../../../shared/focused-preview-contracts';
 import type { RoomEditResolvedVisibility } from './room-edit-projection';
+import {
+  describeRoomEditSelection,
+  roomEditSelectionExists,
+  roomEditSelectionKey,
+  type RoomEditSelection,
+  type RoomEditSelectionKind,
+} from './room-edit-selection';
 
 const backgroundFitLabels = {
   cover: 'Cover',
@@ -254,10 +248,49 @@ type RoomEditorTabState = WorkbenchTabStatePayload & {
     activeCategory: RoomEditorCategory;
     presentationMode: RoomPresentationMode;
     editNavigation: RoomEditNavigation;
+    selection: RoomEditSelection[];
+    expandedSelectionKeys: string[];
     previewCollapsed: boolean;
     hotspotView: HotspotEditorViewState;
   };
 };
+
+const roomEditSelectionKinds = new Set<RoomEditSelectionKind>([
+  'placement',
+  'placement-layout',
+  'interactable',
+  'prop',
+  'cast',
+  'environment',
+  'overlay',
+  'hotspot',
+]);
+
+function parseRoomEditSelection(value: unknown): RoomEditSelection[] | null {
+  if (!Array.isArray(value)) return null;
+  const result: RoomEditSelection[] = [];
+  const seen = new Set<string>();
+  for (const item of value) {
+    if (typeof item !== 'object' || item === null || Array.isArray(item)) return null;
+    const candidate = item as Record<string, unknown>;
+    if (
+      typeof candidate.kind !== 'string' ||
+      !roomEditSelectionKinds.has(candidate.kind as RoomEditSelectionKind) ||
+      typeof candidate.id !== 'string' ||
+      candidate.id.length === 0
+    )
+      return null;
+    const selection = {
+      kind: candidate.kind as RoomEditSelectionKind,
+      id: candidate.id,
+    };
+    const key = roomEditSelectionKey(selection);
+    if (seen.has(key)) continue;
+    seen.add(key);
+    result.push(selection);
+  }
+  return result;
+}
 
 function parseRoomEditNavigation(value: unknown): RoomEditNavigation | null {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return null;
@@ -297,10 +330,21 @@ function parseRoomEditorTabState(
     payload.editNavigation === undefined
       ? ROOM_EDIT_FIT_NAVIGATION
       : parseRoomEditNavigation(payload.editNavigation);
+  const selection =
+    payload.selection === undefined ? [] : parseRoomEditSelection(payload.selection);
+  const expandedSelectionKeys =
+    payload.expandedSelectionKeys === undefined
+      ? []
+      : Array.isArray(payload.expandedSelectionKeys) &&
+          payload.expandedSelectionKeys.every((key) => typeof key === 'string')
+        ? payload.expandedSelectionKeys
+        : null;
   if (
     !isRoomEditorCategory(payload.activeCategory) ||
     !isRoomPresentationMode(payload.presentationMode) ||
     !editNavigation ||
+    !selection ||
+    !expandedSelectionKeys ||
     typeof payload.previewCollapsed !== 'boolean' ||
     !hotspotView
   )
@@ -310,11 +354,12 @@ function parseRoomEditorTabState(
     activeCategory: payload.activeCategory,
     presentationMode: payload.presentationMode,
     editNavigation,
+    selection,
+    expandedSelectionKeys,
     previewCollapsed: payload.previewCollapsed,
     hotspotView,
   };
 }
-const refValue = (ref: { $ref: { id: string } } | null | undefined) => ref?.$ref.id ?? '__none__';
 const nextId = (ids: Iterable<string>, base: string) => {
   const used = new Set(ids);
   for (let n = 1; n < 1000; n += 1) {
@@ -443,11 +488,16 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [backgroundSelectorOpen, setBackgroundSelectorOpen] = useState(false);
   const [destinationSelectorExitId, setDestinationSelectorExitId] = useState<string | null>(null);
-  const [compositionBackgroundUrl, setCompositionBackgroundUrl] = useState<string | null>(null);
-  const [selectedPlacementId, setSelectedPlacementId] = useState<string | null>(null);
-  const [selectedPlacementInteractableId, setSelectedPlacementInteractableId] = useState<
-    string | null
-  >(null);
+  const [roomSelection, setRoomSelection] = useState<RoomEditSelection[]>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return savedState ? (parseRoomEditorTabState(savedState)?.selection ?? []) : [];
+  });
+  const [expandedRoomSelectionKeys, setExpandedRoomSelectionKeys] = useState<Set<string>>(() => {
+    const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
+    return new Set(
+      savedState ? (parseRoomEditorTabState(savedState)?.expandedSelectionKeys ?? []) : [],
+    );
+  });
   const [selectedCameraViewIndex, setSelectedCameraViewIndex] = useState(0);
   const [selectedAnchorIndex, setSelectedAnchorIndex] = useState(0);
   const [selectedOverlayIndex, setSelectedOverlayIndex] = useState(0);
@@ -458,18 +508,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     kind: 'overlay-layout' | 'cast-character' | 'prop-asset' | 'environment-asset';
     id: string;
   } | null>(null);
-  const [interactableSelectorOpen, setInteractableSelectorOpen] = useState(false);
-  const [placementCount, setPlacementCount] = useState(1);
-  const [placingInteractable, setPlacingInteractable] = useState<
-    | { kind: 'definition'; definitionId: string }
-    | { kind: 'instance'; instanceId: string; definitionId: string }
-    | null
-  >(null);
   const [activeCategory, setActiveCategory] = useState<RoomEditorCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
-    return savedState
-      ? (parseRoomEditorTabState(savedState)?.activeCategory ?? 'general')
-      : 'general';
+    const parsed = savedState ? parseRoomEditorTabState(savedState) : null;
+    return parsed?.presentationMode === 'edit'
+      ? 'composition'
+      : (parsed?.activeCategory ?? 'general');
   });
   const [presentationMode, setPresentationMode] = useState<RoomPresentationMode>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
@@ -510,7 +554,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
-  const projectSessionId = useProjectStore((state) => state.projectSessionId);
   const projectRevision = useProjectStore((state) => state.projectRevision);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(document) ? document : null;
@@ -590,33 +633,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     () => filterSelectorItems(selectorItems, { collections: ['assets'], includeActions: false }),
     [selectorItems],
   );
-  const interactableItems = useMemo(() => {
-    const definitionItems = filterSelectorItems(selectorItems, {
-      collections: ['interactables'],
-      includeActions: false,
-    }).map((item) => ({
-      ...item,
-      id: `definition:${item.entityId ?? item.id}`,
-      subtitle: item.subtitle ? `New instance · ${item.subtitle}` : 'New instance',
-    }));
-    if (!project) return definitionItems;
-    const instanceItems: SelectorItem[] = Object.entries(project.interactableInstances)
-      .filter(([, instance]) => instance.location.kind !== 'room')
-      .map(([instanceId, instance]) => {
-        const definition = project.interactables[instance.definition.$ref.id];
-        return {
-          id: `instance:${instanceId}`,
-          kind: 'record',
-          title: instance.editorLabel ?? instanceId,
-          subtitle: `Existing instance · ${definition?.label ?? instance.definition.$ref.id}`,
-          entityId: instanceId,
-          tags: [instanceId, instance.definition.$ref.id],
-          collectionTerms: ['interactable', 'instance'],
-          actionTerms: [],
-        };
-      });
-    return [...instanceItems, ...definitionItems];
-  }, [project, selectorItems]);
   useWorkbenchEditorTabState<RoomEditorTabState>(
     tab.id,
     useMemo(
@@ -629,6 +645,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             activeCategory,
             presentationMode,
             editNavigation: rememberedEditNavigation,
+            selection: roomSelection,
+            expandedSelectionKeys: [...expandedRoomSelectionKeys],
             previewCollapsed,
             hotspotView,
           },
@@ -636,10 +654,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         restoreTabState: (state) => {
           const parsed = parseRoomEditorTabState(state);
           if (!parsed) return;
-          setActiveCategory(parsed.activeCategory);
+          setActiveCategory(
+            parsed.presentationMode === 'edit' ? 'composition' : parsed.activeCategory,
+          );
           setPresentationMode(parsed.presentationMode);
           setRememberedEditNavigation(parsed.editNavigation);
           setVisibleEditNavigation(parsed.editNavigation);
+          setRoomSelection(parsed.selection.filter((item) => roomEditSelectionExists(data, item)));
+          setExpandedRoomSelectionKeys(new Set(parsed.expandedSelectionKeys));
           setPreviewCollapsed(parsed.previewCollapsed);
           setHotspotView(
             restoreHotspotViewState(
@@ -654,14 +676,53 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       }),
       [
         activeCategory,
-        data.hotspots,
+        data,
+        expandedRoomSelectionKeys,
         hotspotView,
         presentationMode,
         previewCollapsed,
         rememberedEditNavigation,
+        roomSelection,
       ],
     ),
   );
+  useEffect(() => {
+    setRoomSelection((current) => {
+      const next = current.filter((item) => roomEditSelectionExists(data, item));
+      return next.length === current.length ? current : next;
+    });
+  }, [data]);
+
+  useEffect(() => {
+    setExpandedRoomSelectionKeys((current) => {
+      const validSelectionKeys = new Set(roomSelection.map(roomEditSelectionKey));
+      const next = new Set([...current].filter((key) => validSelectionKeys.has(key)));
+      if (next.size === current.size && [...next].every((key) => current.has(key))) return current;
+      return next;
+    });
+  }, [roomSelection]);
+
+  useEffect(() => {
+    if (presentationMode !== 'edit') return;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (!(event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'd'))
+        return;
+      const target = event.target instanceof HTMLElement ? event.target : null;
+      if (
+        target &&
+        (target.isContentEditable ||
+          target.tagName === 'INPUT' ||
+          target.tagName === 'TEXTAREA' ||
+          target.tagName === 'SELECT')
+      )
+        return;
+      event.preventDefault();
+      setRoomSelection([]);
+    };
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, [presentationMode]);
+
   const animateRoomEditNavigation = useCallback(
     (from: RoomEditNavigation, to: RoomEditNavigation, onComplete?: () => void) => {
       if (roomEditAnimationFrameRef.current !== null) {
@@ -711,6 +772,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         );
         return;
       }
+      setActiveCategory('composition');
       setPresentationMode('edit');
       setVisibleEditNavigation(ROOM_EDIT_FIT_NAVIGATION);
       animateRoomEditNavigation(ROOM_EDIT_FIT_NAVIGATION, rememberedEditNavigation);
@@ -761,8 +823,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         );
         const placementId = payload.placementId ?? occurrence?.placementId;
         if (placementId && data.placements.some((placement) => placement.id === placementId)) {
-          setSelectedPlacementId(placementId);
-          setSelectedPlacementInteractableId(occurrence?.id ?? null);
+          setRoomSelection(
+            occurrence
+              ? [{ kind: 'interactable', id: occurrence.id }]
+              : [{ kind: 'placement', id: placementId }],
+          );
         }
       }
       return false;
@@ -948,134 +1013,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       { ...data, exits: data.exits.map((exit) => (exit.id === id ? { ...exit, ...patch } : exit)) },
       'Update room exit',
     );
-  const replacePlacement = (id: string, patch: Partial<RoomPlacementData>) =>
-    commit(
-      {
-        ...data,
-        placements: data.placements.map((placement) =>
-          placement.id === id ? { ...placement, ...patch } : placement,
-        ),
-      },
-      'Update room placement',
-    );
-  const placementOccupants = (placementId: string) => [
-    ...data.cast
-      .filter((entry) => entry.placementId === placementId)
-      .map((entry) => project.characters[entry.character.$ref.id]?.label ?? entry.id),
-    ...data.props.filter((entry) => entry.placementId === placementId).map((entry) => entry.id),
-    ...data.interactables
-      .filter((entry) => entry.placementId === placementId)
-      .map((entry) => project.interactables[entry.interactable.$ref.id]?.label ?? entry.id),
-  ];
-  const placeInteractable = (
-    target: NonNullable<typeof placingInteractable>,
-    bounds: RoomNormalizedRect,
-  ) => {
-    const interactableId = target.definitionId;
-    const interactableRecord = project.interactables[interactableId];
-    const interactable = parseInteractableData(interactableRecord?.data);
-    if (!interactable) return;
-    const instanceId =
-      target.kind === 'instance'
-        ? target.instanceId
-        : nextId(Object.keys(project.interactableInstances), interactableId);
-    const placementId = nextId(
-      data.placements.map((placement) => placement.id),
-      `${instanceId}-placement`,
-    );
-    useCommandStore.getState().executeCommand({
-      type: 'room.placeInteractable',
-      label: 'Place Interactable instance in Room',
-      payload: {
-        roomId,
-        interactableId,
-        instanceId,
-        placementId,
-        bounds,
-        count: target.kind === 'definition' ? placementCount : 1,
-      },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    setSelectedPlacementId(placementId);
-    setPlacingInteractable(null);
-    setPlacementCount(1);
-  };
-  const detachInteractable = (occurrenceId: string, sourcePlacementId: string) => {
-    const placementId = nextId(
-      data.placements.map((placement) => placement.id),
-      `${occurrenceId}-placement`,
-    );
-    useCommandStore.getState().executeCommand({
-      type: 'room.detachInteractablePlacement',
-      label: 'Create dedicated Interactable placement',
-      payload: { roomId, occurrenceId, sourcePlacementId, placementId },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    setSelectedPlacementId(placementId);
-  };
-  const moveInteractableToPlacement = (occurrenceId: string, placementId: string) => {
-    useCommandStore.getState().executeCommand({
-      type: 'room.moveInteractableToPlacement',
-      label: 'Move Interactable to placement',
-      payload: { roomId, occurrenceId, placementId },
-      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-      persistencePolicy: 'manual-save',
-    });
-    setSelectedPlacementId(placementId);
-  };
-  const activePlacement =
-    (selectedPlacementId
-      ? data.placements.find((placement) => placement.id === selectedPlacementId)
-      : null) ??
-    data.placements[0] ??
-    null;
-  const activePlacementId = activePlacement?.id ?? null;
-  const selectedPlacementInteractables = activePlacementId
-    ? data.interactables
-        .filter((entry) => entry.placementId === activePlacementId)
-        .flatMap((entry) => {
-          const instanceId = entry.interactable.$ref.id;
-          const instance = project.interactableInstances[instanceId];
-          if (!instance) return [];
-          return [
-            {
-              id: entry.id,
-              instanceId,
-              instance,
-              label:
-                instance.editorLabel ??
-                project.interactables[instance.definition.$ref.id]?.label ??
-                instanceId,
-            },
-          ];
-        })
-    : [];
-  const activePlacementInteractable =
-    (selectedPlacementInteractableId
-      ? selectedPlacementInteractables.find((entry) => entry.id === selectedPlacementInteractableId)
-      : null) ??
-    selectedPlacementInteractables[0] ??
-    null;
   const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
-  const placingInteractableData = placingInteractable
-    ? parseInteractableData(project.interactables[placingInteractable.definitionId]?.data)
-    : null;
-  const placingSprite = placingInteractableData?.presentation.sprite
-    ? parseAssetData(project.assets[placingInteractableData.presentation.sprite.$ref.id]?.data)
-    : null;
-  const placingImageMetadata = placingSprite?.kind === 'image' ? placingSprite.imageMetadata : null;
-  const placementDraftSize = placingImageMetadata
-    ? (() => {
-        const roomAspect = referenceResolution.width / referenceResolution.height;
-        const assetAspect = placingImageMetadata.width / placingImageMetadata.height;
-        const heightAtDefaultWidth = (0.2 * roomAspect) / assetAspect;
-        return heightAtDefaultWidth <= 0.2
-          ? { width: 0.2, height: heightAtDefaultWidth }
-          : { width: (0.2 * assetAspect) / roomAspect, height: 0.2 };
-      })()
-    : undefined;
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
     commit(
       {
@@ -1381,6 +1319,209 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     contentEntitySelectorItems.find(
       (item) => item.entityId === contentEntitySelectorCurrentEntityId,
     )?.id ?? null;
+  const renderRoomSelectionInspector = (selection: RoomEditSelection) => {
+    const fields: Array<{ label: string; value: string }> = [];
+    switch (selection.kind) {
+      case 'placement': {
+        const placement = data.placements.find((item) => item.id === selection.id);
+        if (placement) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.placement'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorId'), value: placement.id },
+            {
+              label: t('roomEditor.compositionPane.inspectorBounds'),
+              value: `${placement.bounds.x}, ${placement.bounds.y} · ${placement.bounds.width} × ${placement.bounds.height}`,
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorLayout'),
+              value: placement.presentation.layout?.$ref.id ?? '—',
+            },
+          );
+        }
+        break;
+      }
+      case 'placement-layout': {
+        const placement = data.placements.find((item) => item.id === selection.id);
+        if (placement?.presentation.layout) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.placementLayout'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorPlacement'), value: placement.id },
+            {
+              label: t('roomEditor.compositionPane.inspectorLayout'),
+              value: placement.presentation.layout.$ref.id,
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorOrder'),
+              value: String(placement.presentation.layoutOrder),
+            },
+          );
+        }
+        break;
+      }
+      case 'interactable': {
+        const occurrence = data.interactables.find((item) => item.id === selection.id);
+        const instance = occurrence
+          ? project.interactableInstances[occurrence.interactable.$ref.id]
+          : null;
+        if (occurrence) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.interactableOccurrence'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorId'), value: occurrence.id },
+            {
+              label: t('roomEditor.compositionPane.inspectorPlacement'),
+              value: occurrence.placementId,
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorInstance'),
+              value: occurrence.interactable.$ref.id,
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorDefinition'),
+              value: instance?.definition.$ref.id ?? '—',
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorOrder'),
+              value: String(occurrence.order),
+            },
+          );
+        }
+        break;
+      }
+      case 'prop': {
+        const occurrence = data.props.find((item) => item.id === selection.id);
+        if (occurrence) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.prop'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorId'), value: occurrence.id },
+            {
+              label: t('roomEditor.compositionPane.inspectorPlacement'),
+              value: occurrence.placementId,
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorAsset'),
+              value: occurrence.asset?.$ref.id ?? '—',
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorOrder'),
+              value: String(occurrence.order),
+            },
+          );
+        }
+        break;
+      }
+      case 'cast': {
+        const occurrence = data.cast.find((item) => item.id === selection.id);
+        if (occurrence) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.castOccurrence'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorId'), value: occurrence.id },
+            {
+              label: t('roomEditor.compositionPane.inspectorPlacement'),
+              value: occurrence.placementId,
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorCharacter'),
+              value: occurrence.character.$ref.id,
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorOrder'),
+              value: String(occurrence.order),
+            },
+          );
+        }
+        break;
+      }
+      case 'environment': {
+        const occurrence = data.environments.find((item) => item.id === selection.id);
+        if (occurrence) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.environment'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorId'), value: occurrence.id },
+            { label: t('roomEditor.compositionPane.inspectorPlane'), value: occurrence.plane },
+            {
+              label: t('roomEditor.compositionPane.inspectorOrder'),
+              value: String(occurrence.order),
+            },
+            {
+              label: t('roomEditor.compositionPane.inspectorAsset'),
+              value: occurrence.asset?.$ref.id ?? '—',
+            },
+          );
+        }
+        break;
+      }
+      case 'overlay': {
+        const overlay = data.overlays.find((item) => item.id === selection.id);
+        if (overlay) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.overlay'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorId'), value: overlay.id },
+            {
+              label: t('roomEditor.compositionPane.inspectorLayout'),
+              value: overlay.layout.$ref.id,
+            },
+            { label: t('roomEditor.compositionPane.inspectorOrder'), value: String(overlay.order) },
+          );
+        }
+        break;
+      }
+      case 'hotspot': {
+        const hotspot = data.hotspots.find((item) => item.id === selection.id);
+        if (hotspot) {
+          fields.push(
+            {
+              label: t('roomEditor.compositionPane.inspectorKind'),
+              value: t('roomEditor.compositionPane.entityKinds.hotspot'),
+            },
+            { label: t('roomEditor.compositionPane.inspectorId'), value: hotspot.id },
+            { label: t('roomEditor.compositionPane.inspectorLabel'), value: hotspot.label },
+            { label: t('roomEditor.compositionPane.inspectorTarget'), value: hotspot.target.kind },
+            {
+              label: t('roomEditor.compositionPane.inspectorInputOrder'),
+              value: String(hotspot.inputOrder),
+            },
+          );
+        }
+        break;
+      }
+    }
+    return (
+      <div className="space-y-3 rounded-md border bg-background/50 p-3">
+        <div className="text-sm font-semibold">
+          {describeRoomEditSelection(project, data, selection, t)}
+        </div>
+        <dl className="grid gap-x-4 gap-y-2 text-xs @3xl:grid-cols-[9rem_minmax(0,1fr)]">
+          {fields.map((field) => (
+            <div key={field.label} className="contents">
+              <dt className="font-medium text-muted-foreground">{field.label}</dt>
+              <dd className="min-w-0 break-words font-mono">{field.value}</dd>
+            </div>
+          ))}
+        </dl>
+      </div>
+    );
+  };
   return (
     <EditorPreviewSplit
       orientation={previewSplitOrientation}
@@ -1453,6 +1594,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   onNavigationChange={handleRoomEditNavigationChange}
                   gestureCancellationToken={roomEditGestureCancellationToken}
                   interactionEnabled={!roomEditTransitioning}
+                  selection={roomSelection}
+                  onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
                 />
               </div>
             ) : null}
@@ -1479,7 +1622,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       <CategorizedEditorLayout
         categories={categorizedRoomEditorCategories}
         activeCategory={activeCategory}
-        onCategoryChange={setActiveCategory}
+        onCategoryChange={(category) => {
+          if (presentationMode === 'preview' && activeCategory === 'composition') return;
+          setActiveCategory(category);
+        }}
         navigationLabel={t('roomEditor.categories.navigationLabel')}
         contentRef={scrollRef}
         contentContainerClassName="max-w-6xl pb-8"
@@ -2539,514 +2685,33 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           </section>
         ) : null}
         {activeCategory === 'composition' ? (
-          <>
+          <div
+            className={
+              presentationMode === 'preview'
+                ? 'pointer-events-none select-none opacity-50'
+                : undefined
+            }
+            aria-disabled={presentationMode === 'preview'}
+            inert={presentationMode === 'preview' || undefined}
+          >
             <section
               className="space-y-3 rounded-xl border bg-card/20 p-4"
               data-workbench-anchor="room.composition"
             >
-              <div className="flex flex-wrap items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-sm font-semibold">{t('roomComposition.title')}</h3>
-                  <p className="mt-0.5 text-xs text-muted-foreground">
-                    {t('roomComposition.description')}
-                  </p>
-                </div>
-                <Button
-                  size="sm"
-                  variant={placingInteractable ? 'secondary' : 'outline'}
-                  onClick={() => {
-                    if (placingInteractable) setPlacingInteractable(null);
-                    else setInteractableSelectorOpen(true);
-                  }}
-                >
-                  <Plus data-icon="inline-start" />
-                  {placingInteractable
-                    ? t('roomComposition.cancelPlacement')
-                    : t('roomComposition.placeInteractable')}
-                </Button>
-              </div>
-              <div className="flex flex-wrap items-center gap-2 rounded-md border bg-muted/20 p-2">
-                <span className="text-xs font-medium">Fallback Interactable placement</span>
-                <Select
-                  items={data.placements.map((placement) => ({
-                    value: placement.id,
-                    label: placement.id,
-                  }))}
-                  placeholderItem="No fallback placement"
-                  value={data.fallbackInteractablePlacementId}
-                  onValueChange={(placementId) =>
-                    useCommandStore.getState().executeCommand({
-                      type: 'room.setFallbackInteractablePlacement',
-                      label: 'Set fallback Interactable placement',
-                      payload: {
-                        roomId,
-                        placementId,
-                      },
-                      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                      persistencePolicy: 'manual-save',
-                    })
-                  }
-                >
-                  <SelectTrigger className="h-8 w-56">
-                    <SelectValue placeholder="No fallback placement" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {data.placements.map((placement) => (
-                      <SelectItem key={placement.id} value={placement.id}>
-                        {placement.id}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <span className="text-xs text-muted-foreground">
-                  Used for Room-present Interactable Instances without an exact occurrence.
-                </span>
-              </div>
-              {placingInteractable?.kind === 'definition' ? (
-                <div className="flex flex-wrap items-end gap-3 rounded-md border bg-muted/20 p-2">
-                  <div className="space-y-1">
-                    <Label htmlFor={`room-interactable-count-${roomId}`}>Count</Label>
-                    <Input
-                      id={`room-interactable-count-${roomId}`}
-                      className="h-8 w-28"
-                      type="number"
-                      min={1}
-                      step={1}
-                      value={placementCount}
-                      onChange={(event) => {
-                        const next = Number(event.currentTarget.value);
-                        if (Number.isSafeInteger(next) && next > 0) setPlacementCount(next);
-                      }}
-                    />
-                  </div>
-                  <p className="max-w-xl text-xs text-muted-foreground">
-                    Non-stackable definitions create this many exact Instances. Stackable
-                    definitions create the minimum number of exact stacks required by the stack
-                    limit. The created occurrences share the placement you draw.
-                  </p>
-                </div>
-              ) : null}
-              <RoomCompositionStage
-                backgroundUrl={compositionBackgroundUrl}
-                backgroundImageSize={compositionBackgroundSize}
-                backgroundFit={data.background.fit}
-                fallbackColor={data.background.color}
-                referenceResolution={referenceResolution}
-                placementDraftSize={placementDraftSize}
-                items={data.placements.map((placement) => ({
-                  id: placement.id,
-                  label: placement.id,
-                  bounds: placement.bounds,
-                  occupants: placementOccupants(placement.id),
-                }))}
-                selectedId={activePlacementId}
-                placementDraftLabel={
-                  placingInteractable
-                    ? placingInteractable.kind === 'instance'
-                      ? (project.interactableInstances[placingInteractable.instanceId]
-                          ?.editorLabel ?? placingInteractable.instanceId)
-                      : (project.interactables[placingInteractable.definitionId]?.label ??
-                        placingInteractable.definitionId)
-                    : null
+              <RoomCompositionPane
+                project={project}
+                room={data}
+                selection={roomSelection}
+                disabled={presentationMode === 'preview'}
+                expandedSelectionKeys={expandedRoomSelectionKeys}
+                onExpandedSelectionKeysChange={(keys) =>
+                  setExpandedRoomSelectionKeys(new Set(keys))
                 }
-                onSelectionChange={setSelectedPlacementId}
-                onCommitBounds={(placementId, bounds) =>
-                  useCommandStore.getState().executeCommand({
-                    type: 'room.setPlacementBounds',
-                    label: 'Update room placement bounds',
-                    payload: { roomId, placementId, bounds },
-                    originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                    persistencePolicy: 'manual-save',
-                  })
-                }
-                onCommitPlacement={(bounds) => {
-                  if (placingInteractable) placeInteractable(placingInteractable, bounds);
-                }}
-                onCancelPlacement={() => {
-                  setPlacingInteractable(null);
-                  setPlacementCount(1);
-                }}
+                onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
+                renderInspector={renderRoomSelectionInspector}
               />
-              {placingInteractable ? (
-                <p className="text-xs text-muted-foreground">
-                  {t('roomComposition.dragPlacement')}
-                </p>
-              ) : null}
-              {activePlacementId && placementOccupants(activePlacementId).length > 1 ? (
-                <div className="flex items-start gap-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs">
-                  <AlertTriangle className="mt-0.5 size-4 shrink-0" />
-                  <div>
-                    <div className="font-medium">{t('roomComposition.sharedTitle')}</div>
-                    <p className="text-muted-foreground">
-                      {t('roomComposition.sharedDescription')}
-                    </p>
-                    {selectedPlacementInteractables.map((interactable) => (
-                      <div key={interactable.id} className="mt-2 flex flex-wrap items-center gap-2">
-                        <span className="font-medium">{interactable.label}</span>
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() => detachInteractable(interactable.id, activePlacementId!)}
-                        >
-                          {t('roomComposition.detach')}
-                        </Button>
-                        <Select
-                          items={data.placements.map((placement) => ({
-                            value: placement.id,
-                            label: placement.id,
-                          }))}
-                          value={activePlacementId}
-                          onValueChange={(placementId) => {
-                            if (placementId)
-                              moveInteractableToPlacement(interactable.id, placementId);
-                          }}
-                        >
-                          <SelectTrigger className="h-8 w-48">
-                            <SelectValue placeholder={t('roomComposition.moveToPlacement')} />
-                          </SelectTrigger>
-                          <SelectContent>
-                            {data.placements.map((placement) => (
-                              <SelectItem key={placement.id} value={placement.id}>
-                                {placement.id}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              ) : null}
-              {selectedPlacementInteractables.length > 0 ? (
-                <CollectionMasterDetail
-                  title="Interactables in placement"
-                  items={selectedPlacementInteractables}
-                  getKey={(interactable) => interactable.id}
-                  selectedKey={activePlacementInteractable?.id ?? null}
-                  onSelectedKeyChange={(interactableId) =>
-                    setSelectedPlacementInteractableId(interactableId)
-                  }
-                  listAriaLabel="Interactables in placement"
-                  emptyState="No Interactables in this placement."
-                  getItemPresentation={(interactable) => ({
-                    label: interactable.label,
-                    trailing: <span className="font-mono">{interactable.id}</span>,
-                  })}
-                  getDeleteLabel={(interactable) => `Remove occurrence ${interactable.id}`}
-                  onDeleteItem={(interactable) =>
-                    useCommandStore.getState().executeCommand({
-                      type: 'room.removeInteractableOccurrence',
-                      label: 'Remove Interactable occurrence',
-                      payload: { roomId, occurrenceId: interactable.id },
-                      originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                      persistencePolicy: 'manual-save',
-                    })
-                  }
-                  renderDetail={(interactable) => (
-                    <div className="space-y-2 rounded-md border bg-background/50 p-3">
-                      <div className="text-xs text-muted-foreground">
-                        Occurrence: {interactable.id}
-                      </div>
-                      <div className="flex flex-wrap gap-2">
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            useCommandStore.getState().executeCommand({
-                              type: 'room.unplaceInteractableInstance',
-                              label: 'Remove Interactable Instance from Room',
-                              payload: { instanceId: interactable.instanceId },
-                              originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                              persistencePolicy: 'manual-save',
-                            })
-                          }
-                        >
-                          Remove from Room
-                        </Button>
-                        <Button
-                          size="sm"
-                          variant="destructive"
-                          onClick={() =>
-                            useCommandStore.getState().executeCommand({
-                              type: 'room.destroyInteractableInstance',
-                              label: 'Destroy Interactable Instance',
-                              payload: { instanceId: interactable.instanceId },
-                              originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                              persistencePolicy: 'manual-save',
-                            })
-                          }
-                        >
-                          Destroy Instance
-                        </Button>
-                      </div>
-                      <InteractableInstancePropertiesEditor
-                        compact
-                        project={project}
-                        instanceId={interactable.instanceId}
-                        instance={interactable.instance}
-                        onChange={(next, change) =>
-                          useCommandStore.getState().executeCommand({
-                            type: 'project.applyPatch',
-                            label: 'Update Interactable Instance Properties',
-                            payload: [
-                              {
-                                op: 'replace',
-                                path: `/interactableInstances/${escapePointerSegment(interactable.instanceId)}`,
-                                value: next,
-                              },
-                              ...(change
-                                ? renameOwnerLocalPropertyReferencePatches(
-                                    project,
-                                    { kind: 'interactable', id: interactable.instanceId },
-                                    change.fromId,
-                                    change.toId,
-                                  )
-                                : []),
-                            ],
-                            originSaveUnitId: recordSaveUnitId('rooms', roomId),
-                            persistencePolicy: 'manual-save',
-                          })
-                        }
-                      />
-                    </div>
-                  )}
-                />
-              ) : null}
             </section>
-            <CollectionMasterDetail
-              anchor="room.placements"
-              className="rounded-xl border bg-card/20 p-4"
-              title="Placements"
-              description="Named regions used by cast, props, and interactions."
-              listAction={{
-                label: 'Add placement',
-                icon: <Plus className="size-3.5" aria-hidden="true" />,
-                onClick: () => {
-                  const id = nextId(
-                    data.placements.map((placement) => placement.id),
-                    'placement',
-                  );
-                  setSelectedPlacementId(id);
-                  commit(
-                    {
-                      ...data,
-                      placements: [
-                        ...data.placements,
-                        {
-                          id,
-                          bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
-                          presentation: { label: null, layout: null },
-                        },
-                      ],
-                    },
-                    'Add room placement',
-                  );
-                },
-              }}
-              items={data.placements}
-              getKey={(placement) => placement.id}
-              selectedKey={activePlacementId}
-              onSelectedKeyChange={(placementId) => setSelectedPlacementId(placementId)}
-              listAriaLabel="Placements"
-              emptyState="No placements."
-              detailEmptyState="Add a placement to edit its position and presentation."
-              getItemAnchor={(placement) => `room.placement.${placement.id}`}
-              getDeleteLabel={(placement) => `Delete placement ${placement.id}`}
-              onDeleteItem={(placement) => {
-                const index = data.placements.findIndex((item) => item.id === placement.id);
-                const nextPlacements = data.placements.filter((item) => item.id !== placement.id);
-                const nextIndex = Math.max(0, Math.min(index, nextPlacements.length - 1));
-                setSelectedPlacementId(nextPlacements[nextIndex]?.id ?? null);
-                commit({ ...data, placements: nextPlacements }, 'Delete room placement');
-              }}
-              getItemPresentation={(placement) => {
-                const occupantCount = placementOccupants(placement.id).length;
-                return {
-                  label: placement.id,
-                  trailing: `${occupantCount} occupant${occupantCount === 1 ? '' : 's'}`,
-                };
-              }}
-              renderDetail={(placement) => (
-                <div className="space-y-4 rounded-lg border bg-background/60 p-4">
-                  <div className="flex flex-wrap items-end justify-between gap-3">
-                    <div className="min-w-56 flex-1 space-y-1.5">
-                      <Label htmlFor={`placement-${placement.id}-id`}>Placement ID</Label>
-                      <Input
-                        id={`placement-${placement.id}-id`}
-                        value={placement.id}
-                        onChange={(event) => {
-                          const nextId = event.currentTarget.value;
-                          setSelectedPlacementId(nextId);
-                          replacePlacement(placement.id, { id: nextId });
-                        }}
-                      />
-                    </div>
-                    <Badge variant="outline">
-                      {placementOccupants(placement.id).length} occupant
-                      {placementOccupants(placement.id).length === 1 ? '' : 's'}
-                    </Badge>
-                  </div>
-
-                  <div className="space-y-2">
-                    <div>
-                      <div className="text-sm font-medium">Position and size</div>
-                      <p className="text-xs text-muted-foreground">
-                        Percentage of the Room presentation surface.
-                      </p>
-                    </div>
-                    <div className="grid grid-cols-2 gap-3 @xl:grid-cols-4">
-                      {(
-                        [
-                          ['x', 'Left'],
-                          ['y', 'Top'],
-                          ['width', 'Width'],
-                          ['height', 'Height'],
-                        ] as const
-                      ).map(([field, label]) => (
-                        <div key={field} className="space-y-1.5">
-                          <Label htmlFor={`placement-${placement.id}-${field}`}>{label}</Label>
-                          <div className="relative">
-                            <Input
-                              id={`placement-${placement.id}-${field}`}
-                              type="number"
-                              min={0}
-                              max={100}
-                              step={0.1}
-                              className="pr-7 tabular-nums"
-                              value={Number((placement.bounds[field] * 100).toFixed(3))}
-                              onChange={(event) =>
-                                replacePlacement(placement.id, {
-                                  bounds: {
-                                    ...placement.bounds,
-                                    [field]:
-                                      numberValue(
-                                        event.currentTarget.value,
-                                        placement.bounds[field] * 100,
-                                      ) / 100,
-                                  },
-                                })
-                              }
-                            />
-                            <span className="pointer-events-none absolute inset-y-0 right-2 flex items-center text-xs text-muted-foreground">
-                              %
-                            </span>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-
-                  <div className="grid gap-4 border-t pt-4 @5xl:grid-cols-[minmax(0,1fr)_18rem]">
-                    <div className="space-y-2">
-                      <div className="flex items-center justify-between gap-3">
-                        <div>
-                          <div className="text-sm font-medium">Label</div>
-                          <p className="text-xs text-muted-foreground">
-                            Optional text exposed by this placement.
-                          </p>
-                        </div>
-                        {placement.presentation.label ? (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() =>
-                              replacePlacement(placement.id, {
-                                presentation: { ...placement.presentation, label: null },
-                              })
-                            }
-                          >
-                            Remove label
-                          </Button>
-                        ) : null}
-                      </div>
-                      {placement.presentation.label ? (
-                        <TextContentEditor
-                          value={placement.presentation.label}
-                          onChange={(label) =>
-                            replacePlacement(placement.id, {
-                              presentation: { ...placement.presentation, label },
-                            })
-                          }
-                        />
-                      ) : (
-                        <Button
-                          size="sm"
-                          variant="outline"
-                          onClick={() =>
-                            replacePlacement(placement.id, {
-                              presentation: {
-                                ...placement.presentation,
-                                label: inlineTextContent(''),
-                              },
-                            })
-                          }
-                        >
-                          Add label
-                        </Button>
-                      )}
-                    </div>
-                    <div className="space-y-2">
-                      <div>
-                        <div className="text-sm font-medium">Layout</div>
-                        <p className="text-xs text-muted-foreground">
-                          Optional presentation attached to this placement.
-                        </p>
-                      </div>
-                      <Select
-                        value={refValue(placement.presentation.layout)}
-                        onValueChange={(value) => {
-                          if (value === '__none__') {
-                            replacePlacement(placement.id, {
-                              presentation: {
-                                label: placement.presentation.label,
-                                layout: null,
-                              },
-                            });
-                            return;
-                          }
-                          if (placement.presentation.layout) {
-                            replacePlacement(placement.id, {
-                              presentation: {
-                                ...placement.presentation,
-                                layout: roomLayoutRef(String(value)),
-                              },
-                            });
-                            return;
-                          }
-                          const allocated = allocateRoomPresentationOrder(data, 'world-overlay');
-                          commit(
-                            {
-                              ...allocated.room,
-                              placements: allocated.room.placements.map((entry) =>
-                                entry.id === placement.id
-                                  ? {
-                                      ...entry,
-                                      presentation: {
-                                        label: entry.presentation.label,
-                                        layout: roomLayoutRef(String(value)),
-                                        layoutOrder: allocated.order,
-                                      },
-                                    }
-                                  : entry,
-                              ),
-                            },
-                            'Update room placement Layout',
-                          );
-                        }}
-                      >
-                        <SelectItem value="__none__">No layout</SelectItem>
-                        {layouts.map((layout) => (
-                          <SelectItem key={layout.id} value={layout.id}>
-                            {layout.label}
-                          </SelectItem>
-                        ))}
-                      </Select>
-                    </div>
-                  </div>
-                </div>
-              )}
-            />
-          </>
+          </div>
         ) : null}
         {activeCategory === 'contents' ? (
           <>
@@ -3838,30 +3503,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 break;
             }
             setContentEntitySelector(null);
-          }}
-        />
-        <SearchSelectorDialog
-          open={interactableSelectorOpen}
-          title={t('roomComposition.placeInteractable')}
-          placeholder={t('roomComposition.searchInteractables')}
-          emptyMessage={t('roomComposition.noInteractables')}
-          items={interactableItems}
-          selectedId={null}
-          onOpenChange={setInteractableSelectorOpen}
-          onSelect={(item) => {
-            if (!item.entityId) return;
-            if (item.id.startsWith('instance:')) {
-              const instance = project.interactableInstances[item.entityId];
-              if (!instance) return;
-              setPlacingInteractable({
-                kind: 'instance',
-                instanceId: item.entityId,
-                definitionId: instance.definition.$ref.id,
-              });
-            } else {
-              setPlacingInteractable({ kind: 'definition', definitionId: item.entityId });
-            }
-            setInteractableSelectorOpen(false);
           }}
         />
         <SearchSelectorDialog

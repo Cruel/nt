@@ -106,6 +106,17 @@ with Preview. The navigation transform is retained in the Room tab state rather 
 Room or Camera View. WebGL draws and DOM overlays both consume the already-navigated projection, so
 navigation cannot create a renderer/selection-geometry split.
 
+Room Edit selection is semantic rather than draw-index based. A selected Placement is distinct from
+an exact Interactable occurrence, Prop, cast occurrence, Environment, placement-attached Layout,
+Room overlay, or Hotspot. The viewport and Room Composition pane share that same tab-scoped selection
+state. Ordinary click resolves through an occupant to its containing Placement, including when the
+occupant visual extends beyond the Placement rectangle; double-click selects the topmost exact
+occupant. Right-click exposes every overlapping candidate plus associated containing Placements and
+uses a temporary hover outline without replacing the committed selection. The Composition pane shows
+a placement-oriented Room Contents hierarchy when selection is empty and switches to semantic entity
+inspection when selection is present. Preview retains this pane and its selection state but makes it
+inert while the engine surface owns presentation input.
+
 Condition truth is not reimplemented in the browser. While Edit is active, the Room's focused-preview
 host stays logically connected but visually concealed and returns the native `RoomPresentationResolution`
 membership for cast entries, Interactable occurrences, Props, and Environments. Room Edit uses that
@@ -139,14 +150,17 @@ editor/src/renderer/authoring-renderer/authoring-webgl-backend.ts
 editor/src/renderer/authoring-renderer/authoring-webgl-provider.tsx
 editor/src/renderer/material-preview/material-preview-renderer.ts
 editor/src/renderer/material-preview/material-preview-provider.tsx
+editor/src/renderer/editors/rooms/RoomCompositionPane.tsx
 editor/src/renderer/editors/rooms/RoomEditSurface.tsx
 editor/src/renderer/editors/rooms/room-edit-navigation.ts
 editor/src/renderer/editors/rooms/room-edit-projection.ts
+editor/src/renderer/editors/rooms/room-edit-selection.ts
 editor/src/renderer/workbench/workbench-group-services.tsx
 ```
 
 The group authority contract is covered by `authoring-webgl-renderer.test.ts`. Material binding,
 preview lifecycle, invalidation, and recovery remain covered by `material-preview-renderer.test.ts`.
-`room-edit-projection.test.ts` covers the Room spatial seam, and
+`room-edit-projection.test.ts` covers the Room spatial seam,
+`room-edit-selection.test.ts` covers placement-first semantic hit resolution, and
 `shader-material-preview-pooling.test.tsx` proves that Material Preview and Room Edit share one
 provider-owned GPU authority.
