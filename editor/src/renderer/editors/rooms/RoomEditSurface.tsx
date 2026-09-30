@@ -1,6 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { useAuthoringWebGlGroupRenderer } from '@/authoring-renderer/authoring-webgl-provider';
+import {
+  ContextMenu,
+  ContextMenuContent,
+  ContextMenuItem,
+  ContextMenuSeparator,
+  ContextMenuTrigger,
+} from '@/components/ui/context-menu';
 import type {
   AuthoringWebGlMaterialDraw,
   AuthoringWebGlMaterialResource,
@@ -30,6 +37,16 @@ import {
   zoomRoomEditNavigationAtPoint,
   type RoomEditNavigation,
 } from './room-edit-navigation';
+import {
+  candidateForRoomEditSelection,
+  defaultRoomEditSelectionCandidate,
+  hitTestRoomEditCandidates,
+  roomEditSelectionCandidates,
+  roomEditSelectionKey,
+  topmostRoomEditOccupantCandidate,
+  type RoomEditSelection,
+  type RoomEditSelectionCandidate,
+} from './room-edit-selection';
 
 interface PreparedVisual {
   texture: AuthoringWebGlTextureResource | null;
@@ -246,6 +263,8 @@ export function RoomEditSurface({
   onNavigationChange = () => {},
   gestureCancellationToken = 0,
   interactionEnabled = true,
+  selection = [],
+  onSelectionChange = () => {},
 }: {
   project: AuthoringProject;
   roomId: string;
@@ -258,6 +277,8 @@ export function RoomEditSurface({
   onNavigationChange?: (navigation: RoomEditNavigation) => void;
   gestureCancellationToken?: number;
   interactionEnabled?: boolean;
+  selection?: readonly RoomEditSelection[];
+  onSelectionChange?: (selection: readonly RoomEditSelection[]) => void;
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useAuthoringWebGlGroupRenderer();
@@ -274,7 +295,11 @@ export function RoomEditSurface({
   } | null>(null);
   const spaceHeldRef = useRef(false);
   const pointerInsideRef = useRef(false);
+  const suppressSelectionClickRef = useRef(false);
   const [panning, setPanning] = useState(false);
+  const [contextCandidates, setContextCandidates] = useState<RoomEditSelectionCandidate[]>([]);
+  const [contextPreviewCandidate, setContextPreviewCandidate] =
+    useState<RoomEditSelectionCandidate | null>(null);
   const [preparedScene, setPreparedScene] = useState<PreparedRoomEditScene | null>(null);
   navigationRef.current = navigation;
   const canonicalSurface = useMemo(
@@ -307,6 +332,10 @@ export function RoomEditSurface({
       room,
       roomId,
     ],
+  );
+  const selectionCandidates = useMemo(
+    () => roomEditSelectionCandidates(project, room, projection, t),
+    [project, projection, room, t],
   );
   projectionRef.current = projection;
   const preparationProjection = useMemo(
@@ -375,6 +404,12 @@ export function RoomEditSurface({
 
   const updateNavigation = (next: RoomEditNavigation) =>
     onNavigationChange(clampRoomEditNavigation(next, referenceResolution, canonicalSurface));
+
+  const candidatesAtClientPoint = (clientX: number, clientY: number) => {
+    const point = viewportPoint(clientX, clientY);
+    if (!point) return [];
+    return hitTestRoomEditCandidates(selectionCandidates, point, referenceResolution);
+  };
 
   useEffect(() => {
     let active = true;
@@ -492,110 +527,204 @@ export function RoomEditSurface({
     return () => registration.unregister();
   }, [preparedScene, renderer, roomPropertyValues]);
 
+  const committedCandidates = selection.flatMap((item) => {
+    const candidate = candidateForRoomEditSelection(selectionCandidates, item);
+    return candidate ? [candidate] : [];
+  });
+
   return (
-    <div
-      ref={surfaceRef}
-      className="relative w-full min-h-0 min-w-0 shrink-0 overflow-hidden bg-muted/20"
-      style={{ aspectRatio: `${referenceResolution.width} / ${referenceResolution.height}` }}
-      data-testid="room-edit-surface"
-      data-panning={panning ? 'true' : 'false'}
-      data-interaction-enabled={interactionEnabled ? 'true' : 'false'}
-      onPointerEnter={() => {
-        pointerInsideRef.current = true;
-      }}
-      onPointerLeave={() => {
-        pointerInsideRef.current = false;
-      }}
-      onWheel={(event) => {
-        if (!interactionEnabled) return;
-        event.preventDefault();
-        const point = viewportPoint(event.clientX, event.clientY);
-        if (!point) return;
-        const zoomFactor = Math.exp(-event.deltaY * 0.0015);
-        updateNavigation(
-          zoomRoomEditNavigationAtPoint(
-            navigationRef.current,
-            referenceResolution,
-            point,
-            navigationRef.current.zoom * zoomFactor,
-          ),
-        );
-      }}
-      onPointerDown={(event) => {
-        if (!interactionEnabled) return;
-        const shouldPan = event.button === 1 || (event.button === 0 && spaceHeldRef.current);
-        if (!shouldPan) return;
-        event.preventDefault();
-        panGestureRef.current = {
-          pointerId: event.pointerId,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        };
-        surfaceRef.current?.setPointerCapture?.(event.pointerId);
-        setPanning(true);
-      }}
-      onPointerMove={(event) => {
-        const gesture = panGestureRef.current;
-        if (!gesture || gesture.pointerId !== event.pointerId) return;
-        const point = viewportPoint(event.clientX, event.clientY);
-        if (!point) return;
-        const delta = {
-          x: (event.clientX - gesture.clientX) * point.scaleX,
-          y: (event.clientY - gesture.clientY) * point.scaleY,
-        };
-        gesture.clientX = event.clientX;
-        gesture.clientY = event.clientY;
-        updateNavigation(panRoomEditNavigation(navigationRef.current, delta));
-      }}
-      onPointerUp={(event) => {
-        const gesture = panGestureRef.current;
-        if (!gesture || gesture.pointerId !== event.pointerId) return;
-        panGestureRef.current = null;
-        setPanning(false);
-        if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
-          surfaceRef.current.releasePointerCapture(event.pointerId);
-      }}
-      onPointerCancel={(event) => {
-        const gesture = panGestureRef.current;
-        if (!gesture || gesture.pointerId !== event.pointerId) return;
-        panGestureRef.current = null;
-        setPanning(false);
+    <ContextMenu
+      onOpenChange={(open) => {
+        if (open) return;
+        setContextCandidates([]);
+        setContextPreviewCandidate(null);
       }}
     >
-      <canvas
-        ref={canvasRef}
-        width={referenceResolution.width}
-        height={referenceResolution.height}
-        className="absolute inset-0 size-full"
-        aria-label={t('roomEditor.presentationModes.editWorldRendering')}
-        data-testid="room-edit-canvas"
-      />
-      <div className="pointer-events-none absolute inset-0" data-testid="room-edit-overlays">
-        {projection.layoutPlaceholders.map((placeholder) => (
-          <div
-            key={`layout:${placeholder.placementId}`}
-            className={`absolute border border-dotted border-primary/60 bg-primary/5 ${placeholder.hasRenderedOccupants ? 'opacity-40' : 'opacity-75'}`}
-            style={overlayStyle(placeholder, projection)}
-            data-testid={`room-edit-layout-placeholder-${placeholder.placementId}`}
-          >
-            <span className="absolute bottom-0 left-0 max-w-full truncate bg-background/75 px-1 py-0.5 text-[10px] font-medium">
-              {placeholder.label} · {placeholder.layoutId}
-            </span>
+      <ContextMenuTrigger className="contents">
+        <div
+          ref={surfaceRef}
+          className="relative w-full min-h-0 min-w-0 shrink-0 overflow-hidden bg-muted/20"
+          style={{ aspectRatio: `${referenceResolution.width} / ${referenceResolution.height}` }}
+          data-testid="room-edit-surface"
+          data-panning={panning ? 'true' : 'false'}
+          data-interaction-enabled={interactionEnabled ? 'true' : 'false'}
+          onPointerEnter={() => {
+            pointerInsideRef.current = true;
+          }}
+          onPointerLeave={() => {
+            pointerInsideRef.current = false;
+          }}
+          onWheel={(event) => {
+            if (!interactionEnabled) return;
+            event.preventDefault();
+            const point = viewportPoint(event.clientX, event.clientY);
+            if (!point) return;
+            const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+            updateNavigation(
+              zoomRoomEditNavigationAtPoint(
+                navigationRef.current,
+                referenceResolution,
+                point,
+                navigationRef.current.zoom * zoomFactor,
+              ),
+            );
+          }}
+          onPointerDown={(event) => {
+            if (!interactionEnabled) return;
+            const shouldPan = event.button === 1 || (event.button === 0 && spaceHeldRef.current);
+            if (!shouldPan) return;
+            event.preventDefault();
+            suppressSelectionClickRef.current = true;
+            panGestureRef.current = {
+              pointerId: event.pointerId,
+              clientX: event.clientX,
+              clientY: event.clientY,
+            };
+            surfaceRef.current?.setPointerCapture?.(event.pointerId);
+            setPanning(true);
+          }}
+          onPointerMove={(event) => {
+            const gesture = panGestureRef.current;
+            if (!gesture || gesture.pointerId !== event.pointerId) return;
+            const point = viewportPoint(event.clientX, event.clientY);
+            if (!point) return;
+            const delta = {
+              x: (event.clientX - gesture.clientX) * point.scaleX,
+              y: (event.clientY - gesture.clientY) * point.scaleY,
+            };
+            gesture.clientX = event.clientX;
+            gesture.clientY = event.clientY;
+            updateNavigation(panRoomEditNavigation(navigationRef.current, delta));
+          }}
+          onPointerUp={(event) => {
+            const gesture = panGestureRef.current;
+            if (!gesture || gesture.pointerId !== event.pointerId) return;
+            panGestureRef.current = null;
+            setPanning(false);
+            if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
+              surfaceRef.current.releasePointerCapture(event.pointerId);
+          }}
+          onPointerCancel={(event) => {
+            const gesture = panGestureRef.current;
+            if (!gesture || gesture.pointerId !== event.pointerId) return;
+            panGestureRef.current = null;
+            setPanning(false);
+          }}
+          onClick={(event) => {
+            if (!interactionEnabled) return;
+            if (suppressSelectionClickRef.current) {
+              suppressSelectionClickRef.current = false;
+              return;
+            }
+            const candidate = defaultRoomEditSelectionCandidate(
+              candidatesAtClientPoint(event.clientX, event.clientY),
+            );
+            onSelectionChange(candidate ? [candidate.selection] : []);
+          }}
+          onDoubleClick={(event) => {
+            if (!interactionEnabled) return;
+            const candidate = topmostRoomEditOccupantCandidate(
+              candidatesAtClientPoint(event.clientX, event.clientY),
+            );
+            if (candidate) onSelectionChange([candidate.selection]);
+          }}
+          onContextMenu={(event) => {
+            if (!interactionEnabled) {
+              event.preventDefault();
+              return;
+            }
+            const candidates = candidatesAtClientPoint(event.clientX, event.clientY);
+            setContextCandidates(candidates);
+            setContextPreviewCandidate(defaultRoomEditSelectionCandidate(candidates));
+          }}
+        >
+          <canvas
+            ref={canvasRef}
+            width={referenceResolution.width}
+            height={referenceResolution.height}
+            className="absolute inset-0 size-full"
+            aria-label={t('roomEditor.presentationModes.editWorldRendering')}
+            data-testid="room-edit-canvas"
+          />
+          <div className="pointer-events-none absolute inset-0" data-testid="room-edit-overlays">
+            {projection.layoutPlaceholders.map((placeholder) => (
+              <div
+                key={`layout:${placeholder.placementId}`}
+                className={`absolute border border-dotted border-primary/60 bg-primary/5 ${placeholder.hasRenderedOccupants ? 'opacity-40' : 'opacity-75'}`}
+                style={overlayStyle(placeholder, projection)}
+                data-testid={`room-edit-layout-placeholder-${placeholder.placementId}`}
+              >
+                <span className="absolute bottom-0 left-0 max-w-full truncate bg-background/75 px-1 py-0.5 text-[10px] font-medium">
+                  {placeholder.label} · {placeholder.layoutId}
+                </span>
+              </div>
+            ))}
+            {projection.placements.map((placement) => (
+              <div
+                key={placement.id}
+                className="absolute border border-dashed border-foreground/30"
+                style={overlayStyle(placement, projection)}
+                data-testid={`room-edit-placement-${placement.id}`}
+              />
+            ))}
+            {committedCandidates.map((candidate) => (
+              <div
+                key={`selected:${roomEditSelectionKey(candidate.selection)}`}
+                className="absolute border-2 border-primary shadow-[0_0_0_1px_color-mix(in_oklch,var(--background),transparent_30%)]"
+                style={overlayStyle(candidate.projected, projection)}
+                data-testid={`room-edit-selected-${roomEditSelectionKey(candidate.selection)}`}
+              >
+                <span className="absolute left-0 top-0 max-w-[min(24rem,80vw)] -translate-y-full truncate rounded-t bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
+                  {candidate.label}
+                </span>
+              </div>
+            ))}
+            {contextPreviewCandidate ? (
+              <div
+                className="absolute bg-amber-400/5 outline-2 outline-offset-2 outline-dashed outline-amber-400"
+                style={overlayStyle(contextPreviewCandidate.projected, projection)}
+                data-testid={`room-edit-context-preview-${roomEditSelectionKey(contextPreviewCandidate.selection)}`}
+              >
+                <span className="absolute bottom-0 right-0 max-w-[min(24rem,80vw)] translate-y-full truncate rounded-b bg-amber-400 px-1.5 py-0.5 text-[10px] font-semibold text-black">
+                  {contextPreviewCandidate.label}
+                </span>
+              </div>
+            ) : null}
           </div>
-        ))}
-        {projection.placements.map((placement) => (
-          <div
-            key={placement.id}
-            className="absolute border border-dashed border-foreground/40"
-            style={overlayStyle(placement, projection)}
-            data-testid={`room-edit-placement-${placement.id}`}
-          >
-            <span className="absolute left-0 top-0 max-w-full -translate-y-full truncate bg-background/80 px-1 py-0.5 text-[10px] font-medium">
-              {placement.id}
-            </span>
-          </div>
-        ))}
-      </div>
-    </div>
+        </div>
+      </ContextMenuTrigger>
+      <ContextMenuContent className="min-w-64">
+        {contextCandidates.length > 0 ? (
+          <>
+            {contextCandidates.map((candidate) => (
+              <ContextMenuItem
+                key={roomEditSelectionKey(candidate.selection)}
+                onMouseEnter={() => setContextPreviewCandidate(candidate)}
+                onFocus={() => setContextPreviewCandidate(candidate)}
+                onClick={() => onSelectionChange([candidate.selection])}
+              >
+                <span className="min-w-0 flex-1 truncate">{candidate.label}</span>
+                <span className="shrink-0 text-[10px] text-muted-foreground">
+                  {candidate.category === 'placement'
+                    ? t('roomEditor.compositionPane.candidatePlacement')
+                    : t('roomEditor.compositionPane.candidateEntity')}
+                </span>
+              </ContextMenuItem>
+            ))}
+          </>
+        ) : (
+          <ContextMenuItem disabled>{t('roomEditor.compositionPane.noCandidates')}</ContextMenuItem>
+        )}
+        {selection.length > 0 ? (
+          <>
+            <ContextMenuSeparator />
+            <ContextMenuItem onClick={() => onSelectionChange([])}>
+              {t('roomEditor.compositionPane.deselectAll')}
+              <span className="ml-auto text-[10px] text-muted-foreground">Ctrl+D</span>
+            </ContextMenuItem>
+          </>
+        ) : null}
+      </ContextMenuContent>
+    </ContextMenu>
   );
 }
