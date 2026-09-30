@@ -10,6 +10,7 @@ import {
   defaultInteractableInstanceData,
 } from '../../shared/project-schema/authoring-interactables';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultRoomData, parseRoomData } from '../../shared/project-schema/authoring-rooms';
 import { useProjectStore } from '@/project/project-store';
 import { useCommandStore } from '@/commands/command-store';
@@ -91,7 +92,7 @@ describe('RoomEditor', () => {
     expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
   });
 
-  it('routes Contents Add through dedicated-placement semantics instead of implicitly sharing', () => {
+  it('routes Contents Add through exact resource selection and dedicated-placement semantics', () => {
     const project = createAuthoringProject();
     project.assets.pixel = {
       id: 'pixel',
@@ -112,6 +113,9 @@ describe('RoomEditor', () => {
 
     selectRoomCategory('Contents');
     fireEvent.click(screen.getByRole('button', { name: 'Add prop' }));
+
+    expect(screen.getByText('Choose Prop source')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Image · Pixel/i }));
 
     const updated = useProjectStore.getState().document;
     expect(isAuthoringProject(updated)).toBe(true);
@@ -783,6 +787,156 @@ describe('RoomEditor', () => {
     );
     expect(screen.getByText('Interactable · Brass Key · key-entry')).toBeInTheDocument();
     expect(screen.getByText('Interactable occurrence')).toBeInTheDocument();
+  });
+
+  it('authors Placement bounds, label, and attached Layout from the Composition inspector with undo', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.layouts['desk-ui'] = {
+      id: 'desk-ui',
+      label: 'Desk UI',
+      data: defaultLayoutData('Desk UI'),
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: /Placement · desk/i }));
+
+    fireEvent.change(screen.getByLabelText('Bounds x'), { target: { value: '0.25' } });
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.25);
+    });
+    await act(() => useCommandStore.getState().undo());
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.1);
+    });
+
+    fireEvent.click(screen.getByRole('button', { name: 'Add label' }));
+    const labelEditor = screen.getByRole('textbox');
+    fireEvent.change(labelEditor, { target: { value: 'Writing desk' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Choose Layout' }));
+    fireEvent.click(screen.getByRole('button', { name: /Desk UI/i }));
+
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      const placement = parseRoomData(current.rooms.foyer?.data)?.placements[0];
+      expect(placement?.presentation.label).toMatchObject({
+        source: { kind: 'inline', text: 'Writing desk' },
+      });
+      expect(placement?.presentation.layout).toEqual({
+        $ref: { collection: 'layouts', id: 'desk-ui' },
+      });
+    });
+  });
+
+  it('edits the exact Interactable Instance through the shared Property Manager in Composition', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'key-placement',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-entry',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+        condition: { kind: 'always' },
+        placementId: 'key-placement',
+        visible: true,
+        order: 0,
+      },
+    ];
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass Key',
+      data: defaultInteractableData('Brass Key'),
+    };
+    const instance = defaultInteractableInstanceData('key-instance', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+    instance.localProperties = [
+      {
+        id: 'condition',
+        label: 'Condition',
+        type: 'string',
+        nullable: false,
+        value: 'ready',
+      },
+    ];
+    project.interactableInstances['key-instance'] = instance;
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(screen.getByRole('button', { name: /Interactable · Brass Key · key-entry/i }));
+    expect(screen.getByText('Instance Properties')).toBeInTheDocument();
+    expect(screen.getByText('Condition')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Condition' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Delete Property' }));
+
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(current.interactableInstances['key-instance']?.localProperties).toEqual([]);
+    });
+  });
+
+  it('retains the current Composition Hotspot selection across an ID rename', async () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.hotspots = [
+      {
+        id: 'door',
+        label: 'Door',
+        condition: { kind: 'always' },
+        inputOrder: 0,
+        highlight: { kind: 'default' },
+        target: { kind: 'none' },
+        shape: { kind: 'rect', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    const composition = screen.getByTestId('room-composition-pane');
+    fireEvent.click(within(composition).getByRole('button', { name: /Hotspot.*Door.*door/i }));
+    const idInput = screen.getByDisplayValue('door');
+    fireEvent.change(idInput, { target: { value: 'doorway' } });
+    fireEvent.blur(idInput);
+
+    await waitFor(() => {
+      const current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.hotspots[0]?.id).toBe('doorway');
+      expect(screen.getByDisplayValue('doorway')).toBeInTheDocument();
+    });
   });
   it('updates the display name through the command bus', async () => {
     const project = createAuthoringProject();
@@ -2101,6 +2255,248 @@ describe('RoomEditor', () => {
       const updatedRoom = parseRoomData(updated.rooms.foyer?.data)!;
       expect(updatedRoom.placements).toHaveLength(1);
       expect(updatedRoom.props.every((item) => item.placementId === 'shared')).toBe(true);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('chooses an exact non-first image for Prop Add, filters non-images, and reuses the same positioned Add command', async () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    project.assets.first = {
+      id: 'first',
+      label: 'First Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/first.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets.second = {
+      id: 'second',
+      label: 'Second Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/second.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'b'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets.sound = {
+      id: 'sound',
+      label: 'Sound Effect',
+      data: {
+        kind: 'audio',
+        source: { type: 'project-file', path: 'assets/sound.mp3' },
+        aliases: [],
+        extension: '.mp3',
+        imageMetadata: null,
+      },
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
+      });
+
+      fireEvent.click(
+        within(screen.getByTestId('room-composition-add-actions')).getByRole('button', {
+          name: 'Prop',
+        }),
+      );
+      expect(screen.getByText('Choose Prop source')).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Image · First Image/i })).toBeInTheDocument();
+      expect(screen.getByRole('button', { name: /Image · Second Image/i })).toBeInTheDocument();
+      expect(screen.queryByText('Sound Effect')).toBeNull();
+      fireEvent.click(screen.getByRole('button', { name: /Image · Second Image/i }));
+
+      let current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.props).toHaveLength(0);
+      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
+      expect(screen.getByTestId('room-edit-add-ghost')).toBeInTheDocument();
+      fireEvent.pointerDown(surface, { pointerId: 91, button: 0, clientX: 300, clientY: 200 });
+
+      current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(parseRoomData(current.rooms.foyer?.data)?.props[0]?.asset?.$ref.id).toBe('second');
+
+      fireEvent.contextMenu(surface, { clientX: 700, clientY: 300 });
+      const addMenu = await screen.findByRole('menuitem', { name: 'Add' });
+      fireEvent.focus(addMenu);
+      fireEvent.keyDown(addMenu, { key: 'ArrowRight' });
+      const propItems = await screen.findAllByRole('menuitem', { name: 'Prop' });
+      fireEvent.click(propItems.at(-1)!);
+      fireEvent.click(await screen.findByRole('button', { name: /Image · First Image/i }));
+
+      current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      const updatedRoom = parseRoomData(current.rooms.foyer?.data)!;
+      expect(updatedRoom.props.map((item) => item.asset?.$ref.id)).toEqual(['second', 'first']);
+      expect(updatedRoom.placements).toHaveLength(2);
+    } finally {
+      window.matchMedia = originalMatchMedia;
+    }
+  });
+
+  it('filters Environment Add image choices after an explicit Material choice', () => {
+    const project = createAuthoringProject();
+    project.materials.mist = {
+      id: 'mist',
+      label: 'Mist',
+      data: defaultMaterialData('Mist'),
+    };
+    project.assets.image = {
+      id: 'image',
+      label: 'Backdrop',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/backdrop.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 1,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.assets.sound = {
+      id: 'sound',
+      label: 'Sound Effect',
+      data: {
+        kind: 'audio',
+        source: { type: 'project-file', path: 'assets/sound.mp3' },
+        aliases: [],
+        extension: '.mp3',
+        imageMetadata: null,
+      },
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+    fireEvent.click(
+      within(screen.getByTestId('room-composition-add-actions')).getByRole('button', {
+        name: 'Environment',
+      }),
+    );
+    fireEvent.click(screen.getByRole('button', { name: /Material · Mist/i }));
+
+    expect(screen.getByText('Choose Environment Image')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Image · Backdrop/i })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'No image Asset' })).toBeInTheDocument();
+    expect(screen.queryByText('Sound Effect')).toBeNull();
+  });
+
+  it('lets Interactable Add choose an existing exact Instance or create a new exact Instance', () => {
+    const originalMatchMedia = window.matchMedia;
+    window.matchMedia = vi.fn().mockImplementation((query: string) => ({
+      matches: query === '(prefers-reduced-motion: reduce)',
+      media: query,
+      onchange: null,
+      addListener: vi.fn(),
+      removeListener: vi.fn(),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+      dispatchEvent: vi.fn(),
+    }));
+    const project = createAuthoringProject();
+    project.interactables.key = {
+      id: 'key',
+      label: 'Brass Key',
+      data: defaultInteractableData('Brass Key'),
+    };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key',
+    );
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    try {
+      renderEditor();
+      fireEvent.click(screen.getByRole('button', { name: 'Edit' }));
+      const surface = screen.getByTestId('room-edit-surface');
+      Object.defineProperty(surface, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 1000,
+          bottom: 500,
+          width: 1000,
+          height: 500,
+          toJSON: () => ({}),
+        }),
+      });
+      const addInteractable = () =>
+        fireEvent.click(
+          within(screen.getByTestId('room-composition-add-actions')).getByRole('button', {
+            name: 'Interactable',
+          }),
+        );
+
+      addInteractable();
+      expect(screen.getByRole('button', { name: /New Instance · Brass Key/i })).toBeInTheDocument();
+      fireEvent.click(screen.getByRole('button', { name: /Existing Instance · key-instance/i }));
+      fireEvent.pointerMove(surface, { clientX: 250, clientY: 180 });
+      fireEvent.pointerDown(surface, { pointerId: 92, button: 0, clientX: 250, clientY: 180 });
+
+      let current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(Object.keys(current.interactableInstances)).toEqual(['key-instance']);
+      expect(parseRoomData(current.rooms.foyer?.data)?.interactables[0]?.interactable.$ref.id).toBe(
+        'key-instance',
+      );
+
+      addInteractable();
+      fireEvent.click(screen.getByRole('button', { name: /New Instance · Brass Key/i }));
+      fireEvent.pointerMove(surface, { clientX: 650, clientY: 320 });
+      fireEvent.pointerDown(surface, { pointerId: 93, button: 0, clientX: 650, clientY: 320 });
+
+      current = useProjectStore.getState().document;
+      expect(isAuthoringProject(current)).toBe(true);
+      if (!isAuthoringProject(current)) return;
+      expect(Object.keys(current.interactableInstances)).toHaveLength(2);
+      expect(current.interactableInstances['key-instance']).toBeDefined();
+      expect(parseRoomData(current.rooms.foyer?.data)?.interactables).toHaveLength(2);
     } finally {
       window.matchMedia = originalMatchMedia;
     }
