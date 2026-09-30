@@ -968,6 +968,15 @@
     }
   },
   "roomEditor": {
+    "commandFallbacks": {
+      "moveSelection": "Mover seleção da sala",
+      "resizeSelection": "Redimensionar seleção da sala",
+      "deleteSelection": "Excluir seleção da sala",
+      "addPresentationContent": "Adicionar conteúdo de apresentação da sala",
+      "reorderPresentation": "Reordenar apresentação da sala",
+      "reorderPresentationSelection": "Reordenar seleção da apresentação da sala",
+      "setPresentationOrder": "Definir ordem de apresentação da sala"
+    },
     "presentationModes": {
       "label": "Modo de apresentação da sala",
       "edit": "Editar",
@@ -1081,6 +1090,7 @@
         "chooseImage": "Escolher imagem",
         "profileId": "Perfil",
         "appearanceId": "Aparência",
+        "characterDefault": "Padrão do personagem",
         "none": "Nenhum",
         "poseId": "ID da pose",
         "expressionId": "ID da expressão",

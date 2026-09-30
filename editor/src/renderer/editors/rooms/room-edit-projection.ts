@@ -6,11 +6,7 @@ import type {
   RoomPresentationSpace,
 } from '../../../shared/project-schema/authoring-rooms';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
-import {
-  resolveArchetypeConfiguration,
-  resolveGameplayInstanceRecord,
-} from '../../../shared/project-schema/authoring-archetypes';
-import type { AuthoringRecordBase } from '../../../shared/project-schema/authoring-project';
+import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
 import { effectiveMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
 import { parseCharacterData } from '../../../shared/project-schema/authoring-characters';
@@ -19,6 +15,7 @@ import type { Condition } from '../../../shared/project-schema/authoring-flow';
 import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
 import { effectiveInteractableInstanceProperties } from '../../../shared/project-schema/authoring-interactable-properties';
 import { parseVariableData } from '../../../shared/project-schema/authoring-variables';
+import { resolveOwnerPropertyValues } from '@/project/owner-property-values';
 import type { RoomPresentationPlane } from '../../../shared/project-schema/room-presentation-order';
 import {
   applyRoomEditNavigation,
@@ -331,30 +328,6 @@ function imageSize(project: AuthoringProject, assetId: string | null): RoomEditS
   return { width: asset.imageMetadata.width, height: asset.imageMetadata.height };
 }
 
-function ownerPropertyValues(
-  project: AuthoringProject,
-  record: AuthoringRecordBase,
-  effectiveRecord: AuthoringRecordBase,
-): Readonly<Record<string, unknown>> {
-  const values: Record<string, unknown> = {};
-  for (const traitId of effectiveRecord.traits ?? record.traits ?? []) {
-    for (const property of project.traits[traitId]?.properties ?? []) {
-      if (property.defaultValue !== undefined) values[property.id] = property.defaultValue;
-    }
-  }
-  const archetypeDefaults = record.archetype
-    ? (resolveArchetypeConfiguration(project, record.archetype.$ref.id)?.defaultProperties ?? [])
-    : [];
-  for (const property of archetypeDefaults) {
-    if (property.defaultValue !== undefined) values[property.id] = property.defaultValue;
-  }
-  for (const property of record.defaultProperties ?? []) {
-    if (property.defaultValue !== undefined) values[property.id] = property.defaultValue;
-  }
-  for (const property of record.localProperties ?? []) values[property.id] = property.value;
-  return values;
-}
-
 function actorLayerRect(
   placement: RoomEditRect,
   layer: {
@@ -601,7 +574,7 @@ export function resolveRoomEditProjection({
         character.initialWorldState.location.room.$ref.id !== roomId)
     )
       return [];
-    const propertyValues = ownerPropertyValues(project, characterRecord, effectiveRecord);
+    const propertyValues = resolveOwnerPropertyValues(project, characterRecord, effectiveRecord);
     const layers = resolveCharacterPresentationLayers(
       character,
       occurrence.profileId ?? character.defaults.profileId,

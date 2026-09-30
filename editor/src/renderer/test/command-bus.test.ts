@@ -10,10 +10,26 @@ import {
   undoCommand,
 } from './command-test-utils';
 import { executeCommand as executeCommandCore } from '@/commands/command-bus';
+import { labelForCommand } from '@/commands/builtin-commands';
+import { editorI18n } from '@/i18n';
 import { toJsonValue } from '@/project/json-value';
 
 describe('command bus', () => {
   beforeEach(() => resetCommandIdsForTests());
+
+  it('localizes stable Room command-history fallback labels', async () => {
+    await editorI18n.changeLanguage('pseudo');
+    expect(labelForCommand('room.translateSelection')).toBe('⟦Move Room selection⟧');
+    expect(labelForCommand('room.resizeSelection')).toBe('⟦Resize Room selection⟧');
+    expect(labelForCommand('room.deleteSelection')).toBe('⟦Delete Room selection⟧');
+    expect(labelForCommand('room.addPresentationContent')).toBe('⟦Add Room presentation content⟧');
+    expect(labelForCommand('room.reorderPresentation')).toBe('⟦Reorder Room presentation⟧');
+    expect(labelForCommand('room.reorderPresentationSelection')).toBe(
+      '⟦Reorder Room presentation selection⟧',
+    );
+    expect(labelForCommand('room.setPresentationOrder')).toBe('⟦Set Room presentation order⟧');
+    await editorI18n.changeLanguage('en-US');
+  });
 
   it('applies, undoes, and redoes commands', () => {
     let state = createInitialCommandBusState({

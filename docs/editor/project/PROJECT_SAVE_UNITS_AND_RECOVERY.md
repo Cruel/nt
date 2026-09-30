@@ -210,9 +210,12 @@ owner/source identity—including the referenced image Asset and source-image re
 and current geometry, selection/tool, and camera state. Recovery restores it only when the current
 draft schema/shape and owning tab identity still match and the complete owner-specific Hotspot records
 validate at the runtime boundary, then reattaches its live apply/discard callbacks. Applying the draft
-revalidates the current Room-background or Interactable-sprite relationship and source identity before
-publishing geometry; a stale source leaves the draft unresolved instead of projecting old image-space
-coordinates onto a replacement image. Because that draft belongs to a visual Focus session rather
+revalidates the current Room-background or Interactable-sprite relationship, source identity, and
+Hotspot mode before publishing geometry. A valid dirty draft whose owner later changes Hotspot mode is
+retained as unresolved work rather than discarded, while apply remains blocked until its saved source
+and mode identities are compatible with the current owner. Likewise, a stale source leaves the draft
+unresolved instead of projecting old image-space coordinates onto a replacement image. Because that
+draft belongs to a visual Focus session rather
 than the record save unit itself, closing that tab requires draft resolution even when another
 duplicate view of the same record remains open. In that duplicate-view case, Apply/Don't Save resolve
 only the tab-local draft; they do not save or roll back the shared record state still owned by the

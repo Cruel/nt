@@ -381,6 +381,81 @@ describe('Hotspot Focus session', () => {
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']).toBeUndefined();
   });
 
+  it('preserves a recovered dirty custom Interactable draft after the owner mode changes', () => {
+    const project = projectWithRoomHotspotImage();
+    const data = defaultInteractableData('Door');
+    const interactableHotspot = {
+      id: 'door',
+      label: 'Door',
+      condition: { kind: 'always' as const },
+      inputOrder: 0,
+      highlight: { kind: 'default' as const },
+      target: { kind: 'owner' as const },
+      shape: { kind: 'rect' as const, bounds: originalBounds },
+    };
+    data.presentation.sprite = interactableAssetRef('background');
+    data.presentation.hotspots = { kind: 'custom', hotspots: [interactableHotspot] };
+    project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'interactable-tab',
+      ownerKind: 'interactable',
+      ownerId: 'door',
+      assetId: 'background',
+      mode: 'rectangles',
+      items: [interactableHotspot],
+    });
+    store.setBounds('interactable-tab', 'door', movedBounds);
+    const serialized = serializeDraftDirtyState(useDraftDirtyStore.getState());
+
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'project.applyPatch',
+        label: 'Disable Interactable hotspots',
+        payload: [
+          {
+            op: 'replace',
+            path: '/interactables/door/data/presentation/hotspots',
+            value: { kind: 'none' },
+          },
+        ],
+        originSaveUnitId: 'record:interactables:door',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+
+    useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useDraftDirtyStore.getState().restoreSerializedDrafts(serialized);
+
+    expect(
+      useHotspotFocusStore.getState().restore({
+        tabId: 'interactable-tab',
+        ownerKind: 'interactable',
+        ownerId: 'door',
+        assetId: 'background',
+        mode: 'sprite-alpha',
+        items: [],
+      }),
+    ).toBe(true);
+    expect(useHotspotFocusStore.getState().sessionsByTabId['interactable-tab']?.mode).toBe(
+      'rectangles',
+    );
+    expect(
+      useDraftDirtyStore.getState().entriesByKey['hotspot-focus:interactable-tab']?.dirty,
+    ).toBe(true);
+    expect(useHotspotFocusStore.getState().commit('interactable-tab')).toBe(false);
+    const current = useProjectStore.getState().document as typeof project;
+    expect(
+      parseInteractableData(current.interactables.door?.data)?.presentation.hotspots.kind,
+    ).toBe('none');
+    expect(useHotspotFocusStore.getState().discard('interactable-tab')).toBe(true);
+    expect(
+      useDraftDirtyStore.getState().entriesByKey['hotspot-focus:interactable-tab'],
+    ).toBeUndefined();
+  });
+
   it('persists final selection, tool, and camera changes after the last geometry mutation', () => {
     useProjectStore.getState().loadUnsavedProjectDocument(projectWithRoomHotspot());
     const store = useHotspotFocusStore.getState();

@@ -43,6 +43,13 @@ import {
 export type HotspotFocusOwnerKind = 'room' | 'interactable';
 export type HotspotFocusMode = 'rectangles' | 'sprite-alpha';
 
+export interface HotspotFocusReturnViewportScreenRect {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+}
+
 const hotspotFocusSourceIdentitySchema = z
   .object({
     sourcePath: z.string().min(1),
@@ -68,6 +75,7 @@ export interface HotspotFocusSession {
   tool: HotspotTool;
   camera: ImageStageCamera;
   cameraInitialized: boolean;
+  returnViewportScreenRect: HotspotFocusReturnViewportScreenRect | null;
 }
 
 interface RememberedFocusView {
@@ -83,6 +91,7 @@ interface StartHotspotFocusSession {
   mode: HotspotFocusMode;
   items: readonly EditableHotspot[];
   selectedHotspotId?: string | null;
+  returnViewportScreenRect?: HotspotFocusReturnViewportScreenRect | null;
 }
 
 interface HotspotFocusStoreState {
@@ -173,6 +182,23 @@ function currentOwnerAssetId(
   return interactable ? (interactable.presentation.sprite?.$ref.id ?? null) : undefined;
 }
 
+function currentOwnerMode(
+  document: ReturnType<typeof useProjectStore.getState>['document'],
+  ownerKind: HotspotFocusOwnerKind,
+  ownerId: string,
+): HotspotFocusMode | null | undefined {
+  if (!isAuthoringProject(document)) return undefined;
+  if (ownerKind === 'room') return document.rooms[ownerId] ? 'rectangles' : undefined;
+  const record = document.interactables[ownerId];
+  if (!record) return undefined;
+  const interactable = parseInteractableData(
+    resolveGameplayInstanceRecord(document, 'interactable', record)?.data,
+  );
+  if (!interactable) return undefined;
+  if (interactable.presentation.hotspots.kind === 'none') return null;
+  return interactable.presentation.hotspots.kind === 'custom' ? 'rectangles' : 'sprite-alpha';
+}
+
 function sameSourceIdentity(
   left: HotspotFocusSourceIdentity | null,
   right: HotspotFocusSourceIdentity | null,
@@ -238,7 +264,7 @@ function parseDraftPayload(value: JsonValue | undefined) {
     tool: payload.tool,
     camera: payload.camera,
     cameraInitialized: payload.cameraInitialized,
-  } satisfies Omit<HotspotFocusSession, 'tabId' | 'history'> & {
+  } satisfies Omit<HotspotFocusSession, 'tabId' | 'history' | 'returnViewportScreenRect'> & {
     currentItems: readonly EditableHotspot[];
   };
 }
@@ -289,6 +315,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       tool: 'select',
       camera: remembered?.camera ?? { zoom: 1, pan: { x: 0, y: 0 } },
       cameraInitialized: remembered?.cameraInitialized ?? false,
+      returnViewportScreenRect: input.returnViewportScreenRect ?? null,
     };
     set((state) => ({
       sessionsByTabId: { ...state.sessionsByTabId, [input.tabId]: session },
@@ -301,12 +328,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
     const entry = drafts.entriesByKey[draftKey(input.tabId)];
     if (!entry || entry.schema !== HOTSPOT_FOCUS_DRAFT_SCHEMA) return false;
     const payload = parseDraftPayload(entry.payload);
-    if (
-      !payload ||
-      payload.ownerKind !== input.ownerKind ||
-      payload.ownerId !== input.ownerId ||
-      payload.mode !== input.mode
-    ) {
+    if (!payload || payload.ownerKind !== input.ownerKind || payload.ownerId !== input.ownerId) {
       drafts.clearDraftDirty(draftKey(input.tabId));
       return false;
     }
@@ -325,6 +347,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       tool: payload.tool,
       camera: payload.camera,
       cameraInitialized: payload.cameraInitialized,
+      returnViewportScreenRect: input.returnViewportScreenRect ?? null,
     };
     set((state) => ({
       sessionsByTabId: { ...state.sessionsByTabId, [input.tabId]: session },
@@ -467,9 +490,11 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
     const document = useProjectStore.getState().document;
     if (!isAuthoringProject(document)) return false;
     const latestOwnerAssetId = currentOwnerAssetId(document, session.ownerKind, session.ownerId);
+    const latestOwnerMode = currentOwnerMode(document, session.ownerKind, session.ownerId);
     if (
       latestOwnerAssetId === undefined ||
       latestOwnerAssetId !== session.assetId ||
+      latestOwnerMode !== session.mode ||
       !sameSourceIdentity(
         sourceIdentityForAsset(document, latestOwnerAssetId),
         session.sourceIdentity,
