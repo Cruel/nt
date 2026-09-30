@@ -1306,7 +1306,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          plist="$(find editor/out/electron-builder -path '*/NovelTea Editor.app/Contents/Info.plist' -print -quit)"
+          plist="$(find editor/out/electron-builder \( -path '*/noveltea-editor.app/Contents/Info.plist' -o -path '*/NovelTea Editor.app/Contents/Info.plist' \) -print -quit)"
           test -n "$plist"
           test "$(plutil -extract LSMinimumSystemVersion raw -o - "$plist")" = "14.0"
 
