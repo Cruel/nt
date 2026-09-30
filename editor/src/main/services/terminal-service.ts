@@ -416,6 +416,7 @@ interface TerminalOutputParserCallbacks {
 
 class TerminalOutputParser {
   private pending = '';
+  private sawPrompt = false;
 
   constructor(
     private readonly integrationExpected: boolean,
@@ -432,7 +433,7 @@ class TerminalOutputParser {
       const bell = input.indexOf('\u0007', index);
       if (bell !== -1 && (oscStart === -1 || bell < oscStart)) {
         output += input.slice(index, bell + 1);
-        this.callbacks.onBell();
+        if (!this.integrationExpected || this.sawPrompt) this.callbacks.onBell();
         index = bell + 1;
         continue;
       }
@@ -468,14 +469,16 @@ class TerminalOutputParser {
   private handleOsc(content: string): boolean {
     if (!this.integrationExpected) return false;
     if (content === '633;A') {
+      this.sawPrompt = true;
       this.callbacks.onPrompt();
       return true;
     }
     if (content === '633;C') {
-      this.callbacks.onCommandStart();
+      if (this.sawPrompt) this.callbacks.onCommandStart();
       return true;
     }
     if (content.startsWith('633;D')) {
+      if (!this.sawPrompt) return true;
       const rawExitCode = content.split(';')[2];
       const parsedExitCode =
         rawExitCode === undefined || rawExitCode === '' ? null : Number(rawExitCode);
