@@ -22,6 +22,7 @@ import {
   type StageSize,
 } from './image-stage-transforms';
 import type { HotspotTool } from './hotspot-view-state';
+import { isTextEntryKeyboardTarget } from './keyboard-target';
 
 interface HotspotStageItemBase {
   id: string;
@@ -64,6 +65,8 @@ export interface HotspotImageStageProps {
   onCancelCreate?: () => void;
   onCommitBounds: (id: string, bounds: ImageNormalizedRect) => void;
   onDelete: (id: string) => void;
+  captureWindowKeyboard?: boolean;
+  keyboardDeleteEnabled?: boolean;
 }
 
 type Gesture =
@@ -131,6 +134,42 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     gestureRef.current = next;
     setGestureState(next);
   };
+  const keyboardStateRef = useRef({
+    selectedHotspotId: props.selectedHotspotId,
+    tool: props.tool,
+    onCancelCreate: props.onCancelCreate,
+    onDelete: props.onDelete,
+    keyboardDeleteEnabled: props.keyboardDeleteEnabled !== false,
+  });
+  keyboardStateRef.current = {
+    selectedHotspotId: props.selectedHotspotId,
+    tool: props.tool,
+    onCancelCreate: props.onCancelCreate,
+    onDelete: props.onDelete,
+    keyboardDeleteEnabled: props.keyboardDeleteEnabled !== false,
+  };
+  const handleKeyboardCommand = (event: KeyboardEvent | React.KeyboardEvent<HTMLDivElement>) => {
+    if (isTextEntryKeyboardTarget(event.target)) return false;
+    const keyboard = keyboardStateRef.current;
+    if (event.key === 'Escape' && (gestureRef.current || keyboard.tool === 'draw-rect')) {
+      event.preventDefault();
+      event.stopPropagation();
+      setGesture(null);
+      if (keyboard.tool === 'draw-rect') keyboard.onCancelCreate?.();
+      return true;
+    }
+    if (
+      (event.key === 'Delete' || event.key === 'Backspace') &&
+      keyboard.keyboardDeleteEnabled &&
+      keyboard.selectedHotspotId
+    ) {
+      event.preventDefault();
+      event.stopPropagation();
+      keyboard.onDelete(keyboard.selectedHotspotId);
+      return true;
+    }
+    return false;
+  };
   useEffect(() => {
     const element = rootRef.current;
     if (!element) return;
@@ -141,6 +180,14 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     return () => observer.disconnect();
   }, []);
   useEffect(() => onViewportChange?.(viewport), [onViewportChange, viewport]);
+  useEffect(() => {
+    if (!props.captureWindowKeyboard) return undefined;
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (handleKeyboardCommand(event)) event.stopImmediatePropagation();
+    };
+    window.addEventListener('keydown', onKeyDown, true);
+    return () => window.removeEventListener('keydown', onKeyDown, true);
+  });
   const restoredCamera = clampImageStageCamera(
     viewport,
     props.imageSize,
@@ -379,16 +426,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
         tabIndex={0}
         onMouseDown={startBackgroundGesture}
         onKeyDown={(event) => {
-          if (event.key === 'Escape' && (gesture || props.tool === 'draw-rect')) {
-            event.preventDefault();
-            setGesture(null);
-            if (props.tool === 'draw-rect') props.onCancelCreate?.();
-            return;
-          }
-          if ((event.key === 'Delete' || event.key === 'Backspace') && props.selectedHotspotId) {
-            event.preventDefault();
-            props.onDelete(props.selectedHotspotId);
-          }
+          if (!props.captureWindowKeyboard) handleKeyboardCommand(event);
         }}
       >
         <div

@@ -85,13 +85,16 @@ Hotspot Focus keeps view state independently per owner/source target. Its native
 100% correspond to one source-image pixel per CSS pixel; first entry uses 100% when the complete
 source fits and Fit otherwise. Select, Rectangle, and Pan are explicit geometry tools. Rectangle
 mode remains active after a successful draw so several Hotspots can be created in sequence, while
-the newest rectangle becomes selected. Escape cancels the current rectangle gesture/tool without
-committing project data.
+the newest rectangle becomes selected. While Focus owns the active tab, Escape cancels the active
+draw/move/resize/pan gesture before mouse-up can commit it, and Delete/Backspace removes the selected
+rectangle from non-text-entry focus. Text-entry controls retain their ordinary editing keys.
 
 For Room backgrounds, Focus transitions the full source image from the currently authored Room
 presentation mapping (including source cropping/stretch and Camera rotation) through native-aspect
 framing into the remembered Focus camera; exit runs those endpoints in reverse. Reduced-motion
-preferences skip the animation. Focus navigation remains independent from Room Edit navigation.
+preferences skip the animation. Entry from Preview derives this endpoint from canonical Room
+presentation/background geometry rather than Room Edit navigation, while entry from Edit uses the
+visible authored Edit presentation. Focus navigation remains independent from Room Edit navigation.
 
 Geometry changes are session-local. Draw, move, resize, and delete participate in a local undo/redo
 history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y. While the Focus tab owns the active workbench group,
@@ -111,9 +114,13 @@ preserve concurrent changes, disjoint geometry edits compose, and conflicting ed
 shape—including move/resize versus concurrent deletion—fail closed. `Cancel` discards the draft.
 Successful `Done` returns Room Edit with the most recently selected/created Hotspot selected when one
 remains. Switching tabs may leave the focus session alive.
-A modified session registers as a versioned serializable workbench draft so Project/window recovery
-can restore it, and closing its owning tab requires explicit apply/discard even when another visual
-tab shares the same record save unit.
+A modified session registers as a strict current-shape serializable workbench draft under the owning
+editor-session compatibility boundary; it does not define an independent draft version. Geometry,
+selection, active tool, and camera state are synchronized into that recovery entry while the draft is
+dirty. Recovery preserves a source-stale draft so it can still be explicitly discarded or inspected;
+the source-identity guard above continues to prevent applying it to a replacement source. Malformed
+draft payloads are discarded. Closing the owning tab requires explicit apply/discard even when
+another visual tab shares the same record save unit.
 
 Hotspot semantic editing chooses a target rather than a Verb. Room targets include local Features,
 other admitted subjects, and local Exits. Interactable targets additionally include the owning

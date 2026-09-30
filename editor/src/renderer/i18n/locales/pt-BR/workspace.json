@@ -974,7 +974,11 @@
       "preview": "Prévia",
       "fit": "Ajustar",
       "zoom": "Zoom da edição",
-      "editWorldRendering": "Renderização do mundo na edição da sala"
+      "editWorldRendering": "Renderização do mundo na edição da sala",
+      "rendererWebGlUnavailable": "A renderização da edição da sala requer WebGL2.",
+      "rendererContextLost": "A renderização da edição da sala está temporariamente indisponível enquanto o WebGL se recupera.",
+      "rendererShaderStale": "A edição da sala está usando o último programa de shader válido. Erro atual do shader: {{message}}",
+      "rendererShaderFailed": "A edição da sala não consegue renderizar o shader atual: {{message}}"
     },
     "compositionPane": {
       "contents": "Conteúdo da sala",
@@ -1046,6 +1050,10 @@
         "updateRoomProp": "Atualizar objeto da sala",
         "updateRoomEnvironment": "Atualizar ambiente da sala",
         "renameRoomHotspot": "Renomear área interativa da sala",
+        "deleteRoomHotspot": "Excluir área interativa da sala",
+        "updateRoomHotspot": "Atualizar área interativa da sala",
+        "moveRoomSelection": "Mover seleção da sala",
+        "resizeRoomSelection": "Redimensionar seleção da sala",
         "updatePlacementBounds": "Atualizar limites do posicionamento da sala",
         "clearPlacementLabel": "Limpar rótulo do posicionamento da sala",
         "updatePlacementLabel": "Atualizar rótulo do posicionamento da sala",

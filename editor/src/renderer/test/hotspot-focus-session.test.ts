@@ -224,7 +224,7 @@ describe('Hotspot Focus session', () => {
     expect(draft?.apply).toBeTypeOf('function');
     expect(draft?.discard).toBeTypeOf('function');
     expect(draft?.schema).toBe(HOTSPOT_FOCUS_DRAFT_SCHEMA);
-    expect(draft?.payload).toMatchObject({ schemaVersion: 1 });
+    expect(draft?.payload).not.toHaveProperty('schemaVersion');
   });
 
   it('serializes and restores a dirty Focus draft with live apply/discard callbacks', () => {
@@ -300,7 +300,6 @@ describe('Hotspot Focus session', () => {
         tabId: 'room-tab',
         label: 'Hotspot geometry',
         payload: {
-          schemaVersion: 1,
           ownerKind: 'room',
           ownerId: 'foyer',
           assetId: null,
@@ -327,6 +326,99 @@ describe('Hotspot Focus session', () => {
     ).toBe(false);
     expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']).toBeUndefined();
     expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']).toBeUndefined();
+  });
+
+  it('preserves a recovered dirty draft when the Room source Asset was replaced', () => {
+    const project = projectWithRoomHotspotImage();
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    const store = useHotspotFocusStore.getState();
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: 'background',
+      mode: 'rectangles',
+      items: [hotspot()],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+    const serialized = serializeDraftDirtyState(useDraftDirtyStore.getState());
+
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'project.applyPatch',
+        label: 'Replace Room background',
+        payload: [
+          {
+            op: 'replace',
+            path: '/rooms/foyer/data/background/asset',
+            value: { $ref: { collection: 'assets', id: 'replacement' } },
+          },
+        ],
+        originSaveUnitId: 'record:rooms:foyer',
+        persistencePolicy: 'manual-save',
+      }).ok,
+    ).toBe(true);
+
+    useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useDraftDirtyStore.getState().restoreSerializedDrafts(serialized);
+
+    expect(
+      useHotspotFocusStore.getState().restore({
+        tabId: 'room-tab',
+        ownerKind: 'room',
+        ownerId: 'foyer',
+        assetId: 'replacement',
+        mode: 'rectangles',
+        items: [hotspot()],
+      }),
+    ).toBe(true);
+    expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']?.assetId).toBe('background');
+    expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.dirty).toBe(true);
+    expect(useHotspotFocusStore.getState().commit('room-tab')).toBe(false);
+    expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']?.dirty).toBe(true);
+    expect(useHotspotFocusStore.getState().discard('room-tab')).toBe(true);
+    expect(useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab']).toBeUndefined();
+  });
+
+  it('persists final selection, tool, and camera changes after the last geometry mutation', () => {
+    useProjectStore.getState().loadUnsavedProjectDocument(projectWithRoomHotspot());
+    const store = useHotspotFocusStore.getState();
+    const windowHotspot = { ...hotspot('window'), label: 'Window', inputOrder: 1 };
+    store.start({
+      tabId: 'room-tab',
+      ownerKind: 'room',
+      ownerId: 'foyer',
+      assetId: null,
+      mode: 'rectangles',
+      items: [hotspot(), windowHotspot],
+    });
+    store.setBounds('room-tab', 'door', movedBounds);
+    store.setSelection('room-tab', 'window');
+    store.setTool('room-tab', 'pan');
+    store.setCamera('room-tab', { zoom: 2.5, pan: { x: 17, y: -23 } });
+    const serialized = serializeDraftDirtyState(useDraftDirtyStore.getState());
+
+    useHotspotFocusStore.setState({ sessionsByTabId: {}, rememberedViewsByTarget: {} });
+    useDraftDirtyStore.getState().resetDraftDirty();
+    useDraftDirtyStore.getState().restoreSerializedDrafts(serialized);
+    expect(
+      useHotspotFocusStore.getState().restore({
+        tabId: 'room-tab',
+        ownerKind: 'room',
+        ownerId: 'foyer',
+        assetId: null,
+        mode: 'rectangles',
+        items: [hotspot(), windowHotspot],
+      }),
+    ).toBe(true);
+
+    expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']).toMatchObject({
+      selectedHotspotId: 'window',
+      tool: 'pan',
+      camera: { zoom: 2.5, pan: { x: 17, y: -23 } },
+      cameraInitialized: true,
+    });
   });
 
   it('commits all geometry edits as one project undo step', () => {

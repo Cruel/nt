@@ -557,6 +557,10 @@ describe('RoomEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Edit Hotspots' }));
 
+    expect(document.querySelector('[data-hotspot-focus]')).toHaveAttribute(
+      'data-room-presentation-endpoint',
+      'ready',
+    );
     await waitFor(() =>
       expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).not.toBeNull(),
     );
@@ -567,6 +571,53 @@ describe('RoomEditor', () => {
     expect(stage).not.toBeNull();
     await waitFor(() => expect(stage).toHaveClass('opacity-100'), { timeout: 600 });
     expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).toBeNull();
+  });
+
+  it('captures a canonical Room presentation endpoint when Hotspot Focus starts from Preview', () => {
+    const project = createAuthoringProject();
+    project.assets.image = {
+      id: 'image',
+      label: 'Image',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/room.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 64,
+        contentHash: `sha256:${'a'.repeat(64)}`,
+        imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+
+    const previewSurface = document.querySelector<HTMLElement>('[data-room-preview-surface]');
+    expect(previewSurface).not.toBeNull();
+    Object.defineProperty(previewSurface!, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 100,
+        y: 50,
+        left: 100,
+        top: 50,
+        right: 1300,
+        bottom: 850,
+        width: 1200,
+        height: 800,
+        toJSON: () => ({}),
+      }),
+    });
+
+    selectRoomCategory('Hotspots');
+    fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
+
+    expect(document.querySelector('[data-hotspot-focus]')).toHaveAttribute(
+      'data-room-presentation-endpoint',
+      'ready',
+    );
   });
 
   it('suspends retained Room composition shortcuts while Hotspot Focus owns the tab', () => {

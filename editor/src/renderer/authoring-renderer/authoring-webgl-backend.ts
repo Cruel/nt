@@ -216,7 +216,7 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
         height: number,
         clearColor: readonly [number, number, number, number] = [0, 0, 0, 0],
       ) => this.beginTarget(width, height, clearColor),
-      drawMaterial: (draw: AuthoringWebGlMaterialDraw) => this.drawMaterial(draw, timeSeconds),
+      drawMaterial: (draw: AuthoringWebGlMaterialDraw) => this.drawMaterial(draw),
       copyTargetToCanvas: (
         canvas: HTMLCanvasElement,
         width: number,
@@ -265,7 +265,7 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     this.gl.clear(this.gl.COLOR_BUFFER_BIT);
   }
 
-  private drawMaterial(draw: AuthoringWebGlMaterialDraw, timeSeconds: number) {
+  private drawMaterial(draw: AuthoringWebGlMaterialDraw) {
     const gl = this.gl;
     const { resource } = draw;
     const vertexSource = resource.vertexShaderSource ?? FALLBACK_VERTEX_SOURCE;
@@ -359,9 +359,14 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
       textureUnit += 1;
     }
 
-    setUniformValue(gl, program, 'u_time', timeSeconds);
     for (const [name, parameter] of Object.entries(resource.resolved.parameters)) {
       if (parameter.value !== undefined) setUniformValue(gl, program, name, parameter.value);
+      if (
+        parameter.binding &&
+        draw.semanticInputs &&
+        Object.prototype.hasOwnProperty.call(draw.semanticInputs, parameter.binding)
+      )
+        setUniformValue(gl, program, name, draw.semanticInputs[parameter.binding]);
     }
     for (const [name, value] of Object.entries(draw.parameterOverrides ?? {}))
       setUniformValue(gl, program, name, value);

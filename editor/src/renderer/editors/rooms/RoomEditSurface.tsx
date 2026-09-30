@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
-import { useAuthoringWebGlGroupRenderer } from '@/authoring-renderer/authoring-webgl-provider';
+import {
+  useAuthoringWebGlGroupRenderer,
+  useAuthoringWebGlGroupStatus,
+} from '@/authoring-renderer/authoring-webgl-provider';
 import { AuthoringWebGlShaderProgramError } from '@/authoring-renderer/authoring-webgl-backend';
 import {
   ContextMenu,
@@ -241,6 +244,18 @@ function drawVisual(
     resource: prepared.material,
     geometry: { kind: 'quad', ...(uv ? { uv } : {}), ...(color ? { color } : {}) },
     modelViewProjection: modelViewProjection(displayProjected, displayProjection.viewport),
+    semanticInputs: {
+      'engine.time': timeSeconds,
+      'engine.paint_dimensions': [canonicalProjected.rect.width, canonicalProjected.rect.height],
+      'engine.reference_to_world_raster_scale': [1, 1],
+      'engine.context_logical_to_raster_scale': [1, 1],
+      'engine.viewport_pixel_dimensions': [
+        canonicalProjection.viewport.width,
+        canonicalProjection.viewport.height,
+      ],
+      'engine.pointer_position': [0, 0],
+      'engine.pointer_valid': false,
+    },
     parameterOverrides: parameterOverrides(
       application,
       canonicalProjected,
@@ -484,6 +499,7 @@ export function RoomEditSurface({
 }) {
   const { t } = useTranslation('workspace');
   const renderer = useAuthoringWebGlGroupRenderer();
+  const rendererStatus = useAuthoringWebGlGroupStatus();
   const resources = useMaterialPreviewProjectResources();
   const resourcesGeneration = useMaterialPreviewProjectGeneration();
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -516,6 +532,10 @@ export function RoomEditSurface({
     y: number;
   } | null>(null);
   const [preparedScene, setPreparedScene] = useState<PreparedRoomEditScene | null>(null);
+  const [shaderDiagnostic, setShaderDiagnostic] = useState<{
+    stale: boolean;
+    message: string;
+  } | null>(null);
   const handleSurfaceElement = useCallback(
     (element: HTMLDivElement | null) => {
       surfaceRef.current = element;
@@ -880,9 +900,17 @@ export function RoomEditSurface({
           );
         }
         frame.copyTargetToCanvas(canvas, display.viewport.width, display.viewport.height);
-        if (staleShaderError) throw staleShaderError;
+        setShaderDiagnostic((current) => {
+          const next = staleShaderError ? { stale: true, message: staleShaderError.message } : null;
+          if (current?.stale === next?.stale && current?.message === next?.message) return current;
+          return next;
+        });
       },
       onError: (error) => {
+        if (error instanceof AuthoringWebGlShaderProgramError) {
+          setShaderDiagnostic({ stale: error.stale, message: error.message });
+          return;
+        }
         console.error('Room Edit authoring render failed.', error);
       },
     });
@@ -1210,6 +1238,25 @@ export function RoomEditSurface({
             aria-label={t('roomEditor.presentationModes.editWorldRendering')}
             data-testid="room-edit-canvas"
           />
+          {!rendererStatus.available || shaderDiagnostic ? (
+            <div
+              className="pointer-events-none absolute left-2 top-2 z-30 max-w-[min(32rem,calc(100%-1rem))] rounded border bg-background/95 px-2 py-1.5 text-xs shadow-sm"
+              role="status"
+              data-testid="room-edit-renderer-diagnostic"
+            >
+              {!rendererStatus.available
+                ? rendererStatus.code === 'authoring-webgl.context-lost'
+                  ? t('roomEditor.presentationModes.rendererContextLost')
+                  : t('roomEditor.presentationModes.rendererWebGlUnavailable')
+                : shaderDiagnostic?.stale
+                  ? t('roomEditor.presentationModes.rendererShaderStale', {
+                      message: shaderDiagnostic.message,
+                    })
+                  : t('roomEditor.presentationModes.rendererShaderFailed', {
+                      message: shaderDiagnostic?.message ?? '',
+                    })}
+            </div>
+          ) : null}
           <div className="pointer-events-none absolute inset-0" data-testid="room-edit-overlays">
             {projection.layoutPlaceholders.map((placeholder) => (
               <div

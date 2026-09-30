@@ -938,7 +938,11 @@
       "preview": "⟦Preview⟧",
       "fit": "⟦Fit⟧",
       "zoom": "⟦Edit zoom⟧",
-      "editWorldRendering": "⟦Room Edit world rendering⟧"
+      "editWorldRendering": "⟦Room Edit world rendering⟧",
+      "rendererWebGlUnavailable": "⟦Room Edit rendering requires WebGL2.⟧",
+      "rendererContextLost": "⟦Room Edit rendering is temporarily unavailable while WebGL recovers.⟧",
+      "rendererShaderStale": "⟦Room Edit is using the last valid shader program. Current shader error: {{message}}⟧",
+      "rendererShaderFailed": "⟦Room Edit cannot render the current shader: {{message}}⟧"
     },
     "compositionPane": {
       "contents": "⟦Room Contents⟧",
@@ -1010,6 +1014,10 @@
         "updateRoomProp": "⟦Update room prop⟧",
         "updateRoomEnvironment": "⟦Update room environment⟧",
         "renameRoomHotspot": "⟦Rename room hotspot⟧",
+        "deleteRoomHotspot": "⟦Delete room hotspot⟧",
+        "updateRoomHotspot": "⟦Update room hotspot⟧",
+        "moveRoomSelection": "⟦Move Room selection⟧",
+        "resizeRoomSelection": "⟦Resize Room selection⟧",
         "updatePlacementBounds": "⟦Update Room placement bounds⟧",
         "clearPlacementLabel": "⟦Clear Room placement label⟧",
         "updatePlacementLabel": "⟦Update Room placement label⟧",

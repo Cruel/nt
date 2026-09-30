@@ -1644,6 +1644,26 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                                 {"visible", true},
                                 {"occurrenceVisible", true},
                                 {"order", 0}}});
+    composition_room["world"]["cast"] = nlohmann::json::array(
+        {{{"entryId", "hero-cast"},
+          {"characterId", "hero"},
+          {"condition", {{"kind", "always"}}},
+          {"placementId", "table"},
+          {"enabled", true},
+          {"visible", true},
+          {"occurrenceVisible", true},
+          {"order", 0},
+          {"visual",
+           {{"profileId", "default"},
+            {"requestedPoseId", "default"},
+            {"resolvedPoseId", "default"},
+            {"expressionId", "default"},
+            {"appearanceId", nullptr},
+            {"idleId", nullptr},
+            {"layers", nlohmann::json::array()},
+            {"idle", nullptr}}}}});
+    composition_room["luaAdmission"]["compositionDraftCharacterIds"] =
+        nlohmann::json::array({"hero"});
     composition_room["luaAdmission"]["compositionDraftInteractableIds"] =
         nlohmann::json::array({"key"});
     composition_room["composition"] = {
@@ -1652,6 +1672,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {"source",
          {{"kind", "inline"},
           {"text", "return { compose = function(context, presentation) "
+                   "presentation.set_character_visible('hero', false); "
                    "presentation.set_interactable_visible('key', false) end }"}}}};
     REQUIRE(presenter.apply(make_request(core::editor::FocusedEditorDocumentKind::Room,
                                          "room-composition", composition_room, 9)));
@@ -1663,6 +1684,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK_FALSE(presenter.committed_room_resolution_for_testing()
                     ->presentation.interactables.front()
                     .visible);
+    REQUIRE(presenter.committed_room_resolution_for_testing()->presentation.actors.size() == 1);
+    CHECK_FALSE(presenter.committed_room_resolution_for_testing()->presentation.actors.front().visible);
 
     const auto scripted_layout = [](bool dedicated, bool rml_lua) {
         return nlohmann::json{

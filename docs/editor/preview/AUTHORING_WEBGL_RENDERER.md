@@ -150,17 +150,27 @@ editing the advanced numeric order inserts at an occupied order rather than auth
 
 Room Edit also follows the shared authoring WebGL last-good shader contract. If a Material draw reports
 a stale shader while a last-good program is available, Room Edit keeps rendering subsequent draws,
-copies the completed frame, and then reports the stale diagnostic. A hard shader-program failure with
-no last-good state aborts that frame before it is copied, avoiding publication of a partially rendered
-Room image.
+copies the completed frame, and surfaces the current shader failure in the Edit UI. A hard
+shader-program failure with no last-good state aborts that frame before it is copied and is surfaced
+as a distinct hard render diagnostic, avoiding publication of a partially rendered Room image. Room
+Edit reads WebGL2 availability and context-loss state from the same workbench-group authoring renderer
+status used by Material Preview, so recovery clears the author-facing diagnostic without introducing a
+second renderer authority.
+
+Shader parameter bindings are likewise resolved by the shared authoring backend from each parameter's
+declared engine semantic rather than from a privileged uniform spelling. Material Preview and Room Edit
+therefore share the same binding path for time, paint dimensions, reference/world raster scale,
+logical/raster scale, viewport pixel dimensions, and the role-specific pointer/Hotspot/RmlUi semantics.
+Explicit Material Application or draw overrides remain higher-precedence inputs than semantic defaults.
 
 Condition truth is not reimplemented in the browser. While Edit is active, the Room's focused-preview
-host stays logically connected but visually concealed and returns the native `RoomPresentationResolution`
-membership for cast entries, Interactable occurrences, Props, and Environments. Room Edit uses that
-resolved membership as its visibility authority, so Lua predicates and nested boolean conditions run
-through the same sandbox/query-provider path as focused Preview. Until a native resolution exists for
-the current Project revision, conditions that the browser cannot resolve deterministically are omitted
-rather than guessed.
+host stays logically connected but visually concealed and returns a native Room-resolution summary for
+cast entries, Interactable occurrences, Props, and Environments. Cast and Interactable membership in
+that summary represents final draw eligibility after runtime state and composition-hook mutation, not
+mere structural presence. Room Edit uses that resolved result as its visibility authority, so Lua
+predicates, nested boolean conditions, and composition changes to `enabled`/`visible` agree with focused
+Preview. Until a native resolution exists for the current Project revision, conditions that the browser
+cannot resolve deterministically are omitted rather than guessed.
 
 The existing focused engine Room preview remains a separate persistent `Preview` mode. Only the
 active direct-edit surface registers Room Edit scene work, and the focused preview continues to use

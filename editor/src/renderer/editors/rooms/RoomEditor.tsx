@@ -89,6 +89,7 @@ import {
   restoreHotspotViewState,
   type HotspotEditorViewState,
 } from '@/components/image-stage/hotspot-view-state';
+import { containRect } from '@/components/image-stage/image-stage-transforms';
 import { usePreferencesStore } from '@/stores/preferences-store';
 import { AssetImageThumbnail } from '@/workspace/AssetImageThumbnail';
 import { SearchSelectorDialog } from '@/workspace/SearchSelectorDialog';
@@ -613,6 +614,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [roomEditGestureCancellationToken, setRoomEditGestureCancellationToken] = useState(0);
   const roomEditAnimationFrameRef = useRef<number | null>(null);
   const roomEditSurfaceElementRef = useRef<HTMLDivElement | null>(null);
+  const roomPreviewSurfaceElementRef = useRef<HTMLDivElement | null>(null);
   const [hotspotFocusRoomViewportScreenRect, setHotspotFocusRoomViewportScreenRect] = useState<{
     x: number;
     y: number;
@@ -1273,10 +1275,24 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const beginRoomHotspotFocus = (selectedHotspotId?: string | null) => {
-    const bounds = roomEditSurfaceElementRef.current?.getBoundingClientRect();
+    const bounds =
+      presentationMode === 'edit'
+        ? roomEditSurfaceElementRef.current?.getBoundingClientRect()
+        : roomPreviewSurfaceElementRef.current?.getBoundingClientRect();
+    const previewViewport =
+      presentationMode === 'preview' && bounds
+        ? containRect({ width: bounds.width, height: bounds.height }, referenceResolution)
+        : null;
     setHotspotFocusRoomViewportScreenRect(
       bounds && bounds.width > 0 && bounds.height > 0
-        ? { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }
+        ? previewViewport
+          ? {
+              x: bounds.left + previewViewport.x,
+              y: bounds.top + previewViewport.y,
+              width: previewViewport.width,
+              height: previewViewport.height,
+            }
+          : { x: bounds.left, y: bounds.top, width: bounds.width, height: bounds.height }
         : null,
     );
     startHotspotFocus({
@@ -2738,14 +2754,22 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             detailOnly
             onViewChange={setHotspotView}
             onDelete={(hotspotId) =>
-              executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
+              executeHotspot(
+                'room.deleteHotspot',
+                t('roomEditor.compositionPane.editor.deleteRoomHotspot'),
+                { hotspotId },
+              )
             }
             onRename={renameRoomHotspot}
             onUpdate={(hotspotId, nextHotspot) =>
-              executeHotspot('room.updateHotspot', 'Update room hotspot', {
-                hotspotId,
-                hotspot: nextHotspot,
-              })
+              executeHotspot(
+                'room.updateHotspot',
+                t('roomEditor.compositionPane.editor.updateRoomHotspot'),
+                {
+                  hotspotId,
+                  hotspot: nextHotspot,
+                },
+              )
             }
             onEditGeometry={(selectedHotspotId) => beginRoomHotspotFocus(selectedHotspotId)}
           />
@@ -2961,16 +2985,24 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   selection={roomSelection}
                   onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
                   onTranslateSelection={(nextSelection, delta) =>
-                    executeRoomEditCommand('room.translateSelection', 'Move Room selection', {
-                      selection: nextSelection,
-                      delta,
-                    })
+                    executeRoomEditCommand(
+                      'room.translateSelection',
+                      t('roomEditor.compositionPane.editor.moveRoomSelection'),
+                      {
+                        selection: nextSelection,
+                        delta,
+                      },
+                    )
                   }
                   onResizeSelection={(nextSelection, bounds) =>
-                    executeRoomEditCommand('room.resizeSelection', 'Resize Room selection', {
-                      selection: nextSelection,
-                      bounds,
-                    })
+                    executeRoomEditCommand(
+                      'room.resizeSelection',
+                      t('roomEditor.compositionPane.editor.resizeRoomSelection'),
+                      {
+                        selection: nextSelection,
+                        bounds,
+                      },
+                    )
                   }
                   addActions={roomAddActions}
                   pendingAddActionId={roomAddGhost?.kind ?? null}
@@ -2988,6 +3020,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               </div>
             ) : null}
             <div
+              ref={roomPreviewSurfaceElementRef}
+              data-room-preview-surface=""
               className={
                 presentationMode === 'preview' ? 'absolute inset-0' : 'invisible absolute inset-0'
               }
@@ -3254,11 +3288,19 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               exits={data.exits.map((exit) => ({ id: exit.id, label: exit.id }))}
               onViewChange={setHotspotView}
               onDelete={(hotspotId) =>
-                executeHotspot('room.deleteHotspot', 'Delete room hotspot', { hotspotId })
+                executeHotspot(
+                  'room.deleteHotspot',
+                  t('roomEditor.compositionPane.editor.deleteRoomHotspot'),
+                  { hotspotId },
+                )
               }
               onRename={renameRoomHotspot}
               onUpdate={(hotspotId, hotspot) =>
-                executeHotspot('room.updateHotspot', 'Update room hotspot', { hotspotId, hotspot })
+                executeHotspot(
+                  'room.updateHotspot',
+                  t('roomEditor.compositionPane.editor.updateRoomHotspot'),
+                  { hotspotId, hotspot },
+                )
               }
               onEditGeometry={(selectedHotspotId) => beginRoomHotspotFocus(selectedHotspotId)}
             />
