@@ -117,6 +117,24 @@ a placement-oriented Room Contents hierarchy when selection is empty and switche
 inspection when selection is present. Preview retains this pane and its selection state but makes it
 inert while the engine surface owns presentation input.
 
+Direct manipulation uses the same semantic command rules as committed edits. Empty-space drag creates
+a Placement-oriented marquee, while Ctrl/Cmd-click can extend that selection with exact occurrences
+or other spatial Room entities. Moving a selection resolves shared-placement ownership before drawing:
+an explicitly moved occurrence splits to a dedicated Placement when siblings must remain behind,
+whereas selecting the Placement moves all of its occupants once. The requested translation is clamped
+to Room bounds before both WebGL and DOM consume the transient draft. Single spatial selections expose
+resize handles and use the same draft path, including shared-placement splitting; a handle click with
+no geometry change is a no-op and creates no command. Pointer-up commits the already-previewed semantic
+operation as one undoable command, while Escape or switching to Preview discards the transient draft.
+
+New rendered Room content also follows one semantic Add path. Composition-pane Add enters a positioned
+ghost/drop flow, right-click Add seeds the clicked Room point, and the legacy Contents Add controls use
+the same operation with a centered seed. Props, cast occurrences, and Interactable occurrences receive
+a dedicated Placement by default; sharing an existing Placement is an explicit action. Multi-selection
+Delete is one command, with confirmation only when deleting a selected Placement would remove multiple
+occupants. Presentation reordering stays within the selected entity's current Presentation Plane, and
+editing the advanced numeric order inserts at an occupied order rather than authoring a duplicate.
+
 Condition truth is not reimplemented in the browser. While Edit is active, the Room's focused-preview
 host stays logically connected but visually concealed and returns the native `RoomPresentationResolution`
 membership for cast entries, Interactable occurrences, Props, and Environments. Room Edit uses that

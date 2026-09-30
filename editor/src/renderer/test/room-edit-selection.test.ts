@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import {
   defaultRoomEditSelectionCandidate,
   hitTestRoomEditCandidates,
+  marqueeRoomEditSelections,
   topmostRoomEditOccupantCandidate,
   type RoomEditSelectionCandidate,
 } from '@/editors/rooms/room-edit-selection';
@@ -74,5 +75,46 @@ describe('Room Edit semantic selection', () => {
       kind: 'placement',
       id: 'empty',
     });
+  });
+
+  it('marquee-selects a Placement by the union of its box and visible occupant geometry', () => {
+    const candidates: RoomEditSelectionCandidate[] = [
+      {
+        selection: { kind: 'prop', id: 'lamp' },
+        projected: { rect: { x: 310, y: 100, width: 100, height: 100 }, rotationDegrees: 0 },
+        label: 'Prop · lamp',
+        category: 'occupant',
+        placementId: 'desk',
+      },
+      {
+        selection: { kind: 'placement', id: 'desk' },
+        projected: { rect: { x: 100, y: 100, width: 100, height: 100 }, rotationDegrees: 0 },
+        label: 'Placement · desk',
+        category: 'placement',
+        placementId: 'desk',
+      },
+      {
+        selection: { kind: 'environment', id: 'fog' },
+        projected: { rect: { x: 500, y: 100, width: 100, height: 100 }, rotationDegrees: 0 },
+        label: 'Environment · fog',
+        category: 'independent',
+        placementId: null,
+      },
+    ];
+
+    expect(
+      marqueeRoomEditSelections(
+        candidates,
+        { x: 350, y: 120, width: 20, height: 20 },
+        { width: 1000, height: 500 },
+      ),
+    ).toEqual([{ kind: 'placement', id: 'desk' }]);
+    expect(
+      marqueeRoomEditSelections(
+        candidates,
+        { x: 540, y: 120, width: 20, height: 20 },
+        { width: 1000, height: 500 },
+      ),
+    ).toEqual([{ kind: 'environment', id: 'fog' }]);
   });
 });

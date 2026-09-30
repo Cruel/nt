@@ -126,7 +126,6 @@ import {
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { projectSettingsFromProject } from '../../../shared/project-schema/authoring-project-settings';
 import type { TextContent } from '../../../shared/project-schema/authoring-flow';
-import { emptyMaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import { resolveMaterialData } from '../../../shared/project-schema/authoring-materials';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import {
@@ -505,6 +504,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     kind: 'overlay-layout' | 'cast-character' | 'prop-asset' | 'environment-asset';
     id: string;
   } | null>(null);
+  const [roomAddGhostActionId, setRoomAddGhostActionId] = useState<string | null>(null);
   const [activeCategory, setActiveCategory] = useState<RoomEditorCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     const parsed = savedState ? parseRoomEditorTabState(savedState) : null;
@@ -699,6 +699,52 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     });
   }, [roomSelection]);
 
+  const deleteCurrentRoomSelection = useCallback(() => {
+    if (!project || !roomId || roomSelection.length === 0) return;
+    const crowdedPlacements = roomSelection.flatMap((selection) => {
+      if (selection.kind !== 'placement') return [];
+      const occupants: RoomEditSelection[] = [
+        ...data.interactables
+          .filter((item) => item.placementId === selection.id)
+          .map((item) => ({ kind: 'interactable' as const, id: item.id })),
+        ...data.props
+          .filter((item) => item.placementId === selection.id)
+          .map((item) => ({ kind: 'prop' as const, id: item.id })),
+        ...data.cast
+          .filter((item) => item.placementId === selection.id)
+          .map((item) => ({ kind: 'cast' as const, id: item.id })),
+        ...(data.placements.find((item) => item.id === selection.id)?.presentation.layout
+          ? [{ kind: 'placement-layout' as const, id: selection.id }]
+          : []),
+      ];
+      return occupants.length > 1 ? [{ placementId: selection.id, occupants }] : [];
+    });
+    if (crowdedPlacements.length > 0) {
+      const details = crowdedPlacements
+        .flatMap(({ placementId, occupants }) => [
+          t('roomEditor.compositionPane.deletePlacementHeading', { id: placementId }),
+          ...occupants.map(
+            (occupant) => `• ${describeRoomEditSelection(project, data, occupant, t)}`,
+          ),
+        ])
+        .join('\n');
+      if (
+        !window.confirm(
+          `${t('roomEditor.compositionPane.deletePlacementConfirmation')}\n\n${details}`,
+        )
+      )
+        return;
+    }
+    useCommandStore.getState().executeCommand({
+      type: 'room.deleteSelection',
+      label: t('roomEditor.compositionPane.deleteSelection'),
+      payload: { roomId, selection: roomSelection },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
+    setRoomSelection([]);
+  }, [data, project, roomId, roomSelection, t]);
+
   useEffect(() => {
     if (presentationMode !== 'edit') return;
     const onKeyDown = (event: KeyboardEvent) => {
@@ -706,8 +752,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         editorLocation &&
         (!editorLocation.isActiveInGroup || editorLocation.groupId !== activeGroupId)
       )
-        return;
-      if (!(event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'd'))
         return;
       const target = event.target instanceof HTMLElement ? event.target : null;
       if (
@@ -718,12 +762,31 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           target.tagName === 'SELECT')
       )
         return;
+      const deselect =
+        event.ctrlKey && !event.metaKey && !event.altKey && event.key.toLowerCase() === 'd';
+      if (deselect) {
+        event.preventDefault();
+        setRoomSelection([]);
+        return;
+      }
+      const deleteSelection =
+        !event.ctrlKey &&
+        !event.metaKey &&
+        !event.altKey &&
+        (event.key === 'Delete' || event.key === 'Backspace');
+      if (!deleteSelection || roomSelection.length === 0) return;
       event.preventDefault();
-      setRoomSelection([]);
+      deleteCurrentRoomSelection();
     };
     window.addEventListener('keydown', onKeyDown);
     return () => window.removeEventListener('keydown', onKeyDown);
-  }, [activeGroupId, editorLocation, presentationMode]);
+  }, [
+    activeGroupId,
+    deleteCurrentRoomSelection,
+    editorLocation,
+    presentationMode,
+    roomSelection.length,
+  ]);
 
   const animateRoomEditNavigation = useCallback(
     (from: RoomEditNavigation, to: RoomEditNavigation, onComplete?: () => void) => {
@@ -766,6 +829,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     (nextMode: RoomPresentationMode) => {
       if (roomEditTransitioning || nextMode === presentationMode) return;
       setRoomEditGestureCancellationToken((value) => value + 1);
+      setRoomAddGhostActionId(null);
       if (nextMode === 'preview') {
         const remembered = visibleEditNavigation;
         setRememberedEditNavigation(remembered);
@@ -916,6 +980,14 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       originSaveUnitId: recordSaveUnitId('rooms', roomId),
       persistencePolicy: 'manual-save',
     });
+  const executeRoomEditCommand = (type: string, label: string, payload: Record<string, unknown>) =>
+    useCommandStore.getState().executeCommand({
+      type,
+      label,
+      payload: { roomId, ...payload },
+      originSaveUnitId: recordSaveUnitId('rooms', roomId),
+      persistencePolicy: 'manual-save',
+    });
   const commitLocalProperties = (
     localProperties: OwnerLocalProperty[],
     change?: { kind: 'rename'; fromId: string; toId: string },
@@ -1006,6 +1078,84 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     id,
     label: value.label,
   }));
+  const interactableDefinitions = Object.entries(project.interactables).map(([id, value]) => ({
+    id,
+    label: value.label,
+  }));
+  const roomAddActions = [
+    {
+      id: 'placement',
+      label: t('roomEditor.compositionPane.addPlacement'),
+    },
+    {
+      id: 'prop',
+      label: t('roomEditor.compositionPane.addProp'),
+      disabled: !assets[0] && !materials[0],
+    },
+    {
+      id: 'cast',
+      label: t('roomEditor.compositionPane.addCast'),
+      disabled: !characters[0],
+    },
+    {
+      id: 'interactable',
+      label: t('roomEditor.compositionPane.addInteractable'),
+      disabled: !interactableDefinitions[0],
+    },
+    {
+      id: 'environment',
+      label: t('roomEditor.compositionPane.addEnvironment'),
+      disabled: !materials[0],
+    },
+  ] as const;
+  const executeRoomAdd = (
+    actionId: string,
+    target: { point: { x: number; y: number } } | { placementId: string },
+  ) => {
+    let payload: Record<string, unknown> | null = null;
+    switch (actionId) {
+      case 'placement':
+        if (!('point' in target)) return;
+        payload = { kind: 'placement', point: target.point };
+        break;
+      case 'prop':
+        if (!assets[0] && !materials[0]) return;
+        payload = {
+          kind: 'prop',
+          ...target,
+          ...(assets[0] ? { assetId: assets[0].id } : { materialId: materials[0]!.id }),
+        };
+        break;
+      case 'cast':
+        if (!characters[0]) return;
+        payload = { kind: 'cast', ...target, characterId: characters[0].id };
+        break;
+      case 'interactable':
+        if (!interactableDefinitions[0]) return;
+        payload = {
+          kind: 'interactable',
+          ...target,
+          interactableId: interactableDefinitions[0].id,
+        };
+        break;
+      case 'environment':
+        if (!('point' in target) || !materials[0]) return;
+        payload = {
+          kind: 'environment',
+          point: target.point,
+          materialId: materials[0].id,
+          ...(assets[0] ? { assetId: assets[0].id } : {}),
+        };
+        break;
+      default:
+        return;
+    }
+    executeRoomEditCommand(
+      'room.addPresentationContent',
+      t('roomEditor.compositionPane.addContent'),
+      payload,
+    );
+  };
   const scripts = Object.entries(project.scripts).map(([id, value]) => ({
     id,
     label: value.label,
@@ -1508,6 +1658,51 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         break;
       }
     }
+    const presentationOrder = (() => {
+      switch (selection.kind) {
+        case 'cast': {
+          const item = data.cast.find((candidate) => candidate.id === selection.id);
+          return item
+            ? { target: { kind: 'cast' as const, id: item.id }, order: item.order }
+            : null;
+        }
+        case 'prop': {
+          const item = data.props.find((candidate) => candidate.id === selection.id);
+          return item
+            ? { target: { kind: 'prop' as const, id: item.id }, order: item.order }
+            : null;
+        }
+        case 'interactable': {
+          const item = data.interactables.find((candidate) => candidate.id === selection.id);
+          return item
+            ? { target: { kind: 'interactable' as const, id: item.id }, order: item.order }
+            : null;
+        }
+        case 'environment': {
+          const item = data.environments.find((candidate) => candidate.id === selection.id);
+          return item
+            ? { target: { kind: 'environment' as const, id: item.id }, order: item.order }
+            : null;
+        }
+        case 'overlay': {
+          const item = data.overlays.find((candidate) => candidate.id === selection.id);
+          return item
+            ? { target: { kind: 'overlay' as const, id: item.id }, order: item.order }
+            : null;
+        }
+        case 'placement-layout': {
+          const item = data.placements.find((candidate) => candidate.id === selection.id);
+          return item?.presentation.layout
+            ? {
+                target: { kind: 'placement-layout' as const, id: item.id },
+                order: item.presentation.layoutOrder,
+              }
+            : null;
+        }
+        default:
+          return null;
+      }
+    })();
     return (
       <div className="space-y-3 rounded-md border bg-background/50 p-3">
         <div className="text-sm font-semibold">
@@ -1521,6 +1716,55 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             </div>
           ))}
         </dl>
+        {presentationOrder ? (
+          <div className="space-y-2 border-t pt-3" data-testid="room-presentation-order-controls">
+            <div className="grid grid-cols-2 gap-1">
+              {(
+                [
+                  ['backward', t('roomEditor.compositionPane.sendBackward')],
+                  ['forward', t('roomEditor.compositionPane.bringForward')],
+                  ['back', t('roomEditor.compositionPane.sendToBack')],
+                  ['front', t('roomEditor.compositionPane.bringToFront')],
+                ] as const
+              ).map(([action, label]) => (
+                <Button
+                  key={action}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    executeRoomEditCommand('room.reorderPresentation', label, {
+                      target: presentationOrder.target,
+                      action,
+                    })
+                  }
+                >
+                  {label}
+                </Button>
+              ))}
+            </div>
+            <div className="grid grid-cols-[minmax(0,1fr)_8rem] items-center gap-2">
+              <Label htmlFor={`room-order-${roomEditSelectionKey(selection)}`}>
+                {t('roomEditor.compositionPane.advancedOrder')}
+              </Label>
+              <Input
+                key={`${roomEditSelectionKey(selection)}:${presentationOrder.order}`}
+                id={`room-order-${roomEditSelectionKey(selection)}`}
+                type="number"
+                defaultValue={presentationOrder.order}
+                onBlur={(event) => {
+                  const order = Number(event.currentTarget.value);
+                  if (!Number.isSafeInteger(order) || order === presentationOrder.order) return;
+                  executeRoomEditCommand(
+                    'room.setPresentationOrder',
+                    t('roomEditor.compositionPane.setOrder'),
+                    { target: presentationOrder.target, order },
+                  );
+                }}
+              />
+            </div>
+          </div>
+        ) : null}
       </div>
     );
   };
@@ -1598,6 +1842,22 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                   interactionEnabled={!roomEditTransitioning}
                   selection={roomSelection}
                   onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
+                  onTranslateSelection={(nextSelection, delta) =>
+                    executeRoomEditCommand('room.translateSelection', 'Move Room selection', {
+                      selection: nextSelection,
+                      delta,
+                    })
+                  }
+                  onResizeSelection={(nextSelection, bounds) =>
+                    executeRoomEditCommand('room.resizeSelection', 'Resize Room selection', {
+                      selection: nextSelection,
+                      bounds,
+                    })
+                  }
+                  addActions={roomAddActions}
+                  pendingAddActionId={roomAddGhostActionId}
+                  onPendingAddActionCancel={() => setRoomAddGhostActionId(null)}
+                  onAddAtPoint={(actionId, point) => executeRoomAdd(actionId, { point })}
                 />
               </div>
             ) : null}
@@ -2711,6 +2971,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 }
                 onSelectionChange={(nextSelection) => setRoomSelection([...nextSelection])}
                 renderInspector={renderRoomSelectionInspector}
+                addActions={roomAddActions}
+                onBeginAdd={(actionId) => setRoomAddGhostActionId(actionId)}
+                onAddToPlacement={(actionId, placementId) =>
+                  executeRoomAdd(actionId, { placementId })
+                }
+                onDeleteSelection={deleteCurrentRoomSelection}
               />
             </section>
           </div>
@@ -2828,34 +3094,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               listAction={{
                 label: 'Add cast',
                 icon: <Plus className="size-3.5" aria-hidden="true" />,
-                disabled: !characters[0] || !data.placements[0],
+                disabled: !characters[0],
                 onClick: () => {
-                  if (!characters[0] || !data.placements[0]) return;
-                  const allocated = allocateRoomPresentationOrder(data, 'world-content');
+                  if (!characters[0]) return;
                   setSelectedCastIndex(data.cast.length);
-                  commit(
-                    {
-                      ...allocated.room,
-                      cast: [
-                        ...allocated.room.cast,
-                        {
-                          id: nextId(
-                            data.cast.map((entry) => entry.id),
-                            'cast',
-                          ),
-                          character: { $ref: { collection: 'characters', id: characters[0].id } },
-                          condition: { kind: 'always' },
-                          placementId: data.placements[0].id,
-                          poseId: null,
-                          expressionId: null,
-                          idleId: null,
-                          visible: true,
-                          order: allocated.order,
-                        },
-                      ],
-                    },
-                    'Add room cast entry',
-                  );
+                  executeRoomAdd('cast', { point: { x: 0.5, y: 0.5 } });
                 },
               }}
               getDeleteLabel={(entry) => `Delete cast entry ${entry.id}`}
@@ -2980,35 +3223,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               listAction={{
                 label: 'Add prop',
                 icon: <Plus className="size-3.5" aria-hidden="true" />,
-                disabled: !data.placements[0] || (!assets[0] && !materials[0]),
+                disabled: !assets[0] && !materials[0],
                 onClick: () => {
-                  if (!data.placements[0]) return;
-                  const allocated = allocateRoomPresentationOrder(data, 'world-content');
                   setSelectedPropIndex(data.props.length);
-                  commit(
-                    {
-                      ...allocated.room,
-                      props: [
-                        ...allocated.room.props,
-                        {
-                          id: nextId(
-                            data.props.map((entry) => entry.id),
-                            'prop',
-                          ),
-                          condition: { kind: 'always' },
-                          placementId: data.placements[0].id,
-                          asset: assets[0] ? roomAssetRef(assets[0].id) : null,
-                          materialApplication:
-                            !assets[0] && materials[0]
-                              ? emptyMaterialApplication(materials[0].id)
-                              : null,
-                          visible: true,
-                          order: allocated.order,
-                        },
-                      ],
-                    },
-                    'Add room prop',
-                  );
+                  executeRoomAdd('prop', { point: { x: 0.5, y: 0.5 } });
                 },
               }}
               getDeleteLabel={(entry) => `Delete prop ${entry.id}`}
@@ -3123,33 +3341,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 onClick: () => {
                   const material = materials[0];
                   if (!material) return;
-                  const allocated = allocateRoomPresentationOrder(data, 'world-content');
                   setSelectedEnvironmentIndex(data.environments.length);
-                  commit(
-                    {
-                      ...allocated.room,
-                      environments: [
-                        ...allocated.room.environments,
-                        {
-                          id: nextId(
-                            data.environments.map((entry) => entry.id),
-                            'environment',
-                          ),
-                          condition: { kind: 'always' },
-                          asset: assets[0] ? roomAssetRef(assets[0].id) : null,
-                          materialApplication: emptyMaterialApplication(material.id),
-                          bounds: { x: 0, y: 0, width: 1, height: 1 },
-                          plane: 'world-content',
-                          order: allocated.order,
-                          clock: 'gameplay',
-                          scrollPerSecond: { x: 0, y: 0 },
-                          opacity: 1,
-                          visible: true,
-                        },
-                      ],
-                    },
-                    'Add room environment',
-                  );
+                  executeRoomAdd('environment', { point: { x: 0.5, y: 0.5 } });
                 },
               }}
               getDeleteLabel={(entry) => `Delete environment ${entry.id}`}
@@ -3297,11 +3490,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     <Label>Order</Label>
                     <Input
                       value={String(entry.order)}
-                      onChange={(event) =>
-                        replaceEnvironment(entry.id, {
-                          order: Math.round(numberValue(event.currentTarget.value, entry.order)),
-                        })
-                      }
+                      onChange={(event) => {
+                        const order = Math.round(
+                          numberValue(event.currentTarget.value, entry.order),
+                        );
+                        if (order === entry.order) return;
+                        executeRoomEditCommand(
+                          'room.setPresentationOrder',
+                          t('roomEditor.compositionPane.setOrder'),
+                          { target: { kind: 'environment', id: entry.id }, order },
+                        );
+                      }}
                     />
                   </div>
                   <div className="space-y-1">

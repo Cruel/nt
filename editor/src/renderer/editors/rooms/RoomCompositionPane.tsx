@@ -1,5 +1,5 @@
 import type { ReactNode } from 'react';
-import { ChevronLeft } from 'lucide-react';
+import { ChevronLeft, Plus, Trash2 } from 'lucide-react';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import type { AuthoringProject } from '../../../shared/project-schema/authoring-project';
@@ -58,6 +58,10 @@ export function RoomCompositionPane({
   onExpandedSelectionKeysChange,
   onSelectionChange,
   renderInspector,
+  addActions,
+  onBeginAdd,
+  onAddToPlacement,
+  onDeleteSelection,
 }: {
   project: AuthoringProject;
   room: RoomData;
@@ -67,6 +71,10 @@ export function RoomCompositionPane({
   onExpandedSelectionKeysChange: (keys: ReadonlySet<string>) => void;
   onSelectionChange: (selection: readonly RoomEditSelection[]) => void;
   renderInspector: (selection: RoomEditSelection) => ReactNode;
+  addActions: readonly { id: string; label: string; disabled?: boolean }[];
+  onBeginAdd: (actionId: string) => void;
+  onAddToPlacement: (actionId: string, placementId: string) => void;
+  onDeleteSelection: () => void;
 }) {
   const { t } = useTranslation('workspace');
   const select = (item: RoomEditSelection) => onSelectionChange([item]);
@@ -101,11 +109,31 @@ export function RoomCompositionPane({
     >
       {selection.length === 0 ? (
         <div className="space-y-3">
-          <div>
-            <h3 className="text-sm font-semibold">{t('roomEditor.compositionPane.contents')}</h3>
-            <p className="text-xs text-muted-foreground">
-              {t('roomEditor.compositionPane.contentsDescription')}
-            </p>
+          <div className="flex flex-wrap items-start justify-between gap-2">
+            <div>
+              <h3 className="text-sm font-semibold">{t('roomEditor.compositionPane.contents')}</h3>
+              <p className="text-xs text-muted-foreground">
+                {t('roomEditor.compositionPane.contentsDescription')}
+              </p>
+            </div>
+            <div
+              className="flex flex-wrap justify-end gap-1"
+              data-testid="room-composition-add-actions"
+            >
+              {addActions.map((action) => (
+                <Button
+                  key={action.id}
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  disabled={action.disabled}
+                  onClick={() => onBeginAdd(action.id)}
+                >
+                  <Plus className="size-3.5" aria-hidden="true" />
+                  {action.label}
+                </Button>
+              ))}
+            </div>
           </div>
           {!hasContents ? (
             <div className="rounded-md border border-dashed p-4 text-center text-xs text-muted-foreground">
@@ -213,12 +241,40 @@ export function RoomCompositionPane({
               <ChevronLeft className="size-3.5" aria-hidden="true" />
               {t('roomEditor.compositionPane.contents')}
             </Button>
-            {selection.length > 1 ? (
-              <span className="text-xs text-muted-foreground">
-                {t('roomEditor.compositionPane.selectedCount', { count: selection.length })}
-              </span>
-            ) : null}
+            <div className="flex items-center gap-2">
+              {selection.length > 1 ? (
+                <span className="text-xs text-muted-foreground">
+                  {t('roomEditor.compositionPane.selectedCount', { count: selection.length })}
+                </span>
+              ) : null}
+              <Button type="button" size="sm" variant="outline" onClick={onDeleteSelection}>
+                <Trash2 className="size-3.5" aria-hidden="true" />
+                {t('roomEditor.compositionPane.deleteSelection')}
+              </Button>
+            </div>
           </div>
+          {selection.length === 1 && selection[0]?.kind === 'placement' ? (
+            <div className="flex flex-wrap items-center gap-1 rounded-md border bg-muted/20 p-2">
+              <span className="mr-1 text-xs font-medium text-muted-foreground">
+                {t('roomEditor.compositionPane.addToPlacement')}
+              </span>
+              {addActions
+                .filter((action) => action.id !== 'placement' && action.id !== 'environment')
+                .map((action) => (
+                  <Button
+                    key={action.id}
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    disabled={action.disabled}
+                    onClick={() => onAddToPlacement(action.id, selection[0]!.id)}
+                  >
+                    <Plus className="size-3.5" aria-hidden="true" />
+                    {action.label}
+                  </Button>
+                ))}
+            </div>
+          ) : null}
           {selection.length === 1 ? (
             renderInspector(selection[0]!)
           ) : (

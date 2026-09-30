@@ -39,15 +39,20 @@ import { replaceInteractableDataPatches } from '@/project/interactable-operation
 import { replaceDialogueDataPatches } from '@/project/dialogue-operations';
 import { replaceRoomDataPatches } from '@/project/room-operations';
 import {
+  addRoomPresentationContentPatches,
   addInteractableOccurrencePatches,
+  deleteRoomSelectionPatches,
   destroyInteractableInstancePatches,
   detachInteractablePlacementPatches,
   moveInteractableToPlacementPatches,
   placeInteractablePatches,
   reorderRoomPresentationPatches,
+  resizeRoomSelectionPatches,
   removeInteractableOccurrencePatches,
   setRoomFallbackInteractablePlacementPatches,
   setRoomPlacementBoundsPatches,
+  setRoomPresentationOrderPatches,
+  translateRoomSelectionPatches,
   unplaceInteractableInstancePatches,
 } from '@/project/room-placement-operations';
 import {
@@ -755,6 +760,69 @@ const roomSetPlacementBoundsSchema = z.object({
   placementId: entityIdSchema,
   bounds: roomNormalizedRectSchema,
 });
+const roomManipulationSelectionSchema = z.object({
+  kind: z.enum([
+    'placement',
+    'placement-layout',
+    'interactable',
+    'prop',
+    'cast',
+    'environment',
+    'overlay',
+    'hotspot',
+  ]),
+  id: entityIdSchema,
+});
+const roomTranslateSelectionSchema = z.object({
+  roomId: entityIdSchema,
+  selection: z.array(roomManipulationSelectionSchema).min(1),
+  delta: z.object({ x: z.number().finite(), y: z.number().finite() }),
+});
+const roomResizeSelectionSchema = z.object({
+  roomId: entityIdSchema,
+  selection: roomManipulationSelectionSchema,
+  bounds: roomNormalizedRectSchema,
+});
+const roomDeleteSelectionSchema = z.object({
+  roomId: entityIdSchema,
+  selection: z.array(roomManipulationSelectionSchema).min(1),
+});
+const roomAddPresentationContentSchema = z.discriminatedUnion('kind', [
+  z.object({
+    roomId: entityIdSchema,
+    kind: z.literal('placement'),
+    point: z.object({ x: z.number().finite(), y: z.number().finite() }),
+  }),
+  z.object({
+    roomId: entityIdSchema,
+    kind: z.literal('prop'),
+    point: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+    placementId: entityIdSchema.optional(),
+    assetId: entityIdSchema.optional(),
+    materialId: entityIdSchema.optional(),
+  }),
+  z.object({
+    roomId: entityIdSchema,
+    kind: z.literal('cast'),
+    point: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+    placementId: entityIdSchema.optional(),
+    characterId: entityIdSchema,
+  }),
+  z.object({
+    roomId: entityIdSchema,
+    kind: z.literal('interactable'),
+    point: z.object({ x: z.number().finite(), y: z.number().finite() }).optional(),
+    placementId: entityIdSchema.optional(),
+    interactableId: entityIdSchema,
+  }),
+  z.object({
+    roomId: entityIdSchema,
+    kind: z.literal('environment'),
+    point: z.object({ x: z.number().finite(), y: z.number().finite() }),
+    materialId: entityIdSchema,
+    assetId: entityIdSchema.optional(),
+  }),
+]);
 const roomPresentationOrderTargetSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('cast'), id: entityIdSchema }),
   z.object({ kind: z.literal('prop'), id: entityIdSchema }),
@@ -767,6 +835,11 @@ const roomReorderPresentationSchema = z.object({
   roomId: entityIdSchema,
   target: roomPresentationOrderTargetSchema,
   action: z.enum(['forward', 'backward', 'front', 'back']),
+});
+const roomSetPresentationOrderSchema = z.object({
+  roomId: entityIdSchema,
+  target: roomPresentationOrderTargetSchema,
+  order: z.number().int().safe(),
 });
 const roomPlaceInteractableSchema = z.object({
   roomId: entityIdSchema,
@@ -1387,9 +1460,29 @@ export const roomSetPlacementBoundsCommand: CommandHandler = ({ document, payloa
   parseEntityCommand(roomSetPlacementBoundsSchema, payload, (parsed) =>
     setRoomPlacementBoundsPatches(document, parsed),
   );
+export const roomTranslateSelectionCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomTranslateSelectionSchema, payload, (parsed) =>
+    translateRoomSelectionPatches(document, parsed),
+  );
+export const roomResizeSelectionCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomResizeSelectionSchema, payload, (parsed) =>
+    resizeRoomSelectionPatches(document, parsed),
+  );
+export const roomDeleteSelectionCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomDeleteSelectionSchema, payload, (parsed) =>
+    deleteRoomSelectionPatches(document, parsed),
+  );
+export const roomAddPresentationContentCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomAddPresentationContentSchema, payload, (parsed) =>
+    addRoomPresentationContentPatches(document, parsed),
+  );
 export const roomReorderPresentationCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomReorderPresentationSchema, payload, (parsed) =>
     reorderRoomPresentationPatches(document, parsed),
+  );
+export const roomSetPresentationOrderCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(roomSetPresentationOrderSchema, payload, (parsed) =>
+    setRoomPresentationOrderPatches(document, parsed),
   );
 export const roomPlaceInteractableCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(roomPlaceInteractableSchema, payload, (parsed) =>
@@ -1760,7 +1853,12 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'room.setHotspotBounds': roomSetHotspotBoundsCommand,
     'room.reorderHotspots': roomReorderHotspotsCommand,
     'room.setPlacementBounds': roomSetPlacementBoundsCommand,
+    'room.translateSelection': roomTranslateSelectionCommand,
+    'room.resizeSelection': roomResizeSelectionCommand,
+    'room.deleteSelection': roomDeleteSelectionCommand,
+    'room.addPresentationContent': roomAddPresentationContentCommand,
     'room.reorderPresentation': roomReorderPresentationCommand,
+    'room.setPresentationOrder': roomSetPresentationOrderCommand,
     'room.placeInteractable': roomPlaceInteractableCommand,
     'room.addInteractableOccurrence': roomAddInteractableOccurrenceCommand,
     'room.removeInteractableOccurrence': roomRemoveInteractableOccurrenceCommand,
@@ -1875,8 +1973,18 @@ export function labelForCommand(type: string): string {
       return 'Update room';
     case 'room.setPlacementBounds':
       return 'Update room placement bounds';
+    case 'room.translateSelection':
+      return 'Move room selection';
+    case 'room.resizeSelection':
+      return 'Resize room selection';
+    case 'room.deleteSelection':
+      return 'Delete room selection';
+    case 'room.addPresentationContent':
+      return 'Add room presentation content';
     case 'room.reorderPresentation':
       return 'Reorder room presentation';
+    case 'room.setPresentationOrder':
+      return 'Set room presentation order';
     case 'room.placeInteractable':
       return 'Place interactable';
     case 'room.addInteractableOccurrence':

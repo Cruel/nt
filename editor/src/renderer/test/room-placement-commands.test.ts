@@ -563,4 +563,394 @@ describe('Room placement commands', () => {
       }),
     ]);
   });
+
+  it('translates mixed spatial selections once and splits only the selected occupants of a shared placement', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+      {
+        id: 'group',
+        bounds: { x: 0.5, y: 0.2, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = [
+      {
+        id: 'lamp',
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        asset: { $ref: { collection: 'assets', id: 'pixel' } },
+        materialApplication: null,
+        visible: true,
+        order: 0,
+      },
+      {
+        id: 'book',
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        asset: { $ref: { collection: 'assets', id: 'pixel' } },
+        materialApplication: null,
+        visible: true,
+        order: 1024,
+      },
+    ];
+    room.cast = [
+      {
+        id: 'hero',
+        character: { $ref: { collection: 'characters', id: 'hero' } },
+        condition: { kind: 'always' },
+        placementId: 'group',
+        profileId: null,
+        poseId: null,
+        expressionId: null,
+        appearanceId: null,
+        idleId: null,
+        visible: true,
+        order: 2048,
+      },
+    ];
+    project.characters.hero = {
+      id: 'hero',
+      label: 'Hero',
+      data: defaultCharacterData('Hero'),
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const moved = executeCommand(initial, {
+      type: 'room.translateSelection',
+      payload: {
+        roomId: 'foyer',
+        selection: [
+          { kind: 'prop', id: 'lamp' },
+          { kind: 'placement', id: 'group' },
+          { kind: 'cast', id: 'hero' },
+        ],
+        delta: { x: 0.1, y: 0.15 },
+      },
+    });
+
+    expect(moved.ok, JSON.stringify(moved.diagnostics)).toBe(true);
+    const result = (moved.document as typeof project).rooms.foyer!.data;
+    expect(result.placements).toHaveLength(3);
+    expect(result.placements.find((item) => item.id === 'shared')?.bounds).toEqual({
+      x: 0.1,
+      y: 0.2,
+      width: 0.2,
+      height: 0.2,
+    });
+    expect(result.props.find((item) => item.id === 'book')?.placementId).toBe('shared');
+    const lamp = result.props.find((item) => item.id === 'lamp')!;
+    expect(lamp.placementId).not.toBe('shared');
+    expect(result.placements.find((item) => item.id === lamp.placementId)?.bounds).toEqual({
+      x: 0.2,
+      y: 0.35,
+      width: 0.2,
+      height: 0.2,
+    });
+    expect(result.placements.find((item) => item.id === 'group')?.bounds).toEqual({
+      x: 0.6,
+      y: 0.35,
+      width: 0.2,
+      height: 0.2,
+    });
+    expect(result.cast.find((item) => item.id === 'hero')?.placementId).toBe('group');
+    expect(undoCommand(moved.state).document).toEqual(initial.document);
+  });
+
+  it('resizes one explicitly selected occupant by splitting a shared placement', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['lamp', 'book'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'shared',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const resized = executeCommand(initial, {
+      type: 'room.resizeSelection',
+      payload: {
+        roomId: 'foyer',
+        selection: { kind: 'prop', id: 'lamp' },
+        bounds: { x: 0.25, y: 0.3, width: 0.3, height: 0.4 },
+      },
+    });
+
+    expect(resized.ok, JSON.stringify(resized.diagnostics)).toBe(true);
+    const result = (resized.document as typeof project).rooms.foyer!.data;
+    expect(result.placements).toHaveLength(2);
+    expect(result.props.find((item) => item.id === 'book')?.placementId).toBe('shared');
+    const lamp = result.props.find((item) => item.id === 'lamp')!;
+    expect(lamp.placementId).not.toBe('shared');
+    expect(result.placements.find((item) => item.id === lamp.placementId)?.bounds).toEqual({
+      x: 0.25,
+      y: 0.3,
+      width: 0.3,
+      height: 0.4,
+    });
+    expect(undoCommand(resized.state).document).toEqual(initial.document);
+  });
+
+  it('treats an unchanged shared-occurrence resize as a no-op without splitting or undo history', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.2, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['lamp', 'book'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'shared',
+      asset: null,
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const resized = executeCommand(initial, {
+      type: 'room.resizeSelection',
+      payload: {
+        roomId: 'foyer',
+        selection: { kind: 'prop', id: 'lamp' },
+        bounds: room.placements[0]!.bounds,
+      },
+    });
+
+    expect(resized.ok, JSON.stringify(resized.diagnostics)).toBe(true);
+    expect(resized.state.document).toEqual(initial.document);
+    expect(resized.state.history).toEqual(initial.history);
+  });
+
+  it('deletes a semantic multi-selection atomically without destroying global Interactable identities', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.1, width: 0.3, height: 0.3 },
+        presentation: { label: null, layout: null },
+      },
+      {
+        id: 'keep',
+        bounds: { x: 0.6, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.interactables = [
+      {
+        id: 'key-view',
+        interactable: { $ref: { registry: 'interactableInstances', id: 'key' } },
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        visible: true,
+        order: 0,
+      },
+    ];
+    room.props = [
+      {
+        id: 'lamp',
+        condition: { kind: 'always' },
+        placementId: 'shared',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 1024,
+      },
+      {
+        id: 'vase',
+        condition: { kind: 'always' },
+        placementId: 'keep',
+        asset: null,
+        materialApplication: null,
+        visible: true,
+        order: 2048,
+      },
+    ];
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: defaultInteractableData('Key'),
+    };
+    project.interactableInstances.key = defaultInteractableInstanceData('key', 'key', {
+      kind: 'room',
+      room: { $ref: { collection: 'rooms', id: 'foyer' } },
+    });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const deleted = executeCommand(initial, {
+      type: 'room.deleteSelection',
+      payload: {
+        roomId: 'foyer',
+        selection: [
+          { kind: 'placement', id: 'shared' },
+          { kind: 'prop', id: 'vase' },
+        ],
+      },
+    });
+
+    expect(deleted.ok, JSON.stringify(deleted.diagnostics)).toBe(true);
+    const result = deleted.document as typeof project;
+    expect(result.rooms.foyer!.data.placements.map((item) => item.id)).toEqual(['keep']);
+    expect(result.rooms.foyer!.data.interactables).toEqual([]);
+    expect(result.rooms.foyer!.data.props).toEqual([]);
+    expect(result.interactableInstances.key).toBeDefined();
+    expect(undoCommand(deleted.state).document).toEqual(initial.document);
+  });
+
+  it('inserts an explicitly assigned occupied presentation order instead of creating a duplicate', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'stage',
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['rear', 'middle', 'front'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'stage',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const reordered = executeCommand(initial, {
+      type: 'room.setPresentationOrder',
+      payload: {
+        roomId: 'foyer',
+        target: { kind: 'prop', id: 'front' },
+        order: 1024,
+      },
+    });
+
+    expect(reordered.ok, JSON.stringify(reordered.diagnostics)).toBe(true);
+    const props = (reordered.document as typeof project).rooms.foyer!.data.props;
+    expect(new Set(props.map((item) => item.order)).size).toBe(3);
+    expect(
+      [...props].sort((left, right) => left.order - right.order).map((item) => item.id),
+    ).toEqual(['rear', 'front', 'middle']);
+  });
+
+  it('uses one add command for dedicated placement by default and explicit placement sharing', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    let state = createInitialCommandBusState(toJsonValue(project));
+
+    const dedicated = executeCommand(state, {
+      type: 'room.addPresentationContent',
+      payload: {
+        roomId: 'foyer',
+        kind: 'prop',
+        assetId: 'pixel',
+        point: { x: 0.8, y: 0.7 },
+      },
+    });
+    expect(dedicated.ok, JSON.stringify(dedicated.diagnostics)).toBe(true);
+    state = dedicated.state;
+    const afterDedicated = (state.document as typeof project).rooms.foyer!.data;
+    const dedicatedProp = afterDedicated.props[0]!;
+    expect(dedicatedProp.placementId).not.toBe('shared');
+    const dedicatedBounds = afterDedicated.placements.find(
+      (item) => item.id === dedicatedProp.placementId,
+    )?.bounds;
+    expect(dedicatedBounds?.x).toBeCloseTo(0.7);
+    expect(dedicatedBounds?.y).toBeCloseTo(0.6);
+    expect(dedicatedBounds?.width).toBe(0.2);
+    expect(dedicatedBounds?.height).toBe(0.2);
+
+    const shared = executeCommand(state, {
+      type: 'room.addPresentationContent',
+      payload: {
+        roomId: 'foyer',
+        kind: 'prop',
+        assetId: 'pixel',
+        placementId: 'shared',
+      },
+    });
+    expect(shared.ok, JSON.stringify(shared.diagnostics)).toBe(true);
+    const afterShared = (shared.document as typeof project).rooms.foyer!.data;
+    expect(afterShared.placements).toHaveLength(2);
+    expect(afterShared.props.map((item) => item.placementId)).toEqual([
+      dedicatedProp.placementId,
+      'shared',
+    ]);
+  });
 });

@@ -282,6 +282,67 @@ function pointInProjectedRect(
   );
 }
 
+function projectedScreenBounds(
+  projected: RoomEditProjectedRect,
+  viewport: RoomEditSize,
+): RoomEditRect {
+  const radians = (projected.rotationDegrees * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const centerX = viewport.width * 0.5;
+  const centerY = viewport.height * 0.5;
+  const corners = [
+    [projected.rect.x, projected.rect.y],
+    [projected.rect.x + projected.rect.width, projected.rect.y],
+    [projected.rect.x, projected.rect.y + projected.rect.height],
+    [projected.rect.x + projected.rect.width, projected.rect.y + projected.rect.height],
+  ].map(([x, y]) => {
+    const localX = x! - centerX;
+    const localY = y! - centerY;
+    return {
+      x: centerX + localX * cosine - localY * sine,
+      y: centerY + localX * sine + localY * cosine,
+    };
+  });
+  const left = Math.min(...corners.map((point) => point.x));
+  const top = Math.min(...corners.map((point) => point.y));
+  const right = Math.max(...corners.map((point) => point.x));
+  const bottom = Math.max(...corners.map((point) => point.y));
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+function rectsIntersect(left: RoomEditRect, right: RoomEditRect) {
+  return (
+    left.x <= right.x + right.width &&
+    left.x + left.width >= right.x &&
+    left.y <= right.y + right.height &&
+    left.y + left.height >= right.y
+  );
+}
+
+export function marqueeRoomEditSelections(
+  candidates: readonly RoomEditSelectionCandidate[],
+  marquee: RoomEditRect,
+  viewport: RoomEditSize,
+): RoomEditSelection[] {
+  const result: RoomEditSelection[] = [];
+  for (const candidate of candidates) {
+    if (candidate.category !== 'placement' && candidate.selection.kind !== 'environment') continue;
+    let bounds = projectedScreenBounds(candidate.projected, viewport);
+    if (candidate.category === 'placement') {
+      const occupantBounds = candidates
+        .filter(
+          (other) => other.category !== 'placement' && other.placementId === candidate.selection.id,
+        )
+        .map((other) => projectedScreenBounds(other.projected, viewport));
+      const union = unionRects([bounds, ...occupantBounds]);
+      if (union) bounds = union;
+    }
+    if (rectsIntersect(bounds, marquee)) result.push(candidate.selection);
+  }
+  return result;
+}
+
 export function hitTestRoomEditCandidates(
   candidates: readonly RoomEditSelectionCandidate[],
   point: { x: number; y: number },
