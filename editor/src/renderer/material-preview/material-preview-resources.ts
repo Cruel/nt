@@ -76,6 +76,10 @@ interface MaterialPreviewProjectSnapshot {
 function defaultDecodeImage(url: string): Promise<TexImageSource | null> {
   return new Promise((resolve) => {
     const image = new Image();
+    // Project originals are served from the privileged noveltea-asset origin. They must be
+    // requested with CORS before src is assigned so the decoded image stays origin-clean for
+    // WebGL texImage2D consumers such as Room Edit and Material Preview.
+    image.crossOrigin = 'anonymous';
     image.onload = () => resolve(image);
     image.onerror = () => resolve(null);
     image.src = url;

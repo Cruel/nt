@@ -1553,10 +1553,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     );
   const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
   const fittedRoomEditSurfaceSize = fitRoomEditSurfaceFrame(
-    {
-      width: Math.max(0, roomEditViewportSize.width - 16),
-      height: Math.max(0, roomEditViewportSize.height - 16),
-    },
+    roomEditViewportSize,
     referenceResolution,
   );
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
@@ -3111,7 +3108,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <div
                 ref={handleRoomEditViewportElementChange}
                 data-testid="room-edit-viewport"
-                className="flex h-full min-h-0 items-center justify-center overflow-hidden p-2"
+                className="flex h-full min-h-0 items-center justify-center overflow-hidden"
               >
                 <div
                   className="shrink-0"
