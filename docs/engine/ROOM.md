@@ -223,8 +223,13 @@ Room preview. Room overlays use `RoomOverlayLayoutMountKey`; placement-attached 
 `RoomPlacementLayoutMountKey`. Both are Room-owned `WorldOverlay` semantic Mounts with preview-local
 `room` and `session` Layout State, and both preserve their authored order relative to the rest of the
 plane. Placement-attached Layouts additionally receive the exact placement bounds plus Room Camera and
-are positioned, sized, and rotated to that projected footprint. State commits survive ordinary
-same-Mount preview rebuilds without becoming runtime save state.
+are positioned, sized, and rotated to that projected footprint. RuntimeUI retains that normalized
+Room geometry as the Mount Contract authority and reprojects the document root whenever the owning
+RmlUi context metrics change, including host resize, reference/environment replacement, and UI-scale
+reconfiguration. Focused Room candidates stage their semantic geometry before publication; committing
+the candidate environment runs that same retained-geometry refresh before the staged Layout becomes
+the committed visible owner, so it cannot retain pixels from the previous preview environment. State
+commits survive ordinary same-Mount preview rebuilds without becoming runtime save state.
 Gameplay actions emitted by Layout Lua remain passive in focused preview. World, Layout, UI,
 environment, and resource ownership commit as one focused-owner swap. A failed or superseded
 candidate releases its temporary state and cannot disturb the prior same-root visual.
