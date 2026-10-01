@@ -2540,7 +2540,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     items={[
                       {
                         value: '__none__',
-                        label: t('roomEditor.compositionPane.editor.none'),
+                        label: t('roomEditor.compositionPane.editor.characterDefault'),
                       },
                       ...appearanceItems,
                     ]}
