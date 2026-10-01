@@ -157,6 +157,84 @@ describe('hotspot view-state contract', () => {
 });
 
 describe('HotspotImageStage', () => {
+  it('reveals image geometry atomically after the source image loads', () => {
+    render(
+      <HotspotImageStage
+        imageUrl="noveltea-asset://source/session/image"
+        imageSize={{ width: 100, height: 100 }}
+        hotspots={[
+          { id: 'door', label: 'Door', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+        ]}
+        selectedHotspotId="door"
+        tool="select"
+        camera={{ zoom: 1, pan: { x: 0, y: 0 } }}
+        onSelectionChange={vi.fn()}
+        onCameraChange={vi.fn()}
+        onCreate={vi.fn()}
+        onCommitBounds={vi.fn()}
+        onDelete={vi.fn()}
+        deferSpatialLayersUntilImageReady
+      />,
+    );
+
+    const imageLayer = document.querySelector<HTMLElement>('[data-image-layer]')!;
+    const geometryLayer = document.querySelector<SVGElement>('[data-geometry-layer]')!;
+    const handlesLayer = document.querySelector<SVGElement>('[data-handles-feedback-layer]')!;
+    expect(imageLayer).toHaveStyle({ visibility: 'hidden' });
+    expect(geometryLayer).toHaveStyle({ visibility: 'hidden' });
+    expect(handlesLayer).toHaveStyle({ visibility: 'hidden' });
+
+    fireEvent.load(imageLayer.querySelector('img')!);
+
+    expect(imageLayer).toHaveStyle({ visibility: 'visible' });
+    expect(geometryLayer).toHaveStyle({ visibility: 'visible' });
+    expect(handlesLayer).toHaveStyle({ visibility: 'visible' });
+  });
+
+  it('reports updated image geometry when the camera pan changes', async () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 300 },
+    });
+    const onImageRectChange = vi.fn();
+    const commonProps = {
+      imageSize: { width: 100, height: 100 },
+      hotspots: [],
+      selectedHotspotId: null,
+      tool: 'pan' as const,
+      zoomBasis: 'native' as const,
+      onSelectionChange: vi.fn(),
+      onCameraChange: vi.fn(),
+      onCreate: vi.fn(),
+      onCommitBounds: vi.fn(),
+      onDelete: vi.fn(),
+      onImageRectChange,
+    };
+    const view = render(
+      <HotspotImageStage {...commonProps} camera={{ zoom: 1, pan: { x: 0, y: 0 } }} />,
+    );
+    await waitFor(() =>
+      expect(onImageRectChange).toHaveBeenLastCalledWith({
+        x: 150,
+        y: 100,
+        width: 100,
+        height: 100,
+      }),
+    );
+
+    view.rerender(
+      <HotspotImageStage {...commonProps} camera={{ zoom: 1, pan: { x: -120, y: 0 } }} />,
+    );
+    await waitFor(() =>
+      expect(onImageRectChange).toHaveBeenLastCalledWith({
+        x: 30,
+        y: 100,
+        width: 100,
+        height: 100,
+      }),
+    );
+  });
+
   it('supports list selection, alpha visualization, and keyboard deletion without owner wrappers', () => {
     const onSelectionChange = vi.fn();
     const onDelete = vi.fn();

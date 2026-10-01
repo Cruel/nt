@@ -174,13 +174,21 @@ existing Hotspots are projected through the background source-image mapping and 
 selectable overlays. They participate in Contents and right-click disambiguation while ordinary
 overlap clicks retain placement-oriented selection precedence. Selecting a Hotspot opens its normal
 semantic inspector (ID, label, condition, highlight, input order, cursor, and target) without Room-space
-move/resize handles. `Edit geometry` from that inspector, or the general `Edit Hotspots` action,
-temporarily replaces the Room tab with the shared Hotspot Focus workspace over the full background
-source image. That workspace is geometry-only: authors can select, repeatedly draw rectangles, move,
-resize, delete, pan, zoom, Fit, and use native 100% view. It keeps a local geometry undo/redo history
-and independent owner/source navigation state. Room entry/exit transitions preserve the authored
-background fit/crop/stretch and Camera rotation endpoint, pass through native-aspect framing, and then
-use the remembered Focus camera; reduced-motion skips the animation. `Done` commits the complete
+move/resize handles. `Edit geometry` from that inspector, or the general `Edit Hotspots` action, opens the shared Hotspot
+Focus workspace as a full-tab overlay while the normal Room editor remains mounted underneath and
+inert. That workspace is geometry-only: authors can select, repeatedly draw rectangles, move, resize,
+delete, pan, zoom, Fit, and use native 100% view. It keeps a local geometry undo/redo history and
+independent owner/source navigation state. Hotspot Focus itself is animation-agnostic; a reusable Focus
+transition shell owns the presentation around it. Room entry fades a tab-background backdrop plus an
+uncropped source-image clone over the current Room presentation, animates that clone to the measured
+Focus image presentation, then fades the complete Hotspot Focus workspace in as one surface. On exit,
+the shell first positions the clone underneath the Focus image at its current pan/zoom presentation,
+fades the complete Focus workspace out, animates the clone back to the Room endpoint, and finally fades
+the clone and backdrop away to reveal the still-mounted Room editor. The transition shell consumes
+source/destination image presentations rather than Room-specific fit policy so the same flow can be
+reused by other editor previews. The Room adapter preserves authored background fit/crop/stretch and
+Camera rotation while reconstructing the full source image outside the Room frame when needed;
+reduced-motion skips the staged animation. `Done` commits the complete
 Hotspot geometry session as one project undo step and returns with the most recently selected/created
 Hotspot selected when possible; `Cancel` discards it. New Room geometry starts with target `none`, so
 authors can draw and refine geometry before assigning gameplay semantics back in the Room editor.

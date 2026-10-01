@@ -61,7 +61,18 @@ import {
 } from '@/components/properties/OwnerLocalPropertiesEditor';
 import { InteractableInstancePropertiesEditor } from '@/components/properties/InteractablePropertyEditors';
 import { HotspotAuthoringPanel } from '@/components/hotspots/HotspotAuthoringPanel';
-import { HotspotFocusWorkspace } from '@/components/hotspots/HotspotFocusWorkspace';
+import {
+  HotspotFocusWorkspace,
+  type HotspotFocusWorkspaceHandle,
+} from '@/components/hotspots/HotspotFocusWorkspace';
+import {
+  FocusTransitionOverlay,
+  type FocusTransitionOverlayHandle,
+} from '@/components/focus-transition/FocusTransitionOverlay';
+import {
+  resolveProjectedSourcePresentation,
+  type FocusTransitionImagePresentation,
+} from '@/components/focus-transition/focus-transition-presentation';
 import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { RecursiveConditionEditor } from '@/components/conditions/ConditionEditor';
@@ -656,7 +667,28 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   });
   const hotspotFocusSession = useHotspotFocusStore((state) => state.sessionsByTabId[tab.id]);
   const startHotspotFocus = useHotspotFocusStore((state) => state.start);
+  const consumeHotspotFocusEntryTransition = useHotspotFocusStore(
+    (state) => state.consumeEntryTransition,
+  );
+  const hotspotFocusTransitionRef = useRef<FocusTransitionOverlayHandle | null>(null);
+  const hotspotFocusWorkspaceRef = useRef<HotspotFocusWorkspaceHandle | null>(null);
+  const hotspotFocusWasActiveRef = useRef(false);
+  const hotspotFocusAnimateEntryRef = useRef(false);
+  if (!hotspotFocusSession) {
+    hotspotFocusWasActiveRef.current = false;
+    hotspotFocusAnimateEntryRef.current = false;
+  } else if (!hotspotFocusWasActiveRef.current) {
+    hotspotFocusWasActiveRef.current = true;
+    hotspotFocusAnimateEntryRef.current = hotspotFocusSession.entryTransitionPending === true;
+  }
+  const [hotspotFocusImageUrl, setHotspotFocusImageUrl] = useState<string | null>(null);
+  const [hotspotFocusDestinationPresentation, setHotspotFocusDestinationPresentation] =
+    useState<FocusTransitionImagePresentation | null>(null);
   const restoreHotspotFocus = useHotspotFocusStore((state) => state.restore);
+  useEffect(() => {
+    if (!hotspotFocusSession?.entryTransitionPending) return;
+    consumeHotspotFocusEntryTransition(tab.id);
+  }, [consumeHotspotFocusEntryTransition, hotspotFocusSession?.entryTransitionPending, tab.id]);
   const editorPreviewLayout = usePreferencesStore((state) => state.editorPreviewLayout);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const setUsages = useEntityUsagesStore((state) => state.setUsages);
@@ -1280,6 +1312,8 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       persistencePolicy: 'manual-save',
     });
   const beginRoomHotspotFocus = (selectedHotspotId?: string | null) => {
+    setHotspotFocusDestinationPresentation(null);
+    setHotspotFocusImageUrl(null);
     const bounds =
       presentationMode === 'edit'
         ? roomEditSurfaceElementRef.current?.getBoundingClientRect()
@@ -3024,7 +3058,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       </div>
     );
   };
-  const hotspotFocusRoomPresentation =
+  const hotspotFocusSourcePresentation =
     hotspotFocusSession && hotspotFocusSession.returnViewportScreenRect
       ? (() => {
           const projection = resolveRoomEditProjection({
@@ -3034,24 +3068,41 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             viewport: referenceResolution,
             backgroundImageSize: compositionBackgroundSize,
             resolvedVisibility: activeRoomEditResolution,
-            navigation:
-              presentationMode === 'edit' ? visibleEditNavigation : ROOM_EDIT_FIT_NAVIGATION,
+            navigation: ROOM_EDIT_FIT_NAVIGATION,
           });
-          return {
+          return resolveProjectedSourcePresentation({
             viewport: referenceResolution,
             displayedViewportScreenRect: hotspotFocusSession.returnViewportScreenRect,
             visibleImageRect: projection.background.rect,
             visibleImageUv: projection.background.uv,
             rotationDegrees: projection.background.rotationDegrees,
-          };
+          });
         })()
       : null;
-  if (hotspotFocusSession) {
-    return (
+  const hotspotFocusOverlay = hotspotFocusSession ? (
+    <FocusTransitionOverlay
+      ref={hotspotFocusTransitionRef}
+      className="z-50"
+      testId="hotspot-focus-overlay"
+      imageUrl={hotspotFocusImageUrl}
+      sourcePresentation={hotspotFocusSourcePresentation}
+      destinationPresentation={hotspotFocusDestinationPresentation}
+      animateEntry={hotspotFocusAnimateEntryRef.current}
+      getDestinationPresentation={() =>
+        hotspotFocusWorkspaceRef.current?.getImagePresentation() ?? null
+      }
+    >
       <HotspotFocusWorkspace
+        ref={hotspotFocusWorkspaceRef}
         tabId={tab.id}
         projectAssets={project.assets}
-        roomPresentation={hotspotFocusRoomPresentation}
+        onImageUrlChange={setHotspotFocusImageUrl}
+        onImagePresentationChange={setHotspotFocusDestinationPresentation}
+        onRequestClose={(action) => {
+          const transition = hotspotFocusTransitionRef.current;
+          if (transition) transition.exit(action);
+          else action();
+        }}
         onDone={(selectedHotspotId) => {
           if (selectedHotspotId) {
             setRoomSelection([{ kind: 'hotspot', id: selectedHotspotId }]);
@@ -3070,10 +3121,11 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           shape: { kind: 'rect', bounds },
         })}
       />
-    );
-  }
+    </FocusTransitionOverlay>
+  ) : null;
   return (
     <EditorPreviewSplit
+      overlay={hotspotFocusOverlay}
       orientation={previewSplitOrientation}
       resizeLabel="Resize room preview"
       previewCollapsed={previewCollapsed}

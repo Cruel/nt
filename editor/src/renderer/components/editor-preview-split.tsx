@@ -28,6 +28,7 @@ interface EditorPreviewSplitProps {
   onPreviewCollapsedChange?: (collapsed: boolean) => void;
   previewClassName?: string;
   contentClassName?: string;
+  overlay?: ReactNode;
 }
 
 const EDITOR_PREVIEW_SPLIT_SIZES = {
@@ -68,6 +69,7 @@ export function EditorPreviewSplit({
   onPreviewCollapsedChange,
   previewClassName,
   contentClassName,
+  overlay,
 }: EditorPreviewSplitProps) {
   const syncSourceId = useId();
   const [previewPanelHandle, previewPanelRef] = usePanelCallbackRef();
@@ -202,27 +204,35 @@ export function EditorPreviewSplit({
   );
 
   return (
-    <Group
-      key={groupKey}
-      orientation={orientation}
-      className="h-full min-h-0 bg-background"
-      onLayoutChange={handleLayoutChange}
-      onLayoutChanged={handleLayoutChanged}
-    >
-      {orientation === 'vertical' ? previewPanel : contentPanel}
-      {!previewCollapsed ? (
-        <PanelResizeSeparator
+    <div className="relative h-full min-h-0">
+      <div
+        className={`h-full min-h-0 ${overlay ? 'pointer-events-none' : ''}`}
+        aria-hidden={overlay ? true : undefined}
+      >
+        <Group
+          key={groupKey}
           orientation={orientation}
-          aria-label={resizeLabel}
-          onPointerDownCapture={() => {
-            localResizeActiveRef.current = true;
-          }}
-          onKeyDownCapture={() => {
-            localResizeActiveRef.current = true;
-          }}
-        />
-      ) : null}
-      {orientation === 'vertical' ? contentPanel : previewPanel}
-    </Group>
+          className="h-full min-h-0 bg-background"
+          onLayoutChange={handleLayoutChange}
+          onLayoutChanged={handleLayoutChanged}
+        >
+          {orientation === 'vertical' ? previewPanel : contentPanel}
+          {!previewCollapsed ? (
+            <PanelResizeSeparator
+              orientation={orientation}
+              aria-label={resizeLabel}
+              onPointerDownCapture={() => {
+                localResizeActiveRef.current = true;
+              }}
+              onKeyDownCapture={() => {
+                localResizeActiveRef.current = true;
+              }}
+            />
+          ) : null}
+          {orientation === 'vertical' ? contentPanel : previewPanel}
+        </Group>
+      </div>
+      {overlay}
+    </div>
   );
 }
