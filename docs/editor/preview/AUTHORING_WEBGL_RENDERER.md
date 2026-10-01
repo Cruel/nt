@@ -85,8 +85,11 @@ lifecycle while leaving the lower-level authority reusable by Room Edit and othe
 The Room editor's `Edit` mode is the second production consumer of the shared authority. It resolves
 the authored Room through one browser-side spatial projection seam with two explicit stages: a
 canonical authored projection and a display projection with editor-only precision navigation applied.
-WebGL transforms and React authoring overlays consume the display projection, while Material semantic
-facets such as paint width/height and authored Camera zoom come from the canonical projection. Room
+React authoring overlays consume the display projection, while WebGL feeds custom vertex stages the
+same canonical, Camera-projected logical vertex coordinates that native world rendering submits.
+Editor-only precision navigation is applied afterward through the authoring projection matrix, so it
+cannot change shader-visible `a_position` coordinates. Material semantic facets such as paint
+width/height and authored Camera zoom likewise come from the canonical projection. Room
 Edit draws the Room background, Props,
 exact Interactable occurrences, Character/cast layers, and Environments while React outlines every
 `RoomPlacement`, including empty placements. Placement-attached Layouts stay editor metadata rather
@@ -173,7 +176,12 @@ Shader parameter bindings are likewise resolved by the shared authoring backend 
 declared engine semantic rather than from a privileged uniform spelling. Material Preview and Room Edit
 therefore share the same binding path for time, paint dimensions, reference/world raster scale,
 logical/raster scale, viewport pixel dimensions, and the role-specific pointer/Hotspot/RmlUi semantics.
-Explicit Material Application or draw overrides remain higher-precedence inputs than semantic defaults.
+Room Edit derives the raster-scale and viewport inputs from the effective fitted framebuffer and the
+Project world-raster policy instead of assuming a 1:1 reference surface. Author-settable reflected
+uniforms are refreshed on every draw with native precedence: occurrence/draw override, Material
+assignment, then reflected default. This prevents a shared WebGL program from inheriting a uniform
+value from the preceding occurrence. Explicit Material Application or draw overrides remain
+higher-precedence inputs than semantic defaults.
 
 Condition truth is not reimplemented in the browser. While Edit is active, the Room's focused-preview
 host stays logically connected but visually concealed and returns a native Room-resolution summary for

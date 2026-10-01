@@ -305,6 +305,8 @@ struct TypedFocusedRoomWorldDefinition {
         std::string placement_id;
         std::optional<std::string> sprite_asset_id;
         std::optional<std::string> material_id;
+        std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
+        std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
         bool enabled = false;
         bool visible = false;
         bool occurrence_visible = false;

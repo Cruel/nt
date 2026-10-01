@@ -3864,20 +3864,31 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                 }
                 exact_fields(value,
                              {"occurrenceId", "interactableId", "condition", "placementId",
-                              "spriteAssetId", "materialId", "enabled", "visible",
-                              "occurrenceVisible", "order"},
+                              "spriteAssetId", "materialId", "materialParameters",
+                              "materialTextures", "enabled", "visible", "occurrenceVisible",
+                              "order"},
                              diagnostics, path);
-                result.world.interactables.push_back(
-                    {.occurrence_id = required_string(value, "occurrenceId", path),
-                     .interactable_id = required_string(value, "interactableId", path),
-                     .condition = condition(value["condition"], path + "/condition"),
-                     .placement_id = required_string(value, "placementId", path),
-                     .sprite_asset_id = optional_string(value, "spriteAssetId", path),
-                     .material_id = optional_string(value, "materialId", path),
-                     .enabled = required_bool(value, "enabled", path),
-                     .visible = required_bool(value, "visible", path),
-                     .occurrence_visible = required_bool(value, "occurrenceVisible", path),
-                     .order = json_access::member_as<int>(value, "order").value_or(0)});
+                TypedFocusedRoomWorldDefinition::Interactable typed{
+                    .occurrence_id = required_string(value, "occurrenceId", path),
+                    .interactable_id = required_string(value, "interactableId", path),
+                    .condition = condition(value["condition"], path + "/condition"),
+                    .placement_id = required_string(value, "placementId", path),
+                    .sprite_asset_id = optional_string(value, "spriteAssetId", path),
+                    .material_id = optional_string(value, "materialId", path),
+                    .material_parameters = {},
+                    .material_textures = {},
+                    .enabled = required_bool(value, "enabled", path),
+                    .visible = required_bool(value, "visible", path),
+                    .occurrence_visible = required_bool(value, "occurrenceVisible", path),
+                    .order = json_access::member_as<int>(value, "order").value_or(0)};
+                if (const auto parameters = value.find("materialParameters");
+                    parameters != value.end())
+                    typed.material_parameters =
+                        material_parameters(*parameters, path + "/materialParameters");
+                if (const auto textures = value.find("materialTextures"); textures != value.end())
+                    typed.material_textures =
+                        material_textures(*textures, path + "/materialTextures");
+                result.world.interactables.push_back(std::move(typed));
             }
         if (const auto* props = array("props"))
             for (std::size_t index = 0; index < props->size(); ++index) {

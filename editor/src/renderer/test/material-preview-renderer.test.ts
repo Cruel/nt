@@ -720,6 +720,46 @@ describe('Material preview workbench-group renderer', () => {
     expect(gl.getUniformLocation).not.toHaveBeenCalledWith(expect.anything(), 'u_time');
   });
 
+  it('restores reflected uniform defaults on every draw instead of leaking shared program state', () => {
+    const gl = fakeWebGlContext([
+      { name: 'u_modelViewProj', type: 0x8b5c },
+      { name: 'u_amount', type: 0x1406 },
+    ]);
+    vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {
+      return type === 'webgl2' ? (gl as unknown as WebGL2RenderingContext) : null;
+    } as typeof HTMLCanvasElement.prototype.getContext);
+    const backend = createWebGlAuthoringBackend({
+      onContextLost: vi.fn(),
+      onContextRestored: vi.fn(),
+    });
+    expect(backend).not.toBeNull();
+    const resource = {
+      materialId: 'shared',
+      resolved: { role: 'engine-2d' as const, textures: {}, parameters: {} },
+      derivedInterface: {
+        uniforms: { u_amount: { type: 'float', default: 0.25 } },
+      },
+      vertexShaderSource: null,
+      fragmentShaderSource: null,
+      textures: {},
+    };
+    const frame = backend!.frame(0);
+    frame.beginTarget(100, 100);
+    frame.drawMaterial({
+      resource,
+      geometry: { kind: 'quad' },
+      parameterOverrides: { u_amount: 0.75 },
+    });
+    frame.drawMaterial({ resource, geometry: { kind: 'quad' } });
+
+    expect(
+      vi
+        .mocked(gl.uniform1f)
+        .mock.calls.filter(([location]) => location.name === 'u_amount')
+        .map(([, value]) => value),
+    ).toEqual([0.25, 0.75, 0.25]);
+  });
+
   it('binds RmlUi decorator renderer inputs from the generated contract', async () => {
     const gl = fakeWebGlContext();
     vi.spyOn(HTMLCanvasElement.prototype, 'getContext').mockImplementation(function (type) {

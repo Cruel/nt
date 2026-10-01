@@ -134,6 +134,43 @@ TEST_CASE("focused Room decoder enforces exact Material integer literals")
     CHECK_FALSE(decode_editor_room_preview_document_text(underflow.dump()));
 }
 
+TEST_CASE("focused Room decoder preserves Interactable Material Application overrides")
+{
+    auto document = focused_room_document();
+    document["world"]["interactables"] = nlohmann::json::array(
+        {{{"occurrenceId", "key-instance"},
+          {"interactableId", "key"},
+          {"condition", {{"kind", "always"}}},
+          {"placementId", "key-placement"},
+          {"spriteAssetId", nullptr},
+          {"materialId", "specialized"},
+          {"materialParameters",
+           nlohmann::json::array(
+               {{{"name", "u_amount"},
+                 {"type", "float"},
+                 {"source",
+                  {{"kind", "literal"}, {"value", {{"type", "float"}, {"value", 0.75}}}}}}})},
+          {"materialTextures",
+           nlohmann::json::array(
+               {{{"name", "s_noise"}, {"source", {{"kind", "asset"}, {"id", "noise"}}}}})},
+          {"enabled", true},
+          {"visible", true},
+          {"occurrenceVisible", true},
+          {"order", 0}}});
+
+    auto decoded = decode_editor_room_preview_document_text(document.dump());
+    REQUIRE(decoded);
+    REQUIRE(decoded.value().world.interactables.size() == 1);
+    const auto& interactable = decoded.value().world.interactables.front();
+    REQUIRE(interactable.material_id);
+    CHECK(*interactable.material_id == "specialized");
+    REQUIRE(interactable.material_parameters.size() == 1);
+    CHECK(interactable.material_parameters.front().name == "u_amount");
+    REQUIRE(interactable.material_textures.size() == 1);
+    CHECK(interactable.material_textures.front().name == "s_noise");
+    CHECK(interactable.material_textures.front().source.text() == "noise");
+}
+
 TEST_CASE("focused Room decoder admits project-file composition and rejects Asset spelling")
 {
     auto project_file = focused_room_document();

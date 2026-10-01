@@ -53,6 +53,7 @@ import {
   clampRoomEditNavigation,
   panRoomEditNavigation,
   ROOM_EDIT_FIT_NAVIGATION,
+  sanitizeRoomEditNavigation,
   zoomRoomEditNavigationAtPoint,
   type RoomEditNavigation,
 } from './room-edit-navigation';
@@ -77,6 +78,7 @@ import {
   type RoomEditClockDomain,
   type RoomEditOccurrenceEpoch,
 } from './room-edit-animation';
+import type { RoomEditPresentationEnvironment } from './room-edit-presentation';
 
 type RoomEditResizeHandle = 'nw' | 'ne' | 'sw' | 'se';
 
@@ -150,6 +152,7 @@ function materialResource(resource: MaterialPreviewResource): AuthoringWebGlMate
     vertexShaderSource: resource.vertexShaderSource,
     fragmentShaderSource: resource.fragmentShaderSource,
     textures: resource.textures,
+    derivedInterface: resource.derivedInterface,
     stale: resource.stale,
     requiresCompiledShader: resource.requiresCompiledShader,
     requiresCompiledVertexShader: resource.requiresCompiledVertexShader,
@@ -179,41 +182,65 @@ function colorChannels(value: string | null): readonly [number, number, number, 
   ];
 }
 
-function modelViewProjection(
-  projected: RoomEditProjectedRect,
+function authoringNavigationProjection(
   viewport: { width: number; height: number },
+  navigation: RoomEditNavigation,
 ) {
-  const radians = (projected.rotationDegrees * Math.PI) / 180;
-  const cosine = Math.cos(radians);
-  const sine = Math.sin(radians);
-  const rectCenterX = projected.rect.x + projected.rect.width * 0.5;
-  const rectCenterY = projected.rect.y + projected.rect.height * 0.5;
-  const viewportCenterX = viewport.width * 0.5;
-  const viewportCenterY = viewport.height * 0.5;
-  const localCenterX = rectCenterX - viewportCenterX;
-  const localCenterY = rectCenterY - viewportCenterY;
-  const rotatedCenterX = viewportCenterX + localCenterX * cosine - localCenterY * sine;
-  const rotatedCenterY = viewportCenterY + localCenterX * sine + localCenterY * cosine;
-  const translateX = (rotatedCenterX / viewport.width) * 2 - 1;
-  const translateY = 1 - (rotatedCenterY / viewport.height) * 2;
+  const resolved = sanitizeRoomEditNavigation(navigation);
   return new Float32Array([
-    (cosine * projected.rect.width) / viewport.width,
-    (-sine * projected.rect.width) / viewport.height,
+    (2 * resolved.zoom) / viewport.width,
     0,
     0,
-    (sine * projected.rect.height) / viewport.width,
-    (cosine * projected.rect.height) / viewport.height,
+    0,
+    0,
+    (-2 * resolved.zoom) / viewport.height,
     0,
     0,
     0,
     0,
     1,
     0,
-    translateX,
-    translateY,
+    -resolved.zoom + (2 * resolved.pan.x) / viewport.width,
+    resolved.zoom - (2 * resolved.pan.y) / viewport.height,
     0,
     1,
   ]);
+}
+
+function canonicalQuadPositions(
+  projected: RoomEditProjectedRect,
+  viewport: { width: number; height: number },
+): readonly [number, number, number, number, number, number, number, number] {
+  const centerX = viewport.width * 0.5;
+  const centerY = viewport.height * 0.5;
+  const radians = (projected.rotationDegrees * Math.PI) / 180;
+  const cosine = Math.cos(radians);
+  const sine = Math.sin(radians);
+  const rotate = (x: number, y: number) => {
+    const localX = x - centerX;
+    const localY = y - centerY;
+    return {
+      x: centerX + localX * cosine - localY * sine,
+      y: centerY + localX * sine + localY * cosine,
+    };
+  };
+  const bottomLeft = rotate(projected.rect.x, projected.rect.y + projected.rect.height);
+  const bottomRight = rotate(
+    projected.rect.x + projected.rect.width,
+    projected.rect.y + projected.rect.height,
+  );
+  const topLeft = rotate(projected.rect.x, projected.rect.y);
+  const topRight = rotate(projected.rect.x + projected.rect.width, projected.rect.y);
+  return [
+    bottomLeft.x,
+    bottomLeft.y,
+    bottomRight.x,
+    bottomRight.y,
+    topLeft.x,
+    topLeft.y,
+    topRight.x,
+    topRight.y,
+  ];
 }
 
 function parameterOverrides(
@@ -257,8 +284,6 @@ function parameterOverrides(
 }
 
 function drawVisual(
-  displayProjection: RoomEditProjection,
-  displayProjected: RoomEditProjectedRect,
   canonicalProjection: RoomEditProjection,
   canonicalProjected: RoomEditProjectedRect,
   prepared: PreparedVisual,
@@ -268,20 +293,32 @@ function drawVisual(
   propertyValues?: Readonly<Record<string, unknown>>,
   uv?: RoomEditUvRect,
   color?: readonly [number, number, number, number],
+  navigation: RoomEditNavigation = ROOM_EDIT_FIT_NAVIGATION,
+  presentationEnvironment?: RoomEditPresentationEnvironment,
 ): AuthoringWebGlMaterialDraw {
+  const environment = presentationEnvironment ?? {
+    referenceToWorldRasterScale: [1, 1] as const,
+    contextLogicalToRasterScale: [1, 1] as const,
+    viewportPixelDimensions: [
+      canonicalProjection.viewport.width,
+      canonicalProjection.viewport.height,
+    ] as const,
+  };
   return {
     resource: prepared.material,
-    geometry: { kind: 'quad', ...(uv ? { uv } : {}), ...(color ? { color } : {}) },
-    modelViewProjection: modelViewProjection(displayProjected, displayProjection.viewport),
+    geometry: {
+      kind: 'quad',
+      positions: canonicalQuadPositions(canonicalProjected, canonicalProjection.viewport),
+      ...(uv ? { uv } : {}),
+      ...(color ? { color } : {}),
+    },
+    modelViewProjection: authoringNavigationProjection(canonicalProjection.viewport, navigation),
     semanticInputs: {
       'engine.time': frameTimeSeconds,
       'engine.paint_dimensions': [canonicalProjected.rect.width, canonicalProjected.rect.height],
-      'engine.reference_to_world_raster_scale': [1, 1],
-      'engine.context_logical_to_raster_scale': [1, 1],
-      'engine.viewport_pixel_dimensions': [
-        canonicalProjection.viewport.width,
-        canonicalProjection.viewport.height,
-      ],
+      'engine.reference_to_world_raster_scale': environment.referenceToWorldRasterScale,
+      'engine.context_logical_to_raster_scale': environment.contextLogicalToRasterScale,
+      'engine.viewport_pixel_dimensions': environment.viewportPixelDimensions,
       'engine.pointer_position': [0, 0],
       'engine.pointer_valid': false,
     },
@@ -484,6 +521,7 @@ export function RoomEditSurface({
   referenceResolution,
   backgroundImageSize,
   roomPropertyValues,
+  presentationEnvironment,
   resolvedVisibility = null,
   navigation = ROOM_EDIT_FIT_NAVIGATION,
   onNavigationChange = () => {},
@@ -506,6 +544,7 @@ export function RoomEditSurface({
   referenceResolution: { width: number; height: number };
   backgroundImageSize: { width: number; height: number } | null;
   roomPropertyValues: Readonly<Record<string, unknown>>;
+  presentationEnvironment?: RoomEditPresentationEnvironment;
   resolvedVisibility?: RoomEditResolvedVisibility | null;
   navigation?: RoomEditNavigation;
   onNavigationChange?: (navigation: RoomEditNavigation) => void;
@@ -537,6 +576,7 @@ export function RoomEditSurface({
   const surfaceRef = useRef<HTMLDivElement | null>(null);
   const [surfaceElement, setSurfaceElement] = useState<HTMLDivElement | null>(null);
   const navigationRef = useRef(navigation);
+  const presentationEnvironmentRef = useRef(presentationEnvironment);
   const projectionRef = useRef<{
     canonical: RoomEditProjection;
     display: RoomEditProjection;
@@ -580,6 +620,7 @@ export function RoomEditSurface({
     [onSurfaceElementChange],
   );
   navigationRef.current = navigation;
+  presentationEnvironmentRef.current = presentationEnvironment;
   const canonicalSurface = useMemo(
     () =>
       projectRoomEditRect(
@@ -909,8 +950,6 @@ export function RoomEditSurface({
           const backgroundTime = elapsed('background:color');
           draw(
             drawVisual(
-              display,
-              display.backgroundColor,
               canonical,
               canonical.backgroundColor,
               {
@@ -921,6 +960,11 @@ export function RoomEditSurface({
               null,
               frame.timeSeconds,
               backgroundTime,
+              undefined,
+              undefined,
+              undefined,
+              navigationRef.current,
+              presentationEnvironmentRef.current,
             ),
           );
         }
@@ -930,8 +974,6 @@ export function RoomEditSurface({
           );
           draw(
             drawVisual(
-              display,
-              display.background,
               canonical,
               canonical.background,
               preparedScene.background,
@@ -940,6 +982,9 @@ export function RoomEditSurface({
               backgroundTime,
               roomPropertyValues,
               display.background.uv,
+              undefined,
+              navigationRef.current,
+              presentationEnvironmentRef.current,
             ),
           );
         }
@@ -973,16 +1018,6 @@ export function RoomEditSurface({
                   height: 1,
                 }
               : undefined;
-          const displayProjected =
-            item.kind === 'cast-layer' && canonicalItem.kind === 'cast-layer'
-              ? applyCharacterIdleDisplayProjection(
-                  canonicalItem,
-                  canonicalItem.idle,
-                  occurrenceTime,
-                  canonical.viewport,
-                  navigationRef.current,
-                )
-              : item;
           const canonicalProjected =
             canonicalItem.kind === 'cast-layer'
               ? applyCharacterIdleProjection(
@@ -994,8 +1029,6 @@ export function RoomEditSurface({
               : canonicalItem;
           draw(
             drawVisual(
-              display,
-              displayProjected,
               canonical,
               canonicalProjected,
               prepared,
@@ -1005,6 +1038,8 @@ export function RoomEditSurface({
               propertyValues,
               uv,
               color,
+              navigationRef.current,
+              presentationEnvironmentRef.current,
             ),
           );
         }
