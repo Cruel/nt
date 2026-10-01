@@ -5,7 +5,6 @@ import {
   useRef,
   useState,
   type MouseEvent as ReactMouseEvent,
-  type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -93,7 +92,6 @@ const roomEditResizeCursorClass: Record<RoomEditResizeHandle, string> = {
 type RoomEditDirectGesture =
   | {
       kind: 'candidate';
-      pointerId: number | null;
       start: { x: number; y: number };
       current: { x: number; y: number };
       selection: RoomEditSelection[];
@@ -104,7 +102,6 @@ type RoomEditDirectGesture =
     }
   | {
       kind: 'marquee';
-      pointerId: number | null;
       start: { x: number; y: number };
       current: { x: number; y: number };
       additive: boolean;
@@ -112,7 +109,6 @@ type RoomEditDirectGesture =
     }
   | {
       kind: 'resize';
-      pointerId: number | null;
       start: { x: number; y: number };
       current: { x: number; y: number };
       selection: RoomEditSelection;
@@ -583,7 +579,6 @@ export function RoomEditSurface({
     display: RoomEditProjection;
   } | null>(null);
   const panGestureRef = useRef<{
-    pointerId: number;
     clientX: number;
     clientY: number;
     suppressSelectionClick: boolean;
@@ -794,14 +789,6 @@ export function RoomEditSurface({
     suppressSelectionClickRef.current = false;
     if (gesture) setPanning(false);
     if (directGesture) setDirectGestureVersion((value) => value + 1);
-    if (gesture && surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
-      surfaceRef.current.releasePointerCapture(gesture.pointerId);
-    if (
-      directGesture &&
-      directGesture.pointerId !== null &&
-      surfaceRef.current?.hasPointerCapture?.(directGesture.pointerId)
-    )
-      surfaceRef.current.releasePointerCapture(directGesture.pointerId);
   }, [gestureCancellationToken, interactionEnabled]);
 
   useEffect(() => {
@@ -812,8 +799,6 @@ export function RoomEditSurface({
         event.preventDefault();
         panGestureRef.current = null;
         suppressSelectionClickRef.current = true;
-        if (surfaceRef.current?.hasPointerCapture?.(panGesture.pointerId))
-          surfaceRef.current.releasePointerCapture(panGesture.pointerId);
         setPanning(false);
         return;
       }
@@ -825,11 +810,8 @@ export function RoomEditSurface({
       }
       if (!directGestureRef.current) return;
       event.preventDefault();
-      const gesture = directGestureRef.current;
       directGestureRef.current = null;
       suppressSelectionClickRef.current = true;
-      if (gesture.pointerId !== null && surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
-        surfaceRef.current.releasePointerCapture(gesture.pointerId);
       setDirectGestureVersion((value) => value + 1);
     };
     window.addEventListener('keydown', keyDown);
@@ -876,7 +858,6 @@ export function RoomEditSurface({
       event.stopPropagation();
       directGestureRef.current = {
         kind: 'candidate',
-        pointerId: null,
         start: { x: point.x, y: point.y },
         current: { x: point.x, y: point.y },
         selection: [...selection],
@@ -891,9 +872,9 @@ export function RoomEditSurface({
   );
 
   const updateDirectGesture = useCallback(
-    (event: { pointerId: number | null; clientX: number; clientY: number }) => {
+    (event: { clientX: number; clientY: number }) => {
       const direct = directGestureRef.current;
-      if (!direct || direct.pointerId !== event.pointerId) return false;
+      if (!direct) return false;
       const point = viewportPoint(event.clientX, event.clientY);
       if (!point) return true;
       direct.current = { x: point.x, y: point.y };
@@ -944,15 +925,13 @@ export function RoomEditSurface({
   );
 
   const finishDirectGesture = useCallback(
-    (event: { pointerId: number | null; clientX: number; clientY: number }) => {
+    (event: { clientX: number; clientY: number }) => {
       const direct = directGestureRef.current;
-      if (!direct || direct.pointerId !== event.pointerId) return false;
+      if (!direct) return false;
       const point = viewportPoint(event.clientX, event.clientY);
       if (point) direct.current = { x: point.x, y: point.y };
       directGestureRef.current = null;
       suppressSelectionClickRef.current = true;
-      if (event.pointerId !== null && surfaceRef.current?.hasPointerCapture?.(event.pointerId))
-        surfaceRef.current.releasePointerCapture(event.pointerId);
       if (direct.kind === 'candidate') {
         if (direct.dragging) {
           onTranslateSelection(
@@ -1020,29 +999,54 @@ export function RoomEditSurface({
     ],
   );
 
-  const cancelDirectGesture = useCallback((pointerId: number | null) => {
-    const direct = directGestureRef.current;
-    if (!direct || direct.pointerId !== pointerId) return false;
+  const cancelDirectGesture = useCallback(() => {
+    if (!directGestureRef.current) return false;
     directGestureRef.current = null;
     suppressSelectionClickRef.current = true;
-    if (pointerId !== null && surfaceRef.current?.hasPointerCapture?.(pointerId))
-      surfaceRef.current.releasePointerCapture(pointerId);
     setDirectGestureVersion((value) => value + 1);
     return true;
   }, []);
 
   useEffect(() => {
     const mouseMove = (event: MouseEvent) => {
-      if (directGestureRef.current?.pointerId !== null) return;
+      const panGesture = panGestureRef.current;
+      if (panGesture) {
+        event.preventDefault();
+        const point = viewportPoint(event.clientX, event.clientY);
+        if (!point) return;
+        const delta = {
+          x: (event.clientX - panGesture.clientX) * point.scaleX,
+          y: (event.clientY - panGesture.clientY) * point.scaleY,
+        };
+        panGesture.clientX = event.clientX;
+        panGesture.clientY = event.clientY;
+        updateNavigation(panRoomEditNavigation(navigationRef.current, delta));
+        return;
+      }
+      if (!directGestureRef.current) return;
       event.preventDefault();
-      updateDirectGesture({ pointerId: null, clientX: event.clientX, clientY: event.clientY });
+      updateDirectGesture(event);
     };
     const mouseUp = (event: MouseEvent) => {
-      if (directGestureRef.current?.pointerId !== null) return;
+      const panGesture = panGestureRef.current;
+      if (panGesture) {
+        event.preventDefault();
+        panGestureRef.current = null;
+        if (!panGesture.suppressSelectionClick) suppressSelectionClickRef.current = false;
+        setPanning(false);
+        return;
+      }
+      if (!directGestureRef.current) return;
       event.preventDefault();
-      finishDirectGesture({ pointerId: null, clientX: event.clientX, clientY: event.clientY });
+      finishDirectGesture(event);
     };
-    const blur = () => cancelDirectGesture(null);
+    const blur = () => {
+      if (panGestureRef.current) {
+        panGestureRef.current = null;
+        setPanning(false);
+      }
+      cancelDirectGesture();
+    };
     window.addEventListener('mousemove', mouseMove, { passive: false });
     window.addEventListener('mouseup', mouseUp, { passive: false });
     window.addEventListener('blur', blur);
@@ -1051,7 +1055,13 @@ export function RoomEditSurface({
       window.removeEventListener('mouseup', mouseUp);
       window.removeEventListener('blur', blur);
     };
-  }, [cancelDirectGesture, finishDirectGesture, updateDirectGesture]);
+  }, [
+    cancelDirectGesture,
+    finishDirectGesture,
+    updateDirectGesture,
+    updateNavigation,
+    viewportPoint,
+  ]);
 
   useEffect(() => {
     if (!surfaceElement) return;
@@ -1307,16 +1317,14 @@ export function RoomEditSurface({
     );
   })();
 
-  const beginPanGesture = (event: ReactPointerEvent<HTMLElement>) => {
+  const beginPanGesture = (event: ReactMouseEvent<HTMLElement>) => {
     const suppressSelectionClick = event.button === 0;
     suppressSelectionClickRef.current = suppressSelectionClick;
     panGestureRef.current = {
-      pointerId: event.pointerId,
       clientX: event.clientX,
       clientY: event.clientY,
       suppressSelectionClick,
     };
-    surfaceRef.current?.setPointerCapture?.(event.pointerId);
     setPanning(true);
   };
 
@@ -1337,15 +1345,15 @@ export function RoomEditSurface({
           data-testid="room-edit-surface"
           data-panning={panning ? 'true' : 'false'}
           data-interaction-enabled={interactionEnabled ? 'true' : 'false'}
-          onPointerEnter={() => {
+          onMouseEnter={() => {
             pointerInsideRef.current = true;
           }}
-          onPointerLeave={() => {
+          onMouseLeave={() => {
             pointerInsideRef.current = false;
             setHoveredPlacementId(null);
             if (pendingAddActionId) setAddGhostViewportPoint(null);
           }}
-          onPointerDown={(event) => {
+          onMouseDown={(event) => {
             if (!interactionEnabled) return;
             const shouldPan = event.button === 1 || (event.button === 0 && spaceHeldRef.current);
             if (shouldPan) {
@@ -1387,7 +1395,6 @@ export function RoomEditSurface({
               );
               directGestureRef.current = {
                 kind: 'candidate',
-                pointerId: event.pointerId,
                 start: { x: point.x, y: point.y },
                 current: { x: point.x, y: point.y },
                 selection: alreadySelected
@@ -1403,62 +1410,26 @@ export function RoomEditSurface({
             } else {
               directGestureRef.current = {
                 kind: 'marquee',
-                pointerId: event.pointerId,
                 start: { x: point.x, y: point.y },
                 current: { x: point.x, y: point.y },
                 additive,
                 dragging: false,
               };
             }
-            surfaceRef.current?.setPointerCapture?.(event.pointerId);
           }}
-          onPointerMove={(event) => {
-            const gesture = panGestureRef.current;
-            if (gesture && gesture.pointerId === event.pointerId) {
-              const point = viewportPoint(event.clientX, event.clientY);
-              if (!point) return;
-              const delta = {
-                x: (event.clientX - gesture.clientX) * point.scaleX,
-                y: (event.clientY - gesture.clientY) * point.scaleY,
-              };
-              gesture.clientX = event.clientX;
-              gesture.clientY = event.clientY;
-              updateNavigation(panRoomEditNavigation(navigationRef.current, delta));
-              return;
-            }
+          onMouseMove={(event) => {
+            if (panGestureRef.current || directGestureRef.current) return;
             if (pendingAddActionId) {
               const point = viewportPoint(event.clientX, event.clientY);
               if (point) setAddGhostViewportPoint({ x: point.x, y: point.y });
               return;
             }
-            if (updateDirectGesture(event)) return;
             const hovered = ordinaryRoomEditSelectionCandidate(
               candidatesAtClientPoint(event.clientX, event.clientY),
             );
             setHoveredPlacementId(
               hovered?.selection.kind === 'placement' ? hovered.selection.id : null,
             );
-          }}
-          onPointerUp={(event) => {
-            const gesture = panGestureRef.current;
-            if (gesture && gesture.pointerId === event.pointerId) {
-              panGestureRef.current = null;
-              if (!gesture.suppressSelectionClick) suppressSelectionClickRef.current = false;
-              setPanning(false);
-              if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
-                surfaceRef.current.releasePointerCapture(event.pointerId);
-              return;
-            }
-            finishDirectGesture(event);
-          }}
-          onPointerCancel={(event) => {
-            const gesture = panGestureRef.current;
-            if (gesture && gesture.pointerId === event.pointerId) {
-              panGestureRef.current = null;
-              suppressSelectionClickRef.current = false;
-              setPanning(false);
-            }
-            cancelDirectGesture(event.pointerId);
           }}
           onClick={(event) => {
             if (!interactionEnabled) return;
@@ -1586,9 +1557,6 @@ export function RoomEditSurface({
                   }`}
                   style={overlayStyle(candidate.projected, projection)}
                   data-testid={`room-edit-selected-${key}`}
-                  onPointerDown={(event) => {
-                    if (!spaceHeldRef.current) event.stopPropagation();
-                  }}
                   onMouseDown={(event) => {
                     beginSelectedItemMouseDrag(event, candidate);
                   }}
@@ -1604,9 +1572,6 @@ export function RoomEditSurface({
                             handle.includes('n') ? '-top-1.5' : '-bottom-1.5'
                           } ${handle.includes('w') ? '-left-1.5' : '-right-1.5'} ${roomEditResizeCursorClass[handle]}`}
                           data-testid={`room-edit-resize-${handle}`}
-                          onPointerDown={(event) => {
-                            if (!spaceHeldRef.current) event.stopPropagation();
-                          }}
                           onMouseDown={(event) => {
                             if (!interactionEnabled || event.button !== 0 || spaceHeldRef.current)
                               return;
@@ -1620,7 +1585,6 @@ export function RoomEditSurface({
                             if (!point || !bounds) return;
                             directGestureRef.current = {
                               kind: 'resize',
-                              pointerId: null,
                               start: { x: point.x, y: point.y },
                               current: { x: point.x, y: point.y },
                               selection: candidate.selection,
