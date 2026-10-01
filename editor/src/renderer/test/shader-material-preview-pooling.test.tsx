@@ -471,6 +471,7 @@ describe('Material lightweight previews', () => {
       .map(([draw]) => draw)
       .find((draw) => draw.resource.materialId === 'panel');
     expect(fogDraw?.parameterOverrides?.u_time).toBe(0);
+    expect(fogDraw?.semanticInputs?.['engine.time']).toBe(0);
     expect(fogDraw?.geometry.uv).toEqual({ x: 0, y: -0, width: 1, height: 1 });
 
     drawMaterial.mockClear();
@@ -479,6 +480,7 @@ describe('Material lightweight previews', () => {
       .map(([draw]) => draw)
       .find((draw) => draw.resource.materialId === 'panel');
     expect(fogDraw?.parameterOverrides?.u_time).toBeCloseTo(2.5);
+    expect(fogDraw?.semanticInputs?.['engine.time']).toBeCloseTo(2.5);
     expect(fogDraw?.geometry.uv).toEqual({ x: 0.625, y: -1.25, width: 1, height: 1 });
 
     const withoutFog = structuredClone(room);
@@ -493,6 +495,7 @@ describe('Material lightweight previews', () => {
       .map(([draw]) => draw)
       .find((draw) => draw.resource.materialId === 'panel');
     expect(fogDraw?.parameterOverrides?.u_time).toBe(0);
+    expect(fogDraw?.semanticInputs?.['engine.time']).toBe(0);
     expect(fogDraw?.geometry.uv).toEqual({ x: 0, y: -0, width: 1, height: 1 });
   });
 

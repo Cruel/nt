@@ -70,6 +70,7 @@ import {
   type RoomEditSelectionCandidate,
 } from './room-edit-selection';
 import {
+  applyCharacterIdleDisplayProjection,
   applyCharacterIdleProjection,
   occurrenceElapsedSeconds,
   retainOccurrenceEpochs,
@@ -551,6 +552,9 @@ export function RoomEditSurface({
   const suppressSelectionClickRef = useRef(false);
   const directGestureRef = useRef<RoomEditDirectGesture | null>(null);
   const occurrenceEpochsRef = useRef<Map<string, RoomEditOccurrenceEpoch>>(new Map());
+  const [castIdleElapsedSeconds, setCastIdleElapsedSeconds] = useState<ReadonlyMap<string, number>>(
+    () => new Map(),
+  );
   const [panning, setPanning] = useState(false);
   const [directGestureVersion, setDirectGestureVersion] = useState(0);
   const [hoveredPlacementId, setHoveredPlacementId] = useState<string | null>(null);
@@ -656,9 +660,37 @@ export function RoomEditSurface({
       roomId,
     ],
   );
+  const selectionProjection = useMemo(() => {
+    if (castIdleElapsedSeconds.size === 0) return projections.display;
+    const animatedLayers = new Map<string, RoomEditProjectedRect>();
+    const cast = projections.canonical.cast.map((occurrence) => ({
+      ...occurrence,
+      layers: occurrence.layers.map((layer) => {
+        const occurrenceId = `${occurrence.occurrenceId}:${layer.layerId}`;
+        const projected = applyCharacterIdleDisplayProjection(
+          layer,
+          layer.idle,
+          castIdleElapsedSeconds.get(occurrenceId) ?? 0,
+          projections.canonical.viewport,
+          navigation,
+        );
+        animatedLayers.set(occurrenceId, projected);
+        return { ...layer, ...projected };
+      }),
+    }));
+    return {
+      ...projections.display,
+      cast,
+      worldDraws: projections.display.worldDraws.map((draw) =>
+        draw.kind === 'cast-layer' && animatedLayers.has(draw.occurrenceId)
+          ? { ...draw, ...animatedLayers.get(draw.occurrenceId)! }
+          : draw,
+      ),
+    };
+  }, [castIdleElapsedSeconds, navigation, projections]);
   const selectionCandidates = useMemo(
-    () => roomEditSelectionCandidates(project, draftRoom, projections.display, t),
-    [draftRoom, project, projections.display, t],
+    () => roomEditSelectionCandidates(project, draftRoom, selectionProjection, t),
+    [draftRoom, project, selectionProjection, t],
   );
   projectionRef.current = projections;
   const projection = projections.display;
@@ -853,6 +885,7 @@ export function RoomEditSurface({
           canonical.worldDraws.map((item) => [`${item.kind}:${item.occurrenceId}`, item] as const),
         );
         const activeEpochKeys = new Set<string>();
+        const nextCastIdleElapsedSeconds = new Map<string, number>();
         const elapsed = (key: string, clock: RoomEditClockDomain = 'unscaled-presentation') => {
           activeEpochKeys.add(key);
           return occurrenceElapsedSeconds(
@@ -929,6 +962,8 @@ export function RoomEditSurface({
                 ? item.idle.clock
                 : 'unscaled-presentation';
           const occurrenceTime = elapsed(`${item.kind}:${item.occurrenceId}`, clock);
+          if (item.kind === 'cast-layer' && item.idle)
+            nextCastIdleElapsedSeconds.set(item.occurrenceId, occurrenceTime);
           const uv =
             item.kind === 'environment'
               ? {
@@ -939,8 +974,14 @@ export function RoomEditSurface({
                 }
               : undefined;
           const displayProjected =
-            item.kind === 'cast-layer'
-              ? applyCharacterIdleProjection(item, item.idle, occurrenceTime, display.viewport)
+            item.kind === 'cast-layer' && canonicalItem.kind === 'cast-layer'
+              ? applyCharacterIdleDisplayProjection(
+                  canonicalItem,
+                  canonicalItem.idle,
+                  occurrenceTime,
+                  canonical.viewport,
+                  navigationRef.current,
+                )
               : item;
           const canonicalProjected =
             canonicalItem.kind === 'cast-layer'
@@ -959,7 +1000,7 @@ export function RoomEditSurface({
               canonicalProjected,
               prepared,
               item.materialApplication,
-              frame.timeSeconds,
+              item.kind === 'environment' ? occurrenceTime : frame.timeSeconds,
               occurrenceTime,
               propertyValues,
               uv,
@@ -968,6 +1009,14 @@ export function RoomEditSurface({
           );
         }
         retainOccurrenceEpochs(occurrenceEpochsRef.current, activeEpochKeys);
+        setCastIdleElapsedSeconds((current) => {
+          if (
+            current.size === nextCastIdleElapsedSeconds.size &&
+            [...current].every(([key, value]) => nextCastIdleElapsedSeconds.get(key) === value)
+          )
+            return current;
+          return nextCastIdleElapsedSeconds;
+        });
         frame.copyTargetToCanvas(canvas, display.viewport.width, display.viewport.height);
         setShaderDiagnostic((current) => {
           const next = staleShaderError ? { stale: true, message: staleShaderError.message } : null;

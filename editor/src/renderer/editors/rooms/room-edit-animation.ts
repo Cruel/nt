@@ -1,5 +1,6 @@
 import type { CharacterIdleData } from '../../../shared/project-schema/authoring-characters';
 import type { RoomEditProjectedRect, RoomEditSize } from './room-edit-projection';
+import { applyRoomEditNavigation, type RoomEditNavigation } from './room-edit-navigation';
 
 export type RoomEditClockDomain = CharacterIdleData['clock'];
 
@@ -59,4 +60,18 @@ export function applyCharacterIdleProjection(
     }
   }
   return { ...projected, rect };
+}
+
+export function applyCharacterIdleDisplayProjection(
+  canonicalProjected: RoomEditProjectedRect,
+  idle: CharacterIdleData | null,
+  elapsedSeconds: number,
+  viewport: RoomEditSize,
+  navigation: RoomEditNavigation,
+) {
+  return applyRoomEditNavigation(
+    applyCharacterIdleProjection(canonicalProjected, idle, elapsedSeconds, viewport),
+    viewport,
+    navigation,
+  );
 }

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vite-plus/test';
 import {
+  applyCharacterIdleDisplayProjection,
   applyCharacterIdleProjection,
   occurrenceElapsedSeconds,
   retainOccurrenceEpochs,
@@ -59,5 +60,29 @@ describe('Room Edit occurrence animation', () => {
     expect(pulse.y).toBeCloseTo(85);
     expect(pulse.width).toBeCloseTo(220);
     expect(pulse.height).toBeCloseTo(330);
+  });
+
+  it('applies authoring navigation after Character idle motion so bob and sway scale with Edit zoom', () => {
+    const projected = {
+      rect: { x: 100, y: 100, width: 200, height: 300 },
+      rotationDegrees: 0,
+    };
+    const viewport = { width: 1000, height: 500 };
+    const idle = {
+      id: 'idle',
+      label: 'Idle',
+      kind: 'bob' as const,
+      amplitude: 0.1,
+      periodMs: 1000,
+      clock: 'unscaled-presentation' as const,
+    };
+
+    const displayed = applyCharacterIdleDisplayProjection(projected, idle, 0.25, viewport, {
+      zoom: 2,
+      pan: { x: 0, y: 0 },
+    });
+
+    // Canonical bob moves 50px upward; at 2x authoring zoom the displayed displacement is 100px.
+    expect(displayed.rect).toEqual({ x: -300, y: -150, width: 400, height: 600 });
   });
 });

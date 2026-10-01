@@ -2118,6 +2118,9 @@ describe('RoomEditor', () => {
     renderEditor();
     expect(screen.getByTestId('room-edit-selected-cast:hero-cast')).toBeInTheDocument();
     expect(screen.queryByTestId(/^room-edit-resize-/)).toBeNull();
+    expect(screen.getByRole('combobox', { name: 'Appearance' })).toHaveTextContent(
+      'Character default',
+    );
     fireEvent.click(screen.getByRole('combobox', { name: 'Appearance' }));
     expect(screen.getByRole('option', { name: 'Character default' })).toBeInTheDocument();
     fireEvent.keyDown(screen.getByRole('combobox', { name: 'Appearance' }), { key: 'Escape' });
