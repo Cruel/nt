@@ -394,7 +394,23 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
       textureUnit += 1;
     }
 
+    const reflectedUniforms = resource.derivedInterface?.uniforms ?? {};
+    const reflectedNames = new Set(Object.keys(reflectedUniforms));
+    for (const [name, declaration] of Object.entries(reflectedUniforms)) {
+      if (declaration.binding) {
+        if (
+          draw.semanticInputs &&
+          Object.prototype.hasOwnProperty.call(draw.semanticInputs, declaration.binding)
+        )
+          setUniformValue(gl, program, name, draw.semanticInputs[declaration.binding]);
+        continue;
+      }
+      const materialValue = resource.resolved.parameters[name]?.value;
+      const value = materialValue !== undefined ? materialValue : declaration.default;
+      if (value !== undefined) setUniformValue(gl, program, name, value);
+    }
     for (const [name, parameter] of Object.entries(resource.resolved.parameters)) {
+      if (reflectedNames.has(name)) continue;
       if (parameter.value !== undefined) setUniformValue(gl, program, name, parameter.value);
       if (
         parameter.binding &&
@@ -445,7 +461,7 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     const inset = Math.max(0, geometry.inset ?? 0);
     const uv = geometry.uv ?? { x: 0, y: 0, width: 1, height: 1 };
     const color = geometry.color ?? ([1, 1, 1, 1] as const);
-    const geometryKey = `${geometry.kind}:${inset}:${color.join(',')}`;
+    const geometryKey = `${geometry.kind}:${inset}:${color.join(',')}:${geometry.positions ? 'explicit' : 'normalized'}`;
     let cached = this.geometryCache.get(geometryKey);
     if (!cached) {
       const positions = new Float32Array([
@@ -465,7 +481,11 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
       if (!positionBuffer || !texcoordBuffer || !colorBuffer)
         throw new Error('Unable to allocate authoring geometry.');
       gl.bindBuffer(gl.ARRAY_BUFFER, positionBuffer);
-      gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+      if (geometry.positions) {
+        gl.bufferData(gl.ARRAY_BUFFER, positions.byteLength, gl.DYNAMIC_DRAW);
+      } else {
+        gl.bufferData(gl.ARRAY_BUFFER, positions, gl.STATIC_DRAW);
+      }
       gl.bindBuffer(gl.ARRAY_BUFFER, texcoordBuffer);
       gl.bufferData(gl.ARRAY_BUFFER, 8 * Float32Array.BYTES_PER_ELEMENT, gl.DYNAMIC_DRAW);
       gl.bindBuffer(gl.ARRAY_BUFFER, colorBuffer);
@@ -476,6 +496,9 @@ class WebGlAuthoringBackend implements AuthoringWebGlBackend {
     const positionLocation = gl.getAttribLocation(program, 'a_position');
     if (positionLocation >= 0) {
       gl.bindBuffer(gl.ARRAY_BUFFER, cached.positionBuffer);
+      if (geometry.positions) {
+        gl.bufferSubData(gl.ARRAY_BUFFER, 0, new Float32Array(geometry.positions));
+      }
       gl.enableVertexAttribArray(positionLocation);
       gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
     }

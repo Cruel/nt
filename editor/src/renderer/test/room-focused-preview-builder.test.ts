@@ -225,6 +225,63 @@ describe('graph-driven Room builder', () => {
     );
   });
 
+  it('publishes the effective Interactable Material Application for the exact Instance', async () => {
+    const project = fixture();
+    project.materials.base = {
+      id: 'base',
+      label: 'Base Material',
+      data: defaultMaterialData('Base Material', 'engine-2d'),
+    };
+    project.materials.specialized = {
+      id: 'specialized',
+      label: 'Specialized Material',
+      data: defaultMaterialData('Specialized Material', 'engine-2d'),
+    };
+    project.assets.noise = {
+      id: 'noise',
+      label: 'Noise',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/images/noise.png' },
+        aliases: [],
+        sampling: 'linear',
+        byteSize: 4,
+        contentHash: `sha256:${'d'.repeat(64)}`,
+        imageMetadata: { width: 8, height: 8, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const definition = project.interactables.key!.data;
+    definition.presentation.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'base' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.25 } },
+      },
+      textures: {},
+    };
+    project.interactableInstances.key!.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'specialized' } },
+      parameters: {
+        u_amount: { type: 'float', source: { kind: 'literal', value: 0.75 } },
+      },
+      textures: {
+        s_noise: { source: { $ref: { collection: 'assets', id: 'noise' } } },
+      },
+    };
+
+    const result = await build(project);
+    expect(result.data.world.interactables[0]).toMatchObject({
+      materialId: 'specialized',
+      materialParameters: [
+        {
+          name: 'u_amount',
+          type: 'float',
+          source: { kind: 'literal', value: { type: 'float', value: 0.75 } },
+        },
+      ],
+      materialTextures: [{ name: 's_noise', source: { kind: 'asset', id: 'noise' } }],
+    });
+  });
+
   it('projects effective Room and Interactable Hotspot cursors for focused preview', async () => {
     const project = fixture();
     project.assets.pointer = {

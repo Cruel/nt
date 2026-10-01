@@ -79,6 +79,7 @@ import {
   sanitizeRoomEditNavigation,
   type RoomEditNavigation,
 } from '@/editors/rooms/room-edit-navigation';
+import { resolveRoomEditPresentationEnvironment } from '@/editors/rooms/room-edit-presentation';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -1551,10 +1552,25 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       { ...data, exits: data.exits.map((exit) => (exit.id === id ? { ...exit, ...patch } : exit)) },
       'Update room exit',
     );
-  const referenceResolution = projectSettingsFromProject(project).display.referenceResolution;
+  const projectDisplay = projectSettingsFromProject(project).display;
+  const referenceResolution = projectDisplay.referenceResolution;
   const fittedRoomEditSurfaceSize = fitRoomEditSurfaceFrame(
     roomEditViewportSize,
     referenceResolution,
+  );
+  const deviceScale =
+    typeof window === 'undefined' ||
+    !Number.isFinite(window.devicePixelRatio) ||
+    window.devicePixelRatio <= 0
+      ? 1
+      : window.devicePixelRatio;
+  const roomEditPresentationEnvironment = resolveRoomEditPresentationEnvironment(
+    referenceResolution,
+    {
+      width: fittedRoomEditSurfaceSize.width * deviceScale,
+      height: fittedRoomEditSurfaceSize.height * deviceScale,
+    },
+    projectDisplay.worldRasterPolicy,
   );
   const replaceOverlay = (id: string, patch: Partial<RoomOverlayData>) =>
     commit(
@@ -3125,6 +3141,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     referenceResolution={referenceResolution}
                     backgroundImageSize={compositionBackgroundSize}
                     roomPropertyValues={roomPropertyValues}
+                    presentationEnvironment={roomEditPresentationEnvironment}
                     resolvedVisibility={activeRoomEditResolution}
                     navigation={visibleEditNavigation}
                     onNavigationChange={handleRoomEditNavigationChange}

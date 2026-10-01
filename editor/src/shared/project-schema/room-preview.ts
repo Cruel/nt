@@ -303,6 +303,8 @@ export const focusedRoomWorldDefinitionSchema = strict({
       placementId: z.string().min(1),
       spriteAssetId: z.string().min(1).nullable(),
       materialId: z.string().min(1).nullable(),
+      materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
+      materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
       enabled: z.boolean(),
       visible: z.boolean(),
       occurrenceVisible: z.boolean(),

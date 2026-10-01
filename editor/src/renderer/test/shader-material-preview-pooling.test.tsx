@@ -396,6 +396,8 @@ describe('Material lightweight previews', () => {
 
     expect(first?.parameterOverrides).toMatchObject({ u_width: 1920, u_height: 1080, u_camera: 1 });
     expect(second?.parameterOverrides).toEqual(first?.parameterOverrides);
+    expect(second?.geometry.positions).toEqual(first?.geometry.positions);
+    expect(first?.geometry.positions?.some((value: number) => Math.abs(value) > 1)).toBe(true);
     expect(second?.modelViewProjection).not.toEqual(first?.modelViewProjection);
   });
 

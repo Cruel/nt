@@ -60,6 +60,7 @@ import type {
   MaterialApplication,
   MaterialApplicationParameterOverride,
 } from '../../shared/project-schema/authoring-material-applications';
+import { effectiveMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { parseRoomData, type RoomData } from '../../shared/project-schema/authoring-rooms';
 import {
   roomPreviewDocumentSchema,
@@ -1019,6 +1020,10 @@ export async function buildFocusedRoomPreview(
         recordForOwner(project, 'interactable', instance.definition.$ref.id)?.data,
       );
       if (!definition) return [];
+      const materialApplication = effectiveMaterialApplication(
+        definition.presentation.materialApplication,
+        instance.materialApplication,
+      );
       return [
         {
           occurrenceId: occurrence.id,
@@ -1026,7 +1031,8 @@ export async function buildFocusedRoomPreview(
           condition: focusedCondition(occurrence.condition),
           placementId: occurrence.placementId,
           spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
-          materialId: definition.presentation.materialApplication?.material.$ref.id ?? null,
+          materialId: materialApplication?.material.$ref.id ?? null,
+          ...focusedMaterialApplication(materialApplication),
           enabled: instance.enabled,
           visible: instance.visible,
           occurrenceVisible: occurrence.visible,

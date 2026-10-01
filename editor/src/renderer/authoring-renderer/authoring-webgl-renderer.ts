@@ -4,6 +4,7 @@ import type { ShaderInputBinding } from '../../shared/project-schema/authoring-s
 export interface AuthoringWebGlGeometry {
   kind: 'quad';
   inset?: number;
+  positions?: readonly [number, number, number, number, number, number, number, number];
   color?: readonly [number, number, number, number];
   uv?: {
     x: number;
@@ -26,6 +27,18 @@ export interface AuthoringWebGlMaterialResource {
   vertexShaderSource: string | null;
   fragmentShaderSource: string | null;
   textures: Readonly<Record<string, AuthoringWebGlTextureResource>>;
+  derivedInterface?: {
+    uniforms: Readonly<
+      Record<
+        string,
+        {
+          type: string;
+          default?: unknown;
+          binding?: ShaderInputBinding;
+        }
+      >
+    >;
+  } | null;
   stale?: boolean;
   requiresCompiledShader?: boolean;
   requiresCompiledVertexShader?: boolean;

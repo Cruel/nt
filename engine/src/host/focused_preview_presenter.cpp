@@ -1291,7 +1291,8 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
                  : std::nullopt,
              interactable.material_id
                  ? std::optional{core::compiled::MaterialApplication{
-                       decoded_id<core::MaterialId>(*interactable.material_id), {}, {}}}
+                       decoded_id<core::MaterialId>(*interactable.material_id),
+                       interactable.material_parameters, interactable.material_textures}}
                  : std::nullopt});
     for (const auto& hotspot : document.world.hotspots) {
         if (!hotspot.source_asset)
@@ -1556,6 +1557,15 @@ FocusedPreviewPresenter::prepare_room_state(
             prop.material_texture_overrides =
                 focused_material_textures(source->material_textures, request.resources);
     }
+    for (auto& interactable : snapshot.value_if()->interactables) {
+        const auto source =
+            std::ranges::find_if(document.world.interactables, [&](const auto& candidate) {
+                return candidate.interactable_id == interactable.interactable.text();
+            });
+        if (source != document.world.interactables.end())
+            interactable.material_texture_overrides =
+                focused_material_textures(source->material_textures, request.resources);
+    }
     for (auto& environment : snapshot.value_if()->environments) {
         const auto source =
             std::ranges::find_if(document.world.environments, [&](const auto& candidate) {
@@ -1682,6 +1692,22 @@ FocusedPreviewPresenter::prepare_room_state(
                     core::MaterialOccurrence{core::ActorMaterialOccurrence{actor.key, layer.id}},
                     *layer.material, "character", actor.character.text());
         }
+    }
+    for (const auto& interactable : snapshot.value_if()->interactables) {
+        if (!interactable.material || !interactable.material_owner)
+            continue;
+        const auto source =
+            std::ranges::find_if(document.world.interactables, [&](const auto& candidate) {
+                return candidate.interactable_id == interactable.interactable.text();
+            });
+        if (source == document.world.interactables.end())
+            continue;
+        for (const auto& parameter : source->material_parameters)
+            append_authored_parameter(parameter, *interactable.material_owner,
+                                      core::MaterialOccurrence{core::InteractableMaterialOccurrence{
+                                          interactable.interactable}},
+                                      *interactable.material, "interactable",
+                                      interactable.interactable.text());
     }
     for (const auto& prop : snapshot.value_if()->props) {
         if (!prop.material)
