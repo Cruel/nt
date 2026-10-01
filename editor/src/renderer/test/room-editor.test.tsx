@@ -1910,14 +1910,13 @@ describe('RoomEditor', () => {
       const afterWheelPan = (
         afterWheel!.payload as { editNavigation?: { pan?: { x?: number; y?: number } } }
       ).editNavigation?.pan;
-      fireEvent.pointerDown(surface, {
+      fireEvent.mouseDown(surface, {
         button: 1,
-        pointerId: 1,
         clientX: 500,
         clientY: 250,
       });
-      fireEvent.pointerMove(surface, { pointerId: 1, clientX: 550, clientY: 275 });
-      fireEvent.pointerUp(surface, { pointerId: 1, clientX: 550, clientY: 275 });
+      fireEvent.mouseMove(window, { clientX: 550, clientY: 275 });
+      fireEvent.mouseUp(window, { button: 1, clientX: 550, clientY: 275 });
       captureWorkbenchTabState(tab.id);
       const afterMiddlePan = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
       expect(afterMiddlePan).toBeDefined();
@@ -1930,14 +1929,13 @@ describe('RoomEditor', () => {
       expect(screen.getByRole('heading', { name: 'Room Contents' })).toBeInTheDocument();
 
       fireEvent.keyDown(window, { code: 'Space' });
-      fireEvent.pointerDown(surface, {
+      fireEvent.mouseDown(surface, {
         button: 0,
-        pointerId: 2,
         clientX: 550,
         clientY: 275,
       });
-      fireEvent.pointerMove(surface, { pointerId: 2, clientX: 525, clientY: 250 });
-      fireEvent.pointerUp(surface, { pointerId: 2, clientX: 525, clientY: 250 });
+      fireEvent.mouseMove(window, { clientX: 525, clientY: 250 });
+      fireEvent.mouseUp(window, { button: 0, clientX: 525, clientY: 250 });
       fireEvent.keyUp(window, { code: 'Space' });
       captureWorkbenchTabState(tab.id);
       const afterSpacePan = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
@@ -2006,9 +2004,8 @@ describe('RoomEditor', () => {
     renderEditor();
     const surface = screen.getByTestId('room-edit-surface');
 
-    fireEvent.pointerDown(surface, {
+    fireEvent.mouseDown(surface, {
       button: 1,
-      pointerId: 42,
       clientX: 400,
       clientY: 250,
     });
@@ -2016,7 +2013,7 @@ describe('RoomEditor', () => {
 
     fireEvent.keyDown(window, { key: 'Escape' });
     expect(surface).toHaveAttribute('data-panning', 'false');
-    fireEvent.pointerUp(surface, { button: 1, pointerId: 42, clientX: 420, clientY: 250 });
+    fireEvent.mouseUp(window, { button: 1, clientX: 420, clientY: 250 });
     expect(screen.queryByTestId(/^room-edit-selected-/)).toBeNull();
   });
 
@@ -2067,10 +2064,10 @@ describe('RoomEditor', () => {
         toJSON: () => ({}),
       }),
     });
-    fireEvent.pointerMove(surface, { pointerId: 1, clientX: 150, clientY: 75 });
+    fireEvent.mouseMove(surface, { clientX: 150, clientY: 75 });
     expect(screen.getByTestId('room-edit-placement-desk')).toHaveAttribute('data-hovered', 'true');
     fireEvent.click(surface, { clientX: 150, clientY: 75 });
-    fireEvent.pointerMove(surface, { pointerId: 1, clientX: 150, clientY: 75 });
+    fireEvent.mouseMove(surface, { clientX: 150, clientY: 75 });
     expect(screen.getByTestId('room-edit-placement-desk')).toHaveAttribute('data-hovered', 'false');
   });
 
@@ -2380,9 +2377,8 @@ describe('RoomEditor', () => {
       fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
       const surface = screen.getByTestId('room-edit-surface');
 
-      fireEvent.pointerDown(surface, {
+      fireEvent.mouseDown(surface, {
         button: 1,
-        pointerId: 7,
         clientX: 400,
         clientY: 250,
       });
@@ -2809,23 +2805,21 @@ describe('RoomEditor', () => {
         }),
       });
 
-      fireEvent.pointerDown(surface, { pointerId: 1, button: 0, clientX: 10, clientY: 10 });
-      fireEvent.pointerMove(surface, { pointerId: 1, clientX: 750, clientY: 200 });
+      fireEvent.mouseDown(surface, { button: 0, clientX: 10, clientY: 10 });
+      fireEvent.mouseMove(window, { clientX: 750, clientY: 200 });
       expect(screen.getByTestId('room-edit-marquee')).toBeInTheDocument();
-      fireEvent.pointerUp(surface, { pointerId: 1, button: 0, clientX: 750, clientY: 200 });
+      fireEvent.mouseUp(window, { button: 0, clientX: 750, clientY: 200 });
       expect(screen.getByText('2 selected')).toBeInTheDocument();
 
       fireEvent.doubleClick(surface, { clientX: 200, clientY: 100 });
       expect(screen.getByTestId('room-edit-selected-prop:lamp')).toBeInTheDocument();
-      fireEvent.pointerDown(surface, {
-        pointerId: 2,
+      fireEvent.mouseDown(surface, {
         button: 0,
         clientX: 600,
         clientY: 100,
         ctrlKey: true,
       });
-      fireEvent.pointerUp(surface, {
-        pointerId: 2,
+      fireEvent.mouseUp(window, {
         button: 0,
         clientX: 600,
         clientY: 100,
@@ -2833,9 +2827,9 @@ describe('RoomEditor', () => {
       });
       expect(screen.getByText('2 selected')).toBeInTheDocument();
 
-      fireEvent.pointerDown(surface, { pointerId: 3, button: 0, clientX: 200, clientY: 100 });
-      fireEvent.pointerMove(surface, { pointerId: 3, clientX: 300, clientY: 150 });
-      fireEvent.pointerUp(surface, { pointerId: 3, button: 0, clientX: 300, clientY: 150 });
+      fireEvent.mouseDown(surface, { button: 0, clientX: 200, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 300, clientY: 150 });
+      fireEvent.mouseUp(window, { button: 0, clientX: 300, clientY: 150 });
 
       const updated = useProjectStore.getState().document;
       expect(isAuthoringProject(updated)).toBe(true);
@@ -2910,33 +2904,29 @@ describe('RoomEditor', () => {
       fireEvent.click(surface, { clientX: 200, clientY: 100 });
       expect(screen.getByTestId('room-edit-selected-placement:desk')).toBeInTheDocument();
 
-      fireEvent.pointerDown(surface, {
-        pointerId: 81,
+      fireEvent.mouseDown(surface, {
         button: 0,
         clientX: 600,
         clientY: 100,
       });
-      fireEvent.pointerMove(surface, { pointerId: 81, clientX: 650, clientY: 125 });
+      fireEvent.mouseMove(window, { clientX: 650, clientY: 125 });
       expect(screen.getByTestId('room-edit-selected-placement:chair')).toBeInTheDocument();
       expect(screen.queryByTestId('room-edit-selected-placement:desk')).toBeNull();
-      fireEvent.pointerUp(surface, { pointerId: 81, button: 0, clientX: 650, clientY: 125 });
+      fireEvent.mouseUp(window, { button: 0, clientX: 650, clientY: 125 });
 
-      fireEvent.pointerDown(surface, {
-        pointerId: 82,
+      fireEvent.mouseDown(surface, {
         button: 0,
         clientX: 200,
         clientY: 100,
         ctrlKey: true,
       });
-      fireEvent.pointerMove(surface, {
-        pointerId: 82,
+      fireEvent.mouseMove(window, {
         clientX: 250,
         clientY: 125,
         ctrlKey: true,
       });
       expect(screen.getByText('2 selected')).toBeInTheDocument();
-      fireEvent.pointerUp(surface, {
-        pointerId: 82,
+      fireEvent.mouseUp(window, {
         button: 0,
         clientX: 250,
         clientY: 125,
@@ -3129,16 +3119,16 @@ describe('RoomEditor', () => {
       const handle = screen.getByTestId('room-edit-resize-se');
       const beforePan = structuredClone(useProjectStore.getState().document);
       fireEvent.keyDown(window, { code: 'Space' });
-      fireEvent.pointerDown(handle, { pointerId: 73, button: 0, clientX: 300, clientY: 150 });
+      fireEvent.mouseDown(handle, { button: 0, clientX: 300, clientY: 150 });
       expect(surface).toHaveAttribute('data-panning', 'true');
-      fireEvent.pointerMove(surface, { pointerId: 73, clientX: 340, clientY: 180 });
-      fireEvent.pointerUp(surface, { pointerId: 73, button: 0, clientX: 340, clientY: 180 });
+      fireEvent.mouseMove(window, { clientX: 340, clientY: 180 });
+      fireEvent.mouseUp(window, { button: 0, clientX: 340, clientY: 180 });
       fireEvent.keyUp(window, { code: 'Space' });
       expect(surface).toHaveAttribute('data-panning', 'false');
       expect(useProjectStore.getState().document).toEqual(beforePan);
 
-      fireEvent.pointerDown(handle, { pointerId: 72, button: 0, clientX: 300, clientY: 150 });
-      fireEvent.pointerUp(surface, { pointerId: 72, button: 0, clientX: 300, clientY: 150 });
+      fireEvent.mouseDown(handle, { button: 0, clientX: 300, clientY: 150 });
+      fireEvent.mouseUp(window, { button: 0, clientX: 300, clientY: 150 });
 
       const updated = useProjectStore.getState().document;
       expect(isAuthoringProject(updated)).toBe(true);
@@ -3237,9 +3227,9 @@ describe('RoomEditor', () => {
       expect(isAuthoringProject(current)).toBe(true);
       if (!isAuthoringProject(current)) return;
       expect(parseRoomData(current.rooms.foyer?.data)?.props).toHaveLength(0);
-      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
+      fireEvent.mouseMove(surface, { clientX: 300, clientY: 200 });
       expect(screen.getByTestId('room-edit-add-ghost')).toBeInTheDocument();
-      fireEvent.pointerDown(surface, { pointerId: 91, button: 0, clientX: 300, clientY: 200 });
+      fireEvent.mouseDown(surface, { button: 0, clientX: 300, clientY: 200 });
 
       current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -3366,8 +3356,8 @@ describe('RoomEditor', () => {
       addInteractable();
       expect(screen.getByRole('button', { name: /New Instance · Brass Key/i })).toBeInTheDocument();
       fireEvent.click(screen.getByRole('button', { name: /Existing Instance · key-instance/i }));
-      fireEvent.pointerMove(surface, { clientX: 250, clientY: 180 });
-      fireEvent.pointerDown(surface, { pointerId: 92, button: 0, clientX: 250, clientY: 180 });
+      fireEvent.mouseMove(surface, { clientX: 250, clientY: 180 });
+      fireEvent.mouseDown(surface, { button: 0, clientX: 250, clientY: 180 });
 
       let current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -3379,8 +3369,8 @@ describe('RoomEditor', () => {
 
       addInteractable();
       fireEvent.click(screen.getByRole('button', { name: /New Instance · Brass Key/i }));
-      fireEvent.pointerMove(surface, { clientX: 650, clientY: 320 });
-      fireEvent.pointerDown(surface, { pointerId: 93, button: 0, clientX: 650, clientY: 320 });
+      fireEvent.mouseMove(surface, { clientX: 650, clientY: 320 });
+      fireEvent.mouseDown(surface, { button: 0, clientX: 650, clientY: 320 });
 
       current = useProjectStore.getState().document;
       expect(isAuthoringProject(current)).toBe(true);
@@ -3430,7 +3420,7 @@ describe('RoomEditor', () => {
 
       const addActions = screen.getByTestId('room-composition-add-actions');
       fireEvent.click(within(addActions).getByRole('button', { name: 'Placement' }));
-      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
+      fireEvent.mouseMove(surface, { clientX: 300, clientY: 200 });
       expect(screen.getByTestId('room-edit-add-ghost')).toBeInTheDocument();
 
       fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
@@ -3441,7 +3431,7 @@ describe('RoomEditor', () => {
         configurable: true,
         value: () => rect,
       });
-      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
+      fireEvent.mouseMove(surface, { clientX: 300, clientY: 200 });
       expect(screen.queryByTestId('room-edit-add-ghost')).toBeNull();
 
       fireEvent.click(
@@ -3449,8 +3439,8 @@ describe('RoomEditor', () => {
           name: 'Placement',
         }),
       );
-      fireEvent.pointerMove(surface, { clientX: 300, clientY: 200 });
-      fireEvent.pointerDown(surface, { pointerId: 41, button: 0, clientX: 300, clientY: 200 });
+      fireEvent.mouseMove(surface, { clientX: 300, clientY: 200 });
+      fireEvent.mouseDown(surface, { button: 0, clientX: 300, clientY: 200 });
       let updated = useProjectStore.getState().document;
       expect(isAuthoringProject(updated)).toBe(true);
       if (!isAuthoringProject(updated)) return;
