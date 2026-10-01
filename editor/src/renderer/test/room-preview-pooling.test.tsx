@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { WorkbenchGroup } from '@/workbench/WorkbenchGroup';
 import { WorkbenchTabDndContext } from '@/workbench/WorkbenchTabDndContext';
 import { useCommandStore } from '@/commands/command-store';
@@ -115,6 +115,10 @@ vi.mock('@/components/engine-preview-host', () => ({
   EnginePreviewHost: ({ iframeSrc }: { iframeSrc: string | null }) => (
     <iframe title="NovelTea engine preview" src={iframeSrc ?? undefined} />
   ),
+}));
+
+vi.mock('@/editors/rooms/RoomEditSurface', () => ({
+  RoomEditSurface: () => <div data-testid="room-edit-surface" />,
 }));
 
 vi.mock('@/components/source/SourceEditor', () => ({
@@ -326,6 +330,29 @@ describe('RoomEditor persistent room preview', () => {
       'room-a',
       'room-b',
     ]);
+  });
+
+  it('keeps the retained Room preview resolver claimed while Edit owns the pane and reveals it again on Preview', async () => {
+    const view = renderGroup(group(roomATab.id));
+    await waitFor(() => expect(hostElements(view.container)).toHaveLength(1));
+    const roomAHost = hostElements(view.container)[0]!;
+    await waitFor(() => expect(previewControllers.applyFocusedDocumentCalls).toHaveLength(1));
+    await waitFor(() => expect(roomAHost).toHaveAttribute('data-preview-host-visible', 'true'));
+    const modes = screen.getByRole('group', { name: 'Room presentation mode' });
+
+    fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
+
+    await waitFor(() => expect(roomAHost).toHaveAttribute('data-preview-host-claimed', 'true'));
+    expect(roomAHost).toHaveAttribute('aria-hidden', 'true');
+    expect(screen.getByTestId('room-edit-viewport')).toBeInTheDocument();
+
+    const previewButton = within(modes).getByRole('button', { name: 'Preview' });
+    await waitFor(() => expect(previewButton).not.toBeDisabled());
+    fireEvent.click(previewButton);
+
+    await waitFor(() => expect(previewButton).toHaveAttribute('aria-pressed', 'true'));
+    await waitFor(() => expect(roomAHost).toHaveAttribute('data-preview-host-visible', 'true'));
+    expect(roomAHost).not.toHaveAttribute('aria-hidden');
   });
 
   it('hides and releases the room preview host on a non-preview tab without destroying it', async () => {

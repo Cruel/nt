@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import { LoaderCircle } from 'lucide-react';
 import {
   PreviewPane,
@@ -147,6 +147,11 @@ export function DerivedPreviewPane(props: FocusedProps | LegacyProps) {
       return nextLease;
     });
   }, []);
+
+  useLayoutEffect(() => {
+    if (!lease || !root || revealFocusedDocument) return;
+    lease.conceal();
+  }, [lease, revealFocusedDocument, root]);
 
   useEffect(() => {
     if (!lease || !project || !projectInstanceId || !root) return;

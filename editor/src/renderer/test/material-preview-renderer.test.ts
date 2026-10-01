@@ -3,6 +3,7 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import {
   MaterialPreviewProjectResources,
+  materialPreviewDefaultDecodeImage,
   type MaterialPreviewResource,
   type MaterialPreviewResourceDependencies,
 } from '@/material-preview/material-preview-resources';
@@ -54,6 +55,34 @@ function createResources(overrides: Partial<MaterialPreviewResourceDependencies>
     ...overrides,
   });
 }
+
+it('loads project textures origin-clean before assigning their URL', async () => {
+  const OriginalImage = globalThis.Image;
+  let assignedCrossOrigin: string | null = null;
+  let assignedSrc = '';
+  class FakeImage {
+    crossOrigin: string | null = null;
+    onload: (() => void) | null = null;
+    onerror: (() => void) | null = null;
+
+    set src(next: string) {
+      assignedCrossOrigin = this.crossOrigin;
+      assignedSrc = next;
+      queueMicrotask(() => this.onload?.());
+    }
+  }
+
+  globalThis.Image = FakeImage as unknown as typeof Image;
+  try {
+    await expect(
+      materialPreviewDefaultDecodeImage('noveltea-asset://source/session/asset'),
+    ).resolves.not.toBeNull();
+    expect(assignedCrossOrigin).toBe('anonymous');
+    expect(assignedSrc).toBe('noveltea-asset://source/session/asset');
+  } finally {
+    globalThis.Image = OriginalImage;
+  }
+});
 
 function surface(materialId: string, visible = true): MaterialPreviewSurfaceState {
   return {

@@ -241,7 +241,12 @@ export class FocusedPreviewFreshnessCoordinator {
         return;
       }
       const { inputRevision, activeShaderVariant } = prepared;
+      const reconcileVisibility = () => {
+        if (state.revealOnApplied === false) state.lease.conceal();
+        else state.lease.reveal();
+      };
       if (!replay && !this.impacted(state, inputRevision, activeShaderVariant)) {
+        reconcileVisibility();
         state.onLoadingChange?.(false);
         return;
       }
@@ -284,6 +289,7 @@ export class FocusedPreviewFreshnessCoordinator {
         replay ||
         this.impacted(state, inputRevision, activeShaderVariant);
       if (!impactedResult) {
+        reconcileVisibility();
         state.onLoadingChange?.(false);
         return;
       }
@@ -292,6 +298,7 @@ export class FocusedPreviewFreshnessCoordinator {
         this.lastApplied?.leaseId === state.lease.leaseId &&
         this.lastApplied.revision === document.revision
       ) {
+        reconcileVisibility();
         state.onLoadingChange?.(false);
         return;
       }
