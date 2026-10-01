@@ -14,6 +14,7 @@ import { isTextEntryKeyboardTarget } from '@/components/image-stage/keyboard-tar
 import { useHotspotFocusStore } from './hotspot-focus-store';
 import type { EditableHotspot } from './hotspot-types';
 import {
+  hotspotFocusTransitionClipPath,
   resolveHotspotFocusTransitionFrames,
   type HotspotFocusTransitionFrames,
   type HotspotFocusRoomPresentation,
@@ -73,7 +74,20 @@ export function HotspotFocusWorkspace({
   const entrySnapshotRef = useRef(false);
   const entryAnimationStartedRef = useRef(false);
   const entryTransitionCleanupRef = useRef<(() => void) | null>(null);
+  const exitTransitionCleanupRef = useRef<(() => void) | null>(null);
+  const mountedRef = useRef(true);
   const transitionContainerRef = useRef<HTMLDivElement | null>(null);
+
+  useEffect(() => {
+    mountedRef.current = true;
+    return () => {
+      mountedRef.current = false;
+      entryTransitionCleanupRef.current?.();
+      entryTransitionCleanupRef.current = null;
+      exitTransitionCleanupRef.current?.();
+      exitTransitionCleanupRef.current = null;
+    };
+  }, []);
 
   const assetData = useMemo(() => {
     if (!session?.assetId) return null;
@@ -248,6 +262,8 @@ export function HotspotFocusWorkspace({
     if (exiting) return;
     entryTransitionCleanupRef.current?.();
     entryTransitionCleanupRef.current = null;
+    exitTransitionCleanupRef.current?.();
+    exitTransitionCleanupRef.current = null;
     const reducedMotion =
       typeof window.matchMedia === 'function' &&
       window.matchMedia('(prefers-reduced-motion: reduce)').matches;
@@ -259,17 +275,34 @@ export function HotspotFocusWorkspace({
     setExitTransitionFrames(frames);
     setExiting(true);
     setTransitionPhase('focused');
-    window.requestAnimationFrame(() => setTransitionPhase('native'));
-    window.setTimeout(() => setTransitionPhase('room'), 90);
-    window.setTimeout(() => {
+    let cancelled = false;
+    const frame = window.requestAnimationFrame(() => {
+      if (!cancelled && mountedRef.current) setTransitionPhase('native');
+    });
+    const roomTimer = window.setTimeout(() => {
+      if (!cancelled && mountedRef.current) setTransitionPhase('room');
+    }, 90);
+    const doneTimer = window.setTimeout(() => {
+      if (cancelled || !mountedRef.current) return;
+      exitTransitionCleanupRef.current = null;
       if (action()) return;
       setExiting(false);
       setExitTransitionFrames(null);
       setTransitionPhase(null);
     }, 180);
+    exitTransitionCleanupRef.current = () => {
+      cancelled = true;
+      window.cancelAnimationFrame(frame);
+      window.clearTimeout(roomTimer);
+      window.clearTimeout(doneTimer);
+    };
   };
   const transitionFrames = exiting ? exitTransitionFrames : entryTransitionFrames;
   const transitionFrame = transitionPhase ? transitionFrames?.[transitionPhase] : null;
+  const transitionContainerWidth =
+    transitionContainerRef.current?.getBoundingClientRect().width ?? viewport.width;
+  const transitionContainerHeight =
+    transitionContainerRef.current?.getBoundingClientRect().height ?? viewport.height;
   const nextId = () => {
     const ids = new Set(hotspots.map((item) => item.id));
     for (let index = 1; ; index += 1) {
@@ -430,20 +463,35 @@ export function HotspotFocusWorkspace({
             keyboardDeleteEnabled={canDraw}
           />
           {transitionFrame && imageUrl ? (
-            <img
-              src={imageUrl}
-              alt=""
-              className="pointer-events-none absolute max-w-none transition-[left,top,width,height,transform] duration-[90ms] ease-out"
-              style={{
-                left: transitionFrame.rect.x,
-                top: transitionFrame.rect.y,
-                width: transitionFrame.rect.width,
-                height: transitionFrame.rect.height,
-                transform: `rotate(${transitionFrame.rotationDegrees}deg)`,
-                transformOrigin: 'center',
-              }}
-              data-testid={`hotspot-focus-transition-${transitionPhase}`}
-            />
+            <div
+              className="pointer-events-none absolute inset-0 overflow-visible"
+              style={
+                transitionFrame.clipRect
+                  ? {
+                      clipPath: hotspotFocusTransitionClipPath(transitionFrame.clipRect, {
+                        width: transitionContainerWidth,
+                        height: transitionContainerHeight,
+                      }),
+                    }
+                  : undefined
+              }
+              data-testid={`hotspot-focus-transition-clip-${transitionPhase}`}
+            >
+              <img
+                src={imageUrl}
+                alt=""
+                className="absolute max-w-none transition-[left,top,width,height,transform] duration-[90ms] ease-out"
+                style={{
+                  left: transitionFrame.rect.x,
+                  top: transitionFrame.rect.y,
+                  width: transitionFrame.rect.width,
+                  height: transitionFrame.rect.height,
+                  transform: `rotate(${transitionFrame.rotationDegrees}deg)`,
+                  transformOrigin: 'center',
+                }}
+                data-testid={`hotspot-focus-transition-${transitionPhase}`}
+              />
+            </div>
           ) : null}
         </div>
       )}

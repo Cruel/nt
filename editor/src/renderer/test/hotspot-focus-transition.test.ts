@@ -1,7 +1,19 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { resolveHotspotFocusTransitionFrames } from '@/components/hotspots/hotspot-focus-transition';
+import {
+  hotspotFocusTransitionClipPath,
+  resolveHotspotFocusTransitionFrames,
+} from '@/components/hotspots/hotspot-focus-transition';
 
 describe('Room Hotspot Focus transition', () => {
+  it('computes Room endpoint clipping against the transition container rather than image-stage width', () => {
+    expect(
+      hotspotFocusTransitionClipPath(
+        { x: 20, y: 30, width: 600, height: 300 },
+        { width: 792, height: 500 },
+      ),
+    ).toBe('inset(30px 172px 170px 20px)');
+  });
+
   it('expands a cropped Room background back to the full source image before native Focus framing', () => {
     const frames = resolveHotspotFocusTransitionFrames({
       roomPresentation: {
@@ -17,6 +29,7 @@ describe('Room Hotspot Focus transition', () => {
     });
 
     expect(frames.room.rotationDegrees).toBe(15);
+    expect(frames.room.clipRect).toEqual({ x: 100, y: 150, width: 600, height: 300 });
     expect(frames.room.rect.width).toBe(1200);
     expect(frames.room.rect.height).toBe(300);
     expect(frames.room.rect.x).toBeCloseTo(-124.242, 3);
@@ -24,10 +37,12 @@ describe('Room Hotspot Focus transition', () => {
     expect(frames.native).toEqual({
       rect: { x: 0, y: 200, width: 800, height: 200 },
       rotationDegrees: 0,
+      clipRect: null,
     });
     expect(frames.focused).toEqual({
       rect: { x: -60, y: 155, width: 1000, height: 250 },
       rotationDegrees: 0,
+      clipRect: null,
     });
   });
 
@@ -48,6 +63,7 @@ describe('Room Hotspot Focus transition', () => {
     expect(frames.room).toEqual({
       rect: { x: 50, y: 25, width: 800, height: 400 },
       rotationDegrees: 0,
+      clipRect: { x: 50, y: 25, width: 800, height: 400 },
     });
     expect(frames.native.rect).toEqual({ x: 375, y: 0, width: 250, height: 500 });
     expect(frames.focused.rect).toEqual({ x: 300, y: -150, width: 400, height: 800 });
