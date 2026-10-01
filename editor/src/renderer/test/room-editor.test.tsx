@@ -88,6 +88,16 @@ function setRoomTabPresentationMode(
     },
   });
 }
+async function waitForHotspotFocusTransition() {
+  await waitFor(
+    () =>
+      expect(screen.getByTestId('hotspot-focus-overlay')).toHaveAttribute(
+        'data-focus-transition-phase',
+        'focused',
+      ),
+    { timeout: 3500 },
+  );
+}
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
@@ -587,28 +597,36 @@ describe('RoomEditor', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: 'Edit Hotspots' }));
 
-    expect(document.querySelector('[data-hotspot-focus]')).toHaveAttribute(
-      'data-room-presentation-endpoint',
-      'ready',
+    expect(document.querySelector('[data-testid="room-edit-viewport"]')).not.toBeNull();
+    expect(screen.getByTestId('hotspot-focus-overlay')).toHaveAttribute(
+      'data-focus-transition-phase',
+      'entering',
     );
-    await waitFor(() =>
-      expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).not.toBeNull(),
-    );
+    expect(document.querySelector('[data-focus-transition-image]')).not.toBeNull();
+    expect(document.querySelector('[data-focus-transition-destination]')).toHaveClass('opacity-0');
+
+    await waitForHotspotFocusTransition();
+    expect(document.querySelector('[data-focus-transition-destination]')).toHaveStyle({
+      opacity: '1',
+    });
+    const hotspotFocusWorkspace = document.querySelector<HTMLElement>('[data-hotspot-focus]');
+    expect(hotspotFocusWorkspace).not.toBeNull();
+    expect(screen.getByTestId('hotspot-focus-toolbar')).toBeVisible();
+    expect(within(hotspotFocusWorkspace!).getByLabelText('Hotspots')).toBeVisible();
+
     fireEvent.click(screen.getByRole('button', { name: 'Pan' }));
     fireEvent.click(screen.getByRole('button', { name: '100%' }));
-
-    const stage = document.querySelector<HTMLElement>('[data-hotspot-image-stage]');
-    expect(stage).not.toBeNull();
-    await waitFor(() => expect(stage).toHaveClass('opacity-100'), { timeout: 600 });
-    expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).toBeNull();
-
     fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    expect(screen.getByTestId('hotspot-focus-overlay')).toHaveAttribute(
+      'data-focus-transition-phase',
+      'exiting',
+    );
     await waitFor(
       () => expect(useHotspotFocusStore.getState().sessionsByTabId[tab.id]).toBeUndefined(),
-      { timeout: 600 },
+      { timeout: 8000 },
     );
     expect(document.querySelector('[data-hotspot-focus]')).toBeNull();
-  });
+  }, 15000);
 
   it('captures a canonical Room presentation endpoint when Hotspot Focus starts from Preview', () => {
     setRoomTabPresentationMode('preview');
@@ -652,10 +670,9 @@ describe('RoomEditor', () => {
     selectRoomCategory('Hotspots');
     fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
 
-    expect(document.querySelector('[data-hotspot-focus]')).toHaveAttribute(
-      'data-room-presentation-endpoint',
-      'ready',
-    );
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.returnViewportScreenRect,
+    ).toEqual({ x: 100, y: 112.5, width: 1200, height: 675 });
   });
 
   it('retains the Hotspot Focus Room return endpoint across active-only remounts', () => {
@@ -701,6 +718,9 @@ describe('RoomEditor', () => {
     const retainedEndpoint =
       useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.returnViewportScreenRect;
     expect(retainedEndpoint).not.toBeNull();
+    expect(useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.entryTransitionPending).toBe(
+      false,
+    );
 
     first.unmount();
     renderEditor();
@@ -708,9 +728,9 @@ describe('RoomEditor', () => {
     expect(
       useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.returnViewportScreenRect,
     ).toEqual(retainedEndpoint);
-    expect(document.querySelector('[data-hotspot-focus]')).toHaveAttribute(
-      'data-room-presentation-endpoint',
-      'ready',
+    expect(screen.getByTestId('hotspot-focus-overlay')).toHaveAttribute(
+      'data-focus-transition-phase',
+      'focused',
     );
   });
 
@@ -772,9 +792,7 @@ describe('RoomEditor', () => {
       });
       selectRoomCategory('Hotspots');
       fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
-      await waitFor(() =>
-        expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).toBeNull(),
-      );
+      await waitForHotspotFocusTransition();
       act(() => {
         useHotspotFocusStore.getState().setSelection(tab.id, 'door');
         useHotspotFocusStore.getState().setTool(tab.id, 'pan');
@@ -963,6 +981,7 @@ describe('RoomEditor', () => {
     room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
     renderEditor();
 
     selectRoomCategory('Hotspots');
@@ -987,6 +1006,7 @@ describe('RoomEditor', () => {
     fireEvent.mouseMove(window, { clientX: 300, clientY: 300 });
     fireEvent.mouseUp(window, { clientX: 300, clientY: 300 });
 
+    await waitForHotspotFocusTransition();
     fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
     await waitFor(() => expect(document.querySelector('[data-hotspot-focus]')).toBeNull());
@@ -2257,7 +2277,7 @@ describe('RoomEditor', () => {
     expect(screen.getByRole('option', { name: 'Inherited Formal' })).toBeInTheDocument();
   });
 
-  it('reattaches Fit sizing to the Edit viewport after Hotspot Focus remounts it', async () => {
+  it('keeps the Edit viewport mounted beneath the Hotspot Focus overlay', async () => {
     const observe = vi.spyOn(ResizeObserver.prototype, 'observe');
     try {
       const project = createAuthoringProject();
@@ -2289,6 +2309,7 @@ describe('RoomEditor', () => {
       ];
       project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
       useProjectStore.getState().loadUnsavedProjectDocument(project);
+      useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
       renderEditor();
 
       const modes = screen.getByRole('group', { name: 'Room presentation mode' });
@@ -2299,12 +2320,16 @@ describe('RoomEditor', () => {
 
       selectRoomCategory('Hotspots');
       fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
-      expect(screen.queryByTestId('room-edit-viewport')).toBeNull();
+      expect(screen.getByTestId('hotspot-focus-overlay')).toBeInTheDocument();
+      expect(screen.getByTestId('room-edit-viewport')).toBe(firstViewport);
+      await waitForHotspotFocusTransition();
       fireEvent.click(screen.getByRole('button', { name: 'Done' }));
 
-      const nextViewport = await screen.findByTestId('room-edit-viewport');
-      expect(nextViewport).not.toBe(firstViewport);
-      expect(observe.mock.calls.some(([element]) => element === nextViewport)).toBe(true);
+      await waitFor(() => expect(screen.queryByTestId('hotspot-focus-overlay')).toBeNull(), {
+        timeout: 3500,
+      });
+      expect(screen.getByTestId('room-edit-viewport')).toBe(firstViewport);
+      expect(observe.mock.calls.some(([element]) => element === firstViewport)).toBe(false);
     } finally {
       observe.mockRestore();
     }

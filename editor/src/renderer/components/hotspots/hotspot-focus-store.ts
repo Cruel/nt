@@ -76,6 +76,7 @@ export interface HotspotFocusSession {
   camera: ImageStageCamera;
   cameraInitialized: boolean;
   returnViewportScreenRect: HotspotFocusReturnViewportScreenRect | null;
+  entryTransitionPending: boolean;
 }
 
 interface RememberedFocusView {
@@ -103,6 +104,7 @@ interface HotspotFocusStoreState {
   setTool: (tabId: string, tool: HotspotTool) => void;
   setCamera: (tabId: string, camera: ImageStageCamera) => void;
   initializeCamera: (tabId: string, camera: ImageStageCamera) => void;
+  consumeEntryTransition: (tabId: string) => void;
   add: (tabId: string, hotspot: EditableHotspot) => void;
   setBounds: (tabId: string, hotspotId: string, bounds: ImageNormalizedRect) => void;
   delete: (tabId: string, hotspotId: string) => void;
@@ -264,7 +266,10 @@ function parseDraftPayload(value: JsonValue | undefined) {
     tool: payload.tool,
     camera: payload.camera,
     cameraInitialized: payload.cameraInitialized,
-  } satisfies Omit<HotspotFocusSession, 'tabId' | 'history' | 'returnViewportScreenRect'> & {
+  } satisfies Omit<
+    HotspotFocusSession,
+    'tabId' | 'history' | 'returnViewportScreenRect' | 'entryTransitionPending'
+  > & {
     currentItems: readonly EditableHotspot[];
   };
 }
@@ -316,6 +321,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       camera: remembered?.camera ?? { zoom: 1, pan: { x: 0, y: 0 } },
       cameraInitialized: remembered?.cameraInitialized ?? false,
       returnViewportScreenRect: input.returnViewportScreenRect ?? null,
+      entryTransitionPending: true,
     };
     set((state) => ({
       sessionsByTabId: { ...state.sessionsByTabId, [input.tabId]: session },
@@ -348,12 +354,25 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       camera: payload.camera,
       cameraInitialized: payload.cameraInitialized,
       returnViewportScreenRect: input.returnViewportScreenRect ?? null,
+      entryTransitionPending: false,
     };
     set((state) => ({
       sessionsByTabId: { ...state.sessionsByTabId, [input.tabId]: session },
     }));
     syncDraftEntry(session);
     return true;
+  },
+  consumeEntryTransition: (tabId) => {
+    set((state) => {
+      const session = state.sessionsByTabId[tabId];
+      if (!session || !session.entryTransitionPending) return state;
+      return {
+        sessionsByTabId: {
+          ...state.sessionsByTabId,
+          [tabId]: { ...session, entryTransitionPending: false },
+        },
+      };
+    });
   },
   setSelection: (tabId, selectedHotspotId) => {
     set((state) => {

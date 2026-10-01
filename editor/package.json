@@ -54,6 +54,7 @@
   "license": "MIT",
   "dependencies": {
     "culori": "^4.0.2",
+    "motion": "^13.4.6",
     "node-pty": "1.1.0",
     "sharp": "catalog:"
   },

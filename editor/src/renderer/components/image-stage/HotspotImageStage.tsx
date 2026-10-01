@@ -19,6 +19,7 @@ import {
   type ImageStageZoomBasis,
   type ResizeHandle,
   type StagePoint,
+  type StageRect,
   type StageSize,
 } from './image-stage-transforms';
 import type { HotspotTool } from './hotspot-view-state';
@@ -62,12 +63,14 @@ export interface HotspotImageStageProps {
   onSelectionChange: (id: string | null) => void;
   onCameraChange: (camera: ImageStageCamera) => void;
   onViewportChange?: (viewport: StageSize) => void;
+  onImageRectChange?: (rect: StageRect) => void;
   onCreate: (bounds: ImageNormalizedRect) => void;
   onCancelCreate?: () => void;
   onCommitBounds: (id: string, bounds: ImageNormalizedRect) => void;
   onDelete: (id: string) => void;
   captureWindowKeyboard?: boolean;
   keyboardDeleteEnabled?: boolean;
+  deferSpatialLayersUntilImageReady?: boolean;
 }
 
 type Gesture =
@@ -126,6 +129,10 @@ function pointInElement(element: HTMLElement | null, clientX: number, clientY: n
 }
 
 export function HotspotImageStage(props: HotspotImageStageProps) {
+  const [loadedImageUrl, setLoadedImageUrl] = useState<string | null>(null);
+  const spatialLayersVisible =
+    !props.deferSpatialLayersUntilImageReady ||
+    (props.imageUrl !== null && props.imageUrl !== undefined && loadedImageUrl === props.imageUrl);
   const rootRef = useRef<HTMLDivElement | null>(null);
   const onViewportChange = props.onViewportChange;
   const gestureRef = useRef<Gesture | null>(null);
@@ -226,6 +233,21 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       pan: cameraPan,
     },
     props.zoomBasis,
+  );
+  const onImageRectChange = props.onImageRectChange;
+  const imageRectX = imageRect.x;
+  const imageRectY = imageRect.y;
+  const imageRectWidth = imageRect.width;
+  const imageRectHeight = imageRect.height;
+  useEffect(
+    () =>
+      onImageRectChange?.({
+        x: imageRectX,
+        y: imageRectY,
+        width: imageRectWidth,
+        height: imageRectHeight,
+      }),
+    [imageRectHeight, imageRectWidth, imageRectX, imageRectY, onImageRectChange],
   );
   const stageStateRef = useRef({
     viewport,
@@ -438,6 +460,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
             top: imageRect.y,
             width: imageRect.width,
             height: imageRect.height,
+            visibility: spatialLayersVisible ? 'visible' : 'hidden',
           }}
         >
           {props.imageUrl ? (
@@ -445,16 +468,22 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
               className="h-full w-full select-none object-fill"
               draggable={false}
               src={props.imageUrl}
+              onLoad={() => setLoadedImageUrl(props.imageUrl ?? null)}
             />
           ) : null}
           {props.alphaVisualization ? <AlphaCoverageCanvas coverage={props.alphaCoverage} /> : null}
         </div>
-        <div className="pointer-events-none absolute inset-0" data-placed-object-layer="">
+        <div
+          className="pointer-events-none absolute inset-0"
+          data-placed-object-layer=""
+          style={{ visibility: spatialLayersVisible ? 'visible' : 'hidden' }}
+        >
           {props.placedObjectLayer}
         </div>
         <svg
           className="pointer-events-none absolute inset-0 z-10 size-full overflow-visible"
           data-geometry-layer=""
+          style={{ visibility: spatialLayersVisible ? 'visible' : 'hidden' }}
         >
           {props.visibleImageGuide
             ? (() => {
@@ -570,6 +599,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
         <svg
           className="pointer-events-none absolute inset-0 z-20 size-full overflow-visible"
           data-handles-feedback-layer=""
+          style={{ visibility: spatialLayersVisible ? 'visible' : 'hidden' }}
         >
           {props.hotspots.map((item) => {
             if (item.id !== props.selectedHotspotId) return null;
