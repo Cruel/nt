@@ -775,6 +775,9 @@ struct RuntimeUI::State {
     using ContextKey = ui::rmlui::LifecycleContextKey;
     void refresh_game_hud_map();
     void refresh_mounted_maps();
+    void refresh_room_layout_geometry(const std::string& document_id,
+                                      bool recapture_authored_style = false);
+    void refresh_room_layout_geometries();
     void refresh_active_text_layout();
     void refresh_cursor_eligibility();
     void publish_cursor_image(host::CursorRequestSource source,
@@ -1593,6 +1596,29 @@ void RuntimeUI::State::refresh_mounted_maps()
                                                                         map_view.requested_map()));
             });
     }
+}
+
+void RuntimeUI::State::refresh_room_layout_geometries()
+{
+    for (const auto& [document_id, _] : layout_mount_contexts)
+        refresh_room_layout_geometry(document_id);
+}
+
+void RuntimeUI::State::refresh_room_layout_geometry(const std::string& document_id,
+                                                    bool recapture_authored_style)
+{
+    if (!document_registry)
+        return;
+    const auto mount_context = layout_mount_contexts.find(document_id);
+    if (mount_context == layout_mount_contexts.end() || !mount_context->second.room_geometry)
+        return;
+    auto* document = document_registry->document(document_id);
+    if (!document)
+        return;
+    if (recapture_authored_style)
+        room_layout_geometry_styles.insert_or_assign(document_id,
+                                                     capture_room_layout_geometry_style(*document));
+    apply_room_layout_geometry(*document, *mount_context->second.room_geometry);
 }
 
 void RuntimeUI::State::refresh_active_text_layout()
@@ -2518,6 +2544,7 @@ void RuntimeUI::resize(const PresentationMetrics& presentation)
     if (!m_state->host)
         m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
     m_state->host->resize(presentation);
+    m_state->refresh_room_layout_geometries();
 }
 
 void RuntimeUI::begin_frame(const core::RuntimeClockUpdate& clocks)
@@ -2842,6 +2869,8 @@ bool RuntimeUI::apply_layout_policy(const std::string& document_id,
                 current_context,
                 ordered_world_mount ? std::optional{policy.local_order} : std::nullopt);
         }
+        if (previous_context != current_context)
+            m_state->refresh_room_layout_geometry(document_id, true);
         m_state->refresh_game_hud_map();
         m_state->refresh_text_log_map();
         m_state->refresh_active_text_layout();
@@ -3120,6 +3149,8 @@ bool RuntimeUI::reload_documents_and_styles()
     if (!m_state || !m_state->document_registry)
         return false;
     const bool ok = m_state->document_registry->reload_all();
+    for (const auto& [document_id, _] : m_state->layout_mount_contexts)
+        m_state->refresh_room_layout_geometry(document_id, true);
     m_state->refresh_game_hud_map();
     m_state->refresh_text_log_map();
     m_state->refresh_active_text_layout();
@@ -3256,7 +3287,10 @@ RuntimeUI::reconfigure_environment(const PresentationMetrics& presentation,
         m_state = new State;
     if (!m_state->host)
         m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
-    return m_state->host->reconfigure_environment(presentation, settings);
+    auto result = m_state->host->reconfigure_environment(presentation, settings);
+    if (result)
+        m_state->refresh_room_layout_geometries();
+    return result;
 }
 
 core::Result<ui::rmlui::RmlUiHost::PreparedEnvironment, core::Diagnostics>
@@ -3275,6 +3309,7 @@ void RuntimeUI::commit_environment(ui::rmlui::RmlUiHost::PreparedEnvironment pre
     if (!m_state || !m_state->host)
         return;
     m_state->host->commit_environment(std::move(prepared));
+    m_state->refresh_room_layout_geometries();
 }
 
 core::Result<void, core::Diagnostics>
@@ -3284,7 +3319,10 @@ RuntimeUI::reconfigure_user_settings(const core::RuntimeUserSettings& settings)
         m_state = new State;
     if (!m_state->host)
         m_state->host = std::make_unique<ui::rmlui::RmlUiHost>();
-    return m_state->host->reconfigure_user_settings(settings);
+    auto result = m_state->host->reconfigure_user_settings(settings);
+    if (result)
+        m_state->refresh_room_layout_geometries();
+    return result;
 }
 
 void RuntimeUI::apply_runtime_shell_view(core::RuntimeShellViewState view)

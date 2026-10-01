@@ -4691,6 +4691,86 @@ TEST_CASE("RuntimeUI applies Room placement geometry to placement-attached Layou
     CHECK(document->GetProperty("transform-origin-x") != nullptr);
     CHECK(document->GetProperty("transform-origin-y") != nullptr);
 
+    const auto resized_presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1280, 720, 1280, 720),
+        {.reference = {.size = {1280, 720}}});
+    REQUIRE(resized_presentation);
+    ui.resize(*resized_presentation.value_if());
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    const auto resized_dimensions = document->GetContext()->GetDimensions();
+    REQUIRE(resized_dimensions.x > 0);
+    REQUIRE(resized_dimensions.y > 0);
+    REQUIRE((resized_dimensions.x != dimensions.x || resized_dimensions.y != dimensions.y));
+    const auto resized_expected = noveltea::WorldPresentationLayoutPolicy::project_room_rect(
+        geometry.bounds, geometry.camera,
+        {static_cast<float>(resized_dimensions.x), static_cast<float>(resized_dimensions.y)});
+    const auto resized_size = document->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto resized_offset = document->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(resized_size.x == Catch::Approx(resized_expected.rect.width));
+    CHECK(resized_size.y == Catch::Approx(resized_expected.rect.height));
+    CHECK(resized_offset.x == Catch::Approx(resized_expected.rect.x));
+    CHECK(resized_offset.y == Catch::Approx(resized_expected.rect.y));
+
+    const auto candidate_presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1024, 768, 1024, 768),
+        {.reference = {.size = {1024, 768}}});
+    REQUIRE(candidate_presentation);
+    auto prepared_environment = ui.prepare_environment(
+        *candidate_presentation.value_if(), noveltea::core::RuntimeUserSettings::defaults());
+    REQUIRE(prepared_environment);
+    ui.commit_environment(std::move(*prepared_environment.value_if()));
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    const auto candidate_dimensions = document->GetContext()->GetDimensions();
+    REQUIRE(candidate_dimensions.x > 0);
+    REQUIRE(candidate_dimensions.y > 0);
+    REQUIRE((candidate_dimensions.x != resized_dimensions.x ||
+             candidate_dimensions.y != resized_dimensions.y));
+    const auto candidate_expected = noveltea::WorldPresentationLayoutPolicy::project_room_rect(
+        geometry.bounds, geometry.camera,
+        {static_cast<float>(candidate_dimensions.x), static_cast<float>(candidate_dimensions.y)});
+    const auto candidate_size = document->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto candidate_offset = document->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(candidate_size.x == Catch::Approx(candidate_expected.rect.width));
+    CHECK(candidate_size.y == Catch::Approx(candidate_expected.rect.height));
+    CHECK(candidate_offset.x == Catch::Approx(candidate_expected.rect.x));
+    CHECK(candidate_offset.y == Catch::Approx(candidate_expected.rect.y));
+
+    auto scaled_settings = noveltea::core::RuntimeUserSettings::create(1.5, 1.0);
+    REQUIRE(scaled_settings);
+    REQUIRE(ui.reconfigure_user_settings(*scaled_settings.value_if()));
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    const auto scaled_dimensions = document->GetContext()->GetDimensions();
+    REQUIRE(scaled_dimensions.x > 0);
+    REQUIRE(scaled_dimensions.y > 0);
+    REQUIRE((scaled_dimensions.x != candidate_dimensions.x ||
+             scaled_dimensions.y != candidate_dimensions.y));
+    const auto scaled_expected = noveltea::WorldPresentationLayoutPolicy::project_room_rect(
+        geometry.bounds, geometry.camera,
+        {static_cast<float>(scaled_dimensions.x), static_cast<float>(scaled_dimensions.y)});
+    const auto scaled_size = document->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto scaled_offset = document->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(scaled_size.x == Catch::Approx(scaled_expected.rect.width));
+    CHECK(scaled_size.y == Catch::Approx(scaled_expected.rect.height));
+    CHECK(scaled_offset.x == Catch::Approx(scaled_expected.rect.x));
+    CHECK(scaled_offset.y == Catch::Approx(scaled_expected.rect.y));
+
+    REQUIRE(ui.reconfigure_user_settings(noveltea::core::RuntimeUserSettings::defaults()));
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    const auto restored_dimensions = document->GetContext()->GetDimensions();
+    const auto restored_expected = noveltea::WorldPresentationLayoutPolicy::project_room_rect(
+        geometry.bounds, geometry.camera,
+        {static_cast<float>(restored_dimensions.x), static_cast<float>(restored_dimensions.y)});
+    const auto restored_size = document->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto restored_offset = document->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(restored_size.x == Catch::Approx(restored_expected.rect.width));
+    CHECK(restored_size.y == Catch::Approx(restored_expected.rect.height));
+    CHECK(restored_offset.x == Catch::Approx(restored_expected.rect.x));
+    CHECK(restored_offset.y == Catch::Approx(restored_expected.rect.y));
+
     ui.set_layout_mount_context("room-placement-layout", std::nullopt);
     REQUIRE(document->GetContext()->Update());
     document->UpdateDocument();
@@ -4709,6 +4789,35 @@ TEST_CASE("RuntimeUI applies Room placement geometry to placement-attached Layou
     CHECK(*document->GetLocalProperty(Rml::PropertyId::TransformOriginY) == authored_origin_y);
     CHECK(*document->GetLocalProperty(Rml::PropertyId::Transform) == authored_transform);
     CHECK(document->GetComputedValues().transform() != nullptr);
+
+    // A same-occurrence reload replaces the RmlUi document from authored source. Placement geometry
+    // must be reapplied to the replacement without preserving the engine-owned pixels as authored
+    // state, and ending ownership must restore the freshly reloaded source styles.
+    ui.set_layout_mount_context("room-placement-layout", mount_context);
+    REQUIRE(ui.reload_documents_and_styles());
+    document = driver->document("room-placement-layout");
+    REQUIRE(document);
+    REQUIRE(document->GetContext());
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    const auto reloaded_dimensions = document->GetContext()->GetDimensions();
+    const auto reloaded_expected = noveltea::WorldPresentationLayoutPolicy::project_room_rect(
+        geometry.bounds, geometry.camera,
+        {static_cast<float>(reloaded_dimensions.x), static_cast<float>(reloaded_dimensions.y)});
+    const auto reloaded_size = document->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto reloaded_offset = document->GetAbsoluteOffset(Rml::BoxArea::Border);
+    CHECK(reloaded_size.x == Catch::Approx(reloaded_expected.rect.width));
+    CHECK(reloaded_size.y == Catch::Approx(reloaded_expected.rect.height));
+    CHECK(reloaded_offset.x == Catch::Approx(reloaded_expected.rect.x));
+    CHECK(reloaded_offset.y == Catch::Approx(reloaded_expected.rect.y));
+
+    ui.set_layout_mount_context("room-placement-layout", std::nullopt);
+    REQUIRE(document->GetContext()->Update());
+    document->UpdateDocument();
+    const auto source_size = document->GetBox().GetSize(Rml::BoxArea::Border);
+    CHECK(source_size.x == Catch::Approx(640.0f));
+    CHECK(source_size.y == Catch::Approx(360.0f));
+    CHECK(document->GetLocalProperty(Rml::PropertyId::Transform) == nullptr);
 }
 
 TEST_CASE("RuntimeUI migrates a Layout when its effective scale domain changes")
