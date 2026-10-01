@@ -115,7 +115,9 @@ Room Edit precision navigation is a second, editor-only transform applied after 
 projection. Wheel zoom is pointer-centered and owned by a non-passive native wheel listener so the
 browser cannot also scroll the enclosing editor; middle-mouse drag and Space+left-drag pan the
 projected surface with bounded overscroll; and Fit is exactly the identity navigation transform used
-for parity with Preview. Escape cancels an active pan before lower-priority tools. The navigation
+for parity with Preview. The Edit Fit frame uses the same full presentation rectangle as the Preview
+surface; editor chrome must not shrink only the Edit side of that parity boundary. Escape cancels an
+active pan before lower-priority tools. The navigation
 transform is retained in the Room tab state rather than written to the Room or Camera View. WebGL
 draws and DOM overlays both consume the display projection, so navigation cannot create a
 renderer/selection-geometry split or alter authored Material semantic dimensions.
@@ -125,8 +127,9 @@ an exact Interactable occurrence, Prop, cast occurrence, Environment, placement-
 Room overlay, or Hotspot. The viewport and Room Composition pane share that same tab-scoped selection
 state. Ordinary click ignores Hotspots and resolves through an occupant to its containing Placement,
 including when the occupant visual extends beyond the Placement rectangle; double-click selects the topmost exact
-occupant. Right-click exposes every overlapping candidate plus associated containing Placements and
-uses a temporary hover outline without replacing the committed selection. The Composition pane shows
+occupant. Right-click exposes every overlapping candidate plus associated containing Placements under
+a dedicated `Select` submenu, while `Add` remains a separate submenu. Focus/hover within `Select` uses
+a temporary candidate outline without replacing the committed selection. The Composition pane shows
 a placement-oriented Room Contents hierarchy when selection is empty and switches to semantic entity
 inspection when selection is present. Preview retains this pane and its selection state but makes it
 inert while the engine surface owns presentation input.
@@ -142,7 +145,8 @@ a Placement-oriented marquee, while Ctrl/Cmd-click can extend that selection wit
 or other spatial Room entities. Moving a selection resolves shared-placement ownership before drawing:
 an explicitly moved occurrence splits to a dedicated Placement when siblings must remain behind,
 whereas selecting the Placement moves all of its occupants once. The requested translation is clamped
-to Room bounds before both WebGL and DOM consume the transient draft. Single spatial selections expose
+to Room bounds before semantic splitting; an effective zero-distance move is a no-op and cannot change
+Placement topology or create undo history. Both WebGL and DOM consume that same clamped transient draft. Single spatial selections expose
 resize handles and use the same draft path, including shared-placement splitting; a handle click with
 no geometry change is a no-op and creates no command. Pointer-up commits the already-previewed semantic
 operation as one undoable command, while Escape or switching to Preview discards the transient draft.
@@ -189,8 +193,11 @@ cast entries, Interactable occurrences, Props, and Environments. Cast and Intera
 that summary represents final draw eligibility after runtime state and composition-hook mutation, not
 mere structural presence. Room Edit uses that resolved result as its visibility authority, so Lua
 predicates, nested boolean conditions, and composition changes to `enabled`/`visible` agree with focused
-Preview. Until a native resolution exists for the current Project revision, conditions that the browser
-cannot resolve deterministically are omitted rather than guessed.
+Preview. The retained native result is keyed by visibility/admission semantics rather than the broad
+Project revision, so placement bounds, presentation order, and other geometry-only edits keep the last
+valid native decision while condition, owner-state, Property/Variable, hook, or related admission
+changes invalidate it. Until a native resolution exists for the current visibility key, conditions
+that the browser cannot resolve deterministically are omitted rather than guessed.
 
 The existing focused engine Room preview remains a separate persistent `Preview` mode. Only the
 active direct-edit surface registers Room Edit scene work, and the focused preview continues to use

@@ -1563,23 +1563,26 @@ export function RoomEditSurface({
       </ContextMenuTrigger>
       <ContextMenuContent className="min-w-64">
         {contextCandidates.length > 0 ? (
-          <>
-            {contextCandidates.map((candidate) => (
-              <ContextMenuItem
-                key={roomEditSelectionKey(candidate.selection)}
-                onMouseEnter={() => setContextPreviewCandidate(candidate)}
-                onFocus={() => setContextPreviewCandidate(candidate)}
-                onClick={() => onSelectionChange([candidate.selection])}
-              >
-                <span className="min-w-0 flex-1 truncate">{candidate.label}</span>
-                <span className="shrink-0 text-[10px] text-muted-foreground">
-                  {candidate.category === 'placement'
-                    ? t('roomEditor.compositionPane.candidatePlacement')
-                    : t('roomEditor.compositionPane.candidateEntity')}
-                </span>
-              </ContextMenuItem>
-            ))}
-          </>
+          <ContextMenuSub>
+            <ContextMenuSubTrigger>{t('roomEditor.compositionPane.select')}</ContextMenuSubTrigger>
+            <ContextMenuSubContent className="min-w-64">
+              {contextCandidates.map((candidate) => (
+                <ContextMenuItem
+                  key={roomEditSelectionKey(candidate.selection)}
+                  onMouseEnter={() => setContextPreviewCandidate(candidate)}
+                  onFocus={() => setContextPreviewCandidate(candidate)}
+                  onClick={() => onSelectionChange([candidate.selection])}
+                >
+                  <span className="min-w-0 flex-1 truncate">{candidate.label}</span>
+                  <span className="shrink-0 text-[10px] text-muted-foreground">
+                    {candidate.category === 'placement'
+                      ? t('roomEditor.compositionPane.candidatePlacement')
+                      : t('roomEditor.compositionPane.candidateEntity')}
+                  </span>
+                </ContextMenuItem>
+              ))}
+            </ContextMenuSubContent>
+          </ContextMenuSub>
         ) : (
           <ContextMenuItem disabled>{t('roomEditor.compositionPane.noCandidates')}</ContextMenuItem>
         )}

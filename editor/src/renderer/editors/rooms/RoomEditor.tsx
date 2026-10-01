@@ -80,6 +80,7 @@ import {
   type RoomEditNavigation,
 } from '@/editors/rooms/room-edit-navigation';
 import { resolveRoomEditPresentationEnvironment } from '@/editors/rooms/room-edit-presentation';
+import { roomEditVisibilityKey } from '@/editors/rooms/room-edit-visibility';
 import {
   CategorizedEditorLayout,
   type CategorizedEditorCategory,
@@ -665,7 +666,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const setActiveBottomPanel = useBottomPanelStore((state) => state.setActivePanelId);
   const document = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
-  const projectRevision = useProjectStore((state) => state.projectRevision);
   const roomId = tab.resource?.entityId;
   const project = isAuthoringProject(document) ? document : null;
   const hookRegistryAnalysis = useMemo(
@@ -701,13 +701,19 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     roomId,
     tab.id,
   ]);
+  const visibilityKey = useMemo(
+    () => (project && roomId ? roomEditVisibilityKey(project, roomId, data) : null),
+    [data, project, roomId],
+  );
   const [roomEditResolution, setRoomEditResolution] = useState<{
-    projectRevision: number;
+    visibilityKey: string;
     roomId: string;
     value: RoomEditResolvedVisibility;
   } | null>(null);
   const activeRoomEditResolution =
-    roomEditResolution?.projectRevision === projectRevision && roomEditResolution.roomId === roomId
+    visibilityKey !== null &&
+    roomEditResolution?.visibilityKey === visibilityKey &&
+    roomEditResolution.roomId === roomId
       ? roomEditResolution.value
       : null;
   const handleFocusedRoomApplied = useCallback(
@@ -720,18 +726,21 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       )
         return;
       setRoomEditResolution((current) =>
-        current?.projectRevision === projectRevision &&
+        visibilityKey !== null &&
+        current?.visibilityKey === visibilityKey &&
         current.roomId === roomId &&
         current.value === result.roomResolution
           ? current
-          : {
-              projectRevision,
-              roomId,
-              value: result.roomResolution!,
-            },
+          : visibilityKey === null
+            ? current
+            : {
+                visibilityKey,
+                roomId,
+                value: result.roomResolution!,
+              },
       );
     },
-    [projectRevision, roomId],
+    [roomId, visibilityKey],
   );
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const imageAssetItems = useMemo(

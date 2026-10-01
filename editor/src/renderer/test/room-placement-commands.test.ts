@@ -766,6 +766,98 @@ describe('Room placement commands', () => {
     expect(undoCommand(resized.state).document).toEqual(initial.document);
   });
 
+  it('keeps shared placement topology unchanged when translation clamps to zero', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0, y: 0.2, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['lamp', 'book'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'shared',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const moved = executeCommand(initial, {
+      type: 'room.translateSelection',
+      payload: {
+        roomId: 'foyer',
+        selection: [{ kind: 'prop', id: 'lamp' }],
+        delta: { x: -0.25, y: 0 },
+      },
+    });
+
+    expect(moved.ok, JSON.stringify(moved.diagnostics)).toBe(true);
+    expect(moved.state.document).toEqual(initial.document);
+    expect(moved.state.history).toEqual(initial.history);
+  });
+
+  it('keeps shared placement topology unchanged when translation returns to the origin', () => {
+    const project = createAuthoringProject();
+    project.assets.pixel = {
+      id: 'pixel',
+      label: 'Pixel',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/pixel.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'shared',
+        bounds: { x: 0.2, y: 0.2, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    room.props = ['lamp', 'book'].map((id, index) => ({
+      id,
+      condition: { kind: 'always' as const },
+      placementId: 'shared',
+      asset: { $ref: { collection: 'assets' as const, id: 'pixel' } },
+      materialApplication: null,
+      visible: true,
+      order: index * 1024,
+    }));
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const initial = createInitialCommandBusState(toJsonValue(project));
+
+    const moved = executeCommand(initial, {
+      type: 'room.translateSelection',
+      payload: {
+        roomId: 'foyer',
+        selection: [{ kind: 'prop', id: 'lamp' }],
+        delta: { x: 0, y: 0 },
+      },
+    });
+
+    expect(moved.ok, JSON.stringify(moved.diagnostics)).toBe(true);
+    expect(moved.state.document).toEqual(initial.document);
+    expect(moved.state.history).toEqual(initial.history);
+  });
+
   it('treats an unchanged shared-occurrence resize as a no-op without splitting or undo history', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');

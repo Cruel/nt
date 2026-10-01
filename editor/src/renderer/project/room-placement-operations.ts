@@ -273,6 +273,23 @@ function translatedRoomSelectionData(
     return { error: 'Room selection contains an item that cannot be translated.' };
   }
 
+  const sourceMovingPlacementIds = new Set([
+    ...selectedPlacementIds,
+    ...selectedOccurrencesByPlacement.keys(),
+  ]);
+  const effectiveDelta = clampTranslation(
+    [
+      ...room.placements
+        .filter((item) => sourceMovingPlacementIds.has(item.id))
+        .map((item) => item.bounds),
+      ...room.environments
+        .filter((item) => selectedEnvironments.has(item.id))
+        .map((item) => item.bounds),
+    ],
+    requestedDelta,
+  );
+  if (Math.abs(effectiveDelta.x) <= 1e-9 && Math.abs(effectiveDelta.y) <= 1e-9) return { room };
+
   let nextRoom = room;
   const movingPlacementIds = new Set(selectedPlacementIds);
   for (const [sourcePlacementId, selectedOccurrences] of selectedOccurrencesByPlacement) {
@@ -309,15 +326,6 @@ function translatedRoomSelectionData(
     movingPlacementIds.add(newPlacementId);
   }
 
-  const movingBounds = [
-    ...nextRoom.placements
-      .filter((item) => movingPlacementIds.has(item.id))
-      .map((item) => item.bounds),
-    ...nextRoom.environments
-      .filter((item) => selectedEnvironments.has(item.id))
-      .map((item) => item.bounds),
-  ];
-  const delta = clampTranslation(movingBounds, requestedDelta);
   return {
     room: {
       ...nextRoom,
@@ -325,7 +333,11 @@ function translatedRoomSelectionData(
         movingPlacementIds.has(item.id)
           ? {
               ...item,
-              bounds: { ...item.bounds, x: item.bounds.x + delta.x, y: item.bounds.y + delta.y },
+              bounds: {
+                ...item.bounds,
+                x: item.bounds.x + effectiveDelta.x,
+                y: item.bounds.y + effectiveDelta.y,
+              },
             }
           : item,
       ),
@@ -333,7 +345,11 @@ function translatedRoomSelectionData(
         selectedEnvironments.has(item.id)
           ? {
               ...item,
-              bounds: { ...item.bounds, x: item.bounds.x + delta.x, y: item.bounds.y + delta.y },
+              bounds: {
+                ...item.bounds,
+                x: item.bounds.x + effectiveDelta.x,
+                y: item.bounds.y + effectiveDelta.y,
+              },
             }
           : item,
       ),
@@ -363,6 +379,7 @@ export function translateRoomSelectionPatches(
   const translated = translatedRoomSelectionData(loaded.room, payload.selection, payload.delta);
   if ('error' in translated)
     return { patches: [], diagnostics: [error(translated.error, roomPath(payload.roomId))] };
+  if (translated.room === loaded.room) return { patches: [], affectedPaths: [] };
   return roomResult(document, payload.roomId, translated.room);
 }
 
