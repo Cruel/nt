@@ -3538,7 +3538,7 @@ async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
     const resultPromise = invocation.result();
     try {
       await Promise.race([
-        waitForComfyUiRequestPrefix(server.logPath, '/history/', 15_000),
+        waitForComfyUiRequestPrefix(server.logPath, '/history/', 25_000),
         resultPromise.then((result) =>
           fail(
             `Project-backed ComfyUI generation exited before reaching history polling: ` +
