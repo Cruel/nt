@@ -86,10 +86,14 @@ action enter the same owner-local Hotspot Focus session.
 
 Hotspot Focus keeps view state independently per owner/source target. Its native zoom basis makes
 100% correspond to one source-image pixel per CSS pixel; first entry uses 100% when the complete
-source fits and Fit otherwise. Select, Rectangle, and Pan are explicit geometry tools. Rectangle
-mode remains active after a successful draw so several Hotspots can be created in sequence, while
-the newest rectangle becomes selected. While Focus owns the active tab, Escape cancels the active
-draw/move/resize/pan gesture before mouse-up can commit it, and Delete/Backspace removes the selected
+source fits and Fit otherwise. Select, Rectangle, and Pan are explicit geometry tools. Rectangular
+geometry snaps to native source-image pixel boundaries by default for create, move, and resize;
+Pixel snap is a Focus view-state toggle, and holding Alt during a drag temporarily inverts its current
+setting. Snapping quantizes source-image edges while the persisted Hotspot contract remains normalized
+floating-point bounds. Rectangle mode remains active after a successful draw so several Hotspots can
+be created in sequence, while the newest rectangle becomes selected. While Focus owns the active tab,
+Escape cancels the active draw/move/resize/pan gesture before mouse-up can commit it, and
+Delete/Backspace removes the selected
 rectangle from non-text-entry focus. Text-entry controls retain their ordinary editing keys.
 
 For Room backgrounds, Focus transitions the full source image from the currently authored Room

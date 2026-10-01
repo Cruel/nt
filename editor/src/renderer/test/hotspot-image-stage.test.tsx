@@ -8,11 +8,14 @@ import {
   imageStageRect,
   imageUvToStage,
   imageUvToPixel,
+  moveNormalizedRectByImagePixels,
   normalizedRectFromPoints,
   referenceRectToStage,
   resizeNormalizedRect,
+  resizeNormalizedRectToImagePixels,
   roomBackgroundImageRect,
   roomBackgroundTransform,
+  snapNormalizedRectToImagePixels,
   stageToImageUv,
 } from '@/components/image-stage/image-stage-transforms';
 import {
@@ -117,6 +120,32 @@ describe('hotspot image-stage transforms', () => {
         { x: 0.05, y: 0.05 },
       ),
     ).toEqual({ x: 0, y: 0.45, width: 0.75, height: 0.3 });
+  });
+
+  it('snaps rectangle edges, movement, and resized edges to source-image pixels', () => {
+    const image = { width: 10, height: 8 };
+    expect(
+      snapNormalizedRectToImagePixels({ x: 0.14, y: 0.19, width: 0.49, height: 0.43 }, image),
+    ).toEqual({ x: 0.1, y: 0.25, width: 0.5, height: 0.375 });
+
+    const moved = moveNormalizedRectByImagePixels(
+      { x: 0.1, y: 0.25, width: 0.5, height: 0.375 },
+      { x: 0.16, y: -0.14 },
+      image,
+    );
+    expect(moved.x).toBeCloseTo(0.3);
+    expect(moved.y).toBeCloseTo(0.125);
+    expect(moved.width).toBeCloseTo(0.5);
+    expect(moved.height).toBeCloseTo(0.375);
+
+    const resized = resizeNormalizedRectToImagePixels(
+      { x: 0.1, y: 0.25, width: 0.5, height: 0.375 },
+      'se',
+      { x: 0.14, y: 0.18 },
+      { x: 0.01, y: 0.01 },
+      image,
+    );
+    expect(resized).toEqual({ x: 0.1, y: 0.25, width: 0.6, height: 0.5 });
   });
 
   it('clamps restored cameras while keeping at least 32 CSS pixels visible on each axis', () => {
@@ -397,6 +426,68 @@ describe('HotspotImageStage', () => {
     await waitFor(() =>
       expect(onCameraChange).toHaveBeenCalledWith({ zoom: 1, pan: { x: 318, y: -268 } }),
     );
+  });
+
+  it('pixel-snaps moves by default and lets Alt temporarily invert snapping', () => {
+    Object.defineProperties(HTMLElement.prototype, {
+      clientWidth: { configurable: true, get: () => 400 },
+      clientHeight: { configurable: true, get: () => 400 },
+    });
+    const onCommitBounds = vi.fn();
+    const view = render(
+      <HotspotImageStage
+        imageSize={{ width: 100, height: 100 }}
+        hotspots={[
+          { id: 'door', label: 'Door', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+        ]}
+        selectedHotspotId="door"
+        tool="select"
+        camera={{ zoom: 1.3, pan: { x: 0, y: 0 } }}
+        zoomBasis="native"
+        snapToImagePixels
+        onSelectionChange={vi.fn()}
+        onCameraChange={vi.fn()}
+        onCreate={vi.fn()}
+        onCommitBounds={onCommitBounds}
+        onDelete={vi.fn()}
+      />,
+    );
+    let hotspot = document.querySelector<HTMLElement>('[data-hotspot-id="door"]')!;
+    fireEvent.mouseDown(hotspot, { button: 0, clientX: 200, clientY: 200 });
+    fireEvent.mouseMove(window, { clientX: 205, clientY: 205 });
+    fireEvent.mouseUp(window, { clientX: 205, clientY: 205 });
+    const [, snapped] = onCommitBounds.mock.calls[0]!;
+    expect(snapped.x).toBeCloseTo(0.14);
+    expect(snapped.y).toBeCloseTo(0.14);
+    expect(snapped.width).toBeCloseTo(0.2);
+    expect(snapped.height).toBeCloseTo(0.2);
+
+    onCommitBounds.mockClear();
+    view.rerender(
+      <HotspotImageStage
+        imageSize={{ width: 100, height: 100 }}
+        hotspots={[
+          { id: 'door', label: 'Door', bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 } },
+        ]}
+        selectedHotspotId="door"
+        tool="select"
+        camera={{ zoom: 1.3, pan: { x: 0, y: 0 } }}
+        zoomBasis="native"
+        snapToImagePixels
+        onSelectionChange={vi.fn()}
+        onCameraChange={vi.fn()}
+        onCreate={vi.fn()}
+        onCommitBounds={onCommitBounds}
+        onDelete={vi.fn()}
+      />,
+    );
+    hotspot = document.querySelector<HTMLElement>('[data-hotspot-id="door"]')!;
+    fireEvent.mouseDown(hotspot, { button: 0, clientX: 200, clientY: 200 });
+    fireEvent.mouseMove(window, { clientX: 205, clientY: 205, altKey: true });
+    fireEvent.mouseUp(window, { clientX: 205, clientY: 205, altKey: true });
+    const [, unsnapped] = onCommitBounds.mock.calls[0]!;
+    expect(unsnapped.x).toBeCloseTo(0.1 + 5 / 130);
+    expect(unsnapped.y).toBeCloseTo(0.1 + 5 / 130);
   });
 
   it('commits a move exactly once when the pointer gesture ends', () => {

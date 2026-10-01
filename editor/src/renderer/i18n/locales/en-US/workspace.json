@@ -1416,6 +1416,8 @@
       "staleSourceStatus": "Hotspot geometry was not applied because the source image changed. Cancel or restart Hotspot Focus against the current image.",
       "select": "Select",
       "rectangle": "Rectangle",
+      "pixelSnap": "Pixel snap",
+      "pixelSnapHelp": "Snap rectangle edges to source-image pixels. Hold Alt while dragging to temporarily invert snapping.",
       "pan": "Pan",
       "fit": "Fit",
       "native": "100%",

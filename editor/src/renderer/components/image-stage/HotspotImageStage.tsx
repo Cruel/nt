@@ -12,8 +12,11 @@ import {
   imageStageRect,
   imageUvToStage,
   moveNormalizedRect,
+  moveNormalizedRectByImagePixels,
   normalizedRectFromPoints,
   resizeNormalizedRect,
+  resizeNormalizedRectToImagePixels,
+  snapNormalizedRectToImagePixels,
   stageToImageUv,
   type ImageStageCamera,
   type ImageStageZoomBasis,
@@ -71,10 +74,11 @@ export interface HotspotImageStageProps {
   captureWindowKeyboard?: boolean;
   keyboardDeleteEnabled?: boolean;
   deferSpatialLayersUntilImageReady?: boolean;
+  snapToImagePixels?: boolean;
 }
 
 type Gesture =
-  | { kind: 'draw'; start: StagePoint; current: StagePoint }
+  | { kind: 'draw'; start: StagePoint; current: StagePoint; snapToPixels: boolean }
   | {
       kind: 'move';
       id: string;
@@ -259,6 +263,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     onCameraChange: props.onCameraChange,
     onCreate: props.onCreate,
     onCommitBounds: props.onCommitBounds,
+    snapToImagePixels: props.snapToImagePixels === true,
   });
   stageStateRef.current = {
     viewport,
@@ -270,6 +275,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
     onCameraChange: props.onCameraChange,
     onCreate: props.onCreate,
     onCommitBounds: props.onCommitBounds,
+    snapToImagePixels: props.snapToImagePixels === true,
   };
 
   useEffect(() => {
@@ -280,7 +286,11 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       const state = stageStateRef.current;
       const current = pointInElement(rootRef.current, event.clientX, event.clientY);
       if (active.kind === 'draw') {
-        setGesture({ ...active, current: stageToImageUv(current, state.imageRect) });
+        setGesture({
+          ...active,
+          current: stageToImageUv(current, state.imageRect),
+          snapToPixels: state.snapToImagePixels !== event.altKey,
+        });
         return;
       }
       if (active.kind === 'pan') {
@@ -308,13 +318,25 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       const startUv = stageToImageUv(active.start, state.imageRect);
       const currentUv = stageToImageUv(current, state.imageRect);
       const delta = { x: currentUv.x - startUv.x, y: currentUv.y - startUv.y };
+      const snapToPixels = state.snapToImagePixels !== event.altKey;
+      const minimumSize = {
+        x: Math.min(1, 4 / Math.max(1, state.imageRect.width)),
+        y: Math.min(1, 4 / Math.max(1, state.imageRect.height)),
+      };
       const draft =
         active.kind === 'move'
-          ? moveNormalizedRect(active.initial, delta)
-          : resizeNormalizedRect(active.initial, active.handle, delta, {
-              x: Math.min(1, 4 / Math.max(1, state.imageRect.width)),
-              y: Math.min(1, 4 / Math.max(1, state.imageRect.height)),
-            });
+          ? snapToPixels
+            ? moveNormalizedRectByImagePixels(active.initial, delta, state.imageSize)
+            : moveNormalizedRect(active.initial, delta)
+          : snapToPixels
+            ? resizeNormalizedRectToImagePixels(
+                active.initial,
+                active.handle,
+                delta,
+                minimumSize,
+                state.imageSize,
+              )
+            : resizeNormalizedRect(active.initial, active.handle, delta, minimumSize);
       setGesture({ ...active, draft });
     };
     const finish = (event: MouseEvent) => {
@@ -323,7 +345,10 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
       event.preventDefault();
       const state = stageStateRef.current;
       if (active.kind === 'draw') {
-        const bounds = normalizedRectFromPoints(active.start, active.current);
+        const rawBounds = normalizedRectFromPoints(active.start, active.current);
+        const bounds = active.snapToPixels
+          ? snapNormalizedRectToImagePixels(rawBounds, state.imageSize)
+          : rawBounds;
         if (
           bounds.width * state.imageRect.width >= 4 &&
           bounds.height * state.imageRect.height >= 4
@@ -364,6 +389,7 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
         kind: 'draw',
         start: stageToImageUv(start, imageRect),
         current: stageToImageUv(start, imageRect),
+        snapToPixels: Boolean(props.snapToImagePixels) !== event.altKey,
       });
       return;
     }
@@ -650,10 +676,11 @@ export function HotspotImageStage(props: HotspotImageStageProps) {
           })}
           {gesture?.kind === 'draw'
             ? (() => {
-                const rect = imageRectToStage(
-                  normalizedRectFromPoints(gesture.start, gesture.current),
-                  imageRect,
-                );
+                const rawBounds = normalizedRectFromPoints(gesture.start, gesture.current);
+                const bounds = gesture.snapToPixels
+                  ? snapNormalizedRectToImagePixels(rawBounds, props.imageSize)
+                  : rawBounds;
+                const rect = imageRectToStage(bounds, imageRect);
                 return (
                   <rect
                     className="pointer-events-none fill-primary/10 stroke-primary"

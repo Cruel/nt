@@ -75,6 +75,7 @@ export interface HotspotFocusSession {
   tool: HotspotTool;
   camera: ImageStageCamera;
   cameraInitialized: boolean;
+  snapToPixels: boolean;
   returnViewportScreenRect: HotspotFocusReturnViewportScreenRect | null;
   entryTransitionPending: boolean;
 }
@@ -82,6 +83,7 @@ export interface HotspotFocusSession {
 interface RememberedFocusView {
   camera: ImageStageCamera;
   cameraInitialized: boolean;
+  snapToPixels: boolean;
 }
 
 interface StartHotspotFocusSession {
@@ -104,6 +106,7 @@ interface HotspotFocusStoreState {
   setTool: (tabId: string, tool: HotspotTool) => void;
   setCamera: (tabId: string, camera: ImageStageCamera) => void;
   initializeCamera: (tabId: string, camera: ImageStageCamera) => void;
+  setSnapToPixels: (tabId: string, snapToPixels: boolean) => void;
   consumeEntryTransition: (tabId: string) => void;
   add: (tabId: string, hotspot: EditableHotspot) => void;
   setBounds: (tabId: string, hotspotId: string, bounds: ImageNormalizedRect) => void;
@@ -135,6 +138,7 @@ const hotspotFocusDraftPayloadSchema = z
       })
       .strict(),
     cameraInitialized: z.boolean(),
+    snapToPixels: z.boolean(),
   })
   .strict();
 
@@ -228,6 +232,7 @@ function syncDraftEntry(session: HotspotFocusSession | undefined) {
       tool: session.tool,
       camera: session.camera,
       cameraInitialized: session.cameraInitialized,
+      snapToPixels: session.snapToPixels,
     }),
     apply: () => useHotspotFocusStore.getState().commit(session.tabId),
     discard: () => useHotspotFocusStore.getState().discard(session.tabId),
@@ -266,6 +271,7 @@ function parseDraftPayload(value: JsonValue | undefined) {
     tool: payload.tool,
     camera: payload.camera,
     cameraInitialized: payload.cameraInitialized,
+    snapToPixels: payload.snapToPixels,
   } satisfies Omit<
     HotspotFocusSession,
     'tabId' | 'history' | 'returnViewportScreenRect' | 'entryTransitionPending'
@@ -285,6 +291,7 @@ function closeSession(tabId: string, session: HotspotFocusSession | undefined) {
         [targetKey(session)]: {
           camera: session.camera,
           cameraInitialized: session.cameraInitialized,
+          snapToPixels: session.snapToPixels,
         },
       },
     }));
@@ -320,6 +327,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       tool: 'select',
       camera: remembered?.camera ?? { zoom: 1, pan: { x: 0, y: 0 } },
       cameraInitialized: remembered?.cameraInitialized ?? false,
+      snapToPixels: remembered?.snapToPixels ?? true,
       returnViewportScreenRect: input.returnViewportScreenRect ?? null,
       entryTransitionPending: true,
     };
@@ -353,6 +361,7 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
       tool: payload.tool,
       camera: payload.camera,
       cameraInitialized: payload.cameraInitialized,
+      snapToPixels: payload.snapToPixels,
       returnViewportScreenRect: input.returnViewportScreenRect ?? null,
       entryTransitionPending: false,
     };
@@ -406,7 +415,11 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
         sessionsByTabId: { ...state.sessionsByTabId, [tabId]: next },
         rememberedViewsByTarget: {
           ...state.rememberedViewsByTarget,
-          [targetKey(session)]: { camera, cameraInitialized: true },
+          [targetKey(session)]: {
+            camera,
+            cameraInitialized: true,
+            snapToPixels: session.snapToPixels,
+          },
         },
       };
     });
@@ -421,7 +434,30 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
         sessionsByTabId: { ...state.sessionsByTabId, [tabId]: next },
         rememberedViewsByTarget: {
           ...state.rememberedViewsByTarget,
-          [targetKey(session)]: { camera, cameraInitialized: true },
+          [targetKey(session)]: {
+            camera,
+            cameraInitialized: true,
+            snapToPixels: session.snapToPixels,
+          },
+        },
+      };
+    });
+    syncDraftEntry(get().sessionsByTabId[tabId]);
+  },
+  setSnapToPixels: (tabId, snapToPixels) => {
+    set((state) => {
+      const session = state.sessionsByTabId[tabId];
+      if (!session) return state;
+      const next = { ...session, snapToPixels };
+      return {
+        sessionsByTabId: { ...state.sessionsByTabId, [tabId]: next },
+        rememberedViewsByTarget: {
+          ...state.rememberedViewsByTarget,
+          [targetKey(session)]: {
+            camera: session.camera,
+            cameraInitialized: session.cameraInitialized,
+            snapToPixels,
+          },
         },
       };
     });

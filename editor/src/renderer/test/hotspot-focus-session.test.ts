@@ -218,12 +218,14 @@ describe('Hotspot Focus session', () => {
 
     const session = useHotspotFocusStore.getState().sessionsByTabId['room-tab'];
     expect(session?.tool).toBe('draw-rect');
+    expect(session?.snapToPixels).toBe(true);
     expect(session?.selectedHotspotId).toBe('window');
     const draft = useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab'];
     expect(draft?.dirty).toBe(true);
     expect(draft?.apply).toBeTypeOf('function');
     expect(draft?.discard).toBeTypeOf('function');
     expect(draft?.schema).toBe(HOTSPOT_FOCUS_DRAFT_SCHEMA);
+    expect(draft?.payload).toMatchObject({ snapToPixels: true });
     expect(draft?.payload).not.toHaveProperty('schemaVersion');
   });
 
@@ -238,6 +240,7 @@ describe('Hotspot Focus session', () => {
       mode: 'rectangles',
       items: [hotspot()],
     });
+    store.setSnapToPixels('room-tab', false);
     store.setBounds('room-tab', 'door', movedBounds);
     const serialized = serializeDraftDirtyState(useDraftDirtyStore.getState());
 
@@ -259,6 +262,7 @@ describe('Hotspot Focus session', () => {
       useHotspotFocusStore.getState().sessionsByTabId['room-tab']?.history.present[0]?.shape
         ?.bounds,
     ).toEqual(movedBounds);
+    expect(useHotspotFocusStore.getState().sessionsByTabId['room-tab']?.snapToPixels).toBe(false);
     const restored = useDraftDirtyStore.getState().entriesByKey['hotspot-focus:room-tab'];
     expect(restored?.apply).toBeTypeOf('function');
     expect(restored?.discard).toBeTypeOf('function');
@@ -310,6 +314,7 @@ describe('Hotspot Focus session', () => {
           tool: 'select',
           camera: { zoom: 1, pan: { x: 0, y: 0 } },
           cameraInitialized: true,
+          snapToPixels: true,
         },
       },
     });

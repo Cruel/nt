@@ -62,6 +62,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
     const setTool = useHotspotFocusStore((state) => state.setTool);
     const setCamera = useHotspotFocusStore((state) => state.setCamera);
     const initializeCamera = useHotspotFocusStore((state) => state.initializeCamera);
+    const setSnapToPixels = useHotspotFocusStore((state) => state.setSnapToPixels);
     const add = useHotspotFocusStore((state) => state.add);
     const setBounds = useHotspotFocusStore((state) => state.setBounds);
     const remove = useHotspotFocusStore((state) => state.delete);
@@ -288,6 +289,18 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
           >
             {t('hotspots.focus.pan')}
           </Button>
+          {canDraw ? (
+            <Button
+              type="button"
+              size="sm"
+              variant={session.snapToPixels ? 'default' : 'outline'}
+              aria-pressed={session.snapToPixels}
+              title={t('hotspots.focus.pixelSnapHelp')}
+              onClick={() => setSnapToPixels(tabId, !session.snapToPixels)}
+            >
+              {t('hotspots.focus.pixelSnap')}
+            </Button>
+          ) : null}
           <Button
             type="button"
             size="sm"
@@ -376,6 +389,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
               camera={session.camera}
               alphaVisualization={session.mode === 'sprite-alpha'}
               alphaCoverage={alphaCoverage}
+              snapToImagePixels={session.snapToPixels}
               onViewportChange={setViewport}
               onImageRectChange={setImageRect}
               onSelectionChange={(selectedHotspotId) => setSelection(tabId, selectedHotspotId)}

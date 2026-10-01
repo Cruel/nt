@@ -163,6 +163,18 @@ export function normalizedRectFromPoints(
   return { x: left, y: top, width, height };
 }
 
+export function snapNormalizedRectToImagePixels(
+  bounds: ImageNormalizedRect,
+  image: StageSize,
+): ImageNormalizedRect {
+  if (image.width <= 0 || image.height <= 0) return bounds;
+  const left = Math.round(clamp(bounds.x, 0, 1) * image.width) / image.width;
+  const top = Math.round(clamp(bounds.y, 0, 1) * image.height) / image.height;
+  const right = Math.round(clamp(bounds.x + bounds.width, left, 1) * image.width) / image.width;
+  const bottom = Math.round(clamp(bounds.y + bounds.height, top, 1) * image.height) / image.height;
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
 export function moveNormalizedRect(
   bounds: ImageNormalizedRect,
   delta: StagePoint,
@@ -172,6 +184,19 @@ export function moveNormalizedRect(
     x: clamp(bounds.x + delta.x, 0, 1 - bounds.width),
     y: clamp(bounds.y + delta.y, 0, 1 - bounds.height),
   };
+}
+
+export function moveNormalizedRectByImagePixels(
+  bounds: ImageNormalizedRect,
+  delta: StagePoint,
+  image: StageSize,
+): ImageNormalizedRect {
+  if (image.width <= 0 || image.height <= 0) return moveNormalizedRect(bounds, delta);
+  const snapped = snapNormalizedRectToImagePixels(bounds, image);
+  return moveNormalizedRect(snapped, {
+    x: Math.round(delta.x * image.width) / image.width,
+    y: Math.round(delta.y * image.height) / image.height,
+  });
 }
 
 export type ResizeHandle = 'nw' | 'n' | 'ne' | 'e' | 'se' | 's' | 'sw' | 'w';
@@ -190,6 +215,46 @@ export function resizeNormalizedRect(
   if (handle.includes('e')) right = clamp(right + delta.x, left + minimumSize.x, 1);
   if (handle.includes('n')) top = clamp(top + delta.y, 0, bottom - minimumSize.y);
   if (handle.includes('s')) bottom = clamp(bottom + delta.y, top + minimumSize.y, 1);
+  return { x: left, y: top, width: right - left, height: bottom - top };
+}
+
+export function resizeNormalizedRectToImagePixels(
+  initial: ImageNormalizedRect,
+  handle: ResizeHandle,
+  delta: StagePoint,
+  minimumSize: StagePoint,
+  image: StageSize,
+): ImageNormalizedRect {
+  const resized = resizeNormalizedRect(initial, handle, delta, minimumSize);
+  if (image.width <= 0 || image.height <= 0) return resized;
+
+  let left = resized.x;
+  let top = resized.y;
+  let right = resized.x + resized.width;
+  let bottom = resized.y + resized.height;
+  const initialRight = initial.x + initial.width;
+  const initialBottom = initial.y + initial.height;
+  const minimumWidthPixels = Math.max(1, Math.ceil(minimumSize.x * image.width));
+  const minimumHeightPixels = Math.max(1, Math.ceil(minimumSize.y * image.height));
+
+  if (handle.includes('w')) {
+    const maximumLeftPixel = Math.floor(initialRight * image.width - minimumWidthPixels);
+    left = clamp(Math.round(left * image.width), 0, maximumLeftPixel) / image.width;
+  }
+  if (handle.includes('e')) {
+    const minimumRightPixel = Math.ceil(initial.x * image.width + minimumWidthPixels);
+    right = clamp(Math.round(right * image.width), minimumRightPixel, image.width) / image.width;
+  }
+  if (handle.includes('n')) {
+    const maximumTopPixel = Math.floor(initialBottom * image.height - minimumHeightPixels);
+    top = clamp(Math.round(top * image.height), 0, maximumTopPixel) / image.height;
+  }
+  if (handle.includes('s')) {
+    const minimumBottomPixel = Math.ceil(initial.y * image.height + minimumHeightPixels);
+    bottom =
+      clamp(Math.round(bottom * image.height), minimumBottomPixel, image.height) / image.height;
+  }
+
   return { x: left, y: top, width: right - left, height: bottom - top };
 }
 
