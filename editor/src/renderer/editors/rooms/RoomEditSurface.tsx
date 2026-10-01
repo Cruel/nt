@@ -4,6 +4,7 @@ import {
   useMemo,
   useRef,
   useState,
+  type MouseEvent as ReactMouseEvent,
   type PointerEvent as ReactPointerEvent,
 } from 'react';
 import { useTranslation } from 'react-i18next';
@@ -92,7 +93,7 @@ const roomEditResizeCursorClass: Record<RoomEditResizeHandle, string> = {
 type RoomEditDirectGesture =
   | {
       kind: 'candidate';
-      pointerId: number;
+      pointerId: number | null;
       start: { x: number; y: number };
       current: { x: number; y: number };
       selection: RoomEditSelection[];
@@ -103,7 +104,7 @@ type RoomEditDirectGesture =
     }
   | {
       kind: 'marquee';
-      pointerId: number;
+      pointerId: number | null;
       start: { x: number; y: number };
       current: { x: number; y: number };
       additive: boolean;
@@ -111,7 +112,7 @@ type RoomEditDirectGesture =
     }
   | {
       kind: 'resize';
-      pointerId: number;
+      pointerId: number | null;
       start: { x: number; y: number };
       current: { x: number; y: number };
       selection: RoomEditSelection;
@@ -652,34 +653,39 @@ export function RoomEditSurface({
       roomId,
     ],
   );
+  const draftRoomForGesture = useCallback(
+    (gesture: RoomEditDirectGesture | null) => {
+      if (gesture?.kind === 'candidate' && gesture.dragging) {
+        const delta = pointerDeltaToNormalized(
+          {
+            x: gesture.current.x - gesture.start.x,
+            y: gesture.current.y - gesture.start.y,
+          },
+          committedProjections.display,
+          navigationRef.current,
+        );
+        return translateRoomSelectionData(room, gesture.selection, delta) ?? room;
+      }
+      if (gesture?.kind === 'resize') {
+        const delta = pointerDeltaToNormalized(
+          {
+            x: gesture.current.x - gesture.start.x,
+            y: gesture.current.y - gesture.start.y,
+          },
+          committedProjections.display,
+          navigationRef.current,
+        );
+        const bounds = resizeNormalizedBounds(gesture.bounds, delta, gesture.handle);
+        return resizeRoomSelectionData(room, gesture.selection, bounds) ?? room;
+      }
+      return room;
+    },
+    [committedProjections.display, room],
+  );
   const draftRoom = useMemo(() => {
     void directGestureVersion;
-    const gesture = directGestureRef.current;
-    if (gesture?.kind === 'candidate' && gesture.dragging) {
-      const delta = pointerDeltaToNormalized(
-        {
-          x: gesture.current.x - gesture.start.x,
-          y: gesture.current.y - gesture.start.y,
-        },
-        committedProjections.display,
-        navigationRef.current,
-      );
-      return translateRoomSelectionData(room, gesture.selection, delta) ?? room;
-    }
-    if (gesture?.kind === 'resize') {
-      const delta = pointerDeltaToNormalized(
-        {
-          x: gesture.current.x - gesture.start.x,
-          y: gesture.current.y - gesture.start.y,
-        },
-        committedProjections.display,
-        navigationRef.current,
-      );
-      const bounds = resizeNormalizedBounds(gesture.bounds, delta, gesture.handle);
-      return resizeRoomSelectionData(room, gesture.selection, bounds) ?? room;
-    }
-    return room;
-  }, [committedProjections.display, directGestureVersion, room]);
+    return draftRoomForGesture(directGestureRef.current);
+  }, [directGestureVersion, draftRoomForGesture]);
   const projections = useMemo(
     () =>
       resolveRoomEditProjectionPair({
@@ -790,7 +796,11 @@ export function RoomEditSurface({
     if (directGesture) setDirectGestureVersion((value) => value + 1);
     if (gesture && surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
       surfaceRef.current.releasePointerCapture(gesture.pointerId);
-    if (directGesture && surfaceRef.current?.hasPointerCapture?.(directGesture.pointerId))
+    if (
+      directGesture &&
+      directGesture.pointerId !== null &&
+      surfaceRef.current?.hasPointerCapture?.(directGesture.pointerId)
+    )
       surfaceRef.current.releasePointerCapture(directGesture.pointerId);
   }, [gestureCancellationToken, interactionEnabled]);
 
@@ -818,7 +828,7 @@ export function RoomEditSurface({
       const gesture = directGestureRef.current;
       directGestureRef.current = null;
       suppressSelectionClickRef.current = true;
-      if (surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
+      if (gesture.pointerId !== null && surfaceRef.current?.hasPointerCapture?.(gesture.pointerId))
         surfaceRef.current.releasePointerCapture(gesture.pointerId);
       setDirectGestureVersion((value) => value + 1);
     };
@@ -854,6 +864,194 @@ export function RoomEditSurface({
     },
     [referenceResolution, selectionCandidates, viewportPoint],
   );
+
+  const beginSelectedItemMouseDrag = useCallback(
+    (event: ReactMouseEvent<HTMLElement>, candidate: RoomEditSelectionCandidate) => {
+      if (!interactionEnabled || event.button !== 0 || spaceHeldRef.current) return false;
+      const point = viewportPoint(event.clientX, event.clientY);
+      if (!point) return false;
+      const selectedKeys = new Set(selection.map(roomEditSelectionKey));
+      if (!selectedKeys.has(roomEditSelectionKey(candidate.selection))) return false;
+      event.preventDefault();
+      event.stopPropagation();
+      directGestureRef.current = {
+        kind: 'candidate',
+        pointerId: null,
+        start: { x: point.x, y: point.y },
+        current: { x: point.x, y: point.y },
+        selection: [...selection],
+        candidate,
+        additive: event.ctrlKey || event.metaKey,
+        dragging: false,
+        selectionCommitted: true,
+      };
+      return true;
+    },
+    [interactionEnabled, selection, viewportPoint],
+  );
+
+  const updateDirectGesture = useCallback(
+    (event: { pointerId: number | null; clientX: number; clientY: number }) => {
+      const direct = directGestureRef.current;
+      if (!direct || direct.pointerId !== event.pointerId) return false;
+      const point = viewportPoint(event.clientX, event.clientY);
+      if (!point) return true;
+      direct.current = { x: point.x, y: point.y };
+      if (direct.kind !== 'resize') {
+        const distance = Math.hypot(
+          direct.current.x - direct.start.x,
+          direct.current.y - direct.start.y,
+        );
+        const threshold = 4 * Math.max(point.scaleX, point.scaleY);
+        if (distance >= threshold) {
+          if (direct.kind === 'marquee') direct.dragging = true;
+          else if (
+            direct.selection.every((selection) => roomEditSelectionCapabilities(selection).move)
+          ) {
+            direct.dragging = true;
+            if (!direct.selectionCommitted) {
+              direct.selectionCommitted = true;
+              onSelectionChange(direct.selection);
+            }
+          }
+        }
+      }
+      if (direct.kind === 'resize' || (direct.kind === 'candidate' && direct.dragging)) {
+        const immediateDraftRoom = draftRoomForGesture(direct);
+        projectionRef.current = resolveRoomEditProjectionPair({
+          project,
+          roomId,
+          room: immediateDraftRoom,
+          viewport: referenceResolution,
+          backgroundImageSize,
+          resolvedVisibility,
+          navigation: navigationRef.current,
+        });
+      }
+      setDirectGestureVersion((value) => value + 1);
+      return true;
+    },
+    [
+      backgroundImageSize,
+      draftRoomForGesture,
+      onSelectionChange,
+      project,
+      referenceResolution,
+      resolvedVisibility,
+      roomId,
+      viewportPoint,
+    ],
+  );
+
+  const finishDirectGesture = useCallback(
+    (event: { pointerId: number | null; clientX: number; clientY: number }) => {
+      const direct = directGestureRef.current;
+      if (!direct || direct.pointerId !== event.pointerId) return false;
+      const point = viewportPoint(event.clientX, event.clientY);
+      if (point) direct.current = { x: point.x, y: point.y };
+      directGestureRef.current = null;
+      suppressSelectionClickRef.current = true;
+      if (event.pointerId !== null && surfaceRef.current?.hasPointerCapture?.(event.pointerId))
+        surfaceRef.current.releasePointerCapture(event.pointerId);
+      if (direct.kind === 'candidate') {
+        if (direct.dragging) {
+          onTranslateSelection(
+            direct.selection,
+            pointerDeltaToNormalized(
+              {
+                x: direct.current.x - direct.start.x,
+                y: direct.current.y - direct.start.y,
+              },
+              committedProjections.display,
+              navigationRef.current,
+            ),
+          );
+        } else {
+          onSelectionChange(
+            direct.additive
+              ? toggleRoomEditSelection(selection, direct.candidate.selection)
+              : [direct.candidate.selection],
+          );
+        }
+      } else if (direct.kind === 'marquee') {
+        if (!direct.dragging) {
+          if (!direct.additive) onSelectionChange([]);
+        } else {
+          const marquee = marqueeRect(direct.start, direct.current);
+          const matches = marqueeRoomEditSelections(
+            selectionCandidates,
+            marquee,
+            referenceResolution,
+          );
+          if (!direct.additive) onSelectionChange(matches);
+          else {
+            let next = [...selection];
+            for (const item of matches) next = toggleRoomEditSelection(next, item);
+            onSelectionChange(next);
+          }
+        }
+      } else {
+        const delta = pointerDeltaToNormalized(
+          {
+            x: direct.current.x - direct.start.x,
+            y: direct.current.y - direct.start.y,
+          },
+          committedProjections.display,
+          navigationRef.current,
+        );
+        const bounds = resizeNormalizedBounds(direct.bounds, delta, direct.handle);
+        const changed = (['x', 'y', 'width', 'height'] as const).some(
+          (field) => Math.abs(bounds[field] - direct.bounds[field]) > 1e-9,
+        );
+        if (changed) onResizeSelection(direct.selection, bounds);
+      }
+      setDirectGestureVersion((value) => value + 1);
+      return true;
+    },
+    [
+      committedProjections.display,
+      onResizeSelection,
+      onSelectionChange,
+      onTranslateSelection,
+      referenceResolution,
+      selection,
+      selectionCandidates,
+      viewportPoint,
+    ],
+  );
+
+  const cancelDirectGesture = useCallback((pointerId: number | null) => {
+    const direct = directGestureRef.current;
+    if (!direct || direct.pointerId !== pointerId) return false;
+    directGestureRef.current = null;
+    suppressSelectionClickRef.current = true;
+    if (pointerId !== null && surfaceRef.current?.hasPointerCapture?.(pointerId))
+      surfaceRef.current.releasePointerCapture(pointerId);
+    setDirectGestureVersion((value) => value + 1);
+    return true;
+  }, []);
+
+  useEffect(() => {
+    const mouseMove = (event: MouseEvent) => {
+      if (directGestureRef.current?.pointerId !== null) return;
+      event.preventDefault();
+      updateDirectGesture({ pointerId: null, clientX: event.clientX, clientY: event.clientY });
+    };
+    const mouseUp = (event: MouseEvent) => {
+      if (directGestureRef.current?.pointerId !== null) return;
+      event.preventDefault();
+      finishDirectGesture({ pointerId: null, clientX: event.clientX, clientY: event.clientY });
+    };
+    const blur = () => cancelDirectGesture(null);
+    window.addEventListener('mousemove', mouseMove, { passive: false });
+    window.addEventListener('mouseup', mouseUp, { passive: false });
+    window.addEventListener('blur', blur);
+    return () => {
+      window.removeEventListener('mousemove', mouseMove);
+      window.removeEventListener('mouseup', mouseUp);
+      window.removeEventListener('blur', blur);
+    };
+  }, [cancelDirectGesture, finishDirectGesture, updateDirectGesture]);
 
   useEffect(() => {
     if (!surfaceElement) return;
@@ -1233,41 +1431,13 @@ export function RoomEditSurface({
               if (point) setAddGhostViewportPoint({ x: point.x, y: point.y });
               return;
             }
-            const direct = directGestureRef.current;
-            if (!direct || direct.pointerId !== event.pointerId) {
-              const hovered = ordinaryRoomEditSelectionCandidate(
-                candidatesAtClientPoint(event.clientX, event.clientY),
-              );
-              setHoveredPlacementId(
-                hovered?.selection.kind === 'placement' ? hovered.selection.id : null,
-              );
-              return;
-            }
-            const point = viewportPoint(event.clientX, event.clientY);
-            if (!point) return;
-            direct.current = { x: point.x, y: point.y };
-            if (direct.kind !== 'resize') {
-              const distance = Math.hypot(
-                direct.current.x - direct.start.x,
-                direct.current.y - direct.start.y,
-              );
-              const threshold = 4 * Math.max(point.scaleX, point.scaleY);
-              if (distance >= threshold) {
-                if (direct.kind === 'marquee') direct.dragging = true;
-                else if (
-                  direct.selection.every(
-                    (selection) => roomEditSelectionCapabilities(selection).move,
-                  )
-                ) {
-                  direct.dragging = true;
-                  if (!direct.selectionCommitted) {
-                    direct.selectionCommitted = true;
-                    onSelectionChange(direct.selection);
-                  }
-                }
-              }
-            }
-            setDirectGestureVersion((value) => value + 1);
+            if (updateDirectGesture(event)) return;
+            const hovered = ordinaryRoomEditSelectionCandidate(
+              candidatesAtClientPoint(event.clientX, event.clientY),
+            );
+            setHoveredPlacementId(
+              hovered?.selection.kind === 'placement' ? hovered.selection.id : null,
+            );
           }}
           onPointerUp={(event) => {
             const gesture = panGestureRef.current;
@@ -1279,67 +1449,7 @@ export function RoomEditSurface({
                 surfaceRef.current.releasePointerCapture(event.pointerId);
               return;
             }
-            const direct = directGestureRef.current;
-            if (!direct || direct.pointerId !== event.pointerId) return;
-            const point = viewportPoint(event.clientX, event.clientY);
-            if (point) direct.current = { x: point.x, y: point.y };
-            directGestureRef.current = null;
-            suppressSelectionClickRef.current = true;
-            if (surfaceRef.current?.hasPointerCapture?.(event.pointerId))
-              surfaceRef.current.releasePointerCapture(event.pointerId);
-            if (direct.kind === 'candidate') {
-              if (direct.dragging) {
-                onTranslateSelection(
-                  direct.selection,
-                  pointerDeltaToNormalized(
-                    {
-                      x: direct.current.x - direct.start.x,
-                      y: direct.current.y - direct.start.y,
-                    },
-                    committedProjections.display,
-                    navigationRef.current,
-                  ),
-                );
-              } else {
-                onSelectionChange(
-                  direct.additive
-                    ? toggleRoomEditSelection(selection, direct.candidate.selection)
-                    : [direct.candidate.selection],
-                );
-              }
-            } else if (direct.kind === 'marquee') {
-              if (!direct.dragging) {
-                if (!direct.additive) onSelectionChange([]);
-              } else {
-                const marquee = marqueeRect(direct.start, direct.current);
-                const matches = marqueeRoomEditSelections(
-                  selectionCandidates,
-                  marquee,
-                  referenceResolution,
-                );
-                if (!direct.additive) onSelectionChange(matches);
-                else {
-                  let next = [...selection];
-                  for (const item of matches) next = toggleRoomEditSelection(next, item);
-                  onSelectionChange(next);
-                }
-              }
-            } else {
-              const delta = pointerDeltaToNormalized(
-                {
-                  x: direct.current.x - direct.start.x,
-                  y: direct.current.y - direct.start.y,
-                },
-                committedProjections.display,
-                navigationRef.current,
-              );
-              const bounds = resizeNormalizedBounds(direct.bounds, delta, direct.handle);
-              const changed = (['x', 'y', 'width', 'height'] as const).some(
-                (field) => Math.abs(bounds[field] - direct.bounds[field]) > 1e-9,
-              );
-              if (changed) onResizeSelection(direct.selection, bounds);
-            }
-            setDirectGestureVersion((value) => value + 1);
+            finishDirectGesture(event);
           }}
           onPointerCancel={(event) => {
             const gesture = panGestureRef.current;
@@ -1348,12 +1458,7 @@ export function RoomEditSurface({
               suppressSelectionClickRef.current = false;
               setPanning(false);
             }
-            const direct = directGestureRef.current;
-            if (direct?.pointerId === event.pointerId) {
-              directGestureRef.current = null;
-              suppressSelectionClickRef.current = true;
-              setDirectGestureVersion((value) => value + 1);
-            }
+            cancelDirectGesture(event.pointerId);
           }}
           onClick={(event) => {
             if (!interactionEnabled) return;
@@ -1476,9 +1581,17 @@ export function RoomEditSurface({
               return (
                 <div
                   key={`selected:${key}`}
-                  className="absolute border-2 border-primary shadow-[0_0_0_1px_color-mix(in_oklch,var(--background),transparent_30%)]"
+                  className={`pointer-events-auto absolute border-2 border-primary shadow-[0_0_0_1px_color-mix(in_oklch,var(--background),transparent_30%)] ${
+                    roomEditSelectionCapabilities(candidate.selection).move ? 'cursor-move' : ''
+                  }`}
                   style={overlayStyle(candidate.projected, projection)}
                   data-testid={`room-edit-selected-${key}`}
+                  onPointerDown={(event) => {
+                    if (!spaceHeldRef.current) event.stopPropagation();
+                  }}
+                  onMouseDown={(event) => {
+                    beginSelectedItemMouseDrag(event, candidate);
+                  }}
                 >
                   <span className="absolute left-0 top-0 max-w-[min(24rem,80vw)] -translate-y-full truncate rounded-t bg-primary px-1.5 py-0.5 text-[10px] font-semibold text-primary-foreground">
                     {candidate.label}
@@ -1492,13 +1605,13 @@ export function RoomEditSurface({
                           } ${handle.includes('w') ? '-left-1.5' : '-right-1.5'} ${roomEditResizeCursorClass[handle]}`}
                           data-testid={`room-edit-resize-${handle}`}
                           onPointerDown={(event) => {
-                            if (!interactionEnabled || event.button !== 0) return;
+                            if (!spaceHeldRef.current) event.stopPropagation();
+                          }}
+                          onMouseDown={(event) => {
+                            if (!interactionEnabled || event.button !== 0 || spaceHeldRef.current)
+                              return;
                             event.preventDefault();
                             event.stopPropagation();
-                            if (spaceHeldRef.current) {
-                              beginPanGesture(event);
-                              return;
-                            }
                             const point = viewportPoint(event.clientX, event.clientY);
                             const bounds = normalizedBoundsForSelection(
                               draftRoom,
@@ -1507,14 +1620,13 @@ export function RoomEditSurface({
                             if (!point || !bounds) return;
                             directGestureRef.current = {
                               kind: 'resize',
-                              pointerId: event.pointerId,
+                              pointerId: null,
                               start: { x: point.x, y: point.y },
                               current: { x: point.x, y: point.y },
                               selection: candidate.selection,
                               handle,
                               bounds,
                             };
-                            surfaceRef.current?.setPointerCapture?.(event.pointerId);
                             setDirectGestureVersion((value) => value + 1);
                           }}
                         />

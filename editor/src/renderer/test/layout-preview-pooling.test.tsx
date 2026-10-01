@@ -332,6 +332,25 @@ beforeEach(async () => {
   useWorkbenchStore.getState().resetWorkbench();
   useProjectStore.getState().clearProject();
   clearWorkbenchTabStates();
+  useWorkbenchTabStateStore.getState().setTabState(roomTab.id, {
+    schema: 'noveltea.editor.tab-state.room',
+    payload: {
+      activeCategory: 'general',
+      presentationMode: 'preview',
+      editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+      selection: [],
+      expandedSelectionKeys: [],
+      previewCollapsed: false,
+      hotspotView: {
+        schema: 'noveltea.editor.hotspot-view',
+        tool: 'select',
+        selectedHotspotId: null,
+        zoom: 1,
+        panX: 0,
+        panY: 0,
+      },
+    },
+  });
 
   const project = createAuthoringProject();
   project.layouts.main = {
