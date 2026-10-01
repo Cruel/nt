@@ -367,7 +367,7 @@ TEST_CASE("Room resolution composes overlapping Character and Interactable occup
                                 {"appearanceId", nullptr},
                                 {"idleId", nullptr},
                                 {"visible", true},
-                                {"order", 0}}});
+                                {"order", 1024}}});
     document["resources"]["scripts"].push_back(
         {{"id", "room-compose"},
          {"source",
