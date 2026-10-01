@@ -1564,6 +1564,10 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
     roomEditViewportSize,
     referenceResolution,
   );
+  const roomEditFitScale =
+    fittedRoomEditSurfaceSize.width > 0 && referenceResolution.width > 0
+      ? fittedRoomEditSurfaceSize.width / referenceResolution.width
+      : 0;
   const deviceScale =
     typeof window === 'undefined' ||
     !Number.isFinite(window.devicePixelRatio) ||
@@ -3130,13 +3134,15 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
               <div
                 ref={handleRoomEditViewportElementChange}
                 data-testid="room-edit-viewport"
-                className="flex h-full min-h-0 items-center justify-center overflow-hidden"
+                className="relative h-full min-h-0 overflow-hidden bg-muted/10"
               >
                 <div
-                  className="shrink-0"
+                  className="absolute left-1/2 top-1/2 shrink-0"
                   style={{
                     width: fittedRoomEditSurfaceSize.width || undefined,
                     height: fittedRoomEditSurfaceSize.height || undefined,
+                    transform: `translate(-50%, -50%) translate(${visibleEditNavigation.pan.x * roomEditFitScale}px, ${visibleEditNavigation.pan.y * roomEditFitScale}px) scale(${visibleEditNavigation.zoom})`,
+                    transformOrigin: 'center',
                   }}
                   data-testid="room-edit-fit-frame"
                 >
@@ -3150,6 +3156,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                     presentationEnvironment={roomEditPresentationEnvironment}
                     resolvedVisibility={activeRoomEditResolution}
                     navigation={visibleEditNavigation}
+                    workspaceNavigation
                     onNavigationChange={handleRoomEditNavigationChange}
                     gestureCancellationToken={roomEditGestureCancellationToken}
                     interactionEnabled={!roomEditTransitioning}
