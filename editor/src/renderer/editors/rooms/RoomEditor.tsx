@@ -591,15 +591,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   const [activeCategory, setActiveCategory] = useState<RoomEditorCategory>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
     const parsed = savedState ? parseRoomEditorTabState(savedState) : null;
-    return parsed?.presentationMode === 'edit'
-      ? 'composition'
-      : (parsed?.activeCategory ?? 'general');
+    if (!parsed) return 'composition';
+    return parsed.presentationMode === 'edit' ? 'composition' : parsed.activeCategory;
   });
   const [presentationMode, setPresentationMode] = useState<RoomPresentationMode>(() => {
     const savedState = useWorkbenchTabStateStore.getState().tabStatesById[tab.id];
-    return savedState
-      ? (parseRoomEditorTabState(savedState)?.presentationMode ?? 'preview')
-      : 'preview';
+    return savedState ? (parseRoomEditorTabState(savedState)?.presentationMode ?? 'edit') : 'edit';
   });
   const [rememberedEditNavigation, setRememberedEditNavigation] = useState<RoomEditNavigation>(
     () => {

@@ -6,6 +6,10 @@ import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
 import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import {
+  clearWorkbenchTabStates,
+  useWorkbenchTabStateStore,
+} from '@/workbench/workbench-tab-state';
 import type {
   WorkbenchGroup as WorkbenchGroupModel,
   WorkbenchTab,
@@ -204,6 +208,28 @@ beforeEach(async () => {
   resetPreviewControllerState();
   useCommandStore.getState().resetCommandHistory();
   useWorkbenchStore.getState().resetWorkbench();
+  clearWorkbenchTabStates();
+  for (const tab of [roomATab, roomBTab]) {
+    useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+      schema: 'noveltea.editor.tab-state.room',
+      payload: {
+        activeCategory: 'general',
+        presentationMode: 'preview',
+        editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+        selection: [],
+        expandedSelectionKeys: [],
+        previewCollapsed: false,
+        hotspotView: {
+          schema: 'noveltea.editor.hotspot-view',
+          tool: 'select',
+          selectedHotspotId: null,
+          zoom: 1,
+          panX: 0,
+          panY: 0,
+        },
+      },
+    });
+  }
   useProjectStore.getState().clearProject();
   const project = createAuthoringProject();
   project.rooms['room-a'] = { id: 'room-a', label: 'Room A', data: defaultRoomData('Room A') };

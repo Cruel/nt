@@ -62,6 +62,32 @@ function selectRoomCategory(
   const navigation = screen.getByRole('navigation', { name: 'Room editor categories' });
   fireEvent.click(within(navigation).getByRole('button', { name }));
 }
+function setRoomTabPresentationMode(
+  presentationMode: 'edit' | 'preview',
+  activeCategory?: 'general' | 'composition',
+) {
+  const resolvedActiveCategory =
+    activeCategory ?? (presentationMode === 'edit' ? 'composition' : 'general');
+  useWorkbenchTabStateStore.getState().setTabState(tab.id, {
+    schema: 'noveltea.editor.tab-state.room',
+    payload: {
+      activeCategory: resolvedActiveCategory,
+      presentationMode,
+      editNavigation: { zoom: 1, pan: { x: 0, y: 0 } },
+      selection: [],
+      expandedSelectionKeys: [],
+      previewCollapsed: false,
+      hotspotView: {
+        schema: 'noveltea.editor.hotspot-view',
+        tool: 'select',
+        selectedHotspotId: null,
+        zoom: 1,
+        panX: 0,
+        panY: 0,
+      },
+    },
+  });
+}
 beforeEach(() => {
   useProjectStore.getState().clearProject();
   useCommandStore.getState().resetCommandHistory();
@@ -84,6 +110,7 @@ describe('RoomEditor', () => {
     renderEditor();
 
     expect(screen.getByRole('navigation', { name: 'Room editor categories' })).toBeInTheDocument();
+    selectRoomCategory('General');
     expect(screen.getByText('Display name')).toBeInTheDocument();
     expect(screen.queryByText('Lifecycle')).toBeNull();
 
@@ -584,6 +611,7 @@ describe('RoomEditor', () => {
   });
 
   it('captures a canonical Room presentation endpoint when Hotspot Focus starts from Preview', () => {
+    setRoomTabPresentationMode('preview');
     const project = createAuthoringProject();
     project.assets.image = {
       id: 'image',
@@ -631,6 +659,7 @@ describe('RoomEditor', () => {
   });
 
   it('retains the Hotspot Focus Room return endpoint across active-only remounts', () => {
+    setRoomTabPresentationMode('preview');
     const project = createAuthoringProject();
     project.assets.image = {
       id: 'image',
@@ -688,6 +717,7 @@ describe('RoomEditor', () => {
   it.each([45, 120])(
     'cancels Hotspot Focus exit work when unmounted after %dms and restores the retained session',
     async (elapsedMs) => {
+      setRoomTabPresentationMode('preview');
       Object.defineProperties(HTMLElement.prototype, {
         clientWidth: { configurable: true, get: () => 400 },
         clientHeight: { configurable: true, get: () => 400 },
@@ -1336,6 +1366,7 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('General');
     fireEvent.change(screen.getByDisplayValue('Foyer'), { target: { value: 'Foyer East' } });
     await waitFor(() =>
       expect(useProjectStore.getState().document).toMatchObject({
@@ -1364,6 +1395,7 @@ describe('RoomEditor', () => {
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     renderEditor();
+    selectRoomCategory('General');
 
     fireEvent.click(screen.getByRole('button', { name: /choose an image/i }));
     expect(screen.getByText('Choose a background image')).toBeInTheDocument();
@@ -1405,6 +1437,7 @@ describe('RoomEditor', () => {
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
+    selectRoomCategory('General');
 
     const fitGroup = screen.getByRole('group', { name: 'Image fit' });
     const coverButton = within(fitGroup).getByRole('button', { name: 'Cover' });
@@ -1770,11 +1803,6 @@ describe('RoomEditor', () => {
     const view = renderEditor();
 
     const modes = screen.getByRole('group', { name: 'Room presentation mode' });
-    expect(within(modes).getByRole('button', { name: 'Preview' })).toHaveAttribute(
-      'aria-pressed',
-      'true',
-    );
-    fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
     expect(within(modes).getByRole('button', { name: 'Edit' })).toHaveAttribute(
       'aria-pressed',
       'true',
@@ -1821,8 +1849,8 @@ describe('RoomEditor', () => {
 
     renderEditor();
 
-    expect(screen.getByRole('heading', { name: 'General' })).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: 'Preview' })).toHaveAttribute('aria-pressed', 'true');
+    expect(screen.getByRole('heading', { name: 'Composition' })).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: 'Edit' })).toHaveAttribute('aria-pressed', 'true');
   });
   it('keeps precision Edit navigation tab-scoped across reduced-motion Preview round trips', () => {
     const project = createAuthoringProject();
@@ -2395,7 +2423,7 @@ describe('RoomEditor', () => {
     expect(useWorkbenchTabStateStore.getState().tabStatesById[tab.id]).toMatchObject({
       schema: 'noveltea.editor.tab-state.room',
       payload: {
-        activeCategory: 'general',
+        activeCategory: 'composition',
         previewCollapsed: true,
         hotspotView: {
           schema: 'noveltea.editor.hotspot-view',
@@ -2963,10 +2991,11 @@ describe('RoomEditor', () => {
         }),
       });
       const selected = screen.getByTestId('room-edit-selected-placement:edge');
+      expect(selected).toHaveClass('pointer-events-auto');
       const initialLeft = Number.parseFloat(selected.style.left);
 
-      fireEvent.pointerDown(surface, { pointerId: 71, button: 0, clientX: 800, clientY: 100 });
-      fireEvent.pointerMove(surface, { pointerId: 71, clientX: 1000, clientY: 100 });
+      fireEvent.mouseDown(selected, { button: 0, clientX: 800, clientY: 100 });
+      fireEvent.mouseMove(window, { clientX: 1000, clientY: 100 });
 
       const draftLeft = Number.parseFloat(
         screen.getByTestId('room-edit-selected-placement:edge').style.left,
@@ -2978,7 +3007,7 @@ describe('RoomEditor', () => {
       if (!isAuthoringProject(duringDrag)) return;
       expect(parseRoomData(duringDrag.rooms.foyer?.data)?.placements[0]?.bounds.x).toBe(0.7);
 
-      fireEvent.pointerUp(surface, { pointerId: 71, button: 0, clientX: 1000, clientY: 100 });
+      fireEvent.mouseUp(window, { button: 0, clientX: 1000, clientY: 100 });
       const committed = useProjectStore.getState().document;
       expect(isAuthoringProject(committed)).toBe(true);
       if (!isAuthoringProject(committed)) return;
@@ -2986,6 +3015,62 @@ describe('RoomEditor', () => {
     } finally {
       window.matchMedia = originalMatchMedia;
     }
+  });
+
+  it('updates the resize draft projection before committing the Project change', () => {
+    const project = createAuthoringProject();
+    const room = defaultRoomData('Foyer');
+    room.placements = [
+      {
+        id: 'desk',
+        bounds: { x: 0.1, y: 0.1, width: 0.2, height: 0.2 },
+        presentation: { label: null, layout: null },
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    renderEditor();
+    fireEvent.click(screen.getByRole('button', { name: /Placement · desk/i }));
+
+    const surface = screen.getByTestId('room-edit-surface');
+    Object.defineProperty(surface, 'getBoundingClientRect', {
+      configurable: true,
+      value: () => ({
+        x: 0,
+        y: 0,
+        left: 0,
+        top: 0,
+        right: 1000,
+        bottom: 500,
+        width: 1000,
+        height: 500,
+        toJSON: () => ({}),
+      }),
+    });
+    const selected = screen.getByTestId('room-edit-selected-placement:desk');
+    const initialWidth = Number.parseFloat(selected.style.width);
+    const handle = screen.getByTestId('room-edit-resize-se');
+
+    expect(handle).toHaveClass('pointer-events-auto');
+    fireEvent.mouseDown(handle, { button: 0, clientX: 300, clientY: 150 });
+    fireEvent.mouseMove(window, { clientX: 400, clientY: 200 });
+
+    const draftWidth = Number.parseFloat(
+      screen.getByTestId('room-edit-selected-placement:desk').style.width,
+    );
+    expect(draftWidth).toBeGreaterThan(initialWidth);
+    const duringResize = useProjectStore.getState().document;
+    expect(isAuthoringProject(duringResize)).toBe(true);
+    if (!isAuthoringProject(duringResize)) return;
+    expect(parseRoomData(duringResize.rooms.foyer?.data)?.placements[0]?.bounds.width).toBe(0.2);
+
+    fireEvent.mouseUp(window, { button: 0, clientX: 400, clientY: 200 });
+    const committed = useProjectStore.getState().document;
+    expect(isAuthoringProject(committed)).toBe(true);
+    if (!isAuthoringProject(committed)) return;
+    expect(parseRoomData(committed.rooms.foyer?.data)?.placements[0]?.bounds.width).toBeGreaterThan(
+      0.2,
+    );
   });
 
   it('does not split a shared placement when a resize handle is clicked without moving', () => {
