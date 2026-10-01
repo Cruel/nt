@@ -554,112 +554,84 @@ public:
 } // namespace
 
 template<class T>
-concept HasTypedRuntimeSessionBinding = requires(T& value)
-{
-    value.bind_typed_runtime_session(nullptr);
-};
+concept HasTypedRuntimeSessionBinding =
+    requires(T& value) { value.bind_typed_runtime_session(nullptr); };
 
 template<class T>
-concept HasPresentationOperationHandlerBinding = requires(T& value)
-{
-    value.bind_presentation_operation_handler(nullptr);
-};
+concept HasPresentationOperationHandlerBinding =
+    requires(T& value) { value.bind_presentation_operation_handler(nullptr); };
 
 template<class T>
 concept HasRuntimePublicationApplication =
-    requires(T& value, const noveltea::runtime::RuntimePublication& publication)
-{
-    value.apply_runtime_publication(publication);
-};
+    requires(T& value, const noveltea::runtime::RuntimePublication& publication) {
+        value.apply_runtime_publication(publication);
+    };
 
 template<class T>
 concept HasRuntimeCapabilityBinding =
-    requires(T& value, std::optional<noveltea::runtime::RuntimeCapabilitySet> capabilities)
-{
-    value.bind_layout_event_capabilities(capabilities, capabilities);
-};
+    requires(T& value, std::optional<noveltea::runtime::RuntimeCapabilitySet> capabilities) {
+        value.bind_layout_event_capabilities(capabilities, capabilities);
+    };
 
 template<class T>
-concept HasBorrowedDocumentAccess = requires(T& value)
-{
-    value.document("runtime");
-};
+concept HasBorrowedDocumentAccess = requires(T& value) { value.document("runtime"); };
 
 template<class T>
-concept HasBorrowedElementAccess = requires(T& value)
-{
-    value.element("runtime", "element");
-};
+concept HasBorrowedElementAccess = requires(T& value) { value.element("runtime", "element"); };
 
 template<class T>
-concept HasGenericDataModelAccess = requires(T& value)
-{
+concept HasGenericDataModelAccess = requires(T& value) {
     value.create_data_model("runtime");
     value.data_model("runtime");
 };
 
 template<class T>
-concept HasPlaybackClick = requires
-{
-    &T::playback_click;
-};
+concept HasPlaybackClick = requires { &T::playback_click; };
 
 template<class T>
-concept HasGenericDocumentLoading = requires(T& value)
-{
+concept HasGenericDocumentLoading = requires(T& value) {
     value.load_document("document", "project:/document.rml", true);
     value.load_document_from_memory("document", "<rml></rml>", "preview://document.rml", true);
 };
 
 template<class T>
-concept HasPreviewVirtualFiles = requires(T& value)
-{
+concept HasPreviewVirtualFiles = requires(T& value) {
     value.set_preview_virtual_file("preview://document.rml", "<rml></rml>");
     value.clear_preview_virtual_files();
 };
 
 template<class T>
-concept HasConvenienceDocuments = requires(T& value)
-{
+concept HasConvenienceDocuments = requires(T& value) {
     value.load_title_document();
     value.load_runtime_document();
     value.load_pause_menu_document();
 };
 
 template<class T>
-concept HasDirectRuntimeInputDispatch = requires(T& value,
-                                                 const noveltea::core::RuntimeInputMessage& input)
-{
-    value.dispatch_typed_runtime_input(input);
-};
+concept HasDirectRuntimeInputDispatch =
+    requires(T& value, const noveltea::core::RuntimeInputMessage& input) {
+        value.dispatch_typed_runtime_input(input);
+    };
 
 template<class T>
-concept HasGenericEventListeners = requires(T& value, std::function<void()> callback)
-{
+concept HasGenericEventListeners = requires(T& value, std::function<void()> callback) {
     value.add_event_listener("document", "element", "click", callback);
     value.remove_event_listener(1);
 };
 
 template<class T>
-concept HasToolingConfiguration = requires(T& value, std::function<void()> callback)
-{
+concept HasToolingConfiguration = requires(T& value, std::function<void()> callback) {
     value.set_rmlui_base_direct_compatibility(true);
     value.set_density(1.0f);
     value.bind_game_started_handler(callback);
 };
 
 template<class T>
-concept HasDensityBypass = requires(noveltea::RuntimeUI& value)
-{
-    T::set_density(value, 1.0f);
-};
+concept HasDensityBypass = requires(noveltea::RuntimeUI& value) { T::set_density(value, 1.0f); };
 
 template<class T>
-concept HasBackendReset = requires(T& value)
-{
-    {
-        value.reset_backend()
-        } -> std::same_as<bool>;
+concept HasBackendReset = requires(T& value) {
+    { value.reset_backend() } -> std::same_as<bool>;
 };
 
 TEST_CASE("private RuntimeUI is a view and input adapter without runtime authority")
@@ -1521,8 +1493,7 @@ TEST_CASE("RmlUi debugger uses a fixed-scale debug host and routes input without
             ++underlying_dispatches;
         return dispatch();
     };
-    CHECK(host.process_event(
-        motion, [](Rml::Context*) { return true; }, dispatch_layout));
+    CHECK(host.process_event(motion, [](Rml::Context*) { return true; }, dispatch_layout));
     CHECK(primary_dispatches == 0);
     CHECK(underlying_dispatches == 0);
     REQUIRE(host.set_debugger(false, inspected->GetName()));

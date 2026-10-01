@@ -1157,20 +1157,6 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
           height: backgroundAssetData.imageMetadata.height,
         }
       : null;
-  useEffect(() => {
-    let cancelled = false;
-    if (!projectSessionId || !backgroundAssetId || backgroundAssetData?.kind !== 'image') {
-      setCompositionBackgroundUrl(null);
-      return;
-    }
-    window.noveltea
-      .resolveProjectOriginalAssetUrl(projectSessionId, backgroundAssetId)
-      .then((result) => !cancelled && setCompositionBackgroundUrl(result.ok ? result.url : null))
-      .catch(() => !cancelled && setCompositionBackgroundUrl(null));
-    return () => {
-      cancelled = true;
-    };
-  }, [backgroundAssetData?.kind, backgroundAssetId, projectSessionId]);
   if (!project || !record || !roomId)
     return <div className="p-4 text-sm text-muted-foreground">Room record not found.</div>;
   const materialPropertyOptionsById = new Map<
