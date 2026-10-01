@@ -1002,6 +1002,7 @@
       "selectedCount_other": "{{count}} selecionados",
       "candidatePlacement": "Posicionamento",
       "candidateEntity": "Entidade",
+      "select": "Selecionar",
       "noCandidates": "Nenhum item selecionável aqui",
       "deselectAll": "Desmarcar tudo",
       "add": "Adicionar",

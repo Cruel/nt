@@ -959,6 +959,7 @@
       "selectedCount_other": "{{count}} selected",
       "candidatePlacement": "Placement",
       "candidateEntity": "Entity",
+      "select": "Select",
       "noCandidates": "No selectable items here",
       "deselectAll": "Deselect All",
       "add": "Add",

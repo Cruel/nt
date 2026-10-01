@@ -2187,6 +2187,50 @@ describe('RoomEditor', () => {
       observe.mockRestore();
     }
   });
+
+  it('fits Edit to the same full presentation frame that Preview occupies', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    useProjectStore.getState().loadUnsavedProjectDocument(project);
+    vi.spyOn(HTMLElement.prototype, 'getBoundingClientRect').mockImplementation(
+      function (this: HTMLElement) {
+        if (this.dataset.testid === 'room-edit-viewport')
+          return {
+            x: 0,
+            y: 0,
+            left: 0,
+            top: 0,
+            right: 1200,
+            bottom: 800,
+            width: 1200,
+            height: 800,
+            toJSON: () => ({}),
+          } as DOMRect;
+        return {
+          x: 0,
+          y: 0,
+          left: 0,
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: 0,
+          height: 0,
+          toJSON: () => ({}),
+        } as DOMRect;
+      },
+    );
+    try {
+      renderEditor();
+      const modes = screen.getByRole('group', { name: 'Room presentation mode' });
+      fireEvent.click(within(modes).getByRole('button', { name: 'Edit' }));
+      const viewport = await screen.findByTestId('room-edit-viewport');
+      const frame = screen.getByTestId('room-edit-fit-frame');
+      expect(viewport).not.toHaveClass('p-2');
+      expect(frame).toHaveStyle({ width: '1200px', height: '675px' });
+    } finally {
+      vi.restoreAllMocks();
+    }
+  });
   it('cancels an active Edit pan before the animated Preview transition owns the surface', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
@@ -2531,6 +2575,10 @@ describe('RoomEditor', () => {
       expect(screen.getByTestId('room-edit-selected-placement-layout:desk')).toBeInTheDocument();
 
       fireEvent.contextMenu(surface, { clientX: 200, clientY: 100 });
+      const selectMenu = await screen.findByRole('menuitem', { name: 'Select' });
+      expect(screen.queryByRole('menuitem', { name: /Layout · Desk UI/i })).not.toBeInTheDocument();
+      fireEvent.focus(selectMenu);
+      fireEvent.keyDown(selectMenu, { key: 'ArrowRight' });
       expect(
         await screen.findByRole('menuitem', { name: /Layout · Desk UI/i }),
       ).toBeInTheDocument();
