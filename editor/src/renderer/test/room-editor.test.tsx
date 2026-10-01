@@ -2808,6 +2808,9 @@ describe('RoomEditor', () => {
       fireEvent.mouseDown(surface, { button: 0, clientX: 10, clientY: 10 });
       fireEvent.mouseMove(window, { clientX: 750, clientY: 200 });
       expect(screen.getByTestId('room-edit-marquee')).toBeInTheDocument();
+      expect(screen.getByTestId('room-edit-selected-placement:desk')).toBeInTheDocument();
+      expect(screen.getByTestId('room-edit-selected-placement:chair')).toBeInTheDocument();
+      expect(screen.queryByText('2 selected')).toBeNull();
       fireEvent.mouseUp(window, { button: 0, clientX: 750, clientY: 200 });
       expect(screen.getByText('2 selected')).toBeInTheDocument();
 
