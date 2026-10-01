@@ -408,6 +408,38 @@ describe('shared contracts characterization', () => {
         world: { ...base.world, background: undefined },
       }),
     ).toThrow();
+    const interactable = {
+      occurrenceId: 'key-entry',
+      interactableId: 'key-instance',
+      condition: { kind: 'always' as const },
+      placementId: 'key-placement',
+      spriteAssetId: null,
+      materialId: null,
+      materialParameters: [],
+      materialTextures: [],
+      enabled: true,
+      visible: true,
+      occurrenceVisible: true,
+      order: 0,
+    };
+    expect(() =>
+      roomPreviewDocumentSchema.parse({
+        ...base,
+        world: {
+          ...base.world,
+          interactables: [{ ...interactable, materialParameters: undefined }],
+        },
+      }),
+    ).toThrow();
+    expect(() =>
+      roomPreviewDocumentSchema.parse({
+        ...base,
+        world: {
+          ...base.world,
+          interactables: [{ ...interactable, materialTextures: undefined }],
+        },
+      }),
+    ).toThrow();
     expect(() =>
       roomPreviewDocumentSchema.parse({
         ...base,

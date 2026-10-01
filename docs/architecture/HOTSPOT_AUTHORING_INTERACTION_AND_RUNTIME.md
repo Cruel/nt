@@ -97,7 +97,9 @@ presentation mapping (including source cropping/stretch and Camera rotation) thr
 framing into the remembered Focus camera; exit runs those endpoints in reverse. Reduced-motion
 preferences skip the animation. Entry from Preview derives this endpoint from canonical Room
 presentation/background geometry rather than Room Edit navigation, while entry from Edit uses the
-visible authored Edit presentation. Focus navigation remains independent from Room Edit navigation.
+visible authored Edit presentation. Cropped Room background pixels stay clipped to the presented Room
+viewport at the Room endpoint and are only allowed to expand after the transition leaves that endpoint.
+Focus navigation remains independent from Room Edit navigation.
 
 Geometry changes are session-local. Draw, move, resize, and delete participate in a local undo/redo
 history, including Ctrl/Cmd+Z and Ctrl/Cmd+Y. While the Focus tab owns the active workbench group,
@@ -116,7 +118,10 @@ three-way merge against the geometry seen on entry and the latest Project geomet
 preserve concurrent changes, disjoint geometry edits compose, and conflicting edits to the same
 shape—including move/resize versus concurrent deletion—fail closed. `Cancel` discards the draft.
 Successful `Done` returns Room Edit with the most recently selected/created Hotspot selected when one
-remains. Switching tabs may leave the focus session alive.
+remains. Switching tabs may leave the focus session alive. Entry and exit animation work is owned by
+the mounted Focus workspace; unmount cancels pending RAF/timers so an inactive editor instance cannot
+later commit/discard or run its return callback. Remount reconstructs the same retained session and
+return endpoint instead.
 A modified session registers as a strict current-shape serializable workbench draft under the owning
 editor-session compatibility boundary; it does not define an independent draft version. Geometry,
 selection, active tool, and camera state are synchronized into that recovery entry while the draft is

@@ -17,12 +17,19 @@ export interface HotspotFocusRoomPresentation {
 export interface HotspotFocusTransitionFrame {
   rect: StageRect;
   rotationDegrees: number;
+  clipRect: StageRect | null;
 }
 
 export interface HotspotFocusTransitionFrames {
   room: HotspotFocusTransitionFrame;
   native: HotspotFocusTransitionFrame;
   focused: HotspotFocusTransitionFrame;
+}
+
+export function hotspotFocusTransitionClipPath(clipRect: StageRect, container: StageSize): string {
+  const right = Math.max(0, container.width - clipRect.x - clipRect.width);
+  const bottom = Math.max(0, container.height - clipRect.y - clipRect.height);
+  return `inset(${clipRect.y}px ${right}px ${bottom}px ${clipRect.x}px)`;
 }
 
 function sourceImageRectFromVisibleProjection(
@@ -144,14 +151,17 @@ export function resolveHotspotFocusTransitionFrames({
         displayedRoomRotationPivot,
       ),
       rotationDegrees: roomPresentation.rotationDegrees,
+      clipRect: displayedRoomViewport,
     },
     native: {
       rect: imageStageRect(focusViewport, imageSize, nativeCamera, 'native'),
       rotationDegrees: 0,
+      clipRect: null,
     },
     focused: {
       rect: imageStageRect(focusViewport, imageSize, focusCamera, 'native'),
       rotationDegrees: 0,
+      clipRect: null,
     },
   };
 }

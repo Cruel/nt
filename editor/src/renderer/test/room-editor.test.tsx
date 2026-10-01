@@ -1,4 +1,5 @@
 import { describe, expect, it, beforeEach, vi } from 'vite-plus/test';
+import { StrictMode } from 'react';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { RoomEditor } from '@/editors/rooms/RoomEditor';
@@ -43,16 +44,17 @@ const tab: WorkbenchTab = {
     entityId: 'foyer',
   },
 };
-function renderEditor() {
-  return render(
+function renderEditor(strict = false) {
+  const content = (
     <MaterialPreviewProjectProvider>
       <AuthoringWebGlGroupProvider>
         <div style={{ width: 800, height: 600 }}>
           <RoomEditor tab={tab} />
         </div>
       </AuthoringWebGlGroupProvider>
-    </MaterialPreviewProjectProvider>,
+    </MaterialPreviewProjectProvider>
   );
+  return render(strict ? <StrictMode>{content}</StrictMode> : content);
 }
 function selectRoomCategory(
   name: 'General' | 'Camera' | 'Composition' | 'Hotspots' | 'Navigation' | 'Contents' | 'Behavior',
@@ -496,7 +498,7 @@ describe('RoomEditor', () => {
     expect(document.querySelector('[data-hotspot-focus]')).not.toBeNull();
   });
 
-  it('finishes the Hotspot Focus entry transition when tools or camera change mid-animation', async () => {
+  it('finishes Hotspot Focus entry and animated Cancel under StrictMode', async () => {
     Object.defineProperties(HTMLElement.prototype, {
       clientWidth: { configurable: true, get: () => 400 },
       clientHeight: { configurable: true, get: () => 400 },
@@ -539,7 +541,7 @@ describe('RoomEditor', () => {
         },
       },
     });
-    renderEditor();
+    renderEditor(true);
 
     const surface = screen.getByTestId('room-edit-surface');
     Object.defineProperty(surface, 'getBoundingClientRect', {
@@ -572,6 +574,13 @@ describe('RoomEditor', () => {
     expect(stage).not.toBeNull();
     await waitFor(() => expect(stage).toHaveClass('opacity-100'), { timeout: 600 });
     expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).toBeNull();
+
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    await waitFor(
+      () => expect(useHotspotFocusStore.getState().sessionsByTabId[tab.id]).toBeUndefined(),
+      { timeout: 600 },
+    );
+    expect(document.querySelector('[data-hotspot-focus]')).toBeNull();
   });
 
   it('captures a canonical Room presentation endpoint when Hotspot Focus starts from Preview', () => {
@@ -675,6 +684,94 @@ describe('RoomEditor', () => {
       'ready',
     );
   });
+
+  it.each([45, 120])(
+    'cancels Hotspot Focus exit work when unmounted after %dms and restores the retained session',
+    async (elapsedMs) => {
+      Object.defineProperties(HTMLElement.prototype, {
+        clientWidth: { configurable: true, get: () => 400 },
+        clientHeight: { configurable: true, get: () => 400 },
+      });
+      const project = createAuthoringProject();
+      project.assets.image = {
+        id: 'image',
+        label: 'Image',
+        data: {
+          kind: 'image',
+          source: { type: 'project-file', path: 'assets/images/room.png' },
+          aliases: [],
+          sampling: 'linear',
+          byteSize: 64,
+          contentHash: `sha256:${'a'.repeat(64)}`,
+          imageMetadata: { width: 100, height: 100, hasAlpha: true, orientation: 1 },
+        },
+      };
+      const room = defaultRoomData('Foyer');
+      room.background.asset = { $ref: { collection: 'assets', id: 'image' } };
+      room.hotspots = [
+        {
+          id: 'door',
+          label: 'Door',
+          condition: { kind: 'always' },
+          inputOrder: 0,
+          highlight: { kind: 'default' },
+          target: { kind: 'none' },
+          shape: { kind: 'rect', bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 } },
+        },
+      ];
+      project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+      useProjectStore.getState().loadUnsavedProjectDocument(project);
+      useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+      const view = renderEditor();
+
+      const previewSurface = document.querySelector<HTMLElement>('[data-room-preview-surface]');
+      expect(previewSurface).not.toBeNull();
+      Object.defineProperty(previewSurface!, 'getBoundingClientRect', {
+        configurable: true,
+        value: () => ({
+          x: 100,
+          y: 50,
+          left: 100,
+          top: 50,
+          right: 700,
+          bottom: 350,
+          width: 600,
+          height: 300,
+          toJSON: () => ({}),
+        }),
+      });
+      selectRoomCategory('Hotspots');
+      fireEvent.click(screen.getByRole('button', { name: 'Edit geometry' }));
+      await waitFor(() =>
+        expect(document.querySelector('[data-testid^="hotspot-focus-transition-"]')).toBeNull(),
+      );
+      act(() => {
+        useHotspotFocusStore.getState().setSelection(tab.id, 'door');
+        useHotspotFocusStore.getState().setTool(tab.id, 'pan');
+        useHotspotFocusStore.getState().setCamera(tab.id, { zoom: 1.5, pan: { x: 12, y: -8 } });
+      });
+      const retained = useHotspotFocusStore.getState().sessionsByTabId[tab.id];
+      expect(retained).toBeDefined();
+
+      vi.useFakeTimers();
+      try {
+        fireEvent.click(screen.getByRole('button', { name: 'Done' }));
+        await act(async () => vi.advanceTimersByTime(elapsedMs));
+        view.unmount();
+        await act(async () => vi.runAllTimers());
+      } finally {
+        vi.useRealTimers();
+      }
+
+      expect(useHotspotFocusStore.getState().sessionsByTabId[tab.id]).toMatchObject({
+        selectedHotspotId: 'door',
+        tool: 'pan',
+        camera: { zoom: 1.5, pan: { x: 12, y: -8 } },
+      });
+      renderEditor();
+      expect(document.querySelector('[data-hotspot-focus]')).not.toBeNull();
+    },
+  );
 
   it('suspends retained Room composition shortcuts while Hotspot Focus owns the tab', () => {
     const project = createAuthoringProject();

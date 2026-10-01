@@ -48,6 +48,7 @@ import type {
   AuthoringRecordBase,
 } from '../../shared/project-schema/authoring-project';
 import { parseInteractableData } from '../../shared/project-schema/authoring-interactables';
+import { effectiveInteractableInstanceProperties } from '../../shared/project-schema/authoring-interactable-properties';
 import {
   parseLayoutData,
   type LayoutLuaSourceData,
@@ -670,6 +671,17 @@ function resolvedProperty(
   id: string,
   propertyId: string,
 ): { kind: 'value'; value: null | boolean | number | string } | { kind: 'missing' } {
+  if (kind === 'interactable') {
+    const instance = project.interactableInstances[id];
+    if (instance) {
+      const property = effectiveInteractableInstanceProperties(project, instance).find(
+        (item) => item.id === propertyId,
+      );
+      if (!property?.hasValue || property.value === undefined || typeof property.value === 'object')
+        return { kind: 'missing' };
+      return { kind: 'value', value: property.value };
+    }
+  }
   const record = recordForOwner(project, kind, id);
   const local = record?.localProperties?.find((property) => property.id === propertyId);
   if (local)
@@ -731,6 +743,24 @@ function buildAdmissionAndState(
         collection: 'interactables',
         id: definitionId,
       });
+      const definition = parseInteractableData(
+        recordForOwner(project, 'interactable', definitionId)?.data,
+      );
+      const materialApplication = definition
+        ? effectiveMaterialApplication(
+            definition.presentation.materialApplication,
+            instance.materialApplication,
+          )
+        : null;
+      for (const override of Object.values(materialApplication?.parameters ?? {})) {
+        if (override.source.kind !== 'property') continue;
+        const propertyId = override.source.property;
+        properties.set(`interactable:${interactableId}:${propertyId}`, {
+          ownerKind: 'interactable',
+          ownerId: interactableId,
+          propertyId,
+        });
+      }
     }
     interactableLocationIds.add(interactableId);
   }
@@ -821,25 +851,33 @@ function collectVisualIds(data: RoomPreviewDocument) {
   const materials = new Set<string>();
   const addAsset = (id: string | null) => id && assets.add(id);
   const addMaterial = (id: string | null) => id && materials.add(id);
+  const addApplicationTextures = (
+    textures: readonly RoomPreviewDocument['world']['background']['materialTextures'][number][],
+  ) => textures.forEach((texture) => addAsset(texture.source.id));
   addAsset(data.world.background.assetId);
   addMaterial(data.world.background.materialId);
+  addApplicationTextures(data.world.background.materialTextures);
   for (const item of [...data.world.persistentCharacters, ...data.world.cast]) {
     for (const layer of item.visual.layers) {
       addAsset(layer.spriteAssetId);
       addMaterial(layer.materialId);
+      addApplicationTextures(layer.materialTextures);
     }
   }
   for (const item of data.world.interactables) {
     addAsset(item.spriteAssetId);
     addMaterial(item.materialId);
+    addApplicationTextures(item.materialTextures);
   }
   for (const item of data.world.props) {
     addAsset(item.assetId);
     addMaterial(item.materialId);
+    addApplicationTextures(item.materialTextures);
   }
   for (const item of data.world.environments) {
     addAsset(item.assetId);
     addMaterial(item.materialId);
+    addApplicationTextures(item.materialTextures);
   }
   return { assets, materials };
 }

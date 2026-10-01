@@ -273,9 +273,13 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
                                           std::to_string(layer) + "/materialTextures");
         }
     }
-    for (std::size_t index = 0; index < document.world.interactables.size(); ++index)
+    for (std::size_t index = 0; index < document.world.interactables.size(); ++index) {
         require_asset(document.world.interactables[index].sprite_asset_id,
                       "/world/interactables/" + std::to_string(index) + "/spriteAssetId");
+        require_material_textures(document.world.interactables[index].material_textures,
+                                  "/world/interactables/" + std::to_string(index) +
+                                      "/materialTextures");
+    }
     for (std::size_t index = 0; index < document.world.props.size(); ++index) {
         require_asset(document.world.props[index].asset_id,
                       "/world/props/" + std::to_string(index) + "/assetId");

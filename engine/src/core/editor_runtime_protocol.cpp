@@ -3881,11 +3881,20 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     .visible = required_bool(value, "visible", path),
                     .occurrence_visible = required_bool(value, "occurrenceVisible", path),
                     .order = json_access::member_as<int>(value, "order").value_or(0)};
-                if (const auto parameters = value.find("materialParameters");
-                    parameters != value.end())
+                const auto parameters = value.find("materialParameters");
+                if (parameters == value.end())
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "Missing required field 'materialParameters'.",
+                                                path));
+                else
                     typed.material_parameters =
                         material_parameters(*parameters, path + "/materialParameters");
-                if (const auto textures = value.find("materialTextures"); textures != value.end())
+                const auto textures = value.find("materialTextures");
+                if (textures == value.end())
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "Missing required field 'materialTextures'.",
+                                                path));
+                else
                     typed.material_textures =
                         material_textures(*textures, path + "/materialTextures");
                 result.world.interactables.push_back(std::move(typed));

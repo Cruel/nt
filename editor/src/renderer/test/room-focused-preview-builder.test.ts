@@ -280,6 +280,51 @@ describe('graph-driven Room builder', () => {
       ],
       materialTextures: [{ name: 's_noise', source: { kind: 'asset', id: 'noise' } }],
     });
+    expect(result.resources).toContainEqual(
+      expect.objectContaining({ resourceId: 'asset:noise', assetId: 'noise' }),
+    );
+  });
+
+  it('resolves Interactable property-backed Material parameters against the exact Instance', async () => {
+    const project = fixture();
+    project.materials.specialized = {
+      id: 'specialized',
+      label: 'Specialized Material',
+      data: defaultMaterialData('Specialized Material', 'engine-2d'),
+    };
+    project.interactables.key!.defaultProperties = [
+      {
+        id: 'heat',
+        label: 'Heat',
+        type: 'number',
+        nullable: false,
+        defaultValue: 0.25,
+      },
+    ];
+    project.interactableInstances.key!.localProperties = [
+      {
+        id: 'heat',
+        label: 'Heat',
+        type: 'number',
+        nullable: false,
+        value: 0.75,
+      },
+    ];
+    project.interactableInstances.key!.materialApplication = {
+      material: { $ref: { collection: 'materials', id: 'specialized' } },
+      parameters: {
+        u_heat: { type: 'float', source: { kind: 'property', property: 'heat' } },
+      },
+      textures: {},
+    };
+
+    const result = await build(project);
+    expect(result.data.queryState.properties).toContainEqual({
+      ownerKind: 'interactable',
+      ownerId: 'key',
+      propertyId: 'heat',
+      result: { kind: 'value', value: 0.75 },
+    });
   });
 
   it('projects effective Room and Interactable Hotspot cursors for focused preview', async () => {

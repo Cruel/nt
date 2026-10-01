@@ -169,6 +169,14 @@ TEST_CASE("focused Room decoder preserves Interactable Material Application over
     REQUIRE(interactable.material_textures.size() == 1);
     CHECK(interactable.material_textures.front().name == "s_noise");
     CHECK(interactable.material_textures.front().source.text() == "noise");
+
+    auto missing_parameters = document;
+    missing_parameters["world"]["interactables"][0].erase("materialParameters");
+    CHECK_FALSE(decode_editor_room_preview_document_text(missing_parameters.dump()));
+
+    auto missing_textures = document;
+    missing_textures["world"]["interactables"][0].erase("materialTextures");
+    CHECK_FALSE(decode_editor_room_preview_document_text(missing_textures.dump()));
 }
 
 TEST_CASE("focused Room decoder admits project-file composition and rejects Asset spelling")
