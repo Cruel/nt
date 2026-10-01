@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useMemo,
   useRef,
   useState,
@@ -734,7 +735,9 @@ export function RoomEditSurface({
     () => roomEditSelectionCandidates(project, draftRoom, selectionProjection, t),
     [draftRoom, project, selectionProjection, t],
   );
-  projectionRef.current = projections;
+  useLayoutEffect(() => {
+    projectionRef.current = projections;
+  }, [projections]);
   const projection = projections.display;
   const preparationProjection = useMemo(
     () =>
@@ -897,31 +900,10 @@ export function RoomEditSurface({
           }
         }
       }
-      if (direct.kind === 'resize' || (direct.kind === 'candidate' && direct.dragging)) {
-        const immediateDraftRoom = draftRoomForGesture(direct);
-        projectionRef.current = resolveRoomEditProjectionPair({
-          project,
-          roomId,
-          room: immediateDraftRoom,
-          viewport: referenceResolution,
-          backgroundImageSize,
-          resolvedVisibility,
-          navigation: navigationRef.current,
-        });
-      }
       setDirectGestureVersion((value) => value + 1);
       return true;
     },
-    [
-      backgroundImageSize,
-      draftRoomForGesture,
-      onSelectionChange,
-      project,
-      referenceResolution,
-      resolvedVisibility,
-      roomId,
-      viewportPoint,
-    ],
+    [onSelectionChange, viewportPoint],
   );
 
   const finishDirectGesture = useCallback(
@@ -1278,15 +1260,27 @@ export function RoomEditSurface({
     return () => registration.unregister();
   }, [preparedScene, renderer, roomPropertyValues, visible]);
 
-  const committedCandidates = selection.flatMap((item) => {
-    const candidate = candidateForRoomEditSelection(selectionCandidates, item);
-    return candidate ? [candidate] : [];
-  });
   const directGesture = directGestureRef.current;
   const activeMarquee =
     directGesture?.kind === 'marquee' && directGesture.dragging
       ? marqueeRect(directGesture.start, directGesture.current)
       : null;
+  const displaySelection = (() => {
+    if (!activeMarquee || directGesture?.kind !== 'marquee') return selection;
+    const matches = marqueeRoomEditSelections(
+      selectionCandidates,
+      activeMarquee,
+      referenceResolution,
+    );
+    if (!directGesture.additive) return matches;
+    let next = [...selection];
+    for (const item of matches) next = toggleRoomEditSelection(next, item);
+    return next;
+  })();
+  const committedCandidates = displaySelection.flatMap((item) => {
+    const candidate = candidateForRoomEditSelection(selectionCandidates, item);
+    return candidate ? [candidate] : [];
+  });
   const addGhostProjected = (() => {
     if (!pendingAddActionId || !addGhostViewportPoint) return null;
     const point = normalizedRoomPointFromViewport(
@@ -1546,6 +1540,7 @@ export function RoomEditSurface({
             {committedCandidates.map((candidate) => {
               const key = roomEditSelectionKey(candidate.selection);
               const resizable =
+                !activeMarquee &&
                 selection.length === 1 &&
                 roomEditSelectionCapabilities(candidate.selection).resize &&
                 normalizedBoundsForSelection(draftRoom, candidate.selection);
