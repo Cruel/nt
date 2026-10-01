@@ -51,6 +51,7 @@ import {
   type RoomEditUvRect,
 } from './room-edit-projection';
 import {
+  applyRoomEditNavigation,
   clampRoomEditNavigation,
   panRoomEditNavigation,
   ROOM_EDIT_FIT_NAVIGATION,
@@ -522,6 +523,7 @@ export function RoomEditSurface({
   presentationEnvironment,
   resolvedVisibility = null,
   navigation = ROOM_EDIT_FIT_NAVIGATION,
+  workspaceNavigation = false,
   onNavigationChange = () => {},
   gestureCancellationToken = 0,
   interactionEnabled = true,
@@ -545,6 +547,7 @@ export function RoomEditSurface({
   presentationEnvironment?: RoomEditPresentationEnvironment;
   resolvedVisibility?: RoomEditResolvedVisibility | null;
   navigation?: RoomEditNavigation;
+  workspaceNavigation?: boolean;
   onNavigationChange?: (navigation: RoomEditNavigation) => void;
   gestureCancellationToken?: number;
   interactionEnabled?: boolean;
@@ -618,6 +621,9 @@ export function RoomEditSurface({
   );
   navigationRef.current = navigation;
   presentationEnvironmentRef.current = presentationEnvironment;
+  const projectionNavigation = workspaceNavigation ? ROOM_EDIT_FIT_NAVIGATION : navigation;
+  const projectionNavigationRef = useRef(projectionNavigation);
+  projectionNavigationRef.current = projectionNavigation;
   const canonicalSurface = useMemo(
     () =>
       projectRoomEditRect(
@@ -637,11 +643,11 @@ export function RoomEditSurface({
         viewport: referenceResolution,
         backgroundImageSize,
         resolvedVisibility,
-        navigation,
+        navigation: projectionNavigation,
       }),
     [
       backgroundImageSize,
-      navigation,
+      projectionNavigation,
       project,
       referenceResolution,
       resolvedVisibility,
@@ -658,7 +664,7 @@ export function RoomEditSurface({
             y: gesture.current.y - gesture.start.y,
           },
           committedProjections.display,
-          navigationRef.current,
+          projectionNavigationRef.current,
         );
         return translateRoomSelectionData(room, gesture.selection, delta) ?? room;
       }
@@ -669,7 +675,7 @@ export function RoomEditSurface({
             y: gesture.current.y - gesture.start.y,
           },
           committedProjections.display,
-          navigationRef.current,
+          projectionNavigationRef.current,
         );
         const bounds = resizeNormalizedBounds(gesture.bounds, delta, gesture.handle);
         return resizeRoomSelectionData(room, gesture.selection, bounds) ?? room;
@@ -691,12 +697,12 @@ export function RoomEditSurface({
         viewport: referenceResolution,
         backgroundImageSize,
         resolvedVisibility,
-        navigation,
+        navigation: projectionNavigation,
       }),
     [
       backgroundImageSize,
       draftRoom,
-      navigation,
+      projectionNavigation,
       project,
       referenceResolution,
       resolvedVisibility,
@@ -715,7 +721,7 @@ export function RoomEditSurface({
           layer.idle,
           castIdleElapsedSeconds.get(occurrenceId) ?? 0,
           projections.canonical.viewport,
-          navigation,
+          projectionNavigation,
         );
         animatedLayers.set(occurrenceId, projected);
         return { ...layer, ...projected };
@@ -730,7 +736,7 @@ export function RoomEditSurface({
           : draw,
       ),
     };
-  }, [castIdleElapsedSeconds, navigation, projections]);
+  }, [castIdleElapsedSeconds, projectionNavigation, projections]);
   const selectionCandidates = useMemo(
     () => roomEditSelectionCandidates(project, draftRoom, selectionProjection, t),
     [draftRoom, project, selectionProjection, t],
@@ -924,7 +930,7 @@ export function RoomEditSurface({
                 y: direct.current.y - direct.start.y,
               },
               committedProjections.display,
-              navigationRef.current,
+              projectionNavigationRef.current,
             ),
           );
         } else {
@@ -958,7 +964,7 @@ export function RoomEditSurface({
             y: direct.current.y - direct.start.y,
           },
           committedProjections.display,
-          navigationRef.current,
+          projectionNavigationRef.current,
         );
         const bounds = resizeNormalizedBounds(direct.bounds, delta, direct.handle);
         const changed = (['x', 'y', 'width', 'height'] as const).some(
@@ -996,9 +1002,10 @@ export function RoomEditSurface({
         event.preventDefault();
         const point = viewportPoint(event.clientX, event.clientY);
         if (!point) return;
+        const navigationScale = workspaceNavigation ? navigationRef.current.zoom : 1;
         const delta = {
-          x: (event.clientX - panGesture.clientX) * point.scaleX,
-          y: (event.clientY - panGesture.clientY) * point.scaleY,
+          x: (event.clientX - panGesture.clientX) * point.scaleX * navigationScale,
+          y: (event.clientY - panGesture.clientY) * point.scaleY * navigationScale,
         };
         panGesture.clientX = event.clientX;
         panGesture.clientY = event.clientY;
@@ -1043,6 +1050,7 @@ export function RoomEditSurface({
     updateDirectGesture,
     updateNavigation,
     viewportPoint,
+    workspaceNavigation,
   ]);
 
   useEffect(() => {
@@ -1053,18 +1061,35 @@ export function RoomEditSurface({
       const point = viewportPoint(event.clientX, event.clientY);
       if (!point) return;
       const zoomFactor = Math.exp(-event.deltaY * 0.0015);
+      const navigationPoint = workspaceNavigation
+        ? applyRoomEditNavigation(
+            {
+              rect: { x: point.x, y: point.y, width: 0, height: 0 },
+              rotationDegrees: 0,
+            },
+            referenceResolution,
+            navigationRef.current,
+          ).rect
+        : point;
       updateNavigation(
         zoomRoomEditNavigationAtPoint(
           navigationRef.current,
           referenceResolution,
-          point,
+          navigationPoint,
           navigationRef.current.zoom * zoomFactor,
         ),
       );
     };
     surfaceElement.addEventListener('wheel', wheel, { passive: false });
     return () => surfaceElement.removeEventListener('wheel', wheel);
-  }, [interactionEnabled, referenceResolution, surfaceElement, updateNavigation, viewportPoint]);
+  }, [
+    interactionEnabled,
+    referenceResolution,
+    surfaceElement,
+    updateNavigation,
+    viewportPoint,
+    workspaceNavigation,
+  ]);
 
   useEffect(() => {
     let active = true;
@@ -1153,7 +1178,7 @@ export function RoomEditSurface({
               undefined,
               undefined,
               undefined,
-              navigationRef.current,
+              projectionNavigationRef.current,
               presentationEnvironmentRef.current,
             ),
           );
@@ -1173,7 +1198,7 @@ export function RoomEditSurface({
               roomPropertyValues,
               display.background.uv,
               undefined,
-              navigationRef.current,
+              projectionNavigationRef.current,
               presentationEnvironmentRef.current,
             ),
           );
@@ -1228,7 +1253,7 @@ export function RoomEditSurface({
               propertyValues,
               uv,
               color,
-              navigationRef.current,
+              projectionNavigationRef.current,
               presentationEnvironmentRef.current,
             ),
           );
@@ -1287,7 +1312,7 @@ export function RoomEditSurface({
       addGhostViewportPoint,
       room,
       projection,
-      navigationRef.current,
+      projectionNavigationRef.current,
     );
     if (!point) return null;
     const size = pendingAddActionId === 'environment' ? 0.5 : 0.2;
@@ -1307,7 +1332,7 @@ export function RoomEditSurface({
       projection.viewport,
       room.presentationSpace,
       projection.camera,
-      navigationRef.current,
+      projectionNavigationRef.current,
     );
   })();
 
@@ -1365,7 +1390,7 @@ export function RoomEditSurface({
                 point,
                 room,
                 projection,
-                navigationRef.current,
+                projectionNavigationRef.current,
               );
               if (normalized) onAddAtPoint(pendingAddActionId, normalized);
               setAddGhostViewportPoint(null);

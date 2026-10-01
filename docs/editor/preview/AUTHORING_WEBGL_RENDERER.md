@@ -111,15 +111,16 @@ not use that absolute timestamp directly: Environment scrolling and the `occurre
 facet establish a per-occurrence epoch in the authored clock domain and restart at zero when that
 occurrence disappears and is later recreated, matching native world presentation.
 
-Room Edit precision navigation is a second, editor-only transform applied after that authored Camera
-projection. Wheel zoom is pointer-centered and owned by a non-passive native wheel listener so the
-browser cannot also scroll the enclosing editor; middle-mouse drag and Space+left-drag pan the
-projected surface with bounded overscroll; and Fit is exactly the identity navigation transform used
-for parity with Preview. The Edit Fit frame uses the same full presentation rectangle as the Preview
-surface; editor chrome must not shrink only the Edit side of that parity boundary. Escape cancels an
-active pan before lower-priority tools. The navigation
+Room Edit precision navigation is an editor-only workspace camera applied around the canonical Room
+presentation frame after the authored Camera projection. Wheel zoom is pointer-centered and owned by a
+non-passive native wheel listener so the browser cannot also scroll the enclosing editor; middle-mouse
+drag and Space+left-drag pan the fitted Room frame with bounded overscroll; and Fit restores the
+identity workspace transform. At Fit, the canonical Room frame uses the same full presentation
+rectangle as Preview, but the Edit pane itself remains the larger authoring viewport: zoom may scale
+the Room frame beyond its fitted bounds and use the whole available pane instead of clipping content to
+a Preview-sized aperture. Escape cancels an active pan before lower-priority tools. The navigation
 transform is retained in the Room tab state rather than written to the Room or Camera View. WebGL
-draws and DOM overlays both consume the display projection, so navigation cannot create a
+draws and DOM overlays remain inside the same transformed Room frame, so navigation cannot create a
 renderer/selection-geometry split or alter authored Material semantic dimensions.
 
 Room Edit selection is semantic rather than draw-index based. A selected Placement is distinct from

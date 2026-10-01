@@ -2310,7 +2310,7 @@ describe('RoomEditor', () => {
     }
   });
 
-  it('fits Edit to the same full presentation frame that Preview occupies', async () => {
+  it('uses the full Edit pane as a workspace around the fitted Room frame', async () => {
     const project = createAuthoringProject();
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -2326,6 +2326,18 @@ describe('RoomEditor', () => {
             bottom: 800,
             width: 1200,
             height: 800,
+            toJSON: () => ({}),
+          } as DOMRect;
+        if (this.dataset.testid === 'room-edit-surface')
+          return {
+            x: 0,
+            y: 62.5,
+            left: 0,
+            top: 62.5,
+            right: 1200,
+            bottom: 737.5,
+            width: 1200,
+            height: 675,
             toJSON: () => ({}),
           } as DOMRect;
         return {
@@ -2348,6 +2360,16 @@ describe('RoomEditor', () => {
       const viewport = await screen.findByTestId('room-edit-viewport');
       const frame = screen.getByTestId('room-edit-fit-frame');
       expect(viewport).not.toHaveClass('p-2');
+      expect(viewport).toHaveClass('relative', 'overflow-hidden');
+      expect(frame).toHaveStyle({
+        width: '1200px',
+        height: '675px',
+        transform: 'translate(-50%, -50%) translate(0px, 0px) scale(1)',
+      });
+
+      const surface = screen.getByTestId('room-edit-surface');
+      expect(fireEvent.wheel(surface, { clientX: 600, clientY: 400, deltaY: -300 })).toBe(false);
+      expect(frame.style.transform).toContain('scale(1.568');
       expect(frame).toHaveStyle({ width: '1200px', height: '675px' });
     } finally {
       vi.restoreAllMocks();
