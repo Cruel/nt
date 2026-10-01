@@ -1459,6 +1459,8 @@
       "staleSourceStatus": "A geometria do hotspot não foi aplicada porque a imagem de origem mudou. Cancele ou reinicie o Foco de hotspot com a imagem atual.",
       "select": "Selecionar",
       "rectangle": "Retângulo",
+      "pixelSnap": "Ajuste aos pixels",
+      "pixelSnapHelp": "Ajuste as bordas do retângulo aos pixels da imagem de origem. Segure Alt ao arrastar para inverter temporariamente o ajuste.",
       "pan": "Mover visão",
       "fit": "Ajustar",
       "native": "100%",
