@@ -1,0 +1,133 @@
+{
+  "id": "interview-hidden",
+  "label": "Interview Hidden",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Interview Hidden",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": false,
+      "logMode": "only-choices"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "intro",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "hidden-policy",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Hidden policy: the unavailable choice is absent (restart then finish without unlocking to compare). This line is excluded from the log. Select finish after inspecting History."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "menu",
+        "type": "choice",
+        "label": "Hidden choices"
+      },
+      {
+        "id": "done",
+        "type": "sequence",
+        "label": "done",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "done-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Continue to the completion tour."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "id": "menu",
+        "kind": "next",
+        "fromBlockId": "intro",
+        "toBlockId": "menu"
+      },
+      {
+        "id": "hidden-topic",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "done",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Optional unlocked topic"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": false,
+        "autosaveSafePoint": false,
+        "condition": {
+          "kind": "variable-comparison",
+          "variable": {
+            "$ref": {
+              "collection": "variables",
+              "id": "interview-topic"
+            }
+          },
+          "operator": "equal",
+          "value": true
+        }
+      },
+      {
+        "id": "hidden-finish",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "done",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Finish hidden-choice conversation"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false
+      }
+    ],
+    "completion": {
+      "kind": "scene",
+      "id": "interview-completion"
+    }
+  }
+}

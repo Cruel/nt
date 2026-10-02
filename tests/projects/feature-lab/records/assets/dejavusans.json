@@ -1,0 +1,23 @@
+{
+  "id": "dejavusans",
+  "label": "DejaVuSans",
+  "data": {
+    "kind": "font",
+    "source": {
+      "type": "project-file",
+      "path": "assets/fonts/DejaVuSans.ttf"
+    },
+    "aliases": [],
+    "mimeType": "font/ttf",
+    "extension": ".ttf",
+    "byteSize": 759720,
+    "contentHash": "sha256:ae7b7855e115a5966d8b1b3f80f254ccc117ec86f9965e202ee2940453837280",
+    "importedAt": "2026-10-02T08:22:45.379Z",
+    "originalName": "DejaVuSans.ttf",
+    "originalPath": "/home/thomas/dev/nt/tests/projects/feature-lab/assets/fonts/DejaVuSans.ttf",
+    "imageMetadata": null,
+    "preview": {
+      "thumbnailRevision": "sha256:ae7b7855e115a5966d8b1b3f80f254ccc117ec86f9965e202ee2940453837280"
+    }
+  }
+}

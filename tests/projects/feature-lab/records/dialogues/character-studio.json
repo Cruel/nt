@@ -1,0 +1,443 @@
+{
+  "id": "character-studio",
+  "label": "Character Studio",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Character Studio",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [
+      {
+        "id": "left",
+        "label": "left",
+        "speakerSync": true,
+        "initial": {
+          "character": {
+            "$ref": {
+              "collection": "characters",
+              "id": "studio-guide"
+            }
+          },
+          "profileId": "stage",
+          "poseId": "standing",
+          "expressionId": "neutral",
+          "appearanceId": null,
+          "position": "left",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "scale": 0.65,
+          "visible": true
+        }
+      },
+      {
+        "id": "right",
+        "label": "right",
+        "speakerSync": false,
+        "initial": {
+          "character": {
+            "$ref": {
+              "collection": "characters",
+              "id": "studio-guide"
+            }
+          },
+          "profileId": "stage",
+          "poseId": "standing",
+          "expressionId": "neutral",
+          "appearanceId": null,
+          "position": "right",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "scale": 0.65,
+          "visible": true
+        }
+      }
+    ],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": true,
+      "logMode": "everything"
+    },
+    "entryBlockId": "studio",
+    "blocks": [
+      {
+        "id": "studio",
+        "type": "sequence",
+        "label": "studio",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "baseline",
+            "type": "line",
+            "speaker": {
+              "$ref": {
+                "collection": "characters",
+                "id": "studio-guide"
+              }
+            },
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Two occurrences, one Studio Guide identity. Left follows the speaker; right does not. Watch the left badge pulse while the right badge blinks. Body art stays intact."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "shared-identity",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Both occurrences share Studio Guide. The shared studio-note Property is set to dressed; Location remains the idle Room even while both Dialogue presentations are here."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [
+              {
+                "id": "dress-note",
+                "kind": "set-property",
+                "owner": {
+                  "kind": "character",
+                  "character": {
+                    "$ref": {
+                      "collection": "characters",
+                      "id": "studio-guide"
+                    }
+                  }
+                },
+                "propertyId": "studio-note",
+                "value": "dressed"
+              },
+              {
+                "id": "dress-feedback",
+                "kind": "notify",
+                "message": {
+                  "source": {
+                    "kind": "inline",
+                    "text": "Studio Guide: dressed (one shared Character)."
+                  },
+                  "markup": "plain"
+                }
+              }
+            ],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "pose",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Left leans; right keeps standing."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "lean",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "poseId": "lean"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "expression",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Left smiles; right stays neutral."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "smile",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "expressionId": "smile"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "appearance",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Appearance hides only the left badge; the smiling body remains."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "hide-badge",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "appearanceId": "hidden-badge"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "clear-appearance",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Clearing Appearance restores the badge over the same smiling body."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "restore-badge",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "appearanceId": null
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "portrait",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Left changes Profile without a Pose: the smaller close Pose replaces lean. Smile has no portrait override: portrait default Expression supplies the smiling art."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "portrait",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "profileId": "portrait"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "gesture",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Wave moves the left badge left/right and sounds once, then returns to the close Pose. Wait before continuing."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "wave",
+                "kind": "gesture",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "slotId": "left",
+                "gestureId": "wave",
+                "waitForCompletion": true,
+                "skippable": false
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "skip-gesture",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Restart and skip this line immediately to compare: the skippable wave and un-crossed sound do not burst-play."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "skip-wave",
+                "kind": "gesture",
+                "position": {
+                  "offset": 25,
+                  "order": 0
+                },
+                "slotId": "left",
+                "gestureId": "wave",
+                "waitForCompletion": false,
+                "skippable": true
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "cancel-gesture",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Continue promptly after the badge starts moving. The next line clears its target, discarding the remaining gesture cue."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "cancel-wave",
+                "kind": "gesture",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "slotId": "left",
+                "gestureId": "wave",
+                "waitForCompletion": false,
+                "skippable": true
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "clear-target",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Left is cleared. Right remains independent."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "clear-left",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "clear"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "idle-room",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Continue to the idle studio: left bobs on gameplay time, middle sways on unscaled time, right pulses on gameplay time. Pause, then save/load to reconstruct the selected loops."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "room",
+      "id": "character-studio-idles"
+    }
+  }
+}

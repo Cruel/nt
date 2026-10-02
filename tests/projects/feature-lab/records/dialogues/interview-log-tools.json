@@ -1,0 +1,211 @@
+{
+  "id": "interview-log-tools",
+  "label": "Interview Log Tools",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Interview Log Tools",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": false,
+      "logMode": "nothing"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "intro",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "log-tools-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Interview complete. Open Menu → History: admitted rich entries remain, private lines do not. Append a system entry, inspect History, then clear it."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "tools",
+        "type": "choice",
+        "label": "History tools"
+      },
+      {
+        "id": "appended",
+        "type": "sequence",
+        "label": "appended",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "appended-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "System receipt appended. Open History before continuing."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "cleared",
+        "type": "sequence",
+        "label": "cleared",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "cleared-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "History cleared. This conversation uses logMode Nothing, so the log stays empty."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "end",
+        "type": "sequence",
+        "label": "end",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "end-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "End completion ends foreground Flow; the Interview complete Room remains current."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "id": "tools",
+        "kind": "next",
+        "fromBlockId": "intro",
+        "toBlockId": "tools"
+      },
+      {
+        "id": "append-log",
+        "kind": "choice",
+        "fromBlockId": "tools",
+        "toBlockId": "appended",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Append system receipt"
+          },
+          "markup": "plain"
+        },
+        "effects": [
+          {
+            "id": "append-system-log",
+            "kind": "run-lua",
+            "source": "assert(noveltea.text_log.append(\"notification\", \"system\", \"[b]System receipt[/b]\", \"active-text\"))"
+          }
+        ],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "clear-log",
+        "kind": "choice",
+        "fromBlockId": "tools",
+        "toBlockId": "cleared",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Clear History"
+          },
+          "markup": "plain"
+        },
+        "effects": [
+          {
+            "id": "clear-system-log",
+            "kind": "run-lua",
+            "source": "assert(noveltea.text_log.clear())"
+          }
+        ],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "end-log",
+        "kind": "choice",
+        "fromBlockId": "tools",
+        "toBlockId": "end",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "End conversation"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "appended-tools",
+        "kind": "next",
+        "fromBlockId": "appended",
+        "toBlockId": "tools"
+      },
+      {
+        "id": "cleared-tools",
+        "kind": "next",
+        "fromBlockId": "cleared",
+        "toBlockId": "tools"
+      }
+    ],
+    "completion": {
+      "kind": "end"
+    }
+  }
+}

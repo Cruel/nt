@@ -1,0 +1,11 @@
+{
+  "id": "interview-receipt",
+  "label": "interview-receipt",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "not issued",
+    "scope": "global"
+  }
+}

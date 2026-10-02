@@ -1,0 +1,11 @@
+{
+  "id": "interview-topic",
+  "label": "interview-topic",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

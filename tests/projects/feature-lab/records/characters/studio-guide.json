@@ -1,0 +1,567 @@
+{
+  "id": "studio-guide",
+  "label": "Studio Guide",
+  "localProperties": [
+    { "id": "studio-note", "type": "string", "nullable": false, "value": "undressed" }
+  ],
+  "data": {
+    "kind": "character",
+    "displayName": "Studio Guide",
+    "dialogue": {
+      "name": "Studio Guide",
+      "nameColor": "#8fd8ff",
+      "textColor": null,
+      "styleClass": ""
+    },
+    "defaults": {
+      "profileId": "stage",
+      "expressionId": "neutral",
+      "appearanceId": null,
+      "idleId": null
+    },
+    "profiles": [
+      {
+        "id": "stage",
+        "label": "Stage",
+        "layers": [
+          {
+            "id": "body",
+            "label": "Body",
+            "role": "body"
+          },
+          {
+            "id": "badge",
+            "label": "Badge",
+            "role": "face"
+          }
+        ],
+        "defaultPoseId": "standing",
+        "poses": [
+          {
+            "id": "standing",
+            "label": "Standing",
+            "layers": [
+              {
+                "layerId": "body",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-character-neutral"
+                  }
+                },
+                "materialApplication": null,
+                "offset": {
+                  "x": 0,
+                  "y": 0
+                },
+                "scale": 1,
+                "anchor": {
+                  "x": 0.5,
+                  "y": 1
+                },
+                "visible": true
+              },
+              {
+                "layerId": "badge",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-button-sprite"
+                  }
+                },
+                "materialApplication": null,
+                "offset": {
+                  "x": 0,
+                  "y": -450
+                },
+                "scale": 0.18,
+                "anchor": {
+                  "x": 0.5,
+                  "y": 0.5
+                },
+                "visible": true
+              }
+            ]
+          },
+          {
+            "id": "lean",
+            "label": "Lean",
+            "layers": [
+              {
+                "layerId": "body",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-character-neutral"
+                  }
+                },
+                "materialApplication": null,
+                "offset": {
+                  "x": 90,
+                  "y": 0
+                },
+                "scale": 1,
+                "anchor": {
+                  "x": 0.5,
+                  "y": 1
+                },
+                "visible": true
+              },
+              {
+                "layerId": "badge",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-button-sprite"
+                  }
+                },
+                "materialApplication": null,
+                "offset": {
+                  "x": 0,
+                  "y": -450
+                },
+                "scale": 0.18,
+                "anchor": {
+                  "x": 0.5,
+                  "y": 0.5
+                },
+                "visible": true
+              }
+            ]
+          }
+        ],
+        "animationClips": [
+          {
+            "id": "blink",
+            "label": "Blink badge",
+            "clock": "gameplay",
+            "frames": [
+              {
+                "durationMs": 180,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "visible": false
+                  }
+                ]
+              },
+              {
+                "durationMs": 180,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "visible": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "speak",
+            "label": "Speaking badge",
+            "clock": "gameplay",
+            "frames": [
+              {
+                "durationMs": 220,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "scale": 0.3
+                  }
+                ]
+              },
+              {
+                "durationMs": 220,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "scale": 0.12
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "wave",
+            "label": "Wave badge",
+            "clock": "gameplay",
+            "frames": [
+              {
+                "durationMs": 500,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "offset": {
+                      "x": -150,
+                      "y": -450
+                    }
+                  }
+                ]
+              },
+              {
+                "durationMs": 500,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "offset": {
+                      "x": 150,
+                      "y": -450
+                    }
+                  }
+                ]
+              },
+              {
+                "durationMs": 500,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "offset": {
+                      "x": 0,
+                      "y": -450
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "automaticAnimations": {
+          "blink": {
+            "clipId": "blink",
+            "role": "face",
+            "intervalMs": 1600
+          },
+          "speaking": {
+            "clipId": "speak",
+            "role": "face"
+          }
+        }
+      },
+      {
+        "id": "portrait",
+        "label": "Portrait",
+        "layers": [
+          {
+            "id": "body",
+            "label": "Body",
+            "role": "body"
+          },
+          {
+            "id": "badge",
+            "label": "Badge",
+            "role": "face"
+          }
+        ],
+        "defaultPoseId": "close",
+        "poses": [
+          {
+            "id": "close",
+            "label": "Close",
+            "layers": [
+              {
+                "layerId": "body",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-character-neutral"
+                  }
+                },
+                "materialApplication": null,
+                "offset": {
+                  "x": 0,
+                  "y": 0
+                },
+                "scale": 0.65,
+                "anchor": {
+                  "x": 0.5,
+                  "y": 1
+                },
+                "visible": true
+              },
+              {
+                "layerId": "badge",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-button-sprite"
+                  }
+                },
+                "materialApplication": null,
+                "offset": {
+                  "x": 0,
+                  "y": -450
+                },
+                "scale": 0.18,
+                "anchor": {
+                  "x": 0.5,
+                  "y": 0.5
+                },
+                "visible": true
+              }
+            ]
+          }
+        ],
+        "animationClips": [
+          {
+            "id": "blink",
+            "label": "Blink badge",
+            "clock": "gameplay",
+            "frames": [
+              {
+                "durationMs": 180,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "visible": false
+                  }
+                ]
+              },
+              {
+                "durationMs": 180,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "visible": true
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "speak",
+            "label": "Speaking badge",
+            "clock": "gameplay",
+            "frames": [
+              {
+                "durationMs": 220,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "scale": 0.3
+                  }
+                ]
+              },
+              {
+                "durationMs": 220,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "scale": 0.12
+                  }
+                ]
+              }
+            ]
+          },
+          {
+            "id": "wave",
+            "label": "Wave badge",
+            "clock": "gameplay",
+            "frames": [
+              {
+                "durationMs": 500,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "offset": {
+                      "x": -150,
+                      "y": -450
+                    }
+                  }
+                ]
+              },
+              {
+                "durationMs": 500,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "offset": {
+                      "x": 150,
+                      "y": -450
+                    }
+                  }
+                ]
+              },
+              {
+                "durationMs": 500,
+                "layers": [
+                  {
+                    "layerId": "badge",
+                    "offset": {
+                      "x": 0,
+                      "y": -450
+                    }
+                  }
+                ]
+              }
+            ]
+          }
+        ],
+        "automaticAnimations": {
+          "blink": {
+            "clipId": "blink",
+            "role": "face",
+            "intervalMs": 1600
+          },
+          "speaking": {
+            "clipId": "speak",
+            "role": "face"
+          }
+        }
+      }
+    ],
+    "expressions": [
+      {
+        "id": "neutral",
+        "label": "Neutral",
+        "profiles": [
+          {
+            "profileId": "portrait",
+            "layers": [
+              {
+                "layerId": "body",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-character-smile"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "id": "smile",
+        "label": "Smile",
+        "profiles": [
+          {
+            "profileId": "stage",
+            "layers": [
+              {
+                "layerId": "body",
+                "sprite": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-character-smile"
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "appearances": [
+      {
+        "id": "hidden-badge",
+        "label": "Hidden badge",
+        "profiles": [
+          {
+            "profileId": "stage",
+            "layers": [
+              {
+                "layerId": "badge",
+                "visible": false
+              }
+            ]
+          },
+          {
+            "profileId": "portrait",
+            "layers": [
+              {
+                "layerId": "badge",
+                "visible": false
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "gestures": [
+      {
+        "id": "wave",
+        "label": "Wave",
+        "profiles": [
+          {
+            "profileId": "stage",
+            "clipId": "wave",
+            "cues": [
+              {
+                "id": "wave-click",
+                "kind": "audio",
+                "atMs": 500,
+                "asset": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-cue-audio"
+                  }
+                },
+                "gain": 0.4,
+                "pan": 0
+              }
+            ]
+          },
+          {
+            "profileId": "portrait",
+            "clipId": "wave",
+            "cues": [
+              {
+                "id": "wave-click",
+                "kind": "audio",
+                "atMs": 500,
+                "asset": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-cue-audio"
+                  }
+                },
+                "gain": 0.4,
+                "pan": 0
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "idles": [
+      {
+        "id": "bob-game",
+        "label": "bob-game",
+        "kind": "bob",
+        "amplitude": 20,
+        "periodMs": 1800,
+        "clock": "gameplay"
+      },
+      {
+        "id": "sway-real",
+        "label": "sway-real",
+        "kind": "sway",
+        "amplitude": 20,
+        "periodMs": 1800,
+        "clock": "unscaled-presentation"
+      },
+      {
+        "id": "pulse-game",
+        "label": "pulse-game",
+        "kind": "pulse",
+        "amplitude": 0.06,
+        "periodMs": 1800,
+        "clock": "gameplay"
+      }
+    ],
+    "inventories": [],
+    "initialWorldState": {
+      "location": {
+        "kind": "room",
+        "room": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "character-studio-idles"
+          }
+        }
+      },
+      "enabled": true,
+      "visible": true
+    }
+  }
+}

@@ -1,0 +1,131 @@
+{
+  "id": "conversation-paths-ui",
+  "label": "conversation-paths-ui",
+  "data": {
+    "kind": "test",
+    "displayName": "conversation-paths-ui",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "start",
+        "expectations": []
+      },
+      {
+        "id": "step-1-launch",
+        "input": "ui-click",
+        "label": "launch",
+        "expectations": [
+          {
+            "id": "flow-conversation-paths",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "conversation-paths"
+            }
+          }
+        ],
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-launch-conversation-paths"
+        }
+      },
+      {
+        "id": "step-2-welcome-advance",
+        "input": "continue",
+        "label": "welcome-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-3-unlock",
+        "input": "ui-click",
+        "label": "unlock",
+        "expectations": [
+          {
+            "id": "interview-topic-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-topic",
+              "value": true
+            }
+          }
+        ],
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#rt_options .option:nth-child(1)"
+        }
+      },
+      {
+        "id": "step-4-unlock-advance",
+        "input": "continue",
+        "label": "unlock-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-5-read",
+        "input": "ui-click",
+        "label": "read",
+        "expectations": [],
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#rt_options .option:nth-child(2)"
+        }
+      },
+      {
+        "id": "step-6-topic-advance",
+        "input": "continue",
+        "label": "topic-advance",
+        "expectations": [
+          {
+            "id": "interview-receipt-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-receipt",
+              "value": "issued"
+            }
+          },
+          {
+            "id": "flow-interview-child",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "scene",
+              "flowId": "interview-child"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-7-child-advance",
+        "input": "continue",
+        "label": "child-advance",
+        "expectations": [
+          {
+            "id": "interview-receipt-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-receipt",
+              "value": "issued / stamped"
+            }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

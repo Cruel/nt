@@ -1,0 +1,23 @@
+{
+  "id": "ipag",
+  "label": "ipag",
+  "data": {
+    "kind": "font",
+    "source": {
+      "type": "project-file",
+      "path": "assets/fonts/ipag.ttf"
+    },
+    "aliases": [],
+    "mimeType": "font/ttf",
+    "extension": ".ttf",
+    "byteSize": 6235344,
+    "contentHash": "sha256:503af4a8b84d1079b8e2e358dc7f7a7fb8cb7a1f212f35eaef6782dbfc75a55e",
+    "importedAt": "2026-10-02T08:22:45.690Z",
+    "originalName": "ipag.ttf",
+    "originalPath": "/home/thomas/dev/nt/tests/projects/feature-lab/assets/fonts/ipag.ttf",
+    "imageMetadata": null,
+    "preview": {
+      "thumbnailRevision": "sha256:503af4a8b84d1079b8e2e358dc7f7a7fb8cb7a1f212f35eaef6782dbfc75a55e"
+    }
+  }
+}

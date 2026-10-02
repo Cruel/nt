@@ -101,51 +101,19 @@ or claiming coverage that the authored station cannot exercise.
 
 ### People & Conversation — #251
 
-#### `dialogue-presentation` — Receive the signal
+Transferred to the authoritative Feature Lab catalog in `tests/projects/feature-lab/assets/data/feature-lab.json`.
+The existing seven-check `dialogue-presentation` pilot remains the shared Voice/SFX/camera-emphasis
+witness. The implemented expansion adds `conversation-paths`, `character-studio`, and `active-text`,
+covering the inventory's Dialogue policy/flow, Character presentation/animation, and ActiveText
+contracts through ordinary authored records and authored semantic/UI Tests where those are the right
+verification layer.
 
-Retain the existing seven checks `dialogue-open-continue`, `dialogue-voice`,
-`character-presentation-change`, `dialogue-sfx`, `timed-presentation-cue`,
-`clickable-dialogue-choice`, and `choice-state-consequence`. They account for neutral input gating,
-causal Voice, expression mutation, causal SFX, a timed flash, real choice dispatch, and branch mutation.
-Retain their catalog guidance and existing semantic/UI Test links; do not copy their coverage into
-an additional audio or camera station. Their ready reference media are not provisional placeholders.
-
-#### `conversation-paths` — Interview the guide
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `conditional-transcript` | Revisit an interview with conditional/show-once lines and redirects → skipped lines do not run effects, stable history suppresses only the intended segment. | S | — |
-| `choice-eligibility` | Toggle a choice Condition → hidden versus shown-disabled policy differs; a disabled choice never advances. | U | — |
-| `speaker-resolution` | Change line/block/default speaker, including an off-screen speaker → name/style and matching speaker-sync Stage occurrences follow the resolved speaker only. | V | character-pair |
-| `stage-slot-mutations` | Update/show/hide/clear two Stage Slots → sparse fields persist, new Character resets its axes, Profile change chooses its default Pose, occurrences remain independent. | V | character-layers |
-| `media-slot-content` | Replace/hide/clear image and Character-snapshot Media Slots → Dialogue Layout places media independently of world actors. | V | pattern, character-pair |
-| `cue-crossing-and-skip` | Reveal then skip a cue-rich line → same-position cues keep order, state changes occur once, disposable sounds are suppressed, non-skippable/awaited work remains a barrier. | M | character-layers, sfx, voice |
-| `dialogue-child-scene` | Call a Scene with conceal and preserve UI → exact Dialogue cursor resumes; preserving UI does not transfer execution ownership. | U | backdrop |
-| `dialogue-completion` | Finish conversations to Room, Scene, another Dialogue, Return and End → the selected control destination occurs without executing the prior line twice. | S | — |
-| `dialogue-effects` | Run nested If/Else with immediate mutation, notification, child call and RunLua → observable boundaries commit prior effects; return resumes the nested cursor once. | S | — |
-| `text-log-policy` | Read lines/choices with global and per-item logging policy → only admitted entries appear, speaker/origin and rich text are preserved; append/clear a system Lua entry. | U | — |
-
-#### `character-studio` — Dress and animate one person
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `profile-pose-expression` | Switch stage/portrait Profiles and Poses → ordered layers resolve; a missing expression override falls back to the default for that Profile. | V | character-layers |
-| `appearance-composition` | Apply/clear Appearance over Expression → sparse Appearance wins only its fields and clearing reveals the underlying composition. | V | character-layers |
-| `independent-presentations` | Display one Character twice with different transforms/selections → visual axes are independent, Property/Location identity is shared. | S | character-layers |
-| `automatic-animation` | Observe blink then speaking → finite layer clips loop through the admitted roles, speaking takes precedence; unrelated base layers remain intact. | V | character-layers |
-| `gesture-cues` | Play, skip and cancel a mapped Gesture → temporary layers return to the desired Pose; crossed cues fire once and un-crossed cues are discarded. | M | character-layers, sfx |
-| `idle-clocks` | Compare bob/sway/pulse under gameplay pause and reload → selected idle survives, backend phase restarts, unscaled and gameplay clocks differ. | V | character-pair |
-
-#### `active-text` — Read the illustrated notice
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `styled-spans` | Read nested bold/italic/underline/strike, color/alpha, outline, size/font and offsets → styles restore after closing spans without corrupting shaping. | V | font-set |
-| `reveal-and-pages` | Reveal, continue, skip, and resize paged text with manual/delayed page breaks → complete clusters reveal on precomputed layout; page/input boundaries are preserved. | U | font-set |
-| `text-effects` | Compare fade/fade-across/glow/nod/shake/tremble/pop with wait/skippability and loop timing → visibly distinct effects do not change semantic text or repeat input. | V | — |
-| `object-spans` | Hover/activate a semantic object span across wrapping → actual span bounds hit the intended subject; non-span text does not. | U | — |
-| `diff-style` | Read explicitly authored diff-emphasis markup → only the marked span is emphasized. Automatic Room-description diff generation is a core-only helper, classified below. | V | — |
-| `unicode-layout` | Read Latin combining marks, CJK and mixed RTL/LTR with wrapping/alignment → shaping, fallback and cluster boundaries are legible; no claim of color emoji support. | V | font-set |
+`media-slot-content` remains explicitly `blocked`: the runtime publishes Dialogue Media Slot state,
+but the built-in Dialogue UI has no normal image/Character-snapshot realizer yet, so the catalog keeps
+the intended contract without substituting a world actor. Cooperative Dialogue Handoff/Scene
+`ResumeDialogue` remains intentionally shared with #254's `dialogue-handoff` check rather than being
+duplicated here. Automatic Room-description diff generation remains automation-only as classified
+below; `active-text/diff-style` covers the supported explicitly authored diff markup.
 
 ### Objects & State — #252
 

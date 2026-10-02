@@ -1,0 +1,41 @@
+{
+  "id": "active-text-flow",
+  "label": "active-text-flow",
+  "data": {
+    "kind": "test",
+    "displayName": "active-text-flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "start",
+        "expectations": []
+      },
+      {
+        "id": "step-1-enter",
+        "input": "navigate",
+        "label": "enter",
+        "expectations": [
+          {
+            "id": "flow-active-text",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "active-text"
+            }
+          }
+        ],
+        "navigate": {
+          "exitId": "active-text-test-entry"
+        }
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

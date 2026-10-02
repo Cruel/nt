@@ -1,0 +1,235 @@
+{
+  "id": "character-studio-idles",
+  "label": "Idle clocks",
+  "data": {
+    "kind": "room",
+    "displayName": "Idle clocks",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "contain",
+      "color": "#09131c"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Left: gameplay bob. Middle: unscaled sway. Right: gameplay pulse. Pause to compare clocks; save and load to restart backend phase without changing the selected idle."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 2400,
+        "height": 1350
+      },
+      "bounds": {
+        "x": 0,
+        "y": 0,
+        "width": 2400,
+        "height": 1350
+      },
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 1200,
+          "y": 675
+        },
+        "zoom": 1.15,
+        "rotationDegrees": 4
+      },
+      "views": [
+        {
+          "id": "wide",
+          "view": {
+            "center": {
+              "x": 1200,
+              "y": 675
+            },
+            "zoom": 0.8,
+            "rotationDegrees": 0
+          }
+        },
+        {
+          "id": "detail",
+          "view": {
+            "center": {
+              "x": 1550,
+              "y": 600
+            },
+            "zoom": 1.6,
+            "rotationDegrees": -7
+          }
+        }
+      ]
+    },
+    "anchors": [
+      {
+        "id": "center-stage",
+        "bounds": {
+          "x": 0.42,
+          "y": 0.22,
+          "width": 0.16,
+          "height": 0.58
+        }
+      },
+      {
+        "id": "right-detail",
+        "bounds": {
+          "x": 0.68,
+          "y": 0.3,
+          "width": 0.18,
+          "height": 0.35
+        }
+      }
+    ],
+    "overlays": [],
+    "cast": [
+      {
+        "id": "idle-0",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "studio-guide"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "placementId": "idle-0",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "neutral",
+        "appearanceId": null,
+        "idleId": "bob-game",
+        "visible": true,
+        "order": 20
+      },
+      {
+        "id": "idle-1",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "studio-guide"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "placementId": "idle-1",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "neutral",
+        "appearanceId": null,
+        "idleId": "sway-real",
+        "visible": true,
+        "order": 21
+      },
+      {
+        "id": "idle-2",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "studio-guide"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "placementId": "idle-2",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "neutral",
+        "appearanceId": null,
+        "idleId": "pulse-game",
+        "visible": true,
+        "order": 22
+      }
+    ],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [
+      {
+        "id": "idle-0",
+        "bounds": {
+          "x": 0.08,
+          "y": 0.2,
+          "width": 0.23,
+          "height": 0.65
+        },
+        "presentation": {
+          "label": {
+            "source": {
+              "kind": "inline",
+              "text": "bob-game"
+            },
+            "markup": "plain"
+          },
+          "layout": null
+        }
+      },
+      {
+        "id": "idle-1",
+        "bounds": {
+          "x": 0.38,
+          "y": 0.2,
+          "width": 0.23,
+          "height": 0.65
+        },
+        "presentation": {
+          "label": {
+            "source": {
+              "kind": "inline",
+              "text": "sway-real"
+            },
+            "markup": "plain"
+          },
+          "layout": null
+        }
+      },
+      {
+        "id": "idle-2",
+        "bounds": {
+          "x": 0.6799999999999999,
+          "y": 0.2,
+          "width": 0.23,
+          "height": 0.65
+        },
+        "presentation": {
+          "label": {
+            "source": {
+              "kind": "inline",
+              "text": "pulse-game"
+            },
+            "markup": "plain"
+          },
+          "layout": null
+        }
+      }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

@@ -1,0 +1,1165 @@
+{
+  "id": "conversation-paths",
+  "label": "Conversation Paths",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Conversation Paths",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [
+      {
+        "id": "left",
+        "label": "left",
+        "speakerSync": true,
+        "initial": {
+          "character": {
+            "$ref": {
+              "collection": "characters",
+              "id": "studio-guide"
+            }
+          },
+          "profileId": "stage",
+          "poseId": "standing",
+          "expressionId": "neutral",
+          "appearanceId": null,
+          "position": "left",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "scale": 0.65,
+          "visible": true
+        }
+      },
+      {
+        "id": "right",
+        "label": "right",
+        "speakerSync": false,
+        "initial": {
+          "character": {
+            "$ref": {
+              "collection": "characters",
+              "id": "studio-guide"
+            }
+          },
+          "profileId": "stage",
+          "poseId": "standing",
+          "expressionId": "neutral",
+          "appearanceId": null,
+          "position": "right",
+          "offset": {
+            "x": 0,
+            "y": 0
+          },
+          "scale": 0.65,
+          "visible": true
+        }
+      }
+    ],
+    "mediaSlots": [
+      {
+        "id": "notice",
+        "label": "Notice media",
+        "initial": {
+          "kind": "image",
+          "asset": {
+            "$ref": {
+              "collection": "assets",
+              "id": "pilot-button-sprite"
+            }
+          }
+        },
+        "visible": true
+      }
+    ],
+    "settings": {
+      "showDisabledChoices": true,
+      "logMode": "everything"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "intro",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "welcome",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Interview: the first greeting occurs once. Ask for the sealed topic before and after unlocking it; then revisit the greeting."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [
+              {
+                "id": "take-note",
+                "kind": "run-lua",
+                "source": "assert(Game.set_prop(\"interview-notes\", Game.prop(\"interview-notes\") + 1))"
+              }
+            ],
+            "showOnce": true,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "conditional",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "The sealed topic is now available."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [
+              {
+                "id": "set-interview-skipped",
+                "kind": "set-global-property",
+                "variable": {
+                  "$ref": {
+                    "collection": "variables",
+                    "id": "interview-skipped"
+                  }
+                },
+                "value": 1
+              }
+            ],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false,
+            "condition": {
+              "kind": "variable-comparison",
+              "variable": {
+                "$ref": {
+                  "collection": "variables",
+                  "id": "interview-topic"
+                }
+              },
+              "operator": "equal",
+              "value": true
+            }
+          },
+          {
+            "id": "tour-first-visit",
+            "type": "comment",
+            "text": "Presentation tour is chosen separately so show-once revisits stay compact."
+          }
+        ]
+      },
+      {
+        "id": "presentation",
+        "type": "sequence",
+        "label": "presentation",
+        "defaultSpeaker": {
+          "$ref": {
+            "collection": "characters",
+            "id": "studio-guide"
+          }
+        },
+        "segments": [
+          {
+            "id": "speaker-default",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Block speaker Studio Guide overrides Dialogue default Guide: only left sync occurrence speaks."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "speaker-offscreen",
+            "type": "line",
+            "speaker": {
+              "$ref": {
+                "collection": "characters",
+                "id": "radio-operator"
+              }
+            },
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Radio speaks off-screen: neither Guide occurrence should speak."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "slot-hide",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Hide left: right stays visible."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "hide-left",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "hide"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "slot-show",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Show left: retained Guide state returns."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "show-left",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "show"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "slot-sparse",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Left changes smile then Pose at the same position. Smile persists through sparse Pose update; right is unchanged."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "left-smile",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "expressionId": "smile"
+                }
+              },
+              {
+                "id": "left-lean",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 1
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "poseId": "lean"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "slot-profile",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Left switches to Portrait default close Pose; right remains Stage standing."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "left-portrait",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "profileId": "portrait"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "slot-new-person",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Left becomes Radio: Character-specific selections reset to stage / standing / neutral while placement remains left."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "left-radio",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "character": {
+                    "$ref": {
+                      "collection": "characters",
+                      "id": "radio-operator"
+                    }
+                  }
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "slot-clear",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Clear left, then next line rebuilds it."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "slot-clear-left",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "clear"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "slot-rebuild",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Rebuild left as Studio Guide; default stage and standing axes reappear."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "slot-rebuild-left",
+                "kind": "stage",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "left",
+                  "action": "update",
+                  "character": {
+                    "$ref": {
+                      "collection": "characters",
+                      "id": "studio-guide"
+                    }
+                  }
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "cue-skip",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Compare natural reveal versus immediate skip. Same-position smile then neutral finishes neutral; disposable sound is omitted on skip; the final non-skippable awaited wave still waits."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "skip-smile",
+                "kind": "speaker-expression",
+                "position": {
+                  "offset": 20,
+                  "order": 0
+                },
+                "expressionId": "smile"
+              },
+              {
+                "id": "skip-neutral",
+                "kind": "speaker-expression",
+                "position": {
+                  "offset": 20,
+                  "order": 1
+                },
+                "expressionId": "neutral"
+              },
+              {
+                "id": "skip-disposable",
+                "kind": "sound-effect",
+                "position": {
+                  "offset": 40,
+                  "order": 0
+                },
+                "asset": {
+                  "$ref": {
+                    "collection": "assets",
+                    "id": "pilot-cue-audio"
+                  }
+                },
+                "pausePolicy": "owner",
+                "gain": 0.4,
+                "pan": 0,
+                "waitForCompletion": false,
+                "causality": "disposable",
+                "synchronized": false,
+                "skipBehavior": "suppress"
+              },
+              {
+                "id": "skip-barrier",
+                "kind": "gesture",
+                "position": {
+                  "offset": 75,
+                  "order": 0
+                },
+                "slotId": "left",
+                "gestureId": "wave",
+                "waitForCompletion": true,
+                "skippable": false
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "menu",
+        "type": "choice",
+        "label": "Interview menu"
+      },
+      {
+        "id": "redirect",
+        "type": "redirect",
+        "label": "Revisit",
+        "targetBlockId": "intro"
+      },
+      {
+        "id": "unlock",
+        "type": "sequence",
+        "label": "unlock",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "unlocked",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "The topic is unlocked. Revisit now: no second first greeting; the conditional line is shown."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "topic",
+        "type": "sequence",
+        "label": "topic",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "topic-answer",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "The sealed topic is a delivery receipt. Continue to commit its nested effects."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [
+              {
+                "id": "nested-effects",
+                "kind": "if",
+                "condition": {
+                  "kind": "variable-comparison",
+                  "variable": {
+                    "$ref": {
+                      "collection": "variables",
+                      "id": "interview-topic"
+                    }
+                  },
+                  "operator": "equal",
+                  "value": true
+                },
+                "then": [
+                  {
+                    "id": "set-interview-receipt",
+                    "kind": "set-global-property",
+                    "variable": {
+                      "$ref": {
+                        "collection": "variables",
+                        "id": "interview-receipt"
+                      }
+                    },
+                    "value": "issued"
+                  },
+                  {
+                    "id": "notify-receipt",
+                    "kind": "notify",
+                    "message": {
+                      "source": {
+                        "kind": "inline",
+                        "text": "Receipt issued before child Scene."
+                      },
+                      "markup": "plain"
+                    }
+                  },
+                  {
+                    "id": "nested",
+                    "kind": "if",
+                    "condition": {
+                      "kind": "variable-comparison",
+                      "variable": {
+                        "$ref": {
+                          "collection": "variables",
+                          "id": "interview-topic"
+                        }
+                      },
+                      "operator": "equal",
+                      "value": false
+                    },
+                    "then": [
+                      {
+                        "id": "wrong-receipt",
+                        "kind": "set-global-property",
+                        "variable": {
+                          "$ref": {
+                            "collection": "variables",
+                            "id": "interview-receipt"
+                          }
+                        },
+                        "value": "wrong branch"
+                      }
+                    ],
+                    "else": [
+                      {
+                        "id": "call-child",
+                        "kind": "call-scene",
+                        "scene": {
+                          "$ref": {
+                            "collection": "scenes",
+                            "id": "interview-child"
+                          }
+                        }
+                      },
+                      {
+                        "id": "stamp",
+                        "kind": "run-lua",
+                        "source": "assert(Game.set_prop(\"interview-receipt\", Game.prop(\"interview-receipt\") .. \" / stamped\"))"
+                      }
+                    ]
+                  }
+                ],
+                "else": [
+                  {
+                    "id": "locked-receipt",
+                    "kind": "set-global-property",
+                    "variable": {
+                      "$ref": {
+                        "collection": "variables",
+                        "id": "interview-receipt"
+                      }
+                    },
+                    "value": "locked"
+                  }
+                ]
+              }
+            ],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "receipt",
+        "type": "sequence",
+        "label": "receipt",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "receipt",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "lua-expression",
+                "source": "return \"Interview notes: \" .. tostring(Game.prop(\"interview-notes\")) .. \"; receipt: \" .. Game.prop(\"interview-receipt\")"
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "children",
+        "type": "sequence",
+        "label": "children",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "before-children",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Next: concealed child, then preserved child. Each returns to this exact conversation."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "conceal",
+            "type": "call-scene",
+            "scene": {
+              "$ref": {
+                "collection": "scenes",
+                "id": "interview-child"
+              }
+            },
+            "inputs": [],
+            "uiPolicy": "conceal"
+          },
+          {
+            "id": "between-children",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Concealed child returned once. Next child preserves this Dialogue UI."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "preserve",
+            "type": "call-scene",
+            "scene": {
+              "$ref": {
+                "collection": "scenes",
+                "id": "interview-child"
+              }
+            },
+            "inputs": [],
+            "uiPolicy": "preserve"
+          },
+          {
+            "id": "after-children",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Preserved child returned once. Continue to the menu."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "finish",
+        "type": "sequence",
+        "label": "finish",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "finish-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Continue into the hidden-choice/logging conversation."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      },
+      {
+        "id": "media",
+        "type": "sequence",
+        "label": "media",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "media-initial",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Media Slot begins as a button image. Its retained content is independent of Stage actors. Current built-in Dialogue UI does not realize Media Slots: this check remains blocked pending a Layout consumer."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "media-replace",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Replace Media Slot with a Character snapshot without moving the world actors."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "media-replace-cue",
+                "kind": "media",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "notice",
+                  "action": "update",
+                  "content": {
+                    "kind": "character",
+                    "character": {
+                      "$ref": {
+                        "collection": "characters",
+                        "id": "studio-guide"
+                      }
+                    },
+                    "profileId": "portrait",
+                    "poseId": "close",
+                    "expressionId": "smile",
+                    "appearanceId": null
+                  }
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "media-hide",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Hide Media Slot while preserving its content."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "media-hide-cue",
+                "kind": "media",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "notice",
+                  "action": "hide"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "media-show",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Show the retained snapshot."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "media-show-cue",
+                "kind": "media",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "notice",
+                  "action": "show"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "media-clear",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Clear the Media Slot content."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "media-clear-cue",
+                "kind": "media",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "mutation": {
+                  "slotId": "notice",
+                  "action": "clear"
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [
+      {
+        "id": "to-menu",
+        "kind": "next",
+        "fromBlockId": "intro",
+        "toBlockId": "menu"
+      },
+      {
+        "id": "unlock-topic",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "unlock",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Unlock the sealed topic"
+          },
+          "markup": "plain"
+        },
+        "effects": [
+          {
+            "id": "set-interview-topic",
+            "kind": "set-global-property",
+            "variable": {
+              "$ref": {
+                "collection": "variables",
+                "id": "interview-topic"
+              }
+            },
+            "value": true
+          }
+        ],
+        "logged": true,
+        "autosaveSafePoint": false,
+        "condition": {
+          "kind": "variable-comparison",
+          "variable": {
+            "$ref": {
+              "collection": "variables",
+              "id": "interview-topic"
+            }
+          },
+          "operator": "equal",
+          "value": false
+        }
+      },
+      {
+        "id": "read-topic",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "topic",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Read sealed topic"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false,
+        "condition": {
+          "kind": "variable-comparison",
+          "variable": {
+            "$ref": {
+              "collection": "variables",
+              "id": "interview-topic"
+            }
+          },
+          "operator": "equal",
+          "value": true
+        }
+      },
+      {
+        "id": "revisit",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "redirect",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Revisit the greeting"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "children",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "children",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Call concealed / preserved child Scenes"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "finish",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "finish",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue to hidden choices and logging"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "unlock-menu",
+        "kind": "next",
+        "fromBlockId": "unlock",
+        "toBlockId": "menu"
+      },
+      {
+        "id": "topic-receipt",
+        "kind": "next",
+        "fromBlockId": "topic",
+        "toBlockId": "receipt"
+      },
+      {
+        "id": "receipt-menu",
+        "kind": "next",
+        "fromBlockId": "receipt",
+        "toBlockId": "menu"
+      },
+      {
+        "id": "children-menu",
+        "kind": "next",
+        "fromBlockId": "children",
+        "toBlockId": "menu"
+      },
+      {
+        "id": "presentation-menu",
+        "kind": "next",
+        "fromBlockId": "presentation",
+        "toBlockId": "menu"
+      },
+      {
+        "id": "presentation-tour",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "presentation",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Inspect speakers, Stage Slots and skip cues"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "media-tour",
+        "kind": "choice",
+        "fromBlockId": "menu",
+        "toBlockId": "media",
+        "label": {
+          "source": {
+            "kind": "inline",
+            "text": "Inspect retained Media Slot states (blocked display)"
+          },
+          "markup": "plain"
+        },
+        "effects": [],
+        "logged": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "media-menu",
+        "kind": "next",
+        "fromBlockId": "media",
+        "toBlockId": "menu"
+      }
+    ],
+    "completion": {
+      "kind": "dialogue",
+      "id": "interview-hidden"
+    }
+  }
+}
