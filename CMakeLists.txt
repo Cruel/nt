@@ -156,6 +156,11 @@ endif()
 option(NOVELTEA_ENABLE_RENDER_PERF "Compile renderer performance counters and optional perf logging" ON)
 option(NOVELTEA_COMPILE_SHADERS "Compile bgfx shader binaries with the NovelTea host CLI's embedded shaderc" ON)
 option(NOVELTEA_ENABLE_THREADS "Enable NovelTea job worker creation" ON)
+option(
+    NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK
+    "Enable Emscripten level-2 stack overflow checks for diagnostic Web builds"
+    OFF
+)
 option(NOVELTEA_TARGET_WINDOWS_10_1809
     "Compile NovelTea sources against the Windows 10 1809 (RS5) API floor"
     OFF)

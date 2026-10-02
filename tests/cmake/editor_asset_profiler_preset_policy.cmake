@@ -15,6 +15,10 @@ if(NOT root_cmake MATCHES
         "set\\(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER_VALUE 0\\)")
     message(FATAL_ERROR "The disabled profiler option must produce numeric value 0")
 endif()
+if(NOT root_cmake MATCHES
+        "option\\([ \n\r\t]*NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK[\n\r\t ]+\"[^\"]+\"[\n\r\t ]+OFF[ \n\r\t]*\\)")
+    message(FATAL_ERROR "The Web stack overflow check option must default to OFF")
+endif()
 
 file(READ "${SOURCE_DIR}/CMakePresets.json" presets_json)
 
@@ -147,16 +151,24 @@ require_resolved_option("web-editor-preview" NOVELTEA_BUILD_SANDBOX OFF)
 require_resolved_option("web-editor-preview" NOVELTEA_BUILD_EDITOR_PREVIEW ON)
 require_resolved_option("web-editor-preview" NOVELTEA_BUILD_PLAYER OFF)
 require_resolved_option("web-editor-preview" NOVELTEA_ENABLE_DEVTOOLS ON)
+require_resolved_option("web-editor-preview" NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK OFF)
+require_resolved_option("web-debug" NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK ON)
+require_resolved_option("web-debug-no-threads" NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK ON)
+require_resolved_option("web-release" NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK OFF)
 
 require_build_preset("linux-debug-editor-profiler")
 require_build_preset("linux-release-editor-profiler")
 require_build_preset("web-editor-preview")
 
 file(READ "${SOURCE_DIR}/editor/scripts/build-engine-preview.mjs" preview_build_script)
-string(FIND "${preview_build_script}"
-    "const configureArgs = ['--preset', 'web-editor-preview'];" configure_preset_position)
-if(configure_preset_position EQUAL -1)
+if(NOT preview_build_script MATCHES
+        "'--preset',[\n\r\t ]+'web-editor-preview'")
     message(FATAL_ERROR "The editor preview configure step must use web-editor-preview")
+endif()
+if(NOT preview_build_script MATCHES
+        "-DNOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK=ON")
+    message(FATAL_ERROR
+        "Local editor preview builds must enable detailed WebAssembly stack overflow checks")
 endif()
 if(NOT preview_build_script MATCHES
         "'--preset',[\n\r\t ]+'web-editor-preview'")
@@ -197,10 +209,20 @@ if(NOT editor_preview_cmake MATCHES "-sSTACK_SIZE=131072")
     message(FATAL_ERROR
         "noveltea-editor-preview must reserve enough WebAssembly stack for synchronous runtime replacement")
 endif()
+if(NOT editor_preview_cmake MATCHES
+        "if\\(NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK\\)[\n\r\t ]+target_link_options\\(noveltea-editor-preview PRIVATE -sSTACK_OVERFLOW_CHECK=2\\)")
+    message(FATAL_ERROR
+        "noveltea-editor-preview must gate detailed stack overflow checks on the Web diagnostic option")
+endif()
 file(READ "${SOURCE_DIR}/apps/player/CMakeLists.txt" player_cmake)
 if(NOT player_cmake MATCHES "-sSTACK_SIZE=131072")
     message(FATAL_ERROR
         "noveltea-player must reserve enough WebAssembly stack for synchronous runtime replacement")
+endif()
+if(NOT player_cmake MATCHES
+        "if\\(NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK\\)[\n\r\t ]+target_link_options\\(noveltea-player PRIVATE -sSTACK_OVERFLOW_CHECK=2\\)")
+    message(FATAL_ERROR
+        "noveltea-player must gate detailed stack overflow checks on the Web diagnostic option")
 endif()
 foreach(required_export
         _noveltea_asset_profiler_snapshot
