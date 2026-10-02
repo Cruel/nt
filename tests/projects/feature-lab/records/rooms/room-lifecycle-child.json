@@ -1,0 +1,29 @@
+{
+  "id": "room-lifecycle-child",
+  "label": "Lifecycle Child Flow",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Lifecycle Child Flow",
+    "background": { "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } }, "materialApplication": null, "fit": "cover", "color": "#15202a" },
+    "description": { "source": { "kind": "inline", "text": "The after-enter lifecycle starts the normal Dialogue child flow before exploration resumes." }, "markup": "active-text" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [], "cast": [], "props": [], "interactables": [], "environments": [], "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" }, "beforeEnter": [],
+      "afterEnter": [
+        { "id": "announce-child", "kind": "notify", "message": { "source": { "kind": "inline", "text": "After-enter is starting a child Dialogue." }, "markup": "plain" } },
+        { "id": "start-child-dialogue", "kind": "call-dialogue", "dialogue": { "$ref": { "collection": "dialogues", "id": "room-lifecycle-child-dialogue" } } },
+        { "id": "child-returned", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Child Dialogue returned to Room lifecycle." }, "markup": "plain" } }
+      ],
+      "beforeLeave": [], "afterLeave": [], "onEnterRejected": [], "onLeaveRejected": []
+    },
+    "exits": [
+      { "id": "return-roundtrip", "label": "Return to round trip", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-roundtrip" } }, "condition": { "kind": "always" }, "onRejected": [] }
+    ],
+    "placements": [], "fallbackInteractablePlacementId": null, "features": [], "hotspots": []
+  }
+}

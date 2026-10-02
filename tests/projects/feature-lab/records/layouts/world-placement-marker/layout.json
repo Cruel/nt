@@ -1,0 +1,19 @@
+{
+  "id": "world-placement-marker",
+  "label": "World Placement Marker",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "fragment",
+    "displayName": "World Placement Marker",
+    "target": "default-ui",
+    "contract": { "inputs": {}, "signals": {} },
+    "rml": { "sourceMode": "file" },
+    "rcss": { "sourceMode": "file" },
+    "lua": { "sourceMode": "file" },
+    "script": { "enabled": true, "namespace": "world_placement_marker", "additionalDependencies": { "targets": [] } },
+    "mount": { "defaultParent": "nt-layout-preview-mount", "scopedStyles": true },
+    "dependencies": { "images": [], "fonts": [], "stylesheets": [], "materials": [], "scripts": [], "data": [] },
+    "sampleState": {},
+    "preview": { "background": "dark" }
+  }
+}

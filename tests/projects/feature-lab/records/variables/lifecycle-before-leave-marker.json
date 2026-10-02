@@ -1,0 +1,11 @@
+{
+  "id": "lifecycle-before-leave-marker",
+  "label": "Lifecycle Before Leave Marker",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

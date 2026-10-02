@@ -65,6 +65,6 @@
     "gestures": [],
     "idles": [],
     "inventories": [],
-    "initialWorldState": { "location": { "kind": "unplaced" }, "enabled": true, "visible": true }
+    "initialWorldState": { "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "world-composition" } } }, "enabled": true, "visible": true }
   }
 }

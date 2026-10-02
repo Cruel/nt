@@ -1,0 +1,29 @@
+{
+  "id": "room-lifecycle-denied",
+  "label": "Lifecycle Denied Target",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Lifecycle Denied Target",
+    "background": { "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } }, "materialApplication": null, "fit": "cover", "color": "#291315" },
+    "description": { "source": { "kind": "inline", "text": "This Room rejects ordinary entry." }, "markup": "plain" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [], "cast": [], "props": [], "interactables": [], "environments": [],
+    "scriptHooks": [
+      { "hook": "reject-enter", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_reject_enter" } }
+    ],
+    "lifecycle": {
+      "canEnter": { "kind": "variable-comparison", "variable": { "$ref": { "collection": "variables", "id": "policy-entry-allowed" } }, "operator": "truthy" },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [], "afterEnter": [], "beforeLeave": [], "afterLeave": [],
+      "onEnterRejected": [
+        { "id": "target-rejected", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Target can-enter rejection program ran." }, "markup": "plain" } }
+      ],
+      "onLeaveRejected": []
+    },
+    "exits": [], "placements": [], "fallbackInteractablePlacementId": null, "features": [], "hotspots": []
+  }
+}

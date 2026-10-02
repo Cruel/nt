@@ -1,0 +1,98 @@
+{
+  "id": "room-lifecycle-flow",
+  "label": "Room lifecycle semantic flow",
+  "data": {
+    "kind": "test",
+    "displayName": "Room lifecycle semantic flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh Lab home",
+        "expectations": [
+          { "id": "home", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "feature-lab-home" } }
+        ]
+      },
+      {
+        "id": "enter-lifecycle",
+        "input": "navigate",
+        "label": "Enter lifecycle station",
+        "navigate": { "exitId": "room-lifecycle-test-entry" },
+        "expectations": [
+          { "id": "lifecycle-start", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-start" } }
+        ]
+      },
+      {
+        "id": "reject-source",
+        "input": "navigate",
+        "label": "Reject at source can-leave",
+        "navigate": { "exitId": "reject-source" },
+        "expectations": [
+          { "id": "source-still-current", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-start" } },
+          { "id": "source-rejection-program", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Source can-leave rejection program ran." } },
+          { "id": "source-rejection-hook", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Source reject-leave hook ran after declarative rejection handling." } }
+        ]
+      },
+      {
+        "id": "reject-exit",
+        "input": "navigate",
+        "label": "Reject selected exit condition",
+        "navigate": { "exitId": "reject-exit" },
+        "expectations": [
+          { "id": "exit-still-current", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-start" } },
+          { "id": "exit-rejection-program", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Selected exit rejection program ran." } }
+        ]
+      },
+      {
+        "id": "reject-target",
+        "input": "navigate",
+        "label": "Reject at target can-enter",
+        "navigate": { "exitId": "reject-target" },
+        "expectations": [
+          { "id": "target-still-current", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-start" } },
+          { "id": "target-rejection-program", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Target can-enter rejection program ran." } },
+          { "id": "target-rejection-hook", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Target reject-enter hook ran after declarative rejection handling." } }
+        ]
+      },
+      {
+        "id": "round-trip-outbound",
+        "input": "navigate",
+        "label": "Commit successful transition",
+        "navigate": { "exitId": "round-trip" },
+        "expectations": [
+          { "id": "roundtrip-current", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-roundtrip" } },
+          { "id": "source-program-before-leave", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "lifecycle-before-leave-marker", "value": true } },
+          { "id": "source-hook-before-leave", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Hook before-leave observed program marker=true." } },
+          { "id": "target-program-before-enter", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "lifecycle-before-enter-marker", "value": true } },
+          { "id": "target-hook-before-enter", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Hook before-enter observed program marker=true." } },
+          { "id": "target-program-after-enter", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Program after-enter ran." } },
+          { "id": "first-entry-context", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Hook after-enter context: cause=navigation-attempt, sequence=3" } }
+        ]
+      },
+      {
+        "id": "round-trip-self-loop",
+        "input": "navigate",
+        "label": "Self-loop creates a fresh entry sequence",
+        "navigate": { "exitId": "self-loop" },
+        "expectations": [
+          { "id": "self-loop-stays-in-room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-roundtrip" } },
+          { "id": "self-loop-entry-context", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Hook after-enter context: cause=navigation-attempt, sequence=4" } }
+        ]
+      },
+      {
+        "id": "round-trip-return",
+        "input": "navigate",
+        "label": "Return with cut transition",
+        "navigate": { "exitId": "return-start" },
+        "expectations": [
+          { "id": "back-at-start", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-start" } },
+          { "id": "roundtrip-program-before-leave", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "lifecycle-before-leave-marker", "value": true } },
+          { "id": "roundtrip-program-after-leave", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Program after-leave ran." } },
+          { "id": "roundtrip-hook-after-leave", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Hook after-leave ran after the declarative after-leave program." } }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}
