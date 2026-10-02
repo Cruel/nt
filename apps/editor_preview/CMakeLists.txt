@@ -43,6 +43,10 @@ endif()
 target_link_options(noveltea-editor-preview PRIVATE
     -sUSE_WEBGL2=1
     -sALLOW_MEMORY_GROWTH=1
+    # Runtime replacement can synchronously route through RmlUi, Dialogue presentation, asset I/O,
+    # and system Layout reconciliation. Keep explicit headroom above Emscripten's 64 KiB default
+    # for future editor-preview runtime growth.
+    -sSTACK_SIZE=131072
     -sEXIT_RUNTIME=0
     -sFORCE_FILESYSTEM=1
     -sMODULARIZE=0

@@ -27,7 +27,7 @@ struct HostRuntimeDispatchResult {
     runtime::RuntimeBudgetOutcome budget;
 
     [[nodiscard]] static HostRuntimeDispatchResult
-    from_runtime(runtime::RuntimeDispatchResult result)
+    from_runtime(runtime::RuntimeDispatchResult&& result)
     {
         return {.disposition = result.disposition,
                 .presentation_predecessor = std::move(result.presentation_predecessor),

@@ -332,9 +332,23 @@ private:
                                                         core::MountedLayoutOwner owner,
                                                         const std::function<bool()>& dispatch);
     void deliver_runtime_ui_events(std::span<const runtime::RuntimeEvent> events);
+    [[nodiscard]] core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics>
+    prepare_runtime_replacement_candidate(const core::RuntimeInputMessage& input,
+                                          script::ScriptRuntime& candidate_scripts,
+                                          RunningGamePresentationPort& candidate_presentation);
     [[nodiscard]] HostRuntimeDispatchResult
     replace_runtime_session(const core::RuntimeInputMessage& input,
                             std::vector<script::ScriptDebugMessage>& committed_debug_messages);
+    [[nodiscard]] HostRuntimeDispatchResult
+    submit_generation_replacement(core::RuntimeInputMessage input, bool stopping);
+    [[nodiscard]] HostRuntimeDispatchResult
+    submit_regular_runtime_input(core::RuntimeInputMessage input, bool stopping);
+    void rollback_runtime_locale(const std::string& previous_locale,
+                                 core::Diagnostics& application_diagnostics);
+    void finalize_runtime_dispatch(
+        HostRuntimeDispatchResult& result, const core::RuntimeInputMessage& input, bool stopping,
+        bool runtime_replaced, const core::RuntimeInputMessage* replacement_input,
+        std::span<const script::ScriptDebugMessage> replacement_debug_messages);
     [[nodiscard]] HostRuntimeDispatchResult
     stale_runtime_input_result(GameSessionGeneration generation);
     [[nodiscard]] HostRuntimeDispatchResult lifecycle_noop_result() const noexcept;

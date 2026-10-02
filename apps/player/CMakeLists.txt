@@ -39,6 +39,9 @@ if(EMSCRIPTEN)
     target_link_options(noveltea-player PRIVATE
         -sUSE_WEBGL2=1
         -sALLOW_MEMORY_GROWTH=1
+        # Runtime replacement can synchronously traverse presentation, Layout, RmlUi, and asset
+        # paths. Keep explicit headroom above Emscripten's 64 KiB default for future runtime growth.
+        -sSTACK_SIZE=131072
         -sEXIT_RUNTIME=0
         -sFORCE_FILESYSTEM=1
         -sEXPORTED_FUNCTIONS=['_main','_noveltea_player_resize','_noveltea_player_backbuffer_width','_noveltea_player_backbuffer_height','_noveltea_player_prepare_package','_noveltea_player_commit_package','_noveltea_player_retained_package_bytes']
