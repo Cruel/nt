@@ -405,6 +405,10 @@ jobs:
       - name: Make NovelTea host CLI executables executable
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
+      - name: Build Node reference bundle for differential-only shard
+        if: matrix.sections == 'differential'
+        run: pnpm -C editor exec vp pack
+
       - name: Certify NovelTea host CLI
         env:
           NOVELTEA_CLI_CERTIFICATION_DIFFERENTIAL_SHARD: ${{ matrix.differential_shard }}
