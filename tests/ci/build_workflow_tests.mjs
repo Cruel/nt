@@ -63,6 +63,15 @@ test('CLI certification receives same-run shader headers without depending on ca
   assert.ok(consumer.indexOf(download) < consumer.indexOf('- name: Certify NovelTea host CLI'));
 });
 
+test('differential-only CLI certification builds its Node reference bundle in the clean matrix job', () => {
+  const consumer = job('linux-cli-certify');
+  const bundleBuild = step(consumer, 'Build Node reference bundle for differential-only shard');
+  const certification = step(consumer, 'Certify NovelTea host CLI');
+  assert.equal(field(bundleBuild, 'if'), "matrix.sections == 'differential'");
+  assert.match(bundleBuild, /pnpm -C editor exec vp pack/);
+  assert.ok(consumer.indexOf(bundleBuild) < consumer.indexOf(certification));
+});
+
 test('vcpkg binary caches have independent configuration writers and refresh on new commits', () => {
   const sdk = step(vcpkg, 'Cache vcpkg SDK');
   const binaries = step(vcpkg, 'Cache vcpkg binaries');
