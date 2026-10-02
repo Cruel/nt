@@ -4,6 +4,15 @@ Feature Lab is NovelTea's canonical in-tree authored acceptance and working-refe
 
 The Project root is `tests/projects/feature-lab/`; this README lives beside `project.json`. Its authoritative catalog is the registered JSON `data` Asset `feature-lab-catalog`, backed by `assets/data/feature-lab.json`. The persistent Game HUD Layout reads that exact Asset at runtime; do not introduce a second Lua or generated catalog.
 
+## Comprehensive population
+
+The [capability inventory](../../../docs/runtime/plans/FEATURE_LAB_INVENTORY.md) assigns final
+stations/checks and minimal asset needs to #250–#258 after the validated pilot checkpoint. It is a
+one-time population plan, not implemented coverage: transfer entries into this Project's catalog
+and remove the corresponding planning rows as work lands. Do not add fake launch targets for
+unbuilt scenarios or maintain a parallel coverage ledger. Map-specific coverage is owner-deferred
+until it can provide meaningful acceptance checks; ordinary Room navigation remains in scope.
+
 ## Catalog contract
 
 The project-specific validator is `tools/feature-lab/validate.mjs`. It checks stable IDs and references, `ready` / `provisional` / `blocked` statuses, valid UTC calendar timestamps, automation targets, Asset Requirement realizations, and derived scenario metadata. Reference collections must be arrays, including when empty. The catalog inherits Project Workspace Format; it has no independent `schemaVersion`, and the replaced versioned shape is rejected. Automation references resolve authored semantic/UI Tests or stable IDs declared in the manifest's `visualCheckpoints` registry.
@@ -27,7 +36,7 @@ gameplay admission, world hit testing, or Hotspot hover/highlight state. The Rml
 for the element/style side of that evidence; it is not a separate routing log. See
 `docs/runtime/DEVELOPER_DEBUGGING.md` for the exact evidence sequence and build capability matrix.
 
-The Feature Lab media are reusable reference assets rather than scenario-specific generated placeholders: a WebP bedroom background, transparent WebP button, matched normal/smile Character sprites, MP3 notification SFX, and a spoken MP3 voice line. The Fade remains a manual perceptual check. `assets/audio/music_loop.mp3` is reserved for future scenarios and is not registered or played by either pilot. Current media checks are ready; use provisional status only for genuine temporary limitations, not to preserve a placeholder demonstration.
+The Feature Lab media are reusable reference assets rather than scenario-specific generated placeholders: a WebP bedroom background, transparent WebP button, matched normal/smile Character sprites, MP3 notification SFX, and a spoken MP3 voice line. The Fade remains a manual perceptual check. The registered `music-loop` Asset (`assets/audio/music_loop.mp3`) is reserved for future scenarios and is not played by either pilot. Current media checks are ready; use provisional status only for genuine temporary limitations, not to preserve a placeholder demonstration.
 
 The Dialogue & Presentation pilot uses an ordinary Room lifecycle to start a real Dialogue with staged Character presentation, a normal-to-smile expression change, timed flash and notification-sound cues, spoken voice playback, a real runtime Dialogue choice, and a choice effect that mutates authoritative global state. Its semantic Test covers opening/continuation/branch state, while its UI Test advances semantically to the behavior under test and then clicks the real RmlUi choice. The pilot intentionally does not add another GPU/readback fixture: existing focused runtime UI/rendering readback coverage already protects composition mechanics, while these pilot checks exercise the authored-project presentation path manually without adding a redundant GPU golden. Real reference media improve manual perceptual verification but do not by themselves justify another composition-mechanics fixture.
 
