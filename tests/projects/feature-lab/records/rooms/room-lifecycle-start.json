@@ -1,0 +1,36 @@
+{
+  "id": "room-lifecycle-start",
+  "label": "Room Lifecycle Lab",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Make a round trip",
+    "background": { "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } }, "materialApplication": null, "fit": "cover", "color": "#101820" },
+    "description": { "source": { "kind": "inline", "text": "Exercise source, exit, and target rejection, then make a successful round trip and compare transition policies." }, "markup": "active-text" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [], "cast": [], "props": [], "interactables": [], "environments": [],
+    "scriptHooks": [
+      { "hook": "can-leave", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_can_leave" } },
+      { "hook": "before-leave", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_before_leave" } },
+      { "hook": "after-leave", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_after_leave" } },
+      { "hook": "reject-leave", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_reject_leave" } }
+    ],
+    "lifecycle": {
+      "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" }, "beforeEnter": [], "afterEnter": [],
+      "beforeLeave": [{ "id": "before-leave-program", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "lifecycle-before-leave-marker" } }, "value": true }],
+      "afterLeave": [{ "id": "after-leave-program", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Program after-leave ran." }, "markup": "plain" } }],
+      "onEnterRejected": [],
+      "onLeaveRejected": [{ "id": "source-rejected", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Source can-leave rejection program ran." }, "markup": "plain" } }]
+    },
+    "exits": [
+      { "id": "reject-source", "label": "Reject at source", "direction": "north", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-roundtrip" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "reject-exit", "label": "Reject selected exit", "direction": "south", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-roundtrip" } }, "condition": { "kind": "variable-comparison", "variable": { "$ref": { "collection": "variables", "id": "policy-entry-allowed" } }, "operator": "truthy" }, "onRejected": [{ "id": "exit-rejected", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Selected exit rejection program ran." }, "markup": "plain" } }] },
+      { "id": "reject-target", "label": "Reject at target", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-denied" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "round-trip", "label": "Successful round trip", "direction": "east", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-roundtrip" } }, "condition": { "kind": "always" }, "transition": { "kind": "dissolve", "durationMs": 450, "color": null, "skippable": true }, "onRejected": [] }
+    ],
+    "placements": [], "fallbackInteractablePlacementId": null, "features": [], "hotspots": []
+  }
+}

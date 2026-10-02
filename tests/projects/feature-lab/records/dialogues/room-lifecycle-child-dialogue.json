@@ -1,0 +1,36 @@
+{
+  "id": "room-lifecycle-child-dialogue",
+  "label": "Room Lifecycle Child Dialogue",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Room Lifecycle Child Dialogue",
+    "defaultSpeaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": { "showDisabledChoices": true, "logMode": "everything" },
+    "entryBlockId": "child-line",
+    "blocks": [
+      {
+        "id": "child-line",
+        "type": "sequence",
+        "label": "Child flow",
+        "defaultSpeaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+        "segments": [
+          {
+            "id": "line",
+            "type": "line",
+            "speaker": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+            "text": { "source": { "kind": "inline", "text": "This Dialogue returns to the Room lifecycle that called it." }, "markup": "plain" },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": { "kind": "return" }
+  }
+}

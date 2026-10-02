@@ -1,0 +1,11 @@
+{
+  "id": "lifecycle-before-enter-marker",
+  "label": "Lifecycle Before Enter Marker",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

@@ -1,0 +1,76 @@
+{
+  "id": "rooms-interactions-policy-target",
+  "label": "Navigation Policy Target",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Navigation Policy Target",
+    "background": {
+      "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#18222c"
+    },
+    "description": {
+      "source": { "kind": "inline", "text": "Directed relocation reached this guarded Room. The same guard rejects ordinary navigation." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 1920, "height": 1080 },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "variable-comparison",
+        "variable": { "$ref": { "collection": "variables", "id": "policy-entry-allowed" } },
+        "operator": "truthy"
+      },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "directed-arrival",
+          "kind": "notify",
+          "message": { "source": { "kind": "inline", "text": "Directed Room Change committed despite the false entry guard." }, "markup": "plain" }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [
+        {
+          "id": "ordinary-entry-rejected",
+          "kind": "notify",
+          "message": { "source": { "kind": "inline", "text": "Ordinary navigation was rejected by the target Room guard." }, "markup": "plain" }
+        }
+      ],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "return-workshop",
+        "label": "Return to workshop",
+        "direction": "west",
+        "target": { "$ref": { "collection": "rooms", "id": "rooms-interactions-workshop" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
+      }
+    ],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

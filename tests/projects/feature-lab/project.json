@@ -95,6 +95,42 @@
       "materialApplication": { "material": null, "parameters": {}, "textures": {} },
       "featureOverrides": []
     },
+    "navigation-policy-button": {
+      "id": "navigation-policy-button",
+      "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "rooms-interactions-workshop" } } },
+      "enabled": true,
+      "visible": true,
+      "quantity": 1,
+      "traits": { "add": [], "remove": [] },
+      "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+      "featureOverrides": []
+    },
+    "world-composition-sample": {
+      "id": "world-composition-sample",
+      "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "world-composition" } } },
+      "enabled": true,
+      "visible": true,
+      "quantity": 1,
+      "traits": { "add": [], "remove": [] },
+      "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+      "featureOverrides": []
+    },
+    "world-fit-control": {
+      "id": "world-fit-control",
+      "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "world-composition" } } },
+      "enabled": true,
+      "visible": true,
+      "quantity": 1,
+      "traits": { "add": [], "remove": [] },
+      "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+      "featureOverrides": []
+    },
     "material-definition-sample": {
       "id": "material-definition-sample",
       "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },

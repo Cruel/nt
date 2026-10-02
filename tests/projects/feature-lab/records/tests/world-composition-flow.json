@@ -1,0 +1,76 @@
+{
+  "id": "world-composition-flow",
+  "label": "World composition semantic flow",
+  "data": {
+    "kind": "test",
+    "displayName": "World composition semantic flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh Lab home",
+        "expectations": [
+          { "id": "home", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "feature-lab-home" } },
+          { "id": "composition-disabled", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "world-composition-enabled", "value": false } },
+          { "id": "background-fit-starts-contain", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "world-background-fit", "value": "contain" } }
+        ]
+      },
+      {
+        "id": "enter-world-lab",
+        "input": "navigate",
+        "label": "Enter world composition station",
+        "navigate": { "exitId": "world-composition-test-entry" },
+        "expectations": [
+          { "id": "world-room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "world-composition" } },
+          { "id": "sample-location", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "world-composition-sample", "locationKind": "room", "roomId": "world-composition", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "" } }
+        ]
+      },
+      {
+        "id": "cycle-background-fit",
+        "input": "run-interaction",
+        "label": "Advance background fit using authored presentation API",
+        "runInteraction": {
+          "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+          "bindings": [
+            { "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-fit-control" } } } }
+          ]
+        },
+        "expectations": [
+          { "id": "background-fit-advanced", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "world-background-fit", "value": "cover" } },
+          { "id": "background-fit-notification", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Background fit advanced to the next mode." } }
+        ]
+      },
+      {
+        "id": "toggle-world",
+        "input": "run-interaction",
+        "label": "Toggle conditional composition and runtime environment",
+        "runInteraction": {
+          "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+          "bindings": [
+            { "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-composition-sample" } } } }
+          ]
+        },
+        "expectations": [
+          { "id": "composition-enabled", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "world-composition-enabled", "value": true } },
+          { "id": "composition-notification", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "World composition and the runtime environment changed." } }
+        ]
+      },
+      {
+        "id": "toggle-world-off",
+        "input": "run-interaction",
+        "label": "Stop keyed runtime environment",
+        "runInteraction": {
+          "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+          "bindings": [
+            { "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-composition-sample" } } } }
+          ]
+        },
+        "expectations": [
+          { "id": "composition-disabled-again", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "world-composition-enabled", "value": false } }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

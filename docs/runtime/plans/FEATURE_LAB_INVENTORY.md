@@ -92,45 +92,12 @@ runtime playback backend.
 
 ### World & Interaction — #250
 
-#### `rooms-interactions` — Unlock the workshop
-
-Retain the proven short locked-door workflow. The six existing catalog checks
-`initial-world-state`, `rejected-exit`, `interaction-mutation`, `successful-exit`, `fade-transition`,
-and `destination-lifecycle` remain authoritative, including their current actions, created history,
-media requirements, and `rooms-interactions-flow` links. They classify initial world presentation,
-Exit-condition rejection, primary Interaction mutation, successful navigation, Fade, and destination
-after-enter behavior as Feature-Lab-applicable. Do not broaden them to claim every lifecycle path.
-Add only this closely related distinction:
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `navigation-policy` | Compare an ordinary denied attempt with directed relocation → only the attempt is vetoed; directed change runs lifecycle and exposes the guard diagnostic. | S | backdrop |
-
-#### `room-lifecycle` — Make a round trip
-
-Use two Rooms and a self-loop, with ordinary notifications and visible state to explain each visit.
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `guard-rejection-paths` | Trigger source can-leave, selected-Exit, and destination can-enter denial → the appropriate rejection program/hook runs; source stay is preserved. | S | backdrop |
-| `lifecycle-order` | Travel normally → before-leave/before-enter precede commit and after-leave/after-enter follow it; declarative programs precede their Script Hooks. | S | backdrop |
-| `entry-context` | Traverse directional and self-loop exits → source/Exit/Entry Cause identify the attempt; a self-loop creates a new Entry Sequence, unlike recomposition or idempotent assignment. | S | backdrop |
-| `lifecycle-child-flow` | Enter a Room whose post-commit program calls Dialogue → target Room is current while Flow blocks exploration, then continuation returns without replaying earlier effects. | S | character-pair |
-| `no-room-boundary` | Start on a blank Scene and enter/leave exploration → only the applicable lifecycle half runs when there is no Current Room. | S | — |
-| `transition-selection` | Compare Cut and Dissolve with project, Exit, and explicit request settings → precedence chooses the requested transition; skip settles at the committed destination. Fade stays in the workshop. | V | backdrop, pattern |
-
-#### `world-composition` — Arrange the display window
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `background-fit` | Compare cover/contain/stretch/center around marked landmarks → cropping, bars, and source-image Hotspot alignment agree. | V | backdrop, pattern |
-| `occurrences-and-location` | Show a Character and an Interactable at multiple placements, then move to Room/Unplaced and independently disable/hide them → occurrences remain separate from Location and do not duplicate gameplay identities or bypass eligibility. | S | button, character-pair |
-| `placement-resolution` | Move an Instance using explicit dynamic placement, authored occurrence, fallback, then explicit no-presentation → correct occurrence is chosen; missing ordinary placement rejects without moving. | S | button |
-| `composition-conditions` | Change a Property used by a pure Room composition hook and cast/Prop/overlay Conditions → coherent visible composition changes without moving semantic occupants. | V | button, character-pair |
-| `world-plane-order` | Overlap cast, Props, Interactables and environments → signed order interleaves within each plane; actor layers stay contiguous. Shares the existing materials cross-family witness, not another identical Prop/button test. | V | button, character-layers, pattern |
-| `placement-layout` | Visit Rooms with translated/zoomed/rotated default Views, a placement-attached Layout and a full-Room overlay → only the spatial mount follows its placement footprint; overlay order is respected. | V | backdrop |
-| `camera-views` | Compare Room-authored default Views with bounded contain versus overscan → rotated/zoomed framing clamps only for contain, independently of semantic Location. Named-view selection and Focus currently lack an authored invocation path; see automation-only. | V | pattern |
-| `environment-lifetime` | Start/replace/stop a scrolling environment by instance/stop key; pause and leave → owner, plane, UV motion, opacity and gameplay/unscaled clock policies remain distinct. | V | pattern |
+Transferred to the authoritative Feature Lab catalog in `tests/projects/feature-lab/assets/data/feature-lab.json`.
+The implemented stations are `rooms-interactions`, `room-lifecycle`, and `world-composition`. Checks
+whose complete inventory behavior lacks a normal authored invocation path remain explicitly `blocked`
+in the catalog: `no-room-boundary`, `transition-selection`, `occurrences-and-location`,
+`placement-resolution`, and `camera-views`. The catalog records those limitations instead of narrowing
+or claiming coverage that the authored station cannot exercise.
 
 ### People & Conversation — #251
 

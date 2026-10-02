@@ -37,6 +37,14 @@
         "placementId": "gate-lever-placement",
         "visible": true,
         "order": 10
+      },
+      {
+        "id": "navigation-policy-button",
+        "interactable": { "$ref": { "registry": "interactableInstances", "id": "navigation-policy-button" } },
+        "condition": { "kind": "always" },
+        "placementId": "navigation-policy-button-placement",
+        "visible": true,
+        "order": 20
       }
     ],
     "environments": [],
@@ -70,6 +78,14 @@
             "message": { "source": { "kind": "inline", "text": "The bedroom door is locked." }, "markup": "plain" }
           }
         ]
+      },
+      {
+        "id": "policy-door",
+        "label": "Guarded policy door",
+        "direction": "north",
+        "target": { "$ref": { "collection": "rooms", "id": "rooms-interactions-policy-target" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
       }
     ],
     "placements": [
@@ -77,6 +93,14 @@
         "id": "gate-lever-placement",
         "bounds": { "x": 0.69, "y": 0.25, "width": 0.08, "height": 0.14 },
         "presentation": { "label": null, "layout": null }
+      },
+      {
+        "id": "navigation-policy-button-placement",
+        "bounds": { "x": 0.12, "y": 0.68, "width": 0.08, "height": 0.14 },
+        "presentation": {
+          "label": { "source": { "kind": "inline", "text": "Directed relocation" }, "markup": "plain" },
+          "layout": null
+        }
       }
     ],
     "fallbackInteractablePlacementId": null,
@@ -99,6 +123,15 @@
         "highlight": { "kind": "default" },
         "shape": { "kind": "rect", "bounds": { "x": 0.76, "y": 0.02, "width": 0.19, "height": 0.82 } },
         "target": { "kind": "exit", "exitId": "east-gate" }
+      },
+      {
+        "id": "policy-door-hotspot",
+        "label": "Guarded policy door",
+        "condition": { "kind": "always" },
+        "inputOrder": 2,
+        "highlight": { "kind": "default" },
+        "shape": { "kind": "rect", "bounds": { "x": 0.02, "y": 0.02, "width": 0.18, "height": 0.45 } },
+        "target": { "kind": "exit", "exitId": "policy-door" }
       }
     ]
   }

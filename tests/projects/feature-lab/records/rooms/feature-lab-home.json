@@ -61,6 +61,22 @@
         "target": { "$ref": { "collection": "rooms", "id": "dialogue-presentation-stage" } },
         "condition": { "kind": "always" },
         "onRejected": []
+      },
+      {
+        "id": "room-lifecycle-test-entry",
+        "label": "Room Lifecycle (automation entry)",
+        "direction": "west",
+        "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-start" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
+      },
+      {
+        "id": "world-composition-test-entry",
+        "label": "World Composition (automation entry)",
+        "direction": "north",
+        "target": { "$ref": { "collection": "rooms", "id": "world-composition" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
       }
     ],
     "placements": [],

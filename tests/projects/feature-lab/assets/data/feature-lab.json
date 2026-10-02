@@ -33,6 +33,14 @@
     {
       "id": "materials-engine2d",
       "roomId": "materials-engine2d-lab"
+    },
+    {
+      "id": "room-lifecycle",
+      "roomId": "room-lifecycle-start"
+    },
+    {
+      "id": "world-composition",
+      "roomId": "world-composition"
     }
   ],
   "visualCheckpoints": [],
@@ -195,7 +203,60 @@
           "automation": [
             { "kind": "semantic-test", "id": "rooms-interactions-flow" }
           ]
+        },
+        {
+          "id": "navigation-policy",
+          "title": "Attempted navigation and directed relocation use different guard policy",
+          "action": "Use the guarded policy door, then activate the Directed relocation control.",
+          "guideSubtext": "The door attempt stays in the workshop; the directed relocation commits to the same guarded target.",
+          "expected": "Ordinary navigation is vetoed by the target can-enter guard and runs rejection handling. Directed Room Change reaches the target, runs normal lifecycle, and records the guard only as a diagnostic policy condition.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-10-02T07:20:00Z",
+          "modified": "2026-10-02T07:20:00Z",
+          "assetRequirements": ["pilot-room-backdrop", "pilot-button-sprite"],
+          "automation": [
+            { "kind": "semantic-test", "id": "rooms-interactions-flow" }
+          ]
         }
+      ]
+    },
+    {
+      "id": "room-lifecycle",
+      "categoryId": "world-interaction",
+      "title": "Room Lifecycle",
+      "description": "A compact round-trip station covering source/exit/target rejection, ordered lifecycle programs and hooks, transition context, child flow, and authored transition selection.",
+      "status": "ready",
+      "created": "2026-10-02T07:20:00Z",
+      "modified": "2026-10-02T07:20:00Z",
+      "launch": { "entry": "room-lifecycle" },
+      "checks": [
+        { "id": "guard-rejection-paths", "title": "Source, exit, and target rejection paths stay distinct", "action": "Try Reject at source, Reject selected exit, and Reject at target in order.", "expected": "Each attempt remains in the source Room and emits only the rejection handling associated with the failing phase.", "status": "ready", "verification": "semantic", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop"], "automation": [{ "kind": "semantic-test", "id": "room-lifecycle-flow" }] },
+        { "id": "lifecycle-order", "title": "Lifecycle programs run before matching hooks", "action": "Take Successful round trip and inspect the ordered lifecycle notifications.", "guideSubtext": "Pre-commit programs set marker Variables; matching hooks report those markers as true.", "expected": "Before-leave and before-enter hooks observe the immediately preceding program mutations, then after-leave and after-enter program/hook notifications occur after commit.", "status": "ready", "verification": "semantic", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop"], "automation": [{ "kind": "semantic-test", "id": "room-lifecycle-flow" }] },
+        { "id": "entry-context", "title": "Room entry context reports cause and sequence", "action": "Complete a successful entry, then use the self-loop on the destination.", "expected": "The after-enter hook reports navigation-attempt as the cause and a monotonically advancing entry sequence; self-entry creates a new occurrence rather than reusing the prior sequence.", "status": "ready", "verification": "semantic", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop"], "automation": [{ "kind": "semantic-test", "id": "room-lifecycle-flow" }] },
+        { "id": "lifecycle-child-flow", "title": "After-enter can run and resume a child flow", "action": "From the round-trip destination choose Enter child flow and complete the Dialogue.", "expected": "The child Room after-enter lifecycle starts the authored Dialogue, waits for it to finish, then resumes and emits the return notification without losing the Current Room.", "status": "ready", "verification": "semantic", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-character-neutral", "pilot-character-smile"], "automation": [{ "kind": "semantic-test", "id": "room-lifecycle-child-flow" }] },
+        { "id": "no-room-boundary", "title": "Lifecycle behavior at a no-Current-Room boundary", "action": "Exercise a Room transition whose source or destination has no Current Room.", "expected": "Only the lifecycle half applicable to the existing Room runs; there is no fabricated source or destination lifecycle.", "status": "blocked", "verification": "semantic", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": [], "automation": [] },
+        { "id": "transition-selection", "title": "Room transition settings select distinct presentation", "action": "Compare project-default Cut, Exit-level Dissolve/Fade, and an explicit requested transition.", "expected": "Transition precedence is explicit request, selected Exit override, then project default; skipping settles at the committed destination.", "status": "blocked", "verification": "visual", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop"], "automation": [] }
+      ]
+    },
+    {
+      "id": "world-composition",
+      "categoryId": "world-interaction",
+      "title": "World Composition",
+      "description": "A camera-framed Room with duplicated Interactable occurrences, Character/Prop composition, conditional overlays, placement Layouts, world-plane ordering, and authored/runtime environments.",
+      "status": "ready",
+      "created": "2026-10-02T07:20:00Z",
+      "modified": "2026-10-02T07:20:00Z",
+      "launch": { "entry": "world-composition" },
+      "checks": [
+        { "id": "background-fit", "title": "Background fit remains readable under a nontrivial camera", "action": "Activate Cycle background fit repeatedly to compare contain, cover, stretch, and center around the backdrop landmarks.", "expected": "Cropping, bars, stretching, and centered source-image geometry change according to the selected fit while the Room camera remains zoomed and rotated.", "status": "ready", "verification": "visual", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop", "pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "world-composition-flow" }] },
+        { "id": "occurrences-and-location", "title": "Occurrences stay separate from authoritative Location", "action": "Show a Character and an Interactable at multiple placements, then move them between Room and Unplaced while independently changing visibility/eligibility.", "expected": "Occurrences remain presentation-only: Location stays authoritative, identities are not duplicated, and hidden/disabled subjects do not bypass eligibility.", "status": "blocked", "verification": "semantic", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-button-sprite", "pilot-character-neutral", "pilot-character-smile"], "automation": [] },
+        { "id": "placement-resolution", "title": "Placement resolution follows the documented precedence", "action": "Move an Instance through explicit dynamic placement, authored occurrence, fallback, and explicit no-presentation cases.", "expected": "The correct occurrence is selected at each precedence level, and an ordinary move with no valid placement rejects without moving semantic Location.", "status": "blocked", "verification": "semantic", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-button-sprite"], "automation": [] },
+        { "id": "composition-conditions", "title": "Conditions and composition hook alter one draft", "action": "Activate either cyan sample once, then again.", "expected": "The conditional Prop and overlay appear when enabled, while the Room compose hook independently controls the Character occurrence from the same global state; the second activation restores the initial composition.", "status": "ready", "verification": "visual", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-button-sprite", "pilot-character-neutral", "pilot-character-smile"], "automation": [{ "kind": "semantic-test", "id": "world-composition-flow" }] },
+        { "id": "world-plane-order", "title": "World planes and authored order compose predictably", "action": "Inspect the scrolling background Environment, Interactable/Character/Prop content, and overlay Environment; compare the cross-family overlap witness in Materials & Engine2D.", "expected": "World Background stays behind World Content, World Overlay stays above it, and local authored order controls overlap within a plane without introducing hard Prop/Interactable tiers.", "status": "ready", "verification": "visual", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-button-sprite", "pilot-character-neutral", "pilot-room-backdrop"], "automation": [] },
+        { "id": "placement-layout", "title": "A spatial placement may mount a Layout", "action": "Inspect the Spatial Layout marker over the center Prop.", "expected": "The authored world-placement-marker Layout is mounted at the Prop placement and follows the placement geometry rather than behaving like a full-screen overlay.", "status": "ready", "verification": "visual", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop"], "automation": [] },
+        { "id": "camera-views", "title": "Room camera views respect bounds and edge policy", "action": "Compare translated, zoomed, and rotated default/named views under bounded contain versus overscan behavior.", "expected": "Contain clamps framing to authored bounds while overscan does not, independently of semantic Location; named-view selection and Focus require an authored invocation path before this can be completed in the Lab.", "status": "blocked", "verification": "visual", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop"], "automation": [] },
+        { "id": "environment-lifetime", "title": "Authored and runtime environments have explicit lifetime", "action": "Watch both scrolling authored Environments, activate a cyan sample twice, pause/resume, then leave the Room.", "expected": "Owner, plane, UV motion, opacity, replacement/stop-key behavior, and gameplay versus unscaled-presentation clock policies remain distinct; Room-owned environments terminate when their owner ends.", "status": "ready", "verification": "visual", "created": "2026-10-02T07:20:00Z", "modified": "2026-10-02T07:20:00Z", "assetRequirements": ["pilot-room-backdrop"], "automation": [{ "kind": "semantic-test", "id": "world-composition-flow" }] }
       ]
     },
     {

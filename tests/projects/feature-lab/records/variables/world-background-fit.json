@@ -1,0 +1,11 @@
+{
+  "id": "world-background-fit",
+  "label": "World Background Fit",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "contain",
+    "scope": "global"
+  }
+}

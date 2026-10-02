@@ -59,6 +59,71 @@
         ]
       },
       {
+        "id": "reject-policy-target",
+        "input": "navigate",
+        "label": "Ordinary navigation obeys target guard",
+        "navigate": { "exitId": "policy-door" },
+        "expectations": [
+          {
+            "id": "policy-attempt-stays-put",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-workshop" }
+          },
+          {
+            "id": "policy-target-rejection",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "Ordinary navigation was rejected by the target Room guard." }
+          }
+        ]
+      },
+      {
+        "id": "directed-policy-relocation",
+        "input": "run-interaction",
+        "label": "Directed relocation ignores exploration guard",
+        "runInteraction": {
+          "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+          "bindings": [
+            {
+              "slotId": "target",
+              "subject": {
+                "kind": "interactable",
+                "interactable": { "$ref": { "registry": "interactableInstances", "id": "navigation-policy-button" } }
+              }
+            }
+          ]
+        },
+        "expectations": [
+          {
+            "id": "directed-policy-target",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-policy-target" }
+          },
+          {
+            "id": "directed-arrival-notification",
+            "type": "event",
+            "operator": "present",
+            "event": { "kind": "notification", "value": "Directed Room Change committed despite the false entry guard." }
+          }
+        ]
+      },
+      {
+        "id": "return-from-policy",
+        "input": "navigate",
+        "label": "Return from policy target",
+        "navigate": { "exitId": "return-workshop" },
+        "expectations": [
+          {
+            "id": "returned-to-workshop",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": { "roomId": "rooms-interactions-workshop" }
+          }
+        ]
+      },
+      {
         "id": "operate-lever",
         "input": "run-interaction",
         "label": "Press gate button",

@@ -45,6 +45,117 @@
           "completion": { "kind": "return" },
           "outcome": "handled"
         }
+      },
+      {
+        "id": "cycle-world-background-fit",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [
+          {
+            "slotId": "target",
+            "selectors": [
+              {
+                "kind": "exact",
+                "subject": {
+                  "kind": "interactable",
+                  "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-fit-control" } }
+                }
+              }
+            ]
+          }
+        ],
+        "offer": { "slotId": "target", "rank": 10, "primary": true },
+        "guard": { "kind": "always" },
+        "priority": 10,
+        "program": {
+          "instructions": [
+            {
+              "id": "cycle-fit",
+              "kind": "run-lua",
+              "source": "local fit, _, err = Game.prop('world-background-fit'); if err then error(err) end; local next_fit = ({contain='cover', cover='stretch', stretch='center', center='contain'})[fit] or 'contain'; local ok, set_err = Game.set_prop('world-background-fit', next_fit); if not ok then error(set_err) end; local bg_ok, bg_err = noveltea.presentation.set_background({owner='current-room', asset='pilot-room-backdrop', fit=next_fit, color='#09131c'}); if not bg_ok then error(bg_err) end"
+            },
+            {
+              "id": "announce-fit",
+              "kind": "notify",
+              "message": { "source": { "kind": "inline", "text": "Background fit advanced to the next mode." }, "markup": "plain" }
+            }
+          ],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
+      },
+      {
+        "id": "toggle-world-composition",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [
+          {
+            "slotId": "target",
+            "selectors": [
+              {
+                "kind": "exact",
+                "subject": {
+                  "kind": "interactable",
+                  "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-composition-sample" } }
+                }
+              }
+            ]
+          }
+        ],
+        "offer": { "slotId": "target", "rank": 10, "primary": true },
+        "guard": { "kind": "always" },
+        "priority": 10,
+        "program": {
+          "instructions": [
+            {
+              "id": "toggle-composition",
+              "kind": "run-lua",
+              "source": "local value, _, err = Game.prop('world-composition-enabled'); if err then error(err) end; local ok, set_err = Game.set_prop('world-composition-enabled', not value); if not ok then error(set_err) end"
+            },
+            {
+              "id": "replace-environment",
+              "kind": "run-lua",
+              "source": "local value, _, err = Game.prop('world-composition-enabled'); if err then error(err) end; if value then local ok, env_err = noveltea.presentation.set_environment('runtime-pattern', 'engine2d-draw-contract', {owner='current-room', asset='pilot-room-backdrop', stop_key='lab-pattern', plane='world-content', order=25, clock='unscaled-presentation', x=0.34, y=0.08, width=0.32, height=0.2, scroll_x=0.06, opacity=0.45}); if not ok then error(env_err) end else local ok, env_err = noveltea.presentation.stop_environments('lab-pattern', {owner='current-room'}); if not ok then error(env_err) end end"
+            },
+            {
+              "id": "announce-composition",
+              "kind": "notify",
+              "message": { "source": { "kind": "inline", "text": "World composition and the runtime environment changed." }, "markup": "plain" }
+            }
+          ],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
+      },
+      {
+        "id": "directed-policy-relocation",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [
+          {
+            "slotId": "target",
+            "selectors": [
+              {
+                "kind": "exact",
+                "subject": {
+                  "kind": "interactable",
+                  "interactable": { "$ref": { "registry": "interactableInstances", "id": "navigation-policy-button" } }
+                }
+              }
+            ]
+          }
+        ],
+        "offer": { "slotId": "target", "rank": 10, "primary": true },
+        "guard": { "kind": "always" },
+        "priority": 10,
+        "program": {
+          "instructions": [
+            {
+              "id": "directed-relocation",
+              "kind": "run-lua",
+              "source": "noveltea.flow.replace_room('rooms-interactions-policy-target')"
+            }
+          ],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
       }
     ]
   }

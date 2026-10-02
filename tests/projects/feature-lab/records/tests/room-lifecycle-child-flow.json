@@ -1,0 +1,59 @@
+{
+  "id": "room-lifecycle-child-flow",
+  "label": "Room lifecycle child-flow semantic test",
+  "data": {
+    "kind": "test",
+    "displayName": "Room lifecycle child-flow semantic test",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh Lab home",
+        "expectations": [
+          { "id": "home", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "feature-lab-home" } }
+        ]
+      },
+      {
+        "id": "enter-lifecycle",
+        "input": "navigate",
+        "label": "Enter lifecycle station",
+        "navigate": { "exitId": "room-lifecycle-test-entry" },
+        "expectations": [
+          { "id": "lifecycle-start", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-start" } }
+        ]
+      },
+      {
+        "id": "enter-roundtrip",
+        "input": "navigate",
+        "label": "Reach round-trip destination",
+        "navigate": { "exitId": "round-trip" },
+        "expectations": [
+          { "id": "roundtrip-current", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-roundtrip" } }
+        ]
+      },
+      {
+        "id": "enter-child-room",
+        "input": "navigate",
+        "label": "Enter child-flow Room",
+        "navigate": { "exitId": "child-flow" },
+        "expectations": [
+          { "id": "child-room-current", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-child" } },
+          { "id": "dialogue-child-active", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "dialogue", "flowId": "room-lifecycle-child-dialogue" } },
+          { "id": "child-start-notification", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "After-enter is starting a child Dialogue." } }
+        ]
+      },
+      {
+        "id": "finish-child-dialogue",
+        "input": "continue",
+        "label": "Finish child Dialogue and resume Room lifecycle",
+        "expectations": [
+          { "id": "child-room-still-current", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "room-lifecycle-child" } },
+          { "id": "dialogue-finished", "type": "active-flow", "operator": "absent", "activeFlow": { "kind": "dialogue", "flowId": "room-lifecycle-child-dialogue" } },
+          { "id": "child-return-notification", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Child Dialogue returned to Room lifecycle." } }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

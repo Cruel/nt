@@ -1,0 +1,211 @@
+{
+  "id": "world-composition",
+  "label": "World Composition Lab",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Arrange the display window",
+    "background": {
+      "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+      "materialApplication": null,
+      "fit": "contain",
+      "color": "#09131c"
+    },
+    "description": {
+      "source": { "kind": "inline", "text": "Compare the camera-framed background, overlapping world occurrences, spatial Layout marker, and scrolling environments. Press either cyan sample to toggle conditional composition." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 2400, "height": 1350 },
+      "bounds": { "x": 0, "y": 0, "width": 2400, "height": 1350 },
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 1200, "y": 675 }, "zoom": 1.15, "rotationDegrees": 4 },
+      "views": [
+        { "id": "wide", "view": { "center": { "x": 1200, "y": 675 }, "zoom": 0.8, "rotationDegrees": 0 } },
+        { "id": "detail", "view": { "center": { "x": 1550, "y": 600 }, "zoom": 1.6, "rotationDegrees": -7 } }
+      ]
+    },
+    "anchors": [
+      { "id": "center-stage", "bounds": { "x": 0.42, "y": 0.22, "width": 0.16, "height": 0.58 } },
+      { "id": "right-detail", "bounds": { "x": 0.68, "y": 0.3, "width": 0.18, "height": 0.35 } }
+    ],
+    "overlays": [
+      {
+        "id": "conditional-overlay",
+        "layout": { "$ref": { "collection": "layouts", "id": "world-placement-marker" } },
+        "condition": {
+          "kind": "variable-comparison",
+          "variable": { "$ref": { "collection": "variables", "id": "world-composition-enabled" } },
+          "operator": "truthy"
+        },
+        "visible": true,
+        "order": 60
+      }
+    ],
+    "cast": [
+      {
+        "id": "guide",
+        "character": { "$ref": { "collection": "characters", "id": "pilot-guide" } },
+        "condition": { "kind": "always" },
+        "placementId": "guide-placement",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "smile",
+        "appearanceId": null,
+        "idleId": null,
+        "visible": true,
+        "order": 20
+      }
+    ],
+    "props": [
+      {
+        "id": "middle-prop",
+        "condition": { "kind": "always" },
+        "placementId": "middle-prop-placement",
+        "asset": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+        "materialApplication": null,
+        "visible": true,
+        "order": 30
+      },
+      {
+        "id": "conditional-prop",
+        "condition": {
+          "kind": "variable-comparison",
+          "variable": { "$ref": { "collection": "variables", "id": "world-composition-enabled" } },
+          "operator": "truthy"
+        },
+        "placementId": "conditional-prop-placement",
+        "asset": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+        "materialApplication": null,
+        "visible": true,
+        "order": 45
+      }
+    ],
+    "interactables": [
+      {
+        "id": "sample-left",
+        "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-composition-sample" } },
+        "condition": { "kind": "always" },
+        "placementId": "sample-left-placement",
+        "visible": true,
+        "order": 10
+      },
+      {
+        "id": "sample-right",
+        "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-composition-sample" } },
+        "condition": { "kind": "always" },
+        "placementId": "sample-right-placement",
+        "visible": true,
+        "order": 40
+      },
+      {
+        "id": "fit-control",
+        "interactable": { "$ref": { "registry": "interactableInstances", "id": "world-fit-control" } },
+        "condition": { "kind": "always" },
+        "placementId": "fit-control-placement",
+        "visible": true,
+        "order": 55
+      }
+    ],
+    "environments": [
+      {
+        "id": "slow-pattern",
+        "condition": { "kind": "always" },
+        "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+        "materialApplication": {
+          "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
+          "parameters": {},
+          "textures": {}
+        },
+        "bounds": { "x": 0.02, "y": 0.05, "width": 0.32, "height": 0.28 },
+        "plane": "world-background",
+        "order": 5,
+        "clock": "gameplay",
+        "scrollPerSecond": { "x": 0.025, "y": 0 },
+        "opacity": 0.35,
+        "visible": true
+      },
+      {
+        "id": "unscaled-pattern",
+        "condition": { "kind": "always" },
+        "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+        "materialApplication": {
+          "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
+          "parameters": { "u_strength": { "type": "float", "source": { "kind": "literal", "value": 0.6 } } },
+          "textures": {}
+        },
+        "bounds": { "x": 0.62, "y": 0.06, "width": 0.34, "height": 0.22 },
+        "plane": "world-overlay",
+        "order": 50,
+        "clock": "unscaled-presentation",
+        "scrollPerSecond": { "x": -0.04, "y": 0.015 },
+        "opacity": 0.5,
+        "visible": true
+      }
+    ],
+    "scriptHooks": [
+      {
+        "hook": "compose",
+        "handler": {
+          "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } },
+          "export": "compose_world_lab"
+        }
+      }
+    ],
+    "lifecycle": {
+      "canEnter": { "kind": "always" },
+      "canLeave": { "kind": "always" },
+      "beforeEnter": [],
+      "afterEnter": [],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      { "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] }
+    ],
+    "placements": [
+      {
+        "id": "sample-left-placement",
+        "bounds": { "x": 0.2, "y": 0.5, "width": 0.12, "height": 0.18 },
+        "presentation": { "label": { "source": { "kind": "inline", "text": "Occurrence A" }, "markup": "plain" }, "layout": null }
+      },
+      {
+        "id": "guide-placement",
+        "bounds": { "x": 0.36, "y": 0.18, "width": 0.24, "height": 0.68 },
+        "presentation": { "label": null, "layout": null }
+      },
+      {
+        "id": "middle-prop-placement",
+        "bounds": { "x": 0.45, "y": 0.48, "width": 0.12, "height": 0.18 },
+        "presentation": {
+          "label": { "source": { "kind": "inline", "text": "Spatial Layout" }, "markup": "plain" },
+          "layout": { "$ref": { "collection": "layouts", "id": "world-placement-marker" } },
+          "layoutOrder": 35
+        }
+      },
+      {
+        "id": "sample-right-placement",
+        "bounds": { "x": 0.58, "y": 0.5, "width": 0.12, "height": 0.18 },
+        "presentation": { "label": { "source": { "kind": "inline", "text": "Occurrence B" }, "markup": "plain" }, "layout": null }
+      },
+      {
+        "id": "conditional-prop-placement",
+        "bounds": { "x": 0.73, "y": 0.52, "width": 0.1, "height": 0.15 },
+        "presentation": { "label": null, "layout": null }
+      },
+      {
+        "id": "fit-control-placement",
+        "bounds": { "x": 0.84, "y": 0.72, "width": 0.1, "height": 0.14 },
+        "presentation": { "label": { "source": { "kind": "inline", "text": "Cycle background fit" }, "markup": "plain" }, "layout": null }
+      }
+    ],
+    "fallbackInteractablePlacementId": "sample-left-placement",
+    "features": [],
+    "hotspots": []
+  }
+}

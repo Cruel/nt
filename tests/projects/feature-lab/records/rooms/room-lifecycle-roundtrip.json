@@ -1,0 +1,43 @@
+{
+  "id": "room-lifecycle-roundtrip",
+  "label": "Lifecycle Round Trip",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Lifecycle Round Trip Destination",
+    "background": { "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } }, "materialApplication": null, "fit": "contain", "color": "#10212a" },
+    "description": { "source": { "kind": "inline", "text": "Return to the lifecycle start, or enter the child-flow room." }, "markup": "active-text" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [],
+    "cast": [
+      { "id": "guide", "character": { "$ref": { "collection": "characters", "id": "pilot-guide" } }, "condition": { "kind": "always" }, "placementId": "guide", "profileId": "stage", "poseId": "standing", "expressionId": "smile", "appearanceId": null, "idleId": null, "visible": true, "order": 10 }
+    ],
+    "props": [], "interactables": [], "environments": [],
+    "scriptHooks": [
+      { "hook": "before-enter", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_before_enter" } },
+      { "hook": "after-enter", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_after_enter" } },
+      { "hook": "before-leave", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_before_leave" } },
+      { "hook": "after-leave", "handler": { "module": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } }, "export": "lifecycle_after_leave" } }
+    ],
+    "lifecycle": {
+      "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" },
+      "beforeEnter": [{ "id": "before-enter-program", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "lifecycle-before-enter-marker" } }, "value": true }],
+      "afterEnter": [{ "id": "after-enter-program", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Program after-enter ran." }, "markup": "plain" } }],
+      "beforeLeave": [{ "id": "before-leave-program", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "lifecycle-before-leave-marker" } }, "value": true }],
+      "afterLeave": [{ "id": "after-leave-program", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Program after-leave ran." }, "markup": "plain" } }],
+      "onEnterRejected": [], "onLeaveRejected": []
+    },
+    "exits": [
+      { "id": "return-start", "label": "Return to lifecycle start", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-start" } }, "condition": { "kind": "always" }, "transition": { "kind": "cut", "durationMs": 0, "color": null, "skippable": true }, "onRejected": [] },
+      { "id": "child-flow", "label": "Enter child flow", "direction": "east", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-child" } }, "condition": { "kind": "always" }, "transition": { "kind": "fade", "durationMs": 250, "color": "#081018", "skippable": true }, "onRejected": [] },
+      { "id": "self-loop", "label": "Self loop", "direction": "north", "target": { "$ref": { "collection": "rooms", "id": "room-lifecycle-roundtrip" } }, "condition": { "kind": "always" }, "onRejected": [] }
+    ],
+    "placements": [
+      { "id": "guide", "bounds": { "x": 0.38, "y": 0.18, "width": 0.24, "height": 0.72 }, "presentation": { "label": null, "layout": null } }
+    ],
+    "fallbackInteractablePlacementId": null, "features": [], "hotspots": []
+  }
+}

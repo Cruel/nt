@@ -1,0 +1,11 @@
+{
+  "id": "policy-entry-allowed",
+  "label": "Policy Entry Allowed",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "world-composition-enabled",
+  "label": "World Composition Enabled",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}
