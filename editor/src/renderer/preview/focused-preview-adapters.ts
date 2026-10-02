@@ -20,7 +20,6 @@ import { effectivePreviewLocale } from '../../shared/preview-locale';
 import { PSEUDO_PREVIEW_LOCALE, pseudoLocalizeRmlMessages } from '../../shared/pseudo-localization';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import type { ShaderCompileOutput } from '../../shared/editor-tooling';
-import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 import type { AuthoringSourceAnalysisArtifact } from '../../shared/project-schema/authoring-lua-analysis';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import {
@@ -76,26 +75,29 @@ export async function canonicalFocusedPreviewInputRevision(
   return sha256PrefixedUtf8(JSON.stringify(canonicalize(value)));
 }
 
-function assetManifestEntry(
+async function assetManifestEntry(
   project: AuthoringProject,
   projectSessionId: string,
   assetId: string,
   usageRole: string,
-): PreviewResourceManifestEntry {
+): Promise<PreviewResourceManifestEntry> {
   const parsed = parseAssetData(project.assets[assetId]?.data);
   if (!parsed)
     throw new Error(`Focused preview Asset '${assetId}' is missing or structurally invalid.`);
-  if (!parsed.contentHash?.match(/^sha256:[0-9a-f]{64}$/) || parsed.byteSize === undefined)
-    throw new Error(`Focused preview Asset '${assetId}' must be reimported before preview.`);
+  const resolved = await window.noveltea.resolveProjectOriginalAssetUrl(projectSessionId, assetId);
+  if (!resolved.ok)
+    throw new Error(
+      `Focused preview Asset '${assetId}' could not be resolved from the active Project (${resolved.code}).`,
+    );
   const base = {
     resourceId: `asset:${assetId}`,
     sourceKind: 'authoring-asset' as const,
     assetId,
     usageRoles: [usageRole],
-    fetchUrl: projectOriginalAssetUrl(projectSessionId, assetId),
+    fetchUrl: resolved.url,
     logicalPath: `project:/${parsed.source.path}`,
-    contentHash: parsed.contentHash as `sha256:${string}`,
-    byteSize: parsed.byteSize,
+    contentHash: resolved.contentHash,
+    byteSize: resolved.byteSize,
   };
   return parsed.kind === 'image'
     ? { ...base, kind: 'image', sampling: parsed.sampling ?? 'linear' }
@@ -208,7 +210,12 @@ async function materialProjection(
     for (const texture of Object.values(resolved.data.textures))
       if (texture.source && '$ref' in texture.source)
         resources.push(
-          assetManifestEntry(project, projectSessionId, texture.source.$ref.id, 'material-texture'),
+          await assetManifestEntry(
+            project,
+            projectSessionId,
+            texture.source.$ref.id,
+            'material-texture',
+          ),
         );
   }
   return { shaderMaterials: built.project, resources };
@@ -281,7 +288,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
     ] as const)
       if (source.sourceMode === 'asset' && source.sourceAsset)
         resources.push(
-          assetManifestEntry(
+          await assetManifestEntry(
             context.project,
             context.projectSessionId,
             source.sourceAsset.$ref.id,
@@ -297,7 +304,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
     ] as const)
       for (const ref of refs ?? [])
         resources.push(
-          assetManifestEntry(context.project, context.projectSessionId, ref.$ref.id, name),
+          await assetManifestEntry(context.project, context.projectSessionId, ref.$ref.id, name),
         );
     resources.push(
       ...(await projectSourceManifestEntries(
@@ -308,7 +315,7 @@ const layoutAdapter: FocusedPreviewAdapter<z.infer<typeof layoutPreviewInputsSch
     );
     for (const cursor of settings.cursors.named)
       resources.push(
-        assetManifestEntry(
+        await assetManifestEntry(
           context.project,
           context.projectSessionId,
           cursor.image.$ref.id,

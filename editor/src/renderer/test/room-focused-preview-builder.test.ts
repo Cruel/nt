@@ -110,8 +110,6 @@ describe('graph-driven Room builder', () => {
         source: { type: 'project-file', path: 'assets/images/background.png' },
         aliases: [],
         sampling: 'linear',
-        byteSize: 3,
-        contentHash: `sha256:${'a'.repeat(64)}`,
         imageMetadata: { width: 1920, height: 1080, hasAlpha: false, orientation: 1 },
       },
     };
@@ -123,8 +121,10 @@ describe('graph-driven Room builder', () => {
     const resource = result.resources.find((entry) => entry.resourceId === 'asset:background');
     expect(resource).toMatchObject({
       assetId: 'background',
-      fetchUrl: 'noveltea-asset://source/11111111-1111-4111-8111-111111111111/background',
+      fetchUrl: 'noveltea-asset://source/session/logo',
       logicalPath: 'project:/assets/images/background.png',
+      contentHash: `sha256:${'0'.repeat(64)}`,
+      byteSize: 1,
     });
     expect(resource).not.toHaveProperty('fetchProjectRelativePath');
   });

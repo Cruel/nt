@@ -340,6 +340,8 @@ Object.defineProperty(window, 'noveltea', {
     resolveProjectOriginalAssetUrl: vi.fn().mockResolvedValue({
       ok: true,
       url: 'noveltea-asset://source/session/logo',
+      contentHash: `sha256:${'0'.repeat(64)}`,
+      byteSize: 1,
     }),
     inspectProjectAssetMetadata: vi.fn().mockResolvedValue({
       ok: true,

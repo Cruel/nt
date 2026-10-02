@@ -115,7 +115,7 @@ Image assets additionally carry `sampling`, with `linear` as the authored/runtim
 `nearest` for pixel art. New image imports write the default explicitly, older records that omit the
 field resolve as `linear`, and reimport preserves the authored choice.
 
-`mimeType`, `extension`, `byteSize`, `contentHash`, `importedAt`, `originalName`, and `originalPath` are metadata from import/reimport.
+`mimeType`, `extension`, `byteSize`, `contentHash`, `importedAt`, `originalName`, and `originalPath` are metadata from import/reimport. `byteSize` and `contentHash` are optional cached metadata, not source authority: Project-session consumers that need a current revision derive size/hash from the contained source file and must not require these fields to be present or current.
 
 `preview` stores thumbnail/media metadata such as revision hash, image dimensions, or audio duration.
 

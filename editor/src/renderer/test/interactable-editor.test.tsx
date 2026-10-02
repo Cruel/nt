@@ -125,6 +125,8 @@ describe('InteractableEditor', () => {
     vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
       ok: true,
       url: 'noveltea-asset://source/11111111-1111-4111-8111-111111111111/sprite',
+      contentHash: `sha256:${'a'.repeat(64)}`,
+      byteSize: 1234,
     });
     useProjectStore.getState().loadProjectDocument({
       document: project,

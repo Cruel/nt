@@ -46,7 +46,12 @@ export function projectOriginalAssetBoundaryCode(
 }
 
 export type ProjectOriginalAssetUrlResponse =
-  | { ok: true; url: string }
+  | {
+      ok: true;
+      url: string;
+      contentHash: `sha256:${string}`;
+      byteSize: number;
+    }
   | {
       ok: false;
       code: ProjectOriginalAssetFailureCode;
