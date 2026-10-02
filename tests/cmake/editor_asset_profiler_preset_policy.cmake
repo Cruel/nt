@@ -193,6 +193,15 @@ if(NOT editor_preview_cmake MATCHES
         "if\\(NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER\\)[\n\r\t ]+string\\(REGEX REPLACE")
     message(FATAL_ERROR "Profiler Web exports must be appended only under the profiler gate")
 endif()
+if(NOT editor_preview_cmake MATCHES "-sSTACK_SIZE=131072")
+    message(FATAL_ERROR
+        "noveltea-editor-preview must reserve enough WebAssembly stack for synchronous runtime replacement")
+endif()
+file(READ "${SOURCE_DIR}/apps/player/CMakeLists.txt" player_cmake)
+if(NOT player_cmake MATCHES "-sSTACK_SIZE=131072")
+    message(FATAL_ERROR
+        "noveltea-player must reserve enough WebAssembly stack for synchronous runtime replacement")
+endif()
 foreach(required_export
         _noveltea_asset_profiler_snapshot
         _noveltea_asset_profiler_delta)

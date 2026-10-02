@@ -50,6 +50,20 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void service_normal_frame_jobs();
     void service_loading_frame_jobs();
     void service_pending_runtime_locale_change();
+    [[nodiscard]] bool prepare_pending_runtime_locale_change(runtime::RunningGame& running_game);
+    void commit_pending_runtime_locale_change(runtime::RunningGame& running_game);
+    [[nodiscard]] bool commit_pending_runtime_locale_semantics(
+        runtime::RunningGame& running_game, const std::string& target,
+        const std::string& previous_locale, const assets::FontAssetConfig& previous_fonts);
+    [[nodiscard]] bool publish_pending_runtime_locale_resources(
+        runtime::RunningGame& running_game, const std::string& target,
+        const std::string& previous_locale, const assets::FontAssetConfig& previous_fonts);
+    void finish_pending_runtime_locale_change(runtime::RunningGame& running_game,
+                                              const std::string& target);
+    void fail_pending_runtime_locale_change(runtime::RunningGame& running_game,
+                                            const std::string& target,
+                                            const std::string& previous_locale,
+                                            const core::Diagnostic& diagnostic);
     void poll_tooling_postprocess_assets();
     void begin_job_shutdown();
     bool service_job_shutdown();

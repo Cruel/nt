@@ -34,6 +34,14 @@ bool replaces_runtime_generation(const core::RuntimeInputMessage& input) noexcep
            std::holds_alternative<core::LoadRuntimeInput>(input);
 }
 
+HostRuntimeDispatchResult failed_runtime_replacement(core::Diagnostics diagnostics)
+{
+    HostRuntimeDispatchResult result;
+    result.disposition = runtime::RuntimeInputDisposition::Failed;
+    result.diagnostics = std::move(diagnostics);
+    return result;
+}
+
 class CandidateScriptDebugBuffer final {
 public:
     CandidateScriptDebugBuffer(
@@ -468,14 +476,16 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
 
     auto candidate = std::move(*loaded.value_if());
     std::optional<core::RuntimePresentationSnapshot> candidate_presentation_predecessor;
-    std::optional<runtime::RuntimePublication> candidate_publication;
+    // Candidate and rollback publications coexist during an atomic load. Keep the large candidate
+    // publication off-stack so the transaction does not reserve both objects in one Web frame.
+    auto candidate_publication = std::make_unique<std::optional<runtime::RuntimePublication>>();
     std::vector<runtime::RuntimeEvent> candidate_events;
     const auto dispatch_candidate =
         [&](core::RuntimeInputMessage input) -> core::Result<void, core::Diagnostics> {
         auto result = candidate->session().dispatch(input);
         candidate_presentation_predecessor = std::move(result.presentation_predecessor);
         if (result.publication)
-            candidate_publication = std::move(result.publication);
+            *candidate_publication = std::move(result.publication);
         candidate_events.insert(candidate_events.end(),
                                 std::make_move_iterator(result.events.begin()),
                                 std::make_move_iterator(result.events.end()));
@@ -505,7 +515,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
             return stopped;
         }
     }
-    if (!candidate_publication) {
+    if (!*candidate_publication) {
         candidate.reset();
         candidate_presentation.reset();
         restore_project_mounts();
@@ -516,7 +526,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
 
     if (hooks.prepare_candidate) {
         auto prepared =
-            hooks.prepare_candidate(*candidate, *candidate_publication, *candidate_project_assets);
+            hooks.prepare_candidate(*candidate, **candidate_publication, *candidate_project_assets);
         if (!prepared) {
             candidate.reset();
             candidate_presentation.reset();
@@ -540,7 +550,12 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     const auto previous_lifecycle_state = m_lifecycle_state;
     auto previous_compiled_project_path = std::move(m_compiled_project_path);
     auto previous_pending_runtime_inputs = std::move(m_pending_runtime_inputs);
-    auto previous_runtime_publication = std::move(m_runtime_publication);
+    // Keep the rollback publication off the WebAssembly stack. RuntimePublication is large enough
+    // that retaining both the candidate and previous publication inline materially inflates this
+    // transaction's frame.
+    auto previous_runtime_publication =
+        std::make_unique<std::optional<runtime::RuntimePublication>>(
+            std::move(m_runtime_publication));
     auto previous_runtime_events = std::move(m_runtime_events);
     auto previous_runtime_observations = std::move(m_runtime_observations);
     auto previous_runtime_diagnostics = std::move(m_runtime_diagnostics);
@@ -584,7 +599,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
         m_lifecycle_state = previous_lifecycle_state;
         m_compiled_project_path = std::move(previous_compiled_project_path);
         m_pending_runtime_inputs = std::move(previous_pending_runtime_inputs);
-        m_runtime_publication = std::move(previous_runtime_publication);
+        m_runtime_publication = std::move(*previous_runtime_publication);
         m_runtime_events = std::move(previous_runtime_events);
         m_runtime_observations = std::move(previous_runtime_observations);
         m_runtime_diagnostics = std::move(previous_runtime_diagnostics);
@@ -622,9 +637,9 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     m_lifecycle_state = request.stop_runtime_after_load ? LoadedGameLifecycleState::Stopped
                                                         : LoadedGameLifecycleState::Running;
     m_compiled_project_path = request.logical_path;
-    m_runtime_publication = *candidate_publication;
+    m_runtime_publication = **candidate_publication;
     m_runtime_events = std::move(candidate_events);
-    m_runtime_observations = candidate_publication->observations;
+    m_runtime_observations = (*candidate_publication)->observations;
     m_runtime_ui_asset_service.install(m_running_game->package().project(),
                                        m_running_game->runtime_locale());
     m_dependencies.script_certifier.synchronize_project_data_assets(
@@ -637,7 +652,7 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
             return rollback_to_previous(std::move(primed).error());
     }
     if (hooks.commit_candidate_resources) {
-        auto committed = hooks.commit_candidate_resources(*m_running_game, *candidate_publication);
+        auto committed = hooks.commit_candidate_resources(*m_running_game, **candidate_publication);
         if (!committed)
             return rollback_to_previous(std::move(committed).error());
     }
@@ -665,65 +680,72 @@ GameHost::load_compiled_project(GameHostLoadRequest request,
     return core::Result<void, core::Diagnostics>::success();
 }
 
+core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics>
+GameHost::prepare_runtime_replacement_candidate(const core::RuntimeInputMessage& input,
+                                                script::ScriptRuntime& candidate_scripts,
+                                                RunningGamePresentationPort& candidate_presentation)
+{
+    auto initialized = candidate_scripts.initialize({&m_dependencies.content_assets});
+    if (!initialized) {
+        return core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics>::
+            failure(one({.code = "host.runtime_candidate_script_runtime_failed",
+                         .message = initialized.error().message,
+                         .source_path = initialized.error().chunk}));
+    }
+
+    const auto* reset = std::get_if<core::ResetRuntimeInput>(&input);
+    candidate_scripts.set_startup_context(reset ? reset->startup_context
+                                                : m_running_game->startup_context());
+    auto prepared = candidate_scripts.prepare_project_modules(m_running_game->package().project());
+    if (!prepared) {
+        return core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics>::
+            failure(one({.code = "host.runtime_candidate_script_modules_failed",
+                         .message = prepared.error().message,
+                         .source_path = prepared.error().chunk}));
+    }
+    auto bootstrapped = candidate_scripts.run_project_bootstrap();
+    if (!bootstrapped) {
+        return core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics>::
+            failure(one({.code = "host.runtime_candidate_bootstrap_failed",
+                         .message = bootstrapped.error().message,
+                         .source_path = bootstrapped.error().chunk}));
+    }
+    auto frozen = candidate_scripts.freeze_project_hooks();
+    if (!frozen) {
+        return core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics>::
+            failure(one({.code = "host.runtime_candidate_hook_registry_failed",
+                         .message = frozen.error().message,
+                         .source_path = frozen.error().chunk}));
+    }
+
+    if (reset)
+        return m_running_game->prepare_reset_candidate(*reset, candidate_scripts,
+                                                       candidate_presentation);
+    return m_running_game->prepare_load_candidate(std::get<core::LoadRuntimeInput>(input).slot,
+                                                  candidate_scripts, candidate_presentation);
+}
+
 HostRuntimeDispatchResult
 GameHost::replace_runtime_session(const core::RuntimeInputMessage& input,
                                   std::vector<script::ScriptDebugMessage>& committed_debug_messages)
 {
-    HostRuntimeDispatchResult failed;
-    failed.disposition = runtime::RuntimeInputDisposition::Failed;
     if (!m_running_game) {
-        failed.diagnostics =
+        return failed_runtime_replacement(
             one({.code = "host.runtime_replacement_without_game",
-                 .message = "Runtime replacement requires an active running game"});
-        return failed;
+                 .message = "Runtime replacement requires an active running game"}));
     }
 
     CandidateScriptDebugBuffer candidate_debug(m_dependencies.script_debug_sink,
                                                m_dependencies.candidate_script_debug_sink);
     auto candidate_scripts = std::make_unique<script::ScriptRuntime>();
     candidate_scripts->set_debug_sink(candidate_debug.sink());
-    auto initialized = candidate_scripts->initialize({&m_dependencies.content_assets});
-    if (!initialized) {
-        failed.diagnostics = one({.code = "host.runtime_candidate_script_runtime_failed",
-                                  .message = initialized.error().message,
-                                  .source_path = initialized.error().chunk});
-        return failed;
-    }
-    const auto* reset = std::get_if<core::ResetRuntimeInput>(&input);
-    candidate_scripts->set_startup_context(reset ? reset->startup_context
-                                                 : m_running_game->startup_context());
-    auto prepared = candidate_scripts->prepare_project_modules(m_running_game->package().project());
-    if (!prepared) {
-        failed.diagnostics = one({.code = "host.runtime_candidate_script_modules_failed",
-                                  .message = prepared.error().message,
-                                  .source_path = prepared.error().chunk});
-        return failed;
-    }
-    auto bootstrapped = candidate_scripts->run_project_bootstrap();
-    if (!bootstrapped) {
-        failed.diagnostics = one({.code = "host.runtime_candidate_bootstrap_failed",
-                                  .message = bootstrapped.error().message,
-                                  .source_path = bootstrapped.error().chunk});
-        return failed;
-    }
-    auto frozen = candidate_scripts->freeze_project_hooks();
-    if (!frozen) {
-        failed.diagnostics = one({.code = "host.runtime_candidate_hook_registry_failed",
-                                  .message = frozen.error().message,
-                                  .source_path = frozen.error().chunk});
-        return failed;
-    }
-
     auto candidate_presentation = std::make_unique<RunningGamePresentationPort>(*this);
-    core::Result<std::unique_ptr<runtime::RuntimeSessionCandidate>, core::Diagnostics> candidate =
-        reset ? m_running_game->prepare_reset_candidate(*reset, *candidate_scripts,
-                                                        *candidate_presentation)
-              : m_running_game->prepare_load_candidate(std::get<core::LoadRuntimeInput>(input).slot,
-                                                       *candidate_scripts, *candidate_presentation);
-    if (!candidate) {
-        failed.diagnostics = std::move(candidate).error();
-        return failed;
-    }
+    auto candidate =
+        prepare_runtime_replacement_candidate(input, *candidate_scripts, *candidate_presentation);
+    if (!candidate)
+        return failed_runtime_replacement(std::move(candidate).error());
+
+    const auto* reset = std::get_if<core::ResetRuntimeInput>(&input);
 
     auto prepared_candidate = std::move(*candidate.value_if());
     auto runtime_result = prepared_candidate->take_initial_result();
@@ -780,8 +802,7 @@ GameHost::replace_runtime_session(const core::RuntimeInputMessage& input,
         failed_session.reset();
         failed_scripts.reset();
         failed_presentation.reset();
-        failed.diagnostics = std::move(diagnostics);
-        return failed;
+        return failed_runtime_replacement(std::move(diagnostics));
     }
 
     previous_session.reset();
@@ -796,17 +817,33 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(core::RuntimeInputMessa
     return submit_runtime_input(m_session_generation, std::move(input));
 }
 
+void GameHost::rollback_runtime_locale(const std::string& previous_locale,
+                                       core::Diagnostics& application_diagnostics)
+{
+    auto rollback = m_running_game->commit_locale(previous_locale);
+    core::append_diagnostics(application_diagnostics, std::move(rollback.diagnostics));
+    if (!rollback.publication)
+        return;
+
+    core::Diagnostics rollback_diagnostics;
+    (void)apply_runtime_publication(*rollback.publication, rollback.events, rollback_diagnostics);
+    (void)flush_runtime_presentation(&rollback_diagnostics);
+    core::append_diagnostics(application_diagnostics, std::move(rollback_diagnostics));
+}
+
 HostRuntimeDispatchResult GameHost::commit_runtime_locale(std::string locale)
 {
-    HostRuntimeDispatchResult result;
-    result.disposition = runtime::RuntimeInputDisposition::Failed;
     if (!m_running_game) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
         result.diagnostics = one({.code = "host.locale_change_without_game",
                                   .message = "Locale change requires an active running game"});
         return result;
     }
     if (m_dispatch_active || m_backend_reset_active ||
         (mandatory_assets_pending() && !m_runtime_presentation.mandatory_asset_commit_held())) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
         result.diagnostics =
             one({.code = "host.locale_change_not_ready",
                  .message = "Locale change cannot commit while runtime presentation is busy"});
@@ -815,12 +852,11 @@ HostRuntimeDispatchResult GameHost::commit_runtime_locale(std::string locale)
 
     const std::string previous_locale(m_running_game->runtime_locale());
     m_dispatch_active = true;
-    result =
-        HostRuntimeDispatchResult::from_runtime(m_running_game->commit_locale(std::move(locale)));
+    auto result = m_running_game->commit_locale(std::move(locale));
     if (!result.diagnostics.empty()) {
         retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
         m_dispatch_active = false;
-        return result;
+        return HostRuntimeDispatchResult::from_runtime(std::move(result));
     }
 
     core::Diagnostics application_diagnostics;
@@ -843,15 +879,7 @@ HostRuntimeDispatchResult GameHost::commit_runtime_locale(std::string locale)
             flush_runtime_presentation(&application_diagnostics) && application_accepted;
 
     if (!application_accepted || !application_diagnostics.empty()) {
-        auto rollback = m_running_game->commit_locale(previous_locale);
-        core::append_diagnostics(application_diagnostics, std::move(rollback.diagnostics));
-        if (rollback.publication) {
-            core::Diagnostics rollback_diagnostics;
-            (void)apply_runtime_publication(*rollback.publication, rollback.events,
-                                            rollback_diagnostics);
-            (void)flush_runtime_presentation(&rollback_diagnostics);
-            core::append_diagnostics(application_diagnostics, std::move(rollback_diagnostics));
-        }
+        rollback_runtime_locale(previous_locale, application_diagnostics);
         core::append_diagnostics(result.diagnostics, std::move(application_diagnostics));
         result.disposition = runtime::RuntimeInputDisposition::Failed;
     } else {
@@ -861,20 +889,22 @@ HostRuntimeDispatchResult GameHost::commit_runtime_locale(std::string locale)
     }
     m_system_layouts.refresh();
     m_dispatch_active = false;
-    return result;
+    return HostRuntimeDispatchResult::from_runtime(std::move(result));
 }
 
 HostRuntimeDispatchResult GameHost::reconcile_committed_locale_cues()
 {
-    HostRuntimeDispatchResult result;
-    result.disposition = runtime::RuntimeInputDisposition::Failed;
     if (!m_running_game) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
         result.diagnostics =
             one({.code = "host.locale_cue_reconciliation_without_game",
                  .message = "Locale cue reconciliation requires an active running game"});
         return result;
     }
     if (m_dispatch_active || m_backend_reset_active || mandatory_assets_pending()) {
+        HostRuntimeDispatchResult result;
+        result.disposition = runtime::RuntimeInputDisposition::Failed;
         result.diagnostics = one(
             {.code = "host.locale_cue_reconciliation_not_ready",
              .message = "Locale cue reconciliation cannot run while runtime presentation is busy"});
@@ -882,8 +912,7 @@ HostRuntimeDispatchResult GameHost::reconcile_committed_locale_cues()
     }
 
     m_dispatch_active = true;
-    result =
-        HostRuntimeDispatchResult::from_runtime(m_running_game->reconcile_committed_locale_cues());
+    auto result = m_running_game->reconcile_committed_locale_cues();
     if (!result.diagnostics.empty())
         retain_runtime_diagnostics(HostFrameStage::AdvanceRuntime, result.diagnostics);
 
@@ -915,7 +944,7 @@ HostRuntimeDispatchResult GameHost::reconcile_committed_locale_cues()
     }
     m_system_layouts.refresh();
     m_dispatch_active = false;
-    return result;
+    return HostRuntimeDispatchResult::from_runtime(std::move(result));
 }
 
 bool GameHost::submit_runtime_ui_shell_command(GameSessionGeneration generation,
@@ -1037,34 +1066,53 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
         m_pending_runtime_inputs.clear();
 
     m_dispatch_active = true;
-    HostRuntimeDispatchResult result;
-    bool runtime_replaced = false;
-    std::optional<core::RuntimeInputMessage> replacement_input;
+    return replacing_generation ? submit_generation_replacement(std::move(input), stopping)
+                                : submit_regular_runtime_input(std::move(input), stopping);
+}
+
+HostRuntimeDispatchResult GameHost::submit_generation_replacement(core::RuntimeInputMessage input,
+                                                                  bool stopping)
+{
     std::vector<script::ScriptDebugMessage> replacement_debug_messages;
-    if (replacing_generation) {
-        replacement_input = input;
-        result = replace_runtime_session(input, replacement_debug_messages);
-        runtime_replaced = result.accepted();
-    } else {
-        auto runtime_result = m_running_game->session().dispatch(input);
-        if (runtime_result.session_replacement_request && runtime_result.diagnostics.empty()) {
-            replacement_input = *runtime_result.session_replacement_request;
-            auto replacement = replace_runtime_session(*runtime_result.session_replacement_request,
-                                                       replacement_debug_messages);
-            if (replacement.accepted()) {
-                result = std::move(replacement);
-                runtime_replaced = true;
-            } else {
-                core::append_diagnostics(runtime_result.diagnostics,
-                                         std::move(replacement.diagnostics));
-                runtime_result.disposition = runtime::RuntimeInputDisposition::Failed;
-                result = HostRuntimeDispatchResult::from_runtime(std::move(runtime_result));
-            }
-        } else {
-            result = HostRuntimeDispatchResult::from_runtime(std::move(runtime_result));
+    auto result = replace_runtime_session(input, replacement_debug_messages);
+    const bool runtime_replaced = result.accepted();
+    finalize_runtime_dispatch(result, input, stopping, runtime_replaced,
+                              runtime_replaced ? &input : nullptr, replacement_debug_messages);
+    return result;
+}
+
+HostRuntimeDispatchResult GameHost::submit_regular_runtime_input(core::RuntimeInputMessage input,
+                                                                 bool stopping)
+{
+    auto runtime_result = m_running_game->session().dispatch(input);
+    if (runtime_result.session_replacement_request && runtime_result.diagnostics.empty()) {
+        auto replacement_input = std::move(*runtime_result.session_replacement_request);
+        std::vector<script::ScriptDebugMessage> replacement_debug_messages;
+        auto replacement = replace_runtime_session(replacement_input, replacement_debug_messages);
+        if (replacement.accepted()) {
+            finalize_runtime_dispatch(replacement, input, stopping, true, &replacement_input,
+                                      replacement_debug_messages);
+            return replacement;
         }
+        core::append_diagnostics(runtime_result.diagnostics, std::move(replacement.diagnostics));
+        runtime_result.disposition = runtime::RuntimeInputDisposition::Failed;
     }
 
+    auto result = HostRuntimeDispatchResult::from_runtime(std::move(runtime_result));
+    finalize_runtime_dispatch(result, input, stopping, false, nullptr, {});
+    return result;
+}
+
+#if defined(__EMSCRIPTEN__)
+// Keep this as an optimizer boundary on Web. LLVM otherwise folds dispatch finalization back into
+// the caller and recreates the large stack frame this split is intended to avoid.
+__attribute__((noinline))
+#endif
+void GameHost::finalize_runtime_dispatch(
+    HostRuntimeDispatchResult& result, const core::RuntimeInputMessage& input, bool stopping,
+    bool runtime_replaced, const core::RuntimeInputMessage* replacement_input,
+    std::span<const script::ScriptDebugMessage> replacement_debug_messages)
+{
     if (runtime_replaced) {
         m_dependencies.runtime_ui.clear_gameplay_ui_values();
         advance_session_generation();
@@ -1126,7 +1174,7 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
         else if (stopping)
             m_lifecycle_state = LoadedGameLifecycleState::Stopped;
     } else if (result.accepted() && runtime_replaced && replacement_input) {
-        if (const auto* reset_input = std::get_if<core::ResetRuntimeInput>(&*replacement_input))
+        if (const auto* reset_input = std::get_if<core::ResetRuntimeInput>(replacement_input))
             m_lifecycle_state = reset_input->show_title ? LoadedGameLifecycleState::Stopped
                                                         : LoadedGameLifecycleState::Running;
     }
@@ -1146,7 +1194,6 @@ HostRuntimeDispatchResult GameHost::submit_runtime_input(GameSessionGeneration g
             result.disposition = runtime::RuntimeInputDisposition::Failed;
         }
     }
-    return result;
 }
 
 bool GameHost::advance(GameHostAdvanceInput input)
