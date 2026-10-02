@@ -1,0 +1,19 @@
+{
+  "id": "runtime-workshop-annex-b",
+  "label": "Runtime Workshop Annex B",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Retargeted Annex",
+    "background": { "asset": null, "materialApplication": null, "fit": "cover", "color": "#2a2033" },
+    "description": { "source": { "kind": "inline", "text": "After retargeting, ordinary Room navigation through the annex Exit arrives here." }, "markup": "plain" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [], "cast": [], "props": [], "interactables": [], "environments": [], "scriptHooks": [],
+    "lifecycle": { "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" }, "beforeEnter": [], "afterEnter": [], "beforeLeave": [], "afterLeave": [], "onEnterRejected": [], "onLeaveRejected": [] },
+    "exits": [{ "id": "return-workshop", "label": "Return to workshop", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } }, "condition": { "kind": "always" }, "onRejected": [] }],
+    "placements": [], "fallbackInteractablePlacementId": null, "features": [], "hotspots": []
+  }
+}

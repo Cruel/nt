@@ -1983,10 +1983,20 @@ bool RuntimeWorld::interactable_quantity_compatible(const core::InteractableInst
         right_record != nullptr ? interactable_origin_definition(*right_record) : std::nullopt;
     if (left_state == nullptr || right_state == nullptr || left_record == nullptr ||
         right_record == nullptr || !left_origin || !right_origin || *left_origin != *right_origin ||
-        left_state->enabled != right_state->enabled ||
-        left_state->visible != right_state->visible ||
-        left_state->dynamic_room_occurrence != right_state->dynamic_room_occurrence)
+        left_state->enabled != right_state->enabled || left_state->visible != right_state->visible)
         return false;
+
+    const auto* left_room = std::get_if<core::compiled::RoomLocation>(&left_state->location);
+    const auto* right_room = std::get_if<core::compiled::RoomLocation>(&right_state->location);
+    if (left_room != nullptr && right_room != nullptr && left_room->room == right_room->room) {
+        const auto left_placement = resolve_interactable_room_placement(left, left_room->room);
+        const auto right_placement = resolve_interactable_room_placement(right, right_room->room);
+        if (left_placement.has_value() != right_placement.has_value() ||
+            (left_placement && left_placement->placement != right_placement->placement))
+            return false;
+    } else if (left_state->dynamic_room_occurrence != right_state->dynamic_room_occurrence) {
+        return false;
+    }
     const auto& left_configuration = left_record->effective_configuration();
     const auto& right_configuration = right_record->effective_configuration();
     if (left_configuration.identity.traits != right_configuration.identity.traits ||

@@ -15,6 +15,11 @@
       "id": "rendering-materials",
       "title": "Rendering & Materials",
       "description": "Canonical Material contracts, renderer-owned inputs, specialization, and visual rendering behavior."
+    },
+    {
+      "id": "objects-state",
+      "title": "Objects & State",
+      "description": "Exact Interactable identity, owner-qualified inventories, Properties, Traits, quantities, and mutable runtime Instances. Hotspot-mode comparison is intentionally shared with the later Input & Presentation hotspot station rather than duplicated here."
     }
   ],
   "launches": [
@@ -53,6 +58,18 @@
     {
       "id": "active-text",
       "roomId": "active-text"
+    },
+    {
+      "id": "inventory-workbench",
+      "roomId": "inventory-workbench"
+    },
+    {
+      "id": "properties-and-traits",
+      "roomId": "properties-and-traits"
+    },
+    {
+      "id": "runtime-workshop",
+      "roomId": "runtime-workshop"
     }
   ],
   "visualCheckpoints": [],
@@ -858,6 +875,192 @@
             "notice-font-faces"
           ],
           "automation": []
+        }
+      ]
+    },
+    {
+      "id": "inventory-workbench",
+      "categoryId": "objects-state",
+      "title": "Operate exact objects and inventories",
+      "description": "Move exact Interactable Instances through Rooms and inventories, exercise containment and owner-qualified Features, then mutate stack quantities without losing identity semantics.",
+      "status": "ready",
+      "created": "2026-10-02T09:52:32Z",
+      "modified": "2026-10-02T09:52:32Z",
+      "launch": { "entry": "inventory-workbench" },
+      "checks": [
+        {
+          "id": "exact-instance-identity",
+          "title": "Definition peers keep exact Instance identity",
+          "action": "Use Identity, then inspect Specimen A and B after A moves to Player Inventory and B becomes Unplaced.",
+          "expected": "Both remain distinct Instances of one Definition with their own identity-tag Property values. Room, Inventory, and Unplaced Location changes do not collapse or recreate either identity.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        },
+        {
+          "id": "inventory-presentation",
+          "title": "Owner-qualified inventories present direct members",
+          "action": "Use Inventories to open the Player, Character, Interactable, Interactable Feature, and Room Feature inventories together.",
+          "expected": "Each view resolves the exact owner-qualified Inventory and shows only direct members; nested contents are not flattened. The current Project exercises built-in fallback presentation, while the mutually exclusive Project-default Layout branch remains blocked.",
+          "status": "blocked", "verification": "ui", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [],
+          "statusReason": "A running Project has one immutable inventory.defaultLayout setting: built-in fallback requires it to be null, while Project-default Layout resolution requires it to be non-null. The station covers all owner kinds and fallback without inventing a second project variant; complete the default/explicit/fallback matrix when Feature Lab supports per-scenario project-setting variants."
+        },
+        {
+          "id": "containment-context",
+          "title": "Containment preserves direct Location and rejects cycles",
+          "action": "Use Containment to move the filled container to Delivery; inspect the child's direct Location and effective Room. Cycle rejection remains blocked for authored Test playback.",
+          "expected": "The child remains directly located in the container Inventory while its effective Room follows the moved ancestor. A containment cycle must reject atomically and leave the container in Delivery.",
+          "status": "blocked", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }],
+          "statusReason": "The station and semantic Test cover ancestor effective-Room propagation and preserved direct Inventory Location. The normal Lua move API queues a containment-cycle request, whose later atomic rejection is surfaced as an error diagnostic; authored Test playback treats any runtime error diagnostic as execution error, so it cannot currently assert that expected rejection as a passing Test without suppressing the real diagnostic."
+        },
+        {
+          "id": "enabled-visible",
+          "title": "Enabled and visible remain independent",
+          "action": "Use Enabled / visible after the identity step.",
+          "expected": "Specimen A becomes disabled while still visible; Specimen B stays enabled while hidden in Player Inventory. Eligibility and display state do not imply one another.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        },
+        {
+          "id": "create-quantity",
+          "title": "Quantity creation honors stackability and limits",
+          "action": "Use Create quantity to request 12 stackable supplies and quantity 2 of a non-stackable specimen.",
+          "expected": "Twelve supplies create the minimum three fresh stacks, each at or below limit 5 and without coalescing existing stock. Non-stackable quantity 2 creates two distinct quantity-one identities.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        },
+        {
+          "id": "split-merge",
+          "title": "Split creates identity; merge ends donor",
+          "action": "Use Split / merge on the four-unit Room stack.",
+          "expected": "Split leaves the source identity with quantity 2 and creates one quantity-2 peer inheriting Room presentation; merge restores the original receiver to 4 and ends the donor identity.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        },
+        {
+          "id": "exact-transfer",
+          "title": "Whole and partial exact transfers preserve the right identities",
+          "action": "Use Exact transfer for one whole stack and two units from another.",
+          "expected": "Whole transfer moves the existing identity. Partial transfer leaves the source at quantity 2 and creates exactly one quantity-2 destination identity without automatic coalescing.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        },
+        {
+          "id": "add-consume-aggregate",
+          "title": "Aggregate quantity operations use stable compatible selection",
+          "action": "Use Aggregate on the isolated Aggregate bin.",
+          "expected": "Add fills compatible stacks in stable identity order, aggregate transfer splits only the boundary identity, direct totals remain exact, and consuming the exhausted source ends that identity while the surviving stock stays quantity 2.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        },
+        {
+          "id": "quantity-rejection",
+          "title": "Invalid quantity mutations reject without partial change",
+          "action": "Use Rejections after Aggregate to try insufficient exact transfer and an aggregate transfer spanning incompatible stack classes.",
+          "expected": "Both mutations reject atomically. The exact source stays quantity 2 in its Room; aggregate pure totals can still span standard and premium classes even though an ambiguous mutating selection cannot.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        },
+        {
+          "id": "feature-ownership",
+          "title": "Same-named Features remain owner-qualified",
+          "action": "Use Feature owners to compare slot on Specimen A, Specimen B, and the Room.",
+          "expected": "Each same-named Feature resolves separate Properties and Inventories from its exact owner; subject identity and inventory ownership never collapse to the Feature id alone.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "inventory-workbench-flow" }]
+        }
+      ]
+    },
+    {
+      "id": "properties-and-traits",
+      "categoryId": "objects-state",
+      "title": "Layer Properties and live Traits",
+      "description": "Exercise typed and schema-less Properties across exact owners, fallback precedence, runtime Trait capabilities, and recursive Conditions using effective live state.",
+      "status": "ready",
+      "created": "2026-10-02T09:52:32Z",
+      "modified": "2026-10-02T09:52:32Z",
+      "launch": { "entry": "properties-and-traits" },
+      "checks": [
+        {
+          "id": "typed-values", "title": "Typed Property values validate at runtime",
+          "action": "Use Typed values.",
+          "expected": "Boolean, integer, finite number, string, enum, and Message values resolve. Fractional integer, unknown enum, and non-finite number writes reject without replacing valid state.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "properties-and-traits-flow" }]
+        },
+        {
+          "id": "owner-local-values", "title": "The same local key remains exact-owner scoped",
+          "action": "Use Owner-local.",
+          "expected": "shared-state changes independently on Room, Character, exact Interactable Instance, and Feature owners, including a different Character schema; Global mutation is demonstrated with global-shared-state. Exact Global/local key overlap is blocked by the runtime's project-wide Global Property namespace.",
+          "status": "blocked", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": [], "automation": [],
+          "statusReason": "A declared Global Property ID is authoritative project-wide: identity-qualified lookup of the same key resolves it as Global and rejects the identity target. The station still exercises the same local key across Room, Character, Interactable Instance, and Feature owners plus a separate Global key; mark this ready when the runtime can represent the assigned Global/local same-key overlap."
+        },
+        {
+          "id": "precedence-null-unset", "title": "Override, explicit null, and unset follow fallback precedence",
+          "action": "Use Precedence.",
+          "expected": "A runtime override wins, explicit nullable null remains present, and unset reveals the next layer: Instance, Definition, Archetype, or Trait default as authored for each specimen.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "properties-and-traits-flow" }]
+        },
+        {
+          "id": "dynamic-properties", "title": "Schema-less Properties distinguish absence, null, and value",
+          "action": "Use Dynamic.",
+          "expected": "The key changes scalar type, becomes explicit null while remaining present, rejects a structural configuration that would introduce an incompatible Boolean schema, preserves prior state atomically, then returns to absence after unset.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "properties-and-traits-flow" }]
+        },
+        {
+          "id": "trait-capabilities", "title": "Live Traits add and remove capabilities without copying structure",
+          "action": "Use Traits to add/remove marker and Property-backed Traits and inspect the exact Instance before and after each change.",
+          "expected": "Trait presence and trait-value appear and disappear on the exact Instance without copying structural fields. Trait-selector dispatch and Condition evaluation must also observe runtime-added Traits.",
+          "status": "blocked", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "properties-and-traits-flow" }],
+          "statusReason": "The semantic Test covers runtime Trait add/remove and Property-backed capability resolution on the exact Instance. In aggregate authored playback, Interaction dispatch rejects a binding selected solely by that runtime-added Trait and Condition evaluation cannot reliably resolve the newly attached Trait-backed Property, so the live selector/Condition branches remain blocked until runtime authority is corrected."
+        },
+        {
+          "id": "recursive-conditions", "title": "Recursive Conditions resolve mixed authoritative leaves",
+          "action": "Run Typed values, then use Recursive Condition.",
+          "expected": "All / Any / Not compose Property, Trait, exact Location, owner Inventory quantity, Lua, Current Room, and bound interaction-slot leaves; the successful rule marks conditions-hit true. Command-result lifecycle/provenance is exercised by Runtime Workshop rather than fabricated in a scope where Interaction programs do not expose sibling results.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "properties-and-traits-flow" }]
+        }
+      ]
+    },
+    {
+      "id": "runtime-workshop",
+      "categoryId": "objects-state",
+      "title": "Build and mutate runtime Instances",
+      "description": "Materialize Archetypes, create compiled/effective clones, replace structural configuration, retarget a live Exit, and destroy Instances while respecting dependents.",
+      "status": "ready",
+      "created": "2026-10-02T09:52:32Z",
+      "modified": "2026-10-02T09:52:32Z",
+      "launch": { "entry": "runtime-workshop" },
+      "checks": [
+        {
+          "id": "archetype-materialization", "title": "Archetype materialization creates independent mutable Instances",
+          "action": "Use Materialize.",
+          "expected": "Room and Character Archetypes materialize with archetype provenance. Two Character Instances keep different birth Locations, and a runtime Property written to one does not leak to its sibling.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": ["pilot-button-sprite", "pilot-character-neutral", "pilot-character-smile"], "automation": [{ "kind": "semantic-test", "id": "runtime-workshop-flow" }]
+        },
+        {
+          "id": "create-and-clone", "title": "Runtime creation preserves source provenance and fresh identity",
+          "action": "Use Create / clone.",
+          "expected": "Rooms and Characters created from compiled/effective sources receive distinct usable IDs and compiled-definition/clone provenance; an Interactable created from its Definition starts Unplaced with a fresh identity.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": ["pilot-button-sprite", "pilot-character-neutral", "pilot-character-smile"], "automation": [{ "kind": "semantic-test", "id": "runtime-workshop-flow" }]
+        },
+        {
+          "id": "configuration-replacement", "title": "Structural configuration replacement preserves mutable world state",
+          "action": "Use Replace / clear.",
+          "expected": "Replace and clear preserve the target's Room Location and disabled state. A schema conflict and removing an Inventory with a live dependent both reject atomically; clearing returns immutable birth configuration.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "runtime-workshop-flow" }]
+        },
+        {
+          "id": "retarget-exit", "title": "Live Exit retargeting changes ordinary Room navigation",
+          "action": "Use Retarget annex, then navigate through the annex Exit.",
+          "expected": "Ordinary Room navigation follows the live destination and arrives in Annex B. Map projection/navigation is intentionally owner-deferred for #252 and is not simulated here.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "runtime-workshop-flow" }]
+        },
+        {
+          "id": "destroy-dependents", "title": "Destruction is non-cascading and ended IDs stay ended",
+          "action": "Use Destroy.",
+          "expected": "A free Instance ends; destroying an owner with a live Inventory dependent rejects and preserves both owner and child; a later creation receives a different ID and cannot resurrect the ended identity.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "runtime-workshop-flow" }]
         }
       ]
     }

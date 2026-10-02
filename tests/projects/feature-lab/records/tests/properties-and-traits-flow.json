@@ -1,0 +1,74 @@
+{
+  "id": "properties-and-traits-flow",
+  "label": "Properties & Traits semantic flow",
+  "data": {
+    "kind": "test",
+    "displayName": "Properties & Traits semantic flow",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [{ "id": "home", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "feature-lab-home" } }] },
+      { "id": "enter-router", "input": "navigate", "label": "Enter Objects & State route", "navigate": { "exitId": "inventory-workbench-test-entry" }, "expectations": [{ "id": "router-room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "inventory-workbench" } }] },
+      { "id": "enter", "input": "navigate", "label": "Enter Properties & Traits", "navigate": { "exitId": "properties-and-traits-test-entry" }, "expectations": [{ "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "properties-and-traits" } }] },
+      {
+        "id": "typed", "input": "run-interaction", "label": "Exercise typed Property validation",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-typed-control" } } } }] },
+        "expectations": [
+          { "id": "bool", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "bool-prop", "value": true } },
+          { "id": "integer", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "integer-prop", "value": 42 } },
+          { "id": "number", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "number-prop", "value": 2.25 } },
+          { "id": "string", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "string-prop", "value": "typed" } },
+          { "id": "enum", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "enum-prop", "value": "beta" } }
+        ]
+      },
+      {
+        "id": "owners", "input": "run-interaction", "label": "Mutate exact owner-local Property keys",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-owner-control" } } } }] },
+        "expectations": [
+          { "id": "global", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "global-shared-state", "value": "global-updated" } },
+          { "id": "room-owner", "type": "property", "operator": "eq", "property": { "scope": "room", "ownerId": "properties-and-traits", "propertyId": "shared-state", "value": "room-updated" } },
+          { "id": "character-owner", "type": "property", "operator": "eq", "property": { "scope": "character", "ownerId": "state-witness", "propertyId": "shared-state", "value": 42 } },
+          { "id": "instance-owner", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "shared-state", "value": "instance-updated" } }
+        ]
+      },
+      {
+        "id": "precedence", "input": "run-interaction", "label": "Exercise nullable override, unset, and fallback layers",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-precedence-control" } } } }] },
+        "expectations": [
+          { "id": "instance-fallback", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "layered", "value": "instance-value" } },
+          { "id": "definition-fallback", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-definition-instance", "propertyId": "layered", "value": "definition-default" } },
+          { "id": "archetype-fallback", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-archetype-instance", "propertyId": "layered", "value": "archetype-default" } },
+          { "id": "trait-fallback", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-trait-instance", "propertyId": "layered", "value": "trait-default" } }
+        ]
+      },
+      {
+        "id": "dynamic", "input": "run-interaction", "label": "Exercise schema-less Property state and atomic schema rejection",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-dynamic-control" } } } }] },
+        "expectations": [{ "id": "dynamic-absent", "type": "property", "operator": "absent", "property": { "scope": "interactable", "ownerId": "state-dynamic-instance", "propertyId": "dynamic-key", "value": null } }]
+      },
+      {
+        "id": "attach-traits", "input": "run-interaction", "label": "Attach live marker and Property-backed Traits",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-trait-control" } } } }] },
+        "expectations": [
+          { "id": "marker-present", "type": "trait", "operator": "present", "trait": { "ownerKind": "interactable", "ownerId": "state-specimen-instance", "traitId": "lab-marker" } },
+          { "id": "configured-present", "type": "trait", "operator": "present", "trait": { "ownerKind": "interactable", "ownerId": "state-specimen-instance", "traitId": "lab-configured" } },
+          { "id": "trait-property", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "trait-value", "value": "trait-default-value" } }
+        ]
+      },
+      {
+        "id": "conditions", "input": "run-interaction", "label": "Evaluate recursive Conditions with bound slot context",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-condition-control" } } } }] },
+        "expectations": [{ "id": "conditions-hit", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "conditions-hit", "value": true } }]
+      },
+      {
+        "id": "remove-traits", "input": "run-interaction", "label": "Remove runtime Traits without copying structural data",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-trait-control" } } } }] },
+        "expectations": [
+          { "id": "marker-absent", "type": "trait", "operator": "absent", "trait": { "ownerKind": "interactable", "ownerId": "state-specimen-instance", "traitId": "lab-marker" } },
+          { "id": "configured-absent", "type": "trait", "operator": "absent", "trait": { "ownerKind": "interactable", "ownerId": "state-specimen-instance", "traitId": "lab-configured" } },
+          { "id": "trait-property-absent", "type": "property", "operator": "absent", "property": { "scope": "interactable", "ownerId": "state-specimen-instance", "propertyId": "trait-value", "value": null } }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

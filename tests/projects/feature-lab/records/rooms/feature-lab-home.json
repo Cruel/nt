@@ -92,6 +92,14 @@
         "target": { "$ref": { "collection": "rooms", "id": "world-composition" } },
         "condition": { "kind": "always" },
         "onRejected": []
+      },
+      {
+        "id": "inventory-workbench-test-entry",
+        "label": "Inventory Workbench (automation entry)",
+        "direction": "northwest",
+        "target": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
       }
     ],
     "placements": [],

@@ -1,0 +1,56 @@
+{
+  "id": "properties-and-traits",
+  "label": "Properties & Traits",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [
+    { "id": "shared-state", "label": "Shared key", "type": "string", "nullable": false, "value": "room-shared" }
+  ],
+  "data": {
+    "kind": "room",
+    "displayName": "Properties & Traits",
+    "background": { "asset": null, "materialApplication": null, "fit": "cover", "color": "#161c2b" },
+    "description": { "source": { "kind": "inline", "text": "Configure the specimen with typed values, owner-local keys, fallback layers, dynamic Properties, live Traits, and one recursive Condition." }, "markup": "active-text" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [],
+    "cast": [
+      { "id": "state-witness", "character": { "$ref": { "collection": "characters", "id": "state-witness" } }, "condition": { "kind": "always" }, "placementId": "state-witness", "profileId": "stage", "poseId": "standing", "expressionId": "neutral", "appearanceId": null, "idleId": null, "visible": true, "order": 5 }
+    ],
+    "props": [],
+    "interactables": [
+      { "id": "typed-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-typed-control" } }, "condition": { "kind": "always" }, "placementId": "typed-control", "visible": true, "order": 10 },
+      { "id": "owner-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-owner-control" } }, "condition": { "kind": "always" }, "placementId": "owner-control", "visible": true, "order": 11 },
+      { "id": "precedence-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-precedence-control" } }, "condition": { "kind": "always" }, "placementId": "precedence-control", "visible": true, "order": 12 },
+      { "id": "dynamic-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-dynamic-control" } }, "condition": { "kind": "always" }, "placementId": "dynamic-control", "visible": true, "order": 13 },
+      { "id": "trait-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-trait-control" } }, "condition": { "kind": "always" }, "placementId": "trait-control", "visible": true, "order": 14 },
+      { "id": "condition-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-condition-control" } }, "condition": { "kind": "always" }, "placementId": "condition-control", "visible": true, "order": 15 },
+      { "id": "instance-layer", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } }, "condition": { "kind": "always" }, "placementId": "instance-layer", "visible": true, "order": 30 },
+      { "id": "definition-layer", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-definition-instance" } }, "condition": { "kind": "always" }, "placementId": "definition-layer", "visible": true, "order": 31 },
+      { "id": "archetype-layer", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-archetype-instance" } }, "condition": { "kind": "always" }, "placementId": "archetype-layer", "visible": true, "order": 32 },
+      { "id": "trait-layer", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-trait-instance" } }, "condition": { "kind": "always" }, "placementId": "trait-layer", "visible": true, "order": 33 },
+      { "id": "dynamic-specimen", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-dynamic-instance" } }, "condition": { "kind": "always" }, "placementId": "dynamic-specimen", "visible": true, "order": 34 }
+    ],
+    "environments": [], "scriptHooks": [],
+    "lifecycle": { "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" }, "beforeEnter": [], "afterEnter": [], "beforeLeave": [], "afterLeave": [], "onEnterRejected": [], "onLeaveRejected": [] },
+    "exits": [
+      { "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] }
+    ],
+    "placements": [
+      { "id": "state-witness", "bounds": { "x": 0.70, "y": 0.30, "width": 0.20, "height": 0.55 }, "presentation": { "label": null, "layout": null } },
+      { "id": "typed-control", "bounds": { "x": 0.05, "y": 0.12, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Typed values" }, "markup": "plain" }, "layout": null } },
+      { "id": "owner-control", "bounds": { "x": 0.16, "y": 0.12, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Owner-local" }, "markup": "plain" }, "layout": null } },
+      { "id": "precedence-control", "bounds": { "x": 0.27, "y": 0.12, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Precedence" }, "markup": "plain" }, "layout": null } },
+      { "id": "dynamic-control", "bounds": { "x": 0.38, "y": 0.12, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Dynamic" }, "markup": "plain" }, "layout": null } },
+      { "id": "trait-control", "bounds": { "x": 0.49, "y": 0.12, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Traits" }, "markup": "plain" }, "layout": null } },
+      { "id": "condition-control", "bounds": { "x": 0.60, "y": 0.12, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Recursive Condition" }, "markup": "plain" }, "layout": null } },
+      { "id": "instance-layer", "bounds": { "x": 0.06, "y": 0.58, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Instance" }, "markup": "plain" }, "layout": null } },
+      { "id": "definition-layer", "bounds": { "x": 0.17, "y": 0.58, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Definition" }, "markup": "plain" }, "layout": null } },
+      { "id": "archetype-layer", "bounds": { "x": 0.28, "y": 0.58, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Archetype" }, "markup": "plain" }, "layout": null } },
+      { "id": "trait-layer", "bounds": { "x": 0.39, "y": 0.58, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Trait" }, "markup": "plain" }, "layout": null } },
+      { "id": "dynamic-specimen", "bounds": { "x": 0.50, "y": 0.58, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Dynamic specimen" }, "markup": "plain" }, "layout": null } }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [], "hotspots": []
+  }
+}

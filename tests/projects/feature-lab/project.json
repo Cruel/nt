@@ -174,6 +174,151 @@
         "textures": {}
       },
       "featureOverrides": []
-    }
+    },
+    "workbench-object-a": {
+      "id": "workbench-object-a", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] },
+      "localProperties": [{ "id": "identity-tag", "type": "string", "nullable": false, "value": "A" }],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+      "featureOverrides": [{ "featureId": "slot", "traits": { "add": [], "remove": [] }, "properties": [{ "propertyId": "shared-state", "value": "feature-a" }] }]
+    },
+    "workbench-object-b": {
+      "id": "workbench-object-b", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] },
+      "localProperties": [{ "id": "identity-tag", "type": "string", "nullable": false, "value": "B" }],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+      "featureOverrides": [{ "featureId": "slot", "traits": { "add": [], "remove": [] }, "properties": [{ "propertyId": "shared-state", "value": "feature-b" }] }]
+    },
+    "workbench-container": {
+      "id": "workbench-container", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-contained-child": {
+      "id": "workbench-contained-child", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-container" } } }, "inventoryId": "pocket" } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-player-item": {
+      "id": "workbench-player-item", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "project" }, "inventoryId": "inventory" } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-character-item": {
+      "id": "workbench-character-item", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "character", "character": { "$ref": { "collection": "characters", "id": "state-witness" } } }, "inventoryId": "bag" } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-feature-item-a": {
+      "id": "workbench-feature-item-a", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "interactable-feature", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-a" } }, "featureId": "slot" }, "inventoryId": "feature-pocket" } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-feature-item-b": {
+      "id": "workbench-feature-item-b", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "interactable-feature", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-b" } }, "featureId": "slot" }, "inventoryId": "feature-pocket" } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-room-feature-item": {
+      "id": "workbench-room-feature-item", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "room-feature", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } }, "featureId": "slot" }, "inventoryId": "feature-pocket" } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "supply-split-stack": {
+      "id": "supply-split-stack", "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 4, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "supply-transfer-whole": {
+      "id": "supply-transfer-whole", "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 2, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "supply-transfer-partial": {
+      "id": "supply-transfer-partial", "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 4, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-aggregate-bin": {
+      "id": "workbench-aggregate-bin", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "supply-aggregate-a": {
+      "id": "supply-aggregate-a", "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-bin" } } }, "inventoryId": "pocket" } },
+      "enabled": true, "visible": true, "quantity": 2, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "supply-aggregate-b": {
+      "id": "supply-aggregate-b", "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-bin" } } }, "inventoryId": "pocket" } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "supply-incompatible": {
+      "id": "supply-incompatible", "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } },
+      "location": { "kind": "inventory", "inventory": { "owner": { "kind": "character", "character": { "$ref": { "collection": "characters", "id": "state-witness" } } }, "inventoryId": "bag" } },
+      "enabled": true, "visible": true, "quantity": 2, "traits": { "add": [], "remove": [] },
+      "localProperties": [{ "id": "grade", "type": "string", "nullable": false, "value": "premium" }],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "supply-reject": {
+      "id": "supply-reject", "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } },
+      "enabled": true, "visible": true, "quantity": 2, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "workbench-identity-control": { "id": "workbench-identity-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-inventory-control": { "id": "workbench-inventory-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-containment-control": { "id": "workbench-containment-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-state-control": { "id": "workbench-state-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-create-control": { "id": "workbench-create-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-split-control": { "id": "workbench-split-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-transfer-control": { "id": "workbench-transfer-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-aggregate-control": { "id": "workbench-aggregate-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-rejection-control": { "id": "workbench-rejection-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workbench-feature-control": { "id": "workbench-feature-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-specimen-instance": {
+      "id": "state-specimen-instance", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] },
+      "localProperties": [{ "id": "layered", "type": "string", "nullable": true, "value": "instance-value" }, { "id": "shared-state", "type": "string", "nullable": false, "value": "instance-shared" }],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+      "featureOverrides": [{ "featureId": "slot", "traits": { "add": [], "remove": [] }, "properties": [{ "propertyId": "shared-state", "value": "feature-shared" }] }]
+    },
+    "state-definition-instance": { "id": "state-definition-instance", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-archetype-instance": { "id": "state-archetype-instance", "definition": { "$ref": { "collection": "interactables", "id": "lab-archetype-instance-definition" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-trait-instance": { "id": "state-trait-instance", "definition": { "$ref": { "collection": "interactables", "id": "lab-trait-only-specimen" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-dynamic-instance": { "id": "state-dynamic-instance", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-dynamic-conflict-source": { "id": "state-dynamic-conflict-source", "definition": { "$ref": { "collection": "interactables", "id": "lab-dynamic-conflict" } }, "location": { "kind": "unplaced" }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-typed-control": { "id": "state-typed-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-owner-control": { "id": "state-owner-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-precedence-control": { "id": "state-precedence-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-dynamic-control": { "id": "state-dynamic-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-trait-control": { "id": "state-trait-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "state-condition-control": { "id": "state-condition-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-config-target": { "id": "workshop-config-target", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [{ "id": "identity-tag", "type": "string", "nullable": false, "value": "config-target" }], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-free-object": { "id": "workshop-free-object", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } }, "location": { "kind": "unplaced" }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-dependent-owner": { "id": "workshop-dependent-owner", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-dependent-child": { "id": "workshop-dependent-child", "definition": { "$ref": { "collection": "interactables", "id": "lab-specimen" } }, "location": { "kind": "inventory", "inventory": { "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-dependent-owner" } } }, "inventoryId": "pocket" } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-archetype-control": { "id": "workshop-archetype-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-create-control": { "id": "workshop-create-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-config-control": { "id": "workshop-config-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-retarget-control": { "id": "workshop-retarget-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] },
+    "workshop-destroy-control": { "id": "workshop-destroy-control", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } }, "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } } }, "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [], "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": [] }
   }
 }

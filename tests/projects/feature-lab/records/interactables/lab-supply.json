@@ -1,0 +1,34 @@
+{
+  "id": "lab-supply",
+  "label": "Stackable Lab Supply",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "defaultProperties": [
+    { "id": "grade", "label": "Grade", "type": "string", "nullable": false, "defaultValue": "standard" }
+  ],
+  "data": {
+    "kind": "interactable",
+    "displayName": "Lab Supply",
+    "stackable": true,
+    "stackLimit": 5,
+    "presentation": {
+      "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+      "materialApplication": null,
+      "cursor": null,
+      "hotspots": {
+        "kind": "sprite-alpha",
+        "hotspot": {
+          "id": "supply",
+          "label": "Supply stack",
+          "condition": { "kind": "always" },
+          "inputOrder": 0,
+          "highlight": { "kind": "default" },
+          "target": { "kind": "owner" }
+        }
+      }
+    },
+    "features": [],
+    "inventories": []
+  }
+}

@@ -1,0 +1,28 @@
+{
+  "id": "inventory-delivery",
+  "label": "Inventory Delivery Room",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Inventory Delivery Room",
+    "background": { "asset": null, "materialApplication": null, "fit": "cover", "color": "#1b2731" },
+    "description": { "source": { "kind": "inline", "text": "The filled container is moved here while its direct child remains in the container Inventory." }, "markup": "plain" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [], "cast": [], "props": [],
+    "interactables": [
+      { "id": "container", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-container" } }, "condition": { "kind": "always" }, "placementId": "container", "visible": true, "order": 10 }
+    ],
+    "environments": [], "scriptHooks": [],
+    "lifecycle": { "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" }, "beforeEnter": [], "afterEnter": [], "beforeLeave": [], "afterLeave": [], "onEnterRejected": [], "onLeaveRejected": [] },
+    "exits": [
+      { "id": "return-workbench", "label": "Return to workbench", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } }, "condition": { "kind": "always" }, "onRejected": [] }
+    ],
+    "placements": [
+      { "id": "container", "bounds": { "x": 0.44, "y": 0.44, "width": 0.12, "height": 0.18 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Delivered container" }, "markup": "plain" }, "layout": null } }
+    ],
+    "fallbackInteractablePlacementId": null, "features": [], "hotspots": []
+  }
+}

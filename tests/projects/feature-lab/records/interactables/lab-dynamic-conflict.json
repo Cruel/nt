@@ -1,0 +1,19 @@
+{
+  "id": "lab-dynamic-conflict",
+  "label": "Dynamic Property Conflict",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "defaultProperties": [
+    { "id": "dynamic-key", "label": "Dynamic key", "type": "boolean", "nullable": false, "defaultValue": false }
+  ],
+  "data": {
+    "kind": "interactable",
+    "displayName": "Dynamic conflict specimen",
+    "stackable": false,
+    "stackLimit": null,
+    "presentation": { "sprite": null, "materialApplication": null, "cursor": null, "hotspots": { "kind": "none" } },
+    "features": [],
+    "inventories": []
+  }
+}
