@@ -341,10 +341,34 @@ jobs:
         run: ccache --show-stats
 
   linux-cli-certify:
-    name: Linux host CLI certification
+    name: Linux host CLI certification (${{ matrix.name }})
     runs-on: ubuntu-24.04
     needs: linux-cli
-    timeout-minutes: 30
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - name: differential-a
+            sections: bootstrap-island,differential,typed-shaders,raw-shaderc
+            differential_shard: 1/2
+          - name: differential-b
+            sections: differential
+            differential_shard: 2/2
+          - name: authoring
+            sections: authoring-cache,daemon-authoring-cache,daemon-authoring-cache-pressure,editor-authoring-cache-sharing,scoped-preparation,runtime-cache
+          - name: performance
+            sections: performance
+          - name: test-parity
+            sections: test-command-parity
+          - name: daemon-scheduling
+            sections: project-owner-scheduling,disposable-tests,build-protocol-isolation
+          - name: daemon-output
+            sections: disposable-output,authority-mutation,comfyui-owner-isolation
+          - name: resident-daemon-core
+            sections: resident-daemon-core
+          - name: operations
+            sections: native-operations,feature-lab-tests,platform-host,comfyui-standalone,relocation
 
     steps:
       - name: Checkout
@@ -382,7 +406,9 @@ jobs:
         run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Certify NovelTea host CLI
-        run: pnpm -C editor run noveltea:certify
+        env:
+          NOVELTEA_CLI_CERTIFICATION_DIFFERENTIAL_SHARD: ${{ matrix.differential_shard }}
+        run: pnpm -C editor run noveltea:certify --only "${{ matrix.sections }}"
 
   linux-cooperative:
     name: Linux cooperative build coverage

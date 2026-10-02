@@ -1218,8 +1218,30 @@ async function runDifferential(tempRoot) {
     result = replaceBuffer(result, Buffer.from(escapedRoot), replacement);
     return replaceBuffer(result, Buffer.from(root), replacement);
   };
+  const shardSpec = process.env.NOVELTEA_CLI_CERTIFICATION_DIFFERENTIAL_SHARD?.trim();
+  let selectedCases = differentialCases;
+  if (shardSpec) {
+    const match = /^(\d+)\/(\d+)$/u.exec(shardSpec);
+    const shardIndex = Number(match?.[1]);
+    const shardCount = Number(match?.[2]);
+    if (
+      !match ||
+      !Number.isSafeInteger(shardIndex) ||
+      !Number.isSafeInteger(shardCount) ||
+      shardCount < 1 ||
+      shardIndex < 1 ||
+      shardIndex > shardCount
+    )
+      fail(
+        `NOVELTEA_CLI_CERTIFICATION_DIFFERENTIAL_SHARD must be '<index>/<count>' with a 1-based index; received '${shardSpec}'.`,
+      );
+    selectedCases = differentialCases.filter((_, index) => index % shardCount === shardIndex - 1);
+    process.stdout.write(
+      `[differential] shard ${shardIndex}/${shardCount}: ${selectedCases.length}/${differentialCases.length} cases\n`,
+    );
+  }
 
-  for (const test of differentialCases) {
+  for (const test of selectedCases) {
     process.stdout.write(`[differential] ${test.name}: START\n`);
     runNative(['daemon', 'stop'], { env: daemonEnvironment });
     await Promise.all(
@@ -2573,7 +2595,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
     });
     const longEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1000',
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
     const longTest = await runAsync(
@@ -2681,7 +2703,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
     const queueRoot = await resetFeatureLab('disposable-test-cap');
     const cappedEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '2000',
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '750',
     };
     const queuedRuns = [];
     for (let index = 0; index < 9; index += 1) {
@@ -2714,7 +2736,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
     const cancellationRoot = await resetFeatureLab('disposable-test-cancellation');
     const cancellationEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1000',
     };
     const cancellationArgs = [
       '--project',
@@ -2899,7 +2921,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     await rm(portableOutput, { force: true });
     const portableEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '750',
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
     const portableExport = await runAsync(
@@ -3036,7 +3058,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const generationBaselineBytes = await readFile(generationBaselineOutput);
     const delayedEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '750',
     };
     const generationExport = await runAsync(
       nativeCli,
@@ -3127,7 +3149,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     };
     const cancellationEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '10000',
+      NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '1000',
     };
     const cancellationArgs = packageArguments(cancellationRoot, cancellationOutput);
     const cancellation = isWindows
@@ -3600,19 +3622,28 @@ async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
   }
 }
 
-async function certifyResidentDaemon(tempRoot, pristine) {
+async function certifyResidentDaemon(tempRoot, pristine, includeNestedCertification = true) {
   const root = path.join(tempRoot, 'resident-daemon');
   const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
   await resetCase(pristine, root);
-  const projectOwners = await certifyProjectOwnerScheduling(tempRoot, pristine);
-  const disposableTests = await certifyDisposableTestScheduling(tempRoot);
-  const disposableOutputs = await certifyDisposableOutputScheduling(tempRoot);
-  const buildProtocolIsolation = await certifyDaemonBuildProtocolIsolation(tempRoot);
-  const authorityAndMutation = await certifyStandaloneAuthorityAndMutationHandling(
-    tempRoot,
-    pristine,
-  );
-  const comfyUiOwnerIsolation = await certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine);
+  const projectOwners = includeNestedCertification
+    ? await certifyProjectOwnerScheduling(tempRoot, pristine)
+    : { certifiedSeparately: true };
+  const disposableTests = includeNestedCertification
+    ? await certifyDisposableTestScheduling(tempRoot)
+    : { certifiedSeparately: true };
+  const disposableOutputs = includeNestedCertification
+    ? await certifyDisposableOutputScheduling(tempRoot)
+    : { certifiedSeparately: true };
+  const buildProtocolIsolation = includeNestedCertification
+    ? await certifyDaemonBuildProtocolIsolation(tempRoot)
+    : { certifiedSeparately: true };
+  const authorityAndMutation = includeNestedCertification
+    ? await certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
+    : { certifiedSeparately: true };
+  const comfyUiOwnerIsolation = includeNestedCertification
+    ? await certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine)
+    : { certifiedSeparately: true };
   const daemonEnvironment = {
     ...process.env,
     NOVELTEA_CLI_CERTIFICATION: '1',
@@ -3878,7 +3909,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
   const idleDaemonEnvironment = {
     ...daemonEnvironment,
     NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${daemonEnvironment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-idle`,
-    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '2000',
+    NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '750',
   };
   const idleTraceEnvironment = { ...idleDaemonEnvironment, NOVELTEA_CLI_TRACE: '1' };
   const idleAdmission = requireSuccess(
@@ -3891,7 +3922,7 @@ async function certifyResidentDaemon(tempRoot, pristine) {
   if (!idleAdmission.stderr.includes('[scriptc-host] daemon invocation forwarding'))
     fail('Idle-shutdown certification did not route through the resident daemon.');
 
-  await new Promise((resolve) => setTimeout(resolve, 2300));
+  await new Promise((resolve) => setTimeout(resolve, 1000));
   const idleStatus = requireSuccess(
     'daemon idle shutdown status',
     runNative(['--json', 'daemon', 'status'], { env: idleDaemonEnvironment }),
@@ -5819,6 +5850,17 @@ async function certifyRelocation(tempRoot) {
     .filter(Boolean);
 }
 
+async function runTimedSection(name, operation) {
+  process.stdout.write(`[certification] section ${name}: START\n`);
+  const startedAt = process.hrtime.bigint();
+  const result = await operation();
+  const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+  process.stdout.write(
+    `[certification] section ${name}: PASS (${(elapsedMs / 1000).toFixed(2)}s)\n`,
+  );
+  return result;
+}
+
 async function main() {
   const sectionNames = Object.freeze([
     'differential',
@@ -5836,6 +5878,7 @@ async function main() {
     'authority-mutation',
     'comfyui-owner-isolation',
     'resident-daemon',
+    'resident-daemon-core',
     'editor-authoring-cache-sharing',
     'performance',
     'scoped-preparation',
@@ -5932,6 +5975,7 @@ async function main() {
       };
       for (const section of onlySections) {
         process.stdout.write(`[certification] section ${section}: START\n`);
+        const sectionStartedAt = process.hrtime.bigint();
         switch (section) {
           case 'differential': {
             ({ pristine } = await runDifferential(tempRoot));
@@ -5980,6 +6024,9 @@ async function main() {
           case 'resident-daemon':
             await certifyResidentDaemon(tempRoot, await ensurePristine());
             break;
+          case 'resident-daemon-core':
+            await certifyResidentDaemon(tempRoot, await ensurePristine(), false);
+            break;
           case 'editor-authoring-cache-sharing':
             certifyEditorAuthoringCacheSharing();
             break;
@@ -6013,7 +6060,10 @@ async function main() {
           default:
             fail(`Unhandled CLI certification section '${section}'.`);
         }
-        process.stdout.write(`[certification] section ${section}: PASS\n`);
+        const sectionElapsedMs = Number(process.hrtime.bigint() - sectionStartedAt) / 1_000_000;
+        process.stdout.write(
+          `[certification] section ${section}: PASS (${(sectionElapsedMs / 1000).toFixed(2)}s)\n`,
+        );
       }
       process.stdout.write(
         `${JSON.stringify({ success: true, selectedSections: [...onlySections] })}\n`,
@@ -6021,29 +6071,49 @@ async function main() {
       return;
     }
 
-    certifyBootstrapOnlyIslandFailures();
-    const { pristine } = await runDifferential(tempRoot);
-    await certifyTypedShaders(tempRoot);
-    await certifyRawShaderc(tempRoot);
-    await certifyPrivateShadercBatchOutputIsolation(tempRoot);
-    await certifyAuthoringCache(tempRoot, pristine);
-    await certifyDaemonAuthoringCacheResidency(tempRoot, pristine);
-    await certifyDaemonAuthoringCachePressure(tempRoot, pristine);
-    const residentDaemon = await certifyResidentDaemon(tempRoot, pristine);
-    certifyEditorAuthoringCacheSharing();
-    const performance = await certifyPerformanceEnvelope(tempRoot, pristine);
+    await runTimedSection('bootstrap-island', () => certifyBootstrapOnlyIslandFailures());
+    const { pristine } = await runTimedSection('differential', () => runDifferential(tempRoot));
+    await runTimedSection('typed-shaders', () => certifyTypedShaders(tempRoot));
+    await runTimedSection('raw-shaderc', async () => {
+      await certifyRawShaderc(tempRoot);
+      await certifyPrivateShadercBatchOutputIsolation(tempRoot);
+    });
+    await runTimedSection('authoring-cache', () => certifyAuthoringCache(tempRoot, pristine));
+    await runTimedSection('daemon-authoring-cache', () =>
+      certifyDaemonAuthoringCacheResidency(tempRoot, pristine),
+    );
+    await runTimedSection('daemon-authoring-cache-pressure', () =>
+      certifyDaemonAuthoringCachePressure(tempRoot, pristine),
+    );
+    const residentDaemon = await runTimedSection('resident-daemon', () =>
+      certifyResidentDaemon(tempRoot, pristine),
+    );
+    await runTimedSection('editor-authoring-cache-sharing', () =>
+      certifyEditorAuthoringCacheSharing(),
+    );
+    const performance = await runTimedSection('performance', () =>
+      certifyPerformanceEnvelope(tempRoot, pristine),
+    );
     performance.cases.residentDaemon = {
       ...residentDaemon.performanceMs,
       rssBytes: residentDaemon.rssBytes,
     };
-    certifyScopedPreparationLazyBoundaries(pristine);
-    await certifyTestCommandParity(tempRoot, pristine);
-    await certifyRuntimeCacheInvalidation(tempRoot, pristine);
-    await certifyNativeOperations(tempRoot, pristine);
-    await certifyFeatureLabAuthoredTests(tempRoot);
-    await certifyPlatformHost(tempRoot, pristine);
-    const comfyUiDifferentialCases = await certifyComfyUiStandalone(tempRoot, pristine);
-    const closure = await certifyRelocation(tempRoot);
+    await runTimedSection('scoped-preparation', () =>
+      certifyScopedPreparationLazyBoundaries(pristine),
+    );
+    await runTimedSection('test-command-parity', () =>
+      certifyTestCommandParity(tempRoot, pristine),
+    );
+    await runTimedSection('runtime-cache', () =>
+      certifyRuntimeCacheInvalidation(tempRoot, pristine),
+    );
+    await runTimedSection('native-operations', () => certifyNativeOperations(tempRoot, pristine));
+    await runTimedSection('feature-lab-tests', () => certifyFeatureLabAuthoredTests(tempRoot));
+    await runTimedSection('platform-host', () => certifyPlatformHost(tempRoot, pristine));
+    const comfyUiDifferentialCases = await runTimedSection('comfyui-standalone', () =>
+      certifyComfyUiStandalone(tempRoot, pristine),
+    );
+    const closure = await runTimedSection('relocation', () => certifyRelocation(tempRoot));
     const binarySize = (await stat(nativeCli)).size;
     process.stdout.write(
       `${JSON.stringify({
