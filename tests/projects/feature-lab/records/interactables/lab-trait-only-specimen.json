@@ -1,0 +1,32 @@
+{
+  "id": "lab-trait-only-specimen",
+  "label": "Trait-only Specimen",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": ["lab-layered"],
+  "defaultProperties": [],
+  "data": {
+    "kind": "interactable",
+    "displayName": "Trait-only specimen",
+    "stackable": false,
+    "stackLimit": null,
+    "presentation": {
+      "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+      "materialApplication": null,
+      "cursor": null,
+      "hotspots": {
+        "kind": "sprite-alpha",
+        "hotspot": {
+          "id": "trait-only",
+          "label": "Trait-only specimen",
+          "condition": { "kind": "always" },
+          "inputOrder": 0,
+          "highlight": { "kind": "default" },
+          "target": { "kind": "owner" }
+        }
+      }
+    },
+    "features": [],
+    "inventories": []
+  }
+}

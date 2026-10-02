@@ -1,0 +1,13 @@
+{
+  "id": "runtime-workshop-room",
+  "label": "Runtime Workshop Room Archetype",
+  "data": {
+    "kind": "archetype",
+    "instanceKind": "room",
+    "base": null,
+    "overrides": {
+      "/data/displayName": "Runtime annex template",
+      "/data/background/color": "#182430"
+    }
+  }
+}

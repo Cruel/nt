@@ -1,0 +1,75 @@
+{
+  "id": "runtime-workshop",
+  "label": "Runtime Workshop Controls",
+  "data": {
+    "kind": "interaction",
+    "rules": [
+      {
+        "id": "archetype-materialization",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-archetype-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "materialize", "kind": "run-lua", "source": "local room, room_err=noveltea.instances.create('room','archetype','runtime-workshop-room'); if room_err then error(room_err) end; local rp, rp_err=noveltea.instances.provenance('room',room); if rp_err then error(rp_err) end; assert(rp.kind == 'archetype' and rp.archetype == 'runtime-workshop-room'); local a, a_err=noveltea.instances.create('character','archetype','runtime-workshop-character',{room='runtime-workshop',enabled=true,visible=true}); if a_err then error(a_err) end; local b, b_err=noveltea.instances.create('character','archetype','runtime-workshop-character',{room='runtime-workshop-annex-a',enabled=true,visible=true}); if b_err then error(b_err) end; assert(a ~= b); local al, al_err=noveltea.characters.location(a); if al_err then error(al_err) end; local bl, bl_err=noveltea.characters.location(b); if bl_err then error(bl_err) end; assert(al.kind == 'room' and al.room == 'runtime-workshop'); assert(bl.kind == 'room' and bl.room == 'runtime-workshop-annex-a'); local ok, set_err=noveltea.properties.set('character',a,'runtime-note','only-a'); if not ok then error(set_err) end; local av, ap, ae=noveltea.properties.get('character',a,'runtime-note'); assert(ae == nil and ap and av == 'only-a'); local bv, bp, be=noveltea.properties.get('character',b,'runtime-note'); assert(be == nil and not bp and bv == nil)" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Archetype materialization produced independent Room/Character Instances; Character birth Location stayed per-instance and a runtime Property did not leak between siblings." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "create-and-clone",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-create-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "create", "kind": "run-lua", "source": "local r1, e1=noveltea.instances.create('room','compiled','runtime-workshop-annex-a'); if e1 then error(e1) end; local r2, e2=noveltea.instances.create('room','effective',r1); if e2 then error(e2) end; local c1, e3=noveltea.instances.create('character','compiled','pilot-guide',{room='runtime-workshop',enabled=true,visible=true}); if e3 then error(e3) end; local c2, e4=noveltea.instances.create('character','effective',c1,{room='runtime-workshop-annex-a',enabled=true,visible=true}); if e4 then error(e4) end; local object, e5=noveltea.instances.create('interactable','definition','lab-specimen'); if e5 then error(e5) end; assert(r1 ~= r2 and c1 ~= c2 and object ~= 'workshop-free-object'); local p1, pe1=noveltea.instances.provenance('room',r1); if pe1 then error(pe1) end; local p2, pe2=noveltea.instances.provenance('room',r2); if pe2 then error(pe2) end; local pc, pec=noveltea.instances.provenance('character',c1); if pec then error(pec) end; local po, peo=noveltea.instances.provenance('interactable',object); if peo then error(peo) end; assert(p1.kind == 'compiled-definition' and p2.kind == 'clone' and pc.kind == 'compiled-definition' and po.kind == 'compiled-definition'); local ol, ole=noveltea.interactables.location(object); if ole then error(ole) end; assert(ol.kind == 'unplaced')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Room and Character Instances were created from compiled/effective sources, plus an Interactable from its Definition; IDs, birth state and provenance are distinct." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "configuration-replacement",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-config-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "disable-target", "kind": "set-enabled", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-config-target" } } }, "enabled": false },
+            { "id": "replace-clear", "kind": "run-lua", "source": "local before, before_err=noveltea.interactables.location('workshop-config-target'); if before_err then error(before_err) end; assert(before.kind == 'room' and before.room == 'runtime-workshop'); local ok, err=noveltea.instances.replace_configuration('interactable','workshop-config-target','compiled','state-dynamic-conflict-source'); if not ok then error(err) end; local after, after_err=noveltea.interactables.location('workshop-config-target'); if after_err then error(after_err) end; assert(after.kind == 'room' and after.room == 'runtime-workshop'); ok, err=noveltea.instances.clear_configuration('interactable','workshop-config-target'); if not ok then error(err) end; local restored, restored_err=noveltea.interactables.location('workshop-config-target'); if restored_err then error(restored_err) end; assert(restored.kind == 'room' and restored.room == 'runtime-workshop'); ok, err=noveltea.properties.set('interactable','workshop-config-target','dynamic-key','conflict'); if not ok then error(err) end; local rejected, reject_err=noveltea.instances.replace_configuration('interactable','workshop-config-target','compiled','state-dynamic-conflict-source'); assert(not rejected and type(reject_err) == 'string'); local v, present, get_err=noveltea.properties.get('interactable','workshop-config-target','dynamic-key'); assert(get_err == nil and present and v == 'conflict'); ok, err=noveltea.properties.unset('interactable','workshop-config-target','dynamic-key'); if not ok then error(err) end; local dependency_replaced, dependency_err=noveltea.instances.replace_configuration('interactable','workshop-dependent-owner','compiled','state-dynamic-conflict-source'); assert(not dependency_replaced and type(dependency_err) == 'string'); local child, child_err=noveltea.interactables.location('workshop-dependent-child'); if child_err then error(child_err) end; assert(child.kind == 'inventory' and child.inventory.owner.interactable == 'workshop-dependent-owner')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Structural configuration replaced and cleared without moving or re-enabling the target; incompatible schema and dependent-Inventory replacements rejected atomically." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "retarget-exit",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-retarget-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "retarget", "kind": "run-lua", "source": "local ok, err=noveltea.instances.retarget_exit('runtime-workshop','annex','runtime-workshop-annex-b'); if not ok then error(err) end" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "The ordinary annex Exit now targets Annex B. Use the Room exit to verify navigation follows the live destination." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "destroy-dependents",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-destroy-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "destroy", "kind": "run-lua", "source": "local ok, err=noveltea.instances.destroy('interactable','workshop-free-object'); if not ok then error(err) end; local gone, gone_err=noveltea.interactables.location('workshop-free-object'); assert(gone == nil and type(gone_err) == 'string'); local rejected, reject_err=noveltea.instances.destroy('interactable','workshop-dependent-owner'); assert(not rejected and type(reject_err) == 'string'); local owner, owner_err=noveltea.interactables.location('workshop-dependent-owner'); if owner_err then error(owner_err) end; local child, child_err=noveltea.interactables.location('workshop-dependent-child'); if child_err then error(child_err) end; assert(owner.kind == 'room' and owner.room == 'runtime-workshop'); assert(child.kind == 'inventory' and child.inventory.owner.interactable == 'workshop-dependent-owner'); local fresh, fresh_err=noveltea.instances.create('interactable','definition','lab-specimen'); if fresh_err then error(fresh_err) end; assert(fresh ~= 'workshop-free-object'); local still_gone, still_gone_err=noveltea.interactables.location('workshop-free-object'); assert(still_gone == nil and type(still_gone_err) == 'string')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "A free Instance ended; destroying an Inventory owner with a live dependent was rejected non-cascading; the ended ID was not reused." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      }
+    ]
+  }
+}

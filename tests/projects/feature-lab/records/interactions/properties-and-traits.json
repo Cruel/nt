@@ -1,0 +1,123 @@
+{
+  "id": "properties-and-traits",
+  "label": "Properties & Traits Controls",
+  "data": {
+    "kind": "interaction",
+    "rules": [
+      {
+        "id": "typed-values",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-typed-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "set-boolean", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "bool-prop", "value": true },
+            { "id": "set-integer", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "integer-prop", "value": 42 },
+            { "id": "set-number", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "number-prop", "value": 2.25 },
+            { "id": "set-string", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "string-prop", "value": "typed" },
+            { "id": "set-enum", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "enum-prop", "value": "beta" },
+            { "id": "reject-invalid", "kind": "run-lua", "source": "local message, present, message_err=noveltea.properties.get('interactable','state-specimen-instance','message-prop'); assert(message_err == nil and present and message ~= nil); local ok, err=noveltea.properties.set('interactable','state-specimen-instance','integer-prop',1.5); assert(not ok and type(err) == 'string'); ok, err=noveltea.properties.set('interactable','state-specimen-instance','enum-prop','gamma'); assert(not ok and type(err) == 'string'); ok, err=noveltea.properties.set('interactable','state-specimen-instance','number-prop',math.huge); assert(not ok and type(err) == 'string')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Boolean, integer, finite number, string, enum and Message values resolved. Invalid integer, enum and non-finite writes were rejected." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "owner-local-values",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-owner-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "global", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "global-shared-state" } }, "value": "global-updated" },
+            { "id": "room", "kind": "set-property", "owner": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } }, "propertyId": "shared-state", "value": "room-updated" },
+            { "id": "character", "kind": "set-property", "owner": { "kind": "character", "character": { "$ref": { "collection": "characters", "id": "state-witness" } } }, "propertyId": "shared-state", "value": 42 },
+            { "id": "instance", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "shared-state", "value": "instance-updated" },
+            { "id": "feature", "kind": "run-lua", "source": "local ok, err=noveltea.properties.set_feature('interactable','state-specimen-instance','slot','shared-state','feature-updated'); if not ok then error(err) end; local value, present, get_err=noveltea.properties.get_feature('interactable','state-specimen-instance','slot','shared-state'); assert(get_err == nil and present and value == 'feature-updated')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "shared-state changed independently on Room, Character, exact Instance and Feature owners; the Character key uses a different integer schema. A separate Global key demonstrates Global mutation without hiding the runtime's same-key namespace limitation." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "precedence-null-unset",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-precedence-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "exercise-layers", "kind": "run-lua", "source": "local expected={['state-specimen-instance']='instance-value',['state-definition-instance']='definition-default',['state-archetype-instance']='archetype-default',['state-trait-instance']='trait-default'}; for id, fallback in pairs(expected) do local ok, err=noveltea.properties.set('interactable',id,'layered','runtime-override'); if not ok then error(err) end; local value, present, get_err=noveltea.properties.get('interactable',id,'layered'); assert(get_err == nil and present and value == 'runtime-override'); ok, err=noveltea.properties.set('interactable',id,'layered',nil); if not ok then error(err) end; value, present, get_err=noveltea.properties.get('interactable',id,'layered'); assert(get_err == nil and present and value == nil); ok, err=noveltea.properties.unset('interactable',id,'layered'); if not ok then error(err) end; value, present, get_err=noveltea.properties.get('interactable',id,'layered'); assert(get_err == nil and present and value == fallback) end" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Runtime override, explicit nullable null, and unset were exercised across Instance, Definition, Archetype and Trait fallback layers." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "dynamic-properties",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-dynamic-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "exercise-dynamic", "kind": "run-lua", "source": "local ok, err=noveltea.properties.set('interactable','state-dynamic-instance','dynamic-key',1); if not ok then error(err) end; ok, err=noveltea.properties.set('interactable','state-dynamic-instance','dynamic-key','two'); if not ok then error(err) end; ok, err=noveltea.properties.set('interactable','state-dynamic-instance','dynamic-key',nil); if not ok then error(err) end; local value, present, get_err=noveltea.properties.get('interactable','state-dynamic-instance','dynamic-key'); assert(get_err == nil and present and value == nil); ok, err=noveltea.properties.set('interactable','state-dynamic-instance','dynamic-key','conflict'); if not ok then error(err) end; local replaced, replace_err=noveltea.instances.replace_configuration('interactable','state-dynamic-instance','compiled','state-dynamic-conflict-source'); assert(not replaced and type(replace_err) == 'string'); value, present, get_err=noveltea.properties.get('interactable','state-dynamic-instance','dynamic-key'); assert(get_err == nil and present and value == 'conflict'); ok, err=noveltea.properties.unset('interactable','state-dynamic-instance','dynamic-key'); if not ok then error(err) end; value, present, get_err=noveltea.properties.get('interactable','state-dynamic-instance','dynamic-key'); assert(get_err == nil and not present and value == nil)" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "A schema-less Property changed scalar type, preserved explicit null, rejected an incompatible structural schema atomically, then returned to absence." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "trait-capabilities",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-trait-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            {
+              "id": "toggle-traits", "kind": "if",
+              "condition": { "kind": "trait-presence", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "trait": { "$ref": { "collection": "traits", "id": "lab-marker" } }, "present": false },
+              "then": [
+                { "id": "add-marker", "kind": "add-trait", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "trait": { "$ref": { "collection": "traits", "id": "lab-marker" } } },
+                { "id": "add-configured", "kind": "add-trait", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "trait": { "$ref": { "collection": "traits", "id": "lab-configured" } } },
+                { "id": "attached", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Marker and Property-backed Traits attached. The exact specimen now reports both Trait presence and trait-value; live selector/Condition authority remains a tracked limitation." }, "markup": "plain" } }
+              ],
+              "else": [
+                { "id": "remove-marker", "kind": "remove-trait", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "trait": { "$ref": { "collection": "traits", "id": "lab-marker" } } },
+                { "id": "remove-configured", "kind": "remove-trait", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "trait": { "$ref": { "collection": "traits", "id": "lab-configured" } } },
+                { "id": "detached", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Runtime Traits removed; the marker and trait-value capability are absent again." }, "markup": "plain" } }
+              ]
+            }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "recursive-conditions",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-condition-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true },
+        "guard": {
+          "kind": "all",
+          "conditions": [
+            { "kind": "property-comparison", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "string-prop", "operator": "equal", "value": "typed" },
+            { "kind": "trait-presence", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "trait": { "$ref": { "collection": "traits", "id": "lab-layered" } }, "present": true },
+            { "kind": "location-comparison", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "operator": "equal", "location": { "kind": "room", "room": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } } } },
+            { "kind": "location-comparison", "subject": { "kind": "interaction-slot", "slotId": "target" }, "operator": "equal", "location": { "kind": "room", "room": { "kind": "current-room" } } },
+            { "kind": "inventory-quantity-comparison", "inventory": { "kind": "owner-inventory", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-bin" } } }, "inventoryId": "pocket" }, "matcher": { "definition": { "$ref": { "collection": "interactables", "id": "lab-supply" } }, "traits": [], "properties": [] }, "operator": "greater-equal", "quantity": 3 },
+            { "kind": "not", "condition": { "kind": "any", "conditions": [
+              { "kind": "property-comparison", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "state-specimen-instance" } } }, "propertyId": "integer-prop", "operator": "equal", "value": 0 },
+              { "kind": "lua-predicate", "source": "false" }
+            ] } }
+          ]
+        },
+        "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "mark-success", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "conditions-hit" } }, "value": true },
+            { "id": "success", "kind": "notify", "message": { "source": { "kind": "inline", "text": "All / Any / Not resolved Property, Trait, Location, Inventory quantity, bound-slot and Lua leaves to true." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      }
+    ]
+  }
+}

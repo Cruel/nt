@@ -1,0 +1,11 @@
+{
+  "id": "global-shared-state",
+  "label": "Global Shared State Key",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "global-shared",
+    "scope": "global"
+  }
+}

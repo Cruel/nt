@@ -1,0 +1,151 @@
+{
+  "id": "inventory-workbench",
+  "label": "Inventory Workbench Controls",
+  "data": {
+    "kind": "interaction",
+    "rules": [
+      {
+        "id": "exact-instance-identity",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-identity-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true },
+        "guard": { "kind": "always" },
+        "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "mark-a", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-a" } } }, "propertyId": "identity-tag", "value": "A-picked" },
+            { "id": "mark-b", "kind": "set-property", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-b" } } }, "propertyId": "identity-tag", "value": "B-picked" },
+            { "id": "pack-a", "kind": "move-instance", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-a" } } }, "location": { "kind": "inventory", "inventory": { "kind": "player-inventory" } } },
+            { "id": "unplace-b", "kind": "move-instance", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-b" } } }, "location": { "kind": "unplaced" } },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Specimen A moved to Player Inventory; specimen B moved to Unplaced. Their exact identities and Property values remain distinct." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "inventory-presentation",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-inventory-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "player", "kind": "present-inventory", "inventory": { "kind": "player-inventory" }, "coexist": true },
+            { "id": "character", "kind": "present-inventory", "inventory": { "kind": "owner-inventory", "owner": { "kind": "character", "character": { "$ref": { "collection": "characters", "id": "state-witness" } } }, "inventoryId": "bag" }, "coexist": true },
+            { "id": "container", "kind": "present-inventory", "inventory": { "kind": "owner-inventory", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-container" } } }, "inventoryId": "pocket" }, "coexist": true },
+            { "id": "interactable-feature", "kind": "present-inventory", "inventory": { "kind": "owner-inventory", "owner": { "kind": "interactable-feature", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-a" } }, "featureId": "slot" }, "inventoryId": "feature-pocket" }, "coexist": true },
+            { "id": "room-feature", "kind": "present-inventory", "inventory": { "kind": "owner-inventory", "owner": { "kind": "room-feature", "room": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } }, "featureId": "slot" }, "inventoryId": "feature-pocket" }, "coexist": true }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "containment-context",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-containment-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "move-container", "kind": "move-instance", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-container" } } }, "location": { "kind": "room", "room": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "inventory-delivery" } } } } },
+            { "id": "verify-containment", "kind": "run-lua", "source": "local child, child_err = noveltea.interactables.location('workbench-contained-child'); if child_err then error(child_err) end; assert(child.kind == 'inventory' and child.inventory.owner.kind == 'interactable' and child.inventory.owner.interactable == 'workbench-container'); local container, container_err = noveltea.interactables.location('workbench-container'); if container_err then error(container_err) end; assert(container.kind == 'room' and container.room == 'inventory-delivery')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Filled container moved to Delivery. Its child kept the same direct Inventory Location while its effective Room followed the ancestor." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "enabled-visible",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-state-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "disable-a", "kind": "set-enabled", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-a" } } }, "enabled": false },
+            { "id": "repack-b", "kind": "move-instance", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-b" } } }, "location": { "kind": "inventory", "inventory": { "kind": "player-inventory" } } },
+            { "id": "hide-b", "kind": "set-visible", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-b" } } }, "visible": false },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "A is disabled while still visible in inventory; B is enabled but hidden. Eligibility and visibility are independent." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "create-quantity",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-create-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "create", "kind": "run-lua", "source": "local target={kind='inventory', inventory={owner={kind='project'}, id='player'}}; local created, err=noveltea.interactables.create_quantity('lab-supply', 12, target); if err then error(err) end; assert(created.quantity == 12 and #created.created == 3); local total=0; for _, id in ipairs(created.created) do local q, qerr=noveltea.interactables.quantity(id); if qerr then error(qerr) end; assert(q <= 5); total=total+q end; assert(total == 12); local nonstacked, nonstacked_err=noveltea.interactables.create_quantity('lab-specimen', 2, target); if nonstacked_err then error(nonstacked_err) end; assert(nonstacked.quantity == 2 and #nonstacked.created == 2 and #nonstacked.surviving == 2); for _, id in ipairs(nonstacked.created) do local q, qerr=noveltea.interactables.quantity(id); if qerr then error(qerr) end; assert(q == 1) end" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "12 supplies created as the minimum three limit-respecting stacks; quantity 2 of the non-stackable specimen created two distinct quantity-one identities." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "split-merge",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-split-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "split-merge", "kind": "run-lua", "source": "local split, err=noveltea.interactables.split('supply-split-stack', 2); if err then error(err) end; assert(#split.created == 1 and split.quantity == 2); local donor=split.created[1]; local source_q, source_err=noveltea.interactables.quantity('supply-split-stack'); if source_err then error(source_err) end; assert(source_q == 2); local donor_q, donor_err=noveltea.interactables.quantity(donor); if donor_err then error(donor_err) end; assert(donor_q == 2); local merged, merge_err=noveltea.interactables.merge('supply-split-stack', donor); if merge_err then error(merge_err) end; assert(merged.quantity == 2 and #merged.ended == 1 and merged.ended[1] == donor); source_q, source_err=noveltea.interactables.quantity('supply-split-stack'); if source_err then error(source_err) end; assert(source_q == 4); local ended, ended_err=noveltea.interactables.quantity(donor); assert(ended == nil and type(ended_err) == 'string')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "The Room stack split into a new identity, then merged back into the original receiver; the donor identity ended." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "exact-transfer",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-transfer-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "transfer", "kind": "run-lua", "source": "local target={kind='inventory', inventory={owner={kind='project'}, id='player'}}; local whole, whole_err=noveltea.interactables.transfer('supply-transfer-whole', 2, target); if whole_err then error(whole_err) end; assert(#whole.created == 0 and #whole.surviving >= 1); local whole_loc, whole_loc_err=noveltea.interactables.location('supply-transfer-whole'); if whole_loc_err then error(whole_loc_err) end; assert(whole_loc.kind == 'inventory' and whole_loc.inventory.owner.kind == 'project' and whole_loc.inventory.id == 'player'); local partial, partial_err=noveltea.interactables.transfer('supply-transfer-partial', 2, target); if partial_err then error(partial_err) end; assert(#partial.created == 1); local source_q, source_err=noveltea.interactables.quantity('supply-transfer-partial'); if source_err then error(source_err) end; assert(source_q == 2); local moved_q, moved_err=noveltea.interactables.quantity(partial.created[1]); if moved_err then error(moved_err) end; assert(moved_q == 2)" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Whole transfer kept its identity; partial transfer left the source at quantity 2 and created one exact destination identity without coalescing." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "add-consume-aggregate",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "aggregate", "kind": "run-lua", "source": "local source={kind='inventory', inventory={owner={kind='interactable', interactable='workbench-aggregate-bin'}, id='pocket'}}; local pocket={kind='inventory', inventory={owner={kind='interactable', interactable='workbench-container'}, id='pocket'}}; local before, before_err=noveltea.interactables.aggregate_definition('lab-supply', source); if before_err then error(before_err) end; assert(before == 3); local added, add_err=noveltea.interactables.add_quantity('lab-supply', 4, source); if add_err then error(add_err) end; assert(added.quantity == 4 and #added.created == 0); local qa=assert(noveltea.interactables.quantity('supply-aggregate-a')); local qb=assert(noveltea.interactables.quantity('supply-aggregate-b')); assert(qa == 5 and qb == 2); local moved, move_err=noveltea.interactables.transfer_definition('lab-supply', 3, source, pocket); if move_err then error(move_err) end; assert(moved.quantity == 3 and #moved.created == 1); local consumed, consume_err=noveltea.interactables.consume_definition('lab-supply', 2, source); if consume_err then error(consume_err) end; assert(consumed.quantity == 2); local ended, ended_err=noveltea.interactables.quantity('supply-aggregate-a'); assert(ended == nil and type(ended_err) == 'string'); local remaining, remaining_err=noveltea.interactables.aggregate_definition('lab-supply', source); if remaining_err then error(remaining_err) end; assert(remaining == 2)" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Default-compatible stocks filled in stable identity order; aggregate transfer split one boundary; consume ended the exhausted source identity." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "quantity-rejection",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-rejection-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "move-incompatible", "kind": "move-instance", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "supply-incompatible" } } }, "location": { "kind": "inventory", "inventory": { "kind": "owner-inventory", "owner": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-bin" } } }, "inventoryId": "pocket" } } },
+            { "id": "reject", "kind": "run-lua", "source": "local player={kind='inventory', inventory={owner={kind='project'}, id='player'}}; local source={kind='inventory', inventory={owner={kind='interactable', interactable='workbench-aggregate-bin'}, id='pocket'}}; local pocket={kind='inventory', inventory={owner={kind='interactable', interactable='workbench-container'}, id='pocket'}}; local too_much, too_much_err=noveltea.interactables.transfer('supply-reject', 3, player); assert(too_much == nil and type(too_much_err) == 'string'); local q, qerr=noveltea.interactables.quantity('supply-reject'); if qerr then error(qerr) end; assert(q == 2); local loc, loc_err=noveltea.interactables.location('supply-reject'); if loc_err then error(loc_err) end; assert(loc.kind == 'room' and loc.room == 'inventory-workbench'); local total, total_err=noveltea.interactables.aggregate_definition('lab-supply', source); if total_err then error(total_err) end; assert(total == 4); local ambiguous, ambiguous_err=noveltea.interactables.transfer_definition('lab-supply', 3, source, pocket); assert(ambiguous == nil and type(ambiguous_err) == 'string'); local after, after_err=noveltea.interactables.aggregate_definition('lab-supply', source); if after_err then error(after_err) end; assert(after == 4)" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Insufficient exact transfer and an aggregate request spanning incompatible stack classes were rejected without partial mutation; the pure total still spans both classes." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "feature-ownership",
+        "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-feature-control" } } } }] }],
+        "offer": { "slotId": "target", "rank": 20, "primary": true }, "guard": { "kind": "always" }, "priority": 20,
+        "program": {
+          "instructions": [
+            { "id": "verify-owners", "kind": "run-lua", "source": "local a, ap, ae=noveltea.properties.get_feature('interactable','workbench-object-a','slot','shared-state'); assert(ae == nil and ap and a == 'feature-a'); local b, bp, be=noveltea.properties.get_feature('interactable','workbench-object-b','slot','shared-state'); assert(be == nil and bp and b == 'feature-b'); local r, rp, re=noveltea.properties.get_feature('room','inventory-workbench','slot','shared-state'); assert(re == nil and rp and r == 'room-feature-shared'); local la=assert(noveltea.interactables.location('workbench-feature-item-a')); local lb=assert(noveltea.interactables.location('workbench-feature-item-b')); local lr=assert(noveltea.interactables.location('workbench-room-feature-item')); assert(la.inventory.owner.interactable == 'workbench-object-a' and lb.inventory.owner.interactable == 'workbench-object-b' and lr.inventory.owner.kind == 'room-feature')" },
+            { "id": "announce", "kind": "notify", "message": { "source": { "kind": "inline", "text": "The two same-named Interactable Features and the Room Feature resolve separate Properties and Inventories by owner-qualified identity." }, "markup": "plain" } }
+          ],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      }
+    ]
+  }
+}

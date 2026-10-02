@@ -1,1 +1,39 @@
-{}
+{
+  "lab-layered": {
+    "id": "lab-layered",
+    "label": "Layered specimen",
+    "description": "Supplies the lowest-precedence nullable Property used by the Properties & Traits station.",
+    "ownerKinds": ["interactable"],
+    "properties": [
+      {
+        "id": "layered",
+        "label": "Layered value",
+        "type": "string",
+        "nullable": true,
+        "defaultValue": "trait-default"
+      }
+    ]
+  },
+  "lab-marker": {
+    "id": "lab-marker",
+    "label": "Runtime marker",
+    "description": "Marker Trait added and removed live by the Properties & Traits station.",
+    "ownerKinds": ["interactable"],
+    "properties": []
+  },
+  "lab-configured": {
+    "id": "lab-configured",
+    "label": "Configured specimen",
+    "description": "Property-backed Trait used to prove live capability attachment and removal.",
+    "ownerKinds": ["interactable"],
+    "properties": [
+      {
+        "id": "trait-value",
+        "label": "Trait value",
+        "type": "string",
+        "nullable": false,
+        "defaultValue": "trait-default-value"
+      }
+    ]
+  }
+}

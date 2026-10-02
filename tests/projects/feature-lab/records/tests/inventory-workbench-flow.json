@@ -1,0 +1,87 @@
+{
+  "id": "inventory-workbench-flow",
+  "label": "Inventory Workbench semantic flow",
+  "data": {
+    "kind": "test",
+    "displayName": "Inventory Workbench semantic flow",
+    "steps": [
+      {
+        "id": "start", "input": "tick", "label": "Fresh Lab home",
+        "expectations": [{ "id": "home", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "feature-lab-home" } }]
+      },
+      {
+        "id": "enter", "input": "navigate", "label": "Enter Inventory Workbench", "navigate": { "exitId": "inventory-workbench-test-entry" },
+        "expectations": [
+          { "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "inventory-workbench" } },
+          { "id": "child-direct-location", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workbench-contained-child", "locationKind": "inventory", "roomId": "", "inventoryOwnerKind": "interactable", "inventoryOwnerId": "workbench-container", "inventoryId": "pocket" } }
+        ]
+      },
+      {
+        "id": "identity", "input": "run-interaction", "label": "Move exact Instances without losing identity",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-identity-control" } } } }] },
+        "expectations": [
+          { "id": "a-value", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "workbench-object-a", "propertyId": "identity-tag", "value": "A-picked" } },
+          { "id": "b-value", "type": "property", "operator": "eq", "property": { "scope": "interactable", "ownerId": "workbench-object-b", "propertyId": "identity-tag", "value": "B-picked" } },
+          { "id": "a-in-player", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workbench-object-a", "locationKind": "inventory", "roomId": "", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "player" } },
+          { "id": "b-unplaced", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workbench-object-b", "locationKind": "unplaced", "roomId": "", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "" } }
+        ]
+      },
+      {
+        "id": "containment", "input": "run-interaction", "label": "Move filled container and reject cycle",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-containment-control" } } } }] },
+        "expectations": [
+          { "id": "container-delivery", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workbench-container", "locationKind": "room", "roomId": "inventory-delivery", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "" } },
+          { "id": "child-still-direct", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workbench-contained-child", "locationKind": "inventory", "roomId": "", "inventoryOwnerKind": "interactable", "inventoryOwnerId": "workbench-container", "inventoryId": "pocket" } }
+        ]
+      },
+      {
+        "id": "enabled-visible", "input": "run-interaction", "label": "Mutate eligibility independently from visibility",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-state-control" } } } }] },
+        "expectations": [
+          { "id": "a-disabled", "type": "entity-state", "operator": "eq", "entityState": { "entityKind": "interactable", "entityId": "workbench-object-a", "field": "enabled", "value": false } },
+          { "id": "a-visible", "type": "entity-state", "operator": "eq", "entityState": { "entityKind": "interactable", "entityId": "workbench-object-a", "field": "visible", "value": true } },
+          { "id": "b-enabled", "type": "entity-state", "operator": "eq", "entityState": { "entityKind": "interactable", "entityId": "workbench-object-b", "field": "enabled", "value": true } },
+          { "id": "b-hidden", "type": "entity-state", "operator": "eq", "entityState": { "entityKind": "interactable", "entityId": "workbench-object-b", "field": "visible", "value": false } }
+        ]
+      },
+      {
+        "id": "create-quantity", "input": "run-interaction", "label": "Create limit-respecting quantity stacks",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-create-control" } } } }] },
+        "expectations": [{ "id": "created", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "12 supplies created as the minimum three limit-respecting stacks; quantity 2 of the non-stackable specimen created two distinct quantity-one identities." } }]
+      },
+      {
+        "id": "split-merge", "input": "run-interaction", "label": "Split and merge a compatible stack",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-split-control" } } } }] },
+        "expectations": [{ "id": "source-restored", "type": "quantity", "operator": "eq", "quantity": { "interactableId": "supply-split-stack", "value": 4 } }]
+      },
+      {
+        "id": "exact-transfer", "input": "run-interaction", "label": "Preserve whole identity and split partial transfer",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-transfer-control" } } } }] },
+        "expectations": [
+          { "id": "whole-moved", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "supply-transfer-whole", "locationKind": "inventory", "roomId": "", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "player" } },
+          { "id": "partial-source", "type": "quantity", "operator": "eq", "quantity": { "interactableId": "supply-transfer-partial", "value": 2 } }
+        ]
+      },
+      {
+        "id": "aggregate", "input": "run-interaction", "label": "Add, transfer and consume aggregate stock deterministically",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-control" } } } }] },
+        "expectations": [{ "id": "remaining-stable-id", "type": "quantity", "operator": "eq", "quantity": { "interactableId": "supply-aggregate-b", "value": 2 } }]
+      },
+      {
+        "id": "rejection", "input": "run-interaction", "label": "Reject insufficient and ambiguous quantity mutations atomically",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-rejection-control" } } } }] },
+        "expectations": [
+          { "id": "reject-source-unchanged", "type": "quantity", "operator": "eq", "quantity": { "interactableId": "supply-reject", "value": 2 } },
+          { "id": "reject-source-room", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "supply-reject", "locationKind": "room", "roomId": "inventory-workbench", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "" } }
+        ]
+      },
+      {
+        "id": "feature-ownership", "input": "run-interaction", "label": "Resolve same-named Feature owners independently",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-feature-control" } } } }] },
+        "expectations": [{ "id": "feature-notification", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "The two same-named Interactable Features and the Room Feature resolve separate Properties and Inventories by owner-qualified identity." } }]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

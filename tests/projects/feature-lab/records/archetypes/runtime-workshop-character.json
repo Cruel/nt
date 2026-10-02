@@ -1,0 +1,13 @@
+{
+  "id": "runtime-workshop-character",
+  "label": "Runtime Workshop Character Archetype",
+  "data": {
+    "kind": "archetype",
+    "instanceKind": "character",
+    "base": null,
+    "overrides": {
+      "/data/displayName": "Runtime assistant",
+      "/data/dialogue/name": "Runtime Assistant"
+    }
+  }
+}

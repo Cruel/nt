@@ -1,0 +1,80 @@
+{
+  "id": "state-witness",
+  "label": "State Witness",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [
+    { "id": "shared-state", "label": "Shared key", "type": "integer", "nullable": false, "value": 7 }
+  ],
+  "data": {
+    "kind": "character",
+    "displayName": "State Witness",
+    "dialogue": {
+      "name": "State Witness",
+      "nameColor": "#8fd8ff",
+      "textColor": null,
+      "styleClass": ""
+    },
+    "defaults": {
+      "profileId": "stage",
+      "expressionId": "neutral",
+      "appearanceId": null,
+      "idleId": null
+    },
+    "profiles": [
+      {
+        "id": "stage",
+        "label": "Stage",
+        "layers": [{ "id": "body", "label": "Body", "role": "body" }],
+        "defaultPoseId": "standing",
+        "poses": [
+          {
+            "id": "standing",
+            "label": "Standing",
+            "layers": [
+              {
+                "layerId": "body",
+                "sprite": { "$ref": { "collection": "assets", "id": "pilot-character-neutral" } },
+                "materialApplication": null,
+                "offset": { "x": 0, "y": 0 },
+                "scale": 1,
+                "anchor": { "x": 0.5, "y": 1 },
+                "visible": true
+              }
+            ]
+          }
+        ],
+        "animationClips": [],
+        "automaticAnimations": { "blink": null, "speaking": null }
+      }
+    ],
+    "expressions": [
+      { "id": "neutral", "label": "Neutral", "profiles": [] },
+      {
+        "id": "smile",
+        "label": "Smile",
+        "profiles": [
+          {
+            "profileId": "stage",
+            "layers": [
+              {
+                "layerId": "body",
+                "sprite": { "$ref": { "collection": "assets", "id": "pilot-character-smile" } }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "appearances": [],
+    "gestures": [],
+    "idles": [],
+    "inventories": [{ "id": "bag", "label": "Witness bag" }],
+    "initialWorldState": {
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } } },
+      "enabled": true,
+      "visible": true
+    }
+  }
+}

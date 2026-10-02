@@ -1,0 +1,11 @@
+{
+  "id": "conditions-hit",
+  "label": "Recursive Conditions Hit",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

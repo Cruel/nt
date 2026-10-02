@@ -1,0 +1,48 @@
+{
+  "id": "runtime-workshop-flow",
+  "label": "Runtime Workshop semantic flow",
+  "data": {
+    "kind": "test",
+    "displayName": "Runtime Workshop semantic flow",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [{ "id": "home", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "feature-lab-home" } }] },
+      { "id": "enter-router", "input": "navigate", "label": "Enter Objects & State route", "navigate": { "exitId": "inventory-workbench-test-entry" }, "expectations": [{ "id": "router-room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "inventory-workbench" } }] },
+      { "id": "enter", "input": "navigate", "label": "Enter Runtime Workshop", "navigate": { "exitId": "runtime-workshop-test-entry" }, "expectations": [{ "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "runtime-workshop" } }] },
+      {
+        "id": "materialize", "input": "run-interaction", "label": "Materialize independent Archetype Instances",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-archetype-control" } } } }] },
+        "expectations": [{ "id": "materialized", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Archetype materialization produced independent Room/Character Instances; Character birth Location stayed per-instance and a runtime Property did not leak between siblings." } }]
+      },
+      {
+        "id": "create-clone", "input": "run-interaction", "label": "Create compiled/effective clones and Definition Interactable",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-create-control" } } } }] },
+        "expectations": [{ "id": "created", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Room and Character Instances were created from compiled/effective sources, plus an Interactable from its Definition; IDs, birth state and provenance are distinct." } }]
+      },
+      {
+        "id": "replace-clear", "input": "run-interaction", "label": "Replace/clear configuration and reject incompatible replacement",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-config-control" } } } }] },
+        "expectations": [
+          { "id": "target-still-room", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workshop-config-target", "locationKind": "room", "roomId": "runtime-workshop", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "" } },
+          { "id": "target-still-disabled", "type": "entity-state", "operator": "eq", "entityState": { "entityKind": "interactable", "entityId": "workshop-config-target", "field": "enabled", "value": false } },
+          { "id": "child-still-owned", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workshop-dependent-child", "locationKind": "inventory", "roomId": "", "inventoryOwnerKind": "interactable", "inventoryOwnerId": "workshop-dependent-owner", "inventoryId": "pocket" } }
+        ]
+      },
+      {
+        "id": "destroy", "input": "run-interaction", "label": "Destroy free Instance and reject owner destruction",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-destroy-control" } } } }] },
+        "expectations": [{ "id": "owner-survives", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "workshop-dependent-owner", "locationKind": "room", "roomId": "runtime-workshop", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "" } }]
+      },
+      {
+        "id": "retarget", "input": "run-interaction", "label": "Retarget the ordinary annex Exit",
+        "runInteraction": { "verb": { "$ref": { "collection": "verbs", "id": "use" } }, "bindings": [{ "slotId": "target", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workshop-retarget-control" } } } }] },
+        "expectations": [{ "id": "retargeted", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "The ordinary annex Exit now targets Annex B. Use the Room exit to verify navigation follows the live destination." } }]
+      },
+      {
+        "id": "navigate-retargeted", "input": "navigate", "label": "Follow the live Exit destination", "navigate": { "exitId": "annex" },
+        "expectations": [{ "id": "annex-b", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "runtime-workshop-annex-b" } }]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

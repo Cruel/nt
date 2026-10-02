@@ -667,6 +667,59 @@ TEST_CASE("splitting stackable Interactable in a Room inherits resolved presenta
     CHECK(std::get<core::compiled::RoomLocation>(clone_state->location).room == hall);
 }
 
+TEST_CASE("split clone of an authored Room stack remains merge-compatible with its source")
+{
+    auto document = load_fixture_document("comprehensive.json");
+    for (auto& room : document["definitions"]["rooms"])
+        if (room["id"] == "hall") {
+            room["fallbackInteractablePlacementId"] = "coin-placement";
+            room["interactables"].push_back(
+                {{"id", "dust"},
+                 {"interactable", {{"id", "dust"}, {"kind", "interactable"}}},
+                 {"condition", {{"kind", "always"}}},
+                 {"placementId", "coin-placement"},
+                 {"visible", true},
+                 {"order", 0}});
+        }
+    for (auto& definition : document["definitions"]["interactables"])
+        if (definition["id"] == "dust") {
+            definition["stackable"] = true;
+            definition["stackLimit"] = 3;
+        }
+    for (auto& instance : document["interactableInstances"])
+        if (instance["id"] == "dust") {
+            instance["quantity"] = 2;
+            instance["location"] = {{"kind", "room"}, {"room", {{"id", "hall"}, {"kind", "room"}}}};
+        }
+
+    const auto project = decode_fixture(std::move(document), "authored-room-stack-merge.json");
+    auto state_result = core::SessionState::create(project);
+    REQUIRE(state_result);
+    auto state = std::move(state_result).value();
+    RuntimeWorld world(project, state);
+
+    const auto source = id<core::InteractableInstanceId>("dust");
+    auto split = world.split_interactable_quantity(source, 1);
+    REQUIRE(split);
+    REQUIRE(split.value().created.size() == 1);
+    const auto clone = split.value().created.front();
+
+    const auto source_placement =
+        world.resolve_interactable_room_placement(source, id<core::RoomId>("hall"));
+    const auto clone_placement =
+        world.resolve_interactable_room_placement(clone, id<core::RoomId>("hall"));
+    REQUIRE(source_placement);
+    REQUIRE(clone_placement);
+    CHECK(source_placement->placement == clone_placement->placement);
+    CHECK(source_placement->source == InteractableRoomPlacementSource::Authored);
+    CHECK(clone_placement->source == InteractableRoomPlacementSource::Dynamic);
+
+    auto merged = world.merge_interactable_quantities(source, clone);
+    REQUIRE(merged);
+    CHECK(world.interactable_state(source)->quantity == 2);
+    CHECK(world.interactable_state(clone) == nullptr);
+}
+
 TEST_CASE(
     "runtime world Add Quantity uses only default semantic state and aggregate mutation is atomic")
 {

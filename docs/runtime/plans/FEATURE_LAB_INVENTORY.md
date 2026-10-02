@@ -117,41 +117,13 @@ below; `active-text/diff-style` covers the supported explicitly authored diff ma
 
 ### Objects & State — #252
 
-#### `inventory-workbench` — Pack, split and deliver supplies
+Transferred to the Feature Lab catalog on 2026-10-02:
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `exact-instance-identity` | Pick up two Instances of one Definition and activate their rows → each retains its own Properties, state and identity through Room/Inventory/Unplaced moves. | S | button |
-| `inventory-presentation` | Open Player, Character, Interactable and Feature-owned Inventories → explicit/default/fallback Layout selection works; rows are exact direct members, not flattened containers. | U | button |
-| `containment-context` | Move a filled container between Rooms → descendant effective Room follows ancestry, direct Inventory Locations remain unchanged; cyclic containment is rejected atomically. | S | button |
-| `enabled-visible` | Independently disable and hide an Instance → display and interaction eligibility obey separate state, also in Inventory rows. | U | button |
-| `create-quantity` | Create more units than the Stack limit → minimum new limit-respecting identities appear without coalescing existing stacks; non-stackable objects stay quantity one. | S | button |
-| `split-merge` | Split then merge compatible stacks → source/receiver identities survive as specified, donor ends; a Room split inherits resolved presentation. | S | button |
-| `exact-transfer` | Deliver all then part of a stack → whole transfer keeps identity, partial transfer creates one split and never auto-merges destination stacks. | S | button |
-| `add-consume-aggregate` | Add to default-compatible stocks, query and transfer/consume by matcher → stable selection, direct-membership totals, minimum new stacks and identity end at zero. | S | button |
-| `quantity-rejection` | Request insufficient, incompatible or ambiguous aggregate stock → no partial quantity/Location change; pure totals may still span compatibility classes. | S | button |
-| `feature-ownership` | Activate same-named Features on two objects and a Room → owner-qualified Properties/Inventories and subject identity remain distinct. | U | button |
+- `inventory-workbench`
+- `properties-and-traits`
+- `runtime-workshop`
 
-#### `properties-and-traits` — Configure the specimen
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `typed-values` | Set/read boolean, integer, finite number, string, enum and Message Properties through a specimen panel → declared values and rejected invalid writes are visible. | S | — |
-| `owner-local-values` | Change the same Property key on Global, Room, Character, Instance and Feature targets → only the exact owner changes, even with different local schemas. | S | — |
-| `precedence-null-unset` | Override, set explicit nullable null, then unset → Instance/Definition/Archetype/Trait fallback reappears; null remains present rather than meaning unset. | S | — |
-| `dynamic-properties` | Create a schema-less key, change its scalar type, save and remove it → absence, null and value remain distinct; introducing an incompatible schema rejects atomically. | S | — |
-| `trait-capabilities` | Add/remove marker and Property-backed Traits → selectors and Conditions update from effective live configuration without copying structural fields. | S | — |
-| `recursive-conditions` | Use All/Any/Not over Property, Trait, Location, Inventory quantity and Lua leaves → short-circuit outcomes drive the same specimen action; bound slots/results resolve in context. | S | — |
-
-#### `runtime-workshop` — Build a temporary annex
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `archetype-materialization` | Compare declared instances with explicit overrides → same-kind Archetype configuration is flattened without sharing mutable state; Character initial Location remains local. | S | button, character-pair |
-| `create-and-clone` | Create Room/Character from Archetype, compiled and effective sources; Interactables from a Definition → distinct usable identities have the expected birth configuration/provenance. | S | button, character-pair |
-| `configuration-replacement` | Replace/clear a live configuration → mutable Location and state survive, clear returns to immutable birth configuration; invalid dependent Inventory/schema changes reject. | S | button |
-| `retarget-exit` | Retarget the annex exit → ordinary Room navigation follows the new authoritative destination. Map projection is deferred. | S | — |
-| `destroy-dependents` | Destroy a free Instance, then attempt to destroy an owner with live dependents → non-cascading rejection preserves dependents; ended identities are not reused or resurrected. | S | button |
+The catalog is now authoritative for these checks. `inventory-workbench/inventory-presentation` records the remaining Project-default-versus-built-in-fallback Layout limitation, `inventory-workbench/containment-context` records the authored-Test limitation around expected cyclic-containment error diagnostics, `properties-and-traits/owner-local-values` records the runtime's current inability to overlap one Property ID between Global and identity-local namespaces, and `properties-and-traits/trait-capabilities` records the remaining runtime-added Trait selector/Condition authority gaps. Interactable hotspot-mode comparison remains intentionally shared with #255 `hotspots-and-cursors/alpha-versus-custom`, and Map projection/navigation for `runtime-workshop/retarget-exit` remains owner-deferred by #252.
 
 ### Commands & Discovery — #253
 

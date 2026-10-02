@@ -1,0 +1,95 @@
+{
+  "id": "inventory-workbench",
+  "label": "Inventory Workbench",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Inventory Workbench",
+    "background": { "asset": null, "materialApplication": null, "fit": "cover", "color": "#12202b" },
+    "description": {
+      "source": { "kind": "inline", "text": "Pack the two labeled specimens, inspect owner-qualified inventories, then exercise the stack controls from left to right." },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": { "width": 1920, "height": 1080 },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [
+      { "id": "identity-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-identity-control" } }, "condition": { "kind": "always" }, "placementId": "identity-control", "visible": true, "order": 10 },
+      { "id": "inventory-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-inventory-control" } }, "condition": { "kind": "always" }, "placementId": "inventory-control", "visible": true, "order": 11 },
+      { "id": "containment-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-containment-control" } }, "condition": { "kind": "always" }, "placementId": "containment-control", "visible": true, "order": 12 },
+      { "id": "state-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-state-control" } }, "condition": { "kind": "always" }, "placementId": "state-control", "visible": true, "order": 13 },
+      { "id": "create-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-create-control" } }, "condition": { "kind": "always" }, "placementId": "create-control", "visible": true, "order": 14 },
+      { "id": "split-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-split-control" } }, "condition": { "kind": "always" }, "placementId": "split-control", "visible": true, "order": 15 },
+      { "id": "transfer-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-transfer-control" } }, "condition": { "kind": "always" }, "placementId": "transfer-control", "visible": true, "order": 16 },
+      { "id": "aggregate-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-control" } }, "condition": { "kind": "always" }, "placementId": "aggregate-control", "visible": true, "order": 17 },
+      { "id": "rejection-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-rejection-control" } }, "condition": { "kind": "always" }, "placementId": "rejection-control", "visible": true, "order": 18 },
+      { "id": "feature-control", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-feature-control" } }, "condition": { "kind": "always" }, "placementId": "feature-control", "visible": true, "order": 19 },
+      { "id": "object-a", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-a" } }, "condition": { "kind": "always" }, "placementId": "object-a", "visible": true, "order": 30 },
+      { "id": "object-b", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-object-b" } }, "condition": { "kind": "always" }, "placementId": "object-b", "visible": true, "order": 31 },
+      { "id": "container", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-container" } }, "condition": { "kind": "always" }, "placementId": "container", "visible": true, "order": 32 },
+      { "id": "aggregate-bin", "interactable": { "$ref": { "registry": "interactableInstances", "id": "workbench-aggregate-bin" } }, "condition": { "kind": "always" }, "placementId": "aggregate-bin", "visible": true, "order": 33 },
+      { "id": "split-stack", "interactable": { "$ref": { "registry": "interactableInstances", "id": "supply-split-stack" } }, "condition": { "kind": "always" }, "placementId": "split-stack", "visible": true, "order": 34 },
+      { "id": "transfer-whole", "interactable": { "$ref": { "registry": "interactableInstances", "id": "supply-transfer-whole" } }, "condition": { "kind": "always" }, "placementId": "transfer-whole", "visible": true, "order": 35 },
+      { "id": "transfer-partial", "interactable": { "$ref": { "registry": "interactableInstances", "id": "supply-transfer-partial" } }, "condition": { "kind": "always" }, "placementId": "transfer-partial", "visible": true, "order": 36 },
+      { "id": "reject-stack", "interactable": { "$ref": { "registry": "interactableInstances", "id": "supply-reject" } }, "condition": { "kind": "always" }, "placementId": "reject-stack", "visible": true, "order": 37 }
+    ],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" },
+      "beforeEnter": [], "afterEnter": [], "beforeLeave": [], "afterLeave": [],
+      "onEnterRejected": [], "onLeaveRejected": []
+    },
+    "exits": [
+      { "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "delivery-room", "label": "Delivery room", "direction": "east", "target": { "$ref": { "collection": "rooms", "id": "inventory-delivery" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "properties-and-traits-test-entry", "label": "Properties & Traits (automation entry)", "direction": "north", "target": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "runtime-workshop-test-entry", "label": "Runtime Workshop (automation entry)", "direction": "south", "target": { "$ref": { "collection": "rooms", "id": "runtime-workshop" } }, "condition": { "kind": "always" }, "onRejected": [] }
+    ],
+    "placements": [
+      { "id": "identity-control", "bounds": { "x": 0.05, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Identity" }, "markup": "plain" }, "layout": null } },
+      { "id": "inventory-control", "bounds": { "x": 0.14, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Inventories" }, "markup": "plain" }, "layout": null } },
+      { "id": "containment-control", "bounds": { "x": 0.23, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Containment" }, "markup": "plain" }, "layout": null } },
+      { "id": "state-control", "bounds": { "x": 0.32, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Enabled / visible" }, "markup": "plain" }, "layout": null } },
+      { "id": "create-control", "bounds": { "x": 0.41, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Create quantity" }, "markup": "plain" }, "layout": null } },
+      { "id": "split-control", "bounds": { "x": 0.50, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Split / merge" }, "markup": "plain" }, "layout": null } },
+      { "id": "transfer-control", "bounds": { "x": 0.59, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Exact transfer" }, "markup": "plain" }, "layout": null } },
+      { "id": "aggregate-control", "bounds": { "x": 0.68, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Aggregate" }, "markup": "plain" }, "layout": null } },
+      { "id": "rejection-control", "bounds": { "x": 0.77, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Rejections" }, "markup": "plain" }, "layout": null } },
+      { "id": "feature-control", "bounds": { "x": 0.86, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Feature owners" }, "markup": "plain" }, "layout": null } },
+      { "id": "object-a", "bounds": { "x": 0.08, "y": 0.58, "width": 0.09, "height": 0.14 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Specimen A" }, "markup": "plain" }, "layout": null } },
+      { "id": "object-b", "bounds": { "x": 0.20, "y": 0.58, "width": 0.09, "height": 0.14 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Specimen B" }, "markup": "plain" }, "layout": null } },
+      { "id": "container", "bounds": { "x": 0.34, "y": 0.58, "width": 0.11, "height": 0.16 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Filled container" }, "markup": "plain" }, "layout": null } },
+      { "id": "aggregate-bin", "bounds": { "x": 0.48, "y": 0.58, "width": 0.10, "height": 0.15 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Aggregate bin" }, "markup": "plain" }, "layout": null } },
+      { "id": "split-stack", "bounds": { "x": 0.60, "y": 0.58, "width": 0.07, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Split stack" }, "markup": "plain" }, "layout": null } },
+      { "id": "transfer-whole", "bounds": { "x": 0.69, "y": 0.58, "width": 0.07, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Whole stack" }, "markup": "plain" }, "layout": null } },
+      { "id": "transfer-partial", "bounds": { "x": 0.78, "y": 0.58, "width": 0.07, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Partial stack" }, "markup": "plain" }, "layout": null } },
+      { "id": "reject-stack", "bounds": { "x": 0.87, "y": 0.58, "width": 0.07, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Reject stack" }, "markup": "plain" }, "layout": null } }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [
+      {
+        "id": "slot",
+        "label": "Room slot",
+        "traits": [],
+        "localProperties": [
+          { "id": "shared-state", "label": "Shared key", "type": "string", "nullable": false, "value": "room-feature-shared" }
+        ],
+        "defaultProperties": [],
+        "inventories": [{ "id": "feature-pocket", "label": "Room feature pocket" }]
+      }
+    ],
+    "hotspots": []
+  }
+}
