@@ -48,6 +48,8 @@ beforeEach(() => {
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: true,
     url: 'noveltea-asset://source/session/logo',
+    contentHash: `sha256:${'0'.repeat(64)}`,
+    byteSize: 1,
   });
   vi.mocked(window.noveltea.requestImageThumbnail).mockResolvedValue({
     ok: true,

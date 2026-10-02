@@ -7,5 +7,7 @@ exports[`image thumbnail characterization > locks every current project asset UR
   "src/renderer/editors/comfyui/ImageGenerationEditor.tsx",
   "src/renderer/editors/project/ProjectSettingsEditor.tsx",
   "src/renderer/material-preview/material-preview-provider.tsx",
+  "src/renderer/preview/focused-preview-adapters.ts",
+  "src/renderer/preview/room-focused-preview-builder.ts",
 ]
 `;

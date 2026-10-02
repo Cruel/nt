@@ -117,6 +117,9 @@ describe('Preview Locale', () => {
         imageMetadata: { width: 32, height: 24, hasAlpha: true, orientation: 1 },
       }),
     };
+    const pointerData = project.assets.pointer.data as Record<string, unknown>;
+    delete pointerData.byteSize;
+    delete pointerData.contentHash;
     project.settings.cursors = {
       defaults: {
         default: { kind: 'system', cursor: 'default' },
@@ -150,7 +153,12 @@ describe('Preview Locale', () => {
     });
 
     expect(document.resources).toContainEqual(
-      expect.objectContaining({ assetId: 'pointer', usageRoles: ['project-cursor'] }),
+      expect.objectContaining({
+        assetId: 'pointer',
+        usageRoles: ['project-cursor'],
+        contentHash: `sha256:${'0'.repeat(64)}`,
+        byteSize: 1,
+      }),
     );
     expect(document.data.cursors).toEqual({
       defaultCursor: 'default',

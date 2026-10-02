@@ -73,7 +73,6 @@ import { parseVariableData } from '../../shared/project-schema/authoring-variabl
 import type { ShaderVariant } from '../../shared/shader-variants';
 import type { ShaderCompileOutput } from '../../shared/editor-tooling';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
-import { projectOriginalAssetUrl } from '../../shared/project-original-asset';
 
 type Diagnostic = AuthoringDependencyGraphDiagnostic;
 type FocusedCondition = RoomPreviewDocument['world']['cast'][number]['condition'];
@@ -927,9 +926,22 @@ async function resourceManifest(
   const resources: PreviewResourceManifestEntry[] = [];
   for (const assetId of [...assetIds].sort()) {
     const data = parseAssetData(project.assets[assetId]?.data);
-    if (!data?.contentHash || data.byteSize === undefined) {
+    if (!data) {
       diagnostics.push(
-        diagnostic(`/assets/${assetId}`, `Focused resource '${assetId}' lacks hash/byte metadata.`),
+        diagnostic(`/assets/${assetId}`, `Focused resource '${assetId}' is missing or invalid.`),
+      );
+      continue;
+    }
+    const resolved = await window.noveltea.resolveProjectOriginalAssetUrl(
+      projectSessionId,
+      assetId,
+    );
+    if (!resolved.ok) {
+      diagnostics.push(
+        diagnostic(
+          `/assets/${assetId}`,
+          `Focused resource '${assetId}' could not be resolved from the active Project (${resolved.code}).`,
+        ),
       );
       continue;
     }
@@ -938,10 +950,10 @@ async function resourceManifest(
       sourceKind: 'authoring-asset',
       assetId,
       usageRoles: ['room-preview'] as string[],
-      fetchUrl: projectOriginalAssetUrl(projectSessionId, assetId),
+      fetchUrl: resolved.url,
       logicalPath: `project:/${data.source.path}`,
-      contentHash: data.contentHash as `sha256:${string}`,
-      byteSize: data.byteSize,
+      contentHash: resolved.contentHash,
+      byteSize: resolved.byteSize,
     } as const;
     resources.push(
       data.kind === 'image'

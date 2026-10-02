@@ -4,7 +4,10 @@ import type { FileHandle } from 'node:fs/promises';
 import path from 'node:path';
 import { Readable } from 'node:stream';
 import type { ActiveProjectSessionService } from './active-project-session-service';
-import { isSafeProjectAssetPath } from '../../shared/project-schema/authoring-assets';
+import {
+  isSafeProjectAssetPath,
+  type AssetKind,
+} from '../../shared/project-schema/authoring-assets';
 import {
   PROJECT_ORIGINAL_ASSET_MAX_BYTES,
   projectOriginalAssetBoundaryCode,
@@ -27,6 +30,7 @@ export interface ResolvedOriginalAsset {
 interface ResolveContainedOriginalAssetOptions {
   maxBytes?: number;
   requireKind?: 'image' | 'audio';
+  allowDerivedMetadata?: boolean;
 }
 
 function isContained(parent: string, candidate: string) {
@@ -38,7 +42,7 @@ function failure(code: ProjectOriginalAssetFailureCode): ProjectOriginalAssetUrl
   return { ok: false, code, boundaryCode: projectOriginalAssetBoundaryCode(code) };
 }
 
-function authoritativeMime(kind: 'image' | 'audio', sourcePath: string): string | null {
+function authoritativeMime(kind: AssetKind, sourcePath: string): string {
   const extension = path.extname(sourcePath).toLowerCase();
   const image: Record<string, string> = {
     '.apng': 'image/apng',
@@ -60,7 +64,22 @@ function authoritativeMime(kind: 'image' | 'audio', sourcePath: string): string 
     '.wav': 'audio/wav',
     '.weba': 'audio/webm',
   };
-  return (kind === 'image' ? image : audio)[extension] ?? null;
+  if (kind === 'image') return image[extension] ?? 'application/octet-stream';
+  if (kind === 'audio') return audio[extension] ?? 'application/octet-stream';
+  if (kind === 'font') {
+    if (extension === '.ttf') return 'font/ttf';
+    if (extension === '.otf') return 'font/otf';
+    if (extension === '.woff') return 'font/woff';
+    if (extension === '.woff2') return 'font/woff2';
+  }
+  if (kind === 'video') {
+    if (extension === '.mp4' || extension === '.m4v') return 'video/mp4';
+    if (extension === '.webm') return 'video/webm';
+    if (extension === '.mov') return 'video/quicktime';
+  }
+  if (kind === 'data' && extension === '.json') return 'application/json';
+  if (kind === 'text') return 'text/plain; charset=utf-8';
+  return 'application/octet-stream';
 }
 
 async function hashHandle(handle: FileHandle, expectedBytes: number): Promise<string | null> {
@@ -94,24 +113,23 @@ export async function resolveContainedOriginalAsset(
     return 'unknown-asset';
   }
   const { kind, sourcePath, byteSize, contentHash } = authorized.asset;
-  if (kind !== 'image' && kind !== 'audio') return 'unsupported-kind';
   if (options.requireKind && kind !== options.requireKind) return 'unsupported-kind';
   const maxBytes = options.maxBytes ?? PROJECT_ORIGINAL_ASSET_MAX_BYTES;
   if (!isSafeProjectAssetPath(sourcePath) || !sourcePath.startsWith('assets/')) {
     return 'invalid-source';
   }
   if (
-    byteSize === undefined ||
-    !Number.isSafeInteger(byteSize) ||
-    byteSize < 0 ||
-    typeof contentHash !== 'string' ||
-    !/^sha256:[0-9a-f]{64}$/.test(contentHash)
+    !options.allowDerivedMetadata &&
+    (byteSize === undefined ||
+      !Number.isSafeInteger(byteSize) ||
+      byteSize < 0 ||
+      typeof contentHash !== 'string' ||
+      !/^sha256:[0-9a-f]{64}$/.test(contentHash))
   ) {
     return 'invalid-metadata';
   }
-  if (byteSize > maxBytes) return 'too-large';
+  if (!options.allowDerivedMetadata && byteSize! > maxBytes) return 'too-large';
   const mimeType = authoritativeMime(kind, sourcePath);
-  if (!mimeType) return 'unsupported-kind';
 
   let handle: FileHandle | null = null;
   let keepHandle = false;
@@ -126,13 +144,13 @@ export async function resolveContainedOriginalAsset(
     const stat = await handle.stat();
     if (!stat.isFile()) return 'not-regular-file';
     if (stat.size > maxBytes) return 'too-large';
-    if (stat.size !== byteSize) return 'size-mismatch';
-    const revision = await hashHandle(handle, byteSize);
+    if (!options.allowDerivedMetadata && stat.size !== byteSize) return 'size-mismatch';
+    const revision = await hashHandle(handle, stat.size);
     if (!revision) return 'size-mismatch';
     if (!sessions.isCurrent(projectSessionId)) return 'stale-or-unknown';
-    if (revision !== contentHash) return 'revision-mismatch';
+    if (!options.allowDerivedMetadata && revision !== contentHash) return 'revision-mismatch';
     keepHandle = true;
-    return { handle, size: stat.size, mimeType, contentHash };
+    return { handle, size: stat.size, mimeType, contentHash: revision };
   } catch {
     return 'not-found';
   } finally {
@@ -145,10 +163,17 @@ export async function resolveProjectOriginalAssetUrl(
   projectSessionId: string,
   assetId: string,
 ): Promise<ProjectOriginalAssetUrlResponse> {
-  const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, assetId);
+  const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, assetId, {
+    allowDerivedMetadata: true,
+  });
   if (typeof resolved === 'string') return failure(resolved);
   await resolved.handle.close();
-  return { ok: true, url: projectOriginalAssetUrl(projectSessionId, assetId) };
+  return {
+    ok: true,
+    url: projectOriginalAssetUrl(projectSessionId, assetId),
+    contentHash: resolved.contentHash as `sha256:${string}`,
+    byteSize: resolved.size,
+  };
 }
 
 function errorResponse(status: number, code: ProjectOriginalAssetFailureCode): Response {
@@ -196,7 +221,9 @@ export function createProjectOriginalAssetProtocolHandler(sessions: ActiveProjec
     } catch {
       return errorResponse(400, 'invalid-request');
     }
-    const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, assetId);
+    const resolved = await resolveContainedOriginalAsset(sessions, projectSessionId, assetId, {
+      allowDerivedMetadata: true,
+    });
     if (typeof resolved === 'string') {
       const status = resolved === 'stale-or-unknown' ? 410 : resolved === 'too-large' ? 413 : 404;
       return errorResponse(status, resolved);

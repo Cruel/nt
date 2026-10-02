@@ -6,6 +6,7 @@ import { afterEach, describe, expect, it } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import {
   createProjectOriginalAssetProtocolHandler,
+  resolveContainedOriginalAsset,
   resolveProjectOriginalAssetUrl,
 } from '../../main/services/project-original-asset-service';
 import { PROJECT_ORIGINAL_ASSET_MAX_BYTES } from '../../shared/project-original-asset';
@@ -85,6 +86,8 @@ describe('session-scoped original Asset streaming', () => {
     expect(resolved).toEqual({
       ok: true,
       url: `noveltea-asset://source/${sessionId}/logo`,
+      contentHash: digest(bytes),
+      byteSize: bytes.byteLength,
     });
 
     const handler = createProjectOriginalAssetProtocolHandler(sessions);
@@ -175,33 +178,43 @@ describe('session-scoped original Asset streaming', () => {
     }
   });
 
-  it('rejects changed size, changed revision, non-regular files, and sources over 128 MiB', async () => {
+  it('derives current size/revision regardless of authored metadata, while rejecting invalid files', async () => {
     const { root, projectFilePath } = tempProject();
     const sourcePath = path.join(root, 'assets', 'images', 'logo.png');
     const original = Buffer.from('original');
     fs.writeFileSync(sourcePath, original);
 
-    const sizeProject = projectWithAsset('logo', 'assets/images/logo.png', original, {
+    const staleMetadataProject = projectWithAsset('logo', 'assets/images/logo.png', original, {
       byteSize: original.byteLength + 1,
+      contentHash: `sha256:${'0'.repeat(64)}`,
     });
-    let active = await activate(projectFilePath, sizeProject);
+    let active = await activate(projectFilePath, staleMetadataProject);
+    expect(await resolveContainedOriginalAsset(active.sessions, active.sessionId, 'logo')).toBe(
+      'size-mismatch',
+    );
     expect(await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual(
       {
-        ok: false,
-        code: 'size-mismatch',
-        boundaryCode: 'source-revision-mismatch',
+        ok: true,
+        url: `noveltea-asset://source/${active.sessionId}/logo`,
+        contentHash: digest(original),
+        byteSize: original.byteLength,
       },
     );
 
-    const revisionProject = projectWithAsset('logo', 'assets/images/logo.png', original, {
-      contentHash: `sha256:${'0'.repeat(64)}`,
+    const missingMetadataProject = projectWithAsset('logo', 'assets/images/logo.png', original, {
+      byteSize: undefined,
+      contentHash: undefined,
     });
-    active = await activate(projectFilePath, revisionProject);
+    active = await activate(projectFilePath, missingMetadataProject);
+    expect(await resolveContainedOriginalAsset(active.sessions, active.sessionId, 'logo')).toBe(
+      'invalid-metadata',
+    );
     expect(await resolveProjectOriginalAssetUrl(active.sessions, active.sessionId, 'logo')).toEqual(
       {
-        ok: false,
-        code: 'revision-mismatch',
-        boundaryCode: 'source-revision-mismatch',
+        ok: true,
+        url: `noveltea-asset://source/${active.sessionId}/logo`,
+        contentHash: digest(original),
+        byteSize: original.byteLength,
       },
     );
 
@@ -257,7 +270,7 @@ describe('session-scoped original Asset streaming', () => {
     });
   });
 
-  it('returns stable failures for unknown Assets, unsupported kinds, and stale sessions', async () => {
+  it('returns stable failures for unknown Assets and stale sessions while serving non-media Assets', async () => {
     const { root, projectFilePath } = tempProject('failures');
     const bytes = Buffer.from('text');
     fs.mkdirSync(path.join(root, 'assets', 'text'), { recursive: true });
@@ -282,9 +295,10 @@ describe('session-scoped original Asset streaming', () => {
       boundaryCode: 'unauthorized-asset',
     });
     expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'note')).toEqual({
-      ok: false,
-      code: 'unsupported-kind',
-      boundaryCode: 'unauthorized-asset',
+      ok: true,
+      url: `noveltea-asset://source/${sessionId}/note`,
+      contentHash: digest(bytes),
+      byteSize: bytes.byteLength,
     });
     sessions.closeActiveProject();
     expect(await resolveProjectOriginalAssetUrl(sessions, sessionId, 'note')).toEqual({

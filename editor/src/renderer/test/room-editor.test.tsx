@@ -110,6 +110,8 @@ beforeEach(() => {
   vi.mocked(window.noveltea.resolveProjectOriginalAssetUrl).mockResolvedValue({
     ok: true,
     url: 'noveltea-asset://source/session/logo',
+    contentHash: `sha256:${'0'.repeat(64)}`,
+    byteSize: 1,
   });
 });
 describe('RoomEditor', () => {
