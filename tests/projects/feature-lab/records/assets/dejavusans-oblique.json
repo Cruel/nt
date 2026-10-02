@@ -1,0 +1,23 @@
+{
+  "id": "dejavusans-oblique",
+  "label": "DejaVuSans-Oblique",
+  "data": {
+    "kind": "font",
+    "source": {
+      "type": "project-file",
+      "path": "assets/fonts/DejaVuSans-Oblique.ttf"
+    },
+    "aliases": [],
+    "mimeType": "font/ttf",
+    "extension": ".ttf",
+    "byteSize": 637648,
+    "contentHash": "sha256:2d7b524ce7d51db78591b4e19c8185b89f3af0aa6534c5e524cf0c6f4ea673de",
+    "importedAt": "2026-10-02T08:22:45.347Z",
+    "originalName": "DejaVuSans-Oblique.ttf",
+    "originalPath": "/home/thomas/dev/nt/tests/projects/feature-lab/assets/fonts/DejaVuSans-Oblique.ttf",
+    "imageMetadata": null,
+    "preview": {
+      "thumbnailRevision": "sha256:2d7b524ce7d51db78591b4e19c8185b89f3af0aa6534c5e524cf0c6f4ea673de"
+    }
+  }
+}

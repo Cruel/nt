@@ -1,0 +1,59 @@
+{
+  "id": "interview-completion",
+  "label": "interview-completion",
+  "data": {
+    "kind": "scene",
+    "displayName": "interview-completion",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "return-call",
+        "label": "return-call",
+        "type": "call-dialogue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "dialogue": {
+          "$ref": {
+            "collection": "dialogues",
+            "id": "interview-return"
+          }
+        },
+        "startBlockId": null,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "room-call",
+        "label": "room-call",
+        "type": "call-dialogue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "dialogue": {
+          "$ref": {
+            "collection": "dialogues",
+            "id": "interview-room"
+          }
+        },
+        "startBlockId": null,
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

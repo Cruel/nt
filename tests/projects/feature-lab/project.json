@@ -16,7 +16,13 @@
     },
     "inventory": { "defaultLayout": null },
     "interaction": { "defaultVerbMenuLayout": null },
-    "text": { "defaultFont": null, "fontStack": [] },
+    "text": {
+      "defaultFont": null,
+      "fontStack": [
+        { "$ref": { "collection": "assets", "id": "dejavusans" } },
+        { "$ref": { "collection": "assets", "id": "ipag" } }
+      ]
+    },
     "titleScreen": {
       "titleImage": null,
       "showProjectTitle": true,
@@ -83,6 +89,14 @@
   "entrypoint": { "kind": "room", "id": "feature-lab-home" },
   "inventories": [{ "id": "inventory", "label": "Inventory" }],
   "interactableInstances": {
+    "notice-button": {
+      "id": "notice-button",
+      "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "active-text" } } },
+      "enabled": true, "visible": true, "quantity": 1,
+      "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
     "gate-lever-1": {
       "id": "gate-lever-1",
       "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },

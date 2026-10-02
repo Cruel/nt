@@ -1,0 +1,70 @@
+{
+  "id": "interview-room",
+  "label": "Interview Room",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Interview Room",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": false,
+      "logMode": "everything"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "intro",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "interview-room-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "interview-room: acknowledge to follow the completion destination."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "interview-room-private",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Private transcript item: never in History."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": false,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "room",
+      "id": "conversation-paths-finish"
+    }
+  }
+}

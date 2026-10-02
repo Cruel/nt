@@ -1,0 +1,476 @@
+{
+  "id": "conversation-paths-flow",
+  "label": "conversation-paths-flow",
+  "data": {
+    "kind": "test",
+    "displayName": "conversation-paths-flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "start",
+        "expectations": []
+      },
+      {
+        "id": "step-1-enter",
+        "input": "navigate",
+        "label": "enter",
+        "expectations": [
+          {
+            "id": "flow-conversation-paths",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "conversation-paths"
+            }
+          }
+        ],
+        "navigate": {
+          "exitId": "conversation-paths-test-entry"
+        }
+      },
+      {
+        "id": "step-2-welcome-advance",
+        "input": "continue",
+        "label": "welcome-advance",
+        "expectations": [
+          {
+            "id": "interview-notes-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-notes",
+              "value": 1
+            }
+          },
+          {
+            "id": "interview-skipped-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-skipped",
+              "value": 0
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-3-revisit",
+        "input": "dialogue-choice",
+        "label": "revisit",
+        "expectations": [
+          {
+            "id": "interview-notes-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-notes",
+              "value": 1
+            }
+          },
+          {
+            "id": "interview-skipped-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-skipped",
+              "value": 0
+            }
+          }
+        ],
+        "dialogueChoice": {
+          "edgeId": "revisit"
+        }
+      },
+      {
+        "id": "step-4-unlock-topic",
+        "input": "dialogue-choice",
+        "label": "unlock-topic",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "unlock-topic"
+        }
+      },
+      {
+        "id": "step-5-unlock-advance",
+        "input": "continue",
+        "label": "unlock-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-6-revisit",
+        "input": "dialogue-choice",
+        "label": "revisit",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "revisit"
+        }
+      },
+      {
+        "id": "step-7-conditional-advance",
+        "input": "continue",
+        "label": "conditional-advance",
+        "expectations": [
+          {
+            "id": "interview-notes-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-notes",
+              "value": 1
+            }
+          },
+          {
+            "id": "interview-skipped-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-skipped",
+              "value": 1
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-8-read-topic",
+        "input": "dialogue-choice",
+        "label": "read-topic",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "read-topic"
+        }
+      },
+      {
+        "id": "step-9-topic-advance",
+        "input": "continue",
+        "label": "topic-advance",
+        "expectations": [
+          {
+            "id": "interview-receipt-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-receipt",
+              "value": "issued"
+            }
+          },
+          {
+            "id": "flow-interview-child",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "scene",
+              "flowId": "interview-child"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-10-child-advance",
+        "input": "continue",
+        "label": "child-advance",
+        "expectations": [
+          {
+            "id": "interview-receipt-expected",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "interview-receipt",
+              "value": "issued / stamped"
+            }
+          },
+          {
+            "id": "flow-conversation-paths",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "conversation-paths"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-11-receipt-advance",
+        "input": "continue",
+        "label": "receipt-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-12-children",
+        "input": "dialogue-choice",
+        "label": "children",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "children"
+        }
+      },
+      {
+        "id": "step-13-before-child-advance",
+        "input": "continue",
+        "label": "before-child-advance",
+        "expectations": [
+          {
+            "id": "flow-interview-child",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "scene",
+              "flowId": "interview-child"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-14-concealed-advance",
+        "input": "continue",
+        "label": "concealed-advance",
+        "expectations": [
+          {
+            "id": "flow-conversation-paths",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "conversation-paths"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-15-between-advance",
+        "input": "continue",
+        "label": "between-advance",
+        "expectations": [
+          {
+            "id": "flow-interview-child",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "scene",
+              "flowId": "interview-child"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-16-preserved-advance",
+        "input": "continue",
+        "label": "preserved-advance",
+        "expectations": [
+          {
+            "id": "flow-conversation-paths",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "conversation-paths"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-17-after-child-advance",
+        "input": "continue",
+        "label": "after-child-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-18-finish",
+        "input": "dialogue-choice",
+        "label": "finish",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "finish"
+        }
+      },
+      {
+        "id": "step-19-finish-advance",
+        "input": "continue",
+        "label": "finish-advance",
+        "expectations": [
+          {
+            "id": "flow-interview-hidden",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "interview-hidden"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-20-hidden-advance",
+        "input": "continue",
+        "label": "hidden-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-21-hidden-finish",
+        "input": "dialogue-choice",
+        "label": "hidden-finish",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "hidden-finish"
+        }
+      },
+      {
+        "id": "step-22-hidden-done-advance",
+        "input": "continue",
+        "label": "hidden-done-advance",
+        "expectations": [
+          {
+            "id": "flow-interview-return",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "interview-return"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-23-return-line-advance",
+        "input": "continue",
+        "label": "return-line-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-24-return-private-advance",
+        "input": "continue",
+        "label": "return-private-advance",
+        "expectations": [
+          {
+            "id": "flow-interview-room",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "interview-room"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-25-room-line-advance",
+        "input": "continue",
+        "label": "room-line-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-26-room-private-advance",
+        "input": "continue",
+        "label": "room-private-advance",
+        "expectations": [
+          {
+            "id": "destination",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "conversation-paths-finish"
+            }
+          }
+        ]
+      },
+      {
+        "id": "step-27-log-tools-advance",
+        "input": "continue",
+        "label": "log-tools-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-28-append-log",
+        "input": "dialogue-choice",
+        "label": "append-log",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "append-log"
+        }
+      },
+      {
+        "id": "step-29-appended-advance",
+        "input": "continue",
+        "label": "appended-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-30-clear-log",
+        "input": "dialogue-choice",
+        "label": "clear-log",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "clear-log"
+        }
+      },
+      {
+        "id": "step-31-cleared-advance",
+        "input": "continue",
+        "label": "cleared-advance",
+        "expectations": []
+      },
+      {
+        "id": "step-32-end-log",
+        "input": "dialogue-choice",
+        "label": "end-log",
+        "expectations": [],
+        "dialogueChoice": {
+          "edgeId": "end-log"
+        }
+      },
+      {
+        "id": "step-33-end-log-line-advance",
+        "input": "continue",
+        "label": "end-log-line-advance",
+        "expectations": []
+      }
+    ],
+    "finalExpectations": [
+      {
+        "id": "interview-notes-expected",
+        "type": "property",
+        "operator": "eq",
+        "property": {
+          "scope": "global",
+          "ownerId": "",
+          "propertyId": "interview-notes",
+          "value": 1
+        }
+      },
+      {
+        "id": "interview-receipt-expected",
+        "type": "property",
+        "operator": "eq",
+        "property": {
+          "scope": "global",
+          "ownerId": "",
+          "propertyId": "interview-receipt",
+          "value": "issued / stamped"
+        }
+      }
+    ],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

@@ -1,0 +1,69 @@
+{
+  "id": "interview-return",
+  "label": "Interview Return",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Interview Return",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": false,
+      "logMode": "only-lines"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "intro",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "interview-return-line",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "interview-return: acknowledge to follow the completion destination."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "interview-return-private",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Private transcript item: never in History."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": false,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "return"
+    }
+  }
+}

@@ -41,6 +41,18 @@
     {
       "id": "world-composition",
       "roomId": "world-composition"
+    },
+    {
+      "id": "conversation-paths",
+      "roomId": "conversation-paths"
+    },
+    {
+      "id": "character-studio",
+      "roomId": "character-studio"
+    },
+    {
+      "id": "active-text",
+      "roomId": "active-text"
     }
   ],
   "visualCheckpoints": [],
@@ -104,6 +116,48 @@
       "source": "curated",
       "properties": { "kind": "audio", "role": "voice" },
       "realizations": [{ "assetId": "pilot-voice-audio", "quality": "reference" }]
+    },
+    {
+      "id": "studio-layer-overlay",
+      "purpose": "Minimal independently animated overlay for two Character Profiles. Reuse the small transparent button as a deliberately synthetic badge; transform/visibility frames distinguish blink, speaking and Gesture without additional sprite art.",
+      "source": "synthetic",
+      "properties": {
+        "kind": "image",
+        "alpha": true,
+        "role": "character-layer"
+      },
+      "realizations": [
+        {
+          "assetId": "pilot-button-sprite",
+          "quality": "reference"
+        }
+      ]
+    },
+    {
+      "id": "notice-font-faces",
+      "purpose": "License-cleared real regular/bold/oblique faces plus one complementary CJK face. DejaVu Sans covers the Latin/Arabic/Hebrew sample; IPA Gothic covers the Japanese/Chinese sample. Compare explicitly selected real faces against sys synthetic styling; no color emoji claim.",
+      "source": "curated",
+      "properties": {
+        "kind": "font"
+      },
+      "realizations": [
+        {
+          "assetId": "dejavusans",
+          "quality": "reference"
+        },
+        {
+          "assetId": "dejavusans-bold",
+          "quality": "reference"
+        },
+        {
+          "assetId": "dejavusans-oblique",
+          "quality": "reference"
+        },
+        {
+          "assetId": "ipag",
+          "quality": "reference"
+        }
+      ]
     }
   ],
   "scenarios": [
@@ -410,6 +464,400 @@
             { "kind": "semantic-test", "id": "dialogue-presentation-flow" },
             { "kind": "ui-test", "id": "dialogue-presentation-ui" }
           ]
+        }
+      ]
+    },
+    {
+      "id": "conversation-paths",
+      "categoryId": "dialogue-presentation",
+      "title": "Interview the guide",
+      "description": "Revisit a conditional transcript, unlock a disabled topic, inspect sparse presentation cues, call child Scenes, compare logging and follow completion destinations.",
+      "status": "ready",
+      "created": "2026-10-02T08:35:44Z",
+      "modified": "2026-10-02T08:35:44Z",
+      "launch": {
+        "entry": "conversation-paths"
+      },
+      "checks": [
+        {
+          "id": "conditional-transcript",
+          "title": "Conditional transcript and stable history",
+          "action": "Continue the first greeting. Revisit before unlocking, then Unlock and revisit again.",
+          "expected": "The first greeting appears only once and interview-notes remains 1. The locked conditional line is skipped without setting interview-skipped; after unlock it appears and sets that Property to 1. Redirect returns to the same transcript, not a new invocation.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [],
+          "automation": [
+            {
+              "kind": "semantic-test",
+              "id": "conversation-paths-flow"
+            }
+          ]
+        },
+        {
+          "id": "choice-eligibility",
+          "title": "Shown-disabled versus hidden choices",
+          "action": "At the first menu try the dimmed Read sealed topic, then Unlock. Later Finish into the hidden-policy conversation. Restart and Finish without unlocking to compare.",
+          "expected": "The first locked Read choice is visible but disabled and cannot advance. Unlock enables it. The hidden-policy optional topic is absent when locked and present when unlocked.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [],
+          "automation": [
+            {
+              "kind": "ui-test",
+              "id": "conversation-paths-ui"
+            }
+          ]
+        },
+        {
+          "id": "speaker-resolution",
+          "title": "Line, block and default speaker resolution",
+          "action": "Compare the initial Guide greeting with Inspect speakers, Stage Slots and skip cues; then read the off-screen Radio line.",
+          "expected": "Dialogue default Guide is used for the greeting. Block default Studio Guide overrides it for the tour, and line override Radio overrides the block. Names/colors follow the resolved Character. Only the matching speakerSync left occurrence speaks; the non-sync right and off-screen speakers do not acquire another person’s animation.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay"
+          ],
+          "automation": []
+        },
+        {
+          "id": "stage-slot-mutations",
+          "title": "Sparse and independent Stage Slots",
+          "action": "Choose Inspect speakers, Stage Slots and skip cues; continue through hide/show, smile+lean, Portrait, new Radio, clear and rebuild.",
+          "expected": "Hide/show retains left state; smile persists through sparse lean update. Portrait chooses close Pose; new Radio resets Character axes to stage/standing/neutral but stays left. Clear removes left; rebuild initializes defaults. Right remains unchanged throughout.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay"
+          ],
+          "automation": []
+        },
+        {
+          "id": "media-slot-content",
+          "title": "Independent image and Character snapshot Media Slots",
+          "action": "Choose Inspect retained Media Slot states. Compare initial image, replacement snapshot, hide/show and clear once a Dialogue Layout realizer is available.",
+          "expected": "Image and Character snapshot media must be positioned by Dialogue UI independently of world actors; hide retains content and clear removes it. Current station authors the mutations but the built-in UI does not display them.",
+          "status": "blocked",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "pilot-button-sprite"
+          ],
+          "automation": [],
+          "statusReason": "Runtime publishes media slot fields, but no built-in Media Slot image/Character-snapshot presentation exists. Complete with a normal Dialogue Layout consumer, not a world-actor surrogate."
+        },
+        {
+          "id": "cue-crossing-and-skip",
+          "title": "Ordered cues and skip barriers",
+          "action": "At the tour’s final line first let it reveal naturally. Restart, return to the tour and immediately skip that line.",
+          "expected": "Same-position smile then neutral ends neutral once. Natural reveal plays the disposable sound once; immediate skip suppresses it. The final awaited non-skippable wave is a barrier and its crossed sound is not replayed.",
+          "status": "ready",
+          "verification": "manual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay",
+            "pilot-dialogue-sfx"
+          ],
+          "automation": []
+        },
+        {
+          "id": "dialogue-child-scene",
+          "title": "Conceal and preserve child UI",
+          "action": "Choose Call concealed / preserved child Scenes and acknowledge each child caption.",
+          "expected": "Conceal removes caller text while the child owns Continue. Preserve keeps caller UI, but input still belongs to the child. Each return resumes the next exact Dialogue segment once.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-room-backdrop"
+          ],
+          "automation": [
+            {
+              "kind": "semantic-test",
+              "id": "conversation-paths-flow"
+            }
+          ]
+        },
+        {
+          "id": "dialogue-completion",
+          "title": "All Dialogue completion destinations",
+          "action": "Finish the interview, finish hidden choices, acknowledge Return and Room completion, then End the History tools.",
+          "expected": "Dialogue replacement enters hidden-policy once; Scene completion starts the completion tour; Return resumes the Scene at its Room-call Event; Room completion reaches Interview complete; End removes foreground Flow and keeps that Room. Handoff/ResumeDialogue is intentionally shared with scene-director/dialogue-handoff (#254), not duplicated here.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [],
+          "automation": [
+            {
+              "kind": "semantic-test",
+              "id": "conversation-paths-flow"
+            }
+          ]
+        },
+        {
+          "id": "dialogue-effects",
+          "title": "Nested effect cursor and observable boundaries",
+          "action": "Unlock then Read sealed topic. Acknowledge the child caption, then read the receipt.",
+          "expected": "The receipt is issued and notification emitted before the child Scene. The false nested branch is skipped; after return RunLua stamps once, yielding issued / stamped. No replay duplicates the suffix.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [],
+          "automation": [
+            {
+              "kind": "semantic-test",
+              "id": "conversation-paths-flow"
+            }
+          ]
+        },
+        {
+          "id": "text-log-policy",
+          "title": "Admitted log entries and system append/clear",
+          "action": "Open Menu → History after the greeting and choices. Compare the only-choices and only-lines conversations; then Append system receipt, inspect History, Clear History and inspect again.",
+          "expected": "Everything keeps admitted greeting/choices with speaker/origin. OnlyChoices omits its line and any individually unlogged choice. OnlyLines omits choices and private lines. Nothing in History tools logs itself; append adds one bold system notification, clear empties the log.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [],
+          "automation": [
+            {
+              "kind": "semantic-test",
+              "id": "conversation-paths-flow"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "id": "character-studio",
+      "categoryId": "dialogue-presentation",
+      "title": "Dress and animate one person",
+      "description": "Two independent Character occurrences expose layered Profile/Pose/Expression/Appearance selection, automatic animation, mapped Gestures and idle clocks.",
+      "status": "ready",
+      "created": "2026-10-02T08:35:44Z",
+      "modified": "2026-10-02T08:35:44Z",
+      "launch": {
+        "entry": "character-studio"
+      },
+      "checks": [
+        {
+          "id": "profile-pose-expression",
+          "title": "Profiles, Poses and Expression fallback",
+          "action": "Continue through baseline, lean, smile and Portrait.",
+          "expected": "Ordered body+badge layers remain intact. Lean moves only the left base. Smile changes body art. Portrait without Pose selects close; absent Smile override uses the Profile’s default Expression composition.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay"
+          ],
+          "automation": []
+        },
+        {
+          "id": "appearance-composition",
+          "title": "Sparse Appearance over Expression",
+          "action": "Compare the Hide badge and Clearing Appearance lines.",
+          "expected": "Appearance hides only the badge over the smiling body; clearing restores the badge while revealing unchanged underlying Expression composition.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay"
+          ],
+          "automation": []
+        },
+        {
+          "id": "independent-presentations",
+          "title": "One shared Character, two visual occurrences",
+          "action": "Compare left speaker-sync and right non-sync states and read the shared-identity line.",
+          "expected": "Visual selection/placement axes remain independent. The studio-note Property belongs to one Studio Guide and becomes dressed; its authoritative Location remains character-studio-idles despite both Dialogue occurrences.",
+          "status": "ready",
+          "verification": "semantic",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay"
+          ],
+          "automation": [
+            {
+              "kind": "semantic-test",
+              "id": "character-studio-flow"
+            }
+          ]
+        },
+        {
+          "id": "automatic-animation",
+          "title": "Blink versus speaking precedence",
+          "action": "Stay on baseline and watch badges; then continue with non-speaking lines.",
+          "expected": "Left badge uses speaking scale pulses while matching speaker; right non-sync badge blinks on its interval. Speaking takes precedence over blink on left. Body layer remains unaffected by badge clip frames.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay"
+          ],
+          "automation": []
+        },
+        {
+          "id": "gesture-cues",
+          "title": "Mapped Gesture completion, skip and cancellation",
+          "action": "Let awaited wave complete. Restart and skip the skippable wave. On Cancel gesture continue immediately before its 500 ms sound cue so the next line clears left.",
+          "expected": "Wave temporarily moves badge and plays its crossed cue once, then returns to desired composition. Skipped/un-crossed cues are discarded, not replayed. Clearing the target cancels its operation without modifying right.",
+          "status": "ready",
+          "verification": "manual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay",
+            "pilot-dialogue-sfx"
+          ],
+          "automation": []
+        },
+        {
+          "id": "idle-clocks",
+          "title": "Reconstructible idle clocks",
+          "action": "Finish into Idle clocks. Compare left bob, middle sway and right pulse. Open Pause, then save/load.",
+          "expected": "Gameplay bob/pulse stop under pause; unscaled sway continues. After load the selected loops remain, but disposable backend phase restarts rather than resuming a saved frame.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-character-neutral",
+            "pilot-character-smile",
+            "studio-layer-overlay"
+          ],
+          "automation": []
+        }
+      ]
+    },
+    {
+      "id": "active-text",
+      "categoryId": "dialogue-presentation",
+      "title": "Read the illustrated notice",
+      "description": "Read styled, paged and animated text with real font faces, explicit diff emphasis, wrapped object selection and mixed Unicode scripts.",
+      "status": "ready",
+      "created": "2026-10-02T08:35:44Z",
+      "modified": "2026-10-02T08:35:44Z",
+      "launch": {
+        "entry": "active-text"
+      },
+      "checks": [
+        {
+          "id": "styled-spans",
+          "title": "Nested styles and real face selection",
+          "action": "Read the first notice line; compare nested bold/italic, underline/strike, blue, outlined, large, real versus sys synthetic faces and one-run offsets.",
+          "expected": "Each closing span restores its outer style. Only offset text is nudged; following text restores position. Explicit DejaVu bold/oblique use real faces while sys b/i use synthetic styling. Alpha variation is intentionally shared with text-effects/fade rather than inventing an unsupported alpha tag.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "notice-font-faces"
+          ],
+          "automation": []
+        },
+        {
+          "id": "reveal-and-pages",
+          "title": "Cluster reveal and manual/delayed paging",
+          "action": "Continue through manual page then delayed page; resize/enlarge text before advancing. Restart and compare immediate skip.",
+          "expected": "Complete é/Å clusters reveal on precomputed layout. Manual page waits for input; delayed page waits 0.6 seconds. Resize preserves current page/input boundaries and does not duplicate advancement.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "notice-font-faces"
+          ],
+          "automation": []
+        },
+        {
+          "id": "text-effects",
+          "title": "Distinct effects, waits and loops",
+          "action": "Observe the effect line; try skipping during its final non-skippable fade and acknowledge its wait.",
+          "expected": "Fade/fade-across change alpha; glow/nod/shake/tremble/pop remain distinct. Loops include authored delay/yoyo; the non-skippable effect retains its wait. Effects do not change words or duplicate Continue input.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [],
+          "automation": []
+        },
+        {
+          "id": "object-spans",
+          "title": "Wrapped semantic object selection",
+          "action": "Increase text scale so the long linked button phrase wraps. Hover/click the linked phrase versus plain text.",
+          "expected": "Only actual linked glyph/span bounds select notice-button; plain text does not select it. This is semantic subject selection, not a fake notification or a general RML button hit target.",
+          "status": "ready",
+          "verification": "ui",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "pilot-button-sprite"
+          ],
+          "automation": []
+        },
+        {
+          "id": "diff-style",
+          "title": "Explicit diff emphasis",
+          "action": "Read the unchanged / newly emphasized / unchanged notice.",
+          "expected": "Only the explicitly d-marked phrase is red/diff-emphasized; surrounding text restores normal styling. Automatic Room-description diff remains automation-only.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [],
+          "automation": []
+        },
+        {
+          "id": "unicode-layout",
+          "title": "Mixed-script shaping and fallback",
+          "action": "Read Latin combining clusters, Arabic/Hebrew with English/numbers, and CJK. Wrap, resize and enlarge text.",
+          "expected": "Latin clusters stay intact, RTL runs order legibly amid LTR/numbers and DejaVu supplies their glyphs; IPA Gothic supplies CJK. No tofu, corrupt wrapping or claim of color-emoji support.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-02T08:35:44Z",
+          "modified": "2026-10-02T08:35:44Z",
+          "assetRequirements": [
+            "notice-font-faces"
+          ],
+          "automation": []
         }
       ]
     }

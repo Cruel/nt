@@ -42,6 +42,8 @@ The World & Interaction expansion adds two focused stations. `room-lifecycle` ex
 
 The Dialogue & Presentation pilot uses an ordinary Room lifecycle to start a real Dialogue with staged Character presentation, a normal-to-smile expression change, timed flash and notification-sound cues, spoken voice playback, a real runtime Dialogue choice, and a choice effect that mutates authoritative global state. Its semantic Test covers opening/continuation/branch state, while its UI Test advances semantically to the behavior under test and then clicks the real RmlUi choice. The pilot intentionally does not add another GPU/readback fixture: existing focused runtime UI/rendering readback coverage already protects composition mechanics, while these pilot checks exercise the authored-project presentation path manually without adding a redundant GPU golden. Real reference media improve manual perceptual verification but do not by themselves justify another composition-mechanics fixture.
 
+The People & Conversation expansion adds three stations around that pilot. `conversation-paths` exercises conditional/show-once transcript history, disabled versus hidden choices, speaker resolution, Stage Slot mutation, cue skip/barrier semantics, child Scene calls, completion destinations, nested effects, and text-log policy; its semantic and UI Tests cover the stateful and real-choice paths. `character-studio` uses one shared Character in independent Dialogue occurrences to demonstrate Profile/Pose/Expression/Appearance composition, automatic blink/speaking animation, mapped Gesture behavior, shared semantic identity, and reconstructible idle clocks; `character-studio-flow` protects the shared Property/Location contract. `active-text` is the manual/reference station for nested styles, real and synthetic font faces, cluster-safe paging/reveal, effects, wrapped object spans, explicit diff emphasis, and mixed-script shaping/fallback. Its DejaVu Sans and IPA Gothic files are registered Project font Assets with their licenses beside them. The catalog keeps `media-slot-content` blocked because the runtime publishes the authored state but the built-in Dialogue UI does not yet provide a normal image/Character-snapshot Media Slot realizer.
+
 Useful checks from the repository root:
 
 ```sh
@@ -55,6 +57,10 @@ build/cli/linux/noveltea --project tests/projects/feature-lab test run world-com
 build/cli/linux/noveltea --project tests/projects/feature-lab test run rooms-interactions-ui
 build/cli/linux/noveltea --project tests/projects/feature-lab test run dialogue-presentation-flow
 build/cli/linux/noveltea --project tests/projects/feature-lab test run dialogue-presentation-ui
+build/cli/linux/noveltea --project tests/projects/feature-lab test run conversation-paths-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run conversation-paths-ui
+build/cli/linux/noveltea --project tests/projects/feature-lab test run character-studio-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run active-text-flow
 ```
 
 The bare `test run` command is the normal automation/acceptance entry point. It executes the complete

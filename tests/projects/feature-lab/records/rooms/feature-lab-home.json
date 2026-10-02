@@ -47,6 +47,21 @@
     },
     "exits": [
       {
+        "id": "character-studio-test-entry", "label": "Character studio (automation entry)", "direction": "southeast",
+        "target": { "$ref": { "collection": "rooms", "id": "character-studio" } },
+        "condition": { "kind": "always" }, "onRejected": []
+      },
+      {
+        "id": "active-text-test-entry", "label": "ActiveText notice (automation entry)", "direction": "southwest",
+        "target": { "$ref": { "collection": "rooms", "id": "active-text" } },
+        "condition": { "kind": "always" }, "onRejected": []
+      },
+      {
+        "id": "conversation-paths-test-entry", "label": "Interview (automation entry)", "direction": "northeast",
+        "target": { "$ref": { "collection": "rooms", "id": "conversation-paths" } },
+        "condition": { "kind": "always" }, "onRejected": []
+      },
+      {
         "id": "rooms-interactions-test-entry",
         "label": "Rooms & Interactions (automation entry)",
         "direction": "east",

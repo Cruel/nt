@@ -1,0 +1,59 @@
+{
+  "id": "character-studio-flow",
+  "label": "character-studio-flow",
+  "data": {
+    "kind": "test",
+    "displayName": "character-studio-flow",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "start",
+        "expectations": []
+      },
+      {
+        "id": "step-1-enter",
+        "input": "navigate",
+        "label": "enter",
+        "expectations": [
+          {
+            "id": "flow-character-studio",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "dialogue",
+              "flowId": "character-studio"
+            }
+          }
+        ],
+        "navigate": {
+          "exitId": "character-studio-test-entry"
+        }
+      },
+      {
+        "id": "shared-note", "input": "continue", "label": "Advance to shared Character note",
+        "expectations": [
+          {
+            "id": "presentations-do-not-move-character", "type": "location", "operator": "eq",
+            "location": { "entityKind": "character", "entityId": "studio-guide", "locationKind": "room", "roomId": "character-studio-idles", "inventoryOwnerKind": "project", "inventoryOwnerId": "", "inventoryId": "" }
+          }
+        ]
+      },
+      {
+        "id": "shared-note-effects", "input": "continue", "label": "Complete shared Character note",
+        "expectations": [
+          {
+            "id": "shared-character-property", "type": "property", "operator": "eq",
+            "property": { "scope": "character", "ownerId": "studio-guide", "propertyId": "studio-note", "value": "dressed" }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

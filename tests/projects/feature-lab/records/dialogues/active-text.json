@@ -1,0 +1,155 @@
+{
+  "id": "active-text",
+  "label": "Active Text",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Active Text",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": true,
+      "logMode": "everything"
+    },
+    "entryBlockId": "notice",
+    "blocks": [
+      {
+        "id": "notice",
+        "type": "sequence",
+        "label": "notice",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "styled-spans",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Plain [b]bold [i]bold italic[/i] bold[/b] plain. [u]underline[/u] [strike]strike[/strike]. [c=#8fd8ff]blue [b]nested[/b][/c] normal. [bc=#071018][bs=2]outlined[/bs][/bc] normal. [s=38]large[/s] normal. [f=sys][b]synthetic bold[/b] [i]synthetic italic[/i][/f]. [f=dejavusans-bold]real bold face[/f] [f=dejavusans-oblique]real oblique face[/f]. [x=8][y=-5]offset[b] restored[/b]."
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "pages",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "First page: continue only after reveal. [p]Second manual page: combine é and Å without splitting clusters. [p=0.6]Delayed page after 600 ms. Resize before continuing; text should reflow without losing the page/input boundary."
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "effects",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "[a effect=fade time=0.8]Fade[/a] [a effect=fadeacross time=0.8]Fade across[/a] [a effect=glow time=0.9 loop=3,0.2,1]Glow[/a] [a effect=nod time=0.9 loop=3,0.2,1]Nod[/a] [a effect=shake time=0.9 loop=3,0.2,1]Shake[/a] [a effect=tremble time=0.9 loop=3,0.2,1]Tremble[/a] [a effect=pop time=0.7]Pop[/a]. [a effect=fade time=1.5 wait=1 cs=0]Non-skippable wait[/a] then normal text."
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "diff",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Unchanged notice. [d]Only this newly emphasized phrase[/d]. Unchanged ending."
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "objects",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Only the linked phrase is an object span: [o=notice-button]the red notice button with a deliberately long label that can wrap across lines at larger text scales[/o]. Plain text beside it is not an interaction target. Hover and activate the linked phrase; the selected subject should be notice-button, not another button. Plain non-span text continues/reveals instead of selecting it."
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "unicode",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Latin clusters: é Å ﬁ. Mixed direction: [f=dejavusans]English العربية 123 עברית English[/f]. CJK: [f=ipag]日本語 中文[/f]. Wrap and enlarge text; compare readable clusters, order and fallback. No color-emoji claim."
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "notice-done",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Notice complete. Restart to compare reveal, skip and page behavior."
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "room",
+      "id": "active-text-finish"
+    }
+  }
+}
