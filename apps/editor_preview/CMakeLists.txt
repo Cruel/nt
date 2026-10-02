@@ -57,6 +57,10 @@ target_link_options(noveltea-editor-preview PRIVATE
     "SHELL:--preload-file ${CMAKE_BINARY_DIR}/runtime-assets@/assets"
 )
 
+if(NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK)
+    target_link_options(noveltea-editor-preview PRIVATE -sSTACK_OVERFLOW_CHECK=2)
+endif()
+
 if(NOVELTEA_ENABLE_THREADS)
     target_link_options(noveltea-editor-preview PRIVATE
         "SHELL:--pre-js ${CMAKE_SOURCE_DIR}/web/threading_pre.js")

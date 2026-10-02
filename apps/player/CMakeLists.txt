@@ -54,6 +54,9 @@ if(EMSCRIPTEN)
         "SHELL:--js-library ${CMAKE_SOURCE_DIR}/web/persistent_fs.js"
         "SHELL:--preload-file ${NOVELTEA_PLAYER_BUILD_ASSETS}@/assets"
     )
+    if(NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK)
+        target_link_options(noveltea-player PRIVATE -sSTACK_OVERFLOW_CHECK=2)
+    endif()
     if(NOVELTEA_ENABLE_THREADS)
         target_link_options(noveltea-player PRIVATE
             "SHELL:--pre-js ${CMAKE_SOURCE_DIR}/web/threading_pre.js"

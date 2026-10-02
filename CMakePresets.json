@@ -204,6 +204,7 @@
             "cacheVariables": {
                 "CMAKE_BUILD_TYPE": "Debug",
                 "BUILD_TESTING": "OFF",
+                "NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK": "ON",
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "1"
             }
@@ -242,6 +243,7 @@
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF",
+                "NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK": "OFF",
                 "NOVELTEA_ENABLE_THREADS": "ON",
                 "NOVELTEA_JOB_WORKER_COUNT": "1"
             }
@@ -268,7 +270,8 @@
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
                 "NOVELTEA_BUILD_EDITOR_PREVIEW": "ON",
                 "NOVELTEA_BUILD_PLAYER": "OFF",
-                "NOVELTEA_ENABLE_DEVTOOLS": "ON"
+                "NOVELTEA_ENABLE_DEVTOOLS": "ON",
+                "NOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK": "OFF"
             }
         },
         {

@@ -20,7 +20,11 @@ function run(command, args) {
   });
 }
 
-const configureArgs = ['--preset', 'web-editor-preview'];
+const configureArgs = [
+  '--preset',
+  'web-editor-preview',
+  '-DNOVELTEA_ENABLE_WEB_STACK_OVERFLOW_CHECK=ON',
+];
 const localRmluiBgfxDir = path.join(repoRoot, 'rmlui-bgfx');
 if (process.env.NOVELTEA_USE_LOCAL_RMLUI_BGFX === 'ON') {
   configureArgs.push('-DNOVELTEA_USE_LOCAL_RMLUI_BGFX=ON');
