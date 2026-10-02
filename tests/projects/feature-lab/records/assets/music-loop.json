@@ -1,0 +1,23 @@
+{
+  "id": "music-loop",
+  "label": "music_loop",
+  "data": {
+    "kind": "audio",
+    "source": {
+      "type": "project-file",
+      "path": "assets/audio/music_loop.mp3"
+    },
+    "aliases": [],
+    "mimeType": "audio/mpeg",
+    "extension": ".mp3",
+    "byteSize": 26793,
+    "contentHash": "sha256:5c652d0572e199d95bb56eba2cec7ed2b92454c616e257f3f3ffffed3393b38c",
+    "importedAt": "2026-10-01T21:45:19.638Z",
+    "originalName": "music_loop.mp3",
+    "originalPath": "/home/thomas/dev/nt/tests/projects/feature-lab/assets/audio/music_loop.mp3",
+    "imageMetadata": null,
+    "preview": {
+      "thumbnailRevision": "sha256:5c652d0572e199d95bb56eba2cec7ed2b92454c616e257f3f3ffffed3393b38c"
+    }
+  }
+}
