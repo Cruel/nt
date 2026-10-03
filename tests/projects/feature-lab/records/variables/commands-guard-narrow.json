@@ -1,0 +1,11 @@
+{
+  "id": "commands-guard-narrow",
+  "label": "Commands Narrow Guard",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

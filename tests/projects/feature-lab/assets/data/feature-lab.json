@@ -20,6 +20,11 @@
       "id": "objects-state",
       "title": "Objects & State",
       "description": "Exact Interactable identity, owner-qualified inventories, Properties, Traits, quantities, and mutable runtime Instances. Hotspot-mode comparison is intentionally shared with the later Input & Presentation hotspot station rather than duplicated here."
+    },
+    {
+      "id": "commands-discovery",
+      "title": "Commands & Discovery",
+      "description": "Verbs, Offers, named-slot command construction, Primary Activate, Interaction resolution, fallback, and transaction boundaries."
     }
   ],
   "launches": [
@@ -70,6 +75,14 @@
     {
       "id": "runtime-workshop",
       "roomId": "runtime-workshop"
+    },
+    {
+      "id": "verbs-and-offers",
+      "roomId": "verbs-and-offers"
+    },
+    {
+      "id": "interaction-rules",
+      "roomId": "interaction-rules"
     }
   ],
   "visualCheckpoints": [],
@@ -1061,6 +1074,118 @@
           "action": "Use Destroy.",
           "expected": "A free Instance ends; destroying an owner with a live Inventory dependent rejects and preserves both owner and child; a later creation receives a different ID and cannot resurrect the ended identity.",
           "status": "ready", "verification": "semantic", "created": "2026-10-02T09:52:32Z", "modified": "2026-10-02T09:52:32Z", "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "runtime-workshop-flow" }]
+        }
+      ]
+    },
+    {
+      "id": "verbs-and-offers",
+      "categoryId": "commands-discovery",
+      "title": "Discover and build named commands",
+      "description": "Exercise Primary Activate, explicit and rule-derived Offers, selector specificity and rank, discovery-versus-authority, and the built-in named-slot Command Builder.",
+      "status": "ready",
+      "created": "2026-10-03T07:00:00Z",
+      "modified": "2026-10-03T07:00:00Z",
+      "launch": { "entry": "verbs-and-offers" },
+      "checks": [
+        {
+          "id": "primary-versus-menu",
+          "title": "Primary Activate dispatches only a unique complete winner",
+          "action": "Activate Primary, Menu, and Ambiguous targets. Use explicit Open Verb Menu on Menu and choose an action.",
+          "expected": "The unique complete primary command dispatches immediately. A non-primary target requires the Verb Menu, while competing primary candidates resolve through the menu instead of guessing.",
+          "status": "ready", "verification": "ui", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "ui-test", "id": "verbs-and-offers-primary-ui" }, { "kind": "ui-test", "id": "verbs-and-offers-menu-ui" }, { "kind": "ui-test", "id": "verbs-and-offers-ambiguity-ui" }]
+        },
+        {
+          "id": "offer-specificity",
+          "title": "Offer specificity, rank, and suppression are deterministic",
+          "action": "Activate Exact, Prefix, Trait, Definition, Feature, Rank, Rule Offer, and Suppressed targets.",
+          "expected": "Exact and longer qualified patterns outrank trait/definition/reusable-Feature selectors, which outrank family and any-subject. Rank breaks equal specificity. The rule-derived Offer participates normally, and a false winning Offer condition suppresses the Verb rather than falling through to a broader Offer.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "verbs-and-offers-flow" }]
+        },
+        {
+          "id": "discovery-not-authority",
+          "title": "Discovery does not define command authority",
+          "action": "Compare the condition-suppressed target with a direct valid Probe command, then inspect Unavailable Probe while its availability is false.",
+          "expected": "The suppressed command is absent from discovery but the same fully bound valid Probe command still executes through semantic command submission. Verb availability remains the authority boundary and rejects Unavailable Probe while false.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "verbs-and-offers-flow" }]
+        },
+        {
+          "id": "named-slot-builder",
+          "title": "Named slots and bindingOrder drive command construction",
+          "action": "Start Deliver from the Recipient, bind the Parcel from Project Inventory, and submit through the built-in Command Builder. Also execute Deliver with the same parcel bound to both named slots.",
+          "expected": "bindingOrder requests recipient before parcel even though slot declaration order differs; execution binds by slot name, not position. Inventory subjects are selectable, and one live subject may legally occupy both compatible slots.",
+          "status": "ready", "verification": "ui", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "ui-test", "id": "verbs-and-offers-builder-ui" }, { "kind": "semantic-test", "id": "verbs-and-offers-flow" }]
+        },
+        {
+          "id": "builder-rebind-cancel",
+          "title": "Command Builder drafts rebind and cancel without persistence",
+          "action": "Begin Deliver, use Rebind on an already selected slot, choose another compatible subject, then Cancel. Repeat and leave the Room before submission; save/load around an incomplete draft if desired.",
+          "expected": "Rebind changes only the transient Layout-owned draft. Cancel or leaving the owning context discards the draft, and incomplete builder state is never part of save-persistent gameplay state.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "ui-test", "id": "verbs-and-offers-rebind-ui" }]
+        },
+        {
+          "id": "contextual-menu-placement",
+          "title": "Contextual menus preserve trigger context and clamp to the viewport",
+          "action": "Open the Verb Menu from the near-edge Menu target with pointer input, then invoke the same subject action through non-pointer/Open Verb Menu input.",
+          "expected": "Pointer invocation anchors to the triggering point and clamps inside the viewport; non-pointer invocation uses the stable subject/default anchor. Menu choice continues to refer to the original triggering subject.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": []
+        }
+      ]
+    },
+    {
+      "id": "interaction-rules",
+      "categoryId": "commands-discovery",
+      "title": "Resolve Interaction rules and transaction boundaries",
+      "description": "Exercise live subject selectors, Guard containment tiers and priority, fallback stages, immediate atomicity, and observable command boundaries with deliberate failure controls.",
+      "status": "ready",
+      "created": "2026-10-03T07:00:00Z",
+      "modified": "2026-10-03T07:00:00Z",
+      "launch": { "entry": "interaction-rules" },
+      "checks": [
+        {
+          "id": "selector-families",
+          "title": "Interaction selectors resolve live subject identity",
+          "action": "Resolve the Character, Definition, Trait, Feature, and Exact controls, then use the runtime-created parcel placed on room entry.",
+          "expected": "Character family, exact Instance, owner-qualified reusable Feature, live Trait, and origin Definition selectors match the live subject. The runtime-created parcel retains its origin Definition for selector matching; no selector depends on Archetype ancestry.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "interaction-rules-flow" }]
+        },
+        {
+          "id": "guard-tiers-priority",
+          "title": "Containment tiers resolve before same-tier priority",
+          "action": "Run Guard tier before and after Enable guard.",
+          "expected": "A false narrow Guard falls through to the broader tier; once true, the narrower containment tier beats the broader rule regardless of priority. Same-tier priority and equal-winner ambiguity are intentionally shared with the focused native Interaction resolver tests so the canonical Lab remains free of deliberately ambiguous authoring diagnostics.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "interaction-rules-flow" }]
+        },
+        {
+          "id": "fallback-chain",
+          "title": "Unhandled work falls through every authored fallback stage",
+          "action": "Invoke Fallback and inspect the final response. Compare with handled controls and the deliberate post-boundary failure.",
+          "expected": "No matching rule, an unhandled Verb default, and the explicit unhandled Project fallback advance in order to the localized engine response. Once handled work crosses an observable boundary, later failure does not restart fallback or replay prior effects.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "interaction-rules-flow" }]
+        },
+        {
+          "id": "immediate-atomicity",
+          "title": "Immediate command groups commit atomically",
+          "action": "Invoke Atomic failure, which stages a marker mutation before an intentionally impossible exact quantity consume; then use Verify state.",
+          "expected": "The quantity rejection emits its real runtime diagnostic and the earlier staged marker mutation is rolled back, proving no partial commit within the immediate group.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": []
+        },
+        {
+          "id": "observable-boundaries",
+          "title": "Observable boundaries commit prefixes and resume at the exact cursor",
+          "action": "Invoke Boundary failure, acknowledge its notification and child Flow, then let the nested branch reach its deliberate quantity failure. Use Verify state afterward.",
+          "expected": "The pre-notification and post-notification mutations commit around the observable notification boundary, the child Flow returns to the nested command cursor, and the later failure does not replay the notification/Flow or erase already committed effects.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": []
         }
       ]
     }

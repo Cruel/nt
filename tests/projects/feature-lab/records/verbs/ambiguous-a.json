@@ -1,0 +1,29 @@
+{
+  "id": "ambiguous-a",
+  "label": "Ambiguous A",
+  "data": {
+    "kind": "verb",
+    "slots": [{
+      "id": "target",
+      "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" },
+      "prompt": { "source": { "kind": "inline", "text": "Choose target" }, "markup": "plain" },
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "ambiguous-target" } } } }]
+    }],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Ambiguous A" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Ambiguous A {target}" }, "markup": "plain" },
+    "offers": [{
+      "id": "primary-a",
+      "slotId": "target",
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "ambiguous-target" } } } }],
+      "rank": 100,
+      "primary": true
+    }],
+    "availability": { "kind": "always" },
+    "defaultProgram": {
+      "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "ambiguous-a" }],
+      "completion": { "kind": "return" },
+      "outcome": "handled"
+    }
+  }
+}

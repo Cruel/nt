@@ -1,0 +1,45 @@
+{
+  "id": "deliver",
+  "label": "Deliver",
+  "data": {
+    "kind": "verb",
+    "slots": [
+      {
+        "id": "parcel",
+        "label": { "source": { "kind": "inline", "text": "parcel" }, "markup": "plain" },
+        "prompt": { "source": { "kind": "inline", "text": "Choose the parcel" }, "markup": "plain" },
+        "selectors": [{ "kind": "interactable-definition", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } } }]
+      },
+      {
+        "id": "recipient",
+        "label": { "source": { "kind": "inline", "text": "recipient" }, "markup": "plain" },
+        "prompt": { "source": { "kind": "inline", "text": "Choose the recipient" }, "markup": "plain" },
+        "selectors": [
+          { "kind": "family", "family": "character" },
+          { "kind": "interactable-definition", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } } }
+        ]
+      }
+    ],
+    "bindingOrder": ["recipient", "parcel"],
+    "actionText": { "source": { "kind": "inline", "text": "Deliver" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Deliver {parcel} to {recipient}" }, "markup": "plain" },
+    "offers": [
+      {
+        "id": "recipient-start",
+        "slotId": "recipient",
+        "selectors": [{ "kind": "exact", "subject": { "kind": "character", "character": { "$ref": { "collection": "characters", "id": "verbs-recipient" } } } }],
+        "rank": 100,
+        "primary": false
+      },
+      {
+        "id": "self-start",
+        "slotId": "recipient",
+        "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "builder-self-parcel" } } } }],
+        "rank": 90,
+        "primary": false
+      }
+    ],
+    "availability": { "kind": "always" },
+    "defaultProgram": { "instructions": [], "completion": { "kind": "return" }, "outcome": "unhandled" }
+  }
+}

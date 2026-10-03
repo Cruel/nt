@@ -347,6 +347,8 @@ private:
     [[nodiscard]] core::Result<void, RuntimeExecutionError>
     interact_in_context(core::VerbId verb, std::vector<core::InteractionSubjectBinding> bindings,
                         std::optional<core::SceneFramePosition> scene_next_position);
+    [[nodiscard]] bool
+    interaction_subject_available(const core::compiled::InteractionSubject& subject) const;
     [[nodiscard]] bool gameplay_command_is_immediate(const core::GameplayCommand& command) const;
     [[nodiscard]] core::Result<void, core::Diagnostics> apply_immediate_gameplay_command(
         const core::GameplayCommand& command, core::SessionState& state, RuntimeWorld& world,

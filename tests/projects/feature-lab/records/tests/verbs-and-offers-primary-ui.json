@@ -1,0 +1,15 @@
+{
+  "id": "verbs-and-offers-primary-ui",
+  "label": "Verbs & Offers Primary/UI discovery",
+  "data": {
+    "kind": "test",
+    "displayName": "Verbs & Offers Primary/UI discovery",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [] },
+      { "id": "launch", "input": "ui-click", "label": "Launch Verbs & Offers from the Lab HUD", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-verbs-and-offers" }, "expectations": [{ "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "verbs-and-offers" } }] },
+      { "id": "unique-primary", "input": "primary-activate", "label": "Unique complete Primary Offer dispatches immediately", "subjectAction": { "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "primary-target" } } } }, "expectations": [{ "id": "quick-ran", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "commands-result", "value": "quick" } }] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

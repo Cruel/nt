@@ -35,7 +35,44 @@ describe('ProjectWorkspaceService', () => {
   it('keeps declared workspace field order while sorting record dictionaries', () => {
     const files = projectWorkspaceFiles(createAuthoringProject(), createAuthoringProject().editor);
     expect(files['project.json']).toMatch(
-      /^\{\n  "schema":.*\n  "schemaVersion":.*\n  "project":.*\n  "settings":.*\n  "bootstrapModule":.*\n  "entrypoint":/s,
+      /^\{\n  "schema":.*\n  "schemaVersion":.*\n  "project":.*\n  "settings":.*\n  "bootstrapModule":.*\n  "undefinedInteractionProgram":.*\n  "entrypoint":/s,
+    );
+  });
+
+  it('round-trips the Project undefined-Interaction fallback and rejects replaced v1 manifests without it', async () => {
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    project.undefinedInteractionProgram = {
+      instructions: [],
+      completion: { kind: 'return' },
+      outcome: 'unhandled',
+    };
+    const files = filesFor(project);
+    const opened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(files),
+    ).open('/projects/headless');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.snapshot.project.undefinedInteractionProgram).toEqual(
+      project.undefinedInteractionProgram,
+    );
+
+    const legacyFiles = filesFor(createAuthoringProject({ id: 'headless', name: 'Headless' }));
+    const legacyManifest = JSON.parse(legacyFiles['/projects/headless/project.json']!) as Record<
+      string,
+      unknown
+    >;
+    delete legacyManifest.undefinedInteractionProgram;
+    legacyFiles['/projects/headless/project.json'] = `${JSON.stringify(legacyManifest, null, 2)}\n`;
+    const legacyOpened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(legacyFiles),
+    ).open('/projects/headless');
+    expect(legacyOpened.ok).toBe(false);
+    if (legacyOpened.ok) return;
+    expect(legacyOpened.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'authoring.workspace.invalid',
+        message: expect.stringContaining('unsupported workspace-v1 shape'),
+      }),
     );
   });
 

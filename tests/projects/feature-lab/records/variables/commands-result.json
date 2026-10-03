@@ -1,0 +1,11 @@
+{
+  "id": "commands-result",
+  "label": "Commands & Discovery Result",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "idle",
+    "scope": "global"
+  }
+}

@@ -1,0 +1,11 @@
+{
+  "id": "commands-boundary-marker",
+  "label": "Commands Boundary Marker",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "idle",
+    "scope": "global"
+  }
+}
