@@ -3283,6 +3283,12 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['technical/LUA.md']).toContain(
       'Project-bootstrap globals are not visible to Layout scripts',
     );
+    expect(first.files['technical/LUA.md']).toContain(
+      'All Character/Interactable `set_location` forms are request-style mutations.',
+    );
+    expect(first.files['technical/LUA.md']).toContain(
+      'A `location()` read in the same Lua invocation may therefore still observe the pre-request Location.',
+    );
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
     expect(first.files['schemas/records/layouts.schema.json']).toContain('file');
     const scriptSchemaText = first.files['schemas/records/scripts.schema.json']!;

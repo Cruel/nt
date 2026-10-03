@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import { namedMessageKeySchema } from './authoring-localization';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const propertyOwnerKindValues = ['room', 'character', 'interactable', 'feature'] as const;
 export const propertyValueTypeValues = [
@@ -145,79 +146,95 @@ export const ownerDefaultPropertiesSchema = z
 
 export const propertyAssignmentsSchema = z.record(entityIdSchema, authoredPropertyValueSchema);
 
-export const traitPropertySchema = z
-  .object({
-    id: entityIdSchema,
-    label: z.string().min(1).optional(),
-    description: z.string().optional(),
-    type: z.enum(propertyValueTypeValues),
-    nullable: z.boolean(),
-    defaultValue: authoredPropertyValueSchema.optional(),
-    enumValues: z.array(z.string().min(1)).optional(),
-  })
-  .strict()
-  .superRefine((property, context) => {
-    const enumValues = property.enumValues ?? [];
-    if (property.type === 'enum') {
-      if (enumValues.length === 0) {
+export const traitPropertySchema = withSchemaDocumentation(
+  z
+    .object({
+      id: entityIdSchema,
+      label: z.string().min(1).optional(),
+      description: z.string().optional(),
+      type: z.enum(propertyValueTypeValues),
+      nullable: z.boolean(),
+      defaultValue: authoredPropertyValueSchema.optional(),
+      enumValues: z.array(z.string().min(1)).optional(),
+    })
+    .strict()
+    .superRefine((property, context) => {
+      const enumValues = property.enumValues ?? [];
+      if (property.type === 'enum') {
+        if (enumValues.length === 0) {
+          context.addIssue({
+            code: 'custom',
+            path: ['enumValues'],
+            message: 'Enum Trait Properties require at least one enum value.',
+          });
+        }
+        if (new Set(enumValues).size !== enumValues.length) {
+          context.addIssue({
+            code: 'custom',
+            path: ['enumValues'],
+            message: 'Enum Trait Property values must be unique.',
+          });
+        }
+      } else if (property.enumValues !== undefined) {
         context.addIssue({
           code: 'custom',
           path: ['enumValues'],
-          message: 'Enum Trait Properties require at least one enum value.',
+          message: 'enumValues is valid only for enum Trait Properties.',
         });
       }
-      if (new Set(enumValues).size !== enumValues.length) {
+      if (
+        property.defaultValue !== undefined &&
+        !isPropertyValueCompatible(property, property.defaultValue)
+      ) {
         context.addIssue({
           code: 'custom',
-          path: ['enumValues'],
-          message: 'Enum Trait Property values must be unique.',
+          path: ['defaultValue'],
+          message: 'Default does not match the Trait Property declaration.',
         });
       }
-    } else if (property.enumValues !== undefined) {
-      context.addIssue({
-        code: 'custom',
-        path: ['enumValues'],
-        message: 'enumValues is valid only for enum Trait Properties.',
-      });
-    }
-    if (
-      property.defaultValue !== undefined &&
-      !isPropertyValueCompatible(property, property.defaultValue)
-    ) {
-      context.addIssue({
-        code: 'custom',
-        path: ['defaultValue'],
-        message: 'Default does not match the Trait Property declaration.',
-      });
-    }
-  });
+    }),
+  {
+    notes: [
+      'Omitting defaultValue leaves a Property requirement. Reusable configuration may leave that requirement unresolved, but a concrete gameplay owner or Interactable Instance must resolve an effective compatible value before publication.',
+    ],
+  },
+);
 
-export const traitDefinitionSchema = z
-  .object({
-    id: entityIdSchema,
-    label: z.string().min(1),
-    description: z.string().optional(),
-    ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
-    properties: z.array(traitPropertySchema),
-  })
-  .strict()
-  .superRefine((trait, context) => {
-    if (new Set(trait.ownerKinds).size !== trait.ownerKinds.length) {
-      context.addIssue({
-        code: 'custom',
-        path: ['ownerKinds'],
-        message: 'Trait owner kinds must be unique.',
-      });
-    }
-    const propertyIds = trait.properties.map((property) => property.id);
-    if (new Set(propertyIds).size !== propertyIds.length) {
-      context.addIssue({
-        code: 'custom',
-        path: ['properties'],
-        message: 'Trait properties must be unique.',
-      });
-    }
-  });
+export const traitDefinitionSchema = withSchemaDocumentation(
+  z
+    .object({
+      id: entityIdSchema,
+      label: z.string().min(1),
+      description: z.string().optional(),
+      ownerKinds: z.array(z.enum(propertyOwnerKindValues)).min(1),
+      properties: z.array(traitPropertySchema),
+    })
+    .strict()
+    .superRefine((trait, context) => {
+      if (new Set(trait.ownerKinds).size !== trait.ownerKinds.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['ownerKinds'],
+          message: 'Trait owner kinds must be unique.',
+        });
+      }
+      const propertyIds = trait.properties.map((property) => property.id);
+      if (new Set(propertyIds).size !== propertyIds.length) {
+        context.addIssue({
+          code: 'custom',
+          path: ['properties'],
+          message: 'Trait properties must be unique.',
+        });
+      }
+    }),
+  {
+    constraints: [
+      'When multiple attached Traits contribute the same Property ID, their Property schemas must be compatible.',
+      'When multiple attached Traits provide a Default for the same Property ID, those Defaults must agree exactly.',
+      'Reusable definitions and Archetypes may leave no-Default Trait requirements unresolved; concrete gameplay owners and Interactable Instances must resolve every required Property before publication.',
+    ],
+  },
+);
 
 export type PropertyOwnerKind = (typeof propertyOwnerKindValues)[number];
 export type AuthoredMessageRef = z.infer<typeof authoredMessageRefSchema>;
