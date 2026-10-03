@@ -1,0 +1,11 @@
+{
+  "id": "background-deliveries",
+  "label": "background-deliveries",
+  "data": {
+    "kind": "variable",
+    "type": "integer",
+    "nullable": false,
+    "value": 0,
+    "scope": "global"
+  }
+}

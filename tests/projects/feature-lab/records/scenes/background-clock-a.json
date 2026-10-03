@@ -1,0 +1,49 @@
+{
+  "id": "background-clock-a",
+  "label": "background-clock-a",
+  "data": {
+    "kind": "scene",
+    "displayName": "background-clock-a",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "delay",
+        "label": "delay",
+        "type": "wait",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "waitKind": "duration",
+        "durationMs": 1000,
+        "skippable": false
+      },
+      {
+        "id": "deliver",
+        "label": "deliver",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local count = assert(Game.prop('background-deliveries')); assert(Game.set_prop('background-deliveries', count + 1)); noveltea.notify('background-clock-a delivered.')",
+        "mayYield": false,
+        "autosaveSafePoint": true
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

@@ -1,0 +1,94 @@
+{
+  "id": "director-handoff",
+  "label": "director-handoff",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Director handoff",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": false,
+      "logMode": "only-lines"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "intro",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "line-1",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Conversation part 1: Continue. The Scene resumes between Handoffs without starting another conversation."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "handoff-1",
+            "type": "handoff"
+          },
+          {
+            "id": "line-2",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Conversation part 2: Continue. The Scene resumes between Handoffs without starting another conversation."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "handoff-2",
+            "type": "handoff"
+          },
+          {
+            "id": "line-3",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Conversation part 3: Continue. The Scene resumes between Handoffs without starting another conversation."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "return"
+    }
+  }
+}

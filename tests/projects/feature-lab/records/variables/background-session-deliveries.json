@@ -1,0 +1,11 @@
+{
+  "id": "background-session-deliveries",
+  "label": "background-session-deliveries",
+  "data": {
+    "kind": "variable",
+    "type": "integer",
+    "nullable": false,
+    "value": 0,
+    "scope": "global"
+  }
+}

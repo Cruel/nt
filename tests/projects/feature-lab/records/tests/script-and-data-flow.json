@@ -1,0 +1,156 @@
+{
+  "id": "script-and-data-flow",
+  "label": "Data notice board and saved random",
+  "data": {
+    "kind": "test",
+    "displayName": "Data notice board and saved random",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh start"
+      },
+      {
+        "id": "route",
+        "input": "navigate",
+        "label": "Catchall hook room",
+        "navigate": { "exitId": "inventory-workbench-test-entry" },
+        "expectations": [
+          {
+            "id": "catchall-hook",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "board-hook",
+              "value": "catchall"
+            }
+          }
+        ]
+      },
+      {
+        "id": "enter",
+        "input": "navigate",
+        "label": "Load independent data trees through the exact hook",
+        "navigate": { "exitId": "script-and-data-test-entry" },
+        "expectations": [
+          {
+            "id": "title",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "board-title",
+              "value": "Evening notices"
+            }
+          },
+          {
+            "id": "stock",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "board-stock",
+              "value": 7
+            }
+          },
+          {
+            "id": "exact-hook",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "board-hook",
+              "value": "exact"
+            }
+          },
+          {
+            "id": "ready",
+            "type": "event",
+            "operator": "present",
+            "event": {
+              "kind": "notification",
+              "value": "On Game Ready rebuilt title: No notices"
+            }
+          }
+        ]
+      },
+      {
+        "id": "seed",
+        "input": "continue",
+        "label": "Seed the saved ticket stream"
+      },
+      {
+        "id": "save",
+        "input": "save",
+        "label": "Save before the next draw",
+        "saveSlot": { "slotId": "54" }
+      },
+      {
+        "id": "draw",
+        "input": "continue",
+        "label": "Reject an invalid range without consuming a draw",
+        "expectations": [
+          {
+            "id": "ticket",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "board-ticket",
+              "value": 21
+            }
+          }
+        ]
+      },
+      {
+        "id": "load",
+        "input": "load",
+        "label": "Restore the saved VM and random state",
+        "saveSlot": { "slotId": "54" }
+      },
+      {
+        "id": "redraw",
+        "input": "continue",
+        "label": "Redraw the same saved next ticket",
+        "expectations": [
+          {
+            "id": "repeated-ticket",
+            "type": "property",
+            "operator": "eq",
+            "property": {
+              "scope": "global",
+              "ownerId": "",
+              "propertyId": "board-ticket",
+              "value": 21
+            }
+          }
+        ]
+      },
+      {
+        "id": "yield",
+        "input": "continue",
+        "label": "Begin the explicitly yielding audio effect",
+        "expectations": [
+          {
+            "id": "scene-suspended",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": { "kind": "scene", "flowId": "script-and-data" }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

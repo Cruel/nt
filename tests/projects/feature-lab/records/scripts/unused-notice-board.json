@@ -1,0 +1,11 @@
+{
+  "id": "unused-notice-board",
+  "label": "unused-notice-board",
+  "data": {
+    "kind": "script-module",
+    "source": {
+      "kind": "project-file",
+      "path": "scripts/unused-notice-board.lua"
+    }
+  }
+}

@@ -1,0 +1,12 @@
+{
+ "id":"notice-board","label":"Data notice board",
+ "data":{
+  "kind":"layout","layoutKind":"document","displayName":"Data notice board","target":"default-ui",
+  "contract":{"inputs":{},"signals":{"accepted":{"fields":{}}}},
+  "rml":{"sourceMode":"file"},"rcss":{"sourceMode":"file"},"lua":{"sourceMode":"file"},
+  "script":{"enabled":true,"namespace":"notice_board_ui","additionalDependencies":{"targets":[]}},
+  "mount":{"defaultParent":"nt-layout-preview-mount","scopedStyles":true},
+  "dependencies":{"images":[],"fonts":[],"stylesheets":[],"materials":[],"scripts":[],"data":[{"$ref":{"collection":"assets","id":"notice-board-data"}}]},
+  "sampleState":{},"preview":{"background":"dark"}
+ }
+}

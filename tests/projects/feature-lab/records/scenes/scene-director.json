@@ -1,0 +1,166 @@
+{
+  "id": "scene-director",
+  "label": "scene-director",
+  "data": {
+    "kind": "scene",
+    "displayName": "scene-director",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "call-inherited",
+        "label": "call-inherited",
+        "type": "call-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "director-inherited"
+          }
+        },
+        "inputs": [],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "call-staged",
+        "label": "call-staged",
+        "type": "call-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "director-staged"
+          }
+        },
+        "inputs": [],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "call-blank",
+        "label": "call-blank",
+        "type": "call-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "director-blank"
+          }
+        },
+        "inputs": [],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "choose",
+        "label": "choose",
+        "type": "choice",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "prompt": {
+          "source": {
+            "kind": "inline",
+            "text": "Pick the blue play."
+          },
+          "markup": "plain"
+        },
+        "options": [
+          {
+            "id": "blue",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Blue"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "color",
+                "kind": "set-global-property",
+                "variable": {
+                  "$ref": {
+                    "collection": "variables",
+                    "id": "director-color"
+                  }
+                },
+                "value": "blue"
+              }
+            ],
+            "targetStepId": "selected"
+          }
+        ],
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "selected",
+        "label": "selected",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Blue was selected through the Scene Choice role. Continue into the nested input, Dialogue handoff, transaction, and navigation play."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "call-flow-child",
+        "label": "call-flow-child",
+        "type": "call-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "director-flow-child"
+          }
+        },
+        "inputs": [],
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

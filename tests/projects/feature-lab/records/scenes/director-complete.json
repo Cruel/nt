@@ -1,0 +1,40 @@
+{
+  "id": "director-complete",
+  "label": "director-complete",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-complete",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "credits",
+        "label": "credits",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Credits: Continue explicitly completes this playthrough and returns to the title screen."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "complete-game"
+    }
+  }
+}

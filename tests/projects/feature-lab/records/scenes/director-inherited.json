@@ -1,0 +1,41 @@
+{
+  "id": "director-inherited",
+  "label": "director-inherited",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-inherited",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "inherited",
+        "label": "inherited",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Inherited Stage: the bedroom remains visible. Continue to the staged child."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

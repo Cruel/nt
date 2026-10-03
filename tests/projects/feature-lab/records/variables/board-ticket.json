@@ -1,0 +1,11 @@
+{
+  "id": "board-ticket",
+  "label": "board-ticket",
+  "data": {
+    "kind": "variable",
+    "type": "integer",
+    "nullable": false,
+    "value": 0,
+    "scope": "global"
+  }
+}

@@ -1,0 +1,49 @@
+{
+  "id": "background-flow-clock",
+  "label": "background-flow-clock",
+  "data": {
+    "kind": "scene",
+    "displayName": "background-flow-clock",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "delay",
+        "label": "delay",
+        "type": "wait",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "waitKind": "duration",
+        "durationMs": 5000,
+        "skippable": false
+      },
+      {
+        "id": "deliver",
+        "label": "deliver",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local count = assert(Game.prop('background-flow-deliveries')); assert(Game.set_prop('background-flow-deliveries', count + 1)); noveltea.notify('background-flow-clock delivered.')",
+        "mayYield": false,
+        "autosaveSafePoint": true
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

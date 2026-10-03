@@ -1,0 +1,11 @@
+{
+  "id": "director-color",
+  "label": "director-color",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "unselected",
+    "scope": "global"
+  }
+}

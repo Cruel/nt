@@ -1,0 +1,17 @@
+{
+ "id":"background-stories-flow", "label":"Background story ownership",
+ "data":{"kind":"test","displayName":"Background story ownership","steps":[
+  {"id":"start","input":"tick","label":"Fresh start"},
+  {"id":"route","input":"navigate","label":"Router","navigate":{"exitId":"inventory-workbench-test-entry"}},
+  {"id":"enter","input":"navigate","label":"Launch background clocks","navigate":{"exitId":"background-stories-test-entry"}},
+  {"id":"early","input":"tick","label":"Clocks have not fired","tick":{"deltaSeconds":0.5},"expectations":[{"id":"early-clock","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"background-deliveries","value":0}}]},
+  {"id":"deliver","input":"tick","label":"Two independent deliveries","tick":{"deltaSeconds":0.6},"expectations":[{"id":"deliveries","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"background-deliveries","value":2}}]},
+  {"id":"end-flow","input":"continue","label":"Release foreground Flow"},
+  {"id":"leave","input":"navigate","label":"End the Room visit","navigate":{"exitId":"leave"}},
+  {"id":"settle","input":"tick","label":"Only session clock survives","tick":{"deltaSeconds":5},"expectations":[
+   {"id":"flow-cancelled","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"background-flow-deliveries","value":0}},
+   {"id":"visit-cancelled","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"background-visit-deliveries","value":0}},
+   {"id":"session-survives","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"background-session-deliveries","value":1}}
+  ]}
+ ],"finalExpectations":[],"preview":{"selectedStepId":"start","selectedObservationIndex":null,"autoOpenReport":true}}
+}

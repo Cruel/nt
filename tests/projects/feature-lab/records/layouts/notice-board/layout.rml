@@ -1,0 +1,17 @@
+<rml>
+<head><title>Data notice board</title><link type="text/rcss" href="layout.rcss" /></head>
+<body>
+<div id="notice_board_panel">
+  <p>Data notice board — independent Layout loads</p>
+  <button id="notice-board-read" onclick="notice_board_ui.read()">Read fresh notices</button>
+  <button id="notice-board-ready-cache" onclick="notice_board_ui.ready_cache()">Show On Game Ready cache</button>
+  <button id="notice-board-calendar" onclick="notice_board_ui.calendar()">Local / UTC calendar</button>
+  <button id="notice-board-pause" onclick="Game.pause()">Pause gameplay</button>
+  <button id="notice-board-resume" onclick="Game.resume()">Resume gameplay</button>
+  <button id="notice-board-save" onclick="Game.save(54)">Save ticket boundary (slot 54)</button>
+  <button id="notice-board-load" onclick="Game.load(54)">Load ticket boundary (slot 54)</button>
+  <button id="notice-board-restart" onclick="notice_board_ui.restart_probe()">Restart with typed context</button>
+  <button id="notice-board-accept" onclick="notice_board_ui.accept()">Accept Scene signal</button>
+</div>
+</body>
+</rml>

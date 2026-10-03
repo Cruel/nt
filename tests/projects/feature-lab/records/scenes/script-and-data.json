@@ -1,0 +1,213 @@
+{
+  "id": "script-and-data",
+  "label": "script-and-data",
+  "data": {
+    "kind": "scene",
+    "displayName": "script-and-data",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "load-board",
+        "label": "load-board",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local epoch = os.time(); noveltea.notify('Gameplay local ' .. os.date('%Y-%m-%d %H:%M:%S', epoch) .. ' / UTC ' .. os.date('!%Y-%m-%d %H:%M:%S', epoch) .. ' / difference ' .. tostring(os.difftime(epoch, epoch - 60)))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "board-layout",
+        "label": "board-layout",
+        "type": "set-layout",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "layout": {
+          "$ref": {
+            "collection": "layouts",
+            "id": "notice-board"
+          }
+        },
+        "action": "show",
+        "slot": "custom",
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "ready-caption",
+        "label": "ready-caption",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "condition": {
+          "kind": "lua-predicate",
+          "source": "type(Game.prop('board-title')) == 'string'",
+          "additionalDependencies": {
+            "targets": []
+          }
+        },
+        "text": {
+          "source": {
+            "kind": "lua-expression",
+            "source": "return 'Data board title from a synchronous text expression: ' .. assert(Game.prop('board-title'))"
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "seed",
+        "label": "seed",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "math.randomseed(77); local first = math.random(1, 1000); assert(Game.set_prop('board-ticket', first)); noveltea.notify('First ticket: ' .. tostring(first))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "save-boundary",
+        "label": "save-boundary",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Save here before drawing the next ticket. Continue to draw; load that save and Continue again to repeat the same next ticket."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "ready-proof",
+        "label": "ready-proof",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local invalid, invalid_error = noveltea.random.integer(9, 1); assert(invalid == nil and type(invalid_error) == 'string')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "draw",
+        "label": "draw",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local next_ticket = assert(noveltea.random.integer(1, 1000)); assert(Game.set_prop('board-ticket', next_ticket)); noveltea.notify('Next ticket: ' .. tostring(next_ticket))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "next-ticket",
+        "label": "next-ticket",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "lua-expression",
+            "source": "return 'Next ticket: ' .. tostring(Game.prop('board-ticket')) .. '. Restore your save to repeat it, or Continue for an explicitly yielding audio effect.'"
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "yield-audio",
+        "label": "yield-audio",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(audio.play_and_wait('pilot-cue-audio', 'sound-effect')); noveltea.notify('Yielding notice completed after its exact audio operation.')",
+        "mayYield": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "complete",
+        "label": "complete",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "The yielding effect resumed. The data board, calendar and saved random stream use ordinary public APIs."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

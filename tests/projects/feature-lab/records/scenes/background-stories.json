@@ -1,0 +1,145 @@
+{
+  "id": "background-stories",
+  "label": "background-stories",
+  "data": {
+    "kind": "scene",
+    "displayName": "background-stories",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "launch-background-clock-a",
+        "label": "launch-background-clock-a",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "background-clock-a"
+          }
+        },
+        "inputs": [],
+        "owner": "runtime-session",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "launch-background-clock-b",
+        "label": "launch-background-clock-b",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "background-clock-b"
+          }
+        },
+        "inputs": [],
+        "owner": "runtime-session",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "launch-background-flow-clock",
+        "label": "launch-background-flow-clock",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "background-flow-clock"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "launch-background-visit-clock",
+        "label": "launch-background-visit-clock",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "background-visit-clock"
+          }
+        },
+        "inputs": [],
+        "owner": "active-room",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "launch-background-session-clock",
+        "label": "launch-background-session-clock",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "background-session-clock"
+          }
+        },
+        "inputs": [],
+        "owner": "runtime-session",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "foreground",
+        "label": "foreground",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Two deliveries arrive after one second while this caption remains playable. Continue to end the launching Flow, then use Leave to end this Room visit. Only the session clock delivers after five seconds."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

@@ -1,0 +1,4 @@
+{
+  "notices": [{ "title": "Evening notices", "stock": 7, "optional": null, "open": true, "price": 1.5 }],
+  "slots": [null, "second", { "nested": [false, null] }]
+}

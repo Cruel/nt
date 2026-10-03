@@ -1,0 +1,11 @@
+{
+  "id": "board-hook",
+  "label": "board-hook",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "none",
+    "scope": "global"
+  }
+}

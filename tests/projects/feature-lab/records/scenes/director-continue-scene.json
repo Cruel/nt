@@ -1,0 +1,47 @@
+{
+  "id": "director-continue-scene",
+  "label": "director-continue-scene",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-continue-scene",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "replace",
+        "label": "replace",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue replaces this invocation with a new Scene while retaining its Room caller."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "continue-scene",
+      "scene": {
+        "$ref": {
+          "collection": "scenes",
+          "id": "director-inherited"
+        }
+      },
+      "inputs": []
+    }
+  }
+}

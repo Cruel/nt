@@ -12,6 +12,8 @@ import {
 } from '../../shared/project-schema/authoring-scenes';
 import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
+import { defaultInteractableInstanceData } from '../../shared/project-schema/authoring-interactables';
 import { buildScenePreviewDocumentData } from '../../shared/project-schema/scene-project';
 
 describe('authoring scenes', () => {
@@ -199,6 +201,41 @@ describe('authoring scenes', () => {
         expect.objectContaining({ path: '/scenes/opening/data/events/1/branches/0/targetStepId' }),
         expect.objectContaining({ path: '/scenes/opening/data/events/1/fallbackStepId' }),
         expect.objectContaining({ path: '/scenes/opening/data/terminal/scene' }),
+      ]),
+    );
+  });
+
+  it('validates Scene Interaction bindings against declared Interactable Instances', () => {
+    const project = createAuthoringProject();
+    project.verbs.use = { id: 'use', label: 'Use', data: defaultVerbData('Use') };
+    project.interactableInstances['key-instance'] = defaultInteractableInstanceData(
+      'key-instance',
+      'key-definition',
+    );
+    const interaction = defaultSceneStep('call-interaction');
+    interaction.verb = { $ref: { collection: 'verbs', id: 'use' } };
+    interaction.bindings = [
+      {
+        slotId: 'target',
+        subject: {
+          kind: 'interactable',
+          interactable: { $ref: { registry: 'interactableInstances', id: 'key-instance' } },
+        },
+      },
+    ];
+    const data = defaultSceneData('Opening');
+    data.events = [interaction];
+    project.scenes.opening = { id: 'opening', label: 'Opening', data };
+
+    expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual([]);
+
+    delete project.interactableInstances['key-instance'];
+    expect(validateSceneData(project, 'opening', project.scenes.opening)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          path: '/scenes/opening/data/events/0/bindings/0/subject/interactable',
+          message: "Missing Interactable Instance 'key-instance'.",
+        }),
       ]),
     );
   });

@@ -48,6 +48,8 @@ The Objects & State expansion adds `inventory-workbench`, `properties-and-traits
 
 The Commands & Discovery expansion adds `verbs-and-offers` and `interaction-rules`. Verbs & Offers contrasts unique Primary activation with the real built-in Verb Menu, exercises explicit and rule-derived Offer specificity/ranking/suppression, separates discovery from command authority, and drives the named-slot Command Builder with world and Inventory subjects. The `verbs-and-offers-*-ui` tests isolate Primary, explicit/ambiguous Verb Menu, builder submit, and Rebind/Cancel paths in fresh UI runtimes; `verbs-and-offers-flow` covers the semantic Offer and named-binding contracts. Interaction Rules exercises live selector families, containment-tier Guard fallthrough, the full unhandled fallback chain, immediate atomicity, and observable command boundaries. `interaction-rules-flow` covers the green semantic resolver paths. Same-tier priority and equal-winner ambiguity are intentionally shared with the focused native Interaction resolver tests in `tests/script/typed_interaction_execution_tests.cpp`, keeping the canonical Lab free of deliberately ambiguous authoring diagnostics. Rejected immediate mutation and post-observable-boundary failure remain manual station controls because authored Test playback treats their real runtime error diagnostics as failures instead of suppressing them as expected errors.
 
+The Stories & Scripting expansion adds `scene-director`, `background-stories`, and `script-and-data`. Scene Director exercises inherited/staged/blank presentation contexts, Scene-native Text/Choice, typed nested calls and Outcomes, two Dialogue Handoff/ResumeDialogue cycles, waits and Layout signals, gameplay-effect and structural transactions, directed Room change, navigation, and terminal variants; `scene-director-flow` protects the green semantic path. Background Stories runs detached Scene clocks under flow, active-Room, and runtime-session owners; `background-stories-flow` proves concurrent progress and owner cleanup, while the deliberate fault branch stays manual because a real runtime diagnostic correctly fails authored Test playback. Script & Data uses ordinary Bootstrap/Script Module ownership, On Game Ready reconstruction, direct/catchall Hook Registry selection, synchronous predicate/text Lua, an explicitly yielding audio effect, a declared structured JSON Data Asset, local/UTC wall-clock calls, deterministic saved random state, and typed restart startup context. `script-and-data-flow` now exercises save/load directly and verifies that the next random draw repeats after restoration. Qualified-prefix hook competition and fixed-clock calendar assertions remain intentionally shared with focused native tests where the canonical authored Project cannot express the same deterministic target/clock seam.
+
 ### Interaction coverage policy
 
 Canonical Lab configurations remain validation/diagnostic clean. Supported specificity, Guard
@@ -89,6 +91,9 @@ build/cli/linux/noveltea --project tests/projects/feature-lab test run active-te
 build/cli/linux/noveltea --project tests/projects/feature-lab test run inventory-workbench-flow
 build/cli/linux/noveltea --project tests/projects/feature-lab test run properties-and-traits-flow
 build/cli/linux/noveltea --project tests/projects/feature-lab test run runtime-workshop-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run scene-director-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run background-stories-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run script-and-data-flow
 ```
 
 The bare `test run` command is the normal automation/acceptance entry point. It executes the complete

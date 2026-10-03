@@ -153,40 +153,33 @@ authored-Test expected-error limitation, complementary to native failure-path co
 
 ### Stories & Scripting — #254
 
-#### `scene-director` — Stage a short play
+Transferred to the Feature Lab catalog on 2026-10-03:
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `stage-contexts` | Run inherited, staged-Room and blank child Scenes → staging never moves Current Room or admits staged Hotspots/lifecycle; return restores caller presentation. | S | backdrop, character-pair |
-| `scene-text-choice` | Acknowledge Scene narration then choose an option → dedicated Scene Text/Choice roles deliver authoritative branch/effects, not Dialogue choice machinery. | U | — |
-| `calls-inputs-outcomes` | Call nested Scenes with typed/default/null inputs and branch on returned Outcome → exact caller resumes; local inputs/results do not leak between invocations. | S | — |
-| `terminals` | Exercise Return, Continue Scene/Dialogue, Release to Exploration and Complete Game → correct destination/return ancestry, with completion returning to title rather than an implicit fallthrough. | S | — |
-| `dialogue-handoff` | Alternate Dialogue Handoff and Scene ResumeDialogue twice → same suspended conversation resumes; terminating caller discards it without a fabricated Outcome. | S | — |
-| `event-order-and-waits` | Run duration/input/Condition waits and completion dependencies on prior finite/audio Events → authored semantic order is preserved despite overlapping realization. | M | sfx |
-| `layout-signal-wait` | Submit a declared signal from the requested Layout → exact live Mount wakes the Scene; an unrelated/replaced mount does not. | U | — |
-| `scene-gameplay-transactions` | Apply effect batch and structural world transaction, then navigation and Interaction child calls → each uses normal atomic world/command semantics and resumes the same Scene. | S | button |
-| `fast-forward` | Skip the play → state mutations occur once, skippable work settles; choice, non-skippable operations and opaque Lua stop progression. | M | sfx |
+- `scene-director`
+- `background-stories`
+- `script-and-data`
 
-#### `background-stories` — Run a background clock
+The catalog is now authoritative for all 20 #254 checks. `scene-director-flow` protects the green
+staging, Scene Choice, nested-call, Dialogue Handoff/ResumeDialogue, gameplay transaction, directed
+Room-change, and navigation path. Deliberate terminal variants, exact Layout-signal lifetime negatives,
+and fast-forward barrier detail remain manual/shared with focused native execution coverage where an
+authored smoke path would either be destructive or duplicate lower-level cursor/lifetime matrices.
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `detached-progress` | Start two background-safe Scenes with duration waits → foreground remains playable and deterministic shared-state effects progress independently. | S | — |
-| `detached-owners` | End launching Flow, leave Room, restart → flow-, active-room-, and session-owned branches end at their respective lifetime boundaries. | S | — |
-| `detached-fault` | Trigger a runtime error in one background branch → that branch stops with diagnosis; foreground and other branch do not rewind. | S | — |
+`background-stories-flow` proves independent detached progress plus flow/active-Room/session owner
+cleanup. The deliberate detached runtime fault remains a manual control because authored Test playback
+correctly treats the real runtime diagnostic as test failure; deterministic native failure-path coverage
+supplies the negative automation.
 
-#### `script-and-data` — Operate a data-driven notice board
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `module-and-ready` | Import a shared module, restart and load → VM-local initialization is once per VM; On Game Ready rebuilds transient state from established gameplay without replaying the entrypoint. | S | — |
-| `hook-selection` | Visit Rooms matched by direct/exact, longest-prefix and catchall hooks → only the winning hook extends the lifecycle. | S | — |
-| `lua-invocation` | Run a synchronous text/predicate and an explicit yielding effect → text returns its value; only the effect suspends/resumes through an engine-owned wait. | S | — |
-| `data-value-trees` | Load JSON in gameplay and Layout, mutate one result, reload → null object members/array slots survive and independent trees never write back to the Asset. | S | structured-data |
-| `data-load-rejection` | Ask for an unavailable/wrong-kind data ID through the public API → nil/error is handled visibly and previous board state remains usable; no filesystem escape. | S | structured-data |
-| `calendar-versus-gameplay` | Display local/UTC calendar and difftime, pause and restart → wall time stays external to saved/gameplay time; use injected fixed clock in automation, not real-time sleeps. | M | — |
-| `saved-random-stream` | Seed, draw, save, draw and reload → next draw repeats from the saved generator; Lua math wrappers share it and rejected ranges consume no draw. | S | — |
-| `restart-startup-context` | Dirty state then restart with nested typed startup context → defaults/new VM/Flow/presentation reset; copied immutable context selects the station; preferences and save slots survive without auto-load. | U | — |
+`script-and-data-flow` protects module/On Game Ready reconstruction, exact-versus-catchall hook
+selection, synchronous/yielding Lua use, structured `Data.load`, save/load random replay, and rejected
+random ranges that do not consume a draw. Bootstrap also registers the public qualified-prefix hook
+form; longest-prefix competition remains intentionally shared with the native Hook Registry resolver
+because authoring entity IDs do not admit dotted qualified targets. Wall-clock assertions remain native
+with an injected fixed clock rather than real-time sleeps. Restart startup-context and host-owned
+preference persistence remain manual/host-integration coverage, while the station itself exercises a
+copied nested typed context and fresh Project defaults. The `structured-data` asset requirement is now
+realized by `notice-board-data` in the catalog but stays in the planning asset table until #255's
+remaining consumers are transferred.
 
 ### Layouts & Interfaces — #255
 

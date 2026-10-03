@@ -1,0 +1,11 @@
+{
+  "id": "notice-board",
+  "label": "notice-board",
+  "data": {
+    "kind": "script-module",
+    "source": {
+      "kind": "project-file",
+      "path": "scripts/notice-board.lua"
+    }
+  }
+}
