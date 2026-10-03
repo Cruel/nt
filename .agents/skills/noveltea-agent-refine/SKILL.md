@@ -1,12 +1,18 @@
 ---
 name: noveltea-agent-refine
 description: Investigate a NovelTea agent-audit report against full engine source and refine the canonical Agent Kit contract.
+argument-hint: "<audit-report-path>"
 disable-model-invocation: true
 ---
 
+The invocation must identify the audit report file produced by `noveltea-agent-audit`. Treat the
+supplied path as input evidence and read that exact file; do not search temporary directories for a
+report or guess which audit the user intended. If no report path is supplied, ask for one and stop.
+
 Read [`../../noveltea-agent-audit-report.md`](../../noveltea-agent-audit-report.md), the supplied audit
-report, and `docs/editor/AGENT_KIT.md` before editing. The audit report is **consumer evidence**, not a
-root-cause analysis: treat each finding as a hypothesis to investigate against the current repository.
+report file, and `docs/editor/AGENT_KIT.md` before editing. The audit report is **consumer evidence**,
+not a root-cause analysis: treat each finding as a hypothesis to investigate against the current
+repository.
 
 ## Process
 
