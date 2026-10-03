@@ -9,6 +9,7 @@ import {
   createNovelTeaCompactReferenceFiles,
 } from '../shared/project-schema/schema-reference';
 export {
+  createNovelTeaCompactReferenceFiles,
   createNovelTeaRawSchemaFiles,
   createNovelTeaWebsiteSchemaReference,
 } from '../shared/project-schema/schema-reference';

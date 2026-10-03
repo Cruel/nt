@@ -2,7 +2,7 @@
 
 Use this document as an exact lookup when authoring NovelTea RCSS. It describes the RCSS profile exposed by NovelTea's pinned RmlUi build; it is not a browser-CSS tutorial and it does not track the moving upstream documentation independently of that pinned source.
 
-For the broader RML/RCSS differences that are most likely to break browser-trained assumptions, read `.noveltea/agent/docs/RMLUI.md`. Return here when you need to know whether a property, value, shorthand, unit, function, or RmlUi-only facility is actually accepted.
+For the broader RML/RCSS differences that are most likely to break browser-trained assumptions, read `.noveltea/agent/technical/RMLUI.md`. Return here when you need to know whether a property, value, shorthand, unit, function, or RmlUi-only facility is actually accepted.
 
 ## Certified profile
 
@@ -239,7 +239,7 @@ RmlUi decorators replace many browser `background-image` use cases. Sprite names
 
 The normal RmlUi selector surface includes universal, type, class, ID, attribute, descendant, child, adjacent-sibling, general-sibling, `:not(...)`, structural `:nth-*`, first/last/only/empty selectors, and supported state pseudo-classes. Pseudo-elements such as `::before` and `::after` are not part of the profile.
 
-Do not apply browser target-only reasoning to `:hover`, `:active`, `:focus`, or `:focus-visible`: RmlUi propagates these states backward through ancestors. See `.noveltea/agent/docs/RMLUI.md` for the behavioral implications.
+Do not apply browser target-only reasoning to `:hover`, `:active`, `:focus`, or `:focus-visible`: RmlUi propagates these states backward through ancestors. See `.noveltea/agent/technical/RMLUI.md` for the behavioral implications.
 
 ## NovelTea resource rules still apply
 

@@ -10,6 +10,11 @@
       "repository": "https://github.com/Cruel/nt.git",
       "revision": "10357105438f9d72cc6766be04827f3ea7bea8af"
     },
+    "noveltea-agent-kit-composition": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "ae7e3b042b23d5d904fbe949fe6ab50399f1027b"
+    },
     "noveltea-shared-concepts": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
@@ -32,41 +37,17 @@
     }
   },
   "documents": {
-    "CLI.md": {
-      "reviewed": "2026-09-12",
-      "strategy": "Curate only the public standalone CLI workflow and command boundaries that game-authoring agents need; keep implementation and release plumbing out.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": ["docs/editor/CLI.md", "editor/src/cli/"]
-        }
-      ]
-    },
     "GUIDE.md": {
       "reviewed": "2026-10-02",
-      "strategy": "Route agents to the smallest authoring reference for each task and preserve only stable project-facing workflow rules.",
+      "strategy": "Route agents through shared concepts, generated compact reference, one agent-only workflow, and focused technical authoring references without restoring a parallel domain manual.",
       "sources": [
         {
-          "source": "noveltea",
+          "source": "noveltea-agent-kit-composition",
           "areas": [
             "docs/editor/AGENT_KIT.md",
             "editor/src/cli/agent-kit.ts",
             "editor/src/cli/agent-sync.ts",
             "editor/src/shared/project-schema/schema-reference.ts"
-          ]
-        }
-      ]
-    },
-    "PROJECT_FORMAT.md": {
-      "reviewed": "2026-08-28",
-      "strategy": "Summarize the current workspace contract and persistence rules that are not safely inferable from generated JSON Schema.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/editor/project/PROJECT_WORKSPACE_FORMAT.md",
-            "editor/src/shared/project-workspace/",
-            "editor/src/shared/project-schema/"
           ]
         }
       ]
@@ -149,11 +130,7 @@
       "sources": [
         {
           "source": "noveltea-shared-concepts",
-          "areas": [
-            "docs/engine/CHARACTER.md",
-            "docs/engine/DIALOGUE.md",
-            "docs/engine/SCENE.md"
-          ]
+          "areas": ["docs/engine/CHARACTER.md", "docs/engine/DIALOGUE.md", "docs/engine/SCENE.md"]
         }
       ]
     },
@@ -172,46 +149,17 @@
         }
       ]
     },
-    "docs/ASSETS_SHADERS.md": {
-      "reviewed": "2026-09-07",
-      "strategy": "Keep only author-visible asset, shader, and material invariants plus the supported shader compilation entrypoints.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/assets/OVERVIEW.md",
-            "docs/rendering/OVERVIEW.md",
-            "editor/src/shared/project-schema/authoring-assets.ts",
-            "editor/src/shared/project-schema/authoring-shaders.ts"
-          ]
-        }
-      ]
-    },
-    "docs/AUTHORING.md": {
+    "technical/LAYOUTS.md": {
       "reviewed": "2026-10-02",
-      "strategy": "Keep only agent-specific record-choice and coherent multi-record editing workflow; route durable domain meaning to the canonical shared concept layer.",
+      "strategy": "Keep only runtime/Layout authoring behavior that generated Project reference cannot express; derive role/path/baseline facts from the generated system-layout manifest and exact shipped source.",
       "sources": [
         {
-          "source": "noveltea",
+          "source": "noveltea-agent-kit-composition",
           "areas": [
-            "docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md",
-            "docs/engine/OVERVIEW.md",
-            "editor/src/shared/project-schema/"
-          ]
-        }
-      ]
-    },
-    "docs/LAYOUTS.md": {
-      "reviewed": "2026-08-30",
-      "strategy": "Treat NovelTea's pinned RmlUi build, Layout persistence/contextual-mount contract, system-role fallback contract, and exact shipped built-in UI source as authoritative; use RmlUi source semantics only where they affect authored RML/RCSS/Lua.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "cmake/NovelTeaRmlUi.cmake",
             "docs/engine/LAYOUT.md",
             "docs/ui/OVERVIEW.md",
             "editor/src/shared/project-schema/authoring-layouts.ts",
+            "editor/src/cli/agent-kit.ts",
             "engine/assets/system/ui/"
           ]
         },
@@ -221,7 +169,70 @@
         }
       ]
     },
-    "docs/RMLUI.md": {
+    "technical/LUA.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
+      "sources": [
+        {
+          "source": "lua-5.5-manual",
+          "areas": [
+            "Lua 5.5 language and standard-library semantics for the libraries NovelTea opens"
+          ]
+        },
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)",
+            "docs/runtime/LUA_RUNTIME.md",
+            "docs/engine/SCRIPT_MODULE.md",
+            "engine/src/script/lua/bind_noveltea.cpp",
+            "engine/src/script/lua/bind_typed_script_host.cpp",
+            "engine/src/script/lua/bind_runtime_capabilities.cpp",
+            "engine/src/script/lua/script_runtime.cpp",
+            "engine/include/noveltea/runtime/runtime_capabilities.hpp",
+            "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
+            "engine/src/ui/rmlui/runtime_ui.cpp"
+          ]
+        }
+      ]
+    },
+    "technical/RCSS_REFERENCE.md": {
+      "reviewed": "2026-08-16",
+      "strategy": "Reconcile the complete built-in RCSS property, shorthand, unit, function, inheritance, and extension surface against NovelTea's exact pinned patched RmlUi source; use upstream docs only to clarify semantics and explicitly preserve source/profile identifiers for drift certification.",
+      "sources": [
+        {
+          "source": "noveltea",
+          "areas": [
+            "cmake/NovelTeaRmlUi.cmake",
+            "cmake/patches/rmlui-feature-calc-noveltea-presentation.patch"
+          ]
+        },
+        {
+          "source": "rmlui",
+          "areas": [
+            "Source/Core/StyleSheetSpecification.cpp",
+            "Source/Core/PropertySpecification.cpp",
+            "Source/Core/PropertyParserNumber.cpp",
+            "Source/Core/PropertyParserColour.cpp",
+            "Source/Core/PropertyParserTransform.cpp",
+            "Source/Core/Factory.cpp",
+            "Source/Core/CalculationParser.cpp"
+          ]
+        },
+        {
+          "source": "rmlui-docs",
+          "areas": [
+            "pages/rcss/property_index.html",
+            "pages/rcss/decorators.html",
+            "pages/rcss/filters.html",
+            "pages/rcss/animations_transitions_transforms.html",
+            "pages/rcss/custom_properties.html",
+            "pages/rcss/media_queries.html"
+          ]
+        }
+      ]
+    },
+    "technical/RMLUI.md": {
       "reviewed": "2026-08-16",
       "strategy": "Use the pinned NovelTea RmlUi source and universal baseline contract as the compatibility authority and upstream RmlUi documentation for concise semantics; include only browser-assumption differences and NovelTea resource rules that affect authored RML/RCSS.",
       "sources": [
@@ -268,43 +279,31 @@
         }
       ]
     },
-    "docs/RCSS_REFERENCE.md": {
-      "reviewed": "2026-08-16",
-      "strategy": "Reconcile the complete built-in RCSS property, shorthand, unit, function, inheritance, and extension surface against NovelTea's exact pinned patched RmlUi source; use upstream docs only to clarify semantics and explicitly preserve source/profile identifiers for drift certification.",
+    "technical/RMLUI_CUSTOM_COMPONENTS.md": {
+      "reviewed": "2026-09-11",
+      "strategy": "Document only the supported NovelTea `nt-*` authoring contract, reserved engine system Message behavior, and visible limitations of ActiveText/Map hosts; keep generated markup and C++ rendering/lifecycle machinery explicitly outside the public surface.",
       "sources": [
         {
           "source": "noveltea",
           "areas": [
-            "cmake/NovelTeaRmlUi.cmake",
-            "cmake/patches/rmlui-feature-calc-noveltea-presentation.patch"
+            "docs/ui/RMLUI_CUSTOM_COMPONENTS.md",
+            "docs/ui/RMLUI_DATA_MODEL_CONTRACT.md",
+            "editor/src/shared/authoring-rml-localization-lowering.ts",
+            "editor/src/shared/project-schema/system-messages.ts",
+            "engine/src/core/message_realization.cpp",
+            "engine/src/ui/rmlui/rmlui_custom_components.cpp",
+            "engine/src/ui/rmlui/active_text_presenter.cpp",
+            "engine/src/ui/rmlui/runtime_ui.cpp",
+            "engine/assets/system/ui/runtime/runtime_game.rml"
           ]
         },
         {
           "source": "rmlui",
-          "areas": [
-            "Source/Core/StyleSheetSpecification.cpp",
-            "Source/Core/PropertySpecification.cpp",
-            "Source/Core/PropertyParserNumber.cpp",
-            "Source/Core/PropertyParserColour.cpp",
-            "Source/Core/PropertyParserTransform.cpp",
-            "Source/Core/Factory.cpp",
-            "Source/Core/CalculationParser.cpp"
-          ]
-        },
-        {
-          "source": "rmlui-docs",
-          "areas": [
-            "pages/rcss/property_index.html",
-            "pages/rcss/decorators.html",
-            "pages/rcss/filters.html",
-            "pages/rcss/animations_transitions_transforms.html",
-            "pages/rcss/custom_properties.html",
-            "pages/rcss/media_queries.html"
-          ]
+          "areas": ["Include/RmlUi/Core/Element.h", "Source/Core/Factory.cpp"]
         }
       ]
     },
-    "docs/RMLUI_DATA_BINDING.md": {
+    "technical/RMLUI_DATA_BINDING.md": {
       "reviewed": "2026-08-28",
       "strategy": "Expose the exact NovelTea `noveltea` model and callback contract, then reconcile only the RmlUi data-binding and expression semantics needed to author against it safely; exclude native projection/publication implementation details.",
       "sources": [
@@ -338,31 +337,7 @@
         }
       ]
     },
-    "docs/RMLUI_CUSTOM_COMPONENTS.md": {
-      "reviewed": "2026-09-11",
-      "strategy": "Document only the supported NovelTea `nt-*` authoring contract, reserved engine system Message behavior, and visible limitations of ActiveText/Map hosts; keep generated markup and C++ rendering/lifecycle machinery explicitly outside the public surface.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/ui/RMLUI_CUSTOM_COMPONENTS.md",
-            "docs/ui/RMLUI_DATA_MODEL_CONTRACT.md",
-            "editor/src/shared/authoring-rml-localization-lowering.ts",
-            "editor/src/shared/project-schema/system-messages.ts",
-            "engine/src/core/message_realization.cpp",
-            "engine/src/ui/rmlui/rmlui_custom_components.cpp",
-            "engine/src/ui/rmlui/active_text_presenter.cpp",
-            "engine/src/ui/rmlui/runtime_ui.cpp",
-            "engine/assets/system/ui/runtime/runtime_game.rml"
-          ]
-        },
-        {
-          "source": "rmlui",
-          "areas": ["Include/RmlUi/Core/Element.h", "Source/Core/Factory.cpp"]
-        }
-      ]
-    },
-    "docs/RMLUI_LUA.md": {
+    "technical/RMLUI_LUA.md": {
       "reviewed": "2026-08-16",
       "strategy": "Treat NovelTea's Layout realization and the pinned RmlUi Lua binding source as authoritative for authored RML/Layout Lua; document only event/script/element/document behavior and explicitly exclude RmlUi host-management facilities owned by NovelTea.",
       "sources": [
@@ -404,42 +379,33 @@
         }
       ]
     },
-    "docs/LUA.md": {
-      "reviewed": "2026-08-16",
-      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
+    "technical/SHADERS.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Keep only author-visible Asset/shader workflow and rendering invariants that are not represented by generated Project schema/reference; route Asset/Material concepts and exact record shape elsewhere.",
       "sources": [
         {
-          "source": "lua-5.5-manual",
+          "source": "noveltea-agent-kit-composition",
           "areas": [
-            "Lua 5.5 language and standard-library semantics for the libraries NovelTea opens"
-          ]
-        },
-        {
-          "source": "noveltea",
-          "areas": [
-            "cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)",
-            "docs/runtime/LUA_RUNTIME.md",
-            "docs/engine/SCRIPT_MODULE.md",
-            "engine/src/script/lua/bind_noveltea.cpp",
-            "engine/src/script/lua/bind_typed_script_host.cpp",
-            "engine/src/script/lua/bind_runtime_capabilities.cpp",
-            "engine/src/script/lua/script_runtime.cpp",
-            "engine/include/noveltea/runtime/runtime_capabilities.hpp",
-            "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
-            "engine/src/ui/rmlui/runtime_ui.cpp"
+            "docs/assets/OVERVIEW.md",
+            "docs/rendering/OVERVIEW.md",
+            "editor/src/shared/project-schema/authoring-assets.ts",
+            "editor/src/shared/project-schema/authoring-shaders.ts"
           ]
         }
       ]
     },
-    "docs/ROOMS.md": {
+    "workflows/AUTHORING.md": {
       "reviewed": "2026-10-02",
-      "strategy": "Keep agent-specific Room coordinate rules and coherent source-edit recipes; route the reusable Room/Interactable/Inventory mental model to the canonical shared concepts.",
+      "strategy": "Keep one concise coding-agent operating procedure for file-first inspection/editing, canonical record initialization, transaction choice, workspace safety, localization mutation, coherent validation, and authored-Test execution.",
       "sources": [
         {
-          "source": "noveltea",
+          "source": "noveltea-agent-kit-composition",
           "areas": [
-            "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
-            "editor/src/shared/project-schema/authoring-rooms.ts"
+            "docs/editor/AGENT_KIT.md",
+            "docs/editor/CLI.md",
+            "docs/editor/project/PROJECT_WORKSPACE_FORMAT.md",
+            "editor/src/cli/",
+            "editor/src/shared/project-workspace/"
           ]
         }
       ]

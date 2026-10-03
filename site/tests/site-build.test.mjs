@@ -86,6 +86,11 @@ test("generated development schema reference exposes human and raw canonical out
   assert.match(html, /quantity: integer &gt;= 1/);
   assert.match(html, /aggregate creation of quantity N creates N distinct quantity-one Instances/);
   assert.match(html, /Unplaced key Instance/);
+  assert.match(html, /normalized to the complete Room background source image in image\/UV space/);
+  assert.match(
+    html,
+    /beforeEnter\/beforeLeave run before the Room switch commits and therefore admit only immediate commands/,
+  );
   assert.match(html, /\/docs\/dev\/reference\/raw\/project\.schema\.json/);
 
   const raw = JSON.parse(

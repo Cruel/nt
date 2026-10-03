@@ -1,6 +1,6 @@
 # RmlUi Lua in NovelTea Layouts
 
-Use this guide when Lua is invoked from authored RML or when a Layout's dedicated Lua source manipulates its RmlUi document. Read `.noveltea/agent/docs/LUA.md` for NovelTea's Lua sandbox and game APIs, `.noveltea/agent/docs/RMLUI.md` for RML/RCSS differences, and `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` before imperatively changing data-model-controlled markup.
+Use this guide when Lua is invoked from authored RML or when a Layout's dedicated Lua source manipulates its RmlUi document. Read `.noveltea/agent/technical/LUA.md` for NovelTea's Lua sandbox and game APIs, `.noveltea/agent/technical/RMLUI.md` for RML/RCSS differences, and `.noveltea/agent/technical/RMLUI_DATA_BINDING.md` before imperatively changing data-model-controlled markup.
 
 NovelTea uses RmlUi's Lua binding inside the same NovelTea Lua runtime. Do not treat it as browser JavaScript and do not treat the upstream RmlUi host-management API as game-authoring authority.
 
@@ -14,7 +14,7 @@ A Layout can execute Lua from three distinct places:
 
 These sources share the RmlUi/NovelTea Lua environment for that mounted runtime UI. Keep handler functions namespaced so unrelated Layout scripts do not accidentally overwrite globals.
 
-The RmlUi/NovelTea environment is the stable frontend Lua VM, which is separate from the fresh Project Lua VM used by gameplay Script Modules and the Project Bootstrap Module. NovelTea initializes the frontend VM with its engine-owned Lua system bootstrap, so documented standard helpers such as `Layout.clamp_to_viewport(...)` are already available to Layout scripts. Project-bootstrap globals are not visible here. Do not add a `<script src>` solely to load NovelTea's standard toolbox; see `.noveltea/agent/docs/LUA.md` for exact NovelTea API signatures.
+The RmlUi/NovelTea environment is the stable frontend Lua VM, which is separate from the fresh Project Lua VM used by gameplay Script Modules and the Project Bootstrap Module. NovelTea initializes the frontend VM with its engine-owned Lua system bootstrap, so documented standard helpers such as `Layout.clamp_to_viewport(...)` are already available to Layout scripts. Project-bootstrap globals are not visible here. Do not add a `<script src>` solely to load NovelTea's standard toolbox; see `.noveltea/agent/technical/LUA.md` for exact NovelTea API signatures.
 
 ### What `script.enabled` actually controls
 
@@ -97,7 +97,7 @@ Example:
 
 Do not assume browser globals such as `window`, a JavaScript `this`, or a global browser `document`. Use the explicit Lua parameters RmlUi supplies.
 
-`data-event-*` is a different mechanism: it is RmlUi data-model expression syntax, not Lua source. Use `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for those callbacks.
+`data-event-*` is a different mechanism: it is RmlUi data-model expression syntax, not Lua source. Use `.noveltea/agent/technical/RMLUI_DATA_BINDING.md` for those callbacks.
 
 ## Event propagation and listeners
 
@@ -209,7 +209,7 @@ element.style["margin-left"] = "12dp"
 element.style["display"] = nil -- remove the local property
 ```
 
-The property/value must still be valid for NovelTea's pinned RCSS implementation. Use `.noveltea/agent/docs/RCSS_REFERENCE.md` rather than browser CSS vocabulary.
+The property/value must still be valid for NovelTea's pinned RCSS implementation. Use `.noveltea/agent/technical/RCSS_REFERENCE.md` rather than browser CSS vocabulary.
 
 ### Creating and moving nodes
 
@@ -264,7 +264,7 @@ In particular:
 
 ## NovelTea APIs from Layout Lua
 
-RmlUi scripts execute inside NovelTea's Lua sandbox and can see the NovelTea API tables installed for their invocation context. The exact API and capability rules are in `.noveltea/agent/docs/LUA.md`.
+RmlUi scripts execute inside NovelTea's Lua sandbox and can see the NovelTea API tables installed for their invocation context. The exact API and capability rules are in `.noveltea/agent/technical/LUA.md`.
 
 Important Layout-specific rules:
 

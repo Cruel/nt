@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { withSchemaDocumentation } from './schema-documentation';
 import { parseAssetData } from './authoring-assets';
 import { entityIdSchema } from './authoring-common';
 import {
@@ -113,21 +114,28 @@ export const roomOverlayDataSchema = strict({
   visible: z.boolean(),
   order: z.number().int().min(-2147483648).max(2147483647),
 });
-export const roomPlacementDataSchema = strict({
-  id: entityIdSchema,
-  bounds: roomNormalizedRectSchema,
-  presentation: z.union([
-    strict({
-      label: textContentSchema.nullable(),
-      layout: z.null(),
-    }),
-    strict({
-      label: textContentSchema.nullable(),
-      layout: roomLayoutRefSchema,
-      layoutOrder: z.number().int().min(-2147483648).max(2147483647),
-    }),
-  ]),
-});
+export const roomPlacementDataSchema = withSchemaDocumentation(
+  strict({
+    id: entityIdSchema,
+    bounds: roomNormalizedRectSchema,
+    presentation: z.union([
+      strict({
+        label: textContentSchema.nullable(),
+        layout: z.null(),
+      }),
+      strict({
+        label: textContentSchema.nullable(),
+        layout: roomLayoutRefSchema,
+        layoutOrder: z.number().int().min(-2147483648).max(2147483647),
+      }),
+    ]),
+  }),
+  {
+    notes: [
+      'Placement bounds are normalized to the Room presentation-space reference frame. They do not change when the Room background uses cover, contain, stretch, or center fitting.',
+    ],
+  },
+);
 export const roomCastDataSchema = strict({
   id: entityIdSchema,
   character: roomCharacterRefSchema,
@@ -150,14 +158,22 @@ export const roomPropDataSchema = strict({
   visible: z.boolean(),
   order: z.number().int().min(-2147483648).max(2147483647),
 });
-export const roomInteractableDataSchema = strict({
-  id: entityIdSchema,
-  interactable: roomInteractableRefSchema,
-  condition: conditionSchema,
-  placementId: entityIdSchema,
-  visible: z.boolean(),
-  order: z.number().int().min(-2147483648).max(2147483647),
-});
+export const roomInteractableDataSchema = withSchemaDocumentation(
+  strict({
+    id: entityIdSchema,
+    interactable: roomInteractableRefSchema,
+    condition: conditionSchema,
+    placementId: entityIdSchema,
+    visible: z.boolean(),
+    order: z.number().int().min(-2147483648).max(2147483647),
+  }),
+  {
+    notes: [
+      'This is Room-local presentation linkage for one exact declared Interactable Instance. The referenced Instance owns Location, quantity, enabled/visible state, Traits, and Properties.',
+    ],
+    related: ['InteractableInstance', 'InteractableLocation', 'Room placement'],
+  },
+);
 export const roomEnvironmentDataSchema = strict({
   id: entityIdSchema,
   condition: conditionSchema,
@@ -198,22 +214,41 @@ export const roomExitDataSchema = strict({
   transition: roomNavigationTransitionSchema.nullable().optional(),
   onRejected: z.array(gameplayCommandSchema),
 });
-export const roomHotspotDataSchema = strict({
-  ...hotspotCommonShape,
-  cursor: cursorTargetSchema.nullable().optional(),
-  shape: rectHotspotShapeSchema,
-  target: roomHotspotTargetSchema,
-});
-export const roomLifecycleDataSchema = strict({
-  canEnter: conditionSchema,
-  canLeave: conditionSchema,
-  beforeEnter: z.array(gameplayCommandSchema),
-  afterEnter: z.array(gameplayCommandSchema),
-  beforeLeave: z.array(gameplayCommandSchema),
-  afterLeave: z.array(gameplayCommandSchema),
-  onEnterRejected: z.array(gameplayCommandSchema),
-  onLeaveRejected: z.array(gameplayCommandSchema),
-});
+export const roomHotspotDataSchema = withSchemaDocumentation(
+  strict({
+    ...hotspotCommonShape,
+    cursor: cursorTargetSchema.nullable().optional(),
+    shape: rectHotspotShapeSchema,
+    target: roomHotspotTargetSchema,
+  }),
+  {
+    notes: [
+      'Rect bounds are normalized to the complete Room background source image in image/UV space, not to the fitted on-screen background rectangle.',
+      "A Hotspot selects a semantic target; it does not own the target's Verb or Interaction behavior.",
+    ],
+  },
+);
+export const roomLifecycleDataSchema = withSchemaDocumentation(
+  strict({
+    canEnter: conditionSchema,
+    canLeave: conditionSchema,
+    beforeEnter: z.array(gameplayCommandSchema),
+    afterEnter: z.array(gameplayCommandSchema),
+    beforeLeave: z.array(gameplayCommandSchema),
+    afterLeave: z.array(gameplayCommandSchema),
+    onEnterRejected: z.array(gameplayCommandSchema),
+    onLeaveRejected: z.array(gameplayCommandSchema),
+  }),
+  {
+    lifecycle: [
+      'canEnter/canLeave are Exploration guards.',
+      'beforeEnter/beforeLeave run before the Room switch commits and therefore admit only immediate commands.',
+      'afterEnter/afterLeave run after the Room switch commits and may use Flow-capable commands.',
+      'onEnterRejected runs when target canEnter rejects; onLeaveRejected runs when source canLeave rejects and is also the fallback for an Exit rejection without its own onRejected commands.',
+      'Exploration rejection keeps the Current Room unchanged while rejection commands execute.',
+    ],
+  },
+);
 export const roomDataSchema = strict({
   kind: z.literal('room'),
   displayName: z.string(),
