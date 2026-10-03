@@ -17,12 +17,16 @@ Do not treat `docs/archive/` as current implementation direction. Archive files 
 - `docs/architecture/CXX_RUNTIME_DEPENDENCY_POLICY.md` is the authoritative shipped-C++ dependency
   admission and host-tool exemption policy.
 - `docs/build/OVERVIEW.md` routes build, test, and platform verification work.
+- `docs/public/OVERVIEW.md` defines the canonical public authoring-concept layer shared by the human
+  documentation site and generated Agent Kit.
 - The area overview below should be read before changing code in that area.
 
 ## Area Entry Points
 
 - `docs/architecture/OVERVIEW.md` — framework architecture, subsystem ownership, initialization, runtime loop, and project/asset loading boundaries.
 - `docs/build/OVERVIEW.md` — CMake options, platform builds, shader/toolchain notes, and verification command routing.
+- `docs/public/OVERVIEW.md` — audience-neutral public authoring concepts; `docs/public/concepts/` is
+  the single checked-in source consumed by Astro and `noveltea agent sync`.
 - `docs/engine/OVERVIEW.md` — authoring/project entity docs, current implementation files, validation behavior, commands, editor integration, runtime/export status, and known gaps.
 - `docs/editor/OVERVIEW.md` — Electron editor architecture, workbench conventions, UI components, previews, ComfyUI workflow import, localization, packaging, and editor verification.
 - `docs/runtime/OVERVIEW.md` — runtime state/playback, Lua runtime, shell/layout flow, full-game preview/debugger/test recorder, and package export.
@@ -37,6 +41,11 @@ Do not treat `docs/archive/` as current implementation direction. Archive files 
 When a task materially changes behavior, update the narrowest relevant document or explicitly state why no documentation update was needed.
 
 Prefer adding or updating an area overview before adding scattered root-level references. `AGENTS.md` should route agents to top-level documentation entry points; area overviews should route agents to detailed documents.
+
+Public authoring concepts shared across audiences live under `docs/public/concepts/`. Do not copy or
+distill those pages into `site/` or `editor/agent-kit/`; those consumers load/package the canonical
+files directly. Audience-specific tutorials, editor workflows, CLI guidance, and exact technical
+references remain in their owning documentation layer.
 
 Stable/current behavior docs live at subsystem roots or in named subsystem directories. Implementation plans live under `plans/`. Historical reports live under `archive/`.
 

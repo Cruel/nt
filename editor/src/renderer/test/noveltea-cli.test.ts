@@ -8,6 +8,7 @@ import {
   createNovelTeaWebsiteSchemaReference,
 } from '../../cli/agent-kit';
 import {
+  loadAgentKitSharedConceptSourceFiles,
   loadAgentKitSourceFiles,
   loadAgentKitSystemLayoutSourceFiles,
 } from '../../cli/agent-kit/source';
@@ -2924,15 +2925,15 @@ describe('NovelTea headless CLI', () => {
         'GUIDE.md',
         'CLI.md',
         'PROJECT_FORMAT.md',
+        'concepts/authored-tests.md',
+        'concepts/interactions.md',
+        'concepts/overview.md',
+        'concepts/presentation-and-localization.md',
+        'concepts/project-model.md',
+        'concepts/story.md',
+        'concepts/world-and-objects.md',
         'docs/AUTHORING.md',
-        'docs/ARCHETYPES_TRAITS.md',
-        'docs/CHARACTERS.md',
-        'docs/DIALOGUES.md',
-        'docs/INTERACTIONS.md',
-        'docs/ITEMS_INVENTORIES.md',
         'docs/ROOMS.md',
-        'docs/SCENES.md',
-        'docs/TESTS.md',
         'docs/RMLUI.md',
         'docs/RCSS_REFERENCE.md',
         'docs/RMLUI_DATA_BINDING.md',
@@ -3040,6 +3041,9 @@ describe('NovelTea headless CLI', () => {
     );
     for (const [relativePath, text] of Object.entries(authoredSourceFiles))
       expect(first.files[relativePath]).toBe(text);
+    const sharedConceptSourceFiles = loadAgentKitSharedConceptSourceFiles();
+    for (const [relativePath, text] of Object.entries(sharedConceptSourceFiles))
+      expect(first.files[`concepts/${relativePath}`]).toBe(text);
     const systemLayoutSourceFiles = loadAgentKitSystemLayoutSourceFiles();
     for (const [relativePath, text] of Object.entries(systemLayoutSourceFiles))
       expect(first.files[`system-layouts/${relativePath}`]).toBe(text);
@@ -3146,6 +3150,10 @@ describe('NovelTea headless CLI', () => {
     });
     expect(first.files['agent-kit-provenance.json']).toBeUndefined();
     expect(first.files['skill/SKILL.md']).toBeUndefined();
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/overview.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/world-and-objects.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/interactions.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/story.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI.md');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
@@ -3167,10 +3175,25 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['docs/ROOMS.md']).toContain(
       'normalized to the complete Room background source image',
     );
-    expect(first.files['docs/INTERACTIONS.md']).toContain('Room Hotspots may target');
-    expect(first.files['docs/INTERACTIONS.md']).toContain(
-      'its reference is always owner-qualified',
+    expect(first.files['concepts/interactions.md']).toContain(
+      'Hotspot owns pointer geometry, input ordering, highlight presentation, a Condition, and a semantic',
     );
+    expect(first.files['concepts/world-and-objects.md']).toContain(
+      'exact live object identity created from that Definition',
+    );
+    expect(first.files['concepts/project-model.md']).toContain(
+      'A **Definition** is reusable configuration',
+    );
+    for (const retiredDuplicate of [
+      'docs/ARCHETYPES_TRAITS.md',
+      'docs/CHARACTERS.md',
+      'docs/DIALOGUES.md',
+      'docs/INTERACTIONS.md',
+      'docs/ITEMS_INVENTORIES.md',
+      'docs/SCENES.md',
+      'docs/TESTS.md',
+    ])
+      expect(first.files[retiredDuplicate]).toBeUndefined();
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
     expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
     expect(first.files['docs/LAYOUTS.md']).toContain(

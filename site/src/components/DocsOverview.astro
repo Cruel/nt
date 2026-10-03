@@ -26,8 +26,9 @@ const docsRoot = isLatest ? '/docs' : '/docs/dev';
 
 <p>
   The public documentation focuses on authors using NovelTea rather than the engine's internal
-  implementation. As the surface stabilizes, this section will grow to cover project structure, rooms
-  and interactions, UI authoring, scripting, validation, preview, and export workflows.
+  implementation. The Authoring model section provides the stable shared concepts; the generated
+  Project schema reference provides exact current structure. Audience-specific tutorials and workflow
+  guidance can build on those two layers without duplicating them.
 </p>
 
 <h2>Channel status</h2>
@@ -41,6 +42,7 @@ const docsRoot = isLatest ? '/docs' : '/docs/dev';
 <h2>Next places to visit</h2>
 
 <ul>
+  <li><a href={`${docsRoot}/concepts/overview/`}>Authoring model</a> — canonical concepts shared with the Agent Kit, covering identity, ownership, state, world objects, interactions, story flow, presentation, localization, and Tests.</li>
   <li><a href={`${docsRoot}/reference/`}>Project schema reference</a> — generated human-readable Project Workspace and record reference with raw schemas available for exact constraints.</li>
   <li><a href="/examples/">Examples</a> — the latest public release, or the development channel before the first release.</li>
   <li><a href="/download/">Downloads</a> — current public-build availability and editor/CLI downloads.</li>

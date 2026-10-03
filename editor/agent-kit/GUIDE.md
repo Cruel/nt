@@ -8,17 +8,18 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 
 ## Route by task
 
+- Public authoring model and the main ownership/state boundaries: `.noveltea/agent/concepts/overview.md`
+- Project identity, Definitions/Instances/occurrences, Archetypes, Traits, and Properties: `.noveltea/agent/concepts/project-model.md`
+- Rooms, Interactables, Inventories, containment, Locations, and Maps: `.noveltea/agent/concepts/world-and-objects.md`
+- Verbs, semantic subjects/selectors, Interaction Rules, Offers, Conditions, and Hotspot selection: `.noveltea/agent/concepts/interactions.md`
+- Characters, Dialogues, Scenes, and presentation-versus-world-state boundaries: `.noveltea/agent/concepts/story.md`
+- Layouts, Assets/Materials, and localization identity: `.noveltea/agent/concepts/presentation-and-localization.md`
+- Semantic authored Tests and stable playback identities: `.noveltea/agent/concepts/authored-tests.md`
 - Field shapes, defaults, variants, constraints, and checked JSON examples: `.noveltea/agent/reference/index.md` (choose the relevant domain)
 - Project files, record paths, IDs, persisted source selectors: `.noveltea/agent/PROJECT_FORMAT.md`
 - CLI commands and when to use direct edits instead: `.noveltea/agent/CLI.md`
-- General authoring concepts and choosing the right entity type: `.noveltea/agent/docs/AUTHORING.md`
-- Reusable Room/Character/Interactable configuration, Traits, and Properties: `.noveltea/agent/docs/ARCHETYPES_TRAITS.md`
-- Characters, presentation profiles, poses, expressions, appearances, and gestures: `.noveltea/agent/docs/CHARACTERS.md`
-- Rooms, placements, props, room interactables, and background hotspots: `.noveltea/agent/docs/ROOMS.md`
-- Interactable quantities, locations, and Inventories: `.noveltea/agent/docs/ITEMS_INVENTORIES.md`
-- Verbs, named subject slots/selectors, interactions, and hotspot selection: `.noveltea/agent/docs/INTERACTIONS.md`
-- Dialogue graphs, choices, Stage/Media Slots, cues, and Scene handoff: `.noveltea/agent/docs/DIALOGUES.md`
-- Scene staging, ordered events, flow, gameplay orchestration, and terminals: `.noveltea/agent/docs/SCENES.md`
+- Choosing authoring records and completing coherent multi-record edits: `.noveltea/agent/docs/AUTHORING.md`
+- Room coordinate rules and common multi-record Room authoring recipes: `.noveltea/agent/docs/ROOMS.md`
 - Assets, shaders, and materials: `.noveltea/agent/docs/ASSETS_SHADERS.md`
 - RML/RCSS authoring and RmlUi differences from browser HTML/CSS: `.noveltea/agent/docs/RMLUI.md`
 - Exact RCSS property/value/shorthand/unit support: `.noveltea/agent/docs/RCSS_REFERENCE.md`
@@ -28,13 +29,12 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - Layout source modes, document/fragment kind, dependencies, system Layout overrides, and NovelTea Layout metadata: `.noveltea/agent/docs/LAYOUTS.md`
 - Exact built-in system Layout RML/RCSS and universal baseline RCSS reference files: `.noveltea/agent/system-layouts/ui/`
 - NovelTea Lua sandbox, APIs, capabilities, and yielding rules: `.noveltea/agent/docs/LUA.md`
-- Semantic authored tests and stable playback identities: `.noveltea/agent/docs/TESTS.md`
 
-Use `.noveltea/agent/reference/` for ordinary structural reference, alongside the focused conceptual docs above. Machine-readable workspace-v1 schemas under `.noveltea/agent/schemas/` are the exhaustive fallback; do not begin ordinary authoring work by reverse-engineering the schemas.
+Use `.noveltea/agent/concepts/` to understand the public model, then `.noveltea/agent/reference/` for exact current structure, constraints, semantic annotations, and checked examples. Machine-readable workspace-v1 schemas under `.noveltea/agent/schemas/` are the exhaustive fallback; do not begin ordinary authoring work by reverse-engineering the schemas.
 
 ## Normal authoring loop
 
-1. Read the focused generated documents for the requested change.
+1. Read the relevant shared concept page, then the matching generated reference for exact shape.
 2. Inspect nearby existing project records for project-specific conventions.
 3. Make the complete logical edit, including all supporting records and references.
 4. If managed localizable Lua/RML changed, run `noveltea localization sync`; passive validation and preview never materialize that tracking. If ambiguity remains, inspect `noveltea localization reconcile --json` output and apply an explicit resolution plan rather than guessing identity.

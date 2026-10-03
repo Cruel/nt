@@ -27,6 +27,7 @@ Use `docs/OVERVIEW.md` as the top-level documentation map. `AGENTS.md` should st
 Read the relevant area overview before planning or changing code in that area:
 
 - Build, CMake, CI, toolchains, shaders, platform build wiring: `docs/build/OVERVIEW.md`
+- Public authoring concepts shared by human docs and the Agent Kit: `docs/public/OVERVIEW.md`
 - Engine/runtime architecture and C++ framework direction: `docs/architecture/OVERVIEW.md`
 - Authoring project/entity schemas and component behavior: `docs/engine/OVERVIEW.md`
 - Electron editor work: `docs/editor/OVERVIEW.md`

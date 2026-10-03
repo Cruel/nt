@@ -6,6 +6,8 @@ const routes = [
   ["index.html", "Build worlds that respond."],
   ["docs/index.html", "NovelTea documentation"],
   ["docs/dev/index.html", "NovelTea documentation"],
+  ["docs/dev/concepts/overview/index.html", "NovelTea separates durable game meaning"],
+  ["docs/dev/concepts/world-and-objects/index.html", "exact live object identity"],
   ["docs/dev/reference/index.html", "Project workspace manifest"],
   ["examples/dev/index.html", "See the project model in motion."],
   [
@@ -100,6 +102,23 @@ test("generated development schema reference exposes human and raw canonical out
   assert.ok(raw.properties.export);
 });
 
+test("development concept pages render the canonical shared authoring source", async () => {
+  const canonical = await readFile(
+    new URL("../../docs/public/concepts/interactions.md", import.meta.url),
+    "utf8",
+  );
+  const marker =
+    "Hotspot owns pointer geometry, input ordering, highlight presentation, a Condition, and a semantic";
+  assert.match(canonical, new RegExp(marker));
+
+  const html = await readFile(
+    new URL("../dist/docs/dev/concepts/interactions/index.html", import.meta.url),
+    "utf8",
+  );
+  assert.match(html, new RegExp(marker));
+  assert.match(html, /Project schema reference/);
+});
+
 if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {
   test("latest reference is composed from release-rendered output", async () => {
     const html = await readFile(
@@ -109,6 +128,15 @@ if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {
     assert.match(html, /Latest release/);
     assert.match(html, /\/docs\/reference\/raw\/project\.schema\.json/);
     assert.doesNotMatch(html, /Unreleased development channel/);
+  });
+
+  test("latest concepts are composed from release-rendered canonical output", async () => {
+    const html = await readFile(
+      new URL("../dist/docs/concepts/overview/index.html", import.meta.url),
+      "utf8",
+    );
+    assert.match(html, /NovelTea separates durable game meaning/);
+    assert.doesNotMatch(html, /\/docs\/dev\/concepts\//);
   });
 }
 
