@@ -908,7 +908,36 @@ describe('preview protocol validation', () => {
           { id: 'evidence', visible: true, content: { kind: 'image', assetId: 'photo' } },
         ],
       },
-      saveSnapshot: { properties: { route: 'main' } },
+      saveSnapshot: {
+        readinessRevision: 3,
+        canCapture: false,
+        issues: [
+          {
+            reason: 5,
+            code: 'checkpoint.presentation_barrier_active',
+            message: 'A causal presentation operation is active.',
+            hasBarrier: true,
+          },
+        ],
+        presentationStatusRevision: 4,
+        activeBarrierCount: 1,
+        reconstructibleActivity: null,
+        retained: {
+          revision: 2,
+          saveFileFormatVersion: 1,
+          project: 'preview-protocol-test',
+          projectVersion: '1',
+          saveContract: 'test',
+          playTimeMs: 1200,
+        },
+        replayDistance: {
+          structuralGenerations: 0,
+          timeGenerations: 2,
+          playTimeMs: 3400,
+        },
+        thumbnailAvailable: false,
+        thumbnailCapturePending: false,
+      },
       publication: {
         revision: 8,
         presentationRevision: 5,
@@ -979,6 +1008,12 @@ describe('preview protocol validation', () => {
       isRuntimeDebugSnapshot({ ...snapshot, waiting: { kind: 'blocked', canContinue: false } }),
     ).toBe(false);
     expect(isRuntimeDebugSnapshot({ ...snapshot, saveSnapshot: [] })).toBe(false);
+    expect(
+      isRuntimeDebugSnapshot({
+        ...snapshot,
+        saveSnapshot: { ...snapshot.saveSnapshot, canCapture: 'yes' },
+      }),
+    ).toBe(false);
     expect(
       isRuntimeDebugSnapshot({
         ...snapshot,

@@ -320,6 +320,66 @@ export interface RuntimeDebugPublicationSnapshot {
   gameplayInstances: RuntimeDebugGameplayInstanceSnapshot[];
 }
 
+export const RuntimeDebugCheckpointReadinessReason = {
+  RuntimeTransactionActive: 0,
+  RuntimeQueueUnsettled: 1,
+  FlowStateNotSerializable: 2,
+  ImmediateScriptInvocationActive: 3,
+  SuspendedScriptInvocationActive: 4,
+  PresentationBarrierActive: 5,
+  ReconstructibleStateInvalid: 6,
+  SaveProjectionFailed: 7,
+  SaveValidationFailed: 8,
+  SaveEncodingFailed: 9,
+} as const;
+
+export type RuntimeDebugCheckpointReadinessReason =
+  (typeof RuntimeDebugCheckpointReadinessReason)[keyof typeof RuntimeDebugCheckpointReadinessReason];
+
+export interface RuntimeDebugCheckpointIssueSnapshot {
+  reason: RuntimeDebugCheckpointReadinessReason;
+  code: string;
+  message: string;
+  hasBarrier: boolean;
+}
+
+export interface RuntimeDebugRetainedCheckpointSnapshot {
+  revision: number;
+  saveFileFormatVersion: number;
+  project: string;
+  projectVersion: string;
+  saveContract: string;
+  playTimeMs: number;
+}
+
+export interface RuntimeDebugReconstructibleActivitySnapshot {
+  snapshotRevision: number;
+  actorIdleCount: number;
+  environmentLoopCount: number;
+  desiredAudioCount: number;
+}
+
+export interface RuntimeDebugCheckpointReplayDistanceSnapshot {
+  structuralGenerations: number;
+  timeGenerations: number;
+  playTimeMs: number;
+}
+
+export interface RuntimeDebugCheckpointSnapshot {
+  readinessRevision: number;
+  canCapture: boolean;
+  issues: RuntimeDebugCheckpointIssueSnapshot[];
+  presentationStatusRevision: number;
+  activeBarrierCount: number;
+  reconstructibleActivity: RuntimeDebugReconstructibleActivitySnapshot | null;
+  retained: RuntimeDebugRetainedCheckpointSnapshot | null;
+  replayDistance: RuntimeDebugCheckpointReplayDistanceSnapshot;
+  thumbnailAvailable: boolean;
+  thumbnailCapturePending: boolean;
+}
+
+export type RuntimeDebugSaveSnapshot = RuntimeDebugCheckpointSnapshot | Record<string, never>;
+
 export type RuntimeFastForwardStopReason =
   | 'choice-available'
   | 'navigation-available'
@@ -353,7 +413,7 @@ export interface RuntimeDebugSnapshot {
   selectedSubjects: PreviewInteractionSubject[];
   diagnostics: RuntimeDebugDiagnosticSnapshot[];
   dialoguePresentation: RuntimeDebugDialoguePresentationSnapshot;
-  saveSnapshot: Record<string, unknown>;
+  saveSnapshot: RuntimeDebugSaveSnapshot;
   publication: RuntimeDebugPublicationSnapshot;
 }
 
@@ -1325,6 +1385,124 @@ function isRuntimeDebugDialoguePresentationSnapshot(
   );
 }
 
+function isRuntimeDebugCheckpointReadinessReason(
+  value: unknown,
+): value is RuntimeDebugCheckpointReadinessReason {
+  return (
+    isNonnegativeInteger(value) &&
+    value >= RuntimeDebugCheckpointReadinessReason.RuntimeTransactionActive &&
+    value <= RuntimeDebugCheckpointReadinessReason.SaveEncodingFailed
+  );
+}
+
+function isRuntimeDebugCheckpointIssueSnapshot(
+  value: unknown,
+): value is RuntimeDebugCheckpointIssueSnapshot {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) => ['reason', 'code', 'message', 'hasBarrier'].includes(key)) &&
+    isRuntimeDebugCheckpointReadinessReason(value.reason) &&
+    typeof value.code === 'string' &&
+    typeof value.message === 'string' &&
+    typeof value.hasBarrier === 'boolean'
+  );
+}
+
+function isRuntimeDebugRetainedCheckpointSnapshot(
+  value: unknown,
+): value is RuntimeDebugRetainedCheckpointSnapshot {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) =>
+      [
+        'revision',
+        'saveFileFormatVersion',
+        'project',
+        'projectVersion',
+        'saveContract',
+        'playTimeMs',
+      ].includes(key),
+    ) &&
+    isNonnegativeInteger(value.revision) &&
+    isNonnegativeInteger(value.saveFileFormatVersion) &&
+    typeof value.project === 'string' &&
+    typeof value.projectVersion === 'string' &&
+    typeof value.saveContract === 'string' &&
+    isNonnegativeInteger(value.playTimeMs)
+  );
+}
+
+function isRuntimeDebugReconstructibleActivitySnapshot(
+  value: unknown,
+): value is RuntimeDebugReconstructibleActivitySnapshot {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) =>
+      ['snapshotRevision', 'actorIdleCount', 'environmentLoopCount', 'desiredAudioCount'].includes(
+        key,
+      ),
+    ) &&
+    isNonnegativeInteger(value.snapshotRevision) &&
+    isNonnegativeInteger(value.actorIdleCount) &&
+    isNonnegativeInteger(value.environmentLoopCount) &&
+    isNonnegativeInteger(value.desiredAudioCount)
+  );
+}
+
+function isRuntimeDebugCheckpointReplayDistanceSnapshot(
+  value: unknown,
+): value is RuntimeDebugCheckpointReplayDistanceSnapshot {
+  return (
+    isRecord(value) &&
+    Object.keys(value).every((key) =>
+      ['structuralGenerations', 'timeGenerations', 'playTimeMs'].includes(key),
+    ) &&
+    isNonnegativeInteger(value.structuralGenerations) &&
+    isNonnegativeInteger(value.timeGenerations) &&
+    isNonnegativeInteger(value.playTimeMs)
+  );
+}
+
+export function isRuntimeDebugCheckpointSnapshot(
+  value: unknown,
+): value is RuntimeDebugCheckpointSnapshot {
+  if (!isRecord(value)) return false;
+  const allowedKeys = new Set([
+    'readinessRevision',
+    'canCapture',
+    'issues',
+    'presentationStatusRevision',
+    'activeBarrierCount',
+    'reconstructibleActivity',
+    'retained',
+    'replayDistance',
+    'thumbnailAvailable',
+    'thumbnailCapturePending',
+  ]);
+  return (
+    Object.keys(value).length === allowedKeys.size &&
+    Object.keys(value).every((key) => allowedKeys.has(key)) &&
+    isNonnegativeInteger(value.readinessRevision) &&
+    typeof value.canCapture === 'boolean' &&
+    Array.isArray(value.issues) &&
+    value.issues.every(isRuntimeDebugCheckpointIssueSnapshot) &&
+    isNonnegativeInteger(value.presentationStatusRevision) &&
+    isNonnegativeInteger(value.activeBarrierCount) &&
+    (value.reconstructibleActivity === null ||
+      isRuntimeDebugReconstructibleActivitySnapshot(value.reconstructibleActivity)) &&
+    (value.retained === null || isRuntimeDebugRetainedCheckpointSnapshot(value.retained)) &&
+    isRuntimeDebugCheckpointReplayDistanceSnapshot(value.replayDistance) &&
+    typeof value.thumbnailAvailable === 'boolean' &&
+    typeof value.thumbnailCapturePending === 'boolean'
+  );
+}
+
+function isRuntimeDebugSaveSnapshot(value: unknown): value is RuntimeDebugSaveSnapshot {
+  return (
+    isRecord(value) && (Object.keys(value).length === 0 || isRuntimeDebugCheckpointSnapshot(value))
+  );
+}
+
 export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSnapshot {
   if (!isRecord(value)) return false;
   const allowedKeys = new Set([
@@ -1373,7 +1551,7 @@ export function isRuntimeDebugSnapshot(value: unknown): value is RuntimeDebugSna
     Array.isArray(value.diagnostics) &&
     value.diagnostics.every(isRuntimeDebugDiagnosticSnapshot) &&
     isRuntimeDebugDialoguePresentationSnapshot(value.dialoguePresentation) &&
-    isRecord(value.saveSnapshot) &&
+    isRuntimeDebugSaveSnapshot(value.saveSnapshot) &&
     isRuntimeDebugPublicationSnapshot(value.publication)
   );
 }

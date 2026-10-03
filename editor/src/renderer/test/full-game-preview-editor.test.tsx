@@ -1220,7 +1220,36 @@ describe('FullGamePreviewEditor', () => {
           selectedSubjects: [{ kind: 'interactable', id: 'key' }],
           diagnostics: [],
           dialoguePresentation: { stageSlots: [], mediaSlots: [] },
-          saveSnapshot: { variables: { flag: true }, inventory: ['key'] },
+          saveSnapshot: {
+            readinessRevision: 4,
+            canCapture: false,
+            issues: [
+              {
+                reason: 5,
+                code: 'checkpoint.presentation_barrier_active',
+                message: 'A causal presentation operation is active.',
+                hasBarrier: true,
+              },
+            ],
+            presentationStatusRevision: 7,
+            activeBarrierCount: 1,
+            reconstructibleActivity: null,
+            retained: {
+              revision: 3,
+              saveFileFormatVersion: 1,
+              project: 'preview-test',
+              projectVersion: '1',
+              saveContract: 'test',
+              playTimeMs: 1000,
+            },
+            replayDistance: {
+              structuralGenerations: 0,
+              timeGenerations: 2,
+              playTimeMs: 3400,
+            },
+            thumbnailAvailable: false,
+            thumbnailCapturePending: false,
+          },
           publication: {
             revision: 3,
             presentationRevision: 3,
@@ -1238,6 +1267,14 @@ describe('FullGamePreviewEditor', () => {
     });
 
     await waitFor(() => expect(screen.getAllByText('Grand Foyer').length).toBeGreaterThan(0));
+    const checkpointIndicator = screen.getByTestId('checkpoint-status-indicator');
+    expect(checkpointIndicator).toHaveAttribute('data-state', 'blocked');
+    expect(screen.getByLabelText('Cap').closest('label')?.nextElementSibling).toBe(
+      checkpointIndicator,
+    );
+    await user.hover(checkpointIndicator);
+    expect(await screen.findByText('Last safe checkpoint: 3s ago')).toBeInTheDocument();
+    expect(screen.getByText('A causal presentation operation is active.')).toBeInTheDocument();
     await user.click(screen.getByText('Variables'));
     await user.click(screen.getByText('Inventory'));
     expect(screen.getByText('Has Key')).toBeInTheDocument();

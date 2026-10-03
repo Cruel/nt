@@ -855,6 +855,22 @@
     "title": "Paleta de comandos"
   },
   "preview": {
+    "checkpointStatus": {
+      "barriers": "Barreiras",
+      "duration": {
+        "lessThanSecond": "<1s",
+        "minutesSeconds": "{{minutes}}min {{seconds}}s",
+        "seconds": "{{seconds}}s"
+      },
+      "issues": "Problemas de checkpoint",
+      "lastSafe": "Último checkpoint seguro: há {{elapsed}}",
+      "state": {
+        "blocked": "O estado atual não é seguro para checkpoint.",
+        "empty": "Nenhum checkpoint seguro foi capturado ainda.",
+        "failure": "A captura do checkpoint falhou.",
+        "ready": "O estado atual é seguro para checkpoint."
+      }
+    },
     "show": "Mostrar prévia"
   },
   "projectSettings": {
