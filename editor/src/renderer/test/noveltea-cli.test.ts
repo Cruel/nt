@@ -4,6 +4,7 @@ import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli, type AuthoringValidationInstrumentation } from '../../cli/application';
 import {
   createNovelTeaAgentKitPayload,
+  createNovelTeaCompactReferenceFiles,
   createNovelTeaRawSchemaFiles,
   createNovelTeaWebsiteSchemaReference,
 } from '../../cli/agent-kit';
@@ -2923,8 +2924,6 @@ describe('NovelTea headless CLI', () => {
     expect(Object.keys(first.files)).toEqual(
       expect.arrayContaining([
         'GUIDE.md',
-        'CLI.md',
-        'PROJECT_FORMAT.md',
         'concepts/authored-tests.md',
         'concepts/interactions.md',
         'concepts/overview.md',
@@ -2932,13 +2931,15 @@ describe('NovelTea headless CLI', () => {
         'concepts/project-model.md',
         'concepts/story.md',
         'concepts/world-and-objects.md',
-        'docs/AUTHORING.md',
-        'docs/ROOMS.md',
-        'docs/RMLUI.md',
-        'docs/RCSS_REFERENCE.md',
-        'docs/RMLUI_DATA_BINDING.md',
-        'docs/RMLUI_CUSTOM_COMPONENTS.md',
-        'docs/RMLUI_LUA.md',
+        'workflows/AUTHORING.md',
+        'technical/LAYOUTS.md',
+        'technical/LUA.md',
+        'technical/RCSS_REFERENCE.md',
+        'technical/RMLUI.md',
+        'technical/RMLUI_DATA_BINDING.md',
+        'technical/RMLUI_CUSTOM_COMPONENTS.md',
+        'technical/RMLUI_LUA.md',
+        'technical/SHADERS.md',
         'reference/common.md',
         'reference/index.md',
         'reference/project.md',
@@ -2972,6 +2973,11 @@ describe('NovelTea headless CLI', () => {
         repository: 'https://github.com/Cruel/nt.git',
         revision: '10357105438f9d72cc6766be04827f3ea7bea8af',
       },
+      'noveltea-agent-kit-composition': {
+        kind: 'repository',
+        repository: 'https://github.com/Cruel/nt.git',
+        revision: 'ae7e3b042b23d5d904fbe949fe6ab50399f1027b',
+      },
       rmlui: {
         kind: 'repository',
         repository: 'https://github.com/Cruel/RmlUi.git',
@@ -2993,47 +2999,47 @@ describe('NovelTea headless CLI', () => {
         revision: '23cc335d8c67c12c706dee4b8ddec9416e4c4280',
       },
     });
-    expect(manifest.provenance.documents['docs/LAYOUTS.md'].sources).toEqual(
+    expect(manifest.provenance.documents['technical/LAYOUTS.md'].sources).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'noveltea-agent-kit-composition' }),
         expect.objectContaining({ source: 'rmlui' }),
       ]),
     );
-    expect(manifest.provenance.documents['docs/RMLUI.md'].sources).toEqual(
-      expect.arrayContaining([
-        expect.objectContaining({ source: 'noveltea' }),
-        expect.objectContaining({ source: 'rmlui' }),
-        expect.objectContaining({ source: 'rmlui-docs' }),
-      ]),
-    );
-    expect(manifest.provenance.documents['docs/RCSS_REFERENCE.md'].sources).toEqual(
+    expect(manifest.provenance.documents['technical/RMLUI.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
         expect.objectContaining({ source: 'rmlui' }),
         expect.objectContaining({ source: 'rmlui-docs' }),
       ]),
     );
-    expect(manifest.provenance.documents['docs/RMLUI_DATA_BINDING.md'].sources).toEqual(
+    expect(manifest.provenance.documents['technical/RCSS_REFERENCE.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
         expect.objectContaining({ source: 'rmlui' }),
         expect.objectContaining({ source: 'rmlui-docs' }),
       ]),
     );
-    expect(manifest.provenance.documents['docs/RMLUI_CUSTOM_COMPONENTS.md'].sources).toEqual(
+    expect(manifest.provenance.documents['technical/RMLUI_DATA_BINDING.md'].sources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'rmlui' }),
+        expect.objectContaining({ source: 'rmlui-docs' }),
+      ]),
+    );
+    expect(manifest.provenance.documents['technical/RMLUI_CUSTOM_COMPONENTS.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
         expect.objectContaining({ source: 'rmlui' }),
       ]),
     );
-    expect(manifest.provenance.documents['docs/RMLUI_LUA.md'].sources).toEqual(
+    expect(manifest.provenance.documents['technical/RMLUI_LUA.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
         expect.objectContaining({ source: 'rmlui' }),
         expect.objectContaining({ source: 'lua-5.5-manual' }),
       ]),
     );
-    expect(manifest.provenance.documents['docs/LUA.md'].sources).toEqual(
+    expect(manifest.provenance.documents['technical/LUA.md'].sources).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ source: 'noveltea' }),
         expect.objectContaining({ source: 'lua-5.5-manual' }),
@@ -3044,6 +3050,12 @@ describe('NovelTea headless CLI', () => {
     const sharedConceptSourceFiles = loadAgentKitSharedConceptSourceFiles();
     for (const [relativePath, text] of Object.entries(sharedConceptSourceFiles))
       expect(first.files[`concepts/${relativePath}`]).toBe(text);
+    const compactReferenceFiles = createNovelTeaCompactReferenceFiles();
+    for (const [relativePath, text] of Object.entries(compactReferenceFiles))
+      expect(first.files[`reference/${relativePath}`]).toBe(text);
+    const rawSchemaFiles = createNovelTeaRawSchemaFiles();
+    for (const [relativePath, text] of Object.entries(rawSchemaFiles))
+      expect(first.files[`schemas/${relativePath}`]).toBe(text);
     const systemLayoutSourceFiles = loadAgentKitSystemLayoutSourceFiles();
     for (const [relativePath, text] of Object.entries(systemLayoutSourceFiles))
       expect(first.files[`system-layouts/${relativePath}`]).toBe(text);
@@ -3151,29 +3163,29 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['agent-kit-provenance.json']).toBeUndefined();
     expect(first.files['skill/SKILL.md']).toBeUndefined();
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/overview.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/world-and-objects.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/interactions.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/concepts/story.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/ROOMS.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_DATA_BINDING.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_CUSTOM_COMPONENTS.md');
-    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/reference/index.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/workflows/AUTHORING.md');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/technical/');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/schemas/');
     expect(first.files['GUIDE.md']).toContain('.noveltea/agent/system-layouts/ui/');
-    expect(first.files['GUIDE.md']).not.toContain('.noveltea/agent/system-layouts/manifest.json');
+    expect(first.files['GUIDE.md']).toContain('.noveltea/agent/system-layouts/manifest.json');
     expect(first.files['GUIDE.md']).toContain(
-      'NovelTea Lua sandbox, APIs, capabilities, and yielding rules',
+      'Do not guess behavior from field names or JSON shape',
     );
-    expect(first.files['GUIDE.md']).toContain(
-      'do not begin ordinary authoring work by reverse-engineering the schemas',
+    expect(first.files['workflows/AUTHORING.md']).toContain(
+      'noveltea entity create <collection> <id>',
     );
-    expect(first.files['docs/AUTHORING.md']).toContain('Need only an image visible in the Room?');
-    expect(first.files['docs/ROOMS.md']).toContain(
-      'Template 2: sprite-backed Interactable placed in a Room',
+    expect(first.files['workflows/AUTHORING.md']).toContain('Never author against `.noveltea/`');
+    expect(first.files['workflows/AUTHORING.md']).toContain('Complete coherent edits');
+    expect(first.files['workflows/AUTHORING.md']).toContain('noveltea localization sync');
+    expect(first.files['reference/records/rooms.md']).toContain(
+      'normalized to the complete Room background source image in image/UV space',
     );
-    expect(first.files['docs/ROOMS.md']).toContain(
-      'normalized to the complete Room background source image',
+    expect(first.files['reference/records/rooms.md']).toContain(
+      'beforeEnter/beforeLeave run before the Room switch commits and therefore admit only immediate commands.',
+    );
+    expect(first.files['reference/records/interactables.md']).toContain(
+      'custom rectangular Hotspot bounds are normalized to the complete sprite image',
     );
     expect(first.files['concepts/interactions.md']).toContain(
       'Hotspot owns pointer geometry, input ordering, highlight presentation, a Condition, and a semantic',
@@ -3184,93 +3196,91 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['concepts/project-model.md']).toContain(
       'A **Definition** is reusable configuration',
     );
-    for (const retiredDuplicate of [
-      'docs/ARCHETYPES_TRAITS.md',
-      'docs/CHARACTERS.md',
-      'docs/DIALOGUES.md',
-      'docs/INTERACTIONS.md',
-      'docs/ITEMS_INVENTORIES.md',
-      'docs/SCENES.md',
-      'docs/TESTS.md',
-    ])
-      expect(first.files[retiredDuplicate]).toBeUndefined();
-    expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI.md');
-    expect(first.files['docs/LAYOUTS.md']).toContain('.noveltea/agent/docs/RMLUI_LUA.md');
-    expect(first.files['docs/LAYOUTS.md']).toContain(
-      '.noveltea/agent/system-layouts/ui/title/default-title.rml',
-    );
-    expect(first.files['docs/LAYOUTS.md']).toContain(
-      '.noveltea/agent/system-layouts/ui/baseline/rmlui-html4.rcss',
-    );
-    expect(first.files['docs/LAYOUTS.md']).not.toContain(
+    expect(Object.keys(first.files).filter((path) => path.startsWith('docs/'))).toEqual([]);
+    expect(first.files['CLI.md']).toBeUndefined();
+    expect(first.files['PROJECT_FORMAT.md']).toBeUndefined();
+    expect(first.files['technical/LAYOUTS.md']).toContain(
       '.noveltea/agent/system-layouts/manifest.json',
     );
-    expect(first.files['docs/LAYOUTS.md']).toContain('`debug-overlay` has no built-in fallback');
-    expect(first.files['docs/RMLUI.md']).toContain('RML is XML, not browser HTML');
-    expect(first.files['docs/RMLUI.md']).toContain(
+    expect(first.files['technical/LAYOUTS.md']).toContain('.noveltea/agent/technical/RMLUI.md');
+    expect(first.files['technical/LAYOUTS.md']).not.toContain('title/default-title.rml');
+    expect(first.files['technical/RMLUI.md']).toContain('RML is XML, not browser HTML');
+    expect(first.files['technical/RMLUI.md']).toContain(
       "RmlUi's `:hover`, `:active`, `:focus`, and `:focus-visible` state propagates backward",
     );
-    expect(first.files['docs/RMLUI.md']).toContain('`calc()`, `min()`, `max()`, and `clamp()`');
-    expect(first.files['docs/RMLUI.md']).toContain('Universal RCSS baseline');
-    expect(first.files['docs/RMLUI.md']).toContain(
+    expect(first.files['technical/RMLUI.md']).toContain(
+      '`calc()`, `min()`, `max()`, and `clamp()`',
+    );
+    expect(first.files['technical/RMLUI.md']).toContain('Universal RCSS baseline');
+    expect(first.files['technical/RMLUI.md']).toContain(
       'RmlUi HTML4 baseline\nNovelTea baseline\ntemplate RCSS\ndocument/Layout RCSS',
     );
-    expect(first.files['docs/RMLUI.md']).toContain('.noveltea/agent/docs/RCSS_REFERENCE.md');
-    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in properties: 99');
-    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('registered built-in shorthands: 20');
-    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('`ex` is not registered');
-    expect(first.files['docs/RCSS_REFERENCE.md']).toContain('There is no `border-style` property');
-    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('gameplay.text_log.entries[]');
-    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('shell.save_slots[]');
-    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('ui_choose(kind, id)');
-    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('data-alias-name');
-    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain('The model is read-only');
-    expect(first.files['docs/RMLUI_DATA_BINDING.md']).toContain(
+    expect(first.files['technical/RMLUI.md']).toContain(
+      '.noveltea/agent/technical/RCSS_REFERENCE.md',
+    );
+    expect(first.files['technical/RCSS_REFERENCE.md']).toContain(
+      'registered built-in properties: 99',
+    );
+    expect(first.files['technical/RCSS_REFERENCE.md']).toContain(
+      'registered built-in shorthands: 20',
+    );
+    expect(first.files['technical/RCSS_REFERENCE.md']).toContain('`ex` is not registered');
+    expect(first.files['technical/RCSS_REFERENCE.md']).toContain(
+      'There is no `border-style` property',
+    );
+    expect(first.files['technical/RMLUI_DATA_BINDING.md']).toContain('gameplay.text_log.entries[]');
+    expect(first.files['technical/RMLUI_DATA_BINDING.md']).toContain('shell.save_slots[]');
+    expect(first.files['technical/RMLUI_DATA_BINDING.md']).toContain('ui_choose(kind, id)');
+    expect(first.files['technical/RMLUI_DATA_BINDING.md']).toContain('data-alias-name');
+    expect(first.files['technical/RMLUI_DATA_BINDING.md']).toContain('The model is read-only');
+    expect(first.files['technical/RMLUI_DATA_BINDING.md']).toContain(
       'Game.ui.navigate_map_connection(map_id, connection_id)',
     );
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-active-text');
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-map-view\n');
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).not.toContain(
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-active-text');
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain('nt-map-view\n');
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).not.toContain(
       'nt-map-view   (provisional)',
     );
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'When the project contains exactly one authored Map, `map` may be omitted',
     );
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'mounted gameplay Layout documents',
     );
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'Multiple occurrences are independent',
     );
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain('Layout State Shape/Slot');
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+      'Layout State Shape/Slot',
+    );
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'Game.ui.navigate_map_location(map_id, location_id)',
     );
-    expect(first.files['docs/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
+    expect(first.files['technical/RMLUI_CUSTOM_COMPONENTS.md']).toContain(
       'There is no current `nt-text-log` element',
     );
-    expect(first.files['docs/RMLUI_LUA.md']).toContain('function(event, element, document)');
-    expect(first.files['docs/RMLUI_LUA.md']).toContain(
+    expect(first.files['technical/RMLUI_LUA.md']).toContain('function(event, element, document)');
+    expect(first.files['technical/RMLUI_LUA.md']).toContain(
       'controls **only the dedicated Layout Lua source**',
     );
-    expect(first.files['docs/RMLUI_LUA.md']).toContain('rmlui:CreateContext');
-    expect(first.files['docs/RMLUI_LUA.md']).toContain('.noveltea/agent/docs/LUA.md');
-    expect(first.files['docs/LUA.md']).toContain('Lua 5.5.0 exactly');
-    expect(first.files['docs/LUA.md']).toContain(
+    expect(first.files['technical/RMLUI_LUA.md']).toContain('rmlui:CreateContext');
+    expect(first.files['technical/RMLUI_LUA.md']).toContain('.noveltea/agent/technical/LUA.md');
+    expect(first.files['technical/LUA.md']).toContain('Lua 5.5.0 exactly');
+    expect(first.files['technical/LUA.md']).toContain(
       'noveltea.properties.get(owner_kind, owner_id, property_id)',
     );
-    expect(first.files['docs/LUA.md']).toContain(
+    expect(first.files['technical/LUA.md']).toContain(
       'Game.choose` and `Game.navigate` are deliberately **zero-based**',
     );
-    expect(first.files['docs/LUA.md']).toContain('audio.play_and_wait');
-    expect(first.files['docs/LUA.md']).toContain('Game.ui.navigate_map_connection');
-    expect(first.files['docs/LUA.md']).toContain('Game.shell.state()');
-    expect(first.files['docs/LUA.md']).toContain(
+    expect(first.files['technical/LUA.md']).toContain('audio.play_and_wait');
+    expect(first.files['technical/LUA.md']).toContain('Game.ui.navigate_map_connection');
+    expect(first.files['technical/LUA.md']).toContain('Game.shell.state()');
+    expect(first.files['technical/LUA.md']).toContain(
       'Layout.clamp_to_viewport(element, x, y, padding?)',
     );
-    expect(first.files['docs/LUA.md']).toContain('mount:position_hint()');
-    expect(first.files['docs/LUA.md']).toContain('offsetX?, offsetY?');
-    expect(first.files['docs/LUA.md']).toContain(
+    expect(first.files['technical/LUA.md']).toContain('mount:position_hint()');
+    expect(first.files['technical/LUA.md']).toContain('offsetX?, offsetY?');
+    expect(first.files['technical/LUA.md']).toContain(
       'Project-bootstrap globals are not visible to Layout scripts',
     );
     expect(first.files['schemas/records/layouts.schema.json']).toContain('sourceMode');
@@ -3411,7 +3421,7 @@ describe('NovelTea headless CLI', () => {
       version: rmluiVersion,
       revision: rmluiCommit,
     });
-    const reference = payload.files['docs/RCSS_REFERENCE.md']!;
+    const reference = payload.files['technical/RCSS_REFERENCE.md']!;
     expect(reference).toContain(`RmlUi version label: \`${rmluiVersion}\``);
     expect(reference).toContain(`pinned RmlUi commit: \`${rmluiCommit}\``);
     expect(reference).toContain(`NovelTea RmlUi patch revision: \`${patchRevision}\``);
@@ -3660,11 +3670,11 @@ describe('NovelTea headless CLI', () => {
     expect(customTags).toEqual(['nt-tr', 'nt-active-text', 'nt-map-view']);
 
     const payload = createNovelTeaAgentKitPayload();
-    const bindingGuide = payload.files['docs/RMLUI_DATA_BINDING.md']!;
+    const bindingGuide = payload.files['technical/RMLUI_DATA_BINDING.md']!;
     for (const variable of topLevelVariables) expect(bindingGuide).toContain(`### \`${variable}\``);
     for (const callback of callbackNames) expect(bindingGuide).toContain(`${callback}(`);
 
-    const componentGuide = payload.files['docs/RMLUI_CUSTOM_COMPONENTS.md']!;
+    const componentGuide = payload.files['technical/RMLUI_CUSTOM_COMPONENTS.md']!;
     for (const tag of customTags) expect(componentGuide).toContain(`\`${tag}\``);
     expect(componentGuide).toContain('There is no current `nt-text-log` element');
     expect(componentGuide).not.toContain('`nt-map-view` is provisional');
@@ -3726,7 +3736,7 @@ describe('NovelTea headless CLI', () => {
       ].map((match) => match[1]);
 
     const payload = createNovelTeaAgentKitPayload();
-    const guide = payload.files['docs/LUA.md']!;
+    const guide = payload.files['technical/LUA.md']!;
     expect(guide).toContain('Lua 5.5.0 exactly');
     for (const library of libraryNames) expect(guide).toContain(`\n${library}\n`);
     for (const excluded of excludedGlobals) expect(guide).toContain(excluded);
@@ -3830,7 +3840,7 @@ describe('NovelTea headless CLI', () => {
       expect(guide).toContain(profile);
 
     const manifest = JSON.parse(payload.manifestText);
-    const provenanceAreas = manifest.provenance.documents['docs/LUA.md'].sources.flatMap(
+    const provenanceAreas = manifest.provenance.documents['technical/LUA.md'].sources.flatMap(
       (source: { areas: string[] }) => source.areas,
     );
     expect(provenanceAreas).toContain(
@@ -3869,7 +3879,7 @@ describe('NovelTea headless CLI', () => {
     expect(listenerPatch).toContain('LuaType<Element>::push(L, attached, false);');
 
     const payload = createNovelTeaAgentKitPayload();
-    const guide = payload.files['docs/RMLUI_LUA.md']!;
+    const guide = payload.files['technical/RMLUI_LUA.md']!;
     expect(guide).toContain('function(event, element, document)');
     expect(guide).toContain('controls **only the dedicated Layout Lua source**');
     expect(guide).toContain('It is **not** a document-wide scripting switch');
@@ -3889,7 +3899,7 @@ describe('NovelTea headless CLI', () => {
       expect(guide).toContain(hostOwned);
 
     const manifest = JSON.parse(payload.manifestText);
-    const provenance = manifest.provenance.documents['docs/RMLUI_LUA.md'];
+    const provenance = manifest.provenance.documents['technical/RMLUI_LUA.md'];
     expect(provenance.sources.map((source: { source: string }) => source.source)).toEqual([
       'noveltea',
       'rmlui',
@@ -3962,8 +3972,8 @@ describe('NovelTea headless CLI', () => {
     });
     expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n/dist/\n');
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
-    expect(JSON.parse(manifestBefore).provenance.documents['docs/LAYOUTS.md']).toMatchObject({
-      reviewed: '2026-08-30',
+    expect(JSON.parse(manifestBefore).provenance.documents['technical/LAYOUTS.md']).toMatchObject({
+      reviewed: '2026-10-02',
     });
     const systemLayoutSources = loadAgentKitSystemLayoutSourceFiles();
     expect(
@@ -4001,6 +4011,26 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`)).toBe(
       manifestBefore,
     );
+  });
+
+  it('replaces stale files from a previous agent-kit layout', async () => {
+    const value = fixture();
+    await syncNovelTeaAgentKit(value.fileSystem, root);
+    await value.fileSystem.createDirectory(`${root}/.noveltea/agent/docs`);
+    await value.fileSystem.writeTextAtomic(
+      `${root}/.noveltea/agent/docs/ROOMS.md`,
+      '# Retired Room guide\n',
+    );
+
+    const refreshed = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
+    expect(refreshed.exitCode).toBe(0);
+    expect(JSON.parse(refreshed.stdout).agentKitChanged).toBe(true);
+    expect(await value.fileSystem.inspect(`${root}/.noveltea/agent/docs`)).toBe('missing');
+    expect(await value.fileSystem.inspect(`${root}/.noveltea/agent/workflows/AUTHORING.md`)).toBe(
+      'file',
+    );
+    const unchanged = await runNovelTeaCli(['--json', 'agent', 'sync'], options(value));
+    expect(JSON.parse(unchanged.stdout).agentKitChanged).toBe(false);
   });
 
   it('creates, updates, and refuses malformed managed AGENTS.md blocks through --fix', async () => {

@@ -10,7 +10,7 @@ nt-active-text
 nt-map-view
 ```
 
-There is no current `nt-text-log` element. Text Log is ordinary data-bound RML over `gameplay.text_log.entries`; use `.noveltea/agent/docs/RMLUI_DATA_BINDING.md` for that model.
+There is no current `nt-text-log` element. Text Log is ordinary data-bound RML over `gameplay.text_log.entries`; use `.noveltea/agent/technical/RMLUI_DATA_BINDING.md` for that model.
 
 ## `nt-tr`
 

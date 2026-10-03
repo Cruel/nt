@@ -1,5 +1,9 @@
 # Assets, Shaders, and Materials
 
+Use `.noveltea/agent/concepts/presentation-and-localization.md` for the public Asset/Material model and
+the generated reference for exact record shapes. This page contains only shader/Asset workflow facts
+that are not represented by the Project schema.
+
 Add files with `noveltea asset import <path>...`; files already under `assets/` are registered in place. Use `noveltea asset audit` to list unregistered files there. Asset records preserve their complete current import/provenance metadata; do not discard fields merely because they look machine-generated. Asset source paths are explicit and are not renamed simply because an Asset record ID changes.
 
 Materials are semantic authoring records rooted in engine-provided Material Presets or another Material. Shader code is source under `shaders/`, not a Shader record or Asset. Preset-backed Materials need no project shader files; use **Customize Shader** when project-owned source is needed, and reuse shader logic through source composition such as `#include`. Use `noveltea shaders compile` when native shader compilation is required. Do not invoke or distribute a separate shaderc executable for NovelTea workflows; raw bgfx-compatible forwarding is available as `noveltea shaderc ...`.

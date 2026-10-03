@@ -24,21 +24,31 @@ export const interactableHotspotBehaviorSchema = strict({
   ...hotspotCommonShape,
   target: interactableHotspotTargetSchema,
 });
-export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('none') }),
-  strict({ kind: z.literal('sprite-alpha'), hotspot: interactableHotspotBehaviorSchema }),
-  strict({
-    kind: z.literal('custom'),
-    hotspots: z.array(
-      strict({
-        ...hotspotCommonShape,
-        cursor: cursorTargetSchema.nullable().optional(),
-        target: interactableHotspotTargetSchema,
-        shape: rectHotspotShapeSchema,
-      }),
-    ),
-  }),
-]);
+export const interactableHotspotsSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('none') }),
+    strict({ kind: z.literal('sprite-alpha'), hotspot: interactableHotspotBehaviorSchema }),
+    strict({
+      kind: z.literal('custom'),
+      hotspots: z.array(
+        strict({
+          ...hotspotCommonShape,
+          cursor: cursorTargetSchema.nullable().optional(),
+          target: interactableHotspotTargetSchema,
+          shape: rectHotspotShapeSchema,
+        }),
+      ),
+    }),
+  ]),
+  {
+    notes: [
+      'sprite-alpha uses the complete sprite image alpha as the hit area. custom rectangular Hotspot bounds are normalized to the complete sprite image in image/UV space.',
+    ],
+    constraints: [
+      'sprite-alpha requires an image sprite. Non-empty custom Hotspots also require an image sprite.',
+    ],
+  },
+);
 export const interactableLocationSchema = withSchemaDocumentation(
   z.discriminatedUnion('kind', [
     strict({ kind: z.literal('unplaced') }),
