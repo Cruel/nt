@@ -26,6 +26,7 @@ import {
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
+import { withSchemaDocumentation } from './schema-documentation';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -361,18 +362,28 @@ export const dialogueSettingsDataSchema = strict({
   logMode: z.enum(dialogueLogModeValues),
 });
 
-export const dialogueDataSchema = strict({
-  kind: z.literal('dialogue'),
-  displayName: z.string(),
-  defaultSpeaker: dialogueCharacterRefSchema.nullable(),
-  stageSlots: z.array(dialogueStageSlotSchema),
-  mediaSlots: z.array(dialogueMediaSlotSchema),
-  settings: dialogueSettingsDataSchema,
-  entryBlockId: entityIdSchema,
-  blocks: z.array(dialogueBlockDataSchema).min(1),
-  edges: z.array(dialogueEdgeDataSchema),
-  completion: dialogueCompletionTargetSchema,
-});
+export const dialogueDataSchema = withSchemaDocumentation(
+  strict({
+    kind: z.literal('dialogue'),
+    displayName: z.string(),
+    defaultSpeaker: dialogueCharacterRefSchema.nullable(),
+    stageSlots: z.array(dialogueStageSlotSchema),
+    mediaSlots: z.array(dialogueMediaSlotSchema),
+    settings: dialogueSettingsDataSchema,
+    entryBlockId: entityIdSchema,
+    blocks: z.array(dialogueBlockDataSchema).min(1),
+    edges: z.array(dialogueEdgeDataSchema),
+    completion: dialogueCompletionTargetSchema,
+  }),
+  {
+    constraints: [
+      'Dialogue cue position.offset counts Unicode code points in the inline source text, not UTF-8 bytes or UTF-16 code units.',
+      'Positioned Dialogue cues currently require an inline text source, and each (offset, order) pair must be unique within one line segment.',
+      'Sequence blocks admit at most one outgoing next edge and no choice edges; Choice blocks require at least one outgoing choice edge and admit no next edges; Redirect and Comment blocks cannot own outgoing edges.',
+      'Edges cannot target Comment blocks, and Redirect blocks cannot target Comment blocks.',
+    ],
+  },
+);
 
 export type DialogueCharacterRef = CharacterRef;
 export type DialogueTextData = TextContent;

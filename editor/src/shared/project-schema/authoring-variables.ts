@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { authoredPropertyValueSchema, type AuthoredPropertyValue } from './authoring-properties';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const variableTypeValues = [
   'boolean',
@@ -17,16 +18,24 @@ export type VariableScope = (typeof variableScopeValues)[number];
 
 export const variableRefSchema = z.object({ $var: z.string().min(1) }).strict();
 
-export const variableDataSchema = z
-  .object({
-    kind: z.literal('variable').default('variable'),
-    type: z.enum(variableTypeValues),
-    nullable: z.boolean().default(false),
-    value: authoredPropertyValueSchema,
-    scope: z.enum(variableScopeValues).default('global'),
-    enumValues: z.array(z.string()).optional(),
-  })
-  .strict();
+export const variableDataSchema = withSchemaDocumentation(
+  z
+    .object({
+      kind: z.literal('variable').default('variable'),
+      type: z.enum(variableTypeValues),
+      nullable: z.boolean().default(false),
+      value: authoredPropertyValueSchema,
+      scope: z.enum(variableScopeValues).default('global'),
+      enumValues: z.array(z.string()).optional(),
+    })
+    .strict(),
+  {
+    constraints: [
+      'value must match the declared type and nullability.',
+      'Enum Variables require at least one non-empty enumValues entry; entries must be unique. Non-null values must equal one declared entry; null is permitted when nullable is true.',
+    ],
+  },
+);
 
 export type VariableRef = z.infer<typeof variableRefSchema>;
 export type VariableData = z.infer<typeof variableDataSchema>;

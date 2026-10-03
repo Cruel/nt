@@ -60,6 +60,11 @@ noveltea validate
 Run relevant authored Tests when the behavior is covered by semantic playback. Validation proves
 structural/semantic validity, not visual quality of placement, hotspot geometry, styling, or art.
 
+Layout records are directories. In `records/layouts/<layout-id>/layout.json`, a persisted
+`sourceMode: "file"` selector means the channel source lives beside the record as `layout.rml`,
+`layout.rcss`, or `layout.lua`. Do not leave one of those companion files present when its selector is
+`asset` or `none`; workspace loading treats that as an ownership error rather than an alternate source.
+
 ## Localization is an explicit mutation workflow
 
 Direct edits to managed localizable Lua/RML do not update tracking as a side effect of validation or

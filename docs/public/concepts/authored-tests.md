@@ -13,9 +13,16 @@ Test steps address stable semantic identities such as Dialogue choice edge IDs, 
 IDs, Room Exit IDs, exact Interaction subjects, Verb IDs with named slot bindings, and save slots.
 Logical-time advancement is explicit when behavior genuinely depends on time.
 
-This means a Test should say, in effect, "choose this authored branch" or "run this Verb with these
-subjects," not "click the third button" or "click at these coordinates." Labels, list indexes, DOM
-selectors, and pointer positions are presentation and are intentionally not the test contract.
+This means a Test should normally say, in effect, "choose this authored branch" or "run this Verb with
+these subjects," not "click the third button" or "click at these coordinates." Labels and list indexes
+are not stable Test identities. The one admitted UI seam is `ui-click`: it names a visible RuntimeUI
+document plus an authored selector and dispatches normal RmlUi pointer input. Prefer stable element IDs
+or explicit test-oriented attributes for that selector; coordinate clicks are not the current contract.
+
+The current typed step families are: logical-time `tick`, `continue`, Dialogue and Scene choice,
+Room `navigate`, subject selection/primary activation/Verb-menu opening/selection clearing,
+`run-interaction`, save/load, and `ui-click`. Only the payload selected by a step's input kind is active;
+disabled steps remain authored but are omitted from playback.
 
 ## Tests do not define another game setup
 
@@ -28,6 +35,14 @@ The current Test model is also not an arbitrary assertion DSL. Verification come
 playback report and public runtime observations/diagnostics. If a behavior cannot be exercised through
 the admitted semantic inputs, do not encode private UI automation or implementation hooks merely to
 force it into an authored Test.
+
+Each enabled step may carry typed semantic expectations, and a Test may also carry
+`finalExpectations`. The supported expectation families cover Properties, current Room,
+Character/Interactable Location, Interactable quantity, Trait presence, enabled/visible entity state,
+active Scene/Dialogue identity, mounted Layout presence/state, notification/save outcomes, and
+diagnostic codes. Operators are intentionally closed to equality/inequality, presence/absence, and
+numeric comparisons where the target admits them. Expectations observe settled authoritative runtime
+state; they do not execute arbitrary assertion Lua or inspect private RuntimeSession state.
 
 Stable step IDs are useful because diagnostics, playback reports, and tooling can refer to the
 authored action without depending on array position.

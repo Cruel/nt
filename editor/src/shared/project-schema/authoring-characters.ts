@@ -6,6 +6,7 @@ import { entityIdSchema } from './authoring-common';
 import { roomRefSchema } from './authoring-flow';
 import { inventoryDefinitionSchema } from './authoring-inventories';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const characterPreviewBackgroundValues = [
   'transparent',
@@ -64,69 +65,76 @@ export const characterPoseDataSchema = z
   })
   .strict();
 
-export const characterPresentationProfileDataSchema = z
-  .object({
-    id: entityIdSchema,
-    label: z.string().min(1, 'Profile label is required.'),
-    layers: z.array(characterPresentationLayerDataSchema).default([]),
-    defaultPoseId: entityIdSchema,
-    poses: z.array(characterPoseDataSchema).default([]),
-    animationClips: z
-      .array(
-        z
-          .object({
-            id: entityIdSchema,
-            label: z.string().min(1, 'Animation clip label is required.'),
-            clock: z.enum(presentationClockValues),
-            frames: z
-              .array(
-                z
-                  .object({
-                    durationMs: z.number().int().positive(),
-                    layers: z
-                      .array(
-                        z
-                          .object({
-                            layerId: entityIdSchema,
-                            sprite: characterAssetRefSchema.nullable().optional(),
-                            materialApplication: materialApplicationSchema.nullable().optional(),
-                            offset: characterVector2Schema.optional(),
-                            scale: z.number().finite().positive().optional(),
-                            anchor: characterVector2Schema.optional(),
-                            visible: z.boolean().optional(),
-                          })
-                          .strict(),
-                      )
-                      .default([]),
-                  })
-                  .strict(),
-              )
-              .min(1),
-          })
-          .strict(),
-      )
-      .default([]),
-    automaticAnimations: z
-      .object({
-        blink: z
-          .object({
-            clipId: entityIdSchema,
-            role: z.string().min(1),
-            intervalMs: z.number().int().positive(),
-          })
-          .strict()
-          .nullable()
-          .default(null),
-        speaking: z
-          .object({ clipId: entityIdSchema, role: z.string().min(1) })
-          .strict()
-          .nullable()
-          .default(null),
-      })
-      .strict()
-      .default({ blink: null, speaking: null }),
-  })
-  .strict();
+export const characterPresentationProfileDataSchema = withSchemaDocumentation(
+  z
+    .object({
+      id: entityIdSchema,
+      label: z.string().min(1, 'Profile label is required.'),
+      layers: z.array(characterPresentationLayerDataSchema).default([]),
+      defaultPoseId: entityIdSchema,
+      poses: z.array(characterPoseDataSchema).default([]),
+      animationClips: z
+        .array(
+          z
+            .object({
+              id: entityIdSchema,
+              label: z.string().min(1, 'Animation clip label is required.'),
+              clock: z.enum(presentationClockValues),
+              frames: z
+                .array(
+                  z
+                    .object({
+                      durationMs: z.number().int().positive(),
+                      layers: z
+                        .array(
+                          z
+                            .object({
+                              layerId: entityIdSchema,
+                              sprite: characterAssetRefSchema.nullable().optional(),
+                              materialApplication: materialApplicationSchema.nullable().optional(),
+                              offset: characterVector2Schema.optional(),
+                              scale: z.number().finite().positive().optional(),
+                              anchor: characterVector2Schema.optional(),
+                              visible: z.boolean().optional(),
+                            })
+                            .strict(),
+                        )
+                        .default([]),
+                    })
+                    .strict(),
+                )
+                .min(1),
+            })
+            .strict(),
+        )
+        .default([]),
+      automaticAnimations: z
+        .object({
+          blink: z
+            .object({
+              clipId: entityIdSchema,
+              role: z.string().min(1),
+              intervalMs: z.number().int().positive(),
+            })
+            .strict()
+            .nullable()
+            .default(null),
+          speaking: z
+            .object({ clipId: entityIdSchema, role: z.string().min(1) })
+            .strict()
+            .nullable()
+            .default(null),
+        })
+        .strict()
+        .default({ blink: null, speaking: null }),
+    })
+    .strict(),
+  {
+    constraints: [
+      'A Character presentation Profile must contain at least one layer and at least one pose, even though omitted fields normalize to empty arrays during editing.',
+    ],
+  },
+);
 
 export const characterGestureCueDataSchema = z.discriminatedUnion('kind', [
   z
@@ -224,46 +232,53 @@ export const characterInitialWorldLocationSchema = z.discriminatedUnion('kind', 
   z.object({ kind: z.literal('room'), room: roomRefSchema }).strict(),
 ]);
 
-export const characterDataSchema = z
-  .object({
-    kind: z.literal('character').default('character'),
-    displayName: z.string().default(''),
-    dialogue: characterDialogueStyleSchema.default({
-      name: '',
-      nameColor: null,
-      textColor: null,
-      styleClass: '',
-    }),
-    defaults: z
-      .object({
-        profileId: entityIdSchema,
-        expressionId: entityIdSchema,
-        appearanceId: entityIdSchema.nullable().default(null),
-        idleId: entityIdSchema.nullable().default(null),
-      })
-      .strict()
-      .default({
-        profileId: 'stage',
-        expressionId: 'neutral',
-        appearanceId: null,
-        idleId: null,
+export const characterDataSchema = withSchemaDocumentation(
+  z
+    .object({
+      kind: z.literal('character').default('character'),
+      displayName: z.string().default(''),
+      dialogue: characterDialogueStyleSchema.default({
+        name: '',
+        nameColor: null,
+        textColor: null,
+        styleClass: '',
       }),
-    profiles: z.array(characterPresentationProfileDataSchema).default([]),
-    expressions: z.array(characterExpressionDataSchema).default([]),
-    appearances: z.array(characterAppearanceDataSchema).default([]),
-    gestures: z.array(characterGestureDataSchema).default([]),
-    idles: z.array(characterIdleDataSchema).default([]),
-    inventories: z.array(inventoryDefinitionSchema),
-    initialWorldState: z
-      .object({
-        location: characterInitialWorldLocationSchema,
-        enabled: z.boolean(),
-        visible: z.boolean(),
-      })
-      .strict()
-      .default({ location: { kind: 'unplaced' }, enabled: true, visible: true }),
-  })
-  .strict();
+      defaults: z
+        .object({
+          profileId: entityIdSchema,
+          expressionId: entityIdSchema,
+          appearanceId: entityIdSchema.nullable().default(null),
+          idleId: entityIdSchema.nullable().default(null),
+        })
+        .strict()
+        .default({
+          profileId: 'stage',
+          expressionId: 'neutral',
+          appearanceId: null,
+          idleId: null,
+        }),
+      profiles: z.array(characterPresentationProfileDataSchema).default([]),
+      expressions: z.array(characterExpressionDataSchema).default([]),
+      appearances: z.array(characterAppearanceDataSchema).default([]),
+      gestures: z.array(characterGestureDataSchema).default([]),
+      idles: z.array(characterIdleDataSchema).default([]),
+      inventories: z.array(inventoryDefinitionSchema),
+      initialWorldState: z
+        .object({
+          location: characterInitialWorldLocationSchema,
+          enabled: z.boolean(),
+          visible: z.boolean(),
+        })
+        .strict()
+        .default({ location: { kind: 'unplaced' }, enabled: true, visible: true }),
+    })
+    .strict(),
+  {
+    constraints: [
+      'A Character must contain at least one presentation Profile and at least one Expression, even though omitted fields normalize to empty arrays during editing.',
+    ],
+  },
+);
 
 export type CharacterAssetRef = z.infer<typeof characterAssetRefSchema>;
 export type CharacterMaterialRef = z.infer<typeof characterMaterialRefSchema>;

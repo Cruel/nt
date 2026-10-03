@@ -56,19 +56,19 @@ function ownerDefaultPropertyRecordSchema<Data extends z.ZodType>(data: Data) {
     .strict();
 }
 
-export const variableRecordSchema = recordSchema(variableDataSchema.strict());
+export const variableRecordSchema = recordSchema(variableDataSchema);
 export const materialRecordSchema = recordSchema(materialDataSchema.strict());
 export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());
 export const archetypeRecordSchema = recordSchema(archetypeDataSchema);
-export const characterRecordSchema = ownerLocalPropertyRecordSchema(characterDataSchema.strict());
+export const characterRecordSchema = ownerLocalPropertyRecordSchema(characterDataSchema);
 export const roomRecordSchema = ownerLocalPropertyRecordSchema(roomDataSchema.strict());
 export const interactableRecordSchema = ownerDefaultPropertyRecordSchema(
   interactableDataSchema.strict(),
 );
 export const verbRecordSchema = recordSchema(verbDataSchema);
 export const interactionRecordSchema = recordSchema(interactionDataSchema);
-export const dialogueRecordSchema = recordSchema(dialogueDataSchema.strict());
-export const sceneRecordSchema = recordSchema(sceneDataSchema.strict());
+export const dialogueRecordSchema = recordSchema(dialogueDataSchema);
+export const sceneRecordSchema = recordSchema(sceneDataSchema);
 export const mapRecordSchema = recordSchema(mapDataSchema);
 export const scriptRecordSchema = recordSchema(scriptModuleDataSchema);
 export const testRecordSchema = recordSchema(testDataSchema.strict());

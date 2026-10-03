@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AuthoringRecordBase } from './authoring-project';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const assetKindValues = [
   'image',
@@ -44,43 +45,51 @@ export const assetSourceSchema = z
   })
   .strict();
 
-export const assetDataSchema = z
-  .object({
-    kind: z.enum(assetKindValues),
-    source: assetSourceSchema,
-    aliases: z.array(z.string()).default([]),
-    sampling: z.enum(imageSamplingValues).optional(),
-    mimeType: z.string().optional(),
-    extension: z.string().optional(),
-    byteSize: z.number().nonnegative().optional(),
-    contentHash: z.string().optional(),
-    importedAt: z.string().optional(),
-    originalName: z.string().optional(),
-    originalPath: z.string().optional(),
-    imageMetadata: imageAssetMetadataSchema.nullable(),
-    preview: z
-      .object({
-        thumbnailRevision: z.string().optional(),
-        durationSeconds: z.number().nonnegative().optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict()
-  .superRefine((asset, context) => {
-    if (asset.kind === 'image' && asset.imageMetadata === null)
-      context.addIssue({
-        code: 'custom',
-        path: ['imageMetadata'],
-        message: 'Image metadata is required.',
-      });
-    if (asset.kind !== 'image' && asset.imageMetadata !== null)
-      context.addIssue({
-        code: 'custom',
-        path: ['imageMetadata'],
-        message: 'Only image assets may have image metadata.',
-      });
-  });
+export const assetDataSchema = withSchemaDocumentation(
+  z
+    .object({
+      kind: z.enum(assetKindValues),
+      source: assetSourceSchema,
+      aliases: z.array(z.string()).default([]),
+      sampling: z.enum(imageSamplingValues).optional(),
+      mimeType: z.string().optional(),
+      extension: z.string().optional(),
+      byteSize: z.number().nonnegative().optional(),
+      contentHash: z.string().optional(),
+      importedAt: z.string().optional(),
+      originalName: z.string().optional(),
+      originalPath: z.string().optional(),
+      imageMetadata: imageAssetMetadataSchema.nullable(),
+      preview: z
+        .object({
+          thumbnailRevision: z.string().optional(),
+          durationSeconds: z.number().nonnegative().optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .superRefine((asset, context) => {
+      if (asset.kind === 'image' && asset.imageMetadata === null)
+        context.addIssue({
+          code: 'custom',
+          path: ['imageMetadata'],
+          message: 'Image metadata is required.',
+        });
+      if (asset.kind !== 'image' && asset.imageMetadata !== null)
+        context.addIssue({
+          code: 'custom',
+          path: ['imageMetadata'],
+          message: 'Only image assets may have image metadata.',
+        });
+    }),
+  {
+    constraints: [
+      'Image Assets require a non-null imageMetadata object.',
+      'Every non-image Asset requires imageMetadata to be null.',
+    ],
+  },
+);
 
 export type AssetData = z.infer<typeof assetDataSchema>;
 

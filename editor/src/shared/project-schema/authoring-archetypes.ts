@@ -14,6 +14,7 @@ import {
 import { defaultRoomData, roomDataSchema, type RoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { ownerDefaultPropertiesSchema, type OwnerDefaultProperty } from './authoring-properties';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const gameplayInstanceKindValues = ['room', 'character', 'interactable'] as const;
 export type GameplayInstanceKind = (typeof gameplayInstanceKindValues)[number];
@@ -24,14 +25,36 @@ export const archetypeRefSchema = z
   })
   .strict();
 
-export const archetypeDataSchema = z
-  .object({
-    kind: z.literal('archetype'),
-    instanceKind: z.enum(gameplayInstanceKindValues),
-    base: archetypeRefSchema.nullable().default(null),
-    overrides: z.record(z.string(), jsonValueSchema).default({}),
-  })
-  .strict();
+export const archetypeDataSchema = withSchemaDocumentation(
+  z
+    .object({
+      kind: z.literal('archetype'),
+      instanceKind: z.enum(gameplayInstanceKindValues),
+      base: archetypeRefSchema.nullable().default(null),
+      overrides: z.record(z.string(), jsonValueSchema).default({}),
+    })
+    .strict(),
+  {
+    constraints: [
+      'Each overrides key is a JSON Pointer into the inherited configuration and must be rooted under /data, /traits, or /defaultProperties.',
+      'Character /data/initialWorldState is instance-local and cannot be inherited or changed through Archetype overrides.',
+    ],
+    examples: [
+      {
+        title: 'Override inherited Room configuration',
+        value: {
+          kind: 'archetype',
+          instanceKind: 'room',
+          base: null,
+          overrides: {
+            '/data/displayName': 'Shared Hall',
+            '/traits': ['inspectable'],
+          },
+        },
+      },
+    ],
+  },
+);
 
 export type ArchetypeData = z.infer<typeof archetypeDataSchema>;
 export type ArchetypeRef = z.infer<typeof archetypeRefSchema>;

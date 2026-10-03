@@ -13,6 +13,7 @@ import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition } from './authoring-condition-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { analyzeInteractionRules, selectorUnionOverlap } from '../interaction-resolver-analysis';
+import { withSchemaDocumentation } from './schema-documentation';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -39,10 +40,18 @@ export const interactionRuleSchema = strict({
   program: interactionProgramSchema,
 });
 
-export const interactionDataSchema = strict({
-  kind: z.literal('interaction'),
-  rules: z.array(interactionRuleSchema),
-});
+export const interactionDataSchema = withSchemaDocumentation(
+  strict({
+    kind: z.literal('interaction'),
+    rules: z.array(interactionRuleSchema),
+  }),
+  {
+    constraints: [
+      'Interaction resolution considers the structurally most-specific matching Rule tier before comparing priority.',
+      'Within the winning structural tier, the highest passing priority wins; multiple passing Rules at the same winning priority are an ambiguity error, not an arbitrary tie-break.',
+    ],
+  },
+);
 
 export type InteractionSlotSelector = z.infer<typeof interactionSlotSelectorSchema>;
 export type InteractionOffer = z.infer<typeof interactionOfferSchema>;

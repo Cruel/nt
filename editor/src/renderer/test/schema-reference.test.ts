@@ -104,6 +104,20 @@ describe('compact schema reference', () => {
     expect(traitDocumentation).toContain(
       'Omitting defaultValue leaves a Property requirement. Reusable configuration may leave that requirement unresolved, but a concrete gameplay owner or Interactable Instance must resolve an effective compatible value before publication.',
     );
+    const localization = website.documents.find((document) => document.id === 'localization')!;
+    const localizationDocumentation = schemaDocumentationEntries(localization.model).flatMap(
+      (entry) => [
+        ...(entry.documentation.constraints ?? []),
+        ...(entry.documentation.examples ?? []).map((example) => example.title),
+      ],
+    );
+    expect(localizationDocumentation).toContain(
+      "Every plural pattern must contain an 'other' case.",
+    );
+    expect(localizationDocumentation).toContain(
+      "Every select pattern must contain an 'other' fallback case.",
+    );
+    expect(localizationDocumentation).toContain('Plural with nested select fallback');
     expect(createNovelTeaCompactReferenceFiles()).toEqual(files);
   });
 
@@ -244,6 +258,98 @@ describe('compact schema reference', () => {
     expect(traits).toContain(
       'a concrete gameplay owner or Interactable Instance must resolve an effective compatible value before publication.',
     );
+
+    for (const text of [rooms, interactables]) {
+      expect(text).toContain(
+        'Room Features are concrete gameplay identities: defaultProperties must be empty and Property values belong in localProperties.',
+      );
+      expect(text).toContain(
+        'Interactable-definition Features are reusable configuration: localProperties must be empty and Property defaults belong in defaultProperties.',
+      );
+    }
+
+    const localization = files['localization.md']!;
+    expect(localization).toContain("Every plural pattern must contain an 'other' case.");
+    expect(localization).toContain("Every select pattern must contain an 'other' fallback case.");
+    expect(localization).toContain('### Plural with nested select fallback');
+    expect(localization).toContain('MessageId =');
+    expect(localization).toContain('MessageArgumentName =');
+    expect(localization).toContain('MessageSelectorArgumentName =');
+    expect(localization).toContain('LocalizationWorkflowFingerprint =');
+    expect(localization).toContain('LocalizationSourceTrackingFingerprint =');
+    expect(localization.match(/format uuid/g) ?? []).toHaveLength(1);
+    expect(localization.match(/pattern "\^fnv1a:\[0-9a-f\]\{32\}\$"/g) ?? []).toHaveLength(2);
+    expect(localization.match(/pattern "\^\[A-Za-z_\]\[A-Za-z0-9_-\]\*\$"/g) ?? []).toHaveLength(2);
+
+    const archetypes = files['records/archetypes.md']!;
+    expect(archetypes).toContain('Each overrides key is a JSON Pointer');
+    expect(archetypes).toContain('Character /data/initialWorldState');
+    expect(archetypes).toContain('### Override inherited Room configuration');
+
+    const scenes = files['records/scenes.md']!;
+    expect(scenes).toContain(
+      'Scene Event completionDependencies may name only earlier enabled non-comment Events.',
+    );
+    expect(scenes).toContain('gameplay-effect-batch operations use GameplayCommand shape');
+    expect(scenes).toContain('Choice option effects use GameplayCommand shape');
+
+    const dialogues = files['records/dialogues.md']!;
+    expect(dialogues).toContain('offset counts Unicode code points');
+    expect(dialogues).toContain('Positioned Dialogue cues currently require an inline text source');
+    expect(dialogues).toContain('Sequence blocks admit at most one outgoing next edge');
+
+    const verbs = files['records/verbs.md']!;
+    expect(verbs).toContain('qualified-pattern selectors require exactly one wildcard');
+    expect(verbs).toContain('bindingOrder must contain every declared Verb slot exactly once');
+    expect(verbs).toContain('{slot-id}');
+
+    const interactions = files['records/interactions.md']!;
+    expect(interactions).toContain('structurally most-specific matching Rule tier');
+    expect(interactions).toContain('ambiguity error');
+
+    const layouts = files['records/layouts.md']!;
+    expect(layouts).toContain(
+      "sourceMode 'file' owns the companion records/layouts/<layout-id>/layout.rml",
+    );
+    expect(layouts).toContain('records/layouts/<layout-id>/layout.lua');
+    expect(layouts).toContain(
+      'Layout input defaultValue must match the declared type and nullability.',
+    );
+    expect(layouts).toContain('Every State Shape defaultValue must recursively match');
+
+    const project = files['project.md']!;
+    expect(project).toContain('worldRasterPolicy: "capped" | "native"');
+    expect(project).toContain('width: integer >= 1');
+    expect(project).toContain(
+      'inclusive range [minimum, maximum] must contain the default scale 1',
+    );
+
+    const assets = files['records/assets.md']!;
+    expect(assets).toContain('Image Assets require a non-null imageMetadata object.');
+    expect(assets).toContain('Every non-image Asset requires imageMetadata to be null.');
+
+    const characters = files['records/characters.md']!;
+    expect(characters).toContain(
+      'must contain at least one presentation Profile and at least one Expression',
+    );
+    expect(characters).toContain(
+      'presentation Profile must contain at least one layer and at least one pose',
+    );
+
+    const materials = files['records/materials.md']!;
+    expect(materials).toContain('custom shader override must set at least one');
+    expect(materials).toContain('parameter override must set at least one');
+    expect(materials).toContain('texture override must set at least one');
+
+    const variables = files['records/variables.md']!;
+    expect(variables).toContain('value must match the declared type and nullability.');
+    expect(variables).toContain('Enum Variables require at least one non-empty enumValues entry');
+    expect(variables).toContain(
+      'Non-null values must equal one declared entry; null is permitted when nullable is true.',
+    );
+
+    const maps = files['records/maps.md']!;
+    expect(maps).toContain('two-exit Map Connection must reference reciprocal Room Exits');
   });
 
   it('keeps every generated raw schema internally resolvable and free of synthetic titles', () => {

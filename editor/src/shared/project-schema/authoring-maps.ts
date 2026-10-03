@@ -10,6 +10,7 @@ import {
 import { parseRoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
+import { withSchemaDocumentation } from './schema-documentation';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 const normalizedCoordinate = z.number().finite().min(0).max(1);
@@ -32,17 +33,24 @@ export const mapLocationSchema = strict({
   logicalOrder: z.number().int(),
 });
 
-export const mapConnectionSchema = strict({
-  id: entityIdSchema,
-  exits: z.array(roomExitRefSchema).min(1).max(2),
-  label: textContentSchema.nullable(),
-  icon: assetRefSchema.nullable(),
-  style: z.string().trim().min(1).nullable(),
-  visibility: conditionSchema,
-  logicalOrder: z.number().int(),
-  path: z.array(mapPointSchema),
-  hitRegions: z.array(mapPolygonSchema),
-});
+export const mapConnectionSchema = withSchemaDocumentation(
+  strict({
+    id: entityIdSchema,
+    exits: z.array(roomExitRefSchema).min(1).max(2),
+    label: textContentSchema.nullable(),
+    icon: assetRefSchema.nullable(),
+    style: z.string().trim().min(1).nullable(),
+    visibility: conditionSchema,
+    logicalOrder: z.number().int(),
+    path: z.array(mapPointSchema),
+    hitRegions: z.array(mapPolygonSchema),
+  }),
+  {
+    constraints: [
+      'A two-exit Map Connection must reference reciprocal Room Exits connecting the same two distinct Rooms.',
+    ],
+  },
+);
 
 export const mapPresentationSchema = strict({
   title: textContentSchema.nullable(),
