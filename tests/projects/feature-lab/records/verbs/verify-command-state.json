@@ -1,0 +1,33 @@
+{
+  "id": "verify-command-state",
+  "label": "Verify Command State",
+  "data": {
+    "kind": "verb",
+    "slots": [{
+      "id": "target",
+      "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" },
+      "prompt": { "source": { "kind": "inline", "text": "Choose target" }, "markup": "plain" },
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "verify-target" } } } }]
+    }],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Verify state" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Verify state" }, "markup": "plain" },
+    "offers": [{
+      "id": "verify",
+      "slotId": "target",
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "verify-target" } } } }],
+      "rank": 100,
+      "primary": true
+    }],
+    "availability": { "kind": "always" },
+    "defaultProgram": {
+      "instructions": [{
+        "id": "report",
+        "kind": "run-lua",
+        "source": "local atomic,_,ae=Game.prop('commands-atomic-marker'); if ae then error(ae) end; local boundary,_,be=Game.prop('commands-boundary-marker'); if be then error(be) end; noveltea.notify('Atomic marker=' .. tostring(atomic) .. '; boundary marker=' .. tostring(boundary) .. '.')"
+      }],
+      "completion": { "kind": "return" },
+      "outcome": "handled"
+    }
+  }
+}

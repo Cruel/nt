@@ -1,0 +1,11 @@
+{
+  "id": "commands-atomic-marker",
+  "label": "Commands Atomic Marker",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

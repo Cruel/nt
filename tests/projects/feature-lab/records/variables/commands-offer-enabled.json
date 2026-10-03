@@ -1,0 +1,11 @@
+{
+  "id": "commands-offer-enabled",
+  "label": "Commands Offer Enabled",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false,
+    "scope": "global"
+  }
+}

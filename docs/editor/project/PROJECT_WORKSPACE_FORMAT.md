@@ -8,7 +8,8 @@ paths accept no legacy monolithic project file or alternate manifest name.
 
 `project.json` has schema `noveltea.project.workspace` at version `1` and owns project identity,
 project settings, top-level export configuration, the stable Bootstrap Module reference, entrypoint,
-Project-level Inventory declarations, and the infrastructure-level `interactableInstances` registry.
+the nullable Project-level undefined-Interaction fallback program, Project-level Inventory
+declarations, and the infrastructure-level `interactableInstances` registry.
 The Instance registry is not an Explorer collection and is not persisted under `records/`.
 `/settings` is the
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the

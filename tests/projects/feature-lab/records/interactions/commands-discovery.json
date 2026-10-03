@@ -1,0 +1,41 @@
+{
+  "id": "commands-discovery",
+  "label": "Commands & Discovery",
+  "data": {
+    "kind": "interaction",
+    "rules": [
+      {
+        "id": "rule-derived-probe",
+        "verb": { "$ref": { "collection": "verbs", "id": "probe" } },
+        "slots": [{
+          "slotId": "subject",
+          "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-rule-derived" } } } }]
+        }],
+        "offer": { "slotId": "subject", "rank": 60, "primary": true },
+        "guard": { "kind": "always" },
+        "priority": 20,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "rule-derived" }],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
+      },
+      {
+        "id": "deliver-parcel",
+        "verb": { "$ref": { "collection": "verbs", "id": "deliver" } },
+        "slots": [
+          { "slotId": "parcel", "selectors": [{ "kind": "interactable-definition", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } } }] },
+          { "slotId": "recipient", "selectors": [{ "kind": "any-subject" }] }
+        ],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 20,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "delivered" }],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
+      }
+    ]
+  }
+}

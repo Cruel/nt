@@ -795,6 +795,31 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         return fail("RuntimeUI Game HUD initialization failed.", diagnostics_json(game_hud.error()));
     const auto game_hud_instance = *game_hud.value_if();
 
+    const auto command_builder_setting = std::find_if(
+        runtime_project.settings().system_layouts.begin(), runtime_project.settings().system_layouts.end(),
+        [](const auto& item) {
+            return item.role == noveltea::core::compiled::SystemLayoutRole::CommandBuilder;
+        });
+    auto command_builder = [&]() -> noveltea::presentation::RuntimeLayoutManager::MountResult {
+        noveltea::presentation::RuntimeLayoutMountRequest request;
+        if (command_builder_setting == runtime_project.settings().system_layouts.end() ||
+            !command_builder_setting->layout) {
+            request.source = noveltea::presentation::RuntimeLayoutBuiltinSource{
+                noveltea::presentation::RuntimeLayoutBuiltinDocument::CommandBuilder};
+        } else {
+            request.layout_id = command_builder_setting->layout->text();
+            request.source = noveltea::presentation::RuntimeLayoutProjectSource{};
+            request.system_role = noveltea::core::compiled::SystemLayoutRole::CommandBuilder;
+            request.policy = noveltea::presentation::runtime_system_layout_policy(
+                noveltea::core::compiled::SystemLayoutRole::CommandBuilder, true);
+            request.composition_group = noveltea::core::PresentationCompositionGroup::Interface;
+        }
+        return layout_manager.mount(std::move(request));
+    }();
+    if (!command_builder)
+        return fail("RuntimeUI Command Builder initialization failed.",
+                    diagnostics_json(command_builder.error()));
+
     auto prepare_presentation = [&](const RuntimePresentationSnapshot& snapshot) {
         return prepare_layout_font_leases(snapshot, runtime_project, frontend_assets, executor);
     };

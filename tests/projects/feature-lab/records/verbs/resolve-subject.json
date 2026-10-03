@@ -1,0 +1,25 @@
+{
+  "id": "resolve-subject",
+  "label": "Resolve Subject",
+  "data": {
+    "kind": "verb",
+    "slots": [{
+      "id": "subject",
+      "label": { "source": { "kind": "inline", "text": "subject" }, "markup": "plain" },
+      "prompt": { "source": { "kind": "inline", "text": "Choose subject" }, "markup": "plain" },
+      "selectors": [{ "kind": "any-subject" }]
+    }],
+    "bindingOrder": ["subject"],
+    "actionText": { "source": { "kind": "inline", "text": "Resolve" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Resolve {subject}" }, "markup": "plain" },
+    "offers": [{
+      "id": "menu-any",
+      "slotId": "subject",
+      "selectors": [{ "kind": "any-subject" }],
+      "rank": -200,
+      "primary": false
+    }],
+    "availability": { "kind": "always" },
+    "defaultProgram": { "instructions": [], "completion": { "kind": "return" }, "outcome": "unhandled" }
+  }
+}

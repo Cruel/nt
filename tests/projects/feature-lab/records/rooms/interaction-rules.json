@@ -1,0 +1,63 @@
+{
+  "id": "interaction-rules",
+  "label": "Interaction Rules",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Interaction Rules",
+    "background": { "asset": null, "materialApplication": null, "fit": "cover", "color": "#211a2b" },
+    "description": { "source": { "kind": "inline", "text": "Resolve selector families and Guard tiers, then inspect fallback and transaction boundaries. Deliberate fault controls keep their real diagnostics visible." }, "markup": "active-text" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [], "overlays": [],
+    "cast": [{ "id": "guide", "character": { "$ref": { "collection": "characters", "id": "rules-recipient" } }, "condition": { "kind": "always" }, "placementId": "guide", "profileId": "stage", "poseId": "standing", "expressionId": "neutral", "appearanceId": null, "idleId": null, "visible": true, "order": 5 }],
+    "props": [],
+    "interactables": [
+      { "id": "definition", "interactable": { "$ref": { "registry": "interactableInstances", "id": "rule-definition-target" } }, "condition": { "kind": "always" }, "placementId": "definition", "visible": true, "order": 10 },
+      { "id": "trait", "interactable": { "$ref": { "registry": "interactableInstances", "id": "rule-trait-target" } }, "condition": { "kind": "always" }, "placementId": "trait", "visible": true, "order": 11 },
+      { "id": "feature", "interactable": { "$ref": { "registry": "interactableInstances", "id": "rule-feature-owner" } }, "condition": { "kind": "always" }, "placementId": "feature", "visible": true, "order": 12 },
+      { "id": "exact", "interactable": { "$ref": { "registry": "interactableInstances", "id": "rule-exact-target" } }, "condition": { "kind": "always" }, "placementId": "exact", "visible": true, "order": 13 },
+      { "id": "guard", "interactable": { "$ref": { "registry": "interactableInstances", "id": "guard-target" } }, "condition": { "kind": "always" }, "placementId": "guard", "visible": true, "order": 20 },
+      { "id": "guard-toggle", "interactable": { "$ref": { "registry": "interactableInstances", "id": "guard-toggle-target" } }, "condition": { "kind": "always" }, "placementId": "guard-toggle", "visible": true, "order": 21 },
+      { "id": "fallback", "interactable": { "$ref": { "registry": "interactableInstances", "id": "fallback-target" } }, "condition": { "kind": "always" }, "placementId": "fallback", "visible": true, "order": 30 },
+      { "id": "atomic", "interactable": { "$ref": { "registry": "interactableInstances", "id": "atomic-target" } }, "condition": { "kind": "always" }, "placementId": "atomic", "visible": true, "order": 31 },
+      { "id": "boundary", "interactable": { "$ref": { "registry": "interactableInstances", "id": "boundary-target" } }, "condition": { "kind": "always" }, "placementId": "boundary", "visible": true, "order": 32 },
+      { "id": "verify", "interactable": { "$ref": { "registry": "interactableInstances", "id": "verify-target" } }, "condition": { "kind": "always" }, "placementId": "verify", "visible": true, "order": 33 }
+    ],
+    "environments": [], "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" }, "beforeEnter": [],
+      "afterEnter": [{
+        "id": "create-runtime-selector-subject",
+        "kind": "create-interactable",
+        "definition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } },
+        "quantity": 1,
+        "location": { "kind": "room", "room": { "kind": "current-room" } },
+        "enabled": true,
+        "visible": true,
+        "roomPresentation": "resolve",
+        "result": "runtime-parcel"
+      }],
+      "beforeLeave": [], "afterLeave": [], "onEnterRejected": [], "onLeaveRejected": []
+    },
+    "exits": [{ "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] }],
+    "placements": [
+      { "id": "guide", "bounds": { "x": 0.82, "y": 0.22, "width": 0.14, "height": 0.58 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Character" }, "markup": "plain" }, "layout": null } },
+      { "id": "definition", "bounds": { "x": 0.04, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Definition" }, "markup": "plain" }, "layout": null } },
+      { "id": "trait", "bounds": { "x": 0.13, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Trait" }, "markup": "plain" }, "layout": null } },
+      { "id": "feature", "bounds": { "x": 0.22, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Feature" }, "markup": "plain" }, "layout": null } },
+      { "id": "exact", "bounds": { "x": 0.31, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Exact" }, "markup": "plain" }, "layout": null } },
+      { "id": "guard", "bounds": { "x": 0.04, "y": 0.38, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Guard tier" }, "markup": "plain" }, "layout": null } },
+      { "id": "guard-toggle", "bounds": { "x": 0.13, "y": 0.38, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Enable guard" }, "markup": "plain" }, "layout": null } },
+      { "id": "fallback", "bounds": { "x": 0.04, "y": 0.66, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Fallback" }, "markup": "plain" }, "layout": null } },
+      { "id": "atomic", "bounds": { "x": 0.13, "y": 0.66, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Atomic failure" }, "markup": "plain" }, "layout": null } },
+      { "id": "boundary", "bounds": { "x": 0.22, "y": 0.66, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Boundary failure" }, "markup": "plain" }, "layout": null } },
+      { "id": "verify", "bounds": { "x": 0.31, "y": 0.66, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Verify markers" }, "markup": "plain" }, "layout": null } },
+      { "id": "runtime-fallback", "bounds": { "x": 0.55, "y": 0.63, "width": 0.08, "height": 0.12 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Runtime-created parcel" }, "markup": "plain" }, "layout": null } }
+    ],
+    "fallbackInteractablePlacementId": "runtime-fallback",
+    "features": [], "hotspots": []
+  }
+}

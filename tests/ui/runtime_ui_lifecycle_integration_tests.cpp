@@ -1737,7 +1737,7 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
       body { width: 640px; height: 360px; }
       button, #attribute-action, #passive { display: block; width: 160px; height: 48px; }
       #hidden-action { display: none; }
-      #empty-action { width: 0; height: 0; }
+      #empty-action { width: 0; height: 0; padding: 0; border-width: 0; }
       #blocked-action, #blocker { position: absolute; left: 240px; top: 0; width: 160px; height: 48px; }
     </style>
   </head>
@@ -3081,6 +3081,29 @@ TEST_CASE("built-in Verb Menu begins and Command Builder repairs a multi-slot Dr
     std::copy_if(rebind_buttons.begin(), rebind_buttons.end(), std::back_inserter(visible_rebinds),
                  [](const auto* element) { return element->IsVisible(true); });
     REQUIRE(visible_rebinds.size() == 2);
+    auto* submit_button = command_builder_document->GetElementById("command_builder_submit");
+    auto* cancel_button = command_builder_document->GetElementById("command_builder_cancel");
+    REQUIRE(submit_button);
+    REQUIRE(cancel_button);
+    CHECK(submit_button->IsVisible(true));
+    CHECK(cancel_button->IsVisible(true));
+    const auto submit_size = submit_button->GetBox().GetSize(Rml::BoxArea::Border);
+    const auto cancel_size = cancel_button->GetBox().GetSize(Rml::BoxArea::Border);
+    CHECK(submit_size.x > 0.0f);
+    CHECK(submit_size.y > 0.0f);
+    CHECK(cancel_size.x > 0.0f);
+    CHECK(cancel_size.y > 0.0f);
+    const auto submit = driver->click(
+        {.document_id = "runtime_command_builder", .selector = "#command_builder_submit"});
+    CHECK(submit.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(submit.dispatched);
+    REQUIRE(input_sink.last_gameplay_input);
+    const auto* submitted =
+        std::get_if<noveltea::core::SubmitCommandBuilderInput>(&*input_sink.last_gameplay_input);
+    REQUIRE(submitted);
+    CHECK(submitted->occurrence == noveltea::core::CommandBuilderOccurrenceId::from_number(9));
+    CHECK(submitted->verb == *combine.value_if());
+    REQUIRE(submitted->bindings.size() == 2);
     const auto repair = click_element(*visible_rebinds.front());
     REQUIRE(repair.runtime_inputs.size() == 1);
     const auto* watch =

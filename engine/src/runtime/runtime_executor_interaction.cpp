@@ -114,6 +114,51 @@ next_instruction(const core::compiled::InteractionProgram& program,
 
 } // namespace
 
+bool RuntimeExecutor::interaction_subject_available(
+    const core::compiled::InteractionSubject& subject) const
+{
+    if (m_room_presentation && std::find(m_room_presentation->eligible_subjects.begin(),
+                                         m_room_presentation->eligible_subjects.end(),
+                                         subject) != m_room_presentation->eligible_subjects.end())
+        return true;
+
+    const auto inventory_interactable_available = [&](core::InteractableInstanceId interactable) {
+        const auto* definition = m_world.resolved_configuration(interactable);
+        const auto* state = m_world.interactable_state(interactable);
+        const auto* location =
+            state ? std::get_if<core::compiled::InventoryLocation>(&state->location) : nullptr;
+        return definition != nullptr && state != nullptr && state->enabled && state->visible &&
+               location != nullptr && m_world.has_inventory(location->inventory);
+    };
+    return std::visit(
+        [&](const auto& typed) {
+            using T = std::decay_t<decltype(typed)>;
+            if constexpr (std::is_same_v<T, core::compiled::InteractableInteractionSubject>) {
+                return inventory_interactable_available(typed.interactable);
+            } else if constexpr (std::is_same_v<T, core::compiled::FeatureInteractionSubject>) {
+                return std::visit(
+                    [&](const auto& feature) {
+                        using F = std::decay_t<decltype(feature)>;
+                        if constexpr (std::is_same_v<F, core::InteractableFeatureRef>) {
+                            if (!inventory_interactable_available(feature.interactable))
+                                return false;
+                            const auto* owner =
+                                m_world.resolved_configuration(feature.interactable);
+                            return owner != nullptr &&
+                                   std::any_of(owner->features.begin(), owner->features.end(),
+                                               [&](const auto& item) {
+                                                   return item.identity.id == feature.feature_id;
+                                               });
+                        }
+                        return false;
+                    },
+                    typed.feature);
+            }
+            return false;
+        },
+        subject);
+}
+
 core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>
 RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
                              std::string_view runtime_locale)
@@ -129,9 +174,7 @@ RuntimeExecutor::verb_offers(const core::compiled::InteractionSubject& subject,
             return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::failure(
                 settled.error());
     }
-    if (std::find(m_room_presentation->eligible_subjects.begin(),
-                  m_room_presentation->eligible_subjects.end(),
-                  subject) == m_room_presentation->eligible_subjects.end())
+    if (!interaction_subject_available(subject))
         return core::Result<std::vector<core::VerbOfferView>, RuntimeExecutionError>::success({});
 
     const auto subject_family = [](const core::compiled::InteractionSubject& value) {
@@ -631,10 +674,7 @@ RuntimeExecutor::command_builder_reference(const core::compiled::InteractionSubj
         return core::Result<core::CommandBuilderWatchedReferenceView,
                             RuntimeExecutionError>::failure(offers.error());
     view.offers = std::move(*offers.value_if());
-    view.available =
-        m_room_presentation && std::find(m_room_presentation->eligible_subjects.begin(),
-                                         m_room_presentation->eligible_subjects.end(),
-                                         subject) != m_room_presentation->eligible_subjects.end();
+    view.available = interaction_subject_available(subject);
 
     std::visit(
         [&](const auto& typed) {
@@ -882,12 +922,10 @@ RuntimeExecutor::interact_in_context(core::VerbId verb_id,
                 interaction_error("execution.invalid_interaction_bindings",
                                   "Interaction binding does not satisfy the named Verb slot"));
         seen_slots.push_back(binding.slot_id);
-        if (std::find(m_room_presentation->eligible_subjects.begin(),
-                      m_room_presentation->eligible_subjects.end(),
-                      binding.subject) == m_room_presentation->eligible_subjects.end())
+        if (!interaction_subject_available(binding.subject))
             return core::Result<void, RuntimeExecutionError>::failure(interaction_error(
                 "execution.interaction_subject_unavailable",
-                "Interaction subject is not eligible in the active Room resolution"));
+                "Interaction subject is not eligible in the active Room or Inventory context"));
     }
 
     auto available = evaluate(verb->availability);

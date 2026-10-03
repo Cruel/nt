@@ -1,0 +1,106 @@
+{
+  "id": "probe",
+  "label": "Probe",
+  "data": {
+    "kind": "verb",
+    "slots": [
+      {
+        "id": "subject",
+        "label": { "source": { "kind": "inline", "text": "subject" }, "markup": "plain" },
+        "prompt": { "source": { "kind": "inline", "text": "Choose a subject" }, "markup": "plain" },
+        "selectors": [{ "kind": "any-subject" }]
+      }
+    ],
+    "bindingOrder": ["subject"],
+    "actionText": { "source": { "kind": "inline", "text": "Probe" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Probe {subject}" }, "markup": "plain" },
+    "offers": [
+      {
+        "id": "rank-low",
+        "slotId": "subject",
+        "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-ranked" } } } }],
+        "rank": 5,
+        "primary": false
+      },
+      {
+        "id": "rank-high",
+        "slotId": "subject",
+        "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-ranked" } } } }],
+        "rank": 50,
+        "primary": true
+      },
+      {
+        "id": "exact",
+        "slotId": "subject",
+        "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-exact" } } } }],
+        "rank": 40,
+        "primary": true
+      },
+      {
+        "id": "prefix",
+        "slotId": "subject",
+        "selectors": [{ "kind": "qualified-pattern", "family": "interactable", "pattern": "interactable:offer-prefix*" }],
+        "rank": 35,
+        "primary": true
+      },
+      {
+        "id": "trait",
+        "slotId": "subject",
+        "selectors": [{ "kind": "trait", "trait": { "$ref": { "collection": "traits", "id": "lab-marker" } } }],
+        "rank": 30,
+        "primary": true
+      },
+      {
+        "id": "definition",
+        "slotId": "subject",
+        "selectors": [{ "kind": "interactable-definition", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } } }],
+        "rank": 25,
+        "primary": true
+      },
+      {
+        "id": "feature",
+        "slotId": "subject",
+        "selectors": [{ "kind": "interactable-feature", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } }, "featureId": "seal" }],
+        "rank": 20,
+        "primary": true
+      },
+      {
+        "id": "character-family",
+        "slotId": "subject",
+        "selectors": [{ "kind": "family", "family": "character" }],
+        "rank": 15,
+        "primary": true
+      },
+      {
+        "id": "suppressed-exact",
+        "slotId": "subject",
+        "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-suppressed" } } } }],
+        "condition": { "kind": "variable-comparison", "variable": { "$ref": { "collection": "variables", "id": "commands-offer-enabled" } }, "operator": "truthy" },
+        "rank": 100,
+        "primary": true
+      },
+      {
+        "id": "suppressed-broad",
+        "slotId": "subject",
+        "selectors": [{ "kind": "qualified-pattern", "family": "interactable", "pattern": "interactable:offer-suppressed*" }],
+        "rank": 90,
+        "primary": true
+      },
+      {
+        "id": "any",
+        "slotId": "subject",
+        "selectors": [{ "kind": "any-subject" }],
+        "rank": -100,
+        "primary": false
+      }
+    ],
+    "availability": { "kind": "always" },
+    "defaultProgram": {
+      "instructions": [
+        { "id": "mark-probe", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "probe" }
+      ],
+      "completion": { "kind": "return" },
+      "outcome": "handled"
+    }
+  }
+}

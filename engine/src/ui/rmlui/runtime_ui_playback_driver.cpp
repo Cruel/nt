@@ -66,8 +66,11 @@ void fill_target_metadata(RuntimeUiPlaybackClickResult& result, Rml::Element& ta
 {
     result.target_id = target.GetId();
     result.target_tag = target.GetTagName();
-    const Rml::Vector2f offset = target.GetAbsoluteOffset(Rml::BoxArea::Content);
-    const Rml::Vector2f size = target.GetBox().GetSize(Rml::BoxArea::Content);
+    // Playback should target the same painted/hit-testable box a real pointer can click. Text can
+    // legitimately contribute no content-box height (for example a translated nt-tr child) while
+    // button padding and borders still produce a valid interactive target.
+    const Rml::Vector2f offset = target.GetAbsoluteOffset(Rml::BoxArea::Border);
+    const Rml::Vector2f size = target.GetBox().GetSize(Rml::BoxArea::Border);
     result.x = offset.x + size.x * 0.5f;
     result.y = offset.y + size.y * 0.5f;
     result.width = size.x;

@@ -1,0 +1,58 @@
+{
+  "id": "verbs-and-offers",
+  "label": "Verbs & Offers",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "localProperties": [],
+  "data": {
+    "kind": "room",
+    "displayName": "Verbs & Offers",
+    "background": { "asset": null, "materialApplication": null, "fit": "cover", "color": "#15212a" },
+    "description": { "source": { "kind": "inline", "text": "Exercise Primary Activate, explicit and rule-derived Offers, specificity/rank suppression, and the named-slot Command Builder." }, "markup": "active-text" },
+    "presentationSpace": { "size": { "width": 1920, "height": 1080 }, "bounds": null, "edgePolicy": "contain", "defaultView": { "center": { "x": 960, "y": 540 }, "zoom": 1, "rotationDegrees": 0 }, "views": [] },
+    "anchors": [],
+    "overlays": [],
+    "cast": [{ "id": "guide", "character": { "$ref": { "collection": "characters", "id": "verbs-recipient" } }, "condition": { "kind": "always" }, "placementId": "guide", "profileId": "stage", "poseId": "standing", "expressionId": "neutral", "appearanceId": null, "idleId": null, "visible": true, "order": 5 }],
+    "props": [],
+    "interactables": [
+      { "id": "primary", "interactable": { "$ref": { "registry": "interactableInstances", "id": "primary-target" } }, "condition": { "kind": "always" }, "placementId": "primary", "visible": true, "order": 10 },
+      { "id": "menu", "interactable": { "$ref": { "registry": "interactableInstances", "id": "menu-target" } }, "condition": { "kind": "always" }, "placementId": "menu", "visible": true, "order": 11 },
+      { "id": "ambiguous", "interactable": { "$ref": { "registry": "interactableInstances", "id": "ambiguous-target" } }, "condition": { "kind": "always" }, "placementId": "ambiguous", "visible": true, "order": 12 },
+      { "id": "exact", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-exact" } }, "condition": { "kind": "always" }, "placementId": "exact", "visible": true, "order": 20 },
+      { "id": "prefix", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-prefix-one" } }, "condition": { "kind": "always" }, "placementId": "prefix", "visible": true, "order": 21 },
+      { "id": "trait", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-trait" } }, "condition": { "kind": "always" }, "placementId": "trait", "visible": true, "order": 22 },
+      { "id": "definition", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-definition" } }, "condition": { "kind": "always" }, "placementId": "definition", "visible": true, "order": 23 },
+      { "id": "feature", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-feature-owner" } }, "condition": { "kind": "always" }, "placementId": "feature", "visible": true, "order": 24 },
+      { "id": "rank", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-ranked" } }, "condition": { "kind": "always" }, "placementId": "rank", "visible": true, "order": 25 },
+      { "id": "rule-derived", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-rule-derived" } }, "condition": { "kind": "always" }, "placementId": "rule-derived", "visible": true, "order": 26 },
+      { "id": "suppressed", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-suppressed" } }, "condition": { "kind": "always" }, "placementId": "suppressed", "visible": true, "order": 27 },
+      { "id": "self-parcel", "interactable": { "$ref": { "registry": "interactableInstances", "id": "builder-self-parcel" } }, "condition": { "kind": "always" }, "placementId": "self-parcel", "visible": true, "order": 30 }
+    ],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": { "canEnter": { "kind": "always" }, "canLeave": { "kind": "always" }, "beforeEnter": [], "afterEnter": [], "beforeLeave": [], "afterLeave": [], "onEnterRejected": [], "onLeaveRejected": [] },
+    "exits": [
+      { "id": "interaction-rules-test-entry", "label": "Interaction rules (automation entry)", "direction": "east", "target": { "$ref": { "collection": "rooms", "id": "interaction-rules" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] }
+    ],
+    "placements": [
+      { "id": "guide", "bounds": { "x": 0.82, "y": 0.22, "width": 0.14, "height": 0.58 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Recipient" }, "markup": "plain" }, "layout": null } },
+      { "id": "primary", "bounds": { "x": 0.04, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Primary" }, "markup": "plain" }, "layout": null } },
+      { "id": "menu", "bounds": { "x": 0.005, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Menu" }, "markup": "plain" }, "layout": null } },
+      { "id": "ambiguous", "bounds": { "x": 0.22, "y": 0.12, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Ambiguous" }, "markup": "plain" }, "layout": null } },
+      { "id": "exact", "bounds": { "x": 0.04, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Exact" }, "markup": "plain" }, "layout": null } },
+      { "id": "prefix", "bounds": { "x": 0.13, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Prefix" }, "markup": "plain" }, "layout": null } },
+      { "id": "trait", "bounds": { "x": 0.22, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Trait" }, "markup": "plain" }, "layout": null } },
+      { "id": "definition", "bounds": { "x": 0.31, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Definition" }, "markup": "plain" }, "layout": null } },
+      { "id": "feature", "bounds": { "x": 0.40, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Feature owner" }, "markup": "plain" }, "layout": null } },
+      { "id": "rank", "bounds": { "x": 0.49, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Rank" }, "markup": "plain" }, "layout": null } },
+      { "id": "rule-derived", "bounds": { "x": 0.58, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Rule Offer" }, "markup": "plain" }, "layout": null } },
+      { "id": "suppressed", "bounds": { "x": 0.67, "y": 0.36, "width": 0.07, "height": 0.11 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Suppressed" }, "markup": "plain" }, "layout": null } },
+      { "id": "self-parcel", "bounds": { "x": 0.36, "y": 0.65, "width": 0.09, "height": 0.14 }, "presentation": { "label": { "source": { "kind": "inline", "text": "Builder parcel" }, "markup": "plain" }, "layout": null } }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

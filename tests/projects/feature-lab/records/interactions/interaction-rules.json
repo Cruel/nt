@@ -1,0 +1,137 @@
+{
+  "id": "interaction-rules",
+  "label": "Interaction Rule Resolver",
+  "data": {
+    "kind": "interaction",
+    "rules": [
+      {
+        "id": "resolve-character",
+        "verb": { "$ref": { "collection": "verbs", "id": "resolve-subject" } },
+        "slots": [{ "slotId": "subject", "selectors": [{ "kind": "family", "family": "character" }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 10,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "character-family" }],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "resolve-definition",
+        "verb": { "$ref": { "collection": "verbs", "id": "resolve-subject" } },
+        "slots": [{ "slotId": "subject", "selectors": [{ "kind": "interactable-definition", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } } }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 20,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "definition" }],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "resolve-trait",
+        "verb": { "$ref": { "collection": "verbs", "id": "resolve-subject" } },
+        "slots": [{ "slotId": "subject", "selectors": [{ "kind": "trait", "trait": { "$ref": { "collection": "traits", "id": "lab-marker" } } }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 30,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "trait" }],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "resolve-feature",
+        "verb": { "$ref": { "collection": "verbs", "id": "resolve-subject" } },
+        "slots": [{ "slotId": "subject", "selectors": [{ "kind": "interactable-feature", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-parcel" } }, "featureId": "seal" }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 40,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "feature" }],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "resolve-exact",
+        "verb": { "$ref": { "collection": "verbs", "id": "resolve-subject" } },
+        "slots": [{ "slotId": "subject", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "rule-exact-target" } } } }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 50,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "exact" }],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "guard-narrow",
+        "verb": { "$ref": { "collection": "verbs", "id": "guarded-probe" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "guard-target" } } } }] }],
+        "offer": null,
+        "guard": { "kind": "variable-comparison", "variable": { "$ref": { "collection": "variables", "id": "commands-guard-narrow" } }, "operator": "truthy" },
+        "priority": -100,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "narrow-tier" }],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "guard-broad",
+        "verb": { "$ref": { "collection": "verbs", "id": "guarded-probe" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "interactable-definition", "interactableDefinition": { "$ref": { "collection": "interactables", "id": "lab-command-target" } } }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 1000,
+        "program": {
+          "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "broad-tier" }],
+          "completion": { "kind": "return" }, "outcome": "handled"
+        }
+      },
+      {
+        "id": "atomic-failure",
+        "verb": { "$ref": { "collection": "verbs", "id": "atomic-probe" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "atomic-target" } } } }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 100,
+        "program": {
+          "instructions": [
+            { "id": "mark-staged", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-atomic-marker" } }, "value": true },
+            { "id": "reject-quantity", "kind": "consume-quantity", "mode": "exact", "source": { "kind": "interaction-slot", "slotId": "target" }, "quantity": 2 }
+          ],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
+      },
+      {
+        "id": "observable-boundary-failure",
+        "verb": { "$ref": { "collection": "verbs", "id": "boundary-probe" } },
+        "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "boundary-target" } } } }] }],
+        "offer": null,
+        "guard": { "kind": "always" },
+        "priority": 100,
+        "program": {
+          "instructions": [
+            { "id": "before-notify", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-boundary-marker" } }, "value": "before-notify" },
+            { "id": "announce-boundary", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Boundary notification: this committed prefix must not replay." }, "markup": "plain" } },
+            { "id": "after-notify", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-boundary-marker" } }, "value": "after-notify" },
+            { "id": "call-child", "kind": "call-scene", "scene": { "$ref": { "collection": "scenes", "id": "interaction-boundary-child" } } },
+            {
+              "id": "resume-nested",
+              "kind": "if",
+              "condition": { "kind": "always" },
+              "then": [
+                { "id": "nested-marker", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-boundary-marker" } }, "value": "nested-resumed" },
+                { "id": "nested-reject", "kind": "consume-quantity", "mode": "exact", "source": { "kind": "interaction-slot", "slotId": "target" }, "quantity": 2 }
+              ],
+              "else": []
+            }
+          ],
+          "completion": { "kind": "return" },
+          "outcome": "handled"
+        }
+      }
+    ]
+  }
+}

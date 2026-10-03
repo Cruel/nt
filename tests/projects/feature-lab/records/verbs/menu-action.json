@@ -1,0 +1,29 @@
+{
+  "id": "menu-action",
+  "label": "Menu Action",
+  "data": {
+    "kind": "verb",
+    "slots": [{
+      "id": "target",
+      "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" },
+      "prompt": { "source": { "kind": "inline", "text": "Choose target" }, "markup": "plain" },
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "menu-target" } } } }]
+    }],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Menu action" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Menu action {target}" }, "markup": "plain" },
+    "offers": [{
+      "id": "menu-only",
+      "slotId": "target",
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "menu-target" } } } }],
+      "rank": 100,
+      "primary": false
+    }],
+    "availability": { "kind": "always" },
+    "defaultProgram": {
+      "instructions": [{ "id": "mark", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "menu" }],
+      "completion": { "kind": "return" },
+      "outcome": "handled"
+    }
+  }
+}

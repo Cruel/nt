@@ -100,6 +100,14 @@
         "target": { "$ref": { "collection": "rooms", "id": "inventory-workbench" } },
         "condition": { "kind": "always" },
         "onRejected": []
+      },
+      {
+        "id": "verbs-and-offers-test-entry",
+        "label": "Verbs & Offers (automation entry)",
+        "direction": "custom",
+        "target": { "$ref": { "collection": "rooms", "id": "verbs-and-offers" } },
+        "condition": { "kind": "always" },
+        "onRejected": []
       }
     ],
     "placements": [],

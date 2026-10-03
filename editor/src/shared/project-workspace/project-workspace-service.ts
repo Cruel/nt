@@ -1292,6 +1292,7 @@ export function projectWorkspaceFile(
         settings: project.settings,
         export: project.export,
         bootstrapModule: project.bootstrapModule,
+        undefinedInteractionProgram: project.undefinedInteractionProgram,
         entrypoint: project.entrypoint,
         inventories: project.inventories,
         interactableInstances: project.interactableInstances,
@@ -1413,6 +1414,7 @@ export function projectWorkspaceFiles(
       settings: project.settings,
       export: project.export,
       bootstrapModule: project.bootstrapModule,
+      undefinedInteractionProgram: project.undefinedInteractionProgram,
       entrypoint: project.entrypoint,
       inventories: project.inventories,
       interactableInstances: project.interactableInstances,
@@ -2029,6 +2031,7 @@ export class ProjectWorkspaceService {
             settings: parsed.data.settings,
             export: parsed.data.export,
             bootstrapModule: parsed.data.bootstrapModule,
+            undefinedInteractionProgram: parsed.data.undefinedInteractionProgram,
             entrypoint: parsed.data.entrypoint,
             inventories: parsed.data.inventories,
             interactableInstances: parsed.data.interactableInstances,
@@ -2925,11 +2928,17 @@ export class ProjectWorkspaceService {
             'settings',
             'export',
             'bootstrapModule',
+            'undefinedInteractionProgram',
             'entrypoint',
             'inventories',
             'interactableInstances',
           ];
-          if (Object.keys(manifest).length !== 9 || !required.every((key) => key in manifest))
+          const manifestKeys = Object.keys(manifest);
+          if (
+            manifestKeys.length !== 10 ||
+            !required.every((key) => key in manifest) ||
+            manifestKeys.some((key) => !['schema', 'schemaVersion', ...required].includes(key))
+          )
             return fail('project.json has an unsupported workspace-v1 shape.');
           if (freshJsonSourcePaths.has('project.json')) {
             const parsedManifest = workspaceManifestSchema.safeParse(manifest);
@@ -3306,8 +3315,6 @@ export class ProjectWorkspaceService {
           const candidate = {
             schema: AUTHORING_PROJECT_SCHEMA,
             ...manifest,
-            undefinedInteractionProgram:
-              authoringProjectSchema.shape.undefinedInteractionProgram.parse(undefined),
             prefetchHints: authoringProjectSchema.shape.prefetchHints.parse(undefined),
             traits,
             localization,

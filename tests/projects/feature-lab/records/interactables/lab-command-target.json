@@ -1,0 +1,32 @@
+{
+  "id": "lab-command-target",
+  "label": "Command Target",
+  "archetype": null,
+  "archetypeOverrides": {},
+  "traits": [],
+  "defaultProperties": [],
+  "data": {
+    "kind": "interactable",
+    "displayName": "Command Target",
+    "stackable": false,
+    "stackLimit": null,
+    "presentation": {
+      "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+      "materialApplication": null,
+      "cursor": null,
+      "hotspots": {
+        "kind": "sprite-alpha",
+        "hotspot": {
+          "id": "command-target",
+          "label": "Command target",
+          "condition": { "kind": "always" },
+          "inputOrder": 0,
+          "highlight": { "kind": "default" },
+          "target": { "kind": "owner" }
+        }
+      }
+    },
+    "features": [],
+    "inventories": []
+  }
+}

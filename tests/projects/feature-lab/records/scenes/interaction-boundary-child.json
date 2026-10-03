@@ -1,0 +1,24 @@
+{
+  "id": "interaction-boundary-child",
+  "label": "Interaction Boundary Child",
+  "data": {
+    "kind": "scene",
+    "displayName": "Interaction Boundary Child",
+    "stage": { "kind": "inherited" },
+    "inputs": [],
+    "outcomes": [],
+    "events": [{
+      "id": "acknowledge",
+      "label": "Acknowledge child",
+      "type": "show-text",
+      "enabled": true,
+      "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+      "completionDependencies": [],
+      "text": { "source": { "kind": "inline", "text": "Acknowledge the child Flow; the parent Interaction resumes at its nested command cursor." }, "markup": "plain" },
+      "speaker": null,
+      "wait": "input",
+      "autosaveSafePoint": false
+    }],
+    "terminal": { "kind": "return", "outcome": null }
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "id": "guard-toggle",
+  "label": "Enable Narrow Guard",
+  "data": {
+    "kind": "verb",
+    "slots": [{
+      "id": "target",
+      "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" },
+      "prompt": { "source": { "kind": "inline", "text": "Choose target" }, "markup": "plain" },
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "guard-toggle-target" } } } }]
+    }],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Enable narrow guard" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Enable narrow guard" }, "markup": "plain" },
+    "offers": [{
+      "id": "toggle",
+      "slotId": "target",
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "guard-toggle-target" } } } }],
+      "rank": 100,
+      "primary": true
+    }],
+    "availability": { "kind": "always" },
+    "defaultProgram": {
+      "instructions": [{ "id": "enable", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-guard-narrow" } }, "value": true }],
+      "completion": { "kind": "return" },
+      "outcome": "handled"
+    }
+  }
+}

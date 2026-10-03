@@ -1,0 +1,18 @@
+{
+  "id": "verbs-and-offers-builder-ui",
+  "label": "Verbs & Offers Command Builder",
+  "data": {
+    "kind": "test",
+    "displayName": "Verbs & Offers Command Builder",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [] },
+      { "id": "launch", "input": "ui-click", "label": "Launch Verbs & Offers", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-verbs-and-offers" }, "expectations": [] },
+      { "id": "open-builder-menu", "input": "open-verb-menu", "label": "Open menu on the recipient to begin Deliver", "subjectAction": { "subject": { "kind": "character", "character": { "$ref": { "collection": "characters", "id": "verbs-recipient" } } } }, "expectations": [] },
+      { "id": "choose-deliver", "input": "ui-click", "label": "Choose Deliver from the real menu", "uiClick": { "documentId": "runtime_verb_menu", "selector": ".nt-verb-menu-action:nth-child(4)" }, "expectations": [] },
+      { "id": "bind-inventory-parcel", "input": "primary-activate", "label": "Bind the remaining parcel slot from Inventory", "subjectAction": { "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "builder-inventory-parcel" } } } }, "expectations": [] },
+      { "id": "submit-builder", "input": "ui-click", "label": "Submit through the real Command Builder", "uiClick": { "documentId": "runtime_command_builder", "selector": "#command_builder_submit" }, "expectations": [{ "id": "delivered", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "commands-result", "value": "delivered" } }] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

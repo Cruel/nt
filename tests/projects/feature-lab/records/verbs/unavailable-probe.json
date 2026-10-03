@@ -1,0 +1,23 @@
+{
+  "id": "unavailable-probe",
+  "label": "Unavailable Probe",
+  "data": {
+    "kind": "verb",
+    "slots": [{
+      "id": "target",
+      "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" },
+      "prompt": { "source": { "kind": "inline", "text": "Choose target" }, "markup": "plain" },
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-suppressed" } } } }]
+    }],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Unavailable" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Unavailable {target}" }, "markup": "plain" },
+    "offers": [],
+    "availability": { "kind": "variable-comparison", "variable": { "$ref": { "collection": "variables", "id": "commands-offer-enabled" } }, "operator": "truthy" },
+    "defaultProgram": {
+      "instructions": [{ "id": "should-not-run", "kind": "set-global-property", "variable": { "$ref": { "collection": "variables", "id": "commands-result" } }, "value": "unavailable-ran" }],
+      "completion": { "kind": "return" },
+      "outcome": "handled"
+    }
+  }
+}

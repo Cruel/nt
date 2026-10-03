@@ -91,6 +91,7 @@ const manifestKeys = Object.freeze([
   'settings',
   'export',
   'bootstrapModule',
+  'undefinedInteractionProgram',
   'entrypoint',
   'inventories',
   'interactableInstances',

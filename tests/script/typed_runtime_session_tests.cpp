@@ -2674,6 +2674,75 @@ TEST_CASE(
     CHECK_FALSE(submitted.publication->gameplay_ui.command_builder.occurrence);
 }
 
+TEST_CASE("Command Builder captures Inventory Interactables and submits them as named bindings")
+{
+    Fixture fixture("interaction-program.json", {}, [](nlohmann::json& document) {
+        for (auto& verb : document["definitions"]["verbs"]) {
+            if (verb["id"] != "combine")
+                continue;
+            verb["offers"].push_back(
+                {{"id", "combine-key"},
+                 {"slotId", "first"},
+                 {"selectors",
+                  nlohmann::json::array(
+                      {{{"kind", "exact"},
+                        {"subject",
+                         {{"kind", "interactable"},
+                          {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}}}})},
+                 {"rank", 0},
+                 {"primary", false}});
+        }
+        for (auto& interaction : document["definitions"]["interactions"]) {
+            if (interaction["id"] != "actions")
+                continue;
+            for (auto& rule : interaction["rules"]) {
+                if (rule["id"] != "predicate-context")
+                    continue;
+                rule["slots"][1]["selectors"][0]["subject"]["interactable"]["id"] = "wallet";
+                rule["program"]["instructions"] = nlohmann::json::array();
+                rule["program"]["outcome"] = "handled";
+            }
+        }
+    });
+    REQUIRE(dispatch_settled(*fixture.session, core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+
+    const core::compiled::InteractionSubject key_subject =
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("key")};
+    const core::compiled::InteractionSubject wallet_subject =
+        core::compiled::InteractableInteractionSubject{
+            make_id<core::InteractableInstanceIdTag>("wallet")};
+    REQUIRE(dispatch_settled(
+                *fixture.session,
+                core::RuntimeInputMessage{core::SelectInteractionSubjectsInput{{key_subject}}})
+                .diagnostics.empty());
+
+    auto begun = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::BeginCommandBuilderInput{{key_subject}}});
+    REQUIRE(begun.diagnostics.empty());
+    REQUIRE(begun.publication);
+    REQUIRE(begun.publication->gameplay_ui.command_builder.occurrence);
+    const auto occurrence = *begun.publication->gameplay_ui.command_builder.occurrence;
+
+    auto captured = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::PrimaryActivateInput{wallet_subject}});
+    REQUIRE(captured.diagnostics.empty());
+    REQUIRE(captured.publication);
+    REQUIRE(captured.publication->gameplay_ui.command_builder.captured_subject);
+    CHECK(*captured.publication->gameplay_ui.command_builder.captured_subject == wallet_subject);
+
+    auto submitted = dispatch_settled(
+        *fixture.session, core::RuntimeInputMessage{core::SubmitCommandBuilderInput{
+                              occurrence,
+                              make_id<core::VerbIdTag>("combine"),
+                              {{make_id<core::VerbSlotIdTag>("first"), key_subject},
+                               {make_id<core::VerbSlotIdTag>("second"), wallet_subject}}}});
+    REQUIRE(submitted.diagnostics.empty());
+    REQUIRE(submitted.publication);
+    CHECK_FALSE(submitted.publication->gameplay_ui.command_builder.active);
+}
+
 TEST_CASE("Command Builder submission preserves the activation Trigger Context")
 {
     Fixture fixture("interaction-program.json", {}, [](nlohmann::json& document) {

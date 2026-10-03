@@ -124,6 +124,7 @@
       "id": "bootstrap"
     }
   },
+  "undefinedInteractionProgram": null,
   "entrypoint": {
     "kind": "room",
     "id": "start"

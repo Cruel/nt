@@ -127,26 +127,22 @@ The catalog is now authoritative for these checks. `inventory-workbench/inventor
 
 ### Commands & Discovery — #253
 
-#### `verbs-and-offers` — Choose what to do with a parcel
+Transferred to the Feature Lab catalog on 2026-10-03:
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `primary-versus-menu` | Primary-activate versus explicitly open the Verb Menu → only unique immediately-complete primary dispatches; missing/ambiguous primary opens the menu. | U | button |
-| `offer-specificity` | Exercise explicit/rule-derived exact, prefix, Trait/Definition/reusable-Feature, family and any-subject Offers → most-specific/rank winner governs discovery; false winning Condition suppresses broader fallback. | S | button |
-| `discovery-not-authority` | Submit a valid complete command absent from discovery → it still executes; Verb availability still rejects an unavailable command. | S | — |
-| `named-slot-builder` | Select world and Inventory subjects for a multi-slot Verb → bindingOrder drives selection, slot names drive execution; the same live subject may occupy two slots. | U | button |
-| `builder-rebind-cancel` | Backtrack/rebind, mutate a watched subject, then leave/cancel → Draft reconciliation is Layout-owned and capture ends with ownership; no save-persistent Draft. | U | button |
-| `contextual-menu-placement` | Open near viewport edges from pointer and non-pointer selection → captured Trigger Context anchors/clamps the menu independently of later target movement. | V | button |
+- `verbs-and-offers`
+- `interaction-rules`
 
-#### `interaction-rules` — Resolve the delivery request
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `selector-families` | Submit Character, Instance and owner-qualified Feature bindings including runtime-created subjects → selector unions match live identity/Traits/origin Definition, not Archetype ancestry. | S | button |
-| `guard-tiers-priority` | Toggle Guards on narrow and broad rules → containment tier precedes priority; false Guard falls through, runtime-dependent equal winners fault without effects. | S | — |
-| `fallback-chain` | Decline empty behaviors successively → Verb default, Project fallback then localized engine response; handled work never falls back after a later failure. | S | — |
-| `immediate-atomicity` | Execute a mutation group with a deliberately rejected runtime operand → no earlier mutation in that group commits. | S | — |
-| `observable-boundaries` | Mutate, notify/respond with acknowledgement, call child Flow, then resume nested If/Else → earlier committed effects survive later failure; cursor/results do not replay. | S | — |
+The catalog is now authoritative for these checks. The `verbs-and-offers-*-ui` witnesses isolate
+Primary activation, the real built-in Verb Menu, ambiguous Primary choice, and Command Builder
+submit/Rebind/Cancel in fresh UI runtimes, while `verbs-and-offers-flow` keeps
+selector/rank/discovery authority at the semantic command seam.
+`interaction-rules-flow` covers the green selector, Guard-tier, and fallback paths. Same-tier
+priority and equal-winner ambiguity are intentionally shared with the focused native resolver tests
+in `tests/script/typed_interaction_execution_tests.cpp`; duplicating the ambiguous resolver shape in
+the canonical Lab would intentionally make authoring validation non-clean. The station keeps
+immediate-atomicity rejection and observable-boundary failure as deliberate manual semantic controls
+because authored Test playback correctly treats their real runtime error diagnostics as failures
+rather than allowing expected-error assertions to suppress them.
 
 ### Stories & Scripting — #254
 

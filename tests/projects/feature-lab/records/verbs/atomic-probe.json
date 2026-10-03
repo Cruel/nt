@@ -1,0 +1,25 @@
+{
+  "id": "atomic-probe",
+  "label": "Atomicity Probe",
+  "data": {
+    "kind": "verb",
+    "slots": [{
+      "id": "target",
+      "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" },
+      "prompt": { "source": { "kind": "inline", "text": "Choose target" }, "markup": "plain" },
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "atomic-target" } } } }]
+    }],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Atomicity" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Atomicity {target}" }, "markup": "plain" },
+    "offers": [{
+      "id": "atomic",
+      "slotId": "target",
+      "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "atomic-target" } } } }],
+      "rank": 100,
+      "primary": true
+    }],
+    "availability": { "kind": "always" },
+    "defaultProgram": { "instructions": [], "completion": { "kind": "return" }, "outcome": "unhandled" }
+  }
+}
