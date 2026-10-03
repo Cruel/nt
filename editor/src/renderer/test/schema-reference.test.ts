@@ -33,7 +33,7 @@ describe('compact schema reference', () => {
     expect(text).toContain('alignment: "left" | "center" | "right"');
     expect(text).toContain('traits?: (string length >= 1)[] items <= 3 = []');
     expect(text).toContain('label?: string length >= 2 length <= 8');
-    expect(text).toContain('no extra keys');
+    expect(text).not.toContain('no extra keys');
   });
 
   it('keeps intersection precedence and refuses to silently omit new schema keywords', () => {
@@ -134,7 +134,9 @@ describe('compact schema reference', () => {
       z.object({ kind: z.literal('unplaced') }).strict(),
       z.object({ kind: z.literal('room'), room }).strict(),
     ]);
-    const tree: z.ZodType = z.lazy(() => z.object({ children: z.array(tree) }));
+    const tree: z.ZodType = z
+      .lazy(() => z.object({ children: z.array(tree) }))
+      .meta({ title: 'Tree' });
     const model = normalizeSchemaReference(z.object({ location, origin: room, tree }), 'Example');
     const text = renderSchemaNotation(model);
     expect(text).toContain('kind: "unplaced"');
@@ -147,5 +149,137 @@ describe('compact schema reference', () => {
     expect(normalizeSchemaReference(z.object({ location, origin: room, tree }), 'Example')).toEqual(
       model,
     );
+  });
+
+  it('keeps production references compact, shared, and free of generated implementation names', () => {
+    const files = createNovelTeaCompactReferenceFiles();
+    const rooms = files['records/rooms.md']!;
+    const scenes = files['records/scenes.md']!;
+    const interactables = files['records/interactables.md']!;
+    const common = files['common.md']!;
+    const generatedName = /(?:^|\n)(?:\$ref\d*|\w+(?:Variant|Value)\d+) =/;
+
+    for (const [path, text] of Object.entries(files)) {
+      if (!path.endsWith('.md')) continue;
+      expect(text).not.toMatch(generatedName);
+      expect(text).not.toContain('(no extra keys)');
+      expect(text).not.toContain('Condition = Condition');
+      expect(text).not.toContain('GameplayCommand = GameplayCommand');
+    }
+
+    expect(rooms).toContain('condition: Condition');
+    expect(rooms).toContain('beforeEnter: GameplayCommand[]');
+    expect(rooms).not.toContain('\nCondition =');
+    expect(rooms).not.toContain('\nGameplayCommand =');
+    expect(common).toContain('\nCondition =');
+    expect(common).toContain('\nGameplayCommand =');
+    expect(common).toContain('\nEntityId = string pattern');
+    expect(common).toContain('\nFlowTarget =');
+    expect(common).toContain('\nInteractableLocation =');
+    expect(common).toContain('\nLayoutPersistableValue =');
+    expect(rooms.match(/\^\[a-z\]\[a-z0-9\]\*/g) ?? []).toHaveLength(0);
+
+    const definitionLocations = new Map<string, string[]>();
+    const sharedDefinitions = new Set(
+      [...common.matchAll(/^([A-Za-z_$][A-Za-z0-9_$]*) = /gm)].map((match) => match[1]!),
+    );
+    for (const [path, text] of Object.entries(files)) {
+      if (!path.endsWith('.md') || path === 'common.md' || path === 'index.md') continue;
+      for (const match of text.matchAll(/^([A-Za-z_$][A-Za-z0-9_$]*) = /gm)) {
+        const name = match[1]!;
+        definitionLocations.set(name, [...(definitionLocations.get(name) ?? []), path]);
+      }
+
+      const notation = [...text.matchAll(/```text\n([\s\S]*?)```/g)]
+        .map((match) => match[1]!)
+        .join('\n');
+      const localDefinitions = new Set(
+        [...notation.matchAll(/^([A-Za-z_$][A-Za-z0-9_$]*) = /gm)].map((match) => match[1]!),
+      );
+      const unquotedNotation = notation.replace(/"(?:\\.|[^"\\])*"/g, '');
+      const referencedTypes = new Set(
+        [...unquotedNotation.matchAll(/\b[A-Z][A-Za-z0-9_$]*\b/g)].map((match) => match[0]),
+      );
+      const unresolved = [...referencedTypes].filter(
+        (name) => name !== 'JSON' && !localDefinitions.has(name) && !sharedDefinitions.has(name),
+      );
+      expect(unresolved, path).toEqual([]);
+    }
+    expect([...definitionLocations.entries()].filter(([, paths]) => paths.length > 1)).toEqual([]);
+
+    const conditionStart = common.indexOf('\nCondition =');
+    const conditionEnd = common.indexOf('\nCursorId =', conditionStart);
+    const condition = common.slice(conditionStart, conditionEnd);
+    expect(condition).toContain('quantity: integer >= 0 <= 9007199254740991');
+    expect(condition).not.toContain('quantity: integer >= -9007199254740991');
+
+    const semantics = interactables.indexOf('## InteractablesRecord.data.stackable');
+    const shape = interactables.indexOf('## Shape and constraints');
+    expect(semantics).toBeGreaterThanOrEqual(0);
+    expect(shape).toBeGreaterThan(semantics);
+  });
+
+  it('keeps every generated raw schema internally resolvable and free of synthetic titles', () => {
+    const files = createNovelTeaRawSchemaFiles();
+    const conditionQuantityMinimums: number[] = [];
+
+    const resolvePointer = (document: unknown, pointer: string): unknown => {
+      if (pointer === '#') return document;
+      expect(pointer.startsWith('#/')).toBe(true);
+      return pointer
+        .slice(2)
+        .split('/')
+        .reduce<unknown>((value, token) => {
+          const key = token.replaceAll('~1', '/').replaceAll('~0', '~');
+          expect(value).toBeTypeOf('object');
+          expect(value).not.toBeNull();
+          expect(Object.hasOwn(value as object, key)).toBe(true);
+          return (value as Record<string, unknown>)[key];
+        }, document);
+    };
+
+    for (const [path, text] of Object.entries(files)) {
+      const document = JSON.parse(text) as unknown;
+      const visit = (value: unknown): void => {
+        if (Array.isArray(value)) {
+          value.forEach(visit);
+          return;
+        }
+        if (!value || typeof value !== 'object') return;
+        const record = value as Record<string, unknown>;
+        if (typeof record.$ref === 'string') resolvePointer(document, record.$ref);
+        if (typeof record.title === 'string') {
+          expect(record.title, path).not.toMatch(
+            /^(?:__schema\d+|\$ref\d+|\w+(?:Variant|Value|Owner|Source|Binding|Ref|Condition|Command)\d+)$/,
+          );
+          if (record.title === 'Condition') {
+            const resolved =
+              typeof record.$ref === 'string'
+                ? (resolvePointer(document, record.$ref) as Record<string, unknown>)
+                : record;
+            const variants = Array.isArray(resolved.oneOf) ? resolved.oneOf : [];
+            const quantityBranch = variants.find((branch) => {
+              if (!branch || typeof branch !== 'object') return false;
+              const properties = (branch as Record<string, unknown>).properties;
+              if (!properties || typeof properties !== 'object') return false;
+              const kind = (properties as Record<string, unknown>).kind;
+              return (
+                !!kind &&
+                typeof kind === 'object' &&
+                (kind as Record<string, unknown>).const === 'inventory-quantity-comparison'
+              );
+            }) as Record<string, unknown> | undefined;
+            const quantity = (quantityBranch?.properties as Record<string, unknown> | undefined)
+              ?.quantity as Record<string, unknown> | undefined;
+            if (typeof quantity?.minimum === 'number')
+              conditionQuantityMinimums.push(quantity.minimum);
+          }
+        }
+        Object.values(record).forEach(visit);
+      };
+      visit(document);
+    }
+    expect(conditionQuantityMinimums.length).toBeGreaterThan(0);
+    expect(new Set(conditionQuantityMinimums)).toEqual(new Set([0]));
   });
 });

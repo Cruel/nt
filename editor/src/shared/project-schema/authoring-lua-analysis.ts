@@ -16,27 +16,29 @@ export const LUA_REFERENCE_ANALYSIS_LIMITS = {
   maxLiteralOccurrencesPerSemanticOwner: 65_536,
 } as const;
 
-export const luaExplicitDependencyTargetSchema = z.discriminatedUnion('kind', [
-  strict({
-    kind: z.literal('record'),
-    collection: z.enum(authoringCollectionKeys),
-    id: z.string().min(1),
-  }),
-  strict({
-    kind: z.literal('property-value'),
-    owner: strict({
-      kind: z.enum(['room', 'character', 'interactable']),
+export const luaExplicitDependencyTargetSchema = z
+  .discriminatedUnion('kind', [
+    strict({
+      kind: z.literal('record'),
+      collection: z.enum(authoringCollectionKeys),
       id: z.string().min(1),
     }),
-    propertyId: z.string().min(1),
-  }),
-  strict({
-    kind: z.literal('room-placement'),
-    roomId: z.string().min(1),
-    placementId: z.string().min(1),
-  }),
-  strict({ kind: z.literal('room-exit'), roomId: z.string().min(1), exitId: z.string().min(1) }),
-]);
+    strict({
+      kind: z.literal('property-value'),
+      owner: strict({
+        kind: z.enum(['room', 'character', 'interactable']),
+        id: z.string().min(1),
+      }),
+      propertyId: z.string().min(1),
+    }),
+    strict({
+      kind: z.literal('room-placement'),
+      roomId: z.string().min(1),
+      placementId: z.string().min(1),
+    }),
+    strict({ kind: z.literal('room-exit'), roomId: z.string().min(1), exitId: z.string().min(1) }),
+  ])
+  .meta({ title: 'LuaDependencyTarget' });
 export type LuaExplicitDependencyTarget = z.infer<typeof luaExplicitDependencyTargetSchema>;
 export function serializeLuaExplicitDependencyTarget(target: LuaExplicitDependencyTarget): string {
   if (target.kind === 'record') return JSON.stringify(['record', target.collection, target.id]);
@@ -53,19 +55,21 @@ export function serializeLuaExplicitDependencyTarget(target: LuaExplicitDependen
 }
 export const luaExplicitDependenciesSchema = strict({
   targets: z.array(luaExplicitDependencyTargetSchema).default([]),
-}).superRefine((value, context) => {
-  const seen = new Set<string>();
-  value.targets.forEach((target, index) => {
-    const key = serializeLuaExplicitDependencyTarget(target);
-    if (seen.has(key))
-      context.addIssue({
-        code: 'custom',
-        path: ['targets', index],
-        message: 'Duplicate explicit Lua dependency target.',
-      });
-    seen.add(key);
-  });
-});
+})
+  .superRefine((value, context) => {
+    const seen = new Set<string>();
+    value.targets.forEach((target, index) => {
+      const key = serializeLuaExplicitDependencyTarget(target);
+      if (seen.has(key))
+        context.addIssue({
+          code: 'custom',
+          path: ['targets', index],
+          message: 'Duplicate explicit Lua dependency target.',
+        });
+      seen.add(key);
+    });
+  })
+  .meta({ title: 'LuaExplicitDependencies' });
 export type LuaExplicitDependencies = z.infer<typeof luaExplicitDependenciesSchema>;
 export const emptyLuaExplicitDependencies = (): LuaExplicitDependencies => ({ targets: [] });
 export const defaultedLuaExplicitDependenciesSchema = luaExplicitDependenciesSchema

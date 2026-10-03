@@ -8,14 +8,37 @@ export const entityIdSchema = z
   .regex(
     entityIdPattern,
     'ID must be lowercase kebab-case, start with a letter, and contain only letters, numbers, and hyphens.',
-  );
+  )
+  .meta({ title: 'EntityId' });
 
 export const layoutContractIdSchema = z
   .string()
   .regex(
     layoutContractIdPattern,
     'Layout contract IDs must start with a lowercase letter and contain only lowercase letters, numbers, hyphens, and underscores.',
-  );
+  )
+  .meta({ title: 'LayoutContractId' });
+
+export type JsonValue =
+  | null
+  | boolean
+  | number
+  | string
+  | JsonValue[]
+  | { [key: string]: JsonValue };
+
+export const jsonValueSchema: z.ZodType<JsonValue> = z
+  .lazy(() =>
+    z.union([
+      z.null(),
+      z.boolean(),
+      z.number().finite(),
+      z.string(),
+      z.array(jsonValueSchema),
+      z.record(z.string(), jsonValueSchema),
+    ]),
+  )
+  .meta({ title: 'JsonValue' });
 
 export type EntityId = z.infer<typeof entityIdSchema>;
 export type LayoutContractId = z.infer<typeof layoutContractIdSchema>;

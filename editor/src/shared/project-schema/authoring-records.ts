@@ -2,7 +2,7 @@ import { z } from 'zod';
 import { assetRecordSchema } from './authoring-asset-record';
 export { assetRecordSchema } from './authoring-asset-record';
 import { archetypeDataSchema, archetypeRefSchema } from './authoring-archetypes';
-import { entityIdSchema } from './authoring-common';
+import { entityIdSchema, jsonValueSchema } from './authoring-common';
 import { characterDataSchema } from './authoring-characters';
 import { interactableDataSchema } from './authoring-interactables';
 import { interactionDataSchema } from './authoring-interactions';
@@ -26,7 +26,7 @@ const recordIdentityShape = {
 
 const propertyRecordShape = {
   archetype: archetypeRefSchema.nullable().optional(),
-  archetypeOverrides: z.record(z.string(), z.json()).optional(),
+  archetypeOverrides: z.record(z.string(), jsonValueSchema).optional(),
   traits: z.array(entityIdSchema).optional(),
 };
 

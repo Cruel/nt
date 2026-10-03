@@ -27,21 +27,27 @@ export const scriptRefSchema = typedRef('scripts');
 export const interactableRefSchema = typedRef('interactables');
 export const verbRefSchema = typedRef('verbs');
 export const traitRefSchema = typedRef('traits');
-export const interactableInstanceRefSchema = strict({
-  $ref: strict({ registry: z.literal('interactableInstances'), id: entityIdSchema }),
-});
-
-export const inventoryOwnerSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('project') }),
-  strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
-  strict({ kind: z.literal('room-feature'), room: roomRefSchema, featureId: entityIdSchema }),
+export const interactableInstanceRefSchema = withSchemaDocumentation(
   strict({
-    kind: z.literal('interactable-feature'),
-    interactable: interactableInstanceRefSchema,
-    featureId: entityIdSchema,
+    $ref: strict({ registry: z.literal('interactableInstances'), id: entityIdSchema }),
   }),
-]);
+  { name: 'InteractableInstanceRef' },
+);
+
+export const inventoryOwnerSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('project') }),
+    strict({ kind: z.literal('character'), character: characterRefSchema }),
+    strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
+    strict({ kind: z.literal('room-feature'), room: roomRefSchema, featureId: entityIdSchema }),
+    strict({
+      kind: z.literal('interactable-feature'),
+      interactable: interactableInstanceRefSchema,
+      featureId: entityIdSchema,
+    }),
+  ]),
+  { name: 'InventoryOwner' },
+);
 
 export const inventoryReferenceSchema = withSchemaDocumentation(
   strict({
@@ -51,35 +57,42 @@ export const inventoryReferenceSchema = withSchemaDocumentation(
   { name: 'InventoryRef' },
 );
 
-export const runtimeScalarSchema = z.union([
-  z.null(),
-  z.boolean(),
-  z.number().finite(),
-  z.string(),
-]);
+export const runtimeScalarSchema = withSchemaDocumentation(
+  z.union([z.null(), z.boolean(), z.number().finite(), z.string()]),
+  { name: 'RuntimeScalar' },
+);
 
-export const flowTargetSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('scene'), id: entityIdSchema }),
-  strict({ kind: z.literal('dialogue'), id: entityIdSchema }),
-  strict({ kind: z.literal('room'), id: entityIdSchema }),
-  strict({ kind: z.literal('return') }),
-  strict({ kind: z.literal('end') }),
-]);
+export const flowTargetSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('scene'), id: entityIdSchema }),
+    strict({ kind: z.literal('dialogue'), id: entityIdSchema }),
+    strict({ kind: z.literal('room'), id: entityIdSchema }),
+    strict({ kind: z.literal('return') }),
+    strict({ kind: z.literal('end') }),
+  ]),
+  { name: 'FlowTarget' },
+);
 
-export const textSourceSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('inline'), text: z.string() }),
-  strict({ kind: z.literal('localized'), key: namedMessageKeySchema }),
+export const textSourceSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('inline'), text: z.string() }),
+    strict({ kind: z.literal('localized'), key: namedMessageKeySchema }),
+    strict({
+      kind: z.literal('lua-expression'),
+      source: z.string().min(1),
+      additionalDependencies: defaultedLuaExplicitDependenciesSchema,
+    }),
+  ]),
+  { name: 'TextSource' },
+);
+
+export const textContentSchema = withSchemaDocumentation(
   strict({
-    kind: z.literal('lua-expression'),
-    source: z.string().min(1),
-    additionalDependencies: defaultedLuaExplicitDependenciesSchema,
+    source: textSourceSchema,
+    markup: z.enum(['plain', 'active-text']),
   }),
-]);
-
-export const textContentSchema = strict({
-  source: textSourceSchema,
-  markup: z.enum(['plain', 'active-text']),
-});
+  { name: 'TextContent' },
+);
 
 export const valueComparisonOperatorSchema = z.enum([
   'equal',
@@ -95,93 +108,123 @@ export const propertyComparisonOperatorSchema = z.enum([
   'falsy',
 ]);
 
-const interactionSlotOperandSchema = strict({
-  kind: z.literal('interaction-slot'),
-  slotId: entityIdSchema,
-});
-const commandResultOperandSchema = strict({
-  kind: z.literal('command-result'),
-  bindingId: entityIdSchema,
-});
-
-export const gameplayIdentityOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('room'), room: roomRefSchema }),
-  strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
-  strict({ kind: z.literal('room-feature'), room: roomRefSchema, featureId: entityIdSchema }),
+const interactionSlotOperandSchema = withSchemaDocumentation(
   strict({
-    kind: z.literal('interactable-feature'),
-    interactable: interactableInstanceRefSchema,
-    featureId: entityIdSchema,
+    kind: z.literal('interaction-slot'),
+    slotId: entityIdSchema,
   }),
-  strict({ kind: z.literal('current-room') }),
-  interactionSlotOperandSchema,
-  commandResultOperandSchema,
-]);
-
-export const interactableOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
-  interactionSlotOperandSchema,
-  commandResultOperandSchema,
-]);
-
-export const locationSubjectOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
-  interactionSlotOperandSchema,
-  commandResultOperandSchema,
-]);
-
-export const roomOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('room'), room: roomRefSchema }),
-  strict({ kind: z.literal('current-room') }),
-  commandResultOperandSchema,
-]);
-
-export const inventoryOwnerOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('project') }),
-  strict({ kind: z.literal('character'), character: characterRefSchema }),
-  strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
-  strict({ kind: z.literal('room-feature'), room: roomRefSchema, featureId: entityIdSchema }),
+  { name: 'InteractionSlotOperand' },
+);
+const commandResultOperandSchema = withSchemaDocumentation(
   strict({
-    kind: z.literal('interactable-feature'),
-    interactable: interactableInstanceRefSchema,
-    featureId: entityIdSchema,
+    kind: z.literal('command-result'),
+    bindingId: entityIdSchema,
   }),
-  interactionSlotOperandSchema,
-  commandResultOperandSchema,
-]);
+  { name: 'CommandResultOperand' },
+);
 
-export const inventoryOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
-  strict({ kind: z.literal('player-inventory') }),
+export const gameplayIdentityOperandSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('room'), room: roomRefSchema }),
+    strict({ kind: z.literal('character'), character: characterRefSchema }),
+    strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
+    strict({ kind: z.literal('room-feature'), room: roomRefSchema, featureId: entityIdSchema }),
+    strict({
+      kind: z.literal('interactable-feature'),
+      interactable: interactableInstanceRefSchema,
+      featureId: entityIdSchema,
+    }),
+    strict({ kind: z.literal('current-room') }),
+    interactionSlotOperandSchema,
+    commandResultOperandSchema,
+  ]),
+  { name: 'GameplayIdentityOperand' },
+);
+
+export const interactableOperandSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
+    interactionSlotOperandSchema,
+    commandResultOperandSchema,
+  ]),
+  { name: 'InteractableOperand' },
+);
+
+export const locationSubjectOperandSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('character'), character: characterRefSchema }),
+    strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
+    interactionSlotOperandSchema,
+    commandResultOperandSchema,
+  ]),
+  { name: 'LocationSubjectOperand' },
+);
+
+export const roomOperandSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('room'), room: roomRefSchema }),
+    strict({ kind: z.literal('current-room') }),
+    commandResultOperandSchema,
+  ]),
+  { name: 'RoomOperand' },
+);
+
+export const inventoryOwnerOperandSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('project') }),
+    strict({ kind: z.literal('character'), character: characterRefSchema }),
+    strict({ kind: z.literal('interactable'), interactable: interactableInstanceRefSchema }),
+    strict({ kind: z.literal('room-feature'), room: roomRefSchema, featureId: entityIdSchema }),
+    strict({
+      kind: z.literal('interactable-feature'),
+      interactable: interactableInstanceRefSchema,
+      featureId: entityIdSchema,
+    }),
+    interactionSlotOperandSchema,
+    commandResultOperandSchema,
+  ]),
+  { name: 'InventoryOwnerOperand' },
+);
+
+export const inventoryOperandSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
+    strict({ kind: z.literal('player-inventory') }),
+    strict({
+      kind: z.literal('owner-inventory'),
+      owner: inventoryOwnerOperandSchema,
+      inventoryId: entityIdSchema,
+    }),
+    commandResultOperandSchema,
+  ]),
+  { name: 'InventoryOperand' },
+);
+
+export const locationOperandSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('unplaced') }),
+    strict({ kind: z.literal('room'), room: roomOperandSchema }),
+    strict({ kind: z.literal('inventory'), inventory: inventoryOperandSchema }),
+  ]),
+  { name: 'LocationOperand' },
+);
+
+export const interactableMatcherSchema = withSchemaDocumentation(
   strict({
-    kind: z.literal('owner-inventory'),
-    owner: inventoryOwnerOperandSchema,
-    inventoryId: entityIdSchema,
+    definition: interactableRefSchema.optional(),
+    traits: z.array(traitRefSchema).default([]),
+    properties: z
+      .array(
+        strict({
+          propertyId: entityIdSchema,
+          value: runtimeScalarSchema,
+        }),
+      )
+      .default([]),
+    exact: interactableOperandSchema.optional(),
   }),
-  commandResultOperandSchema,
-]);
-
-export const locationOperandSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('unplaced') }),
-  strict({ kind: z.literal('room'), room: roomOperandSchema }),
-  strict({ kind: z.literal('inventory'), inventory: inventoryOperandSchema }),
-]);
-
-export const interactableMatcherSchema = strict({
-  definition: interactableRefSchema.optional(),
-  traits: z.array(traitRefSchema).default([]),
-  properties: z
-    .array(
-      strict({
-        propertyId: entityIdSchema,
-        value: runtimeScalarSchema,
-      }),
-    )
-    .default([]),
-  exact: interactableOperandSchema.optional(),
-});
+  { name: 'InteractableMatcher' },
+);
 
 export type Condition =
   | { kind: 'always' }
@@ -226,51 +269,53 @@ export type Condition =
       additionalDependencies?: z.infer<typeof defaultedLuaExplicitDependenciesSchema>;
     };
 
-export const conditionSchema: z.ZodType<Condition> = z.lazy(() =>
-  z.discriminatedUnion('kind', [
-    strict({ kind: z.literal('always') }),
-    strict({ kind: z.literal('all'), conditions: z.array(conditionSchema) }),
-    strict({ kind: z.literal('any'), conditions: z.array(conditionSchema) }),
-    strict({ kind: z.literal('not'), condition: conditionSchema }),
-    strict({
-      kind: z.literal('variable-comparison'),
-      variable: variableRefSchema,
-      operator: propertyComparisonOperatorSchema,
-      value: runtimeScalarSchema.optional(),
-    }),
-    strict({
-      kind: z.literal('property-comparison'),
-      owner: gameplayIdentityOperandSchema,
-      propertyId: entityIdSchema,
-      operator: propertyComparisonOperatorSchema,
-      value: runtimeScalarSchema.optional(),
-    }),
-    strict({
-      kind: z.literal('trait-presence'),
-      owner: gameplayIdentityOperandSchema,
-      trait: traitRefSchema,
-      present: z.boolean(),
-    }),
-    strict({
-      kind: z.literal('location-comparison'),
-      subject: locationSubjectOperandSchema,
-      operator: z.enum(['equal', 'not-equal']),
-      location: locationOperandSchema,
-    }),
-    strict({
-      kind: z.literal('inventory-quantity-comparison'),
-      inventory: inventoryOperandSchema,
-      matcher: interactableMatcherSchema,
-      operator: valueComparisonOperatorSchema,
-      quantity: z.number().int().nonnegative().safe(),
-    }),
-    strict({
-      kind: z.literal('lua-predicate'),
-      source: z.string().min(1),
-      additionalDependencies: defaultedLuaExplicitDependenciesSchema,
-    }),
-  ]),
-);
+export const conditionSchema: z.ZodType<Condition> = z
+  .lazy(() =>
+    z.discriminatedUnion('kind', [
+      strict({ kind: z.literal('always') }),
+      strict({ kind: z.literal('all'), conditions: z.array(conditionSchema) }),
+      strict({ kind: z.literal('any'), conditions: z.array(conditionSchema) }),
+      strict({ kind: z.literal('not'), condition: conditionSchema }),
+      strict({
+        kind: z.literal('variable-comparison'),
+        variable: variableRefSchema,
+        operator: propertyComparisonOperatorSchema,
+        value: runtimeScalarSchema.optional(),
+      }),
+      strict({
+        kind: z.literal('property-comparison'),
+        owner: gameplayIdentityOperandSchema,
+        propertyId: entityIdSchema,
+        operator: propertyComparisonOperatorSchema,
+        value: runtimeScalarSchema.optional(),
+      }),
+      strict({
+        kind: z.literal('trait-presence'),
+        owner: gameplayIdentityOperandSchema,
+        trait: traitRefSchema,
+        present: z.boolean(),
+      }),
+      strict({
+        kind: z.literal('location-comparison'),
+        subject: locationSubjectOperandSchema,
+        operator: z.enum(['equal', 'not-equal']),
+        location: locationOperandSchema,
+      }),
+      strict({
+        kind: z.literal('inventory-quantity-comparison'),
+        inventory: inventoryOperandSchema,
+        matcher: interactableMatcherSchema,
+        operator: valueComparisonOperatorSchema,
+        quantity: z.number().int().safe().nonnegative(),
+      }),
+      strict({
+        kind: z.literal('lua-predicate'),
+        source: z.string().min(1),
+        additionalDependencies: defaultedLuaExplicitDependenciesSchema,
+      }),
+    ]),
+  )
+  .meta({ title: 'Condition' });
 
 export const effectSchema = z.discriminatedUnion('kind', [
   strict({
@@ -281,11 +326,14 @@ export const effectSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('run-lua-effect'), source: z.string().min(1) }),
 ]);
 
-export const gameplayConfigurationSourceSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('archetype'), archetype: archetypeRefSchema }),
-  strict({ kind: z.literal('compiled-instance'), instance: gameplayIdentityOperandSchema }),
-  strict({ kind: z.literal('effective-instance'), instance: gameplayIdentityOperandSchema }),
-]);
+export const gameplayConfigurationSourceSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('archetype'), archetype: archetypeRefSchema }),
+    strict({ kind: z.literal('compiled-instance'), instance: gameplayIdentityOperandSchema }),
+    strict({ kind: z.literal('effective-instance'), instance: gameplayIdentityOperandSchema }),
+  ]),
+  { name: 'GameplayConfigurationSource' },
+);
 
 export type GameplayCommand =
   | {
@@ -447,172 +495,174 @@ export type GameplayCommand =
     };
 
 const quantitySchema = z.number().int().positive().safe();
-export const gameplayCommandSchema: z.ZodType<GameplayCommand> = z.lazy(() =>
-  z.union([
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('set-global-property'),
-      variable: variableRefSchema,
-      value: runtimeScalarSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('unset-global-property'),
-      variable: variableRefSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('set-property'),
-      owner: gameplayIdentityOperandSchema,
-      propertyId: entityIdSchema,
-      value: runtimeScalarSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('unset-property'),
-      owner: gameplayIdentityOperandSchema,
-      propertyId: entityIdSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('add-trait'),
-      owner: gameplayIdentityOperandSchema,
-      trait: traitRefSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('remove-trait'),
-      owner: gameplayIdentityOperandSchema,
-      trait: traitRefSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('set-enabled'),
-      subject: locationSubjectOperandSchema,
-      enabled: z.boolean(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('set-visible'),
-      subject: locationSubjectOperandSchema,
-      visible: z.boolean(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('move-instance'),
-      subject: locationSubjectOperandSchema,
-      location: locationOperandSchema,
-      roomPresentation: z.enum(['resolve', 'none']).optional(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('create-room'),
-      source: gameplayConfigurationSourceSchema,
-      result: entityIdSchema.optional(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('create-character'),
-      source: gameplayConfigurationSourceSchema,
-      location: locationOperandSchema,
-      enabled: z.boolean(),
-      visible: z.boolean(),
-      result: entityIdSchema.optional(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('create-interactable'),
-      definition: interactableRefSchema,
-      quantity: quantitySchema,
-      location: locationOperandSchema,
-      enabled: z.boolean(),
-      visible: z.boolean(),
-      roomPresentation: z.enum(['resolve', 'none']).optional(),
-      result: entityIdSchema.optional(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('destroy-instance'),
-      instance: gameplayIdentityOperandSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('split-quantity'),
-      source: interactableOperandSchema,
-      quantity: quantitySchema,
-      result: entityIdSchema.optional(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('merge-quantity'),
-      receiver: interactableOperandSchema,
-      donor: interactableOperandSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('transfer-quantity'),
-      mode: z.literal('exact'),
-      source: interactableOperandSchema,
-      quantity: quantitySchema,
-      location: locationOperandSchema,
-      result: entityIdSchema.optional(),
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('transfer-quantity'),
-      mode: z.literal('aggregate'),
-      matcher: interactableMatcherSchema,
-      sourceInventory: inventoryOperandSchema.optional(),
-      quantity: quantitySchema,
-      location: locationOperandSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('add-quantity'),
-      definition: interactableRefSchema,
-      quantity: quantitySchema,
-      location: locationOperandSchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('consume-quantity'),
-      mode: z.literal('exact'),
-      source: interactableOperandSchema,
-      quantity: quantitySchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('consume-quantity'),
-      mode: z.literal('aggregate'),
-      matcher: interactableMatcherSchema,
-      sourceInventory: inventoryOperandSchema.optional(),
-      quantity: quantitySchema,
-    }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('present-inventory'),
-      inventory: inventoryOperandSchema,
-      layout: layoutRefSchema.optional(),
-      useTriggerAnchor: z.boolean().optional(),
-      parentToTriggeringLayout: z.boolean().optional(),
-      coexist: z.boolean().optional(),
-    }),
-    strict({ id: entityIdSchema, kind: z.literal('navigate-exit'), exitId: entityIdSchema }),
-    strict({ id: entityIdSchema, kind: z.literal('change-room'), room: roomOperandSchema }),
-    strict({ id: entityIdSchema, kind: z.literal('call-scene'), scene: sceneRefSchema }),
-    strict({ id: entityIdSchema, kind: z.literal('call-dialogue'), dialogue: dialogueRefSchema }),
-    strict({ id: entityIdSchema, kind: z.literal('notify'), message: textContentSchema }),
-    strict({ id: entityIdSchema, kind: z.literal('run-lua'), source: z.string().min(1) }),
-    strict({
-      id: entityIdSchema,
-      kind: z.literal('if'),
-      condition: conditionSchema,
-      // oxlint-disable-next-line unicorn/no-thenable -- `then` is the canonical Gameplay Command authoring field.
-      then: z.array(gameplayCommandSchema),
-      else: z.array(gameplayCommandSchema),
-    }),
-  ]),
-);
+export const gameplayCommandSchema: z.ZodType<GameplayCommand> = z
+  .lazy(() =>
+    z.union([
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('set-global-property'),
+        variable: variableRefSchema,
+        value: runtimeScalarSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('unset-global-property'),
+        variable: variableRefSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('set-property'),
+        owner: gameplayIdentityOperandSchema,
+        propertyId: entityIdSchema,
+        value: runtimeScalarSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('unset-property'),
+        owner: gameplayIdentityOperandSchema,
+        propertyId: entityIdSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('add-trait'),
+        owner: gameplayIdentityOperandSchema,
+        trait: traitRefSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('remove-trait'),
+        owner: gameplayIdentityOperandSchema,
+        trait: traitRefSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('set-enabled'),
+        subject: locationSubjectOperandSchema,
+        enabled: z.boolean(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('set-visible'),
+        subject: locationSubjectOperandSchema,
+        visible: z.boolean(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('move-instance'),
+        subject: locationSubjectOperandSchema,
+        location: locationOperandSchema,
+        roomPresentation: z.enum(['resolve', 'none']).optional(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('create-room'),
+        source: gameplayConfigurationSourceSchema,
+        result: entityIdSchema.optional(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('create-character'),
+        source: gameplayConfigurationSourceSchema,
+        location: locationOperandSchema,
+        enabled: z.boolean(),
+        visible: z.boolean(),
+        result: entityIdSchema.optional(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('create-interactable'),
+        definition: interactableRefSchema,
+        quantity: quantitySchema,
+        location: locationOperandSchema,
+        enabled: z.boolean(),
+        visible: z.boolean(),
+        roomPresentation: z.enum(['resolve', 'none']).optional(),
+        result: entityIdSchema.optional(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('destroy-instance'),
+        instance: gameplayIdentityOperandSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('split-quantity'),
+        source: interactableOperandSchema,
+        quantity: quantitySchema,
+        result: entityIdSchema.optional(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('merge-quantity'),
+        receiver: interactableOperandSchema,
+        donor: interactableOperandSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('transfer-quantity'),
+        mode: z.literal('exact'),
+        source: interactableOperandSchema,
+        quantity: quantitySchema,
+        location: locationOperandSchema,
+        result: entityIdSchema.optional(),
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('transfer-quantity'),
+        mode: z.literal('aggregate'),
+        matcher: interactableMatcherSchema,
+        sourceInventory: inventoryOperandSchema.optional(),
+        quantity: quantitySchema,
+        location: locationOperandSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('add-quantity'),
+        definition: interactableRefSchema,
+        quantity: quantitySchema,
+        location: locationOperandSchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('consume-quantity'),
+        mode: z.literal('exact'),
+        source: interactableOperandSchema,
+        quantity: quantitySchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('consume-quantity'),
+        mode: z.literal('aggregate'),
+        matcher: interactableMatcherSchema,
+        sourceInventory: inventoryOperandSchema.optional(),
+        quantity: quantitySchema,
+      }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('present-inventory'),
+        inventory: inventoryOperandSchema,
+        layout: layoutRefSchema.optional(),
+        useTriggerAnchor: z.boolean().optional(),
+        parentToTriggeringLayout: z.boolean().optional(),
+        coexist: z.boolean().optional(),
+      }),
+      strict({ id: entityIdSchema, kind: z.literal('navigate-exit'), exitId: entityIdSchema }),
+      strict({ id: entityIdSchema, kind: z.literal('change-room'), room: roomOperandSchema }),
+      strict({ id: entityIdSchema, kind: z.literal('call-scene'), scene: sceneRefSchema }),
+      strict({ id: entityIdSchema, kind: z.literal('call-dialogue'), dialogue: dialogueRefSchema }),
+      strict({ id: entityIdSchema, kind: z.literal('notify'), message: textContentSchema }),
+      strict({ id: entityIdSchema, kind: z.literal('run-lua'), source: z.string().min(1) }),
+      strict({
+        id: entityIdSchema,
+        kind: z.literal('if'),
+        condition: conditionSchema,
+        // oxlint-disable-next-line unicorn/no-thenable -- `then` is the canonical Gameplay Command authoring field.
+        then: z.array(gameplayCommandSchema),
+        else: z.array(gameplayCommandSchema),
+      }),
+    ]),
+  )
+  .meta({ title: 'GameplayCommand' });
 
 export type AssetRef = z.infer<typeof assetRefSchema>;
 export type ArchetypeRef = z.infer<typeof archetypeRefSchema>;

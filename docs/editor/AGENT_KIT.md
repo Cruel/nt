@@ -34,7 +34,11 @@ complete Instance example.
 `z.toJSONSchema` with input semantics. One narrow Zod tuple-definition lookup repairs the converter's
 omitted tuple cardinality; it is not a general Zod-internals walker. JSON Schema still cannot express
 all refinements or contextual checks, so generated guidance explicitly retains executable validation.
-Named types are local to each generated domain document; raw schemas remain available as fallback.
+Explicitly named structures reused by multiple schema documents are emitted once in
+`reference/common.md`; domain documents reference those names instead of repeating their full shape.
+Compact Markdown inlines anonymous converter reuse, so JSON-Schema implementation names never become
+public authoring vocabulary. Raw fallback schemas retain standard local `$ref` reuse to avoid
+duplicating large recursive/shared structures.
 
 Release builds embed the checked-in hand-authored kit source, curator provenance, and exact built-in system UI source as a private scriptc island package. `noveltea agent sync` combines those exact source texts with compact references and JSON Schemas generated from the shared Zod schemas and the generated system-Layout/baseline manifest, then writes and validates the deterministic manifest/hashes/provenance. Hand-authored Markdown and built-in RML/RCSS—including the engine-owned baseline files—are copied byte-for-byte; sync does not add or strip headers or maintain alternate agent-facing copies. This work is command-local: ordinary CLI operations do not generate the agent-kit schemas or system-Layout reference tree. See `SCRIPTC_COMPATIBILITY.md`.
 

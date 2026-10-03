@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import { parseJsonPointer } from '../json-pointer';
-import { entityIdSchema } from './authoring-common';
+import { entityIdSchema, jsonValueSchema } from './authoring-common';
 import {
   characterDataSchema,
   defaultCharacterData,
@@ -29,7 +29,7 @@ export const archetypeDataSchema = z
     kind: z.literal('archetype'),
     instanceKind: z.enum(gameplayInstanceKindValues),
     base: archetypeRefSchema.nullable().default(null),
-    overrides: z.record(z.string(), z.json()).default({}),
+    overrides: z.record(z.string(), jsonValueSchema).default({}),
   })
   .strict();
 
