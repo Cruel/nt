@@ -83,16 +83,20 @@ function createRuntimeDebugHarness() {
     previewActivityActive: true,
     previewActivityVisible: true,
     lastRuntimeDebugFingerprint: '',
-    runtimeDebugFingerprint: () => '',
+    runtimeDebugFingerprint: null as null | ((snapshot: Record<string, unknown>) => string),
     send() {},
     readRuntimeDebugSnapshot: null as null | ((message: unknown, failOnError: boolean) => unknown),
     publishRuntimeDebugSnapshotIfChanged: null as null | (() => void),
   };
   vm.runInNewContext(
-    `${implementation}\nthis.readRuntimeDebugSnapshot = readRuntimeDebugSnapshot; this.publishRuntimeDebugSnapshotIfChanged = publishRuntimeDebugSnapshotIfChanged;`,
+    `${implementation}\nthis.readRuntimeDebugSnapshot = readRuntimeDebugSnapshot; this.runtimeDebugFingerprint = runtimeDebugFingerprint; this.publishRuntimeDebugSnapshotIfChanged = publishRuntimeDebugSnapshotIfChanged;`,
     context,
   );
-  if (!context.readRuntimeDebugSnapshot || !context.publishRuntimeDebugSnapshotIfChanged)
+  if (
+    !context.readRuntimeDebugSnapshot ||
+    !context.runtimeDebugFingerprint ||
+    !context.publishRuntimeDebugSnapshotIfChanged
+  )
     throw new Error('Runtime debug harness did not load.');
   return { context, diagnostics };
 }
@@ -430,6 +434,54 @@ describe('preview widget runtime project loading', () => {
         message: 'Runtime debug snapshot is unavailable for the current preview session.',
       }),
     ]);
+  });
+
+  it('fingerprints checkpoint semantics immediately but quantizes replay time to whole seconds', () => {
+    const harness = createRuntimeDebugHarness();
+    const base = {
+      loaded: true,
+      running: true,
+      waiting: {},
+      availableInputs: {},
+      variables: [],
+      inventory: [],
+      selectedSubjects: [],
+      diagnostics: [],
+      dialoguePresentation: {},
+      saveSnapshot: {
+        readinessRevision: 1,
+        canCapture: false,
+        issues: [{ reason: 5, code: 'barrier', message: 'barrier', hasBarrier: true }],
+        retained: { revision: 1 },
+        replayDistance: { structuralGenerations: 0, timeGenerations: 1, playTimeMs: 1200 },
+      },
+    };
+
+    const fingerprint = harness.context.runtimeDebugFingerprint!;
+    expect(
+      fingerprint({
+        ...base,
+        saveSnapshot: {
+          ...base.saveSnapshot,
+          replayDistance: { ...base.saveSnapshot.replayDistance, playTimeMs: 1900 },
+        },
+      }),
+    ).toBe(fingerprint(base));
+    expect(
+      fingerprint({
+        ...base,
+        saveSnapshot: {
+          ...base.saveSnapshot,
+          replayDistance: { ...base.saveSnapshot.replayDistance, playTimeMs: 2200 },
+        },
+      }),
+    ).not.toBe(fingerprint(base));
+    expect(
+      fingerprint({
+        ...base,
+        saveSnapshot: { ...base.saveSnapshot, canCapture: true, issues: [] },
+      }),
+    ).not.toBe(fingerprint(base));
   });
 
   it('shows the native load diagnostic instead of replacing it with a generic failure', async () => {

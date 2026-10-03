@@ -819,6 +819,22 @@
     "title": "⟦Command Palette⟧"
   },
   "preview": {
+    "checkpointStatus": {
+      "barriers": "⟦Barriers⟧",
+      "duration": {
+        "lessThanSecond": "⟦<1s⟧",
+        "minutesSeconds": "⟦{{minutes}}m {{seconds}}s⟧",
+        "seconds": "⟦{{seconds}}s⟧"
+      },
+      "issues": "⟦Checkpoint issues⟧",
+      "lastSafe": "⟦Last safe checkpoint: {{elapsed}} ago⟧",
+      "state": {
+        "blocked": "⟦Current state is not checkpoint-safe.⟧",
+        "empty": "⟦No safe checkpoint has been captured yet.⟧",
+        "failure": "⟦Checkpoint capture has failed.⟧",
+        "ready": "⟦Current state is checkpoint-safe.⟧"
+      }
+    },
     "show": "⟦Show Preview⟧"
   },
   "projectSettings": {

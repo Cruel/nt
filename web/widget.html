@@ -1359,6 +1359,23 @@ thead, tbody, tfoot {
       }
     }
 
+    function runtimeDebugSaveSnapshotFingerprint(saveSnapshot) {
+      if (!saveSnapshot || typeof saveSnapshot !== 'object' || !saveSnapshot.replayDistance ||
+          typeof saveSnapshot.replayDistance !== 'object') {
+        return saveSnapshot;
+      }
+      const replayPlayTimeMs = Number(saveSnapshot.replayDistance.playTimeMs);
+      return {
+        ...saveSnapshot,
+        replayDistance: {
+          ...saveSnapshot.replayDistance,
+          playTimeMs: Number.isFinite(replayPlayTimeMs)
+            ? Math.floor(Math.max(0, replayPlayTimeMs) / 1000) * 1000
+            : saveSnapshot.replayDistance.playTimeMs,
+        },
+      };
+    }
+
     function runtimeDebugFingerprint(snapshot) {
       return JSON.stringify({
         loaded: snapshot.loaded,
@@ -1376,6 +1393,7 @@ thead, tbody, tfoot {
         selectedSubjects: snapshot.selectedSubjects,
         diagnostics: snapshot.diagnostics,
         dialoguePresentation: snapshot.dialoguePresentation,
+        saveSnapshot: runtimeDebugSaveSnapshotFingerprint(snapshot.saveSnapshot),
       });
     }
 

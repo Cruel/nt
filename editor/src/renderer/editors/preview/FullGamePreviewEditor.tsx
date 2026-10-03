@@ -96,13 +96,16 @@ import {
   recordedTestDraftToTestData,
   type RecordedRuntimeInputKind,
 } from '../../../shared/project-schema/recorded-test-draft';
-import type {
-  PreviewInteractionSubject,
-  RuntimeDebugEntityRef,
-  RuntimeDebugSnapshot,
-  PreviewToEditorMessage,
-  RuntimeFastForwardResult,
-  EnginePreviewAssetMemoryTarget,
+import {
+  isRuntimeDebugCheckpointSnapshot,
+  RuntimeDebugCheckpointReadinessReason,
+  type RuntimeDebugCheckpointSnapshot,
+  type PreviewInteractionSubject,
+  type RuntimeDebugEntityRef,
+  type RuntimeDebugSnapshot,
+  type PreviewToEditorMessage,
+  type RuntimeFastForwardResult,
+  type EnginePreviewAssetMemoryTarget,
 } from '../../../shared/preview-protocol';
 import {
   analyzeConcreteInteractionResolution,
@@ -118,6 +121,13 @@ import {
 type FullGamePreviewMode = 'debug' | 'recording';
 type CompiledProjectFreshness = 'not-loaded' | 'fresh' | 'stale';
 type RuntimeCommandFactory = () => Promise<void | RuntimeFastForwardResult>;
+
+const CHECKPOINT_FAILURE_REASONS = new Set<number>([
+  RuntimeDebugCheckpointReadinessReason.ReconstructibleStateInvalid,
+  RuntimeDebugCheckpointReadinessReason.SaveProjectionFailed,
+  RuntimeDebugCheckpointReadinessReason.SaveValidationFailed,
+  RuntimeDebugCheckpointReadinessReason.SaveEncodingFailed,
+]);
 
 const FULL_GAME_PREVIEW_TAB_STATE_SCHEMA = 'noveltea.editor.tab-state.full-game-preview';
 
@@ -2443,6 +2453,96 @@ function RuntimeInspector({
   );
 }
 
+type CheckpointIndicatorState = 'failure' | 'empty' | 'ready' | 'blocked';
+
+function checkpointIndicatorState(
+  snapshot: RuntimeDebugCheckpointSnapshot,
+): CheckpointIndicatorState {
+  if (snapshot.issues.some((issue) => CHECKPOINT_FAILURE_REASONS.has(issue.reason)))
+    return 'failure';
+  if (!snapshot.retained) return 'empty';
+  if (snapshot.canCapture) return 'ready';
+  return 'blocked';
+}
+
+function CheckpointStatusIndicator({ snapshot }: { snapshot: RuntimeDebugSnapshot | null }) {
+  const { t } = useTranslation('workspace');
+  if (!snapshot?.running || !isRuntimeDebugCheckpointSnapshot(snapshot.saveSnapshot)) return null;
+
+  const checkpoint = snapshot.saveSnapshot;
+  const state = checkpointIndicatorState(checkpoint);
+  const stateLabel = t(`preview.checkpointStatus.state.${state}`);
+  const barrierIssues = checkpoint.issues.filter((issue) => issue.hasBarrier);
+  const checkpointIssues = checkpoint.issues.filter((issue) => !issue.hasBarrier);
+  let elapsed: string | null = null;
+  if (checkpoint.retained && checkpoint.replayDistance.playTimeMs > 0) {
+    const playTimeMs = checkpoint.replayDistance.playTimeMs;
+    if (playTimeMs < 1000) {
+      elapsed = t('preview.checkpointStatus.duration.lessThanSecond');
+    } else {
+      const totalSeconds = Math.floor(playTimeMs / 1000);
+      elapsed =
+        totalSeconds < 60
+          ? t('preview.checkpointStatus.duration.seconds', { seconds: totalSeconds })
+          : t('preview.checkpointStatus.duration.minutesSeconds', {
+              minutes: Math.floor(totalSeconds / 60),
+              seconds: totalSeconds % 60,
+            });
+    }
+  }
+  const dotClass = {
+    failure: 'bg-destructive',
+    empty: 'bg-muted-foreground',
+    ready: 'bg-emerald-500',
+    blocked: 'bg-amber-400',
+  }[state];
+
+  return (
+    <TooltipProvider delay={150}>
+      <Tooltip>
+        <TooltipTrigger
+          render={
+            <span
+              role="status"
+              tabIndex={0}
+              aria-label={stateLabel}
+              data-testid="checkpoint-status-indicator"
+              data-state={state}
+              className="inline-flex size-5 shrink-0 items-center justify-center rounded-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/40"
+            >
+              <span className={`size-2.5 rounded-full ${dotClass}`} />
+            </span>
+          }
+        />
+        <TooltipContent side="bottom" align="end" className="max-w-80 space-y-2">
+          <div className="font-medium">{stateLabel}</div>
+          {elapsed ? <div>{t('preview.checkpointStatus.lastSafe', { elapsed })}</div> : null}
+          {barrierIssues.length > 0 ? (
+            <div className="space-y-1">
+              <div className="font-medium">{t('preview.checkpointStatus.barriers')}</div>
+              <ul className="list-disc space-y-0.5 pl-4">
+                {barrierIssues.map((issue, index) => (
+                  <li key={`${issue.reason}:${issue.code}:${index}`}>{issue.message}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+          {checkpointIssues.length > 0 ? (
+            <div className="space-y-1">
+              <div className="font-medium">{t('preview.checkpointStatus.issues')}</div>
+              <ul className="list-disc space-y-0.5 pl-4">
+                {checkpointIssues.map((issue, index) => (
+                  <li key={`${issue.reason}:${issue.code}:${index}`}>{issue.message}</li>
+                ))}
+              </ul>
+            </div>
+          ) : null}
+        </TooltipContent>
+      </Tooltip>
+    </TooltipProvider>
+  );
+}
+
 function FullGamePreviewTransportBar({
   context,
   compiledProjectState,
@@ -2581,6 +2681,7 @@ function FullGamePreviewTransportBar({
           onChange={(event) => context.setFpsCap(sanitizePreviewFpsCap(Number(event.target.value)))}
         />
       </label>
+      <CheckpointStatusIndicator snapshot={snapshot} />
     </div>
   );
 }

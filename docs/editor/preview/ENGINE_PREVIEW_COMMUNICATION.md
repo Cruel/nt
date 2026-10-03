@@ -356,7 +356,12 @@ visible runtime's semantic debugger state changes. The comparison covers current
 runtime mode, waiting and available-input state, variables, inventory, selection, diagnostics, and
 Dialogue presentation state. `dialoguePresentation` contains the current Stage Slots (including
 speaker-sync/speaking state and resolved Character presentation) and Media Slots;
-publication-only revision churn does not produce debugger traffic. The publication summary also
+publication-only revision churn does not produce debugger traffic. Checkpoint/save observation state
+also participates in this semantic comparison so editor checkpoint readiness changes are published
+without a separate polling path. Replay-distance play time is quantized to whole-second buckets only
+for change detection; the emitted snapshot retains the exact engine-reported millisecond value. This
+keeps barrier/readiness/failure transitions on the normal preview polling cadence without turning
+continuously advancing play time into 10 Hz editor traffic. The publication summary also
 contains `gameplayInstances`, a stable list of live Room, Character, and Interactable identities with
 declared/runtime ownership and provenance (`declared`, `archetype`, `compiled-definition`, or
 `clone`) plus optional source metadata. This lets editor tooling inspect runtime-created identities
