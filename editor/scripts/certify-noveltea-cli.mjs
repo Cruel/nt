@@ -4500,6 +4500,14 @@ async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
 
 async function certifyFeatureLabAuthoredTests(tempRoot) {
   const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+  const expectedTestIds = (
+    await readdir(path.join(source, 'records', 'tests'), {
+      withFileTypes: true,
+    })
+  )
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
+    .map((entry) => entry.name.slice(0, -'.json'.length))
+    .sort();
   const root = path.join(tempRoot, 'feature-lab');
   await rm(root, { recursive: true, force: true });
   await cp(source, root, { recursive: true });
@@ -4519,13 +4527,27 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
   );
   assertIslandTrace('Feature Lab cold authored suite', suite, true);
   const suitePayload = JSON.parse(suite.stdout);
-  const counts = suitePayload.native?.report?.counts;
+  const report = suitePayload.native?.report;
+  const counts = report?.counts;
+  const entries = report?.entries;
+  const actualTestIds = Array.isArray(entries)
+    ? entries
+        .map((entry) => entry?.id)
+        .filter((id) => typeof id === 'string')
+        .sort()
+    : [];
   if (
-    counts?.total !== 4 ||
-    counts?.passed !== 4 ||
+    expectedTestIds.length === 0 ||
+    counts?.total !== expectedTestIds.length ||
+    counts?.passed !== expectedTestIds.length ||
     counts?.failed !== 0 ||
     counts?.blocked !== 0 ||
-    counts?.error !== 0
+    counts?.error !== 0 ||
+    !Array.isArray(entries) ||
+    entries.length !== expectedTestIds.length ||
+    entries.some((entry) => entry?.status !== 'passed') ||
+    actualTestIds.length !== expectedTestIds.length ||
+    actualTestIds.some((id, index) => id !== expectedTestIds[index])
   )
     fail(`Feature Lab suite returned unexpected aggregate results: ${suite.stdout}`);
 
@@ -4547,7 +4569,11 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
     'Feature Lab human authored suite',
     runNative(['--project', root, 'test', 'run'], { cwd: root }),
   );
-  if (!humanSuite.stdout.includes('Test suite: 4 passed, 0 failed, 0 blocked, 0 errors.'))
+  if (
+    !humanSuite.stdout.includes(
+      `Test suite: ${expectedTestIds.length} passed, 0 failed, 0 blocked, 0 errors.`,
+    )
+  )
     fail(`Feature Lab human suite summary is not aggregate-driven: ${humanSuite.stdout}`);
 }
 

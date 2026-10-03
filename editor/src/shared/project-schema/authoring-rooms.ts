@@ -544,14 +544,6 @@ export function validateRoomData(
           `Missing target room '${exit.target.$ref.id}'.`,
         ),
       );
-    else if (exit.target.$ref.id === roomId)
-      diagnostics.push(
-        diagnostic(
-          `${base}/exits/${index}/target/$ref`,
-          'Exit targets the current room.',
-          'warning',
-        ),
-      );
     validateCondition(project, exit.condition, `${base}/exits/${index}/condition`, diagnostics);
     if (exit.transition)
       validateRoomNavigationTransition(

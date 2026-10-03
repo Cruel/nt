@@ -1065,30 +1065,47 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
   ]);
 
   const animateRoomEditNavigation = useCallback(
-    (from: RoomEditNavigation, to: RoomEditNavigation, onComplete?: () => void) => {
+    (
+      from: RoomEditNavigation,
+      to: RoomEditNavigation,
+      options: { completeNoOpSynchronously?: boolean; onComplete?: () => void } = {},
+    ) => {
       if (roomEditAnimationFrameRef.current !== null) {
         window.cancelAnimationFrame(roomEditAnimationFrameRef.current);
         roomEditAnimationFrameRef.current = null;
       }
-      if (prefersReducedRoomEditMotion()) {
-        setVisibleEditNavigation(to);
+      const start = sanitizeRoomEditNavigation(from);
+      const end = sanitizeRoomEditNavigation(to);
+      if (
+        options.completeNoOpSynchronously &&
+        start.zoom === end.zoom &&
+        start.pan.x === end.pan.x &&
+        start.pan.y === end.pan.y
+      ) {
+        setVisibleEditNavigation(end);
         setRoomEditTransitioning(false);
-        onComplete?.();
+        options.onComplete?.();
+        return;
+      }
+      if (prefersReducedRoomEditMotion()) {
+        setVisibleEditNavigation(end);
+        setRoomEditTransitioning(false);
+        options.onComplete?.();
         return;
       }
       const startedAt = performance.now();
       setRoomEditTransitioning(true);
       const tick = (now: number) => {
         const progress = Math.min(1, (now - startedAt) / ROOM_EDIT_NAVIGATION_TRANSITION_MS);
-        setVisibleEditNavigation(interpolateRoomEditNavigation(from, to, progress));
+        setVisibleEditNavigation(interpolateRoomEditNavigation(start, end, progress));
         if (progress < 1) {
           roomEditAnimationFrameRef.current = window.requestAnimationFrame(tick);
           return;
         }
         roomEditAnimationFrameRef.current = null;
-        setVisibleEditNavigation(to);
+        setVisibleEditNavigation(end);
         setRoomEditTransitioning(false);
-        onComplete?.();
+        options.onComplete?.();
       };
       roomEditAnimationFrameRef.current = window.requestAnimationFrame(tick);
     },
@@ -1110,15 +1127,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
       if (nextMode === 'preview') {
         const remembered = visibleEditNavigation;
         setRememberedEditNavigation(remembered);
-        animateRoomEditNavigation(visibleEditNavigation, ROOM_EDIT_FIT_NAVIGATION, () =>
-          setPresentationMode('preview'),
-        );
+        animateRoomEditNavigation(visibleEditNavigation, ROOM_EDIT_FIT_NAVIGATION, {
+          onComplete: () => setPresentationMode('preview'),
+        });
         return;
       }
       setActiveCategory('composition');
       setPresentationMode('edit');
       setVisibleEditNavigation(ROOM_EDIT_FIT_NAVIGATION);
-      animateRoomEditNavigation(ROOM_EDIT_FIT_NAVIGATION, rememberedEditNavigation);
+      animateRoomEditNavigation(ROOM_EDIT_FIT_NAVIGATION, rememberedEditNavigation, {
+        completeNoOpSynchronously: true,
+      });
     },
     [
       animateRoomEditNavigation,
