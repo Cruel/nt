@@ -3,20 +3,30 @@ import { entityIdSchema } from './authoring-common';
 import { characterRefSchema, roomRefSchema } from './authoring-flow';
 import { ownerDefaultPropertiesSchema, ownerLocalPropertiesSchema } from './authoring-properties';
 import { inventoryDefinitionSchema } from './authoring-inventories';
+import { withSchemaDocumentation } from './schema-documentation';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 const interactableInstanceRefSchema = strict({
   $ref: strict({ registry: z.literal('interactableInstances'), id: entityIdSchema }),
 });
 
-export const featureDataSchema = strict({
-  id: entityIdSchema,
-  label: z.string().check(z.trim(), z.minLength(1)),
-  traits: z.array(entityIdSchema),
-  localProperties: ownerLocalPropertiesSchema,
-  defaultProperties: ownerDefaultPropertiesSchema,
-  inventories: z.array(inventoryDefinitionSchema),
-});
+export const featureDataSchema = withSchemaDocumentation(
+  strict({
+    id: entityIdSchema,
+    label: z.string().check(z.trim(), z.minLength(1)),
+    traits: z.array(entityIdSchema),
+    localProperties: ownerLocalPropertiesSchema,
+    defaultProperties: ownerDefaultPropertiesSchema,
+    inventories: z.array(inventoryDefinitionSchema),
+  }),
+  {
+    constraints: [
+      'Room Features are concrete gameplay identities: defaultProperties must be empty and Property values belong in localProperties.',
+      'Interactable-definition Features are reusable configuration: localProperties must be empty and Property defaults belong in defaultProperties.',
+    ],
+    related: ['Room Feature', 'Interactable-definition Feature', 'Property'],
+  },
+);
 
 export const featureRefSchema = z.discriminatedUnion('ownerKind', [
   strict({

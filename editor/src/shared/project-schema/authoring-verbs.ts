@@ -6,6 +6,7 @@ import {
   defaultInteractionProgram,
   interactionProgramSchema,
 } from './authoring-interaction-programs';
+import { withSchemaDocumentation } from './schema-documentation';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -85,73 +86,86 @@ export function validateCompletedCommandTemplate(
   return validateVerbNamedTemplate(text, slotIds, 'Completed-command');
 }
 
-export const verbDataSchema = strict({
-  kind: z.literal('verb'),
-  slots: z.array(verbSlotSchema),
-  bindingOrder: z.array(entityIdSchema),
-  actionText: textContentSchema,
-  completedCommandText: textContentSchema,
-  offers: z.array(verbOfferSchema),
-  availability: conditionSchema,
-  defaultProgram: interactionProgramSchema,
-}).superRefine((value, context) => {
-  const ids = value.slots.map((slot) => slot.id);
-  if (new Set(ids).size !== ids.length)
-    context.addIssue({ code: 'custom', path: ['slots'], message: 'Verb slot IDs must be unique.' });
-  if (
-    value.bindingOrder.length !== ids.length ||
-    new Set(value.bindingOrder).size !== value.bindingOrder.length ||
-    value.bindingOrder.some((id) => !ids.includes(id))
-  )
-    context.addIssue({
-      code: 'custom',
-      path: ['bindingOrder'],
-      message: 'Binding order must contain every Verb slot exactly once.',
-    });
-  const slotIds = new Set(ids);
-  const offerIds = value.offers.map((offer) => offer.id);
-  if (new Set(offerIds).size !== offerIds.length)
-    context.addIssue({
-      code: 'custom',
-      path: ['offers'],
-      message: 'Verb Offer IDs must be unique.',
-    });
-  value.offers.forEach((offer, index) => {
-    if (!slotIds.has(offer.slotId))
+export const verbDataSchema = withSchemaDocumentation(
+  strict({
+    kind: z.literal('verb'),
+    slots: z.array(verbSlotSchema),
+    bindingOrder: z.array(entityIdSchema),
+    actionText: textContentSchema,
+    completedCommandText: textContentSchema,
+    offers: z.array(verbOfferSchema),
+    availability: conditionSchema,
+    defaultProgram: interactionProgramSchema,
+  }).superRefine((value, context) => {
+    const ids = value.slots.map((slot) => slot.id);
+    if (new Set(ids).size !== ids.length)
       context.addIssue({
         code: 'custom',
-        path: ['offers', index, 'slotId'],
-        message: `Verb Offer slot '${offer.slotId}' must name a Verb slot.`,
+        path: ['slots'],
+        message: 'Verb slot IDs must be unique.',
       });
-  });
-  if (value.completedCommandText.source.kind === 'inline') {
-    const message = validateCompletedCommandTemplate(
-      value.completedCommandText.source.text,
-      slotIds,
-    );
-    if (message)
+    if (
+      value.bindingOrder.length !== ids.length ||
+      new Set(value.bindingOrder).size !== value.bindingOrder.length ||
+      value.bindingOrder.some((id) => !ids.includes(id))
+    )
       context.addIssue({
         code: 'custom',
-        path: ['completedCommandText', 'source', 'text'],
-        message,
+        path: ['bindingOrder'],
+        message: 'Binding order must contain every Verb slot exactly once.',
       });
-  }
-  value.slots.forEach((slot, index) => {
-    for (const [field, text] of [
-      ['label', slot.label],
-      ['prompt', slot.prompt],
-    ] as const) {
-      if (text.source.kind !== 'inline') continue;
-      const message = validateVerbNamedTemplate(text.source.text, slotIds, `Slot ${field}`);
+    const slotIds = new Set(ids);
+    const offerIds = value.offers.map((offer) => offer.id);
+    if (new Set(offerIds).size !== offerIds.length)
+      context.addIssue({
+        code: 'custom',
+        path: ['offers'],
+        message: 'Verb Offer IDs must be unique.',
+      });
+    value.offers.forEach((offer, index) => {
+      if (!slotIds.has(offer.slotId))
+        context.addIssue({
+          code: 'custom',
+          path: ['offers', index, 'slotId'],
+          message: `Verb Offer slot '${offer.slotId}' must name a Verb slot.`,
+        });
+    });
+    if (value.completedCommandText.source.kind === 'inline') {
+      const message = validateCompletedCommandTemplate(
+        value.completedCommandText.source.text,
+        slotIds,
+      );
       if (message)
         context.addIssue({
           code: 'custom',
-          path: ['slots', index, field, 'source', 'text'],
+          path: ['completedCommandText', 'source', 'text'],
           message,
         });
     }
-  });
-});
+    value.slots.forEach((slot, index) => {
+      for (const [field, text] of [
+        ['label', slot.label],
+        ['prompt', slot.prompt],
+      ] as const) {
+        if (text.source.kind !== 'inline') continue;
+        const message = validateVerbNamedTemplate(text.source.text, slotIds, `Slot ${field}`);
+        if (message)
+          context.addIssue({
+            code: 'custom',
+            path: ['slots', index, field, 'source', 'text'],
+            message,
+          });
+      }
+    });
+  }),
+  {
+    constraints: [
+      'qualified-pattern selectors require exactly one wildcard and it must be the final character.',
+      'bindingOrder must contain every declared Verb slot exactly once.',
+      'Inline slot labels/prompts and completed-command text use placeholders of the form {slot-id}; every placeholder must name a declared Verb slot.',
+    ],
+  },
+);
 
 export type SubjectSelector = z.infer<typeof subjectSelectorSchema>;
 export type VerbSlot = z.infer<typeof verbSlotSchema>;

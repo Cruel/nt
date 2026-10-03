@@ -10,6 +10,7 @@ import {
   materialApplicationSchema,
   type MaterialApplication,
 } from './authoring-material-applications';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const layoutKindValues = ['document', 'fragment'] as const;
 
@@ -159,33 +160,38 @@ const layoutContractValueShapeSchema = z
   })
   .strict();
 
-const layoutContractInputSchema = z
-  .object({
-    type: z.enum(layoutContractValueTypeValues),
-    nullable: z.boolean().default(false),
-    defaultValue: authoredRuntimeValueSchema.optional(),
-  })
-  .strict()
-  .superRefine((input, context) => {
-    if (input.defaultValue === undefined) return;
-    const value = input.defaultValue;
-    const valid =
-      value === null
-        ? input.nullable
-        : input.type === 'boolean'
-          ? typeof value === 'boolean'
-          : input.type === 'integer'
-            ? typeof value === 'number' && Number.isInteger(value)
-            : input.type === 'number'
-              ? typeof value === 'number'
-              : typeof value === 'string';
-    if (!valid)
-      context.addIssue({
-        code: 'custom',
-        path: ['defaultValue'],
-        message: 'Layout input defaultValue must match its declared type and nullability.',
-      });
-  });
+const layoutContractInputSchema = withSchemaDocumentation(
+  z
+    .object({
+      type: z.enum(layoutContractValueTypeValues),
+      nullable: z.boolean().default(false),
+      defaultValue: authoredRuntimeValueSchema.optional(),
+    })
+    .strict()
+    .superRefine((input, context) => {
+      if (input.defaultValue === undefined) return;
+      const value = input.defaultValue;
+      const valid =
+        value === null
+          ? input.nullable
+          : input.type === 'boolean'
+            ? typeof value === 'boolean'
+            : input.type === 'integer'
+              ? typeof value === 'number' && Number.isInteger(value)
+              : input.type === 'number'
+                ? typeof value === 'number'
+                : typeof value === 'string';
+      if (!valid)
+        context.addIssue({
+          code: 'custom',
+          path: ['defaultValue'],
+          message: 'Layout input defaultValue must match its declared type and nullability.',
+        });
+    }),
+  {
+    constraints: ['Layout input defaultValue must match the declared type and nullability.'],
+  },
+);
 
 function stateValueMatchesShape(
   shape: LayoutStateShapeData,
@@ -222,54 +228,64 @@ export const layoutPersistableValueSchema: z.ZodType<LayoutPersistableValue> = z
   )
   .meta({ title: 'LayoutPersistableValue' });
 
-export const layoutStateShapeSchema: z.ZodType<LayoutStateShapeData> = z
-  .lazy(() =>
-    z
-      .discriminatedUnion('type', [
-        z
-          .object({
-            type: z.enum(['boolean', 'integer', 'number', 'string']),
-            nullable: z.boolean().default(false),
-            defaultValue: layoutPersistableValueSchema.optional(),
-          })
-          .strict(),
-        z
-          .object({
-            type: z.literal('array'),
-            nullable: z.boolean().default(false),
-            items: layoutStateShapeSchema,
-            defaultValue: layoutPersistableValueSchema.optional(),
-          })
-          .strict(),
-        z
-          .object({
-            type: z.literal('object'),
-            nullable: z.boolean().default(false),
-            fields: z
-              .record(
-                layoutContractIdSchema,
-                z
-                  .object({
-                    required: z.boolean().default(true),
-                    shape: layoutStateShapeSchema,
-                  })
-                  .strict(),
-              )
-              .default({}),
-            defaultValue: layoutPersistableValueSchema.optional(),
-          })
-          .strict(),
-      ])
-      .superRefine((shape, context) => {
-        if (shape.defaultValue !== undefined && !stateValueMatchesShape(shape, shape.defaultValue))
-          context.addIssue({
-            code: 'custom',
-            path: ['defaultValue'],
-            message: 'Layout state defaultValue must match its recursive State Shape.',
-          });
-      }),
-  )
-  .meta({ title: 'LayoutStateShape' });
+export const layoutStateShapeSchema: z.ZodType<LayoutStateShapeData> = withSchemaDocumentation(
+  z
+    .lazy(() =>
+      z
+        .discriminatedUnion('type', [
+          z
+            .object({
+              type: z.enum(['boolean', 'integer', 'number', 'string']),
+              nullable: z.boolean().default(false),
+              defaultValue: layoutPersistableValueSchema.optional(),
+            })
+            .strict(),
+          z
+            .object({
+              type: z.literal('array'),
+              nullable: z.boolean().default(false),
+              items: layoutStateShapeSchema,
+              defaultValue: layoutPersistableValueSchema.optional(),
+            })
+            .strict(),
+          z
+            .object({
+              type: z.literal('object'),
+              nullable: z.boolean().default(false),
+              fields: z
+                .record(
+                  layoutContractIdSchema,
+                  z
+                    .object({
+                      required: z.boolean().default(true),
+                      shape: layoutStateShapeSchema,
+                    })
+                    .strict(),
+                )
+                .default({}),
+              defaultValue: layoutPersistableValueSchema.optional(),
+            })
+            .strict(),
+        ])
+        .superRefine((shape, context) => {
+          if (
+            shape.defaultValue !== undefined &&
+            !stateValueMatchesShape(shape, shape.defaultValue)
+          )
+            context.addIssue({
+              code: 'custom',
+              path: ['defaultValue'],
+              message: 'Layout state defaultValue must match its recursive State Shape.',
+            });
+        }),
+    )
+    .meta({ title: 'LayoutStateShape' }),
+  {
+    constraints: [
+      'Every State Shape defaultValue must recursively match the declared shape, required fields, and nullability.',
+    ],
+  },
+);
 
 const layoutContractSignalSchema = z
   .object({

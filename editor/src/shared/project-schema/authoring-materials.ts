@@ -22,6 +22,7 @@ import {
   type ShaderUniformType,
   type ShaderUniformValue,
 } from './authoring-shaders';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const materialTextureAddressValues = ['clamp', 'repeat'] as const;
 export const materialTextureFilterValues = ['inherit', 'nearest', 'linear'] as const;
@@ -46,18 +47,25 @@ export const materialShaderSourceSchema = z.union([
   z.object({ kind: z.literal('project'), path: safeProjectShaderPath }).strict(),
   z.object({ kind: z.literal('engine'), path: safeEngineShaderPath }).strict(),
 ]);
-export const materialShaderOverrideSchema = z
-  .object({
-    vertex: materialShaderSourceSchema.optional(),
-    fragment: materialShaderSourceSchema.optional(),
-    varying: materialShaderSourceSchema.optional(),
-  })
-  .strict()
-  .refine(
-    (value) =>
-      value.vertex !== undefined || value.fragment !== undefined || value.varying !== undefined,
-    { message: 'Custom shader override must select at least one source.' },
-  );
+export const materialShaderOverrideSchema = withSchemaDocumentation(
+  z
+    .object({
+      vertex: materialShaderSourceSchema.optional(),
+      fragment: materialShaderSourceSchema.optional(),
+      varying: materialShaderSourceSchema.optional(),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        value.vertex !== undefined || value.fragment !== undefined || value.varying !== undefined,
+      { message: 'Custom shader override must select at least one source.' },
+    ),
+  {
+    constraints: [
+      'A custom shader override must set at least one of vertex, fragment, or varying.',
+    ],
+  },
+);
 export const materialBaseSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('preset'), preset: materialPresetIdSchema }).strict(),
   z
@@ -71,47 +79,53 @@ export const materialBaseSchema = z.discriminatedUnion('kind', [
     })
     .strict(),
 ]);
-export const materialParameterOverrideSchema = z
-  .object({
-    type: z.enum(shaderUniformTypeValues).optional(),
-    value: shaderUniformValueSchema.optional(),
-    binding: z.enum(shaderInputBindingValues).nullable().optional(),
-    editor: z
-      .object({
-        label: z.string().optional(),
-        range: z.tuple([z.number().finite(), z.number().finite()]).optional(),
-        control: z.enum(['number', 'slider', 'color', 'toggle', 'vector']).optional(),
-      })
-      .strict()
-      .optional(),
-  })
-  .strict()
-  .refine(
-    (value) =>
-      value.type !== undefined ||
-      value.value !== undefined ||
-      value.binding !== undefined ||
-      value.editor !== undefined,
-    { message: 'Material parameter override cannot be empty.' },
-  );
-export const materialTextureDataSchema = z
-  .object({
-    source: materialTextureSourceSchema.optional(),
-    address: z.enum(materialTextureAddressValues).optional(),
-    filter: z.enum(materialTextureFilterValues).optional(),
-    binding: z.enum(shaderSamplerBindingValues).nullable().optional(),
-    editor: z.object({ label: z.string().optional() }).strict().optional(),
-  })
-  .strict()
-  .refine(
-    (value) =>
-      value.source !== undefined ||
-      value.address !== undefined ||
-      value.filter !== undefined ||
-      value.binding !== undefined ||
-      value.editor !== undefined,
-    { message: 'Material texture override cannot be empty.' },
-  );
+export const materialParameterOverrideSchema = withSchemaDocumentation(
+  z
+    .object({
+      type: z.enum(shaderUniformTypeValues).optional(),
+      value: shaderUniformValueSchema.optional(),
+      binding: z.enum(shaderInputBindingValues).nullable().optional(),
+      editor: z
+        .object({
+          label: z.string().optional(),
+          range: z.tuple([z.number().finite(), z.number().finite()]).optional(),
+          control: z.enum(['number', 'slider', 'color', 'toggle', 'vector']).optional(),
+        })
+        .strict()
+        .optional(),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        value.type !== undefined ||
+        value.value !== undefined ||
+        value.binding !== undefined ||
+        value.editor !== undefined,
+      { message: 'Material parameter override cannot be empty.' },
+    ),
+  { constraints: ['A Material parameter override must set at least one override field.'] },
+);
+export const materialTextureDataSchema = withSchemaDocumentation(
+  z
+    .object({
+      source: materialTextureSourceSchema.optional(),
+      address: z.enum(materialTextureAddressValues).optional(),
+      filter: z.enum(materialTextureFilterValues).optional(),
+      binding: z.enum(shaderSamplerBindingValues).nullable().optional(),
+      editor: z.object({ label: z.string().optional() }).strict().optional(),
+    })
+    .strict()
+    .refine(
+      (value) =>
+        value.source !== undefined ||
+        value.address !== undefined ||
+        value.filter !== undefined ||
+        value.binding !== undefined ||
+        value.editor !== undefined,
+      { message: 'Material texture override cannot be empty.' },
+    ),
+  { constraints: ['A Material texture override must set at least one override field.'] },
+);
 export const materialDataSchema = z
   .object({
     kind: z.literal('material').default('material'),

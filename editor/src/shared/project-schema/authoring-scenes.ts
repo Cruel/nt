@@ -37,6 +37,7 @@ import { interactableLocationSchema } from './authoring-interactables';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition as validateSharedCondition } from './authoring-condition-validation';
 import { materialApplicationSchema } from './authoring-material-applications';
+import { withSchemaDocumentation } from './schema-documentation';
 import { resolvedMaterialUsesCustomShader, resolveMaterialData } from './authoring-materials';
 import { isUniformValueCompatible, shaderUniformValueSchema } from './authoring-shaders';
 
@@ -559,15 +560,24 @@ export const sceneStageSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-export const sceneDataSchema = strict({
-  kind: z.literal('scene'),
-  displayName: z.string(),
-  stage: sceneStageSchema,
-  inputs: z.array(sceneInputDefinitionSchema),
-  outcomes: z.array(sceneOutcomeDefinitionSchema),
-  events: z.array(sceneStepDataSchema).min(1),
-  terminal: sceneTerminalSchema,
-});
+export const sceneDataSchema = withSchemaDocumentation(
+  strict({
+    kind: z.literal('scene'),
+    displayName: z.string(),
+    stage: sceneStageSchema,
+    inputs: z.array(sceneInputDefinitionSchema),
+    outcomes: z.array(sceneOutcomeDefinitionSchema),
+    events: z.array(sceneStepDataSchema).min(1),
+    terminal: sceneTerminalSchema,
+  }),
+  {
+    constraints: [
+      'Scene Event completionDependencies may name only earlier enabled non-comment Events.',
+      'gameplay-effect-batch operations use GameplayCommand shape but do not admit call-scene, call-dialogue, present-inventory, navigate-exit, change-room, notify, or run-lua commands.',
+      'Choice option effects use GameplayCommand shape but do not admit call-scene, call-dialogue, present-inventory, navigate-exit, change-room, or notify; nested run-lua is forbidden, and commands that create/split/exact-transfer identities cannot bind command results across the yielding Choice boundary.',
+    ],
+  },
+);
 
 export type SceneAssetRef = z.infer<typeof sceneAssetRefSchema>;
 export type SceneCharacterRef = z.infer<typeof sceneCharacterRefSchema>;

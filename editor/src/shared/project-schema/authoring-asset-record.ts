@@ -7,6 +7,6 @@ export const assetRecordSchema = z
     id: entityIdSchema,
     label: z.string().min(1, 'Record label is required.'),
     description: z.string().optional(),
-    data: assetDataSchema.strict(),
+    data: assetDataSchema,
   })
   .strict();

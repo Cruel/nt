@@ -24,6 +24,7 @@ import {
   type ProjectValidationDiagnostic,
 } from './project-validation';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
+import { withSchemaDocumentation } from './schema-documentation';
 
 const assetRecordRefSchema = z
   .object({
@@ -169,20 +170,23 @@ export const DEFAULT_PROJECT_ACCESSIBILITY_SETTINGS = {
 
 export type ProjectWorldRasterPolicy = 'capped' | 'native';
 
-const projectWorldRasterPolicySchema = z
-  .string()
-  .refine(
-    (value): value is ProjectWorldRasterPolicy => value === 'capped' || value === 'native',
-    "World raster policy must be 'capped' or 'native'.",
-  );
+const projectWorldRasterPolicySchema = z.enum(['capped', 'native']);
 
-export const projectAccessibilityScalePolicySchema = z
-  .object({
-    enabled: z.boolean(),
-    minimum: z.number(),
-    maximum: z.number(),
-  })
-  .strict();
+export const projectAccessibilityScalePolicySchema = withSchemaDocumentation(
+  z
+    .object({
+      enabled: z.boolean(),
+      minimum: z.number().finite().positive(),
+      maximum: z.number().finite().positive(),
+    })
+    .strict(),
+  {
+    constraints: [
+      'minimum must be less than or equal to maximum.',
+      'When enabled is true, the inclusive range [minimum, maximum] must contain the default scale 1.',
+    ],
+  },
+);
 
 export const projectAccessibilitySettingsSchema = z
   .object({
@@ -197,7 +201,12 @@ export const projectAccessibilitySettingsSchema = z
 
 export const projectDisplaySettingsSchema = z
   .object({
-    referenceResolution: z.object({ width: z.number(), height: z.number() }).strict(),
+    referenceResolution: z
+      .object({
+        width: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+        height: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+      })
+      .strict(),
     worldRasterPolicy: projectWorldRasterPolicySchema,
     barColor: z.string().regex(/^#[0-9a-fA-F]{6}$/, 'Bar color must be a six-digit hex color.'),
   })

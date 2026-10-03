@@ -67,6 +67,7 @@ import {
   type SchemaReferenceNode,
 } from './schema-reference-model';
 import { schemaReferenceJson } from './schema-reference-json';
+import { withSchemaDocumentation } from './schema-documentation';
 
 const trackedEditorSchema = z
   .object({
@@ -76,15 +77,30 @@ const trackedEditorSchema = z
   })
   .strict();
 
-const persistedLayoutSourceSchema = z.discriminatedUnion('sourceMode', [
-  z.object({ sourceMode: z.literal('file') }).strict(),
-  z.object({ sourceMode: z.literal('asset'), sourceAsset: layoutAssetRefSchema }).strict(),
-  z.object({ sourceMode: z.literal('none') }).strict(),
-]);
-const persistedLayoutLuaSourceSchema = z.discriminatedUnion('sourceMode', [
-  z.object({ sourceMode: z.literal('file') }).strict(),
-  z.object({ sourceMode: z.literal('none') }).strict(),
-]);
+const persistedLayoutSourceSchema = withSchemaDocumentation(
+  z.discriminatedUnion('sourceMode', [
+    z.object({ sourceMode: z.literal('file') }).strict(),
+    z.object({ sourceMode: z.literal('asset'), sourceAsset: layoutAssetRefSchema }).strict(),
+    z.object({ sourceMode: z.literal('none') }).strict(),
+  ]),
+  {
+    constraints: [
+      "For RML/RCSS, sourceMode 'file' owns the companion records/layouts/<layout-id>/layout.rml or layout.rcss file respectively.",
+      "When an RML/RCSS selector is not 'file', the corresponding companion file must be absent.",
+    ],
+  },
+);
+const persistedLayoutLuaSourceSchema = withSchemaDocumentation(
+  z.discriminatedUnion('sourceMode', [
+    z.object({ sourceMode: z.literal('file') }).strict(),
+    z.object({ sourceMode: z.literal('none') }).strict(),
+  ]),
+  {
+    constraints: [
+      "For Lua, sourceMode 'file' owns records/layouts/<layout-id>/layout.lua; sourceMode 'none' requires that companion file to be absent.",
+    ],
+  },
+);
 const persistedLayoutRecordSchema = authoringRecordSchemas.layouts.extend({
   data: authoringRecordSchemas.layouts.shape.data.extend({
     rml: persistedLayoutSourceSchema,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { cldrCardinalCategories } from '../cldr-cardinal-rules';
+import { withSchemaDocumentation } from './schema-documentation';
 import { isReservedSystemMessageKey, systemMessageDefinitionForKey } from './system-messages';
 
 function isAsciiAlpha(character: string): boolean {
@@ -121,7 +122,10 @@ export const localeIdSchema = z
         message: `Locale '${locale}' must be a canonical BCP 47 locale tag ('${canonical}').`,
       });
   });
-export const messageIdSchema = z.string().uuid('Message ID must be a UUID.');
+export const messageIdSchema = z
+  .string()
+  .uuid('Message ID must be a UUID.')
+  .meta({ title: 'MessageId' });
 export const namedMessageKeySchema = z
   .string()
   .regex(
@@ -154,14 +158,19 @@ export const messageArgumentTypeSchema = z.enum([
   'plural-number',
 ]);
 export type MessageArgumentType = z.infer<typeof messageArgumentTypeSchema>;
+const messageArgumentNameSchema = z
+  .string()
+  .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, 'Message argument name is invalid.')
+  .meta({ title: 'MessageArgumentName' });
 export const messageArgumentsSchema = z.record(
-  z.string().regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, 'Message argument name is invalid.'),
+  messageArgumentNameSchema,
   messageArgumentTypeSchema,
 );
 
 const messageSelectorArgumentSchema = z
   .string()
-  .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, 'Message selector argument name is invalid.');
+  .regex(/^[A-Za-z_][A-Za-z0-9_-]*$/u, 'Message selector argument name is invalid.')
+  .meta({ title: 'MessageSelectorArgumentName' });
 const pluralCaseKeySchema = z.enum(['zero', 'one', 'two', 'few', 'many', 'other']);
 
 export type MessagePattern =
@@ -169,43 +178,71 @@ export type MessagePattern =
   | { kind: 'plural'; argument: string; cases: Record<string, MessagePattern> }
   | { kind: 'select'; argument: string; cases: Record<string, MessagePattern> };
 
-export const messagePatternSchema: z.ZodType<MessagePattern> = z
-  .lazy(() =>
-    z.discriminatedUnion('kind', [
-      z.object({ kind: z.literal('text'), text: z.string() }).strict(),
-      z
-        .object({
-          kind: z.literal('plural'),
-          argument: messageSelectorArgumentSchema,
-          cases: z.partialRecord(pluralCaseKeySchema, messagePatternSchema),
-        })
-        .strict()
-        .superRefine((pattern, context) => {
-          if (!Object.hasOwn(pattern.cases, 'other'))
-            context.addIssue({
-              code: 'custom',
-              path: ['cases', 'other'],
-              message: "Plural Message selector requires an 'other' case.",
-            });
-        }),
-      z
-        .object({
-          kind: z.literal('select'),
-          argument: messageSelectorArgumentSchema,
-          cases: z.record(z.string().min(1), messagePatternSchema),
-        })
-        .strict()
-        .superRefine((pattern, context) => {
-          if (!Object.hasOwn(pattern.cases, 'other'))
-            context.addIssue({
-              code: 'custom',
-              path: ['cases', 'other'],
-              message: "Select Message selector requires an 'other' fallback.",
-            });
-        }),
-    ]),
-  )
-  .meta({ title: 'MessagePattern' });
+export const messagePatternSchema: z.ZodType<MessagePattern> = withSchemaDocumentation(
+  z
+    .lazy(() =>
+      z.discriminatedUnion('kind', [
+        z.object({ kind: z.literal('text'), text: z.string() }).strict(),
+        z
+          .object({
+            kind: z.literal('plural'),
+            argument: messageSelectorArgumentSchema,
+            cases: z.partialRecord(pluralCaseKeySchema, messagePatternSchema),
+          })
+          .strict()
+          .superRefine((pattern, context) => {
+            if (!Object.hasOwn(pattern.cases, 'other'))
+              context.addIssue({
+                code: 'custom',
+                path: ['cases', 'other'],
+                message: "Plural Message selector requires an 'other' case.",
+              });
+          }),
+        z
+          .object({
+            kind: z.literal('select'),
+            argument: messageSelectorArgumentSchema,
+            cases: z.record(z.string().min(1), messagePatternSchema),
+          })
+          .strict()
+          .superRefine((pattern, context) => {
+            if (!Object.hasOwn(pattern.cases, 'other'))
+              context.addIssue({
+                code: 'custom',
+                path: ['cases', 'other'],
+                message: "Select Message selector requires an 'other' fallback.",
+              });
+          }),
+      ]),
+    )
+    .meta({ title: 'MessagePattern' }),
+  {
+    constraints: [
+      "Every plural pattern must contain an 'other' case.",
+      "Every select pattern must contain an 'other' fallback case.",
+    ],
+    examples: [
+      {
+        title: 'Plural with nested select fallback',
+        value: {
+          kind: 'plural',
+          argument: 'count',
+          cases: {
+            one: { kind: 'text', text: 'One item' },
+            other: {
+              kind: 'select',
+              argument: 'audience',
+              cases: {
+                formal: { kind: 'text', text: '{count} items' },
+                other: { kind: 'text', text: '{count} things' },
+              },
+            },
+          },
+        },
+      },
+    ],
+  },
+);
 
 export function messagePlaceholderNames(source: string): readonly string[] {
   const names = new Set<string>();
@@ -335,7 +372,8 @@ export const authoringMessageSchema = z.discriminatedUnion('kind', [
 ]);
 const localizationWorkflowFingerprintSchema = z
   .string()
-  .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization workflow fingerprint is invalid.');
+  .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization workflow fingerprint is invalid.')
+  .meta({ title: 'LocalizationWorkflowFingerprint' });
 
 export const dialogueCuePlacementSchema = z
   .object({
@@ -393,7 +431,8 @@ export const localizationAssetTargetsSchema = z.record(
 
 const sourceTrackingFingerprintSchema = z
   .string()
-  .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization source tracking fingerprint is invalid.');
+  .regex(/^fnv1a:[0-9a-f]{32}$/u, 'Localization source tracking fingerprint is invalid.')
+  .meta({ title: 'LocalizationSourceTrackingFingerprint' });
 
 export const sourceMessageTrackingOccurrenceSchema = z
   .object({
