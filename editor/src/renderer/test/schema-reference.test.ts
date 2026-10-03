@@ -89,6 +89,21 @@ describe('compact schema reference', () => {
     expect(files['project.md']).toContain('quantity: integer >= 1');
     expect(files['project.md']).toContain('```json');
     expect(files['project.md']).toContain('"definition": {');
+    expect(files['common.md']).toContain(
+      'Location is authoritative semantic membership. Room visual occurrences do not change it; Unplaced Instances still exist.',
+    );
+    expect(files['common.md']).toContain('### In a Room');
+    const traits = website.documents.find((document) => document.id === 'traits')!;
+    const traitDocumentation = schemaDocumentationEntries(traits.model).flatMap((entry) => [
+      ...(entry.documentation.notes ?? []),
+      ...(entry.documentation.constraints ?? []),
+    ]);
+    expect(traitDocumentation).toContain(
+      'When multiple attached Traits provide a Default for the same Property ID, those Defaults must agree exactly.',
+    );
+    expect(traitDocumentation).toContain(
+      'Omitting defaultValue leaves a Property requirement. Reusable configuration may leave that requirement unresolved, but a concrete gameplay owner or Interactable Instance must resolve an effective compatible value before publication.',
+    );
     expect(createNovelTeaCompactReferenceFiles()).toEqual(files);
   });
 
@@ -154,7 +169,6 @@ describe('compact schema reference', () => {
   it('keeps production references compact, shared, and free of generated implementation names', () => {
     const files = createNovelTeaCompactReferenceFiles();
     const rooms = files['records/rooms.md']!;
-    const scenes = files['records/scenes.md']!;
     const interactables = files['records/interactables.md']!;
     const common = files['common.md']!;
     const generatedName = /(?:^|\n)(?:\$ref\d*|\w+(?:Variant|Value)\d+) =/;
@@ -177,6 +191,11 @@ describe('compact schema reference', () => {
     expect(common).toContain('\nFlowTarget =');
     expect(common).toContain('\nInteractableLocation =');
     expect(common).toContain('\nLayoutPersistableValue =');
+    expect(common).toContain(
+      'Location is authoritative semantic membership. Room visual occurrences do not change it; Unplaced Instances still exist.',
+    );
+    expect(common).toContain('### In a Room');
+    expect(common).toContain('"collection": "rooms"');
     expect(rooms.match(/\^\[a-z\]\[a-z0-9\]\*/g) ?? []).toHaveLength(0);
 
     const definitionLocations = new Map<string, string[]>();
@@ -217,6 +236,14 @@ describe('compact schema reference', () => {
     const shape = interactables.indexOf('## Shape and constraints');
     expect(semantics).toBeGreaterThanOrEqual(0);
     expect(shape).toBeGreaterThan(semantics);
+
+    const traits = files['traits.md']!;
+    expect(traits).toContain(
+      'When multiple attached Traits provide a Default for the same Property ID, those Defaults must agree exactly.',
+    );
+    expect(traits).toContain(
+      'a concrete gameplay owner or Interactable Instance must resolve an effective compatible value before publication.',
+    );
   });
 
   it('keeps every generated raw schema internally resolvable and free of synthetic titles', () => {

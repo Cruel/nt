@@ -191,6 +191,7 @@ export interface NovelTeaWebsiteSchemaReference {
 }
 
 let schemaReferenceDocumentsCache: readonly NovelTeaSchemaReferenceDocument[] | undefined;
+let sharedReferenceModelsCache: readonly SchemaReferenceModel[] | undefined;
 let sharedReferenceDefinitionsCache: Readonly<Record<string, SchemaReferenceNode>> | undefined;
 let compactReferenceFilesCache: Readonly<Record<string, string>> | undefined;
 
@@ -242,11 +243,18 @@ export function createNovelTeaWebsiteSchemaReference(): NovelTeaWebsiteSchemaRef
   };
 }
 
+function sharedReferenceModels(): readonly SchemaReferenceModel[] {
+  sharedReferenceModelsCache ??= Object.freeze(
+    Object.entries(sharedReferenceSchemaSources).map(([name, schema]) =>
+      normalizeSchemaReference(schema, name),
+    ),
+  );
+  return sharedReferenceModelsCache;
+}
+
 function sharedReferenceDefinitions(): Readonly<Record<string, SchemaReferenceNode>> {
   if (sharedReferenceDefinitionsCache) return sharedReferenceDefinitionsCache;
-  const models = Object.entries(sharedReferenceSchemaSources).map(([name, schema]) =>
-    normalizeSchemaReference(schema, name),
-  );
+  const models = sharedReferenceModels();
   const entries = new Map<string, SchemaReferenceNode>(
     models.map((model) => [model.name, model.root]),
   );
@@ -257,6 +265,24 @@ function sharedReferenceDefinitions(): Readonly<Record<string, SchemaReferenceNo
     Object.fromEntries([...entries.entries()].sort(([left], [right]) => left.localeCompare(right))),
   );
   return sharedReferenceDefinitionsCache;
+}
+
+function sharedReferenceDocumentationEntries(): ReturnType<typeof schemaDocumentationEntries> {
+  const entries = new Map<
+    string,
+    ReturnType<typeof schemaDocumentationEntries>[number]['documentation']
+  >();
+  for (const model of sharedReferenceModels()) {
+    for (const { path, documentation } of schemaDocumentationEntries(model)) {
+      const existing = entries.get(path);
+      if (existing && JSON.stringify(existing) !== JSON.stringify(documentation))
+        throw new Error(`Conflicting shared schema documentation for '${path}'.`);
+      entries.set(path, documentation);
+    }
+  }
+  return [...entries.entries()]
+    .sort(([left], [right]) => left.localeCompare(right))
+    .map(([path, documentation]) => ({ path, documentation }));
 }
 
 function appendDocumentationSections(
@@ -288,6 +314,21 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
   const documents = createNovelTeaSchemaReferenceDocuments();
   const sharedDefinitions = sharedReferenceDefinitions();
   const sharedDefinitionNames = new Set(Object.keys(sharedDefinitions));
+  const commonLines = [
+    '# Shared authoring types',
+    '',
+    'Generated; do not edit. These named structures are used by multiple domain references and are defined once here to keep those files compact.',
+    '',
+  ];
+  appendDocumentationSections(commonLines, sharedReferenceDocumentationEntries());
+  commonLines.push(
+    '## Shape and constraints',
+    '',
+    '```text',
+    renderSchemaDefinitions(sharedDefinitions),
+    '```',
+    '',
+  );
   const files: Record<string, string> = {
     'index.md': [
       '# Project reference',
@@ -302,16 +343,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       ...documents.map((document) => `- [${document.title}](${document.id}.md)`),
       '',
     ].join('\n'),
-    'common.md': [
-      '# Shared authoring types',
-      '',
-      'Generated; do not edit. These named structures are used by multiple domain references and are defined once here to keep those files compact.',
-      '',
-      '```text',
-      renderSchemaDefinitions(sharedDefinitions),
-      '```',
-      '',
-    ].join('\n'),
+    'common.md': commonLines.join('\n'),
   };
   for (const document of documents) {
     const root = document.id.includes('/') ? '../' : '';

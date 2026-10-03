@@ -153,6 +153,8 @@ reference:set_location(location) -> ok, error       # Character / Interactable
 
 `set_prop`, `unset_prop`, and `set_location` fail in read-only profiles such as On Game Ready and synchronous expressions. Room/Feature references intentionally have no Location operation.
 
+All Character/Interactable `set_location` forms are request-style mutations. A successful `ok` means the target was accepted and the deferred runtime command was queued; it does **not** mean authoritative world Location changed before the call returned. A `location()` read in the same Lua invocation may therefore still observe the pre-request Location. The runtime applies queued commands after control returns to its command-drain boundary; observe the authoritative result from a later runtime invocation/continuation after that drain, and treat any diagnostic raised while the deferred command executes as the mutation failure.
+
 ## Variables and Properties
 
 Variable is the editor-facing name for a Global Property. At runtime there is one Property system; globals are addressed through `Game` and identity-scoped Properties use the owner-qualified API.
