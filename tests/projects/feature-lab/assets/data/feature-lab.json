@@ -1084,7 +1084,7 @@
       "description": "Exercise Primary Activate, explicit and rule-derived Offers, selector specificity and rank, discovery-versus-authority, and the built-in named-slot Command Builder.",
       "status": "ready",
       "created": "2026-10-03T07:00:00Z",
-      "modified": "2026-10-03T07:00:00Z",
+      "modified": "2026-10-03T18:42:27Z",
       "launch": { "entry": "verbs-and-offers" },
       "checks": [
         {
@@ -1099,9 +1099,9 @@
           "id": "offer-specificity",
           "title": "Offer specificity, rank, and suppression are deterministic",
           "action": "Activate Exact, Prefix, Trait, Definition, Feature, Rank, Rule Offer, and Suppressed targets.",
-          "expected": "Exact and longer qualified patterns outrank trait/definition/reusable-Feature selectors, which outrank family and any-subject. Rank breaks equal specificity. The rule-derived Offer participates normally, and a false winning Offer condition suppresses the Verb rather than falling through to a broader Offer.",
-          "status": "ready", "verification": "semantic", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
-          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "verbs-and-offers-flow" }]
+          "expected": "Exact and longer qualified patterns outrank trait/definition/reusable-Feature selectors, which outrank family and any-subject. Lower rank wins equal specificity: Rank opens the Probe menu without Primary execution, then choosing Probe executes it. The rule-derived Offer participates normally, and a false winning Offer condition suppresses the Verb rather than falling through to a broader Offer.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T18:42:27Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "verbs-and-offers-flow" }, { "kind": "ui-test", "id": "verbs-and-offers-rank-ui" }]
         },
         {
           "id": "discovery-not-authority",

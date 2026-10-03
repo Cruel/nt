@@ -9,7 +9,7 @@ export const interactionProgramSchema = strict({
   completion: flowTargetSchema,
   outcome: withSchemaDocumentation(z.enum(['handled', 'unhandled']), {
     description:
-      'Handled stops fallback. Unhandled requires empty behavior with no committed work and advances from selected rule to Verb defaultProgram, Project undefinedInteractionProgram, then the engine response. Runtime failure aborts without fallback and does not rewind earlier observable boundaries.',
+      'Handled stops fallback. Unhandled requires empty behavior with no committed work and advances to the next fallback stage for the host of this program. The complete chain is selected rule → Verb defaultProgram → Project undefinedInteractionProgram → engine response. Runtime failure aborts without fallback and does not rewind earlier observable boundaries.',
   }),
 });
 
