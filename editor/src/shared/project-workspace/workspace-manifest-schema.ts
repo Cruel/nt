@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { interactionProgramSchema } from '../project-schema/authoring-interaction-programs';
+import { undefinedInteractionProgramSchema } from '../project-schema/authoring-interaction-programs';
 import { authoringProjectSchema } from '../project-schema/authoring-project';
 import {
   PROJECT_WORKSPACE_SCHEMA,
@@ -14,7 +14,7 @@ export const workspaceManifestSchema = z
     settings: authoringProjectSchema.shape.settings,
     export: authoringProjectSchema.shape.export,
     bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
-    undefinedInteractionProgram: interactionProgramSchema.nullable(),
+    undefinedInteractionProgram: undefinedInteractionProgramSchema,
     entrypoint: authoringProjectSchema.shape.entrypoint,
     inventories: authoringProjectSchema.shape.inventories,
     interactableInstances: authoringProjectSchema.shape.interactableInstances,

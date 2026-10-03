@@ -8,7 +8,7 @@
       { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [] },
       { "id": "launch", "input": "ui-click", "label": "Launch Verbs & Offers", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-verbs-and-offers" }, "expectations": [] },
       { "id": "ambiguous-primary", "input": "primary-activate", "label": "Ambiguous Primary activation opens the Verb Menu", "subjectAction": { "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "ambiguous-target" } } } }, "expectations": [] },
-      { "id": "choose-ambiguous", "input": "ui-click", "label": "Resolve the ambiguous Primary choice through the menu", "uiClick": { "documentId": "runtime_verb_menu", "selector": ".nt-verb-menu-action:nth-child(5)" }, "expectations": [{ "id": "ambiguous-a-ran", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "commands-result", "value": "ambiguous-a" } }] }
+      { "id": "choose-ambiguous", "input": "ui-click", "label": "Resolve the ambiguous Primary choice through the menu", "uiClick": { "documentId": "runtime_verb_menu", "selector": "#nt-verb-menu-action-ambiguous-a" }, "expectations": [{ "id": "ambiguous-a-ran", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "commands-result", "value": "ambiguous-a" } }] }
     ],
     "finalExpectations": [],
     "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }

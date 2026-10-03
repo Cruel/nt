@@ -7,6 +7,7 @@ import { layoutPersistableValueSchema } from './authoring-layouts';
 import { parseRoomData } from './authoring-rooms';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { parseVerbData } from './authoring-verbs';
+import { withSchemaDocumentation } from './schema-documentation';
 
 export const testInputTypeValues = [
   'tick',
@@ -167,7 +168,10 @@ export const testInteractionSubjectSchema = z.discriminatedUnion('kind', [
 export const testStepDataSchema = z
   .object({
     id: entityIdSchema,
-    input: z.enum(testInputTypeValues).default('tick'),
+    input: withSchemaDocumentation(z.enum(testInputTypeValues).default('tick'), {
+      description:
+        'Use semantic inputs for behavior: select-subjects changes selection, primary-activate uses Primary activation (or active Builder capture), open-verb-menu requests discovery without auto-selection, and run-interaction submits complete named bindings without proving Offer discovery. ui-click exercises real RuntimeUI presentation with documentId and a stable semantic selector; see technical/LAYOUTS.md. Runtime error diagnostics make playback an error even when a diagnostic expectation matches.',
+    }),
     label: z.string().min(1, 'Step label is required.'),
     enabled: z.boolean().default(true),
     expectations: z.array(testExpectationDataSchema).default([]),

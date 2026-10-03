@@ -15,6 +15,11 @@
       "repository": "https://github.com/Cruel/nt.git",
       "revision": "ae7e3b042b23d5d904fbe949fe6ab50399f1027b"
     },
+    "noveltea-interaction-contract": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "9216a7f3c136834c8b6d28599bbc6fb1685c62c9"
+    },
     "noveltea-shared-concepts": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
@@ -67,8 +72,8 @@
       ]
     },
     "concepts/interactions.md": {
-      "reviewed": "2026-10-02",
-      "strategy": "Share the canonical public model for semantic subjects, Verbs, Interaction Rules, Offers, Conditions, commands, and Hotspot selection without duplicating serialized field reference.",
+      "reviewed": "2026-10-03",
+      "strategy": "Extract author-visible discovery, resolution, eligibility, fallback, and Builder contracts from the post-#253 engine audit; keep exact shapes in generated metadata and testing procedure in the agent workflow.",
       "sources": [
         {
           "source": "noveltea-shared-concepts",
@@ -76,6 +81,17 @@
             "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
             "editor/src/shared/project-schema/authoring-interactions.ts",
             "editor/src/shared/project-schema/authoring-verbs.ts"
+          ]
+        },
+        {
+          "source": "noveltea-interaction-contract",
+          "areas": [
+            "docs/engine/VERB.md",
+            "docs/engine/INTERACTION.md",
+            "docs/engine/CONDITION.md",
+            "docs/engine/GAMEPLAY_COMMAND.md",
+            "engine/src/runtime/runtime_executor_interaction.cpp",
+            "tests/script/typed_interaction_execution_tests.cpp"
           ]
         }
       ]
@@ -150,7 +166,7 @@
       ]
     },
     "technical/LAYOUTS.md": {
-      "reviewed": "2026-10-02",
+      "reviewed": "2026-10-03",
       "strategy": "Keep only runtime/Layout authoring behavior that generated Project reference cannot express; derive role/path/baseline facts from the generated system-layout manifest and exact shipped source.",
       "sources": [
         {
@@ -395,7 +411,7 @@
       ]
     },
     "workflows/AUTHORING.md": {
-      "reviewed": "2026-10-02",
+      "reviewed": "2026-10-03",
       "strategy": "Keep one concise coding-agent operating procedure for file-first inspection/editing, canonical record initialization, transaction choice, workspace safety, localization mutation, coherent validation, and authored-Test execution.",
       "sources": [
         {

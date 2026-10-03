@@ -8,7 +8,7 @@ import {
 } from './authoring-interaction-programs';
 import { parseInteractableData } from './authoring-interactables';
 import { parseRoomData } from './authoring-rooms';
-import { parseVerbData, subjectSelectorSchema } from './authoring-verbs';
+import { parseVerbData, subjectSelectorSchema, verbOfferSchema } from './authoring-verbs';
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition } from './authoring-condition-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
@@ -25,20 +25,36 @@ export const interactionSlotSelectorSchema = strict({
 
 export const interactionOfferSchema = strict({
   slotId: entityIdSchema,
-  condition: conditionSchema.optional(),
-  rank: z.number().int(),
-  primary: z.boolean(),
+  condition: verbOfferSchema.shape.condition,
+  rank: verbOfferSchema.shape.rank,
+  primary: verbOfferSchema.shape.primary,
 });
 
-export const interactionRuleSchema = strict({
-  id: entityIdSchema,
-  verb: verbRefSchema,
-  slots: z.array(interactionSlotSelectorSchema),
-  offer: interactionOfferSchema.nullable(),
-  guard: conditionSchema,
-  priority: z.number().int(),
-  program: interactionProgramSchema,
-});
+export const interactionRuleSchema = withSchemaDocumentation(
+  strict({
+    id: entityIdSchema,
+    verb: verbRefSchema,
+    slots: withSchemaDocumentation(z.array(interactionSlotSelectorSchema), {
+      description:
+        'Bind every Verb slot exactly once by slotId. Rule slot array ordering is non-semantic.',
+    }),
+    offer: withSchemaDocumentation(interactionOfferSchema.nullable(), {
+      description:
+        'Rule-derived discovery uses the named starting slot selectors. offer: null disables subject-first discovery only, not complete-command execution.',
+    }),
+    guard: conditionSchema,
+    priority: withSchemaDocumentation(z.number().int(), {
+      description:
+        'Greatest priority wins among passing rules within one structural tier, never across tiers. Equal winning priority is an ambiguity fault that executes nothing; declaration order is not a tie-break.',
+    }),
+    program: interactionProgramSchema,
+  }),
+  {
+    notes: [
+      'guard is a pure execution predicate with access to all bound slots, independent of Offer discovery. If no Guard passes in this structural tier, try the next broader tier; evaluation errors fault before behavior.',
+    ],
+  },
+);
 
 export const interactionDataSchema = withSchemaDocumentation(
   strict({
@@ -46,6 +62,49 @@ export const interactionDataSchema = withSchemaDocumentation(
     rules: z.array(interactionRuleSchema),
   }),
   {
+    examples: [
+      {
+        title: 'False narrow Guard falls through to a broad rule; discovery opt-in is independent',
+        value: {
+          kind: 'interaction',
+          rules: [
+            {
+              id: 'narrow',
+              verb: { $ref: { collection: 'verbs', id: 'inspect' } },
+              slots: [
+                {
+                  slotId: 'object',
+                  selectors: [
+                    {
+                      kind: 'exact',
+                      subject: {
+                        kind: 'interactable',
+                        interactable: {
+                          $ref: { registry: 'interactableInstances', id: 'sealed-box' },
+                        },
+                      },
+                    },
+                  ],
+                },
+              ],
+              offer: null,
+              guard: { kind: 'not', condition: { kind: 'always' } },
+              priority: 100,
+              program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
+            },
+            {
+              id: 'broad',
+              verb: { $ref: { collection: 'verbs', id: 'inspect' } },
+              slots: [{ slotId: 'object', selectors: [{ kind: 'any-subject' }] }],
+              offer: { slotId: 'object', rank: 0, primary: false },
+              guard: { kind: 'always' },
+              priority: 0,
+              program: { instructions: [], completion: { kind: 'return' }, outcome: 'handled' },
+            },
+          ],
+        },
+      },
+    ],
     constraints: [
       'Interaction resolution considers the structurally most-specific matching Rule tier before comparing priority.',
       'Within the winning structural tier, the highest passing priority wins; multiple passing Rules at the same winning priority are an ambiguity error, not an arbitrary tie-break.',

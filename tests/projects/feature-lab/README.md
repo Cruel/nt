@@ -48,6 +48,21 @@ The Objects & State expansion adds `inventory-workbench`, `properties-and-traits
 
 The Commands & Discovery expansion adds `verbs-and-offers` and `interaction-rules`. Verbs & Offers contrasts unique Primary activation with the real built-in Verb Menu, exercises explicit and rule-derived Offer specificity/ranking/suppression, separates discovery from command authority, and drives the named-slot Command Builder with world and Inventory subjects. The `verbs-and-offers-*-ui` tests isolate Primary, explicit/ambiguous Verb Menu, builder submit, and Rebind/Cancel paths in fresh UI runtimes; `verbs-and-offers-flow` covers the semantic Offer and named-binding contracts. Interaction Rules exercises live selector families, containment-tier Guard fallthrough, the full unhandled fallback chain, immediate atomicity, and observable command boundaries. `interaction-rules-flow` covers the green semantic resolver paths. Same-tier priority and equal-winner ambiguity are intentionally shared with the focused native Interaction resolver tests in `tests/script/typed_interaction_execution_tests.cpp`, keeping the canonical Lab free of deliberately ambiguous authoring diagnostics. Rejected immediate mutation and post-observable-boundary failure remain manual station controls because authored Test playback treats their real runtime error diagnostics as failures instead of suppressing them as expected errors.
 
+### Interaction coverage policy
+
+Canonical Lab configurations remain validation/diagnostic clean. Supported specificity, Guard
+fallthrough, and fallback belong in green authored Tests; deliberately disjoint, statically
+unreachable/dominated, or unconditional equal-tier/equal-priority configurations belong in focused
+validation/native negative tests. Runtime-dependent ambiguity is not necessarily statically provable,
+but error-emitting cases still need a negative executable seam: authored Test diagnostic expectations
+do not convert runtime errors into success. Manual controls above remain manual for precisely that
+limitation, not as a substitute for available authoritative automation.
+
+Interaction UI Tests use the built-in semantic Verb/slot selectors documented in
+`editor/agent-kit/technical/LAYOUTS.md`; no menu position is contractual. Direct `run-interaction`
+success proves complete-command behavior, not Offer discovery. Public semantics live in
+`docs/public/concepts/interactions.md`, not this inventory.
+
 Useful checks from the repository root:
 
 ```sh
