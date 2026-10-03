@@ -1,3 +1,9 @@
+local notice_board = import('notice-board')
+assert(notice_board == import('notice-board'))
+
+hooks.register('room', 'before-enter', 'script.*', 'notice-board-hooks', 'prefix_before_enter')
+hooks.register('room', 'before-enter', '*', 'notice-board-hooks', 'catchall_before_enter')
+
 local function checked(ok, err)
   if not ok then
     error(err)

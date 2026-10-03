@@ -109,10 +109,10 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   }
   if (step.input === 'save' || step.input === 'load') {
     const slot = step.saveSlot.slotId.trim();
-    if (slot === 'autosave') return { type: step.input, slot: { kind: 'autosave' } };
+    if (slot === 'autosave') return { type: step.input, slot: 'autosave' };
     const number = Number(slot.replace(/^slot-?/, ''));
     if (Number.isInteger(number) && number >= 0)
-      return { type: step.input, slot: { kind: 'manual', number } };
+      return { type: step.input, slot: `manual-${number}` };
   }
   if (step.input === 'ui-click')
     return {

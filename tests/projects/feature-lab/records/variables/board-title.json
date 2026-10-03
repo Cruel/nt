@@ -1,0 +1,11 @@
+{
+  "id": "board-title",
+  "label": "board-title",
+  "data": {
+    "kind": "variable",
+    "type": "string",
+    "nullable": false,
+    "value": "No notices",
+    "scope": "global"
+  }
+}

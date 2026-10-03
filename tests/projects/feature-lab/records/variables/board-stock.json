@@ -1,0 +1,11 @@
+{
+  "id": "board-stock",
+  "label": "board-stock",
+  "data": {
+    "kind": "variable",
+    "type": "integer",
+    "nullable": false,
+    "value": 0,
+    "scope": "global"
+  }
+}

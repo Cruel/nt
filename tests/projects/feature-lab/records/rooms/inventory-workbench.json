@@ -52,6 +52,9 @@
       "onEnterRejected": [], "onLeaveRejected": []
     },
     "exits": [
+      { "id": "script-and-data-test-entry", "label": "Script & Data", "direction": "southwest", "target": { "$ref": { "collection": "rooms", "id": "script-and-data" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "background-stories-test-entry", "label": "Background Stories", "direction": "southeast", "target": { "$ref": { "collection": "rooms", "id": "background-stories" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "scene-director-test-entry", "label": "Scene Director", "direction": "northeast", "target": { "$ref": { "collection": "rooms", "id": "scene-director" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "delivery-room", "label": "Delivery room", "direction": "east", "target": { "$ref": { "collection": "rooms", "id": "inventory-delivery" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "properties-and-traits-test-entry", "label": "Properties & Traits (automation entry)", "direction": "north", "target": { "$ref": { "collection": "rooms", "id": "properties-and-traits" } }, "condition": { "kind": "always" }, "onRejected": [] },

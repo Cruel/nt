@@ -1,0 +1,100 @@
+{
+  "id": "scene-director",
+  "label": "scene-director",
+  "data": {
+    "kind": "room",
+    "displayName": "scene-director",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Follow the Scene captions. Reopen Feature Lab for acceptance instructions."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [
+      {
+        "id": "director-gate-lever",
+        "interactable": {
+          "$ref": {
+            "registry": "interactableInstances",
+            "id": "gate-lever-1"
+          }
+        },
+        "condition": { "kind": "always" },
+        "placementId": "director-gate-lever-placement",
+        "visible": true,
+        "order": 10
+      }
+    ],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "begin",
+          "kind": "call-scene",
+          "scene": {
+            "$ref": {
+              "collection": "scenes",
+              "id": "scene-director"
+            }
+          }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [
+      {
+        "id": "director-gate-lever-placement",
+        "bounds": { "x": 0.82, "y": 0.72, "width": 0.08, "height": 0.14 },
+        "presentation": { "label": null, "layout": null }
+      }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

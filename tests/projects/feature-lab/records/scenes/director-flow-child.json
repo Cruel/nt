@@ -1,0 +1,331 @@
+{
+  "id": "director-flow-child",
+  "label": "director-flow-child",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-flow-child",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "input-call",
+        "label": "input-call",
+        "type": "call-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "director-input-child"
+          }
+        },
+        "inputs": [
+          {
+            "inputId": "enabled",
+            "value": false
+          },
+          {
+            "inputId": "count",
+            "value": 9
+          },
+          {
+            "inputId": "ratio",
+            "value": 2.5
+          },
+          {
+            "inputId": "optional",
+            "value": null
+          }
+        ],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "conversation",
+        "label": "conversation",
+        "type": "call-dialogue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "dialogue": {
+          "$ref": {
+            "collection": "dialogues",
+            "id": "director-handoff"
+          }
+        },
+        "startBlockId": null,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "first-handoff",
+        "label": "first-handoff",
+        "type": "show-text",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "First Handoff returned to this Scene. Continue to resume the same Dialogue."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "resume-one",
+        "label": "resume-one",
+        "type": "resume-dialogue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "second-handoff",
+        "label": "second-handoff",
+        "type": "show-text",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Second Handoff returned here. Continue to resume the retained third conversation part."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "resume-two",
+        "label": "resume-two",
+        "type": "resume-dialogue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "batch",
+        "label": "batch",
+        "type": "gameplay-effect-batch",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "operations": [
+          {
+            "id": "move-button",
+            "kind": "move-instance",
+            "subject": {
+              "kind": "interactable",
+              "interactable": {
+                "$ref": {
+                  "registry": "interactableInstances",
+                  "id": "gate-lever-1"
+                }
+              }
+            },
+            "location": {
+              "kind": "room",
+              "room": {
+                "kind": "room",
+                "room": {
+                  "$ref": {
+                    "collection": "rooms",
+                    "id": "scene-director"
+                  }
+                }
+              }
+            }
+          },
+          {
+            "id": "color",
+            "kind": "set-global-property",
+            "variable": {
+              "$ref": {
+                "collection": "variables",
+                "id": "director-color"
+              }
+            },
+            "value": "blue play complete"
+          }
+        ]
+      },
+      {
+        "id": "interaction",
+        "label": "interaction",
+        "type": "call-interaction",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "verb": {
+          "$ref": {
+            "collection": "verbs",
+            "id": "use"
+          }
+        },
+        "bindings": [
+          {
+            "slotId": "target",
+            "subject": {
+              "kind": "interactable",
+              "interactable": {
+                "$ref": {
+                  "registry": "interactableInstances",
+                  "id": "gate-lever-1"
+                }
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "structure",
+        "label": "structure",
+        "type": "runtime-world-transaction",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "operations": [
+          {
+            "kind": "retarget-room-exit",
+            "room": {
+              "$ref": {
+                "collection": "rooms",
+                "id": "director-annex"
+              }
+            },
+            "exitId": "finish",
+            "target": {
+              "$ref": {
+                "collection": "rooms",
+                "id": "director-finish"
+              }
+            }
+          }
+        ]
+      },
+      {
+        "id": "relocate",
+        "label": "relocate",
+        "type": "directed-room-change",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "room": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "director-annex"
+          }
+        }
+      },
+      {
+        "id": "annex",
+        "label": "annex",
+        "type": "show-text",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "The effect batch moved the exact button and the ordinary Interaction unlocked the gate. A structural transaction updated the annex Exit; directed Room Change kept this Scene alive. Continue to navigate."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "navigate",
+        "label": "navigate",
+        "type": "navigation-attempt",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "room": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "director-finish"
+          }
+        },
+        "exitId": "finish"
+      },
+      {
+        "id": "done",
+        "label": "done",
+        "type": "show-text",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Navigation returned to the same Scene in the finish Room. Continue to release to exploration. Use its exits for explicit Continue Scene/Dialogue, Complete Game, or waits/signal demos."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

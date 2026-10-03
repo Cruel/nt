@@ -1,0 +1,46 @@
+{
+  "id": "director-continue-dialogue",
+  "label": "director-continue-dialogue",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-continue-dialogue",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "replace",
+        "label": "replace",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue replaces this invocation with a Dialogue while retaining its Room caller."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "continue-dialogue",
+      "dialogue": {
+        "$ref": {
+          "collection": "dialogues",
+          "id": "interview-return"
+        }
+      }
+    }
+  }
+}

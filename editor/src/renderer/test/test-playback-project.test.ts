@@ -152,8 +152,8 @@ describe('authoring test playback project adapter', () => {
             ],
           },
         },
-        { index: 10, input: { type: 'save', slot: { kind: 'autosave' } } },
-        { index: 11, input: { type: 'load', slot: { kind: 'manual', number: 2 } } },
+        { index: 10, input: { type: 'save', slot: 'autosave' } },
+        { index: 11, input: { type: 'load', slot: 'manual-2' } },
       ],
       finalExpectations: [
         {

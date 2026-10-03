@@ -1,0 +1,15 @@
+{
+  "id": "notice-board-data",
+  "label": "notice-board-data",
+  "data": {
+    "kind": "data",
+    "source": {
+      "type": "project-file",
+      "path": "assets/data/notice-board.json"
+    },
+    "aliases": [],
+    "mimeType": "application/json",
+    "extension": ".json",
+    "imageMetadata": null
+  }
+}

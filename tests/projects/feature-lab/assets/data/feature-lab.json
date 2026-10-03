@@ -25,6 +25,11 @@
       "id": "commands-discovery",
       "title": "Commands & Discovery",
       "description": "Verbs, Offers, named-slot command construction, Primary Activate, Interaction resolution, fallback, and transaction boundaries."
+    },
+    {
+      "id": "stories-scripting",
+      "title": "Stories & Scripting",
+      "description": "Scene orchestration, detached background Flow, Lua modules and hooks, structured Data, deterministic random streams, wall-clock access, and explicit restart context."
     }
   ],
   "launches": [
@@ -83,6 +88,18 @@
     {
       "id": "interaction-rules",
       "roomId": "interaction-rules"
+    },
+    {
+      "id": "scene-director",
+      "roomId": "scene-director"
+    },
+    {
+      "id": "background-stories",
+      "roomId": "background-stories"
+    },
+    {
+      "id": "script-and-data",
+      "roomId": "script-and-data"
     }
   ],
   "visualCheckpoints": [],
@@ -185,6 +202,22 @@
         },
         {
           "assetId": "ipag",
+          "quality": "reference"
+        }
+      ]
+    },
+    {
+      "id": "structured-data",
+      "purpose": "Tiny structured JSON tree with nested objects, arrays, nulls, and scalar values for public Data.load and Layout data-loading checks.",
+      "source": "synthetic",
+      "properties": {
+        "kind": "data",
+        "format": "json",
+        "role": "structured-gameplay-data"
+      },
+      "realizations": [
+        {
+          "assetId": "notice-board-data",
           "quality": "reference"
         }
       ]
@@ -1186,6 +1219,202 @@
           "expected": "The pre-notification and post-notification mutations commit around the observable notification boundary, the child Flow returns to the nested command cursor, and the later failure does not replay the notification/Flow or erase already committed effects.",
           "status": "ready", "verification": "manual", "created": "2026-10-03T07:00:00Z", "modified": "2026-10-03T07:00:00Z",
           "assetRequirements": ["pilot-button-sprite"], "automation": []
+        }
+      ]
+    },
+    {
+      "id": "scene-director",
+      "categoryId": "stories-scripting",
+      "title": "Stage a short Scene play",
+      "description": "Exercise Scene staging contexts, Scene-native text and choice, nested typed calls and outcomes, Dialogue handoff/resume, waits and Layout signals, gameplay transactions, navigation, terminal behavior, and fast-forward boundaries.",
+      "status": "ready",
+      "created": "2026-10-03T21:00:00Z",
+      "modified": "2026-10-03T21:00:00Z",
+      "launch": { "entry": "scene-director" },
+      "checks": [
+        {
+          "id": "stage-contexts",
+          "title": "Scene staging contexts preserve gameplay Room identity",
+          "action": "Run the inherited, staged-Room, and blank child Scenes at the start of the play.",
+          "expected": "Inherited presentation reuses the caller, staged-Room presentation borrows the authored Room without moving Current Room or admitting that Room's lifecycle/hotspots, blank staging clears presentation, and each Return restores the exact caller presentation.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": ["pilot-room-backdrop", "pilot-character-neutral", "pilot-character-smile"], "automation": [{ "kind": "semantic-test", "id": "scene-director-flow" }]
+        },
+        {
+          "id": "scene-text-choice",
+          "title": "Scene Text and Choice are authoritative Scene roles",
+          "action": "Continue to the blue Scene Choice and select Blue.",
+          "expected": "The Scene-native Choice applies its authored effect, records the blue state, and branches to Scene Text without routing through Dialogue choice machinery.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "scene-director-flow" }]
+        },
+        {
+          "id": "calls-inputs-outcomes",
+          "title": "Nested Scene inputs and Outcomes stay invocation-local",
+          "action": "Continue into the typed child Scene and return through its Done Outcome.",
+          "expected": "Boolean, integer, number, explicit null, and defaulted string inputs are admitted; the child returns its declared Outcome and the exact caller resumes. Value-shape and non-leak semantics are additionally shared with focused native Scene-input execution coverage.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "scene-director-flow" }]
+        },
+        {
+          "id": "terminals",
+          "title": "Scene terminal routes preserve return ancestry",
+          "action": "After the main play, follow the finish-room demos for Continue Scene, Continue Dialogue, Complete Game, and ordinary release/return.",
+          "expected": "Return resumes the caller, Continue Scene and Continue Dialogue transfer to their authored destinations, Release to Exploration ends foreground Flow in the current Room, and Complete Game returns through the title lifecycle rather than an implicit gameplay fallthrough.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "scene-director-flow" }]
+        },
+        {
+          "id": "dialogue-handoff",
+          "title": "Dialogue Handoff resumes the same suspended conversation",
+          "action": "Continue through both Dialogue Handoffs, using the Scene's ResumeDialogue events after each return.",
+          "expected": "Both handoffs return to the same calling Scene and ResumeDialogue continues the retained conversation at its exact cursor. Caller-termination discard behavior is shared with focused native Dialogue/Scene lifetime coverage rather than fabricating an authored Outcome.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "scene-director-flow" }]
+        },
+        {
+          "id": "event-order-and-waits",
+          "title": "Finite events and waits preserve authored semantic order",
+          "action": "Use the Wait demo: let the finite background/audio work settle, continue past input wait, and observe the duration and Condition waits before the signal wait.",
+          "expected": "Completion dependencies, duration/input/Condition waits, and finite audio/presentation events preserve the authored semantic sequence even when visual/audio realization overlaps.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": ["pilot-dialogue-sfx"], "automation": []
+        },
+        {
+          "id": "layout-signal-wait",
+          "title": "Layout signal waits bind to the exact live Mount",
+          "action": "In the Wait demo, press Accept Scene signal on the mounted notice board.",
+          "expected": "The exact invocation-owned custom-slot Mount wakes the Scene through signal 'accepted'. Unrelated/replaced-mount rejection is intentionally shared with focused native Layout-signal lifetime coverage.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": []
+        },
+        {
+          "id": "scene-gameplay-transactions",
+          "title": "Scene gameplay operations use ordinary atomic runtime semantics",
+          "action": "Finish the handoff sequence and continue through the effect batch, Interaction call, structural Exit retarget, directed Room change, and navigation attempt.",
+          "expected": "The exact Interactable moves, the ordinary Interaction unlocks the gate, the structural transaction retargets the live Exit, directed Room change preserves the Scene, navigation follows the retargeted Exit, and the same Scene resumes after each child operation.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": ["pilot-button-sprite"], "automation": [{ "kind": "semantic-test", "id": "scene-director-flow" }]
+        },
+        {
+          "id": "fast-forward",
+          "title": "Fast-forward stops at semantic barriers",
+          "action": "Use the play's fast-forward control around skippable finite work, then compare Choice, non-skippable waits, and opaque Lua events.",
+          "expected": "State mutations execute once and skippable work settles, while Choice, non-skippable operations, and opaque Lua remain barriers. The detailed cursor/barrier matrix is intentionally shared with focused native fast-forward coverage.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": ["pilot-dialogue-sfx"], "automation": []
+        }
+      ]
+    },
+    {
+      "id": "background-stories",
+      "categoryId": "stories-scripting",
+      "title": "Run a background clock",
+      "description": "Exercise concurrent detached Scenes, deterministic duration progress, owner-scoped lifetime cleanup, and isolated background failure while foreground gameplay remains usable.",
+      "status": "ready",
+      "created": "2026-10-03T21:00:00Z",
+      "modified": "2026-10-03T21:00:00Z",
+      "launch": { "entry": "background-stories" },
+      "checks": [
+        {
+          "id": "detached-progress",
+          "title": "Detached Scenes progress independently of foreground Flow",
+          "action": "Enter the station, leave the foreground caption open, and let the first two background clocks pass one second.",
+          "expected": "Foreground input remains available while two detached Scenes independently reach their waits and commit two shared-state deliveries deterministically.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "background-stories-flow" }]
+        },
+        {
+          "id": "detached-owners",
+          "title": "Detached owners end at their own lifetime boundaries",
+          "action": "Continue to end the launching Flow, leave the Room, then restart the station.",
+          "expected": "The flow-owned branch ends with its launching Flow, the active-room branch ends with that Room visit, runtime-session work survives both, and restart replaces the session so no old branch leaks into the fresh run.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "background-stories-flow" }]
+        },
+        {
+          "id": "detached-fault",
+          "title": "A background fault terminates only its branch",
+          "action": "Open the Background fault demo and let its broken and healthy clocks fire.",
+          "expected": "The broken branch emits its real runtime diagnostic and stops; the good branch and foreground continue without rewind. This deliberate runtime-error path remains manual because authored Test playback correctly treats runtime diagnostics as test failures; focused native failure-path tests provide deterministic automation.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": []
+        }
+      ]
+    },
+    {
+      "id": "script-and-data",
+      "categoryId": "stories-scripting",
+      "title": "Operate a data-driven notice board",
+      "description": "Exercise public Script Modules, On Game Ready reconstruction, Room Hook Registry selection, synchronous and yielding Lua contexts, structured Data.load values, calendar APIs, saved random state, and explicit restart startup context.",
+      "status": "ready",
+      "created": "2026-10-03T21:00:00Z",
+      "modified": "2026-10-03T21:00:00Z",
+      "launch": { "entry": "script-and-data" },
+      "checks": [
+        {
+          "id": "module-and-ready",
+          "title": "Module initialization and On Game Ready have distinct lifetimes",
+          "action": "Enter the station and press Show On Game Ready cache; save at the ticket boundary, draw, load the save, then press the cache control again before redrawing.",
+          "expected": "Bootstrap imports the shared module once per VM even when requested twice. On Game Ready first reconstructs its transient cache from default established state, then after load reconstructs from the restored board title without replaying the gameplay entrypoint.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "script-and-data-flow" }]
+        },
+        {
+          "id": "hook-selection",
+          "title": "Room hooks resolve one winning selector",
+          "action": "Enter Script & Data, then leave through Catchall hook room.",
+          "expected": "The Room's direct exact before-enter hook wins over the registered catchall on entry; Inventory Workbench has no exact mapping so catchall wins there. A qualified-prefix registration is present in the same public Bootstrap registry; longest-prefix competition is intentionally shared with the focused native Hook Registry resolver test because authoring record IDs do not admit dotted qualified targets.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "script-and-data-flow" }]
+        },
+        {
+          "id": "lua-invocation",
+          "title": "Only yield-capable Lua contexts suspend",
+          "action": "Observe the Scene's synchronous predicate/text expression, then continue into its play-and-wait audio effect.",
+          "expected": "The predicate and text expression synchronously return values from established runtime state. The explicitly yield-capable effect suspends on engine-owned audio work and resumes the same Scene after completion.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": ["pilot-dialogue-sfx"], "automation": [{ "kind": "semantic-test", "id": "script-and-data-flow" }]
+        },
+        {
+          "id": "data-value-trees",
+          "title": "Data.load returns independent structured value trees",
+          "action": "Enter the station, then press Read fresh notices on its notice-board Layout.",
+          "expected": "Gameplay and Layout each load the declared JSON Asset through Data.load, mutate a local result, reload a fresh copy, and verify nested scalars plus explicit null object members/array slots survive without writing back to the Asset.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": ["structured-data"], "automation": [{ "kind": "semantic-test", "id": "script-and-data-flow" }]
+        },
+        {
+          "id": "data-load-rejection",
+          "title": "Rejected Data IDs do not compromise the board",
+          "action": "Enter the station and inspect the handled Data-load notification.",
+          "expected": "A missing data ID, an image/wrong-kind ID, and a path-like ID all return handled errors through the public API; the already loaded notice board remains usable and there is no filesystem escape hatch.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": ["structured-data"], "automation": [{ "kind": "semantic-test", "id": "script-and-data-flow" }]
+        },
+        {
+          "id": "calendar-versus-gameplay",
+          "title": "Wall-clock calendar is external to gameplay time",
+          "action": "Use Local / UTC calendar, pause/resume gameplay, and restart the station while comparing the displayed calendar to gameplay progress.",
+          "expected": "os.time/os.date expose local and UTC calendar time and os.difftime performs wall-clock arithmetic; pause/restart affects gameplay lifetime rather than controlling wall time. Deterministic clock assertions remain intentionally shared with native tests using an injected fixed clock instead of real-time sleeps.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": []
+        },
+        {
+          "id": "saved-random-stream",
+          "title": "The deterministic random stream is save state",
+          "action": "Seed the ticket stream, save, draw, load, and draw again.",
+          "expected": "math.randomseed/math.random and noveltea.random share one deterministic session generator; the post-save draw is 21 both times, while an intentionally invalid range before each draw returns an error without consuming generator state.",
+          "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "script-and-data-flow" }]
+        },
+        {
+          "id": "restart-startup-context",
+          "title": "Restart creates a fresh session from copied typed startup context",
+          "action": "Dirty the board, optionally save slot 54, then press Restart with typed context; afterward load the saved slot if desired.",
+          "expected": "The Layout proves Game.startup_context returns an independent copy, then requests restart with nested boolean/integer/number/string/null/object context. The new VM begins from Project gameplay defaults and routes through that context without auto-loading prior gameplay state; save slots and user preferences remain host-owned. Save-slot persistence is observable here, while preference persistence is intentionally shared with host restart integration coverage.",
+          "status": "ready", "verification": "manual", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
+          "assetRequirements": [], "automation": []
         }
       ]
     }

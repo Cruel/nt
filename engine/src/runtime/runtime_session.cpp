@@ -1224,7 +1224,9 @@ core::Diagnostics RuntimeSession::start_detached_scene(const StartDetachedSceneC
         return std::move(started).error();
 
     m_kernel->state().m_detached_flow_executions.push_back(core::DetachedFlowExecution{
-        command.owner, source.frame, m_kernel->state().room_entry_sequence(), std::move(detached)});
+        command.owner,
+        command.owner == core::compiled::DetachedSceneOwner::Flow ? source.frame : std::nullopt,
+        m_kernel->state().room_entry_sequence(), std::move(detached)});
     record_structural_mutation();
     return {};
 }

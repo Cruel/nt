@@ -1,0 +1,82 @@
+{
+  "id": "background-fault-demo",
+  "label": "background-fault-demo",
+  "data": {
+    "kind": "scene",
+    "displayName": "background-fault-demo",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "launch-broken",
+        "label": "launch-broken",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "background-broken-clock"
+          }
+        },
+        "inputs": [],
+        "owner": "runtime-session",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "launch-good",
+        "label": "launch-good",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "background-clock-a"
+          }
+        },
+        "inputs": [],
+        "owner": "runtime-session",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "foreground",
+        "label": "foreground",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "One background clock fails deliberately. This foreground caption remains usable and the good clock still delivers. Inspect the runtime diagnostic, then Continue."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

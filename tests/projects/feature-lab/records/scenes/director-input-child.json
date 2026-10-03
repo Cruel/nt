@@ -1,0 +1,81 @@
+{
+  "id": "director-input-child",
+  "label": "director-input-child",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-input-child",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [
+      {
+        "id": "enabled",
+        "label": "enabled",
+        "type": "boolean",
+        "nullable": false,
+        "defaultValue": true
+      },
+      {
+        "id": "count",
+        "label": "count",
+        "type": "integer",
+        "nullable": false,
+        "defaultValue": 3
+      },
+      {
+        "id": "ratio",
+        "label": "ratio",
+        "type": "number",
+        "nullable": false,
+        "defaultValue": 1.5
+      },
+      {
+        "id": "title",
+        "label": "title",
+        "type": "string",
+        "nullable": false,
+        "defaultValue": "Default title"
+      },
+      {
+        "id": "optional",
+        "label": "optional",
+        "type": "string",
+        "nullable": true
+      }
+    ],
+    "outcomes": [
+      {
+        "id": "done",
+        "label": "Done"
+      }
+    ],
+    "events": [
+      {
+        "id": "inputs",
+        "label": "inputs",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "This nested call admits boolean, integer, number, string, default and null bindings, and returns its declared Done Outcome. Input/result inspection is currently native-test coverage; it is not a Global Property."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": "done"
+    }
+  }
+}

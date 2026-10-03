@@ -1,0 +1,49 @@
+{
+  "id": "background-visit-clock",
+  "label": "background-visit-clock",
+  "data": {
+    "kind": "scene",
+    "displayName": "background-visit-clock",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "delay",
+        "label": "delay",
+        "type": "wait",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "waitKind": "duration",
+        "durationMs": 5000,
+        "skippable": false
+      },
+      {
+        "id": "deliver",
+        "label": "deliver",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local count = assert(Game.prop('background-visit-deliveries')); assert(Game.set_prop('background-visit-deliveries', count + 1)); noveltea.notify('background-visit-clock delivered.')",
+        "mayYield": false,
+        "autosaveSafePoint": true
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

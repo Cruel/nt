@@ -1,0 +1,3 @@
+body { font-family: Lato; font-size: 24dp; }
+#notice_board_panel { position: absolute; top: 90dp; left: 40dp; width: 480dp; padding: 16dp; background-color: #142b40ee; color: #ffffff; }
+button { display: block; margin: 8dp; padding: 8dp; background-color: #346080; color: #ffffff; }

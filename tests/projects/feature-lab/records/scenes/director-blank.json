@@ -1,0 +1,48 @@
+{
+  "id": "director-blank",
+  "label": "director-blank",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-blank",
+    "stage": {
+      "kind": "blank",
+      "background": {
+        "asset": null,
+        "materialApplication": null,
+        "color": "#173c68",
+        "fit": "cover"
+      },
+      "layout": null
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "blank",
+        "label": "blank",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Blank Stage: this blue background belongs to the child. Continue to restore the caller and choose."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

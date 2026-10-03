@@ -1,0 +1,94 @@
+{
+  "id": "script-and-data",
+  "label": "script-and-data",
+  "data": {
+    "kind": "room",
+    "displayName": "script-and-data",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Follow the Scene captions. Reopen Feature Lab for acceptance instructions."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [{ "hook": "before-enter", "handler": { "module": { "$ref": { "collection": "scripts", "id": "notice-board" } }, "export": "before_enter" } }],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "begin",
+          "kind": "call-scene",
+          "scene": {
+            "$ref": {
+              "collection": "scenes",
+              "id": "script-and-data"
+            }
+          }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "hook-catchall",
+        "label": "Catchall hook room",
+        "direction": "west",
+        "target": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "inventory-workbench"
+          }
+        },
+        "condition": { "kind": "always" },
+        "onRejected": []
+      }
+    ],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

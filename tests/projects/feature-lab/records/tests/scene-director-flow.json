@@ -1,0 +1,44 @@
+{
+  "id": "scene-director-flow", "label": "Scene Director flow",
+  "data": {
+    "kind": "test", "displayName": "Scene Director flow",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Start fresh" },
+      { "id": "route", "input": "navigate", "label": "Enter station router", "navigate": { "exitId": "inventory-workbench-test-entry" } },
+      { "id": "enter", "input": "navigate", "label": "Enter the play", "navigate": { "exitId": "scene-director-test-entry" }, "expectations": [
+        { "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "scene-director" } },
+        { "id": "inherited", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "scene", "flowId": "director-inherited" } }
+      ] },
+      { "id": "staged", "input": "continue", "label": "Return and stage a Room", "expectations": [
+        { "id": "no-relocation", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "scene-director" } },
+        { "id": "staged-child", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "scene", "flowId": "director-staged" } }
+      ] },
+      { "id": "blank", "input": "continue", "label": "Return and stage a blank backdrop", "expectations": [
+        { "id": "blank-child", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "scene", "flowId": "director-blank" } }
+      ] },
+      { "id": "choice", "input": "continue", "label": "Return to Scene choice" },
+      { "id": "choose", "input": "scene-choice", "label": "Choose the blue program", "sceneChoice": { "optionId": "blue" }, "expectations": [
+        { "id": "choice-effect", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "director-color", "value": "blue" } }
+      ] },
+      { "id": "nested-input", "input": "continue", "label": "Enter typed child", "expectations": [{ "id": "child", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "scene", "flowId": "director-input-child" } }] },
+      { "id": "conversation", "input": "continue", "label": "Child returns its Outcome" },
+      { "id": "handoff-one", "input": "continue", "label": "First conversation Handoff", "expectations": [{ "id": "caller", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "scene", "flowId": "director-flow-child" } }] },
+      { "id": "resume-one", "input": "continue", "label": "Resume retained Dialogue" },
+      { "id": "ready-two", "input": "tick", "label": "Let the resumed second line become ready", "tick": { "deltaSeconds": 0.001 } },
+      { "id": "handoff-two", "input": "continue", "label": "Second Handoff" },
+      { "id": "ready-handoff-two", "input": "tick", "label": "Let the caller expose its second Handoff caption", "tick": { "deltaSeconds": 0.001 } },
+      { "id": "resume-two", "input": "continue", "label": "Resume third part" },
+      { "id": "ready-three", "input": "tick", "label": "Let the resumed third line become ready", "tick": { "deltaSeconds": 0.001 } },
+      { "id": "finish-conversation", "input": "continue", "label": "Complete the retained Dialogue and return to its Scene caller" },
+      { "id": "resume-caller", "input": "tick", "label": "Run the resumed transaction sequence", "tick": { "deltaSeconds": 0.001 }, "expectations": [
+        { "id": "annex", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "director-annex" } },
+        { "id": "interaction", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true } },
+        { "id": "batch", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "director-color", "value": "blue play complete" } }
+      ] },
+      { "id": "navigate", "input": "continue", "label": "Navigate and resume same caller", "expectations": [{ "id": "finish", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "director-finish" } }] },
+      { "id": "release", "input": "continue", "label": "Return and release to exploration", "expectations": [{ "id": "foreground-ended", "type": "active-flow", "operator": "absent", "activeFlow": { "kind": "scene", "flowId": "scene-director" } }] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

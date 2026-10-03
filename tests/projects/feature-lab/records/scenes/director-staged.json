@@ -1,0 +1,47 @@
+{
+  "id": "director-staged",
+  "label": "director-staged",
+  "data": {
+    "kind": "scene",
+    "displayName": "director-staged",
+    "stage": {
+      "kind": "staged-room",
+      "room": {
+        "$ref": {
+          "collection": "rooms",
+          "id": "dialogue-presentation-stage"
+        }
+      }
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "staged",
+        "label": "staged",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Staged Room: only presentation changes. Current Room remains Scene Director. Continue to the blank child."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

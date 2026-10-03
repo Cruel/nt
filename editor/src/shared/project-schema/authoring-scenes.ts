@@ -1527,20 +1527,27 @@ export function validateSceneData(
         const subject = binding.subject;
         if (subject.kind === 'character')
           requireRecord('characters', subject.character.$ref.id, `${subjectPath}/character`);
-        else if (subject.kind === 'interactable')
-          requireRecord(
-            'interactables',
-            subject.interactable.$ref.id,
-            `${subjectPath}/interactable`,
-          );
-        else if (subject.feature.ownerKind === 'room')
+        else if (subject.kind === 'interactable') {
+          const instanceId = subject.interactable.$ref.id;
+          if (!project.interactableInstances[instanceId])
+            diagnostics.push(
+              diagnostic(
+                `${subjectPath}/interactable`,
+                `Missing Interactable Instance '${instanceId}'.`,
+              ),
+            );
+        } else if (subject.feature.ownerKind === 'room')
           requireRecord('rooms', subject.feature.room.$ref.id, `${subjectPath}/feature/room`);
-        else
-          requireRecord(
-            'interactables',
-            subject.feature.interactable.$ref.id,
-            `${subjectPath}/feature/interactable`,
-          );
+        else {
+          const instanceId = subject.feature.interactable.$ref.id;
+          if (!project.interactableInstances[instanceId])
+            diagnostics.push(
+              diagnostic(
+                `${subjectPath}/feature/interactable`,
+                `Missing Interactable Instance '${instanceId}'.`,
+              ),
+            );
+        }
       });
     }
     if (step.type === 'set-layout') {

@@ -3210,6 +3210,26 @@ TEST_CASE(
     CHECK(fixture.session->presentation_state().game_completed());
 }
 
+TEST_CASE("runtime-session detached Scene save omits causal Flow owner")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        configure_detached_duration_flow(document, "runtime-session");
+    });
+
+    auto started = fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.diagnostics.empty());
+
+    const auto slot = core::TypedSaveSlotId::manual(24);
+    auto saved = dispatch_settled(*fixture.session, core::SaveRuntimeInput{.slot = slot});
+    REQUIRE(saved.diagnostics.empty());
+    auto checkpoint = fixture.saves.read_checkpoint(slot);
+    REQUIRE(checkpoint);
+    const auto encoded = nlohmann::json::parse(checkpoint.value_if()->encoded_save);
+    REQUIRE(encoded["detachedFlows"].size() == 1);
+    CHECK(encoded["detachedFlows"][0]["owner"] == "runtime-session");
+    CHECK(encoded["detachedFlows"][0]["flowOwner"].is_null());
+}
+
 TEST_CASE("Flow-owned detached Scene is cancelled when its initiating Flow ends")
 {
     Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {

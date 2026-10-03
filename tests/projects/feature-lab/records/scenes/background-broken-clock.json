@@ -1,0 +1,49 @@
+{
+  "id": "background-broken-clock",
+  "label": "background-broken-clock",
+  "data": {
+    "kind": "scene",
+    "displayName": "background-broken-clock",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "delay",
+        "label": "delay",
+        "type": "wait",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "waitKind": "duration",
+        "durationMs": 500,
+        "skippable": false
+      },
+      {
+        "id": "fault",
+        "label": "fault",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "error('Notice clock failed deliberately')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}
