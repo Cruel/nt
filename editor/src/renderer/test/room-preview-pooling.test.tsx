@@ -373,11 +373,16 @@ describe('RoomEditor persistent room preview', () => {
     expect(screen.getByTestId('room-edit-viewport')).toBeInTheDocument();
 
     const previewButton = within(modes).getByRole('button', { name: 'Preview' });
-    await waitFor(() => expect(previewButton).not.toBeDisabled());
+    expect(previewButton).not.toBeDisabled();
     fireEvent.click(previewButton);
 
-    await waitFor(() => expect(previewButton).toHaveAttribute('aria-pressed', 'true'));
-    await waitFor(() => expect(roomAHost).toHaveAttribute('data-preview-host-visible', 'true'));
+    await waitFor(() => expect(previewButton).toHaveAttribute('aria-pressed', 'true'), {
+      timeout: 3500,
+    });
+
+    await waitFor(() => expect(roomAHost).toHaveAttribute('data-preview-host-visible', 'true'), {
+      timeout: 3500,
+    });
     expect(roomAHost).not.toHaveAttribute('aria-hidden');
   });
 

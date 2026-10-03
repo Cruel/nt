@@ -124,6 +124,28 @@ describe('authoring rooms schema', () => {
     );
   });
 
+  it('accepts same-Room exits as real self-loop navigation', () => {
+    const project = createAuthoringProject();
+    const data = defaultRoomData('Foyer');
+    data.exits = [
+      {
+        id: 'self-loop',
+        label: 'Re-enter Foyer',
+        direction: 'north',
+        target: roomRoomRef('foyer'),
+        condition: { kind: 'always' },
+        onRejected: [],
+      },
+    ];
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
+
+    expect(
+      validateRoomData(project, 'foyer', project.rooms.foyer).filter(
+        (diagnostic) => diagnostic.path === '/rooms/foyer/data/exits/0/target/$ref',
+      ),
+    ).toEqual([]);
+  });
+
   it('warns for non-image background assets and empty descriptions through project validation', () => {
     const project = createAuthoringProject();
     project.assets.theme = {
