@@ -127,7 +127,8 @@ export const namedMessageKeySchema = z
   .regex(
     /^[A-Za-z][A-Za-z0-9_-]*(?:\.[A-Za-z][A-Za-z0-9_-]*)+$/,
     'Named Message key must use semantic identifier segments.',
-  );
+  )
+  .meta({ title: 'NamedMessageKey' });
 
 const assetRefSchema = z
   .object({
@@ -168,41 +169,43 @@ export type MessagePattern =
   | { kind: 'plural'; argument: string; cases: Record<string, MessagePattern> }
   | { kind: 'select'; argument: string; cases: Record<string, MessagePattern> };
 
-export const messagePatternSchema: z.ZodType<MessagePattern> = z.lazy(() =>
-  z.discriminatedUnion('kind', [
-    z.object({ kind: z.literal('text'), text: z.string() }).strict(),
-    z
-      .object({
-        kind: z.literal('plural'),
-        argument: messageSelectorArgumentSchema,
-        cases: z.partialRecord(pluralCaseKeySchema, messagePatternSchema),
-      })
-      .strict()
-      .superRefine((pattern, context) => {
-        if (!Object.hasOwn(pattern.cases, 'other'))
-          context.addIssue({
-            code: 'custom',
-            path: ['cases', 'other'],
-            message: "Plural Message selector requires an 'other' case.",
-          });
-      }),
-    z
-      .object({
-        kind: z.literal('select'),
-        argument: messageSelectorArgumentSchema,
-        cases: z.record(z.string().min(1), messagePatternSchema),
-      })
-      .strict()
-      .superRefine((pattern, context) => {
-        if (!Object.hasOwn(pattern.cases, 'other'))
-          context.addIssue({
-            code: 'custom',
-            path: ['cases', 'other'],
-            message: "Select Message selector requires an 'other' fallback.",
-          });
-      }),
-  ]),
-);
+export const messagePatternSchema: z.ZodType<MessagePattern> = z
+  .lazy(() =>
+    z.discriminatedUnion('kind', [
+      z.object({ kind: z.literal('text'), text: z.string() }).strict(),
+      z
+        .object({
+          kind: z.literal('plural'),
+          argument: messageSelectorArgumentSchema,
+          cases: z.partialRecord(pluralCaseKeySchema, messagePatternSchema),
+        })
+        .strict()
+        .superRefine((pattern, context) => {
+          if (!Object.hasOwn(pattern.cases, 'other'))
+            context.addIssue({
+              code: 'custom',
+              path: ['cases', 'other'],
+              message: "Plural Message selector requires an 'other' case.",
+            });
+        }),
+      z
+        .object({
+          kind: z.literal('select'),
+          argument: messageSelectorArgumentSchema,
+          cases: z.record(z.string().min(1), messagePatternSchema),
+        })
+        .strict()
+        .superRefine((pattern, context) => {
+          if (!Object.hasOwn(pattern.cases, 'other'))
+            context.addIssue({
+              code: 'custom',
+              path: ['cases', 'other'],
+              message: "Select Message selector requires an 'other' fallback.",
+            });
+        }),
+    ]),
+  )
+  .meta({ title: 'MessagePattern' });
 
 export function messagePlaceholderNames(source: string): readonly string[] {
   const names = new Set<string>();

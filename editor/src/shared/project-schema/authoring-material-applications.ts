@@ -2,6 +2,7 @@ import { z } from 'zod';
 import { entityIdSchema } from './authoring-common';
 import { materialRefSchema } from './authoring-flow';
 import { assetTextureRefSchema } from './authoring-materials';
+import { withSchemaDocumentation } from './schema-documentation';
 import {
   isUniformValueCompatible,
   shaderUniformTypeValues,
@@ -21,42 +22,55 @@ export const materialStandardFacetValues = [
   'camera-zoom',
 ] as const;
 
-export const materialApplicationParameterSourceSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('literal'), value: shaderUniformValueSchema }),
-  strict({ kind: z.literal('property'), property: entityIdSchema }),
-  strict({ kind: z.literal('standard-facet'), facet: z.enum(materialStandardFacetValues) }),
-]);
+export const materialApplicationParameterSourceSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('literal'), value: shaderUniformValueSchema }),
+    strict({ kind: z.literal('property'), property: entityIdSchema }),
+    strict({ kind: z.literal('standard-facet'), facet: z.enum(materialStandardFacetValues) }),
+  ]),
+  { name: 'MaterialParameterSource' },
+);
 
-export const materialApplicationParameterOverrideSchema = strict({
-  type: z.enum(shaderUniformTypeValues),
-  source: materialApplicationParameterSourceSchema,
-}).superRefine((override, context) => {
-  if (
-    override.source.kind === 'literal' &&
-    !isUniformValueCompatible(override.type, override.source.value)
-  )
-    context.addIssue({
-      code: 'custom',
-      path: ['source', 'value'],
-      message: `Literal value is incompatible with Material parameter type '${override.type}'.`,
-    });
-});
+export const materialApplicationParameterOverrideSchema = withSchemaDocumentation(
+  strict({
+    type: z.enum(shaderUniformTypeValues),
+    source: materialApplicationParameterSourceSchema,
+  }).superRefine((override, context) => {
+    if (
+      override.source.kind === 'literal' &&
+      !isUniformValueCompatible(override.type, override.source.value)
+    )
+      context.addIssue({
+        code: 'custom',
+        path: ['source', 'value'],
+        message: `Literal value is incompatible with Material parameter type '${override.type}'.`,
+      });
+  }),
+  { name: 'MaterialParameterOverride' },
+);
 
-export const materialApplicationTextureOverrideSchema = strict({
-  source: assetTextureRefSchema,
-});
+export const materialApplicationTextureOverrideSchema = withSchemaDocumentation(
+  strict({ source: assetTextureRefSchema }),
+  { name: 'MaterialTextureOverride' },
+);
 
-export const materialApplicationSchema = strict({
-  material: materialRefSchema,
-  parameters: z.record(z.string().min(1), materialApplicationParameterOverrideSchema).default({}),
-  textures: z.record(z.string().min(1), materialApplicationTextureOverrideSchema).default({}),
-});
+export const materialApplicationSchema = withSchemaDocumentation(
+  strict({
+    material: materialRefSchema,
+    parameters: z.record(z.string().min(1), materialApplicationParameterOverrideSchema).default({}),
+    textures: z.record(z.string().min(1), materialApplicationTextureOverrideSchema).default({}),
+  }),
+  { name: 'MaterialApplication' },
+);
 
-export const materialApplicationSpecializationSchema = strict({
-  material: materialRefSchema.nullable(),
-  parameters: z.record(z.string().min(1), materialApplicationParameterOverrideSchema).default({}),
-  textures: z.record(z.string().min(1), materialApplicationTextureOverrideSchema).default({}),
-});
+export const materialApplicationSpecializationSchema = withSchemaDocumentation(
+  strict({
+    material: materialRefSchema.nullable(),
+    parameters: z.record(z.string().min(1), materialApplicationParameterOverrideSchema).default({}),
+    textures: z.record(z.string().min(1), materialApplicationTextureOverrideSchema).default({}),
+  }),
+  { name: 'MaterialApplicationSpecialization' },
+);
 
 export type MaterialStandardFacet = (typeof materialStandardFacetValues)[number];
 export type MaterialApplicationParameterSource = z.infer<

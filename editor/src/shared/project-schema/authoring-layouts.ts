@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
 import { systemCursorNames } from './authoring-cursor-vocabulary';
-import { layoutContractIdSchema } from './authoring-common';
+import { jsonValueSchema, layoutContractIdSchema } from './authoring-common';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import { resolveMaterialData } from './authoring-materials';
 import { authoredRuntimeValueSchema } from './authoring-properties';
@@ -209,63 +209,67 @@ function stateValueMatchesShape(
   );
 }
 
-export const layoutPersistableValueSchema: z.ZodType<LayoutPersistableValue> = z.lazy(() =>
-  z.union([
-    z.null(),
-    z.boolean(),
-    z.number().finite(),
-    z.string(),
-    z.array(layoutPersistableValueSchema),
-    z.record(z.string().min(1), layoutPersistableValueSchema),
-  ]),
-);
+export const layoutPersistableValueSchema: z.ZodType<LayoutPersistableValue> = z
+  .lazy(() =>
+    z.union([
+      z.null(),
+      z.boolean(),
+      z.number().finite(),
+      z.string(),
+      z.array(layoutPersistableValueSchema),
+      z.record(z.string().min(1), layoutPersistableValueSchema),
+    ]),
+  )
+  .meta({ title: 'LayoutPersistableValue' });
 
-export const layoutStateShapeSchema: z.ZodType<LayoutStateShapeData> = z.lazy(() =>
-  z
-    .discriminatedUnion('type', [
-      z
-        .object({
-          type: z.enum(['boolean', 'integer', 'number', 'string']),
-          nullable: z.boolean().default(false),
-          defaultValue: layoutPersistableValueSchema.optional(),
-        })
-        .strict(),
-      z
-        .object({
-          type: z.literal('array'),
-          nullable: z.boolean().default(false),
-          items: layoutStateShapeSchema,
-          defaultValue: layoutPersistableValueSchema.optional(),
-        })
-        .strict(),
-      z
-        .object({
-          type: z.literal('object'),
-          nullable: z.boolean().default(false),
-          fields: z
-            .record(
-              layoutContractIdSchema,
-              z
-                .object({
-                  required: z.boolean().default(true),
-                  shape: layoutStateShapeSchema,
-                })
-                .strict(),
-            )
-            .default({}),
-          defaultValue: layoutPersistableValueSchema.optional(),
-        })
-        .strict(),
-    ])
-    .superRefine((shape, context) => {
-      if (shape.defaultValue !== undefined && !stateValueMatchesShape(shape, shape.defaultValue))
-        context.addIssue({
-          code: 'custom',
-          path: ['defaultValue'],
-          message: 'Layout state defaultValue must match its recursive State Shape.',
-        });
-    }),
-);
+export const layoutStateShapeSchema: z.ZodType<LayoutStateShapeData> = z
+  .lazy(() =>
+    z
+      .discriminatedUnion('type', [
+        z
+          .object({
+            type: z.enum(['boolean', 'integer', 'number', 'string']),
+            nullable: z.boolean().default(false),
+            defaultValue: layoutPersistableValueSchema.optional(),
+          })
+          .strict(),
+        z
+          .object({
+            type: z.literal('array'),
+            nullable: z.boolean().default(false),
+            items: layoutStateShapeSchema,
+            defaultValue: layoutPersistableValueSchema.optional(),
+          })
+          .strict(),
+        z
+          .object({
+            type: z.literal('object'),
+            nullable: z.boolean().default(false),
+            fields: z
+              .record(
+                layoutContractIdSchema,
+                z
+                  .object({
+                    required: z.boolean().default(true),
+                    shape: layoutStateShapeSchema,
+                  })
+                  .strict(),
+              )
+              .default({}),
+            defaultValue: layoutPersistableValueSchema.optional(),
+          })
+          .strict(),
+      ])
+      .superRefine((shape, context) => {
+        if (shape.defaultValue !== undefined && !stateValueMatchesShape(shape, shape.defaultValue))
+          context.addIssue({
+            code: 'custom',
+            path: ['defaultValue'],
+            message: 'Layout state defaultValue must match its recursive State Shape.',
+          });
+      }),
+  )
+  .meta({ title: 'LayoutStateShape' });
 
 const layoutContractSignalSchema = z
   .object({
@@ -325,7 +329,7 @@ export const layoutDataSchema = z
       scripts: [],
       templates: [],
     }),
-    sampleState: z.record(z.string(), z.json()).default({}),
+    sampleState: z.record(z.string(), jsonValueSchema).default({}),
     preview: z
       .object({
         background: z.enum(layoutPreviewBackgroundValues).default('dark'),

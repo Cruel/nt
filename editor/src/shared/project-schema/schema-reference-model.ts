@@ -87,20 +87,20 @@ function constraints(input: JsonSchema): string[] {
       delete node.exclusiveMaximum;
     }
   }
-  const labels: Record<string, string> = {
-    minimum: '>=',
-    maximum: '<=',
-    exclusiveMinimum: '>',
-    exclusiveMaximum: '<',
-    multipleOf: 'multiple of',
-    minLength: 'length >=',
-    maxLength: 'length <=',
-    minItems: 'items >=',
-    maxItems: 'items <=',
-    minProperties: 'keys >=',
-    maxProperties: 'keys <=',
-  };
-  const result = Object.entries(labels).flatMap(([key, label]) =>
+  const orderedLabels: readonly (readonly [string, string])[] = [
+    ['minimum', '>='],
+    ['exclusiveMinimum', '>'],
+    ['maximum', '<='],
+    ['exclusiveMaximum', '<'],
+    ['multipleOf', 'multiple of'],
+    ['minLength', 'length >='],
+    ['maxLength', 'length <='],
+    ['minItems', 'items >='],
+    ['maxItems', 'items <='],
+    ['minProperties', 'keys >='],
+    ['maxProperties', 'keys <='],
+  ];
+  const result = orderedLabels.flatMap(([key, label]) =>
     typeof node[key] === 'number' ? [`${label} ${node[key]}`] : [],
   );
   if (typeof node.pattern === 'string') result.push(`pattern ${JSON.stringify(node.pattern)}`);
@@ -114,6 +114,15 @@ export function normalizeSchemaReference(schema: z.ZodType, name: string): Schem
   const definitions: Record<string, SchemaReferenceNode> = {};
   const references = new Map<string, string>([['#', name]]);
   const names = new Set([name]);
+  const definingNames = new Set<string>();
+  const expandingAnonymousReferences = new Set<string>();
+  const identifierForTitle = (title: string): string =>
+    title
+      .replace(/[^a-zA-Z0-9_$]+/g, ' ')
+      .split(' ')
+      .filter(Boolean)
+      .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+      .join('') || 'Value';
   function resolve(pointer: string): unknown {
     if (pointer === '#') return json;
     if (!pointer.startsWith('#/')) throw new Error(`Unsupported schema reference '${pointer}'.`);
@@ -127,7 +136,7 @@ export function normalizeSchemaReference(schema: z.ZodType, name: string): Schem
         return record(value)[decoded];
       }, json);
   }
-  function normalize(value: unknown, hint: string): SchemaReferenceNode {
+  function normalize(value: unknown, hint: string, definingNamedNode = false): SchemaReferenceNode {
     const node = record(value);
     for (const key of Object.keys(node)) {
       if (!supportedKeywords.has(key))
@@ -144,28 +153,64 @@ export function normalizeSchemaReference(schema: z.ZodType, name: string): Schem
           : {}),
       ...(Object.hasOwn(node, 'default') ? { defaultValue: node.default } : {}),
     };
+    const directTitle = typeof node.title === 'string' ? node.title.trim() : '';
+    if (directTitle && !definingNamedNode) {
+      const referenceName = identifierForTitle(directTitle);
+      if (
+        referenceName !== name &&
+        !definitions[referenceName] &&
+        !definingNames.has(referenceName)
+      ) {
+        if (names.has(referenceName))
+          throw new Error(`Duplicate schema documentation name '${referenceName}' in '${hint}'.`);
+        names.add(referenceName);
+        if (typeof node.$ref === 'string') references.set(node.$ref, referenceName);
+        definingNames.add(referenceName);
+        try {
+          definitions[referenceName] = normalize(node, referenceName, true);
+        } finally {
+          definingNames.delete(referenceName);
+        }
+      }
+      if (referenceName !== name)
+        return { kind: 'reference', type: referenceName, constraints: [] };
+    }
     if (typeof node.$ref === 'string') {
+      const knownReferenceName = references.get(node.$ref);
+      if (knownReferenceName) return { ...common, kind: 'reference', type: knownReferenceName };
       const target = record(resolve(node.$ref));
       const { $ref: _reference, ...siblings } = node;
-      if (typeof target.type === 'string' && !['object', 'array'].includes(target.type))
-        return normalize({ ...target, ...siblings }, hint);
-      let referenceName = references.get(node.$ref);
-      if (!referenceName) {
-        const base = typeof target.title === 'string' ? target.title : hint;
-        const identifier =
-          base
-            .replace(/[^a-zA-Z0-9_$]+/g, ' ')
-            .split(' ')
-            .filter(Boolean)
-            .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
-            .join('') || 'Value';
-        referenceName = identifier;
-        for (let suffix = 2; names.has(referenceName); suffix++)
-          referenceName = `${identifier}${suffix}`;
+      const explicitTitle = typeof target.title === 'string' ? target.title.trim() : '';
+      if (!explicitTitle) {
+        if (expandingAnonymousReferences.has(node.$ref))
+          throw new Error(
+            `Recursive schema reference '${node.$ref}' in '${hint}' needs an explicit documentation name.`,
+          );
+        expandingAnonymousReferences.add(node.$ref);
+        try {
+          return normalize({ ...target, ...siblings }, hint, definingNamedNode);
+        } finally {
+          expandingAnonymousReferences.delete(node.$ref);
+        }
+      }
+      const referenceName = identifierForTitle(explicitTitle);
+      if (
+        !definitions[referenceName] &&
+        referenceName !== name &&
+        !definingNames.has(referenceName)
+      ) {
+        if (names.has(referenceName))
+          throw new Error(`Duplicate schema documentation name '${referenceName}' in '${hint}'.`);
         names.add(referenceName);
         references.set(node.$ref, referenceName);
-        definitions[referenceName] = normalize(target, referenceName);
+        definingNames.add(referenceName);
+        try {
+          definitions[referenceName] = normalize(target, referenceName, true);
+        } finally {
+          definingNames.delete(referenceName);
+        }
       }
+      references.set(node.$ref, referenceName);
       return { ...common, kind: 'reference', type: referenceName };
     }
     for (const key of ['anyOf', 'oneOf', 'allOf'] as const) {
@@ -182,6 +227,11 @@ export function normalizeSchemaReference(schema: z.ZodType, name: string): Schem
     if (node.type === 'object') {
       const key = node.propertyNames ? normalize(node.propertyNames, `${hint}Key`) : undefined;
       const required = new Set(Array.isArray(node.required) ? node.required : []);
+      const additional = Object.hasOwn(node, 'additionalProperties')
+        ? typeof node.additionalProperties === 'boolean'
+          ? node.additionalProperties
+          : normalize(node.additionalProperties, `${hint}Value`)
+        : true;
       return {
         ...common,
         kind: 'object',
@@ -191,10 +241,7 @@ export function normalizeSchemaReference(schema: z.ZodType, name: string): Schem
           required: required.has(key),
           value: normalize(nested, key),
         })),
-        additional:
-          typeof node.additionalProperties === 'boolean'
-            ? node.additionalProperties
-            : normalize(node.additionalProperties, `${hint}Value`),
+        additional,
       };
     }
     if (node.type === 'array') {
@@ -222,7 +269,7 @@ export function normalizeSchemaReference(schema: z.ZodType, name: string): Schem
               : 'JSON value';
     return { ...common, kind: 'value', type };
   }
-  const root = normalize(json, name);
+  const root = normalize(json, name, true);
   return { name, root, definitions };
 }
 
@@ -240,7 +287,7 @@ function renderNode(node: SchemaReferenceNode, depth = 0): string {
           `${indent}  [key: ${node.key ? renderNode(node.key, depth + 1) : 'string'}]: ${renderNode(node.additional, depth + 1)}`,
         );
       else if (node.additional === true) lines.push(`${indent}  [key: string]: JSON value`);
-      text = `{${lines.length ? `\n${lines.join('\n')}\n${indent}` : ''}}${node.additional === false ? ' (no extra keys)' : ''}`;
+      text = `{${lines.length ? `\n${lines.join('\n')}\n${indent}` : ''}}`;
       break;
     }
     case 'array': {
@@ -277,6 +324,7 @@ function renderNode(node: SchemaReferenceNode, depth = 0): string {
 
 export function schemaDocumentationEntries(
   model: SchemaReferenceModel,
+  options: { readonly omitDefinitions?: ReadonlySet<string> } = {},
 ): readonly { path: string; documentation: SchemaDocumentation }[] {
   const entries: { path: string; documentation: SchemaDocumentation }[] = [];
   function visit(node: SchemaReferenceNode, path: string): void {
@@ -289,12 +337,31 @@ export function schemaDocumentationEntries(
       visit(node.additional, `${path}[key]`);
   }
   visit(model.root, model.name);
-  for (const [name, node] of Object.entries(model.definitions)) visit(node, name);
+  for (const [name, node] of Object.entries(model.definitions))
+    if (!options.omitDefinitions?.has(name)) visit(node, name);
   return entries;
 }
 
-export function renderSchemaNotation(model: SchemaReferenceModel): string {
-  return Object.entries({ [model.name]: model.root, ...model.definitions })
+export function renderSchemaDefinitions(
+  definitions: Readonly<Record<string, SchemaReferenceNode>>,
+): string {
+  return Object.entries(definitions)
     .map(([name, node]) => `${name} = ${renderNode(node)}`)
+    .join('\n\n');
+}
+
+export function renderSchemaNotation(
+  model: SchemaReferenceModel,
+  options: { readonly omitDefinitions?: ReadonlySet<string> } = {},
+): string {
+  return [
+    `${model.name} = ${renderNode(model.root)}`,
+    renderSchemaDefinitions(
+      Object.fromEntries(
+        Object.entries(model.definitions).filter(([name]) => !options.omitDefinitions?.has(name)),
+      ),
+    ),
+  ]
+    .filter(Boolean)
     .join('\n\n');
 }

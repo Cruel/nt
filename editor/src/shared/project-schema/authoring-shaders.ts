@@ -41,22 +41,24 @@ export type ShaderUniformType = (typeof shaderUniformTypeValues)[number];
 export type ShaderInputBinding = (typeof shaderInputBindingValues)[number];
 export type ShaderSamplerBinding = (typeof shaderSamplerBindingValues)[number];
 
-export const shaderUniformValueSchema = z.union([
-  z.null(),
-  z.number().finite(),
-  z.boolean(),
-  z.tuple([z.number().finite(), z.number().finite()]),
-  z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
-  z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()]),
-  z
-    .object({
-      r: z.number().finite(),
-      g: z.number().finite(),
-      b: z.number().finite(),
-      a: z.number().finite(),
-    })
-    .strict(),
-]);
+export const shaderUniformValueSchema = z
+  .union([
+    z.null(),
+    z.number().finite(),
+    z.boolean(),
+    z.tuple([z.number().finite(), z.number().finite()]),
+    z.tuple([z.number().finite(), z.number().finite(), z.number().finite()]),
+    z.tuple([z.number().finite(), z.number().finite(), z.number().finite(), z.number().finite()]),
+    z
+      .object({
+        r: z.number().finite(),
+        g: z.number().finite(),
+        b: z.number().finite(),
+        a: z.number().finite(),
+      })
+      .strict(),
+  ])
+  .meta({ title: 'ShaderUniformValue' });
 
 /** Editor/runtime semantics decorating a compiler-reflected uniform. */
 export const shaderUniformDataSchema = z
