@@ -8,21 +8,15 @@ import {
   editorRecordMetadataStateSchema,
   editorTagsStateSchema,
 } from './editor-project-state';
+import { PROJECT_WORKSPACE_SCHEMA_VERSION } from '../project-workspace/project-workspace-contracts';
+import { workspaceManifestSchema } from '../project-workspace/workspace-manifest-schema';
 import {
-  PROJECT_WORKSPACE_SCHEMA,
-  PROJECT_WORKSPACE_SCHEMA_VERSION,
-} from '../project-workspace/project-workspace-contracts';
-
-const workspaceManifestSchema = z
-  .object({
-    schema: z.literal(PROJECT_WORKSPACE_SCHEMA),
-    schemaVersion: z.literal(PROJECT_WORKSPACE_SCHEMA_VERSION),
-    project: authoringProjectSchema.shape.project,
-    settings: authoringProjectSchema.shape.settings,
-    bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
-    entrypoint: authoringProjectSchema.shape.entrypoint,
-  })
-  .strict();
+  normalizeSchemaReference,
+  renderSchemaNotation,
+  schemaDocumentationEntries,
+  type SchemaReferenceModel,
+} from './schema-reference-model';
+import { schemaReferenceJson } from './schema-reference-json';
 
 const trackedEditorSchema = z
   .object({
@@ -48,7 +42,6 @@ const persistedLayoutRecordSchema = authoringRecordSchemas.layouts.extend({
     lua: persistedLayoutLuaSourceSchema,
   }),
 });
-const persistedScriptRecordSchema = authoringRecordSchemas.scripts;
 
 export const schemaSources = {
   'project.schema.json': workspaceManifestSchema,
@@ -68,46 +61,25 @@ export const schemaSources = {
   'records/dialogues.schema.json': authoringRecordSchemas.dialogues,
   'records/scenes.schema.json': authoringRecordSchemas.scenes,
   'records/maps.schema.json': authoringRecordSchemas.maps,
-  'records/scripts.schema.json': persistedScriptRecordSchema,
+  'records/scripts.schema.json': authoringRecordSchemas.scripts,
   'records/tests.schema.json': authoringRecordSchemas.tests,
 } as const;
-
-function compareCodePoints(left: string, right: string): number {
-  return left < right ? -1 : left > right ? 1 : 0;
-}
 
 function canonicalizeJson(value: unknown): unknown {
   if (Array.isArray(value)) return value.map(canonicalizeJson);
   if (!value || typeof value !== 'object') return value;
   return Object.fromEntries(
-    Object.entries(value as Readonly<Record<string, unknown>>)
-      .sort(([left], [right]) => compareCodePoints(left, right))
+    Object.entries(value)
+      .sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0))
       .map(([key, nested]) => [key, canonicalizeJson(nested)]),
   );
-}
-
-function jsonText(value: unknown): string {
-  return `${JSON.stringify(canonicalizeJson(value), null, 2)}\n`;
-}
-
-function schemaText(schema: z.ZodType): string {
-  return jsonText(z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }));
-}
-
-export interface NovelTeaSchemaReferenceField {
-  readonly name: string;
-  readonly type: string;
-  readonly required: boolean;
-  readonly description?: string;
-  readonly constraints: readonly string[];
-  readonly children: readonly NovelTeaSchemaReferenceField[];
 }
 
 export interface NovelTeaSchemaReferenceDocument {
   readonly id: string;
   readonly title: string;
   readonly rawSchemaPath: string;
-  readonly fields: readonly NovelTeaSchemaReferenceField[];
+  readonly model: SchemaReferenceModel;
 }
 
 export interface NovelTeaWebsiteSchemaReference {
@@ -116,81 +88,6 @@ export interface NovelTeaWebsiteSchemaReference {
   readonly unreleased: true;
   readonly projectWorkspaceVersion: number;
   readonly documents: readonly NovelTeaSchemaReferenceDocument[];
-}
-
-type JsonSchemaNode = Readonly<Record<string, unknown>>;
-
-function schemaRecord(value: unknown): JsonSchemaNode | null {
-  return value && typeof value === 'object' && !Array.isArray(value)
-    ? (value as JsonSchemaNode)
-    : null;
-}
-
-function schemaTypeLabel(node: JsonSchemaNode): string {
-  if (
-    typeof node.const === 'string' ||
-    typeof node.const === 'number' ||
-    typeof node.const === 'boolean'
-  )
-    return JSON.stringify(node.const);
-  if (Array.isArray(node.enum)) return node.enum.map((value) => JSON.stringify(value)).join(' | ');
-  if (typeof node.type === 'string') return node.type;
-  if (Array.isArray(node.type)) return node.type.join(' | ');
-  for (const unionKey of ['anyOf', 'oneOf'] as const) {
-    const branches = node[unionKey];
-    if (Array.isArray(branches)) {
-      const labels = branches
-        .map(schemaRecord)
-        .filter((branch): branch is JsonSchemaNode => branch !== null)
-        .map(schemaTypeLabel);
-      if (labels.length > 0) return [...new Set(labels)].join(' | ');
-    }
-  }
-  if ('$ref' in node) return 'referenced value';
-  return 'value';
-}
-
-function schemaConstraints(node: JsonSchemaNode): string[] {
-  const constraints: string[] = [];
-  const pairs: ReadonlyArray<readonly [string, string]> = [
-    ['minimum', 'minimum'],
-    ['maximum', 'maximum'],
-    ['minLength', 'minimum length'],
-    ['maxLength', 'maximum length'],
-    ['minItems', 'minimum items'],
-    ['maxItems', 'maximum items'],
-  ];
-  for (const [key, label] of pairs) {
-    if (typeof node[key] === 'number') constraints.push(`${label}: ${node[key]}`);
-  }
-  if (typeof node.pattern === 'string') constraints.push(`pattern: ${node.pattern}`);
-  if (typeof node.format === 'string') constraints.push(`format: ${node.format}`);
-  return constraints;
-}
-
-function schemaFields(node: JsonSchemaNode, depth = 0): NovelTeaSchemaReferenceField[] {
-  if (depth >= 4) return [];
-  const properties = schemaRecord(node.properties);
-  if (!properties) return [];
-  const required = new Set(
-    Array.isArray(node.required)
-      ? node.required.filter((value): value is string => typeof value === 'string')
-      : [],
-  );
-  return Object.entries(properties).flatMap(([name, value]) => {
-    const property = schemaRecord(value);
-    if (!property) return [];
-    return [
-      {
-        name,
-        type: schemaTypeLabel(property),
-        required: required.has(name),
-        ...(typeof property.description === 'string' ? { description: property.description } : {}),
-        constraints: schemaConstraints(property),
-        children: schemaFields(property, depth + 1),
-      },
-    ];
-  });
 }
 
 function schemaTitle(relativePath: string): string {
@@ -207,36 +104,85 @@ export function createNovelTeaRawSchemaFiles(): Readonly<Record<string, string>>
     Object.fromEntries(
       Object.entries(schemaSources).map(([relativePath, schema]) => [
         relativePath,
-        schemaText(schema),
+        `${JSON.stringify(canonicalizeJson(schemaReferenceJson(schema)), null, 2)}\n`,
       ]),
     ),
   );
 }
 
+export function createNovelTeaSchemaReferenceDocuments(): readonly NovelTeaSchemaReferenceDocument[] {
+  return Object.entries(schemaSources).map(([relativePath, schema]) => ({
+    id: relativePath.replace(/\.schema\.json$/, ''),
+    title: schemaTitle(relativePath),
+    rawSchemaPath: relativePath,
+    model: normalizeSchemaReference(
+      schema,
+      schemaTitle(relativePath)
+        .split(' ')
+        .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+        .join(''),
+    ),
+  }));
+}
+
 export function createNovelTeaWebsiteSchemaReference(): NovelTeaWebsiteSchemaReference {
-  const documents = Object.entries(schemaSources)
-    .filter(
-      ([relativePath]) =>
-        relativePath === 'project.schema.json' || relativePath.startsWith('records/'),
-    )
-    .map(([relativePath, schema]) => {
-      const jsonSchema = schemaRecord(
-        z.toJSONSchema(schema, { io: 'input', unrepresentable: 'any' }),
-      );
-      if (!jsonSchema)
-        throw new Error(`Schema '${relativePath}' did not produce an object schema.`);
-      return {
-        id: relativePath.replace(/\.schema\.json$/, ''),
-        title: schemaTitle(relativePath),
-        rawSchemaPath: relativePath,
-        fields: schemaFields(jsonSchema),
-      } satisfies NovelTeaSchemaReferenceDocument;
-    });
   return {
     schema: 'noveltea.website.schema-reference',
     channel: 'dev',
     unreleased: true,
     projectWorkspaceVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
-    documents,
+    documents: createNovelTeaSchemaReferenceDocuments(),
   };
+}
+
+export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, string>> {
+  const documents = createNovelTeaSchemaReferenceDocuments();
+  const files: Record<string, string> = {
+    'index.md': [
+      '# Project reference',
+      '',
+      'Generated from the canonical Project schemas. Read the relevant domain below before consulting raw JSON Schema.',
+      '',
+      'Notation is structural documentation, not TypeScript or serialized JSON. `?` permits omission; `= value` supplies a default. Exact examples are JSON. All fields are required unless marked `?`. Numbers are finite JSON numbers. Object key policy is explicit. Named types are local to each document.',
+      '',
+      'Examples are schema-checked fragments; referenced IDs still require matching Project declarations. Run `noveltea validate` for cross-record and contextual constraints that structural schemas cannot express.',
+      '',
+      ...documents.map((document) => `- [${document.title}](${document.id}.md)`),
+      '',
+    ].join('\n'),
+  };
+  for (const document of documents) {
+    const root = document.id.includes('/') ? '../' : '';
+    const lines = [
+      `# ${document.title}`,
+      '',
+      `Generated; do not edit. See [notation](${root}index.md). Raw fallback: [JSON Schema](${root}../schemas/${document.rawSchemaPath}).`,
+      '',
+      '```text',
+      renderSchemaNotation(document.model),
+      '```',
+      '',
+    ];
+    for (const { path, documentation } of schemaDocumentationEntries(document.model)) {
+      lines.push(`## ${path}`, '');
+      if (documentation.description) lines.push(documentation.description, '');
+      for (const [label, notes] of [
+        ['Note', documentation.notes],
+        ['Constraint', documentation.constraints],
+        ['Lifecycle', documentation.lifecycle],
+      ] as const)
+        for (const note of notes ?? []) lines.push(`- ${label}: ${note}`);
+      if (documentation.status) lines.push(`- Status: ${documentation.status}`);
+      if (documentation.related?.length)
+        lines.push(`- Related: ${documentation.related.join(', ')}`);
+      lines.push('');
+      for (const example of documentation.examples ?? []) {
+        lines.push(`### ${example.title}`, '');
+        if (example.source) lines.push(`Source: ${example.source}`, '');
+        lines.push('```json', JSON.stringify(canonicalizeJson(example.value), null, 2), '```', '');
+      }
+    }
+    files[`${document.id}.md`] = lines.join('\n');
+  }
+  return Object.freeze(files);
 }

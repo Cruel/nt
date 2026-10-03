@@ -38,7 +38,7 @@
       ]
     },
     "GUIDE.md": {
-      "reviewed": "2026-09-07",
+      "reviewed": "2026-10-02",
       "strategy": "Route agents to the smallest authoring reference for each task and preserve only stable project-facing workflow rules.",
       "sources": [
         {
@@ -46,7 +46,8 @@
           "areas": [
             "docs/editor/AGENT_KIT.md",
             "editor/src/cli/agent-kit.ts",
-            "editor/src/cli/agent-sync.ts"
+            "editor/src/cli/agent-sync.ts",
+            "editor/src/shared/project-schema/schema-reference.ts"
           ]
         }
       ]

@@ -5,6 +5,7 @@ import {
   type AuthoringLuaSourceDescriptor,
 } from '../authoring-source-analysis';
 import { z } from 'zod';
+import { workspaceManifestSchema } from './workspace-manifest-schema';
 import { buildAuthoringDependencyGraph } from '../authoring-dependency-graph';
 import {
   assembleAuthoringDependencyGraph,
@@ -144,20 +145,6 @@ const editorLocalStateSchema = editorProjectStateSchema
   })
   .extend({
     schema: z.literal(EDITOR_LOCAL_STATE_SCHEMA),
-  })
-  .strict();
-
-const workspaceManifestSchema = z
-  .object({
-    schema: z.literal(PROJECT_WORKSPACE_SCHEMA),
-    schemaVersion: z.literal(PROJECT_WORKSPACE_SCHEMA_VERSION),
-    project: authoringProjectSchema.shape.project,
-    settings: authoringProjectSchema.shape.settings,
-    export: authoringProjectSchema.shape.export,
-    bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
-    entrypoint: authoringProjectSchema.shape.entrypoint,
-    inventories: authoringProjectSchema.shape.inventories,
-    interactableInstances: authoringProjectSchema.shape.interactableInstances,
   })
   .strict();
 

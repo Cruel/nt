@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { withSchemaDocumentation } from './schema-documentation';
 import { entityIdSchema } from './authoring-common';
 import { defaultedLuaExplicitDependenciesSchema } from './authoring-lua-analysis';
 import { namedMessageKeySchema } from './authoring-localization';
@@ -6,9 +7,12 @@ import { namedMessageKeySchema } from './authoring-localization';
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 const typedRef = <Collection extends string>(collection: Collection) =>
-  strict({
-    $ref: strict({ collection: z.literal(collection), id: entityIdSchema }),
-  });
+  withSchemaDocumentation(
+    strict({
+      $ref: strict({ collection: z.literal(collection), id: entityIdSchema }),
+    }),
+    { name: `${collection.charAt(0).toUpperCase()}${collection.slice(1, -1)}Ref` },
+  );
 
 export const assetRefSchema = typedRef('assets');
 export const archetypeRefSchema = typedRef('archetypes');
@@ -39,10 +43,13 @@ export const inventoryOwnerSchema = z.discriminatedUnion('kind', [
   }),
 ]);
 
-export const inventoryReferenceSchema = strict({
-  owner: inventoryOwnerSchema,
-  inventoryId: entityIdSchema,
-});
+export const inventoryReferenceSchema = withSchemaDocumentation(
+  strict({
+    owner: inventoryOwnerSchema,
+    inventoryId: entityIdSchema,
+  }),
+  { name: 'InventoryRef' },
+);
 
 export const runtimeScalarSchema = z.union([
   z.null(),

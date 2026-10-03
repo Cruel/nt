@@ -1,64 +1,55 @@
 ---
-import {
-  createNovelTeaWebsiteSchemaReference,
-  type NovelTeaSchemaReferenceField,
-} from '../../../editor/src/shared/project-schema/schema-reference';
+import { createNovelTeaWebsiteSchemaReference } from '../../../editor/src/shared/project-schema/schema-reference';
+import { renderSchemaNotation, schemaDocumentationEntries } from '../../../editor/src/shared/project-schema/schema-reference-model';
 
 const reference = createNovelTeaWebsiteSchemaReference();
 const isLatest = import.meta.env.NOVELTEA_DOCS_RENDER_CHANNEL === 'latest';
 const releaseVersion = import.meta.env.NOVELTEA_DOCS_RELEASE_VERSION?.trim();
 const docsRoot = isLatest ? '/docs' : '/docs/dev';
-
-function rawHref(path: string): string {
-  return `${docsRoot}/reference/raw/${path}`;
-}
-
-function flattenFields(
-  fields: readonly NovelTeaSchemaReferenceField[],
-  prefix = '',
-): ReadonlyArray<NovelTeaSchemaReferenceField & { readonly path: string }> {
-  return fields.flatMap((field) => {
-    const path = prefix ? `${prefix}.${field.name}` : field.name;
-    return [{ ...field, path }, ...flattenFields(field.children, path)];
-  });
-}
 ---
 
 <div class="schema-reference">
   <p class="schema-reference__meta">
     Generated from NovelTea's canonical authoring codecs · Project Workspace v{reference.projectWorkspaceVersion} · {isLatest ? `Latest release${releaseVersion ? ` ${releaseVersion}` : ''}` : 'Unreleased development channel'}
   </p>
+  <p>
+    Structural notation is documentation, not serialized JSON: <code>?</code> permits omission,
+    <code>= value</code> supplies a default, and named types are local to each section.
+    Numbers are finite JSON numbers. Examples are schema-checked JSON fragments; referenced IDs
+    still need matching Project declarations. Run <code>noveltea validate</code> for contextual
+    and cross-record constraints.
+  </p>
 
   {reference.documents.map((document) => (
     <section class="schema-reference__document" id={document.id.replaceAll('/', '-')}>
       <div class="schema-reference__heading">
         <h2>{document.title}</h2>
-        <a href={rawHref(document.rawSchemaPath)}>Raw JSON Schema</a>
+        <a href={`${docsRoot}/reference/raw/${document.rawSchemaPath}`}>Raw JSON Schema</a>
       </div>
-      {document.fields.length === 0 ? (
-        <p>No top-level fields are exposed by this schema.</p>
-      ) : (
-        <table>
-          <thead>
-            <tr>
-              <th>Field</th>
-              <th>Type</th>
-              <th>Requirement</th>
-              <th>Constraints</th>
-            </tr>
-          </thead>
-          <tbody>
-            {flattenFields(document.fields).map((field) => (
-              <tr>
-                <td><code>{field.path}</code></td>
-                <td>{field.type}</td>
-                <td>{field.required ? 'Required' : 'Optional'}</td>
-                <td>{field.constraints.length > 0 ? field.constraints.join('; ') : '—'}</td>
-              </tr>
-            ))}
-          </tbody>
-        </table>
-      )}
+      <details>
+        <summary>Shape and constraints</summary>
+        <pre><code>{renderSchemaNotation(document.model)}</code></pre>
+      </details>
+      {schemaDocumentationEntries(document.model).map(({ path, documentation }) => (
+        <section>
+          <h3><code>{path}</code></h3>
+          {documentation.description && <p>{documentation.description}</p>}
+          <ul>
+            {documentation.notes?.map((note) => <li>{note}</li>)}
+            {documentation.constraints?.map((note) => <li><strong>Constraint:</strong> {note}</li>)}
+            {documentation.lifecycle?.map((note) => <li><strong>Lifecycle:</strong> {note}</li>)}
+            {documentation.status && <li><strong>Status:</strong> {documentation.status}</li>}
+            {documentation.related?.length && <li><strong>Related:</strong> {documentation.related.join(', ')}</li>}
+          </ul>
+          {documentation.examples?.map((example) => (
+            <details>
+              <summary>{example.title}</summary>
+              {example.source && <p>Source: <code>{example.source}</code></p>}
+              <pre><code>{JSON.stringify(example.value, null, 2)}</code></pre>
+            </details>
+          ))}
+        </section>
+      ))}
     </section>
   ))}
 </div>
@@ -68,11 +59,7 @@ function flattenFields(
     font-size: var(--sl-text-sm);
     color: var(--sl-color-gray-3);
   }
-
-  .schema-reference__document {
-    margin-block: 2.5rem;
-  }
-
+  .schema-reference__document { margin-block: 2.5rem; }
   .schema-reference__heading {
     display: flex;
     align-items: baseline;
@@ -80,17 +67,6 @@ function flattenFields(
     gap: 1rem;
     flex-wrap: wrap;
   }
-
-  .schema-reference__heading h2 {
-    margin-block-end: 0.5rem;
-  }
-
-  table {
-    width: 100%;
-  }
-
-  th,
-  td {
-    vertical-align: top;
-  }
+  .schema-reference__heading h2 { margin-block-end: 0.5rem; }
+  pre { max-height: 40rem; overflow: auto; }
 </style>
