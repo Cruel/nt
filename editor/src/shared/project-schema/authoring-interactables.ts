@@ -1,4 +1,6 @@
 import { z } from 'zod';
+import { withSchemaDocumentation } from './schema-documentation';
+import instanceExample from './examples/interactable-instance.json';
 import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
 import { entityIdSchema } from './authoring-common';
 import { parseAssetData } from './authoring-assets';
@@ -37,11 +39,27 @@ export const interactableHotspotsSchema = z.discriminatedUnion('kind', [
     ),
   }),
 ]);
-export const interactableLocationSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('unplaced') }),
-  strict({ kind: z.literal('room'), room: roomRefSchema }),
-  strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
-]);
+export const interactableLocationSchema = withSchemaDocumentation(
+  z.discriminatedUnion('kind', [
+    strict({ kind: z.literal('unplaced') }),
+    strict({ kind: z.literal('room'), room: roomRefSchema }),
+    strict({ kind: z.literal('inventory'), inventory: inventoryReferenceSchema }),
+  ]),
+  {
+    name: 'InteractableLocation',
+    notes: [
+      'Location is authoritative semantic membership. Room visual occurrences do not change it; Unplaced Instances still exist.',
+    ],
+    related: ['Room', 'Inventory', 'Interactable Instance'],
+    examples: [
+      { title: 'Unplaced', value: { kind: 'unplaced' } },
+      {
+        title: 'In a Room',
+        value: { kind: 'room', room: { $ref: { collection: 'rooms', id: 'hall' } } },
+      },
+    ],
+  },
+);
 export const interactableDefinitionRefSchema = strict({
   $ref: strict({ collection: z.literal('interactables'), id: entityIdSchema }),
 });
@@ -61,28 +79,60 @@ export const interactableFeatureOverrideSchema = strict({
     }),
   ),
 });
-export const interactableInstanceDataSchema = strict({
-  id: entityIdSchema,
-  definition: interactableDefinitionRefSchema,
-  editorLabel: z.string().min(1).optional(),
-  location: interactableLocationSchema,
-  enabled: z.boolean(),
-  visible: z.boolean(),
-  quantity: z.number().int().positive().max(Number.MAX_SAFE_INTEGER),
-  traits: strict({
-    add: z.array(entityIdSchema),
-    remove: z.array(entityIdSchema),
+export const interactableInstanceDataSchema = withSchemaDocumentation(
+  strict({
+    id: entityIdSchema,
+    definition: interactableDefinitionRefSchema,
+    editorLabel: z.string().min(1).optional(),
+    location: interactableLocationSchema,
+    enabled: z.boolean(),
+    visible: z.boolean(),
+    quantity: withSchemaDocumentation(z.number().int().positive().max(Number.MAX_SAFE_INTEGER), {
+      constraints: [
+        'A declared non-stackable Instance must have quantity 1. A stackable Instance must not exceed its Definition stackLimit when non-null.',
+      ],
+    }),
+    traits: strict({
+      add: z.array(entityIdSchema),
+      remove: z.array(entityIdSchema),
+    }),
+    localProperties: ownerLocalPropertiesSchema,
+    materialApplication: materialApplicationSpecializationSchema,
+    featureOverrides: z.array(interactableFeatureOverrideSchema),
   }),
-  localProperties: ownerLocalPropertiesSchema,
-  materialApplication: materialApplicationSpecializationSchema,
-  featureOverrides: z.array(interactableFeatureOverrideSchema),
-});
+  {
+    name: 'InteractableInstance',
+    description: 'One exact live identity, not an aggregate count of its Definition.',
+    examples: [
+      {
+        title: 'Unplaced key Instance',
+        source: 'editor/src/shared/project-schema/examples/interactable-instance.json',
+        value: instanceExample,
+      },
+    ],
+  },
+);
 
 export const interactableDataSchema = strict({
   kind: z.literal('interactable'),
   displayName: z.string(),
-  stackable: z.boolean(),
-  stackLimit: z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
+  stackable: withSchemaDocumentation(z.boolean(), {
+    notes: [
+      'When false, aggregate creation of quantity N creates N distinct quantity-one Instances rather than rejecting the creation.',
+    ],
+    constraints: ['Stackable Definitions cannot own identity-bearing Features or Inventories.'],
+    lifecycle: [
+      'Changing stackability does not rewrite authored Instances; incompatible quantities remain blocking validation diagnostics.',
+    ],
+  }),
+  stackLimit: withSchemaDocumentation(
+    z.number().int().positive().max(Number.MAX_SAFE_INTEGER).nullable(),
+    {
+      constraints: [
+        'Must be null when stackable is false. Null means the portable safe-integer ceiling when stackable is true.',
+      ],
+    },
+  ),
   presentation: strict({
     sprite: interactableAssetRefSchema.nullable(),
     materialApplication: materialApplicationSchema.nullable(),

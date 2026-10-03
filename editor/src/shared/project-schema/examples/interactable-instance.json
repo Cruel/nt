@@ -1,0 +1,12 @@
+{
+  "id": "brass-key-1",
+  "definition": { "$ref": { "collection": "interactables", "id": "brass-key" } },
+  "location": { "kind": "unplaced" },
+  "enabled": true,
+  "visible": true,
+  "quantity": 1,
+  "traits": { "add": [], "remove": [] },
+  "localProperties": [],
+  "materialApplication": { "material": null, "parameters": {}, "textures": {} },
+  "featureOverrides": []
+}

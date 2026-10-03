@@ -4,7 +4,10 @@ import {
   systemLayoutRoleValues,
   type SystemLayoutRole,
 } from '../shared/project-schema/authoring-layouts';
-import { createNovelTeaRawSchemaFiles } from '../shared/project-schema/schema-reference';
+import {
+  createNovelTeaRawSchemaFiles,
+  createNovelTeaCompactReferenceFiles,
+} from '../shared/project-schema/schema-reference';
 export {
   createNovelTeaRawSchemaFiles,
   createNovelTeaWebsiteSchemaReference,
@@ -236,6 +239,8 @@ export function createNovelTeaAgentKitPayload(
   const files: Record<string, string> = { ...sourceFiles };
   for (const [relativePath, text] of Object.entries(createNovelTeaRawSchemaFiles()))
     files[`schemas/${relativePath}`] = text;
+  for (const [relativePath, text] of Object.entries(createNovelTeaCompactReferenceFiles()))
+    files[`reference/${relativePath}`] = text;
   for (const [relativePath, text] of Object.entries(systemLayoutSourceFiles))
     files[`system-layouts/${relativePath}`] = text;
   files['system-layouts/manifest.json'] = systemLayoutManifestText(systemLayoutSourceFiles);

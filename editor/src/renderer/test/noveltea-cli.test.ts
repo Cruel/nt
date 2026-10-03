@@ -2899,11 +2899,14 @@ describe('NovelTea headless CLI', () => {
       expect.arrayContaining(['project', 'records/rooms', 'records/interactions']),
     );
     const project = reference.documents.find((document) => document.id === 'project');
-    expect(project?.fields).toEqual(
+    expect(project?.model.root.fields).toEqual(
       expect.arrayContaining([
         expect.objectContaining({ name: 'schema', required: true }),
         expect.objectContaining({ name: 'schemaVersion', required: true }),
         expect.objectContaining({ name: 'project', required: true }),
+        expect.objectContaining({ name: 'interactableInstances' }),
+        expect.objectContaining({ name: 'inventories' }),
+        expect.objectContaining({ name: 'export' }),
       ]),
     );
     expect(JSON.parse(rawSchemas['project.schema.json'] ?? '{}')).toHaveProperty(
@@ -2935,6 +2938,9 @@ describe('NovelTea headless CLI', () => {
         'docs/RMLUI_DATA_BINDING.md',
         'docs/RMLUI_CUSTOM_COMPONENTS.md',
         'docs/RMLUI_LUA.md',
+        'reference/index.md',
+        'reference/project.md',
+        'reference/records/interactables.md',
         'schemas/project.schema.json',
         'schemas/traits.schema.json',
         'schemas/localization.schema.json',

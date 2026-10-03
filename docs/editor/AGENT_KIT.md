@@ -1,6 +1,6 @@
 # Agent Kit
 
-NovelTea embeds a versioned agent kit in the standalone `noveltea` CLI. It provides generated project-format schemas plus public guidance for coding agents without making generated documentation part of tracked project source.
+NovelTea embeds a versioned agent kit in the standalone `noveltea` CLI. It provides generated compact project-format references, raw schemas, and public guidance for coding agents without making generated documentation part of tracked project source.
 
 ## Versions and manifest
 
@@ -10,11 +10,33 @@ Changing kit wording, examples, workflow guidance, or generated schema payload m
 
 ## Source and generated content
 
-Checked-in kit source lives under `editor/agent-kit/`. Stable guidance is hand-authored public documentation routed from the generated project `AGENTS.md` block through `.noveltea/agent/GUIDE.md`; the kit does not install or depend on an agent-framework skill. Machine-readable schemas are derived from the exact workspace-v1 Zod/contextual codecs rather than maintained as a second handwritten format definition. That schema-generation seam also emits the website-oriented structured reference consumed by `noveltea.dev`; Astro renders that prepared model and does not interpret JSON Schema semantics independently. The exact engine-owned `engine/assets/system/ui/` tree is also emitted under `.noveltea/agent/system-layouts/ui/` with a generated manifest covering both system-role fallbacks and the universal RCSS baseline cascade, so agents can inspect the built-in UI and the defaults applied to every Layout. Constraints JSON Schema cannot represent, such as project-wide path/ownership rules, are documented in generated `PROJECT_FORMAT.md` and enforced by the executable workspace loader.
+Checked-in kit source lives under `editor/agent-kit/`. Stable guidance is hand-authored public documentation routed from the generated project `AGENTS.md` block through `.noveltea/agent/GUIDE.md`; the kit does not install or depend on an agent-framework skill. Machine-readable schemas are derived from the exact workspace-v1 Zod/contextual codecs rather than maintained as a second handwritten format definition. `schemaSources` in `editor/src/shared/project-schema/schema-reference.ts` owns the shared source list for raw schemas, compact Markdown under `.noveltea/agent/reference/`, and the website reference. `schema-reference-model.ts` normalizes input JSON Schema once into field requirements, defaults, constraints, explicit variants, and named/shared/recursive definitions; both presentation paths consume this model. Astro never interprets JSON Schema independently. The workspace manifest codec is shared directly with the executable workspace loader, including Inventories and Interactable Instances. The exact engine-owned `engine/assets/system/ui/` tree is also emitted under `.noveltea/agent/system-layouts/ui/` with a generated manifest covering both system-role fallbacks and the universal RCSS baseline cascade, so agents can inspect the built-in UI and the defaults applied to every Layout. Constraints JSON Schema cannot represent, such as project-wide path/ownership rules, are documented in generated `PROJECT_FORMAT.md` and enforced by the executable workspace loader.
 
 Curator-only provenance is tracked in `editor/agent-kit-provenance.json`, deliberately outside `editor/agent-kit/` so recursive source collection cannot turn maintenance metadata into agent-facing content. The file defines normalized source identities once, including exact repository revisions when available or versioned web references when needed. Each hand-authored kit document must have exactly one provenance entry with a review date, short curation strategy, and one or more source references with relevant source areas. Payload generation rejects missing document provenance or references to unknown source identities. This exact normalized snapshot is copied into `manifest.json`; it is not emitted as another generated file and ordinary agent routing does not require reading it.
 
-Release builds embed the checked-in hand-authored kit source, curator provenance, and exact built-in system UI source as a private scriptc island package. `noveltea agent sync` combines those exact source texts with JSON Schemas generated from the shared Zod schemas and the generated system-Layout/baseline manifest, then writes and validates the deterministic manifest/hashes/provenance. Hand-authored Markdown and built-in RML/RCSS—including the engine-owned baseline files—are copied byte-for-byte; sync does not add or strip headers or maintain alternate agent-facing copies. This work is command-local: ordinary CLI operations do not generate the agent-kit schemas or system-Layout reference tree. See `SCRIPTC_COMPATIBILITY.md`.
+### Schema semantics and checked examples
+
+Use `withSchemaDocumentation` from `schema-documentation.ts` beside canonical Zod definitions for
+non-obvious public semantics: descriptions, semantic/cross-field constraints, lifecycle, status,
+related concepts, and examples. Obvious fields need no annotation. Metadata uses Zod's supported
+registry/metadata conversion boundary, not a second schema system. Generated Markdown is never
+checked in as a source corpus.
+
+An example contains exact JSON input and a title; larger examples may import a checked JSON fixture
+and carry its source path. Generation rejects non-JSON values and examples that fail the annotated
+canonical schema. Source attribution is not an unchecked example link: the imported value is still
+embedded and validated. These are structural fragments, not proof of project-wide reference or
+runtime validity; `noveltea validate` remains the contextual authority. The Interactable metadata
+covers quantity versus aggregate creation, stackability restrictions, Location semantics, and a
+complete Instance example.
+
+`schema-reference-json.ts` isolates conversion and example checking for all outputs. It uses
+`z.toJSONSchema` with input semantics. One narrow Zod tuple-definition lookup repairs the converter's
+omitted tuple cardinality; it is not a general Zod-internals walker. JSON Schema still cannot express
+all refinements or contextual checks, so generated guidance explicitly retains executable validation.
+Named types are local to each generated domain document; raw schemas remain available as fallback.
+
+Release builds embed the checked-in hand-authored kit source, curator provenance, and exact built-in system UI source as a private scriptc island package. `noveltea agent sync` combines those exact source texts with compact references and JSON Schemas generated from the shared Zod schemas and the generated system-Layout/baseline manifest, then writes and validates the deterministic manifest/hashes/provenance. Hand-authored Markdown and built-in RML/RCSS—including the engine-owned baseline files—are copied byte-for-byte; sync does not add or strip headers or maintain alternate agent-facing copies. This work is command-local: ordinary CLI operations do not generate the agent-kit schemas or system-Layout reference tree. See `SCRIPTC_COMPATIBILITY.md`.
 
 ## Project bootstrap and sync
 
@@ -24,7 +46,7 @@ New projects contain a root `AGENTS.md` with a clearly marked NovelTea-managed b
 
 Sync creates the canonical root `.gitignore` when it is absent. When an existing regular file contains both `.noveltea` and `dist` anywhere, NovelTea assumes the required rules are handled; when either is missing, sync succeeds with `AGENT_LOCAL_STATE_NOT_IGNORED` and leaves the file untouched. `--fix` does not modify an existing `.gitignore`. A non-file `AGENTS.md` or `.gitignore` is an error.
 
-The generated kit tells agents to edit ordinary JSON/Lua/RML/RCSS source directly, complete coherent multi-record authoring edits before treating validation as final, run `noveltea validate`, and reserve semantic CLI commands for operations requiring whole-project knowledge or transactions. `GUIDE.md` routes normal authoring work to focused conceptual and recipe docs before schemas; schemas remain the exhaustive structural fallback. `.noveltea/` is never a compilation input or authoring source.
+The generated kit tells agents to edit ordinary JSON/Lua/RML/RCSS source directly, complete coherent multi-record authoring edits before treating validation as final, run `noveltea validate`, and reserve semantic CLI commands for operations requiring whole-project knowledge or transactions. `GUIDE.md` routes structural questions to the generated `reference/index.md` domain index alongside focused conceptual and recipe docs; raw schemas remain the exhaustive structural fallback. `.noveltea/` is never a compilation input or authoring source.
 
 ## Editor coexistence
 

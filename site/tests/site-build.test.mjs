@@ -80,6 +80,10 @@ test("generated development schema reference exposes human and raw canonical out
   );
   assert.match(html, /Unreleased development channel/);
   assert.match(html, /Raw JSON Schema/);
+  assert.match(html, /Shape and constraints/);
+  assert.match(html, /quantity: integer &gt;= 1/);
+  assert.match(html, /aggregate creation of quantity N creates N distinct quantity-one Instances/);
+  assert.match(html, /Unplaced key Instance/);
   assert.match(html, /\/docs\/dev\/reference\/raw\/project\.schema\.json/);
 
   const raw = JSON.parse(
@@ -91,6 +95,9 @@ test("generated development schema reference exposes human and raw canonical out
   assert.equal(raw.type, "object");
   assert.ok(raw.properties.project);
   assert.ok(raw.properties.schemaVersion);
+  assert.ok(raw.properties.interactableInstances);
+  assert.ok(raw.properties.inventories);
+  assert.ok(raw.properties.export);
 });
 
 if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {

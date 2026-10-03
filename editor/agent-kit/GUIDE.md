@@ -8,6 +8,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 
 ## Route by task
 
+- Field shapes, defaults, variants, constraints, and checked JSON examples: `.noveltea/agent/reference/index.md` (choose the relevant domain)
 - Project files, record paths, IDs, persisted source selectors: `.noveltea/agent/PROJECT_FORMAT.md`
 - CLI commands and when to use direct edits instead: `.noveltea/agent/CLI.md`
 - General authoring concepts and choosing the right entity type: `.noveltea/agent/docs/AUTHORING.md`
@@ -29,7 +30,7 @@ Never edit `.noveltea/` as project source. It contains disposable or tool-owned 
 - NovelTea Lua sandbox, APIs, capabilities, and yielding rules: `.noveltea/agent/docs/LUA.md`
 - Semantic authored tests and stable playback identities: `.noveltea/agent/docs/TESTS.md`
 
-Machine-readable workspace-v1 schemas are under `.noveltea/agent/schemas/`. Use them as an exhaustive structural reference when the focused documentation does not answer a detail; do not begin ordinary authoring work by reverse-engineering the schemas.
+Use `.noveltea/agent/reference/` for ordinary structural reference, alongside the focused conceptual docs above. Machine-readable workspace-v1 schemas under `.noveltea/agent/schemas/` are the exhaustive fallback; do not begin ordinary authoring work by reverse-engineering the schemas.
 
 ## Normal authoring loop
 
