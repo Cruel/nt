@@ -14,6 +14,15 @@ function sourceRootCandidates(): string[] {
   return [path.resolve(process.cwd(), 'agent-kit'), path.resolve(entry, '..', '..', 'agent-kit')];
 }
 
+function sharedConceptSourceRootCandidates(): string[] {
+  const entry = entryDirectory();
+  return [
+    path.resolve(process.cwd(), 'docs', 'public', 'concepts'),
+    path.resolve(process.cwd(), '..', 'docs', 'public', 'concepts'),
+    path.resolve(entry, '..', '..', '..', 'docs', 'public', 'concepts'),
+  ];
+}
+
 function systemLayoutSourceRootCandidates(): string[] {
   const entry = entryDirectory();
   return [
@@ -32,6 +41,17 @@ function findSourceRoot(): string {
     }
   }
   throw new Error('NovelTea agent-kit source directory is unavailable.');
+}
+
+function findSharedConceptSourceRoot(): string {
+  for (const candidate of sharedConceptSourceRootCandidates()) {
+    try {
+      if (statSync(candidate).isDirectory()) return candidate;
+    } catch {
+      // Try the next checkout-relative location used by source and bundled Node CLI hosts.
+    }
+  }
+  throw new Error('NovelTea shared concept source directory is unavailable.');
 }
 
 function findSystemLayoutSourceRoot(): string {
@@ -64,6 +84,19 @@ function collectFiles(root: string, directory: string, files: Record<string, str
 
 export function loadAgentKitSourceFiles(): Readonly<Record<string, string>> {
   const root = findSourceRoot();
+  const files: Record<string, string> = {};
+  collectFiles(root, root, files);
+  for (const [relativePath, text] of Object.entries(loadAgentKitSharedConceptSourceFiles()))
+    files[`concepts/${relativePath}`] = text;
+  return Object.freeze(
+    Object.fromEntries(
+      Object.entries(files).sort(([left], [right]) => compareCodePoints(left, right)),
+    ),
+  );
+}
+
+export function loadAgentKitSharedConceptSourceFiles(): Readonly<Record<string, string>> {
+  const root = findSharedConceptSourceRoot();
   const files: Record<string, string> = {};
   collectFiles(root, root, files);
   return Object.freeze(files);

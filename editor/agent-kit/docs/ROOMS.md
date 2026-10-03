@@ -1,6 +1,6 @@
-# Rooms, Placements, Props, Interactables, and Hotspots
+# Room Authoring Recipes and Geometry
 
-Read `.noveltea/agent/docs/AUTHORING.md` first. This document covers the common Room authoring shapes that are easy to confuse when working from schema alone.
+Read `.noveltea/agent/concepts/world-and-objects.md` for the canonical Room/Interactable/Inventory model and `.noveltea/agent/reference/` for exact current shapes. This agent-specific page covers coordinate spaces and common coherent Room edits that are easy to get wrong when changing source files directly.
 
 ## Placements and normalized coordinates
 

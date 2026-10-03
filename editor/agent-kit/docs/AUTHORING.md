@@ -1,29 +1,6 @@
-# Authoring Concepts
+# Authoring Workflow
 
-NovelTea projects are file-first. Use the focused generated documents to understand authoring semantics, edit the tracked records directly, then validate the complete change with `noveltea validate`. JSON Schema under `.noveltea/agent/schemas/` is an exhaustive fallback reference, not the normal tutorial path.
-
-## Core concepts
-
-- **Asset**: imported source media such as an image, audio file, or font. An image Asset is not itself a Prop or Interactable.
-- **Character**: one persistent semantic person or actor identity. Character presentation is built from Profiles, Poses, Expressions, optional Appearances, Gestures, and automatic animation behavior. A Room/Scene/Dialogue can present a Character without changing that Character's world Location.
-- **Room**: an explorable world location with background presentation, exits, placements, props, cast, Interactables, Features, and lifecycle behavior.
-- **Placement**: a named normalized rectangle inside a Room. Placements provide geometry that Room content can reuse.
-- **Prop**: a visual Room object that associates an Asset and/or Material with a Placement. Use a Prop when the object is only presentation and is not meant to participate in interaction.
-- **Interactable**: a reusable interactive object definition. Exact Interactable Instances reference that Definition and carry live Location, enabled/visible state, Traits/Properties, and quantity.
-- **Room Interactable occurrence**: a Room-local presentation occurrence that references one exact Interactable Instance plus a Placement. It does not own that Instance's Location, enabled state, quantity, Traits, or Properties.
-- **Room hotspot**: an interactive region directly on the Room background image, useful when the clickable feature is already baked into that image.
-- **Verb**: an interaction operation with stable named required subject slots, reusable Subject Selectors, and one locale-neutral `bindingOrder`.
-- **Interaction**: authored behavior associated with a Verb, one selector union per named Verb slot, and semantic context/conditions.
-- **Dialogue**: a conversation graph specialized for lines, choices, Dialogue-local Character/media presentation, inline cues, and cooperative Scene handoff.
-- **Scene**: an ordered visual-novel orchestration program. Scenes stage presentation, call Dialogue/Scenes/Interactions, mutate gameplay, wait/branch/choose, and end through an explicit terminal action.
-- **Map**: authored navigation/topology presentation over Rooms and their exits; it does not replace Room navigation authority.
-- **Layout**: authored RML/RCSS/Lua UI or overlay presentation. Layouts display projected game state and may expose declared local state/signals.
-- **Archetype**: reusable inherited configuration for exactly one gameplay-instance kind: Room, Character, or Interactable.
-- **Trait**: a named Property-backed capability/configuration declaration. Traits do not add structural fields or executable behavior.
-
-References use stable IDs, not labels. Record filesystem identity is also ID-based; see `.noveltea/agent/PROJECT_FORMAT.md`.
-
-The Project chooses exactly one initial entrypoint: Room, Scene, or Dialogue. Script bootstrap is configured separately and should not be modeled as a fake entrypoint record.
+NovelTea projects are file-first. Read the relevant canonical model page under `.noveltea/agent/concepts/`, consult `.noveltea/agent/reference/` for exact current structure and constraints, edit tracked records directly, then validate the coherent change with `noveltea validate`. JSON Schema under `.noveltea/agent/schemas/` is an exhaustive fallback reference, not the normal tutorial path.
 
 ## Choose the right authoring concept
 
@@ -60,6 +37,6 @@ Other required fields encode important semantics and should not be guessed. In p
 
 - Verb slot IDs and `bindingOrder` are semantic command identity. Completed-command templates reference those slot IDs with named placeholders such as `{target}`.
 - `defaultProgram` is the Verb's fallback behavior program; do not invent behavior merely to make validation pass.
-- Hotspots are pointer geometry that select semantic subjects or Room Exits; Features are owner-local semantic parts that may carry Traits/Properties and participate in Interactions. See `.noveltea/agent/docs/INTERACTIONS.md` and `.noveltea/agent/docs/ROOMS.md`.
+- Hotspots are pointer geometry that select semantic subjects or Room Exits; Features are owner-local semantic parts that may carry Traits/Properties and participate in Interactions. See `.noveltea/agent/concepts/interactions.md` and `.noveltea/agent/docs/ROOMS.md`.
 
 For Room-specific templates and coordinate rules, read `.noveltea/agent/docs/ROOMS.md`.

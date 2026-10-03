@@ -10,6 +10,11 @@
       "repository": "https://github.com/Cruel/nt.git",
       "revision": "10357105438f9d72cc6766be04827f3ea7bea8af"
     },
+    "noveltea-shared-concepts": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "679c4d137831697a5444807a47071289bf77530b"
+    },
     "rmlui": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/RmlUi.git",
@@ -66,6 +71,107 @@
         }
       ]
     },
+    "concepts/authored-tests.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Share the canonical public authored-Test mental model byte-for-byte with the human documentation surface; leave exact step payloads to generated reference and execution workflow to agent-only guidance.",
+      "sources": [
+        {
+          "source": "noveltea-shared-concepts",
+          "areas": [
+            "docs/engine/TEST.md",
+            "editor/src/shared/project-schema/authoring-tests.ts",
+            "editor/src/cli/"
+          ]
+        }
+      ]
+    },
+    "concepts/interactions.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Share the canonical public model for semantic subjects, Verbs, Interaction Rules, Offers, Conditions, commands, and Hotspot selection without duplicating serialized field reference.",
+      "sources": [
+        {
+          "source": "noveltea-shared-concepts",
+          "areas": [
+            "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
+            "editor/src/shared/project-schema/authoring-interactions.ts",
+            "editor/src/shared/project-schema/authoring-verbs.ts"
+          ]
+        }
+      ]
+    },
+    "concepts/overview.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Share one audience-neutral overview of NovelTea's public authoring concepts and the authored/runtime/presentation boundaries used by both humans and coding agents.",
+      "sources": [
+        {
+          "source": "noveltea-shared-concepts",
+          "areas": [
+            "docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md",
+            "docs/engine/OVERVIEW.md",
+            "docs/engine/PROJECT.md"
+          ]
+        }
+      ]
+    },
+    "concepts/presentation-and-localization.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Share the stable public boundaries among Layout presentation, Assets/Materials, and localization identity while leaving RmlUi, shader, and localization workflow details to focused references.",
+      "sources": [
+        {
+          "source": "noveltea-shared-concepts",
+          "areas": [
+            "docs/engine/LAYOUT.md",
+            "docs/engine/MATERIAL.md",
+            "docs/engine/ASSET.md",
+            "docs/editor/project/PROJECT_WORKSPACE_FORMAT.md"
+          ]
+        }
+      ]
+    },
+    "concepts/project-model.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Share the canonical public ownership and identity model for Projects, Definitions, Instances, occurrences, Archetypes, Traits, Properties, and authored versus runtime state.",
+      "sources": [
+        {
+          "source": "noveltea-shared-concepts",
+          "areas": [
+            "docs/engine/PROJECT.md",
+            "docs/engine/TRAIT.md",
+            "docs/engine/VARIABLE.md",
+            "editor/src/shared/project-schema/"
+          ]
+        }
+      ]
+    },
+    "concepts/story.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Share the canonical public relationship among persistent Characters, Dialogue conversation graphs, and ordered Scene orchestration without reproducing record variants.",
+      "sources": [
+        {
+          "source": "noveltea-shared-concepts",
+          "areas": [
+            "docs/engine/CHARACTER.md",
+            "docs/engine/DIALOGUE.md",
+            "docs/engine/SCENE.md"
+          ]
+        }
+      ]
+    },
+    "concepts/world-and-objects.md": {
+      "reviewed": "2026-10-02",
+      "strategy": "Share the canonical public world-object model for Rooms, exact Interactable Instances, Features, Inventories, Location, quantity, and Map projection without agent-specific editing recipes.",
+      "sources": [
+        {
+          "source": "noveltea-shared-concepts",
+          "areas": [
+            "docs/engine/INTERACTABLE.md",
+            "docs/engine/MAP.md",
+            "editor/src/shared/project-schema/authoring-rooms.ts",
+            "editor/src/shared/project-schema/authoring-inventories.ts"
+          ]
+        }
+      ]
+    },
     "docs/ASSETS_SHADERS.md": {
       "reviewed": "2026-09-07",
       "strategy": "Keep only author-visible asset, shader, and material invariants plus the supported shader compilation entrypoints.",
@@ -82,8 +188,8 @@
       ]
     },
     "docs/AUTHORING.md": {
-      "reviewed": "2026-08-30",
-      "strategy": "Explain NovelTea-specific authoring concepts, including the Definition/declared-Instance/Room-occurrence split, and distinctions that schema structure alone does not communicate well.",
+      "reviewed": "2026-10-02",
+      "strategy": "Keep only agent-specific record-choice and coherent multi-record editing workflow; route durable domain meaning to the canonical shared concept layer.",
       "sources": [
         {
           "source": "noveltea",
@@ -91,87 +197,6 @@
             "docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md",
             "docs/engine/OVERVIEW.md",
             "editor/src/shared/project-schema/"
-          ]
-        }
-      ]
-    },
-    "docs/ARCHETYPES_TRAITS.md": {
-      "reviewed": "2026-08-28",
-      "strategy": "Explain the author-facing distinction between structural Archetype reuse, Property-backed Traits, and semantic Properties without exposing compiler/runtime implementation details.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/architecture/DOMAIN_COLLECTIONS_AND_RELATIONSHIPS.md",
-            "docs/engine/TRAIT.md",
-            "docs/engine/VARIABLE.md",
-            "editor/src/shared/project-schema/authoring-archetypes.ts",
-            "editor/src/shared/project-schema/authoring-properties.ts"
-          ]
-        }
-      ]
-    },
-    "docs/CHARACTERS.md": {
-      "reviewed": "2026-08-26",
-      "strategy": "Teach authoring agents how Character semantic identity and Presentation Profiles/Poses/Expressions/Appearances/Gestures compose with Rooms, Scenes, and Dialogues while omitting renderer/runtime internals.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/engine/CHARACTER.md",
-            "editor/src/shared/project-schema/authoring-characters.ts"
-          ]
-        }
-      ]
-    },
-    "docs/DIALOGUES.md": {
-      "reviewed": "2026-08-26",
-      "strategy": "Describe the current conversation graph, presentation slots/cues, choices, child Scene calls, and cooperative Scene handoff in author-facing terms.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/engine/DIALOGUE.md",
-            "editor/src/shared/project-schema/authoring-dialogues.ts"
-          ]
-        }
-      ]
-    },
-    "docs/ITEMS_INVENTORIES.md": {
-      "reviewed": "2026-08-30",
-      "strategy": "Explain exact Interactable Instance quantity semantics, stackable Definitions, owner-qualified Inventories, Locations, Inventory presentation, and Interaction use without restoring the retired Item model.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/engine/ITEM.md",
-            "docs/engine/INTERACTABLE.md",
-            "editor/src/shared/project-schema/authoring-inventories.ts",
-            "editor/src/shared/project-schema/authoring-interactables.ts"
-          ]
-        }
-      ]
-    },
-    "docs/SCENES.md": {
-      "reviewed": "2026-08-26",
-      "strategy": "Explain Scene Stage choice, ordered semantic events, story/gameplay composition, Dialogue handoff, and terminal behavior at the level needed to author records safely.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": ["docs/engine/SCENE.md", "editor/src/shared/project-schema/authoring-scenes.ts"]
-        }
-      ]
-    },
-    "docs/INTERACTIONS.md": {
-      "reviewed": "2026-08-30",
-      "strategy": "Reconcile Interaction terminology, shared Conditions/Gameplay Commands, and hotspot behavior against the current project schema and runtime authoring contract, excluding implementation plumbing.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
-            "editor/src/shared/project-schema/authoring-interactions.ts",
-            "editor/src/shared/project-schema/authoring-rooms.ts"
           ]
         }
       ]
@@ -407,28 +432,14 @@
       ]
     },
     "docs/ROOMS.md": {
-      "reviewed": "2026-08-30",
-      "strategy": "Reconcile Room geometry and composition examples against the current exact-Instance schema and hotspot contract, emphasizing coordinate spaces and author-visible ownership.",
+      "reviewed": "2026-10-02",
+      "strategy": "Keep agent-specific Room coordinate rules and coherent source-edit recipes; route the reusable Room/Interactable/Inventory mental model to the canonical shared concepts.",
       "sources": [
         {
           "source": "noveltea",
           "areas": [
             "docs/architecture/HOTSPOT_AUTHORING_INTERACTION_AND_RUNTIME.md",
             "editor/src/shared/project-schema/authoring-rooms.ts"
-          ]
-        }
-      ]
-    },
-    "docs/TESTS.md": {
-      "reviewed": "2026-08-26",
-      "strategy": "Explain semantic Test playback, stable choice/navigation/subject identities, supported inputs, and deliberately absent UI/script/assertion forms without exposing playback implementation details.",
-      "sources": [
-        {
-          "source": "noveltea",
-          "areas": [
-            "docs/engine/TEST.md",
-            "editor/src/shared/project-schema/authoring-tests.ts",
-            "editor/src/cli/"
           ]
         }
       ]

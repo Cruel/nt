@@ -2,16 +2,21 @@ import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
 
 const docsRenderChannel = process.env.NOVELTEA_DOCS_RENDER_CHANNEL === "latest" ? "latest" : "dev";
-const docsSidebarItems =
+const docsItem = (label, path = "") =>
   docsRenderChannel === "latest"
-    ? [
-        { label: "Overview", link: "/docs/" },
-        { label: "Project schema reference", link: "/docs/reference/" },
-      ]
-    : [
-        { label: "Overview", slug: "docs/dev" },
-        { label: "Project schema reference", slug: "docs/dev/reference" },
-      ];
+    ? { label, link: `/docs/${path ? `${path}/` : ""}` }
+    : { label, slug: `docs/dev${path ? `/${path}` : ""}` };
+const docsSidebarItems = [
+  docsItem("Overview"),
+  docsItem("Authoring model", "concepts/overview"),
+  docsItem("Project model and state", "concepts/project-model"),
+  docsItem("World and objects", "concepts/world-and-objects"),
+  docsItem("Verbs and interactions", "concepts/interactions"),
+  docsItem("Characters, Dialogues, and Scenes", "concepts/story"),
+  docsItem("Layouts, materials, and localization", "concepts/presentation-and-localization"),
+  docsItem("Authored Tests", "concepts/authored-tests"),
+  docsItem("Project schema reference", "reference"),
+];
 
 const isolationHeaders = {
   "Cross-Origin-Opener-Policy": "same-origin",

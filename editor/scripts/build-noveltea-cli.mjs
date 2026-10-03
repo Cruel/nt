@@ -68,6 +68,7 @@ const comfyUiWorkflowPackageRoot = path.join(
 );
 const comfyUiWorkflowSourceRoot = path.join(editorRoot, 'assets', 'comfyui', 'workflows');
 const agentKitSourceRoot = path.join(editorRoot, 'agent-kit');
+const agentKitSharedConceptSourceRoot = path.join(repositoryRoot, 'docs', 'public', 'concepts');
 const agentKitProvenancePath = path.join(editorRoot, 'agent-kit-provenance.json');
 const agentKitSystemLayoutSourceRoot = path.join(repositoryRoot, 'engine', 'assets', 'system');
 async function collectUtf8Files(root, directory, files = {}) {
@@ -523,6 +524,12 @@ try {
   );
 
   const agentKitSourceFiles = await collectUtf8Files(agentKitSourceRoot, agentKitSourceRoot);
+  const agentKitSharedConceptSourceFiles = await collectUtf8Files(
+    agentKitSharedConceptSourceRoot,
+    agentKitSharedConceptSourceRoot,
+  );
+  for (const [relativePath, text] of Object.entries(agentKitSharedConceptSourceFiles))
+    agentKitSourceFiles[`concepts/${relativePath}`] = text;
   const agentKitProvenance = JSON.parse(await readFile(agentKitProvenancePath, 'utf8'));
   const agentKitSystemLayoutSourceFiles = await collectUtf8Files(
     agentKitSystemLayoutSourceRoot,
