@@ -16,7 +16,7 @@ repository.
 
 ## Process
 
-1. Inventory every audit finding by ID. Preserve its original question and evidence. If the report is
+1. Inventory every audit finding by ID. Preserve its original question, evidence, and recorded workaround. If the report is
    `clean`, do not invent remediation work; note any successful guidance worth preserving and stop
    unless independent verification exposes a real contradiction.
 
@@ -66,22 +66,43 @@ repository.
    product/tooling hook and test/document that supported hook rather than teaching positional or
    incidental selectors.
 
+   Retire consumer workarounds when the remediation makes them unnecessary. Search the affected
+   canonical examples, Feature Lab content, tests, and guidance for each workaround recorded by the
+   audit; remove or replace it with the supported path, or record the independent reason it remains.
+   Prefer an end-to-end canonical witness of the supported path over retaining the workaround beside a
+   lower-level regression test.
+
    For executable coverage, require a **witness**: the assertion must turn red under the plausible
    wrong behavior it claims to distinguish. Reset or establish authoritative state before checks when
    inherited state could create a false positive.
+
+   This step is complete when every audit workaround is removed, superseded, or explicitly justified,
+   and every confirmed behavior change has a witness at the highest useful supported seam.
 
 6. Verify the source-less contract. Generate/sync the Agent Kit through the repository's normal seam
    and answer the original consumer question using the installed/generated kit alone. Run focused
    schema/generation tests and the relevant behavioral/Feature Lab/native tests; follow repository
    formatting, lint, and validation requirements for touched code.
 
-   This step is complete when the original friction is either intentionally resolved or explicitly
-   classified as no-action, and every confirmed fix is observable through the supported public surface.
+   For every changed hand-authored Agent Kit payload document, verify its provenance against the exact
+   repository evidence used to establish the new claims. The referenced revision must contain that
+   evidence; a new review date or source-area list paired with a pre-change revision is stale provenance.
+   Add or advance a provenance source identity when the existing revision cannot substantiate the change.
+
+   Inventory the final working tree and classify modified and untracked paths as refinement-produced or
+   pre-existing/unrelated. Keep unrelated state out of the refinement change set and report it explicitly
+   when it remains in the checkout.
+
+   This step is complete when the original friction is intentionally resolved or explicitly classified
+   as no-action, every confirmed fix is observable through the supported public surface, every changed
+   payload has substantiating provenance, and the refinement change set is separated from unrelated
+   working-tree state.
 
 7. Report disposition by original finding ID: classification, intended behavior, authoritative
-   evidence, canonical owner changed (if any), verification, and any remaining limitation. Call out
-   implementation bugs separately from documentation gaps so historical broken behavior does not become
-   public contract.
+   evidence, canonical owner changed (if any), workaround disposition, verification, and any remaining
+   limitation. Call out implementation bugs separately from documentation gaps so historical broken
+   behavior does not become public contract. Also report any unrelated working-tree state excluded from
+   the refinement.
 
 ## Canonical ownership map
 
@@ -111,8 +132,8 @@ Use the current architecture in `docs/editor/AGENT_KIT.md` as authority if it ev
 - Supported author-facing diagnostics are executable contract too. Improve the validator/CLI/runtime
   diagnostic and test it when the behavior is correct but the reported reason/action is insufficient;
   do not use prose documentation as a substitute for an actionable diagnostic at the failing seam.
-- `editor/agent-kit-provenance.json` records the actual reviewed source revisions/areas for hand-authored
-  payload documents changed by the refinement.
+- `editor/agent-kit-provenance.json` owns reviewed source revisions/areas for hand-authored payload
+  documents changed by the refinement.
 
 ## Refinement bar
 
