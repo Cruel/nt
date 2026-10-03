@@ -9,12 +9,13 @@
         <p class="nt-verb-menu-heading"><nt-tr key="noveltea.verb_menu.actions"/></p>
         <button data-for="action : gameplay.interaction.actions"
                 class="nt-verb-menu-action"
+                data-attr-id="'nt-verb-menu-action-' + action.verb_id"
                 data-class-disabled="!action.enabled"
                 data-attrif-disabled="!action.enabled"
                 data-event-click="ui_invoke_interaction(action.verb_id)">
             {{ action.label }}
         </button>
-        <button class="nt-verb-menu-close" data-event-click="ui_clear_selection()"><nt-tr key="noveltea.common.close"/></button>
+        <button id="nt_verb_menu_close" class="nt-verb-menu-close" data-event-click="ui_clear_selection()"><nt-tr key="noveltea.common.close"/></button>
     </div>
 </body>
 </rml>

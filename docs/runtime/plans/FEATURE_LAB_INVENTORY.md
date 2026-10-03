@@ -135,14 +135,21 @@ Transferred to the Feature Lab catalog on 2026-10-03:
 The catalog is now authoritative for these checks. The `verbs-and-offers-*-ui` witnesses isolate
 Primary activation, the real built-in Verb Menu, ambiguous Primary choice, and Command Builder
 submit/Rebind/Cancel in fresh UI runtimes, while `verbs-and-offers-flow` keeps
-selector/rank/discovery authority at the semantic command seam.
+complete-command authority at the semantic command seam. Direct `run-interaction` success is not
+an Offer-discovery assertion; presentation witnesses use semantic Verb/slot IDs rather than positional
+menu selectors (see the public Agent Kit Layout technical reference).
 `interaction-rules-flow` covers the green selector, Guard-tier, and fallback paths. Same-tier
 priority and equal-winner ambiguity are intentionally shared with the focused native resolver tests
 in `tests/script/typed_interaction_execution_tests.cpp`; duplicating the ambiguous resolver shape in
 the canonical Lab would intentionally make authoring validation non-clean. The station keeps
 immediate-atomicity rejection and observable-boundary failure as deliberate manual semantic controls
 because authored Test playback correctly treats their real runtime error diagnostics as failures
-rather than allowing expected-error assertions to suppress them.
+rather than allowing expected-error assertions to suppress them. Canonical Lab configurations must
+remain validation/diagnostic clean: statically disjoint, permanently dominated, and unconditional
+equal-tier/equal-priority rules belong in focused validation/native negative tests. Runtime-dependent
+ambiguity also belongs at an executable negative seam when it emits error diagnostics; analyzer
+uncertainty is not a reason to weaken diagnostics. Manual coverage is retained only for the stated
+authored-Test expected-error limitation, complementary to native failure-path coverage.
 
 ### Stories & Scripting — #254
 

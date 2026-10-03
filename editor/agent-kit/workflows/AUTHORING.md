@@ -65,6 +65,37 @@ Layout records are directories. In `records/layouts/<layout-id>/layout.json`, a 
 `layout.rcss`, or `layout.lua`. Do not leave one of those companion files present when its selector is
 `asset` or `none`; workspace loading treats that as an ownership error rather than an alternate source.
 
+## Prove Interaction behavior at the right surface
+
+Read `concepts/interactions.md` first, then generated `reference/records/verbs.md`,
+`reference/records/interactions.md`, and `reference/records/tests.md`. Do not infer discovery from
+execution: successful direct `run-interaction` is not proof of Offer discovery.
+
+- Prefer semantic authored Test inputs for command resolution, Guard fallthrough, fallback, named
+  bindings, and authoritative state changes.
+- Use actual RuntimeUI automation when proving menu presentation, selection, or Command Builder
+  interaction. Open the menu and click the intended semantic action; use the built-in selectors in
+  `technical/LAYOUTS.md`, not positional `nth-child`/`nth-of-type` selectors. A semantic Primary input
+  can set up capture, but is not a witness that a particular rendered control works.
+- For specificity, ranking, and suppression, make competing outcomes observably distinct or assert
+  the actual presentation path. Running the same complete command cannot distinguish which Offer
+  was published. Use a Layout/presentation assertion when the absence or presence of a menu matters.
+- Prefer authoritative Property, Location, quantity, Flow, Layout, event, or diagnostic expectations
+  over marker variables whose only purpose is to say “the test passed.”
+
+Keep canonical Feature Lab examples validation/diagnostic clean. Disjoint Verb/rule selector spaces,
+unconditional equal-tier/equal-priority conflicts, and equivalent spaces permanently dominated by an
+unconditional higher-priority rule are static errors, not canonical demonstrations. Put deliberately
+invalid/unreachable/ambiguous configurations in focused validation/native negative tests. Guarded
+overlap, live Traits/identities, and Lua predicates may be runtime-dependent; analyzer warnings or
+conditional analysis are not proof that a command will succeed or fail.
+
+Authored Test playback currently treats runtime error diagnostics as test errors, even with a matching
+diagnostic expectation. Intentional runtime ambiguity, immediate rejection, and failure after an
+observable boundary therefore need a focused executable negative-test surface, or a precisely recorded
+manual gap when that surface is unavailable. Do not invent Lab-only success flags or private hooks to
+turn expected failures green, and do not weaken analyzer diagnostics to admit a demonstration.
+
 ## Localization is an explicit mutation workflow
 
 Direct edits to managed localizable Lua/RML do not update tracking as a side effect of validation or

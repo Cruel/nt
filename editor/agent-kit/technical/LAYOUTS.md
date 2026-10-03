@@ -44,6 +44,27 @@ Inventory UI rows represent exact Interactable Instance IDs with their quantity 
 
 When customizing a built-in, create or edit a tracked project Layout and assign that Layout to the role. Copy any RML/RCSS you want the project to own into tracked project source and update its URLs/dependencies accordingly. Keeping a documented `system|/...` reference means that resource remains engine-owned and can change when the installed NovelTea version changes.
 
+## Built-in Interaction automation selectors
+
+Authored `ui-click` Tests can rely on these semantic identities in the built-in Layouts:
+
+| documentId                | Selector                                  | Meaning                                              |
+| ------------------------- | ----------------------------------------- | ---------------------------------------------------- |
+| `runtime_verb_menu`       | `#nt-verb-menu-action-<verb-id>`          | Published action for that authored Verb ID           |
+| `runtime_verb_menu`       | `#nt_verb_menu_close`                     | Close the menu                                       |
+| `runtime_command_builder` | `#command_builder_submit`                 | Submit the complete draft (only shown when complete) |
+| `runtime_command_builder` | `#command_builder_cancel`                 | Cancel the draft                                     |
+| `runtime_command_builder` | `#command-builder-rebind-<slot-id>`       | Focus that bound slot for replacement                |
+| `runtime_command_builder` | `#command-builder-focused-slot-<slot-id>` | Current slot marker (not a clickable control)        |
+
+Substitute the exact authored ID, for example `#nt-verb-menu-action-show`. These are ordinary RML IDs,
+not a separate test transport. They do not depend on label translation, Offer rank, or row position.
+Escape selector-special characters in authored IDs using RmlUi selector syntax where necessary.
+Replacement project Layouts own their selectors and must provide/document their own automation
+contract; these identities promise only the built-in surfaces. See `workflows/AUTHORING.md` for
+semantic versus UI testing guidance. A click can prove a published action works; direct command
+execution cannot prove that action was offered.
+
 For copied built-ins, read `.noveltea/agent/technical/RMLUI_DATA_BINDING.md`,
 `.noveltea/agent/technical/RMLUI_CUSTOM_COMPONENTS.md`, and
 `.noveltea/agent/technical/RMLUI_LUA.md` before changing their declarative or scripted behavior.

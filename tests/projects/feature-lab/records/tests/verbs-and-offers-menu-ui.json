@@ -8,7 +8,7 @@
       { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [] },
       { "id": "launch", "input": "ui-click", "label": "Launch Verbs & Offers", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-verbs-and-offers" }, "expectations": [] },
       { "id": "open-menu", "input": "open-verb-menu", "label": "Explicitly open the built-in Verb Menu", "subjectAction": { "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "menu-target" } } } }, "expectations": [] },
-      { "id": "click-menu-action", "input": "ui-click", "label": "Choose the real Verb Menu action", "uiClick": { "documentId": "runtime_verb_menu", "selector": ".nt-verb-menu-action:nth-child(4)" }, "expectations": [{ "id": "menu-ran", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "commands-result", "value": "menu" } }] }
+      { "id": "click-menu-action", "input": "ui-click", "label": "Choose the real Verb Menu action", "uiClick": { "documentId": "runtime_verb_menu", "selector": "#nt-verb-menu-action-menu-action" }, "expectations": [{ "id": "menu-ran", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "commands-result", "value": "menu" } }] }
     ],
     "finalExpectations": [],
     "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }

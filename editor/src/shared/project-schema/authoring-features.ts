@@ -28,18 +28,24 @@ export const featureDataSchema = withSchemaDocumentation(
   },
 );
 
-export const featureRefSchema = z.discriminatedUnion('ownerKind', [
-  strict({
-    ownerKind: z.literal('room'),
-    room: roomRefSchema,
-    featureId: entityIdSchema,
-  }),
-  strict({
-    ownerKind: z.literal('interactable'),
-    interactable: interactableInstanceRefSchema,
-    featureId: entityIdSchema,
-  }),
-]);
+export const featureRefSchema = withSchemaDocumentation(
+  z.discriminatedUnion('ownerKind', [
+    strict({
+      ownerKind: z.literal('room'),
+      room: roomRefSchema,
+      featureId: entityIdSchema,
+    }),
+    strict({
+      ownerKind: z.literal('interactable'),
+      interactable: interactableInstanceRefSchema,
+      featureId: entityIdSchema,
+    }),
+  ]),
+  {
+    description:
+      'Owner-qualified Feature identity: the Feature must exist on the effective/live owner configuration. Room Features require their active Room; Interactable Features follow the exact owner Instance eligibility, including visible/enabled Inventory-held owners.',
+  },
+);
 
 export const interactionSubjectSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('character'), character: characterRefSchema }),

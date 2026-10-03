@@ -56,9 +56,18 @@ export const verbOfferSchema = strict({
   id: entityIdSchema,
   slotId: entityIdSchema,
   selectors: z.array(subjectSelectorSchema).min(1),
-  condition: conditionSchema.optional(),
-  rank: z.number().int(),
-  primary: z.boolean(),
+  condition: withSchemaDocumentation(conditionSchema.optional(), {
+    description:
+      'Independent discovery predicate for the starting slot only. A false winning Offer Condition suppresses this Verb, without falling back to a broader Offer.',
+  }),
+  rank: withSchemaDocumentation(z.number().int(), {
+    description:
+      'Lower rank wins within equal Offer specificity; published Offers sort by rank then stable Verb ID. Rank never overrides structural specificity.',
+  }),
+  primary: withSchemaDocumentation(z.boolean(), {
+    description:
+      'Primary Activate executes a unique immediately-complete primary Offer; otherwise it opens the menu. Multiple primary candidates produce an ambiguity diagnostic. Open Verb Menu never auto-selects.',
+  }),
 });
 
 export function validateVerbNamedTemplate(
@@ -90,10 +99,46 @@ export const verbDataSchema = withSchemaDocumentation(
   strict({
     kind: z.literal('verb'),
     slots: z.array(verbSlotSchema),
-    bindingOrder: z.array(entityIdSchema),
+    bindingOrder: withSchemaDocumentation(z.array(entityIdSchema), {
+      description:
+        'Every slot once, in progressive selection order. Final bindings are named by slotId, not array position; the same live subject may fill multiple slots.',
+    }),
     actionText: textContentSchema,
     completedCommandText: textContentSchema,
-    offers: z.array(verbOfferSchema),
+    offers: withSchemaDocumentation(z.array(verbOfferSchema), {
+      description:
+        'Explicit subject-first discovery declarations with their own selectors; rule-derived Offers instead reuse their starting rule slot selectors. Missing published Offers do not prohibit direct complete-command submission.',
+      examples: [
+        {
+          title: 'Exact false Offer suppresses the broad Offer for the same Verb',
+          value: [
+            {
+              id: 'broad',
+              slotId: 'object',
+              selectors: [{ kind: 'any-subject' }],
+              rank: 0,
+              primary: false,
+            },
+            {
+              id: 'suppressed',
+              slotId: 'object',
+              selectors: [
+                {
+                  kind: 'exact',
+                  subject: {
+                    kind: 'interactable',
+                    interactable: { $ref: { registry: 'interactableInstances', id: 'sealed-box' } },
+                  },
+                },
+              ],
+              condition: { kind: 'not', condition: { kind: 'always' } },
+              rank: 10,
+              primary: false,
+            },
+          ],
+        },
+      ],
+    }),
     availability: conditionSchema,
     defaultProgram: interactionProgramSchema,
   }).superRefine((value, context) => {
@@ -159,6 +204,33 @@ export const verbDataSchema = withSchemaDocumentation(
     });
   }),
   {
+    examples: [
+      {
+        title: 'Named slots with progressive order different from serialized slot order',
+        value: {
+          kind: 'verb',
+          slots: ['recipient', 'object'].map((id) => ({
+            id,
+            label: { source: { kind: 'inline', text: id }, markup: 'plain' },
+            prompt: { source: { kind: 'inline', text: `Select ${id}` }, markup: 'plain' },
+            selectors: [{ kind: 'any-subject' }],
+          })),
+          bindingOrder: ['object', 'recipient'],
+          actionText: { source: { kind: 'inline', text: 'Show' }, markup: 'plain' },
+          completedCommandText: {
+            source: { kind: 'inline', text: 'Show {object} to {recipient}' },
+            markup: 'plain',
+          },
+          offers: [],
+          availability: { kind: 'always' },
+          defaultProgram: {
+            instructions: [],
+            completion: { kind: 'return' },
+            outcome: 'unhandled',
+          },
+        },
+      },
+    ],
     constraints: [
       'qualified-pattern selectors require exactly one wildcard and it must be the final character.',
       'bindingOrder must contain every declared Verb slot exactly once.',

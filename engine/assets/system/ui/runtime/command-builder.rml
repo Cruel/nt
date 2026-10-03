@@ -14,12 +14,13 @@
             <div id="command_builder_bindings" data-if="gameplay.command_builder.bound_slots.size > 0">
                 <button data-for="slot : gameplay.command_builder.bound_slots"
                         class="command-builder-rebind"
+                        data-attr-id="'command-builder-rebind-' + slot"
                         data-event-click="ui_command_builder_rebind(slot)">
                     Change {{ slot }}
                 </button>
             </div>
             <p id="command_builder_hint" data-if="!gameplay.command_builder.complete">
-                Select the subject for {{ gameplay.command_builder.focused_slot }} in the world or inventory.
+                Select the subject for <span data-attr-id="'command-builder-focused-slot-' + gameplay.command_builder.focused_slot">{{ gameplay.command_builder.focused_slot }}</span> in the world or inventory.
             </p>
             <div class="command-builder-warning"
                  data-for="watched : gameplay.command_builder.watched"

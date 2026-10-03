@@ -3187,6 +3187,43 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['reference/records/interactables.md']).toContain(
       'custom rectangular Hotspot bounds are normalized to the complete sprite image',
     );
+    for (const heading of [
+      '## Discovery is not execution authority',
+      '## Offer specificity and primary activation',
+      '## Complete-command resolution',
+      '## Fallback and outcomes',
+      '## Command Builder lifecycle',
+    ])
+      expect(first.files['concepts/interactions.md']).toContain(heading);
+    for (const contract of [
+      'subject-first discovery/presentation',
+      'suppresses that Verb',
+      'fall through to the next broader tier',
+      'tier-local',
+      'ambiguity fault and execute nothing',
+      '{slotId, subject}',
+      'same live subject may bind multiple slots',
+      'Inventory-held Interactable',
+      "follows its owner's eligibility",
+      'undefinedInteractionProgram',
+    ])
+      expect(first.files['concepts/interactions.md']).toContain(contract);
+    expect(first.files['reference/records/verbs.md']).toContain('progressive selection');
+    expect(first.files['reference/records/interactions.md']).toContain('next broader tier');
+    expect(first.files['reference/records/interactions.md']).toContain('offer: null');
+    expect(first.files['reference/records/interactions.md']).toContain('Equal winning priority');
+    expect(first.files['reference/records/verbs.md']).toContain('false winning Offer Condition');
+    expect(first.files['reference/records/verbs.md']).toContain(
+      'Named slots with progressive order',
+    );
+    expect(first.files['reference/project.md']).toContain('Project-owned fallback in project.json');
+    expect(first.files['reference/records/tests.md']).toContain('without proving Offer discovery');
+    expect(first.files['workflows/AUTHORING.md']).toContain('not proof of Offer discovery');
+    expect(first.files['technical/LAYOUTS.md']).toContain('#nt-verb-menu-action-');
+    expect(first.files['workflows/AUTHORING.md']).toContain('actual RuntimeUI automation');
+    expect(first.files['workflows/AUTHORING.md']).toContain(
+      'focused validation/native negative tests',
+    );
     expect(first.files['concepts/interactions.md']).toContain(
       'Hotspot owns pointer geometry, input ordering, highlight presentation, a Condition, and a semantic',
     );
@@ -3979,8 +4016,14 @@ describe('NovelTea headless CLI', () => {
     expect(await value.fileSystem.readText(`${root}/.gitignore`)).toBe('/.noveltea/\n/dist/\n');
     const manifestBefore = await value.fileSystem.readText(`${root}/.noveltea/agent/manifest.json`);
     expect(JSON.parse(manifestBefore).provenance.documents['technical/LAYOUTS.md']).toMatchObject({
-      reviewed: '2026-10-02',
+      reviewed: '2026-10-03',
     });
+    expect(
+      await value.fileSystem.readText(`${root}/.noveltea/agent/concepts/interactions.md`),
+    ).toBe(loadAgentKitSharedConceptSourceFiles()['interactions.md']);
+    expect(
+      await value.fileSystem.readText(`${root}/.noveltea/agent/reference/records/interactions.md`),
+    ).toBe(createNovelTeaCompactReferenceFiles()['records/interactions.md']);
     const systemLayoutSources = loadAgentKitSystemLayoutSourceFiles();
     expect(
       await value.fileSystem.readText(

@@ -25,7 +25,7 @@ import { inventoryDefinitionSchema } from './authoring-inventories';
 import { DEFAULT_PROJECT_INVENTORY } from './authoring-inventories';
 import { interactableInstanceDataSchema } from './authoring-interactables';
 import { scriptRefSchema } from './authoring-flow';
-import { interactionProgramSchema } from './authoring-interaction-programs';
+import { undefinedInteractionProgramSchema } from './authoring-interaction-programs';
 import { prefetchHintSchema } from './authoring-prefetch-hints';
 
 export { entityIdPattern, entityIdSchema, isValidEntityId } from './authoring-common';
@@ -53,7 +53,7 @@ export const authoringProjectSchema = z
     settings: typedProjectSettingsSchema,
     export: projectExportSettingsSchema,
     bootstrapModule: scriptRefSchema,
-    undefinedInteractionProgram: interactionProgramSchema.nullable().default(null),
+    undefinedInteractionProgram: undefinedInteractionProgramSchema.default(null),
     entrypoint: projectEntrypointSchema.nullable().default(null),
     prefetchHints: z.record(entityIdSchema, prefetchHintSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
