@@ -15,6 +15,11 @@
       "repository": "https://github.com/Cruel/nt.git",
       "revision": "ae7e3b042b23d5d904fbe949fe6ab50399f1027b"
     },
+    "noveltea-interaction-authoring": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "d37126c820cba98e22461dcff6bf6a4cde527de7"
+    },
     "noveltea-interaction-contract": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
@@ -177,6 +182,15 @@
             "editor/src/shared/project-schema/authoring-layouts.ts",
             "editor/src/cli/agent-kit.ts",
             "engine/assets/system/ui/"
+          ]
+        },
+        {
+          "source": "noveltea-interaction-authoring",
+          "areas": [
+            "engine/assets/system/ui/runtime/verb-menu.rml",
+            "engine/assets/system/ui/runtime/command-builder.rml",
+            "tests/projects/feature-lab/records/tests/verbs-and-offers-menu-ui.json",
+            "tests/projects/feature-lab/records/tests/verbs-and-offers-rebind-ui.json"
           ]
         },
         {
@@ -422,6 +436,15 @@
             "docs/editor/project/PROJECT_WORKSPACE_FORMAT.md",
             "editor/src/cli/",
             "editor/src/shared/project-workspace/"
+          ]
+        },
+        {
+          "source": "noveltea-interaction-contract",
+          "areas": [
+            "docs/engine/INTERACTION.md",
+            "docs/runtime/plans/FEATURE_LAB_INVENTORY.md",
+            "tests/projects/feature-lab/README.md",
+            "tests/script/typed_interaction_execution_tests.cpp"
           ]
         }
       ]

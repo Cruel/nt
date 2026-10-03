@@ -58,6 +58,12 @@ but error-emitting cases still need a negative executable seam: authored Test di
 do not convert runtime errors into success. Manual controls above remain manual for precisely that
 limitation, not as a substitute for available authoritative automation.
 
+The specificity sequence runs the ordinary Quick action between Probe activations, establishing a
+distinct authoritative result before each check instead of inheriting a prior successful Probe value.
+The equal-specificity rank check expects no Primary execution; `verbs-and-offers-rank-ui` additionally
+proves that the lower-ranked non-primary Offer opens a real menu whose Probe action executes. Each
+menu UI witness uses a fresh runtime, as do the other isolated interaction UI paths.
+
 Interaction UI Tests use the built-in semantic Verb/slot selectors documented in
 `editor/agent-kit/technical/LAYOUTS.md`; no menu position is contractual. Direct `run-interaction`
 success proves complete-command behavior, not Offer discovery. Public semantics live in

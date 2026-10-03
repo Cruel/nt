@@ -3217,6 +3217,11 @@ describe('NovelTea headless CLI', () => {
       'Named slots with progressive order',
     );
     expect(first.files['reference/project.md']).toContain('Project-owned fallback in project.json');
+    expect(first.files['reference/project.md']).toContain('next fallback stage for the host');
+    expect(first.files['reference/records/verbs.md']).toContain('next fallback stage for the host');
+    expect(first.files['reference/records/interactions.md']).toContain(
+      'next fallback stage for the host',
+    );
     expect(first.files['reference/records/tests.md']).toContain('without proving Offer discovery');
     expect(first.files['workflows/AUTHORING.md']).toContain('not proof of Offer discovery');
     expect(first.files['technical/LAYOUTS.md']).toContain('#nt-verb-menu-action-');
