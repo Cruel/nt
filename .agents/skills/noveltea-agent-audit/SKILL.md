@@ -1,6 +1,7 @@
 ---
 name: noveltea-agent-audit
 description: Audit a completed NovelTea CLI authoring task for consumer-side friction and produce a handoff report.
+argument-hint: "Optional focus for this audit"
 disable-model-invocation: true
 ---
 
@@ -40,8 +41,19 @@ resolve a finding.
 4. Record guidance that worked. Prefer specific surfaces that resolved uncertainty or prevented a
    mistake. This is preservation evidence for the refinement pass, not praise.
 
-5. Emit the report using the shared contract. If the outcome is `clean`, say so plainly, include the
-   task summary, and keep the Findings section empty.
+5. Write the report using the shared contract to a **new uniquely named file in the OS temporary
+   directory**, not into the NovelTea project. Use a filename beginning `noveltea-agent-audit-` and
+   ending in `.md`; include a timestamp or another collision-resistant suffix. Do not overwrite an
+   earlier audit report.
+
+   If the outcome is `clean`, say so plainly in the file, include the task summary, and keep the
+   Findings section empty. The report is intentionally ephemeral handoff state, not Project source.
+
+   This step is complete only after the report file exists and contains the complete audit.
+
+6. In the response, give a concise outcome summary and the **exact absolute path** to the report file
+   so it can be passed directly to `noveltea-agent-refine`. Do not paste the full report unless the
+   user asks for it.
 
 ## Evidence discipline
 
