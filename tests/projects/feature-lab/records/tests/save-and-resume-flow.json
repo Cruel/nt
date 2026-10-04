@@ -1,0 +1,35 @@
+{
+ "id":"save-and-resume-flow","label":"World and Flow checkpoint restoration",
+ "data":{"kind":"test","displayName":"World and Flow checkpoint restoration","steps":[
+ {"id":"start","input":"tick","label":"Fresh home"},
+ {"id":"route","input":"navigate","label":"Workbench route","navigate":{"exitId":"inventory-workbench-test-entry"}},
+ {"id":"enter","input":"navigate","label":"Prepare authoritative state","navigate":{"exitId":"save-and-resume-test-entry"},"expectations":[
+ {"id":"count","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":1}},
+ {"id":"quantity","type":"quantity","operator":"eq","quantity":{"interactableId":"supply-split-stack","value":3}}]},
+ {"id":"save","input":"save","label":"Retain the input boundary","saveSlot":{"slotId":"slot-57"}},
+ {"id":"change","input":"continue","label":"Dirty world after the saved boundary","expectations":[
+ {"id":"changed","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":2}},
+ {"id":"quantity","type":"quantity","operator":"eq","quantity":{"interactableId":"supply-split-stack","value":2}}]},
+ {"id":"load","input":"load","label":"Restore without replaying completed mutations","saveSlot":{"slotId":"slot-57"},"expectations":[
+ {"id":"count","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":1}},
+ {"id":"quantity","type":"quantity","operator":"eq","quantity":{"interactableId":"supply-split-stack","value":3}},
+ {"id":"location","type":"location","operator":"eq","location":{"entityKind":"interactable","entityId":"supply-split-stack","locationKind":"inventory","inventoryOwnerKind":"project","inventoryId":"player"}},
+ {"id":"flow","type":"active-flow","operator":"eq","activeFlow":{"kind":"scene","flowId":"save-and-resume"}}]},
+ {"id":"resume","input":"continue","label":"Resume next Event exactly once","expectations":[
+ {"id":"count","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":2}},
+ {"id":"quantity","type":"quantity","operator":"eq","quantity":{"interactableId":"supply-split-stack","value":2}}]}
+,
+ {"id":"timer-guide","input":"continue","label":"Timed checkpoint instructions"},
+ {"id":"timer-start","input":"continue","label":"Start five-second logical wait"},
+ {"id":"timer-progress","input":"tick","label":"Consume two seconds","tick":{"deltaSeconds":2}},
+ {"id":"timer-save","input":"save","label":"Save remaining three seconds","saveSlot":{"slotId":"slot-59"}},
+ {"id":"timer-finish","input":"tick","label":"Finish original wait","tick":{"deltaSeconds":3},"expectations":[{"id":"completed","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":3}}]},
+ {"id":"timer-load","input":"load","label":"Restore incomplete logical cursor","saveSlot":{"slotId":"slot-59"},"expectations":[{"id":"pending","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":2}}]},
+ {"id":"deferred","input":"save","label":"Request next eligible autosave","saveSlot":{"slotId":"autosave"}},
+ {"id":"deferred-boundary","input":"tick","label":"Promote next time checkpoint","tick":{"deltaSeconds":1}},
+ {"id":"finish-again","input":"tick","label":"Complete restored wait","tick":{"deltaSeconds":2},"expectations":[{"id":"completed","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":3}}]},
+ {"id":"load-autosave","input":"load","label":"Autosave captured next boundary, not completed state","saveSlot":{"slotId":"autosave"},"expectations":[{"id":"pending","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":2}}]},
+ {"id":"autosave-first-second","input":"tick","label":"Saved timer still waits","tick":{"deltaSeconds":1},"expectations":[{"id":"pending","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":2}}]},
+ {"id":"autosave-last-second","input":"tick","label":"Complete at exact remaining duration","tick":{"deltaSeconds":1},"expectations":[{"id":"completed","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":3}}]}
+ ],"finalExpectations":[],"preview":{"selectedStepId":"start","selectedObservationIndex":null,"autoOpenReport":true}}
+}

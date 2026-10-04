@@ -1,0 +1,61 @@
+{
+  "id": "display-and-accessibility-ui",
+  "label": "display-and-accessibility-ui",
+  "data": {
+    "kind": "test",
+    "displayName": "display-and-accessibility-ui",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh home"
+      },
+      {
+        "id": "category",
+        "input": "ui-click",
+        "label": "category",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "mountInstanceId": null,
+          "selector": "#feature-lab-category-language-display-persistence"
+        }
+      },
+      {
+        "id": "launch",
+        "input": "ui-click",
+        "label": "launch",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "mountInstanceId": null,
+          "selector": "#feature-lab-launch-display-and-accessibility"
+        },
+        "expectations": [
+          {
+            "id": "inherit",
+            "type": "layout",
+            "operator": "present",
+            "layout": {
+              "layoutId": "scale-inherit",
+              "field": "mounted"
+            }
+          },
+          {
+            "id": "ignore",
+            "type": "layout",
+            "operator": "present",
+            "layout": {
+              "layoutId": "scale-ignore",
+              "field": "mounted"
+            }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

@@ -1,0 +1,107 @@
+{
+  "id": "localized-story",
+  "label": "localized-story",
+  "data": {
+    "kind": "scene",
+    "displayName": "localized-story",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "realize",
+        "label": "realize",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "noveltea.notify(Text.msg('lab.greeting', {name='Ada'})); noveltea.notify(Text.msg_ref(assert(Game.prop('story-message')), {name='Ada'})); noveltea.notify(Text.plural(1, {one='One letter', other='{value} letters'})); noveltea.notify(Text.select('sealed', {sealed='Sealed letter', other='Open letter'})); noveltea.notify(Text.tr('Managed letter for {name}', {name='Ada'})); assert(noveltea.layouts.mount('language-board', 'language-board', {owner='session'}))",
+        "mayYield": false
+      },
+      {
+        "id": "story",
+        "label": "story",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "lua-expression",
+            "source": "return Text.msg('lab.greeting', {name='Ada'})"
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {"id":"read-count","label":"Read current letter grammar","type":"run-lua","enabled":true,"timeline":{"trackId":"main","startMs":0,"durationMs":0},"completionDependencies":[],"source":"local count=assert(Game.prop('story-count')); noveltea.notify(Text.msg('lab.letters', {count=count, kind=count == 2 and 'sealed' or 'open', amount=1234.5}))","mayYield":false},
+      {
+        "id": "choice",
+        "label": "choice",
+        "type": "choice",
+        "prompt": null,
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "options": [
+          {
+            "id": "read",
+            "label": {
+              "source": {
+                "kind": "localized",
+                "key": "lab.read"
+              },
+              "markup": "plain"
+            },
+            "condition": {
+              "kind": "always"
+            },
+            "effects": [],
+            "targetStepId": "end"
+          }
+        ]
+      },
+      {
+        "id": "end",
+        "label": "end",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Open Text Log and switch language in Settings. The earlier greeting and choice retain captured arguments; the Scene Lua notifications must not rerun. Save, switch language, and load to read the same semantic occurrence in the current client locale."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

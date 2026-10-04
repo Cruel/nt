@@ -1,0 +1,11 @@
+{
+  "id": "resume-deliveries",
+  "label": "Completed deliveries",
+  "data": {
+    "kind": "variable",
+    "type": "integer",
+    "nullable": false,
+    "value": 0,
+    "scope": "global"
+  }
+}

@@ -1,0 +1,90 @@
+{
+  "07203395-f20c-5d69-8d8b-2547b934eaa5":{"text":"À {recipient}, remettre {parcel}","sourceFingerprint":"fnv1a:536441f154618d856ff8cf4743485301","origin":"ai","review":"needs-review"},
+  "25700000-0000-4000-8000-000000000005":{"text":"Langue — Feature Lab","sourceFingerprint":"fnv1a:3abe155c86fe42781692ecc676c8e7ec","origin":"ai","review":"needs-review"},
+  "25700000-0000-4000-8000-000000000001": {
+    "text": "Bonjour, {name} !",
+    "sourceFingerprint": "fnv1a:e4575e35161e76493cd60f3f2f481585",
+    "origin": "ai",
+    "review": "needs-review"
+  },
+  "25700000-0000-4000-8000-000000000002": {
+    "text": "Lire la lettre",
+    "sourceFingerprint": "fnv1a:65a40d0410f846f876a25a3adf231834",
+    "origin": "ai",
+    "review": "needs-review"
+  },
+  "25700000-0000-4000-8000-000000000003": {
+    "text": "Lettres / 日本語 / العربية",
+    "sourceFingerprint": "fnv1a:9b7f45096b0f9a651f18fa8b1d6441f9",
+    "origin": "ai",
+    "review": "needs-review"
+  },
+  "25700000-0000-4000-8000-000000000004": {
+    "text": "{count} letters; {amount}",
+    "sourceFingerprint": "fnv1a:964abca326c69fb7cff3820d4ced53b3",
+    "origin": "ai",
+    "review": "needs-review",
+    "pattern": {
+      "kind": "select",
+      "argument": "kind",
+      "cases": {
+        "sealed": {
+          "kind": "plural",
+          "argument": "count",
+          "cases": {
+            "one": {
+              "kind": "text",
+              "text": "Une lettre fermée; {amount}"
+            },
+            "many": {"kind":"text","text":"{count} lettres fermées; {amount}"},
+            "other": {
+              "kind": "text",
+              "text": "{count} lettres fermées; {amount}"
+            }
+          }
+        },
+        "other": {
+          "kind": "plural",
+          "argument": "count",
+          "cases": {
+            "one": {
+              "kind": "text",
+              "text": "Une lettre ouverte; {amount}"
+            },
+            "many": {"kind":"text","text":"{count} lettres ouvertes; {amount}"},
+            "other": {
+              "kind": "text",
+              "text": "{count} lettres ouvertes; {amount}"
+            }
+          }
+        }
+      }
+    }
+  },
+  "48d01321-b758-5fcd-8380-42872aef0bd1": {
+    "text": "Lettre pour {name}",
+    "sourceFingerprint": "fnv1a:6eb4ff5abe4c446e7ba68f04b6d7fa6a",
+    "origin": "ai",
+    "review": "needs-review"
+  },
+  "6d6f1ca5-025d-57f9-b3a3-f05ff37eeef5": {
+    "text": "Lettre ouverte",
+    "pattern":{"kind":"select","argument":"value","cases":{"sealed":{"kind":"text","text":"Lettre fermée"},"other":{"kind":"text","text":"Lettre ouverte"}}},
+    "sourceFingerprint": "fnv1a:52b38fe6ba80d99a707e4e2077a407f6",
+    "origin": "ai",
+    "review": "needs-review"
+  },
+  "9a53c6c6-c7ce-5c62-907d-7d6c124e7456": {
+    "text": "{value} lettres",
+    "pattern":{"kind":"plural","argument":"value","cases":{"one":{"kind":"text","text":"Une lettre"},"many":{"kind":"text","text":"{value} lettres"},"other":{"kind":"text","text":"{value} lettres"}}},
+    "sourceFingerprint": "fnv1a:37806bfd126ea9297f3c6657a962f44d",
+    "origin": "ai",
+    "review": "needs-review"
+  },
+  "f0b75a61-85b2-53fd-9d5f-5b43eb6bb8f1": {
+    "text": "Bureau de lecture",
+    "sourceFingerprint": "fnv1a:5bed5acf00f602bbf9230fadc6fc68ff",
+    "origin": "ai",
+    "review": "needs-review"
+  }
+}

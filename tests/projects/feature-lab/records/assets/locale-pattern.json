@@ -1,0 +1,21 @@
+{
+  "id": "locale-pattern",
+  "label": "locale-pattern",
+  "data": {
+    "kind": "image",
+    "source": {
+      "type": "project-file",
+      "path": "assets/images/locale-pattern.png"
+    },
+    "aliases": [],
+    "sampling": "nearest",
+    "mimeType": "image/png",
+    "extension": ".png",
+    "imageMetadata": {
+      "width": 192,
+      "height": 128,
+      "hasAlpha": true,
+      "orientation": 1
+    }
+  }
+}

@@ -212,6 +212,14 @@ make_headless_running_game_input(nlohmann::json gameplay,
         files.push_back({package_path, 0, std::nullopt});
     }
 
+    for (const auto& locale : decoded_project.value_if()->localization().locales) {
+        if (!locale.catalog_path)
+            continue;
+        const auto path = runtime_package_entry_path(*locale.catalog_path);
+        entries.push_back({{"path", path}, {"size", 0}});
+        files.push_back({path, 0, std::nullopt});
+    }
+
     nlohmann::json manifest = {
         {"format", "noveltea.runtime-package"},
         {"runtime_api_version", player_runtime_api_version},
@@ -696,6 +704,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     if (!input)
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   compiled_diagnostics_to_json(input.error()));
+    std::unique_ptr<noveltea::script::ScriptRuntime> replacement_scripts;
     auto runtime =
         load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
     if (!runtime)
@@ -715,10 +724,13 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     const auto* typed_spec = decoded_spec.value_if();
     if (!typed_spec)
         return fail("Playback spec parse failed.");
-    auto& session = runtime.value_if()->get()->session();
+    auto& running_game = **runtime.value_if();
+    const auto session = [&]() -> noveltea::runtime::RuntimeSession& {
+        return running_game.session();
+    };
     const auto settle_headless_presentation = [&](noveltea::runtime::RuntimeDispatchResult& result) {
         while (auto completion = presentation.take_completion()) {
-            auto completed = session.dispatch(RuntimeInputMessage{std::move(*completion)});
+            auto completed = session().dispatch(RuntimeInputMessage{std::move(*completion)});
             result.events.insert(result.events.end(),
                                  std::make_move_iterator(completed.events.begin()),
                                  std::make_move_iterator(completed.events.end()));
@@ -731,7 +743,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
                 result.disposition = noveltea::runtime::RuntimeInputDisposition::Failed;
         }
     };
-    auto startup = session.dispatch(RuntimeInputMessage{StartRuntimeInput{}});
+    auto startup = session().dispatch(RuntimeInputMessage{StartRuntimeInput{}});
     settle_headless_presentation(startup);
     std::optional<noveltea::runtime::RuntimePublication> final_publication;
     if (startup.publication)
@@ -746,7 +758,31 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
     for (const auto& step : typed_spec->steps) {
         if (!std::holds_alternative<RuntimeInputMessage>(step.input))
             return fail("UI click playback input requires run-ui-test.");
-        auto result = session.dispatch(std::get<RuntimeInputMessage>(step.input));
+        auto result = session().dispatch(std::get<RuntimeInputMessage>(step.input));
+        if (result.session_replacement_request && result.diagnostics.empty()) {
+            const auto* load = std::get_if<LoadRuntimeInput>(&*result.session_replacement_request);
+            if (!load)
+                return fail("Semantic playback session replacement requires a load input.");
+            auto candidate_scripts = std::make_unique<noveltea::script::ScriptRuntime>();
+            if (!candidate_scripts->initialize({&sources}))
+                return fail("Load candidate Lua initialization failed.");
+            candidate_scripts->synchronize_project_data_assets(running_game.package().project());
+            candidate_scripts->set_startup_context(running_game.startup_context());
+            if (!candidate_scripts->prepare_project_modules(running_game.package().project()) ||
+                !candidate_scripts->run_project_bootstrap() ||
+                !candidate_scripts->freeze_project_hooks())
+                return fail("Load candidate script preparation failed.");
+            auto candidate =
+                running_game.prepare_load_candidate(load->slot, *candidate_scripts, presentation);
+            if (!candidate)
+                return compiled_project_admission_failure(
+                    "Save restoration failed.", compiled_diagnostics_to_json(candidate.error()));
+            auto prepared = std::move(*candidate.value_if());
+            result = prepared->take_initial_result();
+            auto previous = running_game.commit_candidate(std::move(prepared));
+            previous.reset();
+            replacement_scripts = std::move(candidate_scripts);
+        }
         settle_headless_presentation(result);
         editor::TypedPlaybackStepReport report;
         report.index = step.index;
@@ -759,7 +795,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         // Every authored step ends at a settled semantic boundary. A zero-duration engine-time
         // advance drains deterministic runtime work without introducing sleeps or elapsed time, so
         // adding/removing expectations cannot change the state observed by the next authored input.
-        auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+        auto settled = session().dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
         settle_headless_presentation(settled);
         if (settled.publication)
             final_publication = std::move(settled.publication);
@@ -778,7 +814,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
             passed = false;
         for (const auto& expectation : step.expectations) {
             auto expectation_report = noveltea::core::editor::evaluate_playback_expectation(
-                expectation, session, *final_publication, report.events, report.diagnostics);
+                expectation, session(), *final_publication, report.events, report.diagnostics);
             if (!expectation_report.passed)
                 passed = false;
             report.expectations.push_back(std::move(expectation_report));
@@ -789,7 +825,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         steps.push_back(std::move(report));
     }
 
-    auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+    auto settled = session().dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
     settle_headless_presentation(settled);
     if (settled.publication)
         final_publication = std::move(settled.publication);
@@ -803,7 +839,7 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         return fail("Playback completed without a final runtime publication.");
     for (const auto& expectation : typed_spec->final_expectations) {
         auto expectation_report = noveltea::core::editor::evaluate_playback_expectation(
-            expectation, session, *final_publication, all_events, all_diagnostics);
+            expectation, session(), *final_publication, all_events, all_diagnostics);
         if (!expectation_report.passed)
             passed = false;
         final_expectations.push_back(std::move(expectation_report));

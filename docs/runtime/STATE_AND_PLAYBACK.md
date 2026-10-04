@@ -160,7 +160,9 @@ on one second of deterministic elapsed runtime input, while unchanged idle trans
 re-encode. A manual save is retained by default: it immediately writes the latest already-promoted
 checkpoint and never forces capture of the current live state. An autosave is deferred by default: it
 waits for the first newly promoted eligible checkpoint after the request and pins that exact revision
-for retry if the slot write fails. Retained checkpoint publication does not request a visual thumbnail.
+for retry if the slot write fails. Successful Layout State Slot commits and clears are structural checkpoint mutations; a subsequent
+retained save includes the committed tree or its removal, rather than waiting for unrelated gameplay
+or elapsed time to invalidate the candidate. Retained checkpoint publication does not request a visual thumbnail.
 A thumbnail capture is queued only after a manual save, autosave, or other typed save-slot write
 actually persists that checkpoint, and the asynchronous result updates only slots still bound to the
 same checkpoint revision.
@@ -226,7 +228,10 @@ interactable selection, typed interaction invocation, declared debug state chang
 selector clicks. A Test containing a selector click uses the RuntimeUI playback runner: it realizes the
 same compiled presentation through RmlUi, resolves a visible enabled target, verifies the target by
 normal hit testing, and dispatches pointer move/down/up input through the RuntimeUI Layout-event seam.
-Selector-driven steps may be mixed with ordinary semantic RuntimeSession inputs, and both runners use
+Both headless runners fulfill load replacement through `RunningGame` candidate preparation/commit,
+with a fresh bootstrapped Project VM; accepting the `LoadRuntimeInput` request alone is not restoration.
+The UI runner preserves startup context in every publication so a later authored restart still routes
+the current scenario. Selector-driven steps may be mixed with ordinary semantic RuntimeSession inputs, and both runners use
 the same typed semantic expectations and playback-report format. Stable authored element IDs or
 explicit test-oriented attributes are the selector contract; coordinate clicks are reserved for cases
 where geometry itself is under test. Index-only ambiguous targets, arbitrary playback Lua, and old
