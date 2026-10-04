@@ -169,6 +169,7 @@ public:
     void clear_message_localization() noexcept;
 
     void enable_render_perf_logging(bool enabled = true);
+    void bind_rmlui_error_sink(std::function<void(std::string)> sink);
 
     const char* backend_name() const;
     const char* status_text() const;

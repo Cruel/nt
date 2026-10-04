@@ -83,6 +83,12 @@
             "type": "property",
             "operator": "eq",
             "property": {"scope":"global","ownerId":"","propertyId":"story-count","value":2}
+          },
+          {
+            "id": "layout-notification-two",
+            "type": "event",
+            "operator": "present",
+            "event": {"kind":"notification","value":"2 sealed letters; 1,234.5"}
           }
         ]
       },
@@ -101,6 +107,12 @@
             "type": "property",
             "operator": "eq",
             "property": {"scope":"global","ownerId":"","propertyId":"story-count","value":3}
+          },
+          {
+            "id": "layout-notification-three",
+            "type": "event",
+            "operator": "present",
+            "event": {"kind":"notification","value":"3 open letters; 1,234.5"}
           }
         ]
       },

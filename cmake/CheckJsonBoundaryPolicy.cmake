@@ -57,6 +57,7 @@ set(approved_source_paths
     "tools/editor_tool/font_coverage_tool.cpp"
     "tools/editor_tool/shader_compiler.cpp"
     "tools/editor_tool/tooling_archive.cpp"
+    "tools/editor_tool/tooling_bridge.cpp"
     "tools/editor_tool/tooling_daemon_broker.cpp"
     "tools/editor_tool/tooling_filesystem.cpp"
     "tools/editor_tool/tooling_image.cpp"

@@ -252,8 +252,10 @@ Contextual Mounts may also carry an explicit presentation parent and replacement
 
 Layout Slot state is explicit engine-owned checkpoint state. A Slot is addressed by its semantic Mount
 key inside the selected lifetime scope, and a successful commit atomically replaces the prior value.
-Clearing removes the value so the State Shape default becomes visible again; unmounting a Layout does
-not clear a Slot whose scope still exists. Visit Slots expire with the Active Room Context, Room and
+Reading `context:state(scope)` may return the State Shape default when no committed Slot exists;
+that read does not create a persisted Slot. Clearing removes the Slot so the default becomes visible
+again, without committing that default. Unmounting a Layout does not clear a Slot whose scope still
+exists. Visit Slots expire with the Active Room Context, Room and
 Flow Slots expire with their semantic owners, and Session Slots expire with the runtime session.
 
 Lua values cross the Slot boundary only through the declared State Shape. The conversion accepts the

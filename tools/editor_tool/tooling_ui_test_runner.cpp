@@ -789,7 +789,10 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     if (!frontend_bootstrap)
         return fail("RuntimeUI system Lua bootstrap failed.");
     frontend_scripts.synchronize_project_data_assets(runtime_project);
+    frontend_scripts.synchronize_runtime_localization(runtime_project.localization());
+    frontend_scripts.set_runtime_locale(running_game.value_if()->get()->runtime_locale());
 
+    Diagnostics rmlui_diagnostics;
     noveltea::RuntimeUI runtime_ui;
     const auto& loaded_shader_materials = running_game.value_if()->get()->package().shader_materials();
     const auto* runtime_shader_materials =
@@ -801,6 +804,10 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
             },
             true))
         return fail("RuntimeUI initialization failed.");
+    runtime_ui.bind_rmlui_error_sink([&](std::string message) {
+        rmlui_diagnostics.push_back({.code = "tooling.ui_test_rmlui_error",
+                                    .message = std::move(message)});
+    });
     if (!runtime_ui.configure_fonts(frontend_assets.font_config()))
         return fail("RuntimeUI font configuration failed.");
     if (!executor.run_until_idle(64))
@@ -931,6 +938,10 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     auto startup = running_game_instance->session().dispatch(RuntimeInputMessage{StartRuntimeInput{}});
     settle_headless_presentation(startup);
     apply_result(startup);
+    startup.diagnostics.insert(startup.diagnostics.end(),
+                               std::make_move_iterator(rmlui_diagnostics.begin()),
+                               std::make_move_iterator(rmlui_diagnostics.end()));
+    rmlui_diagnostics.clear();
     all_events.insert(all_events.end(), startup.events.begin(), startup.events.end());
     all_diagnostics.insert(all_diagnostics.end(), startup.diagnostics.begin(), startup.diagnostics.end());
     if (startup.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||
@@ -1000,6 +1011,7 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         TypedPlaybackStepReport report;
         report.index = step.index;
         ui_sink.clear_step_outputs();
+        rmlui_diagnostics.clear();
         const auto* semantic_input = std::get_if<RuntimeInputMessage>(&step.input);
         if (semantic_input && std::holds_alternative<LoadRuntimeInput>(*semantic_input)) {
             report.handled = ui_sink.submit_gameplay_input(*semantic_input);
@@ -1101,6 +1113,10 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
             passed = false;
         if (!final_publication)
             return fail("Playback step completed without a runtime publication.");
+        report.diagnostics.insert(report.diagnostics.end(),
+                                  std::make_move_iterator(rmlui_diagnostics.begin()),
+                                  std::make_move_iterator(rmlui_diagnostics.end()));
+        rmlui_diagnostics.clear();
         if (has_errors(report.diagnostics))
             passed = false;
         for (const auto& expectation : step.expectations) {
@@ -1124,6 +1140,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     auto settled = running_game_instance->session().dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
     settle_headless_presentation(settled);
     apply_result(settled);
+    if (!rmlui_diagnostics.empty())
+        return fail("Runtime UI Test final settlement failed.", diagnostics_json(rmlui_diagnostics));
     all_events.insert(all_events.end(), settled.events.begin(), settled.events.end());
     all_diagnostics.insert(all_diagnostics.end(), settled.diagnostics.begin(), settled.diagnostics.end());
     if (settled.disposition == noveltea::runtime::RuntimeInputDisposition::Failed ||

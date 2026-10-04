@@ -1,0 +1,33 @@
+diff --git a/Include/RmlUi/Core/NovelTeaPatch.h b/Include/RmlUi/Core/NovelTeaPatch.h
+--- a/Include/RmlUi/Core/NovelTeaPatch.h
++++ b/Include/RmlUi/Core/NovelTeaPatch.h
+@@ -1,7 +1,7 @@
+ #ifndef RMLUI_CORE_NOVELTEAPATCH_H
+ #define RMLUI_CORE_NOVELTEAPATCH_H
+ 
+ // Repository patch marker for NovelTea's presentation extensions.
+-#define RMLUI_NOVELTEA_PATCH_REVISION "6e-lua-pointer-ownership-1"
++#define RMLUI_NOVELTEA_PATCH_REVISION "6f-lua-error-severity-1"
+ 
+ #endif
+diff --git a/Source/Lua/Interpreter.cpp b/Source/Lua/Interpreter.cpp
+--- a/Source/Lua/Interpreter.cpp
++++ b/Source/Lua/Interpreter.cpp
+@@ -31,7 +31,7 @@ static bool LuaCall(lua_State* L, int nargs, int nresults)
+ 	lua_insert(L, errfunc);
+ 	if (lua_pcall(L, nargs, nresults, errfunc) != LUA_OK)
+ 	{
+-		Log::Message(Log::LT_WARNING, "%s", lua_tostring(L, -1));
++		Log::Message(Log::LT_ERROR, "%s", lua_tostring(L, -1));
+ 		lua_pop(L, 2);
+ 		return false;
+ 	}
+@@ -89,7 +89,7 @@ bool Interpreter::LoadString(const String& code, const String& name)
+ 
+ 	if (luaL_loadbuffer(L, code.c_str(), code.length(), name.c_str()) != 0)
+ 	{
+-		Log::Message(Log::LT_WARNING, "%s", lua_tostring(L, -1));
++		Log::Message(Log::LT_ERROR, "%s", lua_tostring(L, -1));
+ 		lua_pop(L, 1);
+ 		return false;
+ 	}

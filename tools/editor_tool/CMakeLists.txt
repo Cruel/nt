@@ -137,5 +137,8 @@ target_compile_definitions(noveltea_tooling_native PRIVATE
     NOVELTEA_UI_TEST_RUNNER_PATH="$<TARGET_FILE:noveltea-ui-test-runner>")
 
 add_executable(noveltea-tooling-bridge tooling_bridge.cpp)
-target_link_libraries(noveltea-tooling-bridge PRIVATE noveltea_tooling_native)
+target_link_libraries(noveltea-tooling-bridge PRIVATE noveltea_tooling_native nlohmann_json::nlohmann_json)
+target_compile_definitions(noveltea-tooling-bridge PRIVATE
+    ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
+    NOVELTEA_TOOLING_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")
 noveltea_apply_policy_warnings(noveltea-tooling-bridge)

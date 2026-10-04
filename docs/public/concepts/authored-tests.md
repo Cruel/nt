@@ -58,6 +58,21 @@ intentionally closed to equality/inequality, presence/absence, and numeric compa
 admits them. Expectations observe settled authoritative runtime state; they do not execute arbitrary
 assertion Lua or inspect private RuntimeSession state.
 
+For a `ui-click`, the report's `handled` value means pointer input was dispatched, not that every
+Lua callback completed successfully. An uncaught Layout Lua error is an error diagnostic and fails
+playback even when the step has no expectations; the report retains the error and traceback. Effects
+already committed before that error are not rolled back. Ordinary RmlUi warnings are not callback
+failures, and Lua errors deliberately caught by authored `pcall` remain the author's responsibility.
+
+A Layout `state` expectation observes explicitly committed Layout State Slots and requires exactly
+one live Slot for the named Layout definition. A visible Mount alone does not satisfy that requirement:
+`context:state(scope)` can return the declared default without creating a Slot, and `clear_state` removes
+the Slot rather than committing the default. Zero Slots and multiple Slots both prevent an exact-tree
+state expectation. To test persistence, commit through ordinary Layout controls, save, change the
+committed tree, then load and expect the saved tree. Feature Lab's `save-and-resume-ui` checks that
+sequence and clear/save/recreate/load; after fresh or cleared state it commits once before asserting
+the tree. A mounted-presence expectation checks the Mount, not Slot existence or default hydration.
+
 Stable step IDs are useful because diagnostics, playback reports, and tooling can refer to the
 authored action without depending on array position.
 

@@ -3455,7 +3455,14 @@ export class ProjectWorkspaceService {
                       `Authoritative source file '${file}' was not projected.`,
                       `/${file}`,
                     );
-                  parsed = JSON.parse(normalizedText) as unknown;
+                  const normalizedSource = JSON.parse(normalizedText);
+                  // Hydration exposes Lua `none` as empty inline source, not an authored companion.
+                  if (
+                    /^records\/layouts\/[^/]+\/layout\.json$/u.test(file) &&
+                    !admittedSourcePaths.has(file.replace(/\.json$/u, '.lua'))
+                  )
+                    normalizedSource.data.lua = { sourceMode: 'none' };
+                  parsed = normalizedSource;
                 }
               }
               sourceContributions[file] = Object.freeze({

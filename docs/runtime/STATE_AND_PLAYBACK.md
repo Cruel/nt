@@ -231,7 +231,14 @@ normal hit testing, and dispatches pointer move/down/up input through the Runtim
 Both headless runners fulfill load replacement through `RunningGame` candidate preparation/commit,
 with a fresh bootstrapped Project VM; accepting the `LoadRuntimeInput` request alone is not restoration.
 The UI runner preserves startup context in every publication so a later authored restart still routes
-the current scenario. Selector-driven steps may be mixed with ordinary semantic RuntimeSession inputs, and both runners use
+the current scenario. It prepares the frontend Lua VM with the Project localization catalog and active
+runtime locale, as well as the compiled Layout sources. A successful `noveltea.notify` from a gameplay
+Layout callback is observable through the same notification event expectations as Scene Lua; authors
+do not need a separate Scene action to expose that notification. `localized-story-ui` in Feature Lab
+checks both notification paths after real count changes. The UI runner reports uncaught RmlUi Lua
+callback errors as `tooling.ui_test_rmlui_error` diagnostics with the error/traceback, including errors
+raised after a committed mutation. Such errors fail playback without requiring an expectation;
+`handled` still describes pointer dispatch, not Lua callback success. Selector-driven steps may be mixed with ordinary semantic RuntimeSession inputs, and both runners use
 the same typed semantic expectations and playback-report format. Stable authored element IDs or
 explicit test-oriented attributes are the selector contract; coordinate clicks are reserved for cases
 where geometry itself is under test. Index-only ambiguous targets, arbitrary playback Lua, and old

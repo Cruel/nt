@@ -2170,6 +2170,48 @@ describe('ResidentProjectWorkspaceSession', () => {
     );
   });
 
+  it('preserves a Layout without Lua across structural source additions and portable snapshots', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    const layoutPath = `${ROOT}/records/layouts/hud/layout.json`;
+    const record = JSON.parse(files[layoutPath]!);
+    record.data.lua = { sourceMode: 'none' };
+    record.data.script.enabled = false;
+    delete record.data.preview;
+    files[layoutPath] = JSON.stringify(record);
+    delete files[`${ROOT}/records/layouts/hud/layout.lua`];
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const owner = new ResidentProjectWorkspaceService(fileSystem);
+    const initial = await owner.open(ROOT);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) throw new Error('Initial Project open failed.');
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/records/rooms/new-room.json`,
+      JSON.stringify({ id: 'new-room', label: 'New Room', data: defaultRoomData('New Room') }),
+    );
+    const changed = await owner.open(ROOT);
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) throw new Error(JSON.stringify(changed.diagnostics));
+    expect(changed.snapshot.project.rooms['new-room']).toBeDefined();
+    expect(changed.snapshot.project.layouts.hud.data).toEqual(
+      initial.snapshot.project.layouts.hud.data,
+    );
+    expect(changed.snapshot.canonicalSourceFiles).not.toContain('records/layouts/hud/layout.lua');
+    const prepared = await owner.preparePortableSnapshot(ROOT);
+    expect(prepared).not.toBeNull();
+    if (!prepared) throw new Error('Portable snapshot preparation failed.');
+    const disposable = new ResidentProjectWorkspaceService(fileSystem);
+    expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
+    expect((await disposable.open(ROOT)).ok).toBe(true);
+    expect(await fileSystem.inspect(`${ROOT}/records/layouts/hud/layout.lua`)).toBe('missing');
+  });
+
   it('retains Project-owned Script Module and Layout dependency source bytes in the pinned generation', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.scripts.main = {

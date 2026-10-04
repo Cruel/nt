@@ -4601,6 +4601,61 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
     )
       fail(`Feature Lab daemon suite did not publish/reuse its unchanged inputs: ${result.stdout}`);
   }
+  const addedRoom = JSON.parse(
+    await readFile(path.join(daemonRoot, 'records/rooms/feature-lab-home.json'), 'utf8'),
+  );
+  addedRoom.id = 'audit-source-addition';
+  await writeFile(
+    path.join(daemonRoot, 'records/rooms/audit-source-addition.json'),
+    JSON.stringify(addedRoom),
+  );
+  const afterAddition = requireSuccess(
+    'Feature Lab daemon playback after structural source addition with Lua-less Layouts',
+    runNative(['--project', daemonRoot, '--json', 'test', 'run', 'save-and-resume-flow'], {
+      cwd: daemonRoot,
+      env: daemonEnvironment,
+    }),
+  );
+  if (JSON.parse(afterAddition.stdout).native?.report?.passed !== true)
+    fail(`Daemon source addition did not preserve companion selectors: ${afterAddition.stdout}`);
+
+  const callbackRoot = path.join(tempRoot, 'feature-lab-callback-error');
+  await cp(source, callbackRoot, { recursive: true });
+  await rm(path.join(callbackRoot, '.noveltea'), { recursive: true, force: true });
+  const callbackPath = path.join(callbackRoot, 'records/layouts/language-board/layout.lua');
+  const callbackSource = await readFile(callbackPath, 'utf8');
+  await writeFile(
+    callbackPath,
+    callbackSource.replace(
+      '  local result =',
+      "  error('certification callback failure')\n  local result =",
+    ),
+  );
+  const callbackTestPath = path.join(callbackRoot, 'records/tests/localized-story-ui.json');
+  const callbackTest = JSON.parse(await readFile(callbackTestPath, 'utf8'));
+  for (const step of callbackTest.data.steps) step.expectations = [];
+  callbackTest.data.finalExpectations = [];
+  await writeFile(callbackTestPath, JSON.stringify(callbackTest));
+  const callbackResult = runNative(
+    ['--no-daemon', '--project', callbackRoot, '--json', 'test', 'run', 'localized-story-ui'],
+    { cwd: callbackRoot },
+  );
+  const callbackPayload = JSON.parse(callbackResult.stdout);
+  const callbackSteps = callbackPayload.native?.report?.steps;
+  if (
+    callbackResult.status === 0 ||
+    callbackPayload.success !== false ||
+    !callbackSteps?.some(
+      (step) =>
+        step.handled === true &&
+        step.diagnostics?.some(
+          (diagnostic) =>
+            diagnostic.code === 'tooling.ui_test_rmlui_error' &&
+            diagnostic.message.includes('certification callback failure'),
+        ),
+    )
+  )
+    fail(`Lua callback failure without expectations was not reported: ${callbackResult.stdout}`);
 }
 
 async function certifyNativeOperations(tempRoot, pristine) {
@@ -4952,6 +5007,38 @@ async function certifyNativeOperations(tempRoot, pristine) {
   const fontCoverageResponse = JSON.parse(fontCoverage.stdout);
   if (fontCoverageResponse.ok !== true || fontCoverageResponse.success !== true)
     fail(`Internal font coverage certification failed: ${fontCoverage.stdout}`);
+
+  const relocatedRoot = path.join(tempRoot, 'relocated-font-tool');
+  await mkdir(relocatedRoot, { recursive: true });
+  const relocatedCli = path.join(relocatedRoot, path.basename(nativeCli));
+  await cp(nativeCli, relocatedCli);
+  const relocatedRequest = JSON.parse(await readFile(fontCoverageRequestPath, 'utf8'));
+  delete relocatedRequest.systemRoot;
+  const missing = run(relocatedCli, ['__editor-native', 'font-coverage'], {
+    cwd: root,
+    stdin: JSON.stringify(relocatedRequest),
+  });
+  const missingResponse = JSON.parse(missing.stdout);
+  if (
+    missingResponse.ok !== false ||
+    !missingResponse.error?.includes('system:/fonts/LiberationSans.ttf') ||
+    !missingResponse.error?.includes(relocatedRoot)
+  )
+    fail(`Relocated CLI unexpectedly used build-tree font assets: ${missing.stdout}`);
+  await mkdir(path.join(relocatedRoot, 'assets/system/fonts'), { recursive: true });
+  await cp(
+    path.join(repositoryRoot, 'engine/assets/system/fonts/LiberationSans.ttf'),
+    path.join(relocatedRoot, 'assets/system/fonts/LiberationSans.ttf'),
+  );
+  const relocated = requireSuccess(
+    'relocated internal font coverage',
+    run(relocatedCli, ['__editor-native', 'font-coverage'], {
+      cwd: root,
+      stdin: JSON.stringify(relocatedRequest),
+    }),
+  );
+  if (JSON.parse(relocated.stdout).success !== true)
+    fail(`Relocated CLI did not resolve executable-adjacent font assets: ${relocated.stdout}`);
 }
 
 async function certifyPlatformHost(tempRoot, projectRoot) {
