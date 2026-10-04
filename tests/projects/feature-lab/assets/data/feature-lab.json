@@ -1621,11 +1621,11 @@
           "id": "trigger-geometry",
           "title": "Anchor immutable contextual geometry",
           "action": "In Hotspots & Cursors, pick a board, inspect contextual Inventory, open child, remove that alpha/custom source and Read again.",
-          "expected": "Explicit Present Inventory with useTriggerAnchor transforms captured geometry into the Layout's logical space; measured anchor clamps size. Children inherit snapshot, removing the selected source does not change it, parent dismissal cascades. Separate pointer-less Scene panel uses fallback: ordinary SetLayout does not acquire a Trigger. This Inventory Layout is shared with hotspots-and-cursors. Pointerful acceptance is provisional: native world activation currently reports host.input.hotspot_target_rejected; #259 must recheck capture after runtime diagnosis.",
-          "status": "provisional",
+          "expected": "Explicit Present Inventory with useTriggerAnchor transforms captured geometry into the Layout's logical space; measured anchor clamps size. Children inherit snapshot, removing the selected source does not change it, parent dismissal cascades. Separate pointer-less Scene panel uses fallback: ordinary SetLayout does not acquire a Trigger. This Inventory Layout is shared with hotspots-and-cursors. Real player pointer input verified custom-center capture, unchanged geometry after source removal, child inheritance and parent-dismissal cascade.",
+          "status": "ready",
           "verification": "ui",
           "created": "2026-10-04T00:50:00Z",
-          "modified": "2026-10-04T00:50:00Z",
+          "modified": "2026-10-04T05:38:08Z",
           "assetRequirements": [
             "ui-pattern"
           ],
@@ -1747,10 +1747,10 @@
       "id": "hotspots-and-cursors",
       "categoryId": "layouts-interfaces",
       "title": "Inspect the control board",
-      "description": "Pixel occupancy versus analytic picking, conditioned semantic targets and native cursor arbitration. Contextual popups retain snapshots, not live source handles. Cursor checks require a cursor-capable host. World-target acceptance remains provisional pending runtime diagnosis and #259 recheck.",
-      "status": "provisional",
+      "description": "Pixel occupancy versus analytic picking, conditioned semantic targets and native cursor arbitration. Contextual popups retain snapshots, not live source handles. Cursor checks require a cursor-capable host. Custom-center activation and captured Trigger lifetime have passed real player pointer checks; remaining picking/cursor permutations retain manual/native verification.",
+      "status": "ready",
       "created": "2026-10-04T00:50:00Z",
-      "modified": "2026-10-04T00:50:00Z",
+      "modified": "2026-10-04T05:38:08Z",
       "launch": {
         "entry": "hotspots-and-cursors"
       },
@@ -1759,11 +1759,11 @@
           "id": "alpha-versus-custom",
           "title": "Compare occupancy with custom rectangles",
           "action": "Pick transparent left/right centers; hover opaque sides.",
-          "expected": "Alpha hole does not hit; custom rectangle center hits despite transparency. Side regions share one badge Feature; generated mask is correct owner union. Curated button is shared sprite-alpha witness; pattern adds a distinct hole. Native world action acceptance is currently provisional (host.input.hotspot_target_rejected); recheck through the real catalog in #259.",
-          "status": "provisional",
+          "expected": "Alpha hole does not hit; custom rectangle center hits despite transparency. Side regions share one badge Feature; generated mask is correct owner union. Curated button is shared sprite-alpha witness; pattern adds a distinct hole. Real player custom-center activation passes; the prior runtime rejection did not recur. The full occupancy/hover matrix remains this manual/native workflow.",
+          "status": "ready",
           "verification": "ui",
           "created": "2026-10-04T00:50:00Z",
-          "modified": "2026-10-04T00:50:00Z",
+          "modified": "2026-10-04T05:38:08Z",
           "assetRequirements": [
             "ui-pattern",
             "pilot-button-sprite"
@@ -1774,11 +1774,11 @@
           "id": "target-and-priority",
           "title": "Resolve one eligible semantic path",
           "action": "Pick center, both badge sides and Room strip; toggle center and pick again; use Exit strip.",
-          "expected": "Owner, owner Feature, other subject, Room Feature and Exit reach ordinary semantics. Highest-order inert none never participates; conditioned center outranks owner only while eligible; sides select same badge. Picking remains pointer/manual plus native hit tests, never direct-command proof. Native world action acceptance is currently provisional (host.input.hotspot_target_rejected); #259 must recheck the semantic targets.",
-          "status": "provisional",
+          "expected": "Owner, owner Feature, other subject, Room Feature and Exit reach ordinary semantics. Highest-order inert none never participates; conditioned center outranks owner only while eligible; sides select same badge. Picking remains pointer/manual plus native hit tests, never direct-command proof. Real player custom-owner activation passes without the previous runtime rejection; badge/condition/Room Feature/Exit permutations remain manual/native checks, not certified by that single activation.",
+          "status": "ready",
           "verification": "ui",
           "created": "2026-10-04T00:50:00Z",
-          "modified": "2026-10-04T00:50:00Z",
+          "modified": "2026-10-04T05:38:08Z",
           "assetRequirements": [
             "ui-pattern"
           ],

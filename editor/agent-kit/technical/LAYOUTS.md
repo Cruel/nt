@@ -38,7 +38,9 @@ Verb Menu and ordinary Inventory presentation are contextual gameplay Layouts, n
 
 The Verb Menu is not the Command Builder. It presents resolved Verb Offers for one exact subject. A one-slot offer can complete directly; an offer that still needs bindings starts the separate Command Builder role.
 
-Activation-triggered contextual Layouts may receive an immutable Trigger Context with pointer/source-bounds geometry. During a Layout event, use `Game.mount_context()` to transform that snapshot into the receiving Layout's logical coordinates and to access occurrence-safe contextual operations. `context:dismiss()` dismisses only the exact live occurrence; `context:present_child(...)` creates a child whose lifetime follows that exact parent occurrence; `context:present_child_inventory()` presents Player Inventory as a contextual child. Parent lifetime and captured activation geometry are intentionally separate, so source movement/disappearance does not invalidate the snapshot and parent dismissal still removes descendants.
+Activation-triggered contextual Layouts may receive an immutable Trigger Context with pointer/source-bounds geometry. Trigger Context is acquired only by presentation paths that explicitly carry the activation snapshot. `Present Inventory` carries it when `useTriggerAnchor` is true; contextual Verb Menu/Command Builder presentation carries the activation that opened that interaction; `context:present_child(...)` and `context:present_child_inventory()` inherit the parent's captured Trigger Context. An ordinary Scene `SetLayout`/generic Layout mount does not implicitly acquire the pointer that happened to start the Scene. Author a pointer-less fallback for any Layout that can also be presented through a non-contextual path.
+
+During a Layout event, use `Game.mount_context()` to transform that snapshot into the receiving Layout's logical coordinates and to access occurrence-safe contextual operations. `context:dismiss()` dismisses only the exact live occurrence; `context:present_child(...)` creates a child whose lifetime follows that exact parent occurrence; `context:present_child_inventory()` presents Player Inventory as a contextual child. Parent lifetime and captured activation geometry are intentionally separate, so source movement/disappearance does not invalidate the snapshot and parent dismissal still removes descendants.
 
 Inventory UI rows represent exact Interactable Instance IDs with their quantity and presentation. Activating a row uses ordinary exact Interactable Primary Activate/Verb resolution. Do not create aggregate Item/Stack identities or infer gameplay identity from a row index.
 
@@ -64,6 +66,8 @@ Replacement project Layouts own their selectors and must provide/document their 
 contract; these identities promise only the built-in surfaces. See `workflows/AUTHORING.md` for
 semantic versus UI testing guidance. A click can prove a published action works; direct command
 execution cannot prove that action was offered.
+
+The authored RuntimeUI test runner is gameplay-oriented. It realizes gameplay Layouts and dispatches gameplay inputs produced by their controls, but it does not execute `Game.shell` commands or certify the player shell stack (Pause, Settings, Text Log, title/modal flows). A shell control can therefore be present yet fail to progress under authored UI playback. Use the real player or a focused native RuntimeUI/shell test when shell-command behavior itself is the contract; do not reinterpret a headless shell failure as evidence that the authored RML selector is wrong.
 
 For copied built-ins, read `.noveltea/agent/technical/RMLUI_DATA_BINDING.md`,
 `.noveltea/agent/technical/RMLUI_CUSTOM_COMPONENTS.md`, and

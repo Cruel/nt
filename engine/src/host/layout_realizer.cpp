@@ -1231,6 +1231,37 @@ std::optional<std::string> LayoutRealizer::document_id(core::MountedLayoutInstan
                                      : std::optional<std::string>(found->second.document_id);
 }
 
+std::optional<std::string>
+LayoutRealizer::document_id(const core::ScopedLayoutInstanceId& semantic_instance) const
+{
+    std::optional<std::string> result;
+    for (const auto& [_, realized] : m_realized) {
+        if (!realized.desired.semantic_key)
+            continue;
+        const auto* scoped =
+            std::get_if<core::ScopedLayoutMountKey>(&*realized.desired.semantic_key);
+        if (!scoped || scoped->instance != semantic_instance)
+            continue;
+        if (result)
+            return std::nullopt;
+        result = realized.document_id;
+    }
+    return result;
+}
+
+std::optional<std::string> LayoutRealizer::document_id(const core::LayoutId& layout) const
+{
+    std::optional<std::string> result;
+    for (const auto& [_, realized] : m_realized) {
+        if (realized.desired.mounted.layout != layout)
+            continue;
+        if (result)
+            return std::nullopt;
+        result = realized.document_id;
+    }
+    return result;
+}
+
 core::Result<void, core::Diagnostics>
 LayoutRealizer::reconcile(std::vector<RuntimeMountedLayout> desired, bool recreate)
 {

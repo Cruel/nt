@@ -242,6 +242,8 @@ TEST_CASE("native test suite preserves external UI runner failures")
               "Runtime UI Test runner did not produce a response") != std::string::npos);
     CHECK(entry["diagnostics"][0]["message"].get<std::string>().find("status") !=
           std::string::npos);
+    CHECK(entry["diagnostics"][0]["message"].get<std::string>().find("Evidence retained at") !=
+          std::string::npos);
 }
 
 TEST_CASE("native test suite treats blocked-only and empty catalogs as successful")
@@ -522,7 +524,7 @@ return {}
                         {{{"index", 0},
                           {"input",
                            {{"type", "ui-click"},
-                            {"documentId", "layout_stateful-overlay_instance_2_realization_1"},
+                            {"documentId", "layout:stateful-overlay"},
                             {"selector", "#confirm"}}},
                           {"expectations", nlohmann::json::array({{{"id", "signal-mutated-count"},
                                                                    {"type", "property"},

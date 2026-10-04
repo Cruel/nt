@@ -2275,6 +2275,47 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('fails a targeted authored Test when playback reports passed false', async () => {
+    const project = validProject();
+    project.tests.semantic = {
+      id: 'semantic',
+      label: 'Semantic smoke',
+      data: defaultTestData('Semantic smoke'),
+    };
+    const value = fixture(project);
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async runHeadlessTest() {
+        return {
+          ok: true,
+          success: true,
+          report: {
+            schema: 'noveltea.editor.playback-report',
+            passed: false,
+            diagnostics: [
+              {
+                severity: 'error',
+                path: '/steps/0',
+                message: 'assertion failed',
+              },
+            ],
+          },
+        };
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'test', 'run', 'semantic'],
+      options(value, root, nativeTools),
+    );
+
+    expect(result.exitCode).not.toBe(0);
+    expect(result.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'native.test.failed', severity: 'error' }),
+    );
+    expect(result.envelope.native).toMatchObject({ report: { passed: false } });
+  });
+
   it('passes pinned Project-owned text sources to native Test playback', async () => {
     const project = validProject();
     project.tests.semantic = {
@@ -2318,7 +2359,7 @@ describe('NovelTea headless CLI', () => {
         ...defaultTestStep('ui-click'),
         id: 'click-confirm',
         label: 'Click confirm',
-        uiClick: { documentId: 'runtime_game', selector: '#confirm' },
+        uiClick: { documentId: 'runtime_game', mountInstanceId: null, selector: '#confirm' },
       },
     ];
     project.tests.ui = { id: 'ui', label: 'UI smoke', data };
@@ -3228,6 +3269,12 @@ describe('NovelTea headless CLI', () => {
       'next fallback stage for the host',
     );
     expect(first.files['reference/records/tests.md']).toContain('without proving Offer discovery');
+    expect(first.files['reference/records/tests.md']).toContain(
+      'state observation requires exactly one live state Slot',
+    );
+    expect(first.files['reference/records/tests.md']).toContain(
+      'authored semantic expectations do not select a Slot by owner/scope/occurrence',
+    );
     expect(first.files['workflows/AUTHORING.md']).toContain('not proof of Offer discovery');
     expect(first.files['technical/LAYOUTS.md']).toContain('#nt-verb-menu-action-');
     expect(first.files['workflows/AUTHORING.md']).toContain('actual RuntimeUI automation');

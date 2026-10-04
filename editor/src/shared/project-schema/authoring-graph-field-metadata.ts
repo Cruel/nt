@@ -429,6 +429,8 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // #243 adds typed semantic expectations to Tests. Expectations observe the already-compiled live
   // runtime and therefore do not contribute new Authoring dependency-graph edges or projections.
   [/^\/tests\/\*\/data\/(?:steps\/\*\/expectations|finalExpectations)(?:\/|$)/, NONE],
+  // Semantic custom-Mount UI-test addressing is tooling-only and contributes no Project graph edge.
+  [/^\/tests\/\*\/data\/steps\/\*\/uiClick\/mountInstanceId$/, NONE],
   [/^\/shaders\/\*\/data\/samplers\/\*\/binding$/, OWNER],
   // #294 replaces authored Shader records and positional Material shader/value fields with
   // preset-rooted sparse Material overrides plus physical project shader/script paths. These are
@@ -1155,7 +1157,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     schema: '63fb9bb9',
     scripts: '278134b5',
     settings: '7ffea374',
-    tests: '67506190',
+    tests: '0b450062',
     traits: '371bbceb',
     undefinedInteractionProgram: 'da7c64b8',
     variables: 'c5d1f73c',

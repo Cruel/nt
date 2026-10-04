@@ -119,9 +119,18 @@ export const testExpectationDataSchema = z
       .default({ kind: 'scene', flowId: '' }),
     layout: z
       .object({
-        layoutId: z.string().default(''),
-        field: z.enum(['mounted', 'state']).default('mounted'),
-        value: layoutPersistableValueSchema.default(null),
+        layoutId: withSchemaDocumentation(z.string().default(''), {
+          description:
+            'Layout definition ID observed by this expectation. Mounted presence is definition-wide; state observation requires exactly one live state Slot for this Layout definition.',
+        }),
+        field: withSchemaDocumentation(z.enum(['mounted', 'state']).default('mounted'), {
+          description:
+            'Use mounted for definition-wide presence. Use state only when exactly one live state Slot exists for the Layout; authored semantic expectations do not select a Slot by owner/scope/occurrence.',
+        }),
+        value: withSchemaDocumentation(layoutPersistableValueSchema.default(null), {
+          description:
+            'Expected complete state value when field is state. If several owner/scope Slots for the same Layout are live, verify the exact occurrence through ui-click.mountInstanceId and observable UI/events, or use a focused native runtime test.',
+        }),
       })
       .strict()
       .default({ layoutId: '', field: 'mounted', value: null }),
@@ -179,7 +188,7 @@ export const testStepDataSchema = z
     id: entityIdSchema,
     input: withSchemaDocumentation(z.enum(testInputTypeValues).default('tick'), {
       description:
-        'Use semantic inputs for behavior: select-subjects changes selection, primary-activate uses Primary activation (or active Builder capture), open-verb-menu requests discovery without auto-selection, and run-interaction submits complete named bindings without proving Offer discovery. ui-click exercises real RuntimeUI presentation with documentId and a stable semantic selector; see technical/LAYOUTS.md. Runtime error diagnostics make playback an error even when a diagnostic expectation matches.',
+        'Use semantic inputs for behavior: select-subjects changes selection, primary-activate uses Primary activation (or active Builder capture), open-verb-menu requests discovery without auto-selection, and run-interaction submits complete named bindings without proving Offer discovery. ui-click exercises real RuntimeUI presentation with exactly one stable document address: documentId for fixed/system documents or mountInstanceId for a uniquely realized custom Mount, plus a stable semantic selector; see technical/LAYOUTS.md. Runtime error diagnostics make playback an error even when a diagnostic expectation matches.',
     }),
     label: z.string().min(1, 'Step label is required.'),
     enabled: z.boolean().default(true),
@@ -225,11 +234,18 @@ export const testStepDataSchema = z
       .default({ slotId: 'autosave' }),
     uiClick: z
       .object({
-        documentId: z.string().default('runtime_game'),
+        documentId: withSchemaDocumentation(z.string().nullable().default('runtime_game'), {
+          description:
+            'Stable RmlUi document identity for built-in/system documents. Set null when mountInstanceId addresses a custom Mount.',
+        }),
+        mountInstanceId: withSchemaDocumentation(entityIdSchema.nullable().default(null), {
+          description:
+            'Semantic custom-Mount instance ID. The UI runner resolves its unique current realization, so generated realization document IDs must not be authored. Set documentId to null when using this field.',
+        }),
         selector: z.string().default('#target'),
       })
       .strict()
-      .default({ documentId: 'runtime_game', selector: '#target' }),
+      .default({ documentId: 'runtime_game', mountInstanceId: null, selector: '#target' }),
   })
   .strict();
 
@@ -715,9 +731,14 @@ function validateStep(
       ),
     );
   if (step.input === 'ui-click') {
-    if (!step.uiClick.documentId.trim())
+    const documentId = step.uiClick.documentId?.trim() ?? '';
+    const mountInstanceId = step.uiClick.mountInstanceId?.trim() ?? '';
+    if (documentId.length > 0 === mountInstanceId.length > 0)
       diagnostics.push(
-        diagnostic(`${path}/uiClick/documentId`, 'UI click document id is required.'),
+        diagnostic(
+          `${path}/uiClick`,
+          'UI click requires exactly one address: documentId or mountInstanceId.',
+        ),
       );
     if (!step.uiClick.selector.trim())
       diagnostics.push(diagnostic(`${path}/uiClick/selector`, 'UI click selector is required.'));

@@ -29,7 +29,7 @@
         {
           "$ref": {
             "collection": "assets",
-            "id": "pilot-button-sprite"
+            "id": "ui-pattern"
           }
         }
       ],

@@ -70,6 +70,25 @@ function nativeSuccess(response: unknown): CliSemanticResult {
   return { ok: true, diagnostics: [], fields: { native: record } };
 }
 
+function nativeTestResult(response: unknown): CliSemanticResult {
+  const record =
+    response && typeof response === 'object' ? (response as Record<string, unknown>) : {};
+  if (record.ok !== true || record.success === false)
+    return nativeFailure('native.test', '/tests', response);
+  const report =
+    record.report && typeof record.report === 'object'
+      ? (record.report as Record<string, unknown>)
+      : null;
+  if (report?.passed === false) {
+    return {
+      ok: false,
+      diagnostics: [cliDiagnostic('native.test.failed', '/tests', 'Authored Test failed.')],
+      fields: { native: record },
+    };
+  }
+  return { ok: true, diagnostics: [], fields: { native: record } };
+}
+
 function valueOption(arguments_: readonly string[], option: string): string | undefined {
   const index = arguments_.indexOf(option);
   if (index < 0) return undefined;
@@ -557,7 +576,7 @@ export const testRunCommand: CliCommandDefinition = {
           },
         });
         if (rebuildFailure) return rebuildFailure;
-        return withRuntimeCacheObservation(nativeSuccess(response), finalObservation);
+        return withRuntimeCacheObservation(nativeTestResult(response), finalObservation);
       },
     };
   },
@@ -619,7 +638,7 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
             },
           });
           if (rebuildFailure) return rebuildFailure;
-          return withRuntimeCacheObservation(nativeSuccess(response), finalObservation);
+          return withRuntimeCacheObservation(nativeTestResult(response), finalObservation);
         },
       };
     },

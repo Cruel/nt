@@ -1154,12 +1154,35 @@ export function TestsEditor({ tab }: WorkbenchEditorProps) {
                     <Label htmlFor={`test-ui-click-document-${activeStep.id}`}>Document ID</Label>
                     <Input
                       id={`test-ui-click-document-${activeStep.id}`}
-                      value={activeStep.uiClick.documentId}
+                      value={activeStep.uiClick.documentId ?? ''}
                       onChange={(event) =>
                         replaceStep(activeStep.id, {
                           uiClick: {
                             ...activeStep.uiClick,
-                            documentId: event.currentTarget.value,
+                            documentId: event.currentTarget.value || null,
+                            mountInstanceId: event.currentTarget.value
+                              ? null
+                              : activeStep.uiClick.mountInstanceId,
+                          },
+                        })
+                      }
+                    />
+                  </div>
+                  <div className="space-y-1">
+                    <Label htmlFor={`test-ui-click-mount-${activeStep.id}`}>
+                      Mount instance ID
+                    </Label>
+                    <Input
+                      id={`test-ui-click-mount-${activeStep.id}`}
+                      value={activeStep.uiClick.mountInstanceId ?? ''}
+                      onChange={(event) =>
+                        replaceStep(activeStep.id, {
+                          uiClick: {
+                            ...activeStep.uiClick,
+                            documentId: event.currentTarget.value
+                              ? null
+                              : activeStep.uiClick.documentId,
+                            mountInstanceId: event.currentTarget.value || null,
                           },
                         })
                       }

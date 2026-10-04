@@ -77,28 +77,31 @@ Scene panel demonstrates the no-Trigger fallback; arbitrary Scene SetLayout does
 activation geometry. Two small synthetic cursor resources demonstrate
 RCSS/Lua/native fitting, marked source hotspots and ordered Mount cursor lifetime. Their original-art
 provenance and dimensions are documented in `assets/images/UI_SAMPLES.md`.
-`hotspots-and-cursors-ui` realizes the board and pointer-less popup; semantic Primary setup is not a
-pointer-picking witness. Picking, hover/press appearance and native alignment remain manual plus
-focused hit-test/render/cursor automation.
+`hotspots-and-cursors-ui` realizes the board and pointer-less popup and clicks both source-removal
+controls, asserting their authoritative Locations. Semantic Primary setup is not a pointer-picking
+witness. Picking, hover/press appearance and native alignment retain complementary player/native
+verification.
 
 Native sandbox smoke rendered all three stations and exercised Slot commit/rejection through host
-pointer input. World-pointer acceptance remains provisional: a custom-center activation reached
-`host.input.hotspot_target_rejected`, including when entering through the real catalog. The unchanged
-baseline Project also reports `assets.prefetch_missing_pose` / `assets.prefetch_missing_profile` for
-`radio-operator`; their relationship to the rejection is not established. Recheck real picking and
-anchored Trigger capture in #259 after resolving the runtime diagnostics; semantic/headless mounts
-do not certify those paths. The Project HUD hides its story-text panel in the two board-only
-stations so it does not cover their world controls; instructions remain in the catalog/boards.
+pointer input. A fresh player recheck through the real catalog accepted the custom board's transparent
+center and opened contextual Inventory with captured pointer geometry. Removing that source and
+rereading preserved the snapshot; a contextual child inherited it, and parent dismissal removed both
+panels. No runtime warnings/errors occurred in these corrected paths. The prior
+`host.input.hotspot_target_rejected` and `radio-operator` prediction diagnostics did not recur. This
+focused check is not certification of every badge/priority/Exit or platform-cursor permutation; those
+remain the catalog's manual/native workflows. The Project HUD hides its story-text panel in the two
+board-only stations so it does not cover their world controls; instructions remain in the
+catalog/boards.
 
 Catalog category shortcuts bring later categories into the viewport without making Tests click
 clipped entries. Their stable selectors are `runtime_game #feature-lab-category-<category-id>` and
 `#feature-lab-category-all`; scenario selectors retain `#feature-lab-launch-<scenario-id>`.
 `runtime_game #lab-shell-pause` opens the real shell, and the Project pause replacement owns
-`runtime_pause_menu #lab-pause-{resume,settings,log,save,load,title}`. Other authored controls have
-stable RML IDs in their sources, but custom Mount document IDs currently contain generated
-realization counters: do not freeze those counters into authored UI Tests. Stateful multi-scope
-checks use real panel controls and native Slot/contract/reconstruction tests rather than Lab-only
-flags or private transport. ActiveText/Inventory behavior is shared with existing stations;
+`runtime_pause_menu #lab-pause-{resume,settings,log,save,load,title}`. Other authored controls have stable RML IDs in their sources. Authored UI Tests address a uniquely
+realized custom Mount with `uiClick.mountInstanceId` plus that stable selector; generated realization
+document counters are internal and must not be frozen into Test data. Stateful multi-scope checks use
+real panel controls and native Slot/contract/reconstruction tests rather than Lab-only flags or
+private transport. ActiveText/Inventory behavior is shared with existing stations;
 localization/display/save detail remains assigned to #257. Maps remain explicitly owner-deferred.
 
 ### Interaction coverage policy
@@ -158,11 +161,14 @@ With `--json`, use `native.report.counts` and the ordered `native.report.entries
 aggregate contract. Individual `test run <id>` commands remain useful for diagnosis and retain the
 complete playback report for that Test.
 
-Current full-suite acceptance has an unchanged-baseline native-worker SIGSEGV in
-`verbs-and-offers-ambiguity-ui` (and an intermittent worker stall). Diagnose the worker rather than
-weakening its authored expectations. The unrelated editor decoder recovery test and native
-file-backed Layout playback fixture also fail independently of this Project; #259 certification
-must record or resolve these baseline gates instead of presenting an all-green report.
+Earlier full-suite runs encountered a native UI-worker SIGSEGV and a stalled invocation, including
+on unchanged-baseline Project source. These are historical observations, not currently reproduced
+failures: four consecutive rechecks passed all 29 authored Tests. The native file-backed Layout
+playback fixture also passes after the resource/addressing changes. The native runner bounds each
+worker to 120 seconds and retains its request/response evidence directory when no valid response is
+produced; use that path if a failure recurs rather than weakening authored expectations. The separate
+editor decoder recovery test still fails in broader verification; distinguish that editor-wide
+baseline gate from the green authored Project suite.
 
 Standalone release certification copies this Project to an isolated temporary workspace, runs the
 bare suite from a cold cache, verifies the aggregate result, then runs a targeted Test from the shared

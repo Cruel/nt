@@ -12,6 +12,12 @@
       { "id": "activate-alpha", "input": "primary-activate", "label": "Semantic setup for a pointer-less contextual popup, not a picking assertion", "subjectAction": { "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "alpha-board" } } } }, "expectations": [
         { "id": "popup", "type": "layout", "operator": "present", "layout": { "layoutId": "trigger-panel", "field": "mounted" } }
       ] },
+      { "id": "remove-alpha", "input": "ui-click", "label": "Remove the source through the actual frontend control", "uiClick": { "documentId": null, "mountInstanceId": "inventory-ui", "selector": "#trigger-remove-source" }, "expectations": [
+        { "id": "alpha-unplaced", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "alpha-board", "locationKind": "unplaced" } }
+      ] },
+      { "id": "remove-custom", "input": "ui-click", "label": "Remove the custom source through the actual frontend control", "uiClick": { "documentId": null, "mountInstanceId": "inventory-ui", "selector": "#trigger-remove-custom" }, "expectations": [
+        { "id": "custom-unplaced", "type": "location", "operator": "eq", "location": { "entityKind": "interactable", "entityId": "custom-board", "locationKind": "unplaced" } }
+      ] },
       { "id": "open", "input": "ui-click", "label": "Reopen catalog without capturing world input", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" } },
       { "id": "finish", "input": "ui-click", "label": "Fresh session retires contextual Inventory", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-home" }, "expectations": [
         { "id": "popup-ended", "type": "layout", "operator": "absent", "layout": { "layoutId": "trigger-panel", "field": "mounted" } }

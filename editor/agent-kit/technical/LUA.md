@@ -412,6 +412,8 @@ For Layout/presentation calls the default owner is `current-room` unless noted o
 
 Property binding targets use `global`, `room`, `character`, `interactable`, `room-feature`, or `interactable-feature`; Feature targets additionally carry `feature`. Standard facets are `runtime-mode`, `current-room`, and `gameplay-paused`. Inputs are read-only: bound values are re-resolved after settled gameplay changes. A mount request must satisfy the referenced Layout contract, and invalid replacements leave the prior Mount unchanged.
 
+`mount(...) -> ok, error` reports whether the request was admitted into the current ordered runtime command batch; it is not a synchronous settlement result. Argument/owner/option errors known at the Lua call fail immediately, but contract checks that require the authoritative ordered mutation (for example, resolved typed Layout inputs) may reject later when that batch settles. An immediate `ok == true` therefore must not be used as proof that the replacement became authoritative. Observe the settled Mount/state/publication, or use a focused negative runtime test that asserts the rejection diagnostic and unchanged prior Mount. `commit_state(...)` is different: it validates the complete Slot value at the occurrence-bound state mutation boundary before returning success.
+
 Defaults are `game-ui`, order `0`, `gameplay`, `normal`, `continue`, visible, no Escape dismissal, and `interface`. `unmount` accepts the owner selector plus the same immediate/fade transition fields.
 
 `mounted()` returns `nil, nil` if that instance is absent; otherwise the state table can contain:
