@@ -295,7 +295,7 @@
           "durationMs": 0
         },
         "completionDependencies": [],
-        "source": "assert(audio.play_and_wait('pilot-cue-audio', 'sound-effect')); assert(audio.stop_and_wait('sound-effect', {fade_ms=200})); assert(audio.play_ui('pilot-cue-audio', {gain=0.3}))",
+        "source": "assert(audio.play_and_wait('pilot-cue-audio', 'sound-effect')); assert(audio.play('pilot-cue-audio', 'sound-effect')); assert(audio.stop_and_wait('sound-effect', {fade_ms=200})); assert(audio.play_ui('pilot-cue-audio', {gain=0.3}))",
         "mayYield": true,
         "autosaveSafePoint": false
       },
