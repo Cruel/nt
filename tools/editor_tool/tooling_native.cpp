@@ -195,7 +195,8 @@ void strip_shader_material_sources(nlohmann::json& metadata)
 Result<HeadlessRuntimeInput, Diagnostics>
 make_headless_running_game_input(nlohmann::json gameplay,
                                  std::optional<nlohmann::json> shader_materials,
-                                 std::string runtime_locale)
+                                 std::string runtime_locale,
+                                 std::vector<std::string> shader_variants = {})
 {
     auto decoded_project = decode_compiled_project(gameplay, "game");
     if (!decoded_project) {
@@ -251,17 +252,28 @@ make_headless_running_game_input(nlohmann::json gameplay,
             return Result<HeadlessRuntimeInput, Diagnostics>::failure(
                 std::move(decoded_materials).error());
         }
-        std::vector<std::string> variants;
+        if (shader_variants.empty()) {
+            std::set<std::string> inferred;
+            for (const auto& shader : decoded_materials.value_if()->shaders)
+                for (const auto& stage : shader.stages)
+                    for (const auto& binary : stage.compiled)
+                        if (!binary.path.starts_with("system:/"))
+                            inferred.insert(binary.variant);
+            if (inferred.empty())
+                for (const auto& shader : decoded_materials.value_if()->shaders)
+                    for (const auto& stage : shader.stages)
+                        for (const auto& binary : stage.compiled)
+                            inferred.insert(binary.variant);
+            shader_variants.assign(inferred.begin(), inferred.end());
+        }
         std::set<std::string> binary_paths;
         bool has_shader_sources = false;
         for (const auto& shader : decoded_materials.value_if()->shaders) {
             for (const auto& stage : shader.stages) {
                 has_shader_sources = has_shader_sources || !stage.source.empty() || !stage.source_text.empty();
                 for (const auto& binary : stage.compiled) {
-                    if (std::find(variants.begin(), variants.end(), binary.variant) ==
-                        variants.end()) {
-                        variants.push_back(binary.variant);
-                    }
+                    if (binary.path.starts_with("system:/"))
+                        continue;
                     const auto package_path = runtime_package_entry_path(binary.path);
                     if (binary_paths.insert(package_path).second) {
                         entries.push_back({{"path", package_path}, {"size", 0}});
@@ -273,7 +285,7 @@ make_headless_running_game_input(nlohmann::json gameplay,
         entries.push_back({{"path", "shader-materials.json"}, {"size", 0}});
         files.push_back({"shader-materials.json", 0, std::nullopt});
         manifest["entries"] = std::move(entries);
-        manifest["shader_variants"] = std::move(variants);
+        manifest["shader_variants"] = std::move(shader_variants);
         if (has_shader_sources)
             manifest["kind"] = "editable";
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
@@ -584,8 +596,8 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
     auto shader_material_metadata = options.shader_material_metadata;
     if (shader_material_metadata && options.strip_shader_sources)
         strip_shader_material_sources(*shader_material_metadata);
-    auto input =
-        make_headless_running_game_input(project, std::move(shader_material_metadata), "en");
+    auto input = make_headless_running_game_input(project, std::move(shader_material_metadata), "en",
+                                                   options.shader_variants);
     if (!input)
         return Result<void, Diagnostics>::failure(std::move(input).error());
     auto runtime = load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
@@ -669,8 +681,18 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         if (!metadata->is_null())
             shader_material_metadata = *metadata;
     }
-    auto input =
-        make_headless_running_game_input(*project, std::move(shader_material_metadata), "en");
+    std::vector<std::string> shader_variants;
+    if (const auto variants = request.find("shaderVariants"); variants != request.end()) {
+        if (!variants->is_array())
+            return fail("Runtime Test shaderVariants must be an array.");
+        for (const auto& variant : *variants) {
+            if (!variant.is_string() || variant.get_ref<const std::string&>().empty())
+                return fail("Runtime Test shaderVariants contains an invalid entry.");
+            shader_variants.push_back(variant.get<std::string>());
+        }
+    }
+    auto input = make_headless_running_game_input(*project, std::move(shader_material_metadata), "en",
+                                                   std::move(shader_variants));
     if (!input)
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   compiled_diagnostics_to_json(input.error()));
@@ -984,23 +1006,41 @@ struct UiTestRunnerProcessResult {
 
 UiTestRunnerProcessResult run_ui_test_runner_process(const std::filesystem::path& runner,
                                                      const std::filesystem::path& input_path,
-                                                     const std::filesystem::path& response_path)
+                                                     const std::filesystem::path& response_path,
+                                                     const std::filesystem::path& output_path)
 {
     constexpr auto timeout = std::chrono::seconds(120);
 #if defined(_WIN32)
     const auto quote = [](const std::wstring& value) { return L"\"" + value + L"\""; };
     std::wstring command = quote(runner.native()) + L" " + quote(input_path.native()) + L" " +
                            quote(response_path.native());
+    SECURITY_ATTRIBUTES security{};
+    security.nLength = sizeof(security);
+    security.bInheritHandle = TRUE;
+    HANDLE output = CreateFileW(output_path.c_str(), GENERIC_WRITE, FILE_SHARE_READ, &security,
+                                CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (output == INVALID_HANDLE_VALUE) {
+        const auto code = static_cast<int>(GetLastError());
+        return {.status = -1,
+                .detail = "CreateFileW for runner output failed: " +
+                          std::error_code(code, std::system_category()).message()};
+    }
     STARTUPINFOW startup{};
     startup.cb = sizeof(startup);
+    startup.dwFlags = STARTF_USESTDHANDLES;
+    startup.hStdInput = GetStdHandle(STD_INPUT_HANDLE);
+    startup.hStdOutput = output;
+    startup.hStdError = output;
     PROCESS_INFORMATION process{};
-    if (!CreateProcessW(runner.c_str(), command.data(), nullptr, nullptr, FALSE, CREATE_NO_WINDOW,
+    if (!CreateProcessW(runner.c_str(), command.data(), nullptr, nullptr, TRUE, CREATE_NO_WINDOW,
                         nullptr, nullptr, &startup, &process)) {
         const auto code = static_cast<int>(GetLastError());
+        CloseHandle(output);
         return {.status = -1,
                 .detail = "CreateProcessW failed: " +
                           std::error_code(code, std::system_category()).message()};
     }
+    CloseHandle(output);
     const auto wait = WaitForSingleObject(process.hProcess, static_cast<DWORD>(timeout.count() * 1000));
     if (wait == WAIT_TIMEOUT) {
         (void)TerminateProcess(process.hProcess, 124);
@@ -1025,24 +1065,39 @@ UiTestRunnerProcessResult run_ui_test_runner_process(const std::filesystem::path
     auto input_text = filesystem_path_to_utf8(input_path);
     auto response_text = filesystem_path_to_utf8(response_path);
     char* arguments[] = {runner_text.data(), input_text.data(), response_text.data(), nullptr};
+    FILE* output = std::fopen(output_path.c_str(), "wb");
+    if (!output)
+        return {.status = -1,
+                .detail = "opening runner output failed: " +
+                          std::error_code(errno, std::generic_category()).message()};
     posix_spawn_file_actions_t actions;
     const int initialized = posix_spawn_file_actions_init(&actions);
     if (initialized != 0) {
+        std::fclose(output);
         return {.status = -1,
                 .detail = "posix_spawn_file_actions_init failed: " +
                           std::error_code(initialized, std::generic_category()).message()};
     }
-    const int redirected = posix_spawn_file_actions_adddup2(&actions, STDERR_FILENO, STDOUT_FILENO);
-    if (redirected != 0) {
+    const int output_fd = fileno(output);
+    const int stdout_redirected =
+        posix_spawn_file_actions_adddup2(&actions, output_fd, STDOUT_FILENO);
+    const int stderr_redirected =
+        stdout_redirected == 0
+            ? posix_spawn_file_actions_adddup2(&actions, output_fd, STDERR_FILENO)
+            : stdout_redirected;
+    if (stdout_redirected != 0 || stderr_redirected != 0) {
         posix_spawn_file_actions_destroy(&actions);
+        std::fclose(output);
+        const int code = stdout_redirected != 0 ? stdout_redirected : stderr_redirected;
         return {.status = -1,
                 .detail = "posix_spawn_file_actions_adddup2 failed: " +
-                          std::error_code(redirected, std::generic_category()).message()};
+                          std::error_code(code, std::generic_category()).message()};
     }
     pid_t process = 0;
     const int spawned =
         posix_spawn(&process, runner_text.c_str(), &actions, nullptr, arguments, environ);
     posix_spawn_file_actions_destroy(&actions);
+    std::fclose(output);
     if (spawned != 0) {
         return {.status = -1,
                 .detail = "posix_spawn failed: " +
@@ -1113,20 +1168,22 @@ nlohmann::json run_external_ui_playback(const nlohmann::json& request)
                                  std::filesystem::perm_options::replace, error);
     error.clear();
 #endif
-    const auto process = run_ui_test_runner_process(*runner, input_path, response_path);
+    const auto output_path = root / "runner.log";
+    const auto process = run_ui_test_runner_process(*runner, input_path, response_path, output_path);
     const auto response_text = read_file(response_path);
     if (!response_text) {
         auto message = "Runtime UI Test runner did not produce a response (status " +
                        std::to_string(process.status) + ")";
         if (!process.detail.empty())
             message += ": " + process.detail;
-        message += ". Evidence retained at " + root.string() + ".";
+        message += ". Evidence retained at " + root.string() +
+                   " (runner output: runner.log).";
         return fail(std::move(message));
     }
     auto response = nlohmann::json::parse(*response_text, nullptr, false);
     if (response.is_discarded())
         return fail("Runtime UI Test runner returned malformed JSON. Evidence retained at " +
-                    root.string() + ".");
+                    root.string() + " (runner output: runner.log).");
     std::filesystem::remove_all(root, error);
     return response;
 }

@@ -204,6 +204,68 @@ TEST_CASE(
     CHECK(report["entries"][3]["report"]["passed"] == true);
 }
 
+TEST_CASE("native test suite admits system-owned preset shader binaries without package entries")
+{
+    ProjectRootFixture project_root;
+    const nlohmann::json shader_materials = {
+        {"schema", "noveltea.shader-materials"},
+        {"shaders",
+         {{"preset-engine2d",
+           {{"display_name", "Preset Engine2D"},
+            {"interface_contract", "noveltea.material-preset:engine-2d:1"},
+            {"interface_fingerprint",
+             "sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9"},
+            {"roles", nlohmann::json::array({"engine-2d"})},
+            {"role_bindings", nlohmann::json::object()},
+            {"stages",
+             {{"vertex",
+               {{"compiled",
+                 {{"glsl-330",
+                   {{"runtimePath", "system:/shaders/bgfx/glsl-330/quad.vs.bin"}}},
+                  {"metal",
+                   {{"runtimePath", "system:/shaders/bgfx/metal/quad.vs.bin"}}}}}}},
+              {"fragment",
+               {{"compiled",
+                 {{"glsl-330",
+                   {{"runtimePath", "system:/shaders/bgfx/glsl-330/quad.fs.bin"}}},
+                  {"metal",
+                   {{"runtimePath", "system:/shaders/bgfx/metal/quad.fs.bin"}}}}}}}}},
+            {"uniforms", nlohmann::json::object()},
+            {"samplers", nlohmann::json::object()}}}}},
+        {"materials",
+         {{"preset-material",
+           {{"display_name", "Preset Material"},
+            {"role", "engine-2d"},
+            {"shader", "preset-engine2d"},
+            {"uniforms", nlohmann::json::object()},
+            {"textures", nlohmann::json::object()}}}}},
+    };
+    const nlohmann::json spec = {{"schema", "noveltea.editor.playback"},
+                                 {"version", 1},
+                                 {"id", "system-preset"},
+                                 {"steps", nlohmann::json::array()},
+                                 {"finalExpectations", nlohmann::json::array()}};
+    const nlohmann::json request = {
+        {"project", load_minimal_compiled_project()},
+        {"projectRoot", project_root.root().string()},
+        {"shaderMaterialMetadata", shader_materials},
+        {"shaderVariants", nlohmann::json::array({"glsl-330"})},
+        {"catalog",
+         {{"schema", "noveltea.runtime-test-catalog"},
+          {"entries", nlohmann::json::array({{{"id", "system-preset"},
+                                               {"status", "runnable"},
+                                               {"runner", "runtime"},
+                                               {"spec", spec}}})}}}};
+
+    const auto result = noveltea::tooling::run_test_suite(request.dump());
+    INFO(result.response_json);
+    REQUIRE(result.exit_code == 0);
+    const auto response = nlohmann::json::parse(result.response_json);
+    REQUIRE(response["ok"] == true);
+    CHECK(response["success"] == true);
+    CHECK(response["report"]["counts"]["passed"] == 1);
+}
+
 TEST_CASE("native test suite preserves external UI runner failures")
 {
     ProjectRootFixture project_root;
@@ -243,6 +305,8 @@ TEST_CASE("native test suite preserves external UI runner failures")
     CHECK(entry["diagnostics"][0]["message"].get<std::string>().find("status") !=
           std::string::npos);
     CHECK(entry["diagnostics"][0]["message"].get<std::string>().find("Evidence retained at") !=
+          std::string::npos);
+    CHECK(entry["diagnostics"][0]["message"].get<std::string>().find("runner.log") !=
           std::string::npos);
 }
 
@@ -526,13 +590,29 @@ return {}
                            {{"type", "ui-click"},
                             {"documentId", "layout:stateful-overlay"},
                             {"selector", "#confirm"}}},
-                          {"expectations", nlohmann::json::array({{{"id", "signal-mutated-count"},
-                                                                   {"type", "property"},
-                                                                   {"operator", "eq"},
-                                                                   {"scope", "global"},
-                                                                   {"ownerId", ""},
-                                                                   {"propertyId", "count"},
-                                                                   {"value", 7}}})}},
+                          {"expectations",
+                           nlohmann::json::array(
+                               {{{"id", "signal-mutated-count"},
+                                 {"type", "property"},
+                                 {"operator", "eq"},
+                                 {"scope", "global"},
+                                 {"ownerId", ""},
+                                 {"propertyId", "count"},
+                                 {"value", 7}},
+                                {{"id", "confirm-present"},
+                                 {"type", "ui-element"},
+                                 {"operator", "present"},
+                                 {"documentId", "layout:stateful-overlay"},
+                                 {"selector", "#confirm"},
+                                 {"field", "present"},
+                                 {"value", true}},
+                                {{"id", "confirm-visible"},
+                                 {"type", "ui-element"},
+                                 {"operator", "eq"},
+                                 {"documentId", "layout:stateful-overlay"},
+                                 {"selector", "#confirm"},
+                                 {"field", "visible"},
+                                 {"value", true}}})}},
                          {{"index", 1},
                           {"input", {{"type", "continue"}}},
                           {"expectations", nlohmann::json::array()}}})},
@@ -550,7 +630,9 @@ return {}
     CHECK(response["report"]["passed"] == true);
     REQUIRE(response["report"]["steps"].size() == 2);
     CHECK(response["report"]["steps"][0]["handled"] == true);
-    REQUIRE(response["report"]["steps"][0]["expectations"].size() == 1);
+    REQUIRE(response["report"]["steps"][0]["expectations"].size() == 3);
     CHECK(response["report"]["steps"][0]["expectations"][0]["passed"] == true);
+    CHECK(response["report"]["steps"][0]["expectations"][1]["passed"] == true);
+    CHECK(response["report"]["steps"][0]["expectations"][2]["passed"] == true);
     CHECK(response["report"]["steps"][1]["handled"] == true);
 }

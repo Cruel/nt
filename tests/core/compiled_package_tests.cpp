@@ -281,6 +281,25 @@ TEST_CASE("compiled package assembles gameplay and prepared resource registries"
     CHECK(loaded.value().resources().find_asset_by_alias("main-image")->id.text() == "image-main");
 }
 
+TEST_CASE("compiled package accepts system-owned preset shader binaries outside the package")
+{
+    auto project = decode_project("comprehensive");
+    auto manifest = decode_runtime_package_manifest(package_manifest_for(project, true));
+    REQUIRE(manifest.has_value());
+    auto shader_document = shader_manifest();
+    shader_document["shaders"]["layout-shader"]["stages"]["vertex"]["compiled"]["glsl-330"] =
+        {{"runtimePath", "system:/shaders/bgfx/glsl-330/rmlui_noise_panel.vs.bin"}};
+    shader_document["shaders"]["layout-shader"]["stages"]["fragment"]["compiled"]["glsl-330"] =
+        {{"runtimePath", "system:/shaders/bgfx/glsl-330/rmlui_noise_panel.fs.bin"}};
+    auto shaders = decode_shader_material_manifest(shader_document);
+    REQUIRE(shaders.has_value());
+    auto files = inventory_for(manifest.value());
+
+    auto loaded = assemble_compiled_package(std::move(project), std::move(manifest).value(),
+                                            std::move(shaders).value(), std::move(files));
+    REQUIRE(loaded.has_value());
+}
+
 TEST_CASE("runtime package may omit localized base asset unused by supported locales")
 {
     auto project = localized_asset_project(true);

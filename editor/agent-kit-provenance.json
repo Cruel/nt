@@ -517,10 +517,7 @@
         },
         {
           "source": "noveltea-feature-lab-256-followup",
-          "areas": [
-            "docs/editor/CLI.md",
-            "tests/projects/feature-lab/README.md"
-          ]
+          "areas": ["docs/editor/CLI.md", "tests/projects/feature-lab/README.md"]
         }
       ]
     }

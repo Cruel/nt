@@ -1076,7 +1076,12 @@ async function validateShaderOutputs(
 }
 
 function effectsAllowed(intent: RuntimeArtifactPreparationIntent) {
-  return intent === 'play' || intent === 'runtime-package-export' || intent === 'platform-export';
+  return (
+    intent === 'play' ||
+    intent === 'test-playback' ||
+    intent === 'runtime-package-export' ||
+    intent === 'platform-export'
+  );
 }
 
 export async function prepareRuntimeArtifact(

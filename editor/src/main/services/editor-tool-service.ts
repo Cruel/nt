@@ -153,10 +153,12 @@ export async function runPlaybackTest(project: unknown, testId: string) {
           spec: built.spec,
           projectRoot: null,
           shaderMaterialMetadata: built.shaderMaterialMetadata ?? null,
+          shaderVariants: built.shaderVariants ?? [],
         })
       : invokeNovelTeaNativeOperation('run-test', {
           project: built.project,
           spec: built.spec,
+          shaderVariants: built.shaderVariants ?? [],
         });
   }
   return {
@@ -190,6 +192,7 @@ export async function runPlaybackSuite(project: unknown) {
     catalog: buildRuntimeTestCatalog(project),
     projectRoot: null,
     shaderMaterialMetadata: prepared.artifact.shaderMaterialMetadata ?? null,
+    shaderVariants: prepared.artifact.packageOptions.shaderVariants,
   });
 }
 

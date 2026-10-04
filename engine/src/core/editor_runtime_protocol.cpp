@@ -1353,7 +1353,8 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
         return Result<RuntimeInputMessage, Diagnostics>::success(std::move(message));
     };
     if (*type == "start" || *type == "stop" || *type == "reset" || *type == "continue" ||
-        *type == "clear-selection" || *type == "begin-playback" || *type == "end-playback" ||
+        *type == "fast-forward" || *type == "clear-selection" || *type == "begin-playback" ||
+        *type == "end-playback" ||
         *type == "clear-playback" || *type == "undo-playback-step" || *type == "replay-playback") {
         exact_fields(*input, {"type"}, diagnostics, path);
         if (!diagnostics.empty())
@@ -1366,6 +1367,8 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
             return success(ResetRuntimeInput{});
         if (*type == "continue")
             return success(ContinueInput{});
+        if (*type == "fast-forward")
+            return success(FastForwardInput{});
         if (*type == "clear-selection")
             return success(ClearInteractionSubjectSelectionInput{});
         if (*type == "begin-playback")
@@ -4462,6 +4465,8 @@ std::optional<TypedPlaybackExpectationKind> playback_expectation_kind(std::strin
         return TypedPlaybackExpectationKind::ActiveFlow;
     if (value == "layout")
         return TypedPlaybackExpectationKind::Layout;
+    if (value == "ui-element")
+        return TypedPlaybackExpectationKind::UiElement;
     if (value == "event")
         return TypedPlaybackExpectationKind::Event;
     if (value == "diagnostic")
@@ -4647,6 +4652,23 @@ void decode_playback_expectations(const nlohmann::json& value, std::string_view 
                     "Layout-state expectations require equality or numeric operators.");
             break;
         }
+        case TypedPlaybackExpectationKind::UiElement: {
+            exact_fields(item,
+                         {"id", "type", "operator", "documentId", "selector", "field", "value"},
+                         diagnostics, expectation_path);
+            require_string("documentId");
+            require_string("selector");
+            auto field = require_string("field");
+            if (field && *field != "present" && *field != "visible")
+                diagnostics.push_back(error("editor_protocol.invalid_expectation_field",
+                                            "UI element expectation field must be present or visible.",
+                                            expectation_path + "/field"));
+            if (field && *field == "present" && !presence)
+                invalid_operator("UI element presence expectations require presence operators.");
+            if (field && *field == "visible" && !equality)
+                invalid_operator("UI element visibility expectations require equality operators.");
+            break;
+        }
         case TypedPlaybackExpectationKind::Event:
             exact_fields(item, {"id", "type", "operator", "kind", "value"}, diagnostics,
                          expectation_path);
@@ -4692,6 +4714,13 @@ void decode_playback_expectations(const nlohmann::json& value, std::string_view 
             if (field == item.end() || !field->is_boolean())
                 diagnostics.push_back(error("editor_protocol.wrong_type",
                                             "Entity-state expectation value must be boolean.",
+                                            expectation_path + "/value"));
+        }
+        if (*kind == TypedPlaybackExpectationKind::UiElement) {
+            const auto field = item.find("value");
+            if (field == item.end() || !field->is_boolean())
+                diagnostics.push_back(error("editor_protocol.wrong_type",
+                                            "UI element expectation value must be boolean.",
                                             expectation_path + "/value"));
         }
         if (*kind == TypedPlaybackExpectationKind::Layout) {

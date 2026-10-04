@@ -44,6 +44,32 @@
               "kind": "scene",
               "flowId": "materials-engine2d"
             }
+          },
+          {
+            "id": "catalog-hidden",
+            "type": "ui-element",
+            "operator": "eq",
+            "uiElement": {
+              "documentId": "runtime_game",
+              "selector": "#feature-lab-panel",
+              "field": "visible",
+              "value": false
+            }
+          }
+        ]
+      },
+      {
+        "id": "skip-parameter-tweens",
+        "input": "fast-forward",
+        "label": "Fast-forward skippable parameter tweens",
+        "expectations": [
+          {
+            "id": "room-after-skip",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "materials-engine2d-lab"
+            }
           }
         ]
       },
@@ -62,6 +88,17 @@
             "operator": "eq",
             "currentRoom": {
               "roomId": "materials-engine2d-lab"
+            }
+          },
+          {
+            "id": "catalog-visible",
+            "type": "ui-element",
+            "operator": "eq",
+            "uiElement": {
+              "documentId": "runtime_game",
+              "selector": "#feature-lab-panel",
+              "field": "visible",
+              "value": true
             }
           }
         ]

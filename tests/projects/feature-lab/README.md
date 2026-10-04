@@ -124,15 +124,14 @@ with the existing Dialogue pilot. `presentation-effects-flow` protects public de
 across Return and Room leave. A native sandbox entry smoke exercises the initial realization, not
 all later pixel contracts.
 
-`parameter-tween` remains explicitly **blocked**. The authored Test preparation path omits custom
-shader reflection, so a Scene parameter Event referencing a custom uniform is rejected before
-playback. Attempting the preset `u_tint` instead reveals a separate mismatch: current authoring
-color/default values do not match the native shader-material JSON decoder. Keep these owning
-compiler/metadata failures visible; a caption or Lab-only flag is not a substitute tween witness.
-Fix those boundaries before adding the real tween/replace/skip Events. Ordinary shader-compiled
-package export supplies reflection for the supported custom-source paths used by the other checks.
-The decorator uses a project-owned source override: preset-only native authored-Test metadata also
-exposes `system:/` binary paths to package-entry validation, which rejects them as package paths.
+`parameter-tween` now has an authored end-to-end witness in `materials-engine2d`: the Scene creates
+a preset `postprocess-tint` occurrence, tweens `u_tint`, replaces the same finite operation, and the
+UI Test uses semantic `fast-forward` to exercise the skippable path. Test preparation compiles shader
+sources before Scene validation, canonical color values lower to the compiled object form, and the
+native shader-material decoder accepts the canonical RGBA tuple representation. The same Test path
+also admits preset-only `system:/` shader binaries without treating them as project package entries.
+The decorator therefore uses the ordinary preset-only `rmlui-decorator` Material with no project-owned
+shader-source workaround.
 
 `sound-desk` layers desired loops, replaces Music by gain, clears exact instance/Purpose, overlaps
 and stops transient one-shots, awaits audio completion, mixes spoken Voice, compares explicit and

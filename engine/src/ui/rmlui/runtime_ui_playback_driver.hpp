@@ -71,6 +71,12 @@ public:
     [[nodiscard]] Rml::ElementDocument* document(const std::string& id) const noexcept;
     [[nodiscard]] Rml::Element* element(const std::string& document_id,
                                         const std::string& element_id) const noexcept;
+    [[nodiscard]] Rml::Element* query(const std::string& document_id,
+                                      const std::string& selector) const noexcept;
+    [[nodiscard]] bool query_present(const std::string& document_id,
+                                     const std::string& selector) const noexcept;
+    [[nodiscard]] bool query_visible(const std::string& document_id,
+                                     const std::string& selector) const noexcept;
 
 private:
     RmlUiHost& m_host;

@@ -371,15 +371,34 @@ material_texture_sampler(std::string_view address, std::string_view filter)
         out = *parsed;
         return true;
     }
-    case ShaderUniformType::Color:
-        if (!value.is_string())
+    case ShaderUniformType::Color: {
+        if (value.is_string()) {
+            if (const auto parsed =
+                    parse_color(core::json_access::get_or<std::string_view>(value, {}))) {
+                out = *parsed;
+                return true;
+            }
             return false;
-        if (const auto parsed =
-                parse_color(core::json_access::get_or<std::string_view>(value, {}))) {
-            out = *parsed;
+        }
+        if (const auto parsed = parse_vec4(value)) {
+            out = ShaderColor{(*parsed)[0], (*parsed)[1], (*parsed)[2], (*parsed)[3]};
             return true;
         }
-        return false;
+        if (!value.is_object() || value.size() != 4)
+            return false;
+        const auto component = [&](std::string_view name) -> std::optional<float> {
+            const auto found = value.find(name);
+            return found == value.end() ? std::nullopt : json_float(*found);
+        };
+        const auto r = component("r");
+        const auto g = component("g");
+        const auto b = component("b");
+        const auto a = component("a");
+        if (!r || !g || !b || !a)
+            return false;
+        out = ShaderColor{*r, *g, *b, *a};
+        return true;
+    }
     case ShaderUniformType::Int: {
         if (!value.is_number_integer())
             return false;

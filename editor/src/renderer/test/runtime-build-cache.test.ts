@@ -292,6 +292,43 @@ describe('persistent runtime build cache', () => {
     const root = await createProjectWorkspace({ withShader: true });
     const requests: Array<Record<string, unknown>> = [];
     const tools = nativeTools([]);
+    tools.compileShaders = async (shaderProject, options) => {
+      if (!options.outputRoot) throw new Error('Expected Test shader output root.');
+      const programs = (
+        shaderProject as {
+          programs: Record<string, { vertexSource: string; fragmentSource: string }>;
+        }
+      ).programs;
+      const outputs = [];
+      for (const [program, request] of Object.entries(programs)) {
+        const programIdentity = `test-${program}`;
+        for (const variant of options.shaderVariants ?? []) {
+          for (const stage of ['vertex', 'fragment'] as const) {
+            const relative = `shaders/derived/${variant}/${program}.${stage}.bin`;
+            const outputPath = path.join(options.outputRoot, relative);
+            await mkdir(path.dirname(outputPath), { recursive: true });
+            await writeFile(outputPath, new Uint8Array([1]));
+            outputs.push({
+              program,
+              programIdentity,
+              stage,
+              variant,
+              sourceIdentity: stage === 'vertex' ? request.vertexSource : request.fragmentSource,
+              dependencies: [],
+              dependencyRevisions: [],
+              outputPath,
+              runtimePath: `project:/${relative}`,
+              cacheKey: `${program}:${stage}:${variant}`,
+              byteHash: `sha256:${'0'.repeat(64)}` as const,
+              byteSize: 1,
+              reflectedInputs: [],
+              cacheHit: false,
+            });
+          }
+        }
+      }
+      return { ok: true, success: true, diagnostics: [], outputs };
+    };
     tools.runUiTest = async (request) => {
       requests.push(request as Record<string, unknown>);
       return { ok: true, success: true };

@@ -11,6 +11,137 @@
     "outcomes": [],
     "events": [
       {
+        "id": "parameter-tween-setup",
+        "label": "parameter-tween-setup",
+        "type": "postprocess-effect",
+        "enabled": true,
+        "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "action": "upsert",
+        "instanceId": "parameter-tween-demo",
+        "materialApplication": {
+          "material": { "$ref": { "collection": "materials", "id": "lab-parameter-tween" } },
+          "parameters": {
+            "u_tint": {
+              "type": "color",
+              "source": { "kind": "literal", "value": [1, 1, 1, 1] }
+            }
+          },
+          "textures": {}
+        },
+        "scope": "world",
+        "order": 50,
+        "clock": "gameplay"
+      },
+      {
+        "id": "parameter-tween-intro",
+        "label": "parameter-tween-intro",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Occurrence parameter tween: the World starts neutral. Continue begins a blue u_tint tween while Scene Text stays outside the world postprocess."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "parameter-tween-blue",
+        "label": "parameter-tween-blue",
+        "type": "material-parameter",
+        "enabled": true,
+        "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "target": { "kind": "postprocess", "instanceId": "parameter-tween-demo" },
+        "material": { "$ref": { "collection": "materials", "id": "lab-parameter-tween" } },
+        "parameter": "u_tint",
+        "value": [0.35, 0.55, 1, 1],
+        "transition": "tween",
+        "durationMs": 1800,
+        "easing": "ease-in-out",
+        "clock": "gameplay",
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "parameter-tween-replace-watch",
+        "label": "parameter-tween-replace-watch",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "The blue tween is active while this text waits. Continue replaces the same occurrence parameter with a warm target. During the warm tween, use Fast Forward to snap the skippable operation to its logical target."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "parameter-tween-warm",
+        "label": "parameter-tween-warm",
+        "type": "material-parameter",
+        "enabled": true,
+        "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "target": { "kind": "postprocess", "instanceId": "parameter-tween-demo" },
+        "material": { "$ref": { "collection": "materials", "id": "lab-parameter-tween" } },
+        "parameter": "u_tint",
+        "value": [1, 0.55, 0.3, 1],
+        "transition": "tween",
+        "durationMs": 2500,
+        "easing": "ease-out",
+        "clock": "gameplay",
+        "waitForCompletion": true,
+        "skippable": true
+      },
+      {
+        "id": "parameter-tween-complete",
+        "label": "parameter-tween-complete",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Replacement/skip settles the authored warm target, not a transient interpolated value. Continue removes the temporary grade and proceeds to the original Engine2D checks."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "parameter-tween-remove",
+        "label": "parameter-tween-remove",
+        "type": "postprocess-effect",
+        "enabled": true,
+        "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "action": "remove",
+        "instanceId": "parameter-tween-demo",
+        "materialApplication": null,
+        "scope": "world",
+        "order": 50,
+        "clock": "gameplay"
+      },
+      {
         "id": "original",
         "label": "original",
         "type": "show-text",
