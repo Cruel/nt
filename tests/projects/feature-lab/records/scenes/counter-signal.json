@@ -1,0 +1,12 @@
+{
+  "id": "counter-signal", "label": "Typed Layout signal receiver",
+  "data": {
+    "kind": "scene", "displayName": "Typed Layout signal receiver", "stage": { "kind": "inherited" }, "inputs": [], "outcomes": [],
+    "events": [
+      { "id": "mount", "label": "Mount exact signal sender", "type": "set-layout", "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "owner": "invocation", "layout": { "$ref": { "collection": "layouts", "id": "flow-counter" } }, "action": "show", "slot": "custom", "transition": "none", "durationMs": 0, "waitForCompletion": false, "skippable": true },
+      { "id": "receive", "label": "Wait for accepted(count)", "type": "wait", "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "waitKind": "layout-signal", "owner": "invocation", "slot": "custom", "signalId": "accepted", "skippable": false },
+      { "id": "acknowledge", "label": "Receiver advanced", "type": "show-text", "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "text": { "source": { "kind": "inline", "text": "The exact Flow-owned counter emitted its declared accepted(count) signal and released this Scene wait. A signal from the Room/session/visit panels must not release this wait. Continue to end the receiver and its panel." }, "markup": "plain" }, "speaker": null, "wait": "input", "autosaveSafePoint": false }
+    ],
+    "terminal": { "kind": "return", "outcome": null }
+  }
+}

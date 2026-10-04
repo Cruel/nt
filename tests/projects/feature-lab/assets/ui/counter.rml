@@ -1,0 +1,28 @@
+<rml>
+<head>
+  <title>Reusable counter</title>
+  <link type="text/template" href="project:/assets/ui/counter-template.rml"/>
+  <script src="project:/scripts/layout-counter-ui.lua"></script>
+</head>
+<body template="counter-shell" onshow="layout_counter_ui.show(event, element, document)">
+  <h2 id="counter-caption">Counter</h2>
+  <img src="/project|/assets/images/button.webp"/>
+  <div id="counter-values" class="counter-values"></div>
+  <input id="counter-draft" type="text" value="transient draft"/>
+  <button id="counter-read" onclick="layout_counter_ui.read(document)">Read bindings</button>
+  <button id="counter-stock" onclick="layout_counter_ui.stock()">Change stock / Room label</button>
+  <button id="counter-commit" onclick="layout_counter_ui.commit(document)">Commit shaped state</button>
+  <button id="counter-clear" onclick="layout_counter_ui.clear(document)">Clear Slot</button>
+  <button id="counter-reject" onclick="layout_counter_ui.reject(document)">Reject extra field</button>
+  <button id="counter-child" onclick="assert(Game.mount_context():present_child_inventory())">Child Inventory</button>
+  <button id="counter-start-signal" onclick="assert(noveltea.flow.call_scene('counter-signal'))">Start typed signal Scene</button>
+  <button id="counter-invalid-input" onclick="layout_counter_ui.invalid_input()">Opt-in invalid input update</button>
+  <button id="counter-signal" onclick="layout_counter_ui.signal()">Emit accepted(count)</button>
+  <button id="counter-update" onclick="layout_counter_ui.update()">Update literal / order</button>
+  <button id="counter-swap" onclick="layout_counter_ui.swap()">Replace visit resource</button>
+  <button id="counter-hide" onclick="layout_counter_ui.hide()">Hide this panel</button>
+  <button id="counter-unmount" onclick="layout_counter_ui.unmount()">Unmount this panel</button>
+  <button id="counter-reopen" onclick="layout_counter_ui.open_panels()">Reopen panels</button>
+  <button id="counter-dismiss" onclick="assert(Game.mount_context():dismiss())">Dismiss parent + children</button>
+</body>
+</rml>

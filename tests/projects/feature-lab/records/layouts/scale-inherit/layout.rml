@@ -1,0 +1,1 @@
+<rml><head><title>scale-inherit</title></head><body><section class="scale-sample" style="left: 580px;"><h2>scale-inherit</h2><p>Readable text sample</p><div class="scale-ruler"></div><p class="wide">Logical width above 1400px</p><p class="narrow">Logical width at most 1400px</p><button onclick="assert(Game.mount_context():dismiss())">Dismiss sample</button></section></body></rml>

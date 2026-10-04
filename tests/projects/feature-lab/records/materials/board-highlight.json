@@ -1,0 +1,10 @@
+{
+  "id": "board-highlight", "label": "Custom board highlight",
+  "data": {
+    "kind": "material", "displayName": "Custom board highlight",
+    "base": { "kind": "preset", "preset": "hotspot-overlay-custom" },
+    "shader": { "fragment": { "kind": "project", "path": "shaders/board-highlight.fs.sc" } },
+    "parameters": {}, "textures": {},
+    "preview": { "geometry": "sprite", "background": "checker" }
+  }
+}

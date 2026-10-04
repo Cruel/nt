@@ -1,0 +1,33 @@
+{
+  "id": "layout-counter-flow",
+  "label": "Reusable Layout owner lifetimes",
+  "data": {
+    "kind": "test",
+    "displayName": "Reusable Layout owner lifetimes",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh home" },
+      { "id": "route", "input": "navigate", "label": "Presentation corridor", "navigate": { "exitId": "world-composition-test-entry" } },
+      { "id": "enter", "input": "navigate", "label": "Open the reusable panels", "navigate": { "exitId": "layout-counter-test-entry" }, "expectations": [
+        { "id": "visit", "type": "layout", "operator": "present", "layout": { "layoutId": "visit-counter", "field": "mounted" } },
+        { "id": "room", "type": "layout", "operator": "present", "layout": { "layoutId": "room-counter", "field": "mounted" } },
+        { "id": "session", "type": "layout", "operator": "present", "layout": { "layoutId": "session-counter", "field": "mounted" } },
+        { "id": "flow", "type": "layout", "operator": "present", "layout": { "layoutId": "flow-counter", "field": "mounted" } }
+      ] },
+      { "id": "return-flow", "input": "continue", "label": "Return from the panel Scene", "expectations": [
+        { "id": "flow-ended", "type": "layout", "operator": "absent", "layout": { "layoutId": "flow-counter", "field": "mounted" } }
+      ] },
+      { "id": "leave", "input": "navigate", "label": "End the visit, not the named Room or session", "navigate": { "exitId": "leave" }, "expectations": [
+        { "id": "visit-ended", "type": "layout", "operator": "absent", "layout": { "layoutId": "visit-counter", "field": "mounted" } },
+        { "id": "inactive-room-not-projected", "type": "layout", "operator": "absent", "layout": { "layoutId": "room-counter", "field": "mounted" } },
+        { "id": "session-survives", "type": "layout", "operator": "present", "layout": { "layoutId": "session-counter", "field": "mounted" } }
+      ] },
+      { "id": "revisit", "input": "navigate", "label": "New visit and Flow mounts", "navigate": { "exitId": "layout-counter-test-entry" }, "expectations": [
+        { "id": "visit-restored", "type": "layout", "operator": "present", "layout": { "layoutId": "visit-counter", "field": "mounted" } },
+        { "id": "flow-restored", "type": "layout", "operator": "present", "layout": { "layoutId": "flow-counter", "field": "mounted" } },
+        { "id": "room-projected-again", "type": "layout", "operator": "present", "layout": { "layoutId": "room-counter", "field": "mounted" } }
+      ] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

@@ -1,0 +1,4 @@
+<div class="counter-frame" style="position: absolute; left: 32px; top: 740px; width: 420px; font-family: dejavusans;">
+<h2>Hosted fragment</h2><img src="project|/assets/images/button.webp" style="width: 24px; height: 24px;"/>
+<button id="fragment-data" onclick="counter_fragment_ui.read()">Read declared Data from event Lua</button>
+</div>

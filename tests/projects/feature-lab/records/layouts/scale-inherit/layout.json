@@ -1,0 +1,38 @@
+{
+  "id": "scale-inherit",
+  "label": "scale-inherit",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "displayName": "scale-inherit",
+    "target": "default-ui",
+    "contract": {},
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "file"
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "scale_inherit"
+    },
+    "dependencies": {
+      "images": [],
+      "fonts": [],
+      "stylesheets": [],
+      "scripts": [],
+      "data": []
+    },
+    "preview": {
+      "background": "dark"
+    },
+    "scalePolicy": {
+      "ui": "inherit",
+      "text": "inherit"
+    }
+  }
+}

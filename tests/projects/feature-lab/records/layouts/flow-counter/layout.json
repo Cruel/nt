@@ -1,0 +1,179 @@
+{
+  "id": "flow-counter",
+  "label": "Flow counter",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "target": "default-ui",
+    "contract": {
+      "inputs": {
+        "scope": {
+          "type": "string",
+          "defaultValue": "flow"
+        },
+        "caption": {
+          "type": "string",
+          "defaultValue": "Flow panel"
+        },
+        "stock": {
+          "type": "integer",
+          "defaultValue": 3
+        },
+        "owner_label": {
+          "type": "string",
+          "defaultValue": "Scene defaults"
+        },
+        "mode": {
+          "type": "string",
+          "defaultValue": "playing"
+        },
+        "current_room": {
+          "type": "string",
+          "nullable": true,
+          "defaultValue": null
+        },
+        "paused": {
+          "type": "boolean",
+          "defaultValue": false
+        }
+      },
+      "signals": {
+        "accepted": {
+          "fields": {
+            "count": {
+              "type": "integer"
+            }
+          }
+        }
+      },
+      "state": {
+        "type": "object",
+        "fields": {
+          "count": {
+            "shape": {
+              "type": "integer"
+            }
+          },
+          "details": {
+            "shape": {
+              "type": "object",
+              "fields": {
+                "label": {
+                  "shape": {
+                    "type": "string"
+                  }
+                },
+                "optional": {
+                  "shape": {
+                    "type": "string",
+                    "nullable": true
+                  }
+                }
+              }
+            }
+          },
+          "samples": {
+            "shape": {
+              "type": "array",
+              "items": {
+                "type": "number",
+                "nullable": true
+              }
+            }
+          }
+        },
+        "defaultValue": {
+          "count": 0,
+          "details": {
+            "label": "default",
+            "optional": null
+          },
+          "samples": [
+            1,
+            null,
+            2.5
+          ]
+        }
+      }
+    },
+    "rml": {
+      "sourceMode": "asset",
+      "sourceAsset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "counter-document"
+        }
+      }
+    },
+    "rcss": {
+      "sourceMode": "asset",
+      "sourceAsset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "counter-style"
+        }
+      }
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "layout_counter_ui"
+    },
+    "dependencies": {
+      "images": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-button-sprite"
+          }
+        }
+      ],
+      "fonts": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "dejavusans"
+          }
+        }
+      ],
+      "stylesheets": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "counter-shared-style"
+          }
+        }
+      ],
+      "templates": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "counter-template"
+          }
+        }
+      ],
+      "scripts": [
+        "scripts/layout-counter-ui.lua"
+      ],
+      "data": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "notice-board-data"
+          }
+        }
+      ]
+    },
+    "sampleState": {
+      "inputs": {
+        "scope": "flow",
+        "caption": "Flow panel"
+      }
+    },
+    "preview": {
+      "background": "dark"
+    }
+  }
+}

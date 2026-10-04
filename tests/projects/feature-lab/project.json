@@ -9,9 +9,18 @@
     "description": "Canonical in-tree authored acceptance and reference Project."
   },
   "settings": {
+    "cursors": {
+      "defaults": {
+        "default": { "kind": "system", "cursor": "default" },
+        "pointer": { "kind": "system", "cursor": "pointer" },
+        "hotspot": { "kind": "inherit", "semantic": "pointer" }
+      },
+      "named": [{ "id": "lab-marked", "image": { "$ref": { "collection": "assets", "id": "cursor-marked" } }, "hotspotX": 4, "hotspotY": 5 }]
+    },
     "ui": {
       "systemLayouts": {
-        "game-hud": { "$ref": { "collection": "layouts", "id": "feature-lab-hud" } }
+        "game-hud": { "$ref": { "collection": "layouts", "id": "feature-lab-hud" } },
+        "pause-menu": { "$ref": { "collection": "layouts", "id": "lab-pause" } }
       }
     },
     "inventory": { "defaultLayout": null },
@@ -94,6 +103,24 @@
   "entrypoint": { "kind": "room", "id": "feature-lab-home" },
   "inventories": [{ "id": "inventory", "label": "Inventory" }],
   "interactableInstances": {
+    "input-world-button": {
+      "id": "input-world-button", "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "menus-and-input" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "alpha-board": {
+      "id": "alpha-board", "definition": { "$ref": { "collection": "interactables", "id": "alpha-board" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "hotspots-and-cursors" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
+    "custom-board": {
+      "id": "custom-board", "definition": { "$ref": { "collection": "interactables", "id": "custom-board" } },
+      "location": { "kind": "room", "room": { "$ref": { "collection": "rooms", "id": "hotspots-and-cursors" } } },
+      "enabled": true, "visible": true, "quantity": 1, "traits": { "add": [], "remove": [] }, "localProperties": [],
+      "materialApplication": { "material": null, "parameters": {}, "textures": {} }, "featureOverrides": []
+    },
     "notice-button": {
       "id": "notice-button",
       "definition": { "$ref": { "collection": "interactables", "id": "gate-lever" } },

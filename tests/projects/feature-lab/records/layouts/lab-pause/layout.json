@@ -1,0 +1,34 @@
+{
+  "id": "lab-pause",
+  "label": "lab-pause",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "displayName": "lab-pause",
+    "target": "menu-ui",
+    "contract": {},
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "file"
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "lab_pause"
+    },
+    "dependencies": {
+      "images": [],
+      "fonts": [],
+      "stylesheets": [],
+      "scripts": [],
+      "data": []
+    },
+    "preview": {
+      "background": "dark"
+    }
+  }
+}

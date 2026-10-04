@@ -166,6 +166,7 @@
       "onLeaveRejected": []
     },
     "exits": [
+      { "id": "layout-counter-test-entry", "label": "Reusable Layout panels", "direction": "east", "target": { "$ref": { "collection": "rooms", "id": "layout-counter" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] }
     ],
     "placements": [

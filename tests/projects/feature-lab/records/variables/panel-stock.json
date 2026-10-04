@@ -1,0 +1,10 @@
+{
+  "id": "panel-stock",
+  "label": "Panel stock",
+  "data": {
+    "kind": "variable",
+    "type": "integer",
+    "nullable": false,
+    "value": 3
+  }
+}

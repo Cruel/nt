@@ -1,0 +1,12 @@
+{
+  "id": "inspect-ui", "label": "Inspect UI target",
+  "data": {
+    "kind": "verb",
+    "slots": [{ "id": "target", "label": { "source": { "kind": "inline", "text": "target" }, "markup": "plain" }, "prompt": { "source": { "kind": "inline", "text": "Choose a board target" }, "markup": "plain" }, "selectors": [{ "kind": "any-subject" }] }],
+    "bindingOrder": ["target"],
+    "actionText": { "source": { "kind": "inline", "text": "Inspect" }, "markup": "plain" },
+    "completedCommandText": { "source": { "kind": "inline", "text": "Inspect {target}" }, "markup": "plain" },
+    "offers": [], "availability": { "kind": "always" },
+    "defaultProgram": { "instructions": [], "completion": { "kind": "return" }, "outcome": "unhandled" }
+  }
+}

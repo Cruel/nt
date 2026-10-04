@@ -1,0 +1,15 @@
+{
+  "id": "counter-document",
+  "label": "counter-document",
+  "data": {
+    "kind": "text",
+    "source": {
+      "type": "project-file",
+      "path": "assets/ui/counter.rml"
+    },
+    "aliases": [],
+    "mimeType": "text/plain",
+    "extension": ".rml",
+    "imageMetadata": null
+  }
+}

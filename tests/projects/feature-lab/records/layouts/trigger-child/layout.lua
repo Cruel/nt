@@ -1,0 +1,1 @@
+-- This document uses the shared declarative data model.

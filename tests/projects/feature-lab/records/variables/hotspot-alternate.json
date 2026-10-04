@@ -1,0 +1,10 @@
+{
+  "id": "hotspot-alternate",
+  "label": "Alternate center target",
+  "data": {
+    "kind": "variable",
+    "type": "boolean",
+    "nullable": false,
+    "value": false
+  }
+}

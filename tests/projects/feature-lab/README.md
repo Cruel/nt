@@ -50,6 +50,57 @@ The Commands & Discovery expansion adds `verbs-and-offers` and `interaction-rule
 
 The Stories & Scripting expansion adds `scene-director`, `background-stories`, and `script-and-data`. Scene Director exercises inherited/staged/blank presentation contexts, Scene-native Text/Choice, typed nested calls and Outcomes, two Dialogue Handoff/ResumeDialogue cycles, waits and Layout signals, gameplay-effect and structural transactions, directed Room change, navigation, and terminal variants; `scene-director-flow` protects the green semantic path. Background Stories runs detached Scene clocks under flow, active-Room, and runtime-session owners; `background-stories-flow` proves concurrent progress and owner cleanup, while the deliberate fault branch stays manual because a real runtime diagnostic correctly fails authored Test playback. Script & Data uses ordinary Bootstrap/Script Module ownership, On Game Ready reconstruction, direct/catchall Hook Registry selection, synchronous predicate/text Lua, an explicitly yielding audio effect, a declared structured JSON Data Asset, local/UTC wall-clock calls, deterministic saved random state, and typed restart startup context. `script-and-data-flow` now exercises save/load directly and verifies that the next random draw repeats after restoration. Qualified-prefix hook competition and fixed-clock calendar assertions remain intentionally shared with focused native tests where the canonical authored Project cannot express the same deterministic target/clock seam.
 
+### Layouts & Interfaces
+
+`layout-counter` mounts four typed documents under Visit, named Room, session and Flow ownership,
+plus a hosted fragment. Shared RML/template/RCSS, dedicated and external event Lua, registered
+font/image/Data dependencies, shaped nullable state, explicit commits/clears, hide/reopen/replacement,
+and a typed signal receiver are working authoring examples. `layout-counter-flow` protects owner
+cleanup and projection; `layout-counter-ui` realizes the resources through real catalog controls.
+Counter sources use absolute logical URLs for script/template links and rooted encoded image URLs,
+so their Asset-backed document location does not accidentally prefix those resources. RmlUi font
+families use the registered Asset ID (`dejavusans`), not the font's display name.
+
+`menus-and-input` uses Project HUD/pause replacements alongside built-in title/settings/log/modal
+roles. Its policy probe overlaps a world button while keeping blank probe space RmlUi-click-through;
+Normal/BlockGameplay/Modal/None therefore distinguish DOM consumption from host gameplay admission.
+Controls compose explicit/Layout/shell pause, focus/edit/scroll and inherit/ignore UI/text scaling.
+`menus-and-input-ui` protects catalog/board realization, **not shell interactions**: the current
+headless UI runner deliberately does not implement shell commands. Shell checks remain playable
+manual workflows supplemented by native system-role/action-gateway/stack tests.
+
+`hotspots-and-cursors` uses one synthetic alpha grid for alpha versus analytic regions, inert and
+conditioned overlap, shared Features, ordinary Exit routing and a real custom Highlight Material.
+Its explicitly selected contextual Inventory Layout anchors measured dimensions against captured
+Trigger Context and parents child Layouts/Inventory independently of source lifetime. A separate
+Scene panel demonstrates the no-Trigger fallback; arbitrary Scene SetLayout does not opt into
+activation geometry. Two small synthetic cursor resources demonstrate
+RCSS/Lua/native fitting, marked source hotspots and ordered Mount cursor lifetime. Their original-art
+provenance and dimensions are documented in `assets/images/UI_SAMPLES.md`.
+`hotspots-and-cursors-ui` realizes the board and pointer-less popup; semantic Primary setup is not a
+pointer-picking witness. Picking, hover/press appearance and native alignment remain manual plus
+focused hit-test/render/cursor automation.
+
+Native sandbox smoke rendered all three stations and exercised Slot commit/rejection through host
+pointer input. World-pointer acceptance remains provisional: a custom-center activation reached
+`host.input.hotspot_target_rejected`, including when entering through the real catalog. The unchanged
+baseline Project also reports `assets.prefetch_missing_pose` / `assets.prefetch_missing_profile` for
+`radio-operator`; their relationship to the rejection is not established. Recheck real picking and
+anchored Trigger capture in #259 after resolving the runtime diagnostics; semantic/headless mounts
+do not certify those paths. The Project HUD hides its story-text panel in the two board-only
+stations so it does not cover their world controls; instructions remain in the catalog/boards.
+
+Catalog category shortcuts bring later categories into the viewport without making Tests click
+clipped entries. Their stable selectors are `runtime_game #feature-lab-category-<category-id>` and
+`#feature-lab-category-all`; scenario selectors retain `#feature-lab-launch-<scenario-id>`.
+`runtime_game #lab-shell-pause` opens the real shell, and the Project pause replacement owns
+`runtime_pause_menu #lab-pause-{resume,settings,log,save,load,title}`. Other authored controls have
+stable RML IDs in their sources, but custom Mount document IDs currently contain generated
+realization counters: do not freeze those counters into authored UI Tests. Stateful multi-scope
+checks use real panel controls and native Slot/contract/reconstruction tests rather than Lab-only
+flags or private transport. ActiveText/Inventory behavior is shared with existing stations;
+localization/display/save detail remains assigned to #257. Maps remain explicitly owner-deferred.
+
 ### Interaction coverage policy
 
 Canonical Lab configurations remain validation/diagnostic clean. Supported specificity, Guard
@@ -94,6 +145,10 @@ build/cli/linux/noveltea --project tests/projects/feature-lab test run runtime-w
 build/cli/linux/noveltea --project tests/projects/feature-lab test run scene-director-flow
 build/cli/linux/noveltea --project tests/projects/feature-lab test run background-stories-flow
 build/cli/linux/noveltea --project tests/projects/feature-lab test run script-and-data-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run layout-counter-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run layout-counter-ui
+build/cli/linux/noveltea --project tests/projects/feature-lab test run menus-and-input-ui
+build/cli/linux/noveltea --project tests/projects/feature-lab test run hotspots-and-cursors-ui
 ```
 
 The bare `test run` command is the normal automation/acceptance entry point. It executes the complete
@@ -102,6 +157,12 @@ Test is `failed` or `error`; `blocked` Tests remain visible but do not by themse
 With `--json`, use `native.report.counts` and the ordered `native.report.entries` statuses as the
 aggregate contract. Individual `test run <id>` commands remain useful for diagnosis and retain the
 complete playback report for that Test.
+
+Current full-suite acceptance has an unchanged-baseline native-worker SIGSEGV in
+`verbs-and-offers-ambiguity-ui` (and an intermittent worker stall). Diagnose the worker rather than
+weakening its authored expectations. The unrelated editor decoder recovery test and native
+file-backed Layout playback fixture also fail independently of this Project; #259 certification
+must record or resolve these baseline gates instead of presenting an all-green report.
 
 Standalone release certification copies this Project to an isolated temporary workspace, runs the
 bare suite from a cold cache, verifies the aggregate result, then runs a targeted Test from the shared

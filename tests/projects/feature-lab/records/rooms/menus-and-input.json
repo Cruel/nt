@@ -1,0 +1,122 @@
+{
+  "id": "menus-and-input",
+  "label": "Layer menus over the game",
+  "data": {
+    "kind": "room",
+    "displayName": "Layer menus over the game",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Use the control board and real Pause / menus toolbar. Inspect world activation notifications and independent UI actions. Tab through controls and scroll to the last row."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [
+      {
+        "id": "world-button",
+        "interactable": {
+          "$ref": {
+            "registry": "interactableInstances",
+            "id": "input-world-button"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "placementId": "world-button",
+        "visible": true,
+        "order": 1
+      }
+    ],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "mount",
+          "kind": "run-lua",
+          "source": "assert(noveltea.layouts.mount('menu-board', 'menu-control-board', {clock='unscaled-presentation'}))"
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "leave",
+        "label": "Leave and return from home",
+        "direction": "west",
+        "target": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "world-composition"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "onRejected": []
+      }
+    ],
+    "placements": [
+      {
+        "id": "world-button",
+        "bounds": {
+          "x": 0.72,
+          "y": 0.44,
+          "width": 0.12,
+          "height": 0.17
+        },
+        "presentation": {
+          "label": null,
+          "layout": null
+        }
+      }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  },
+  "localProperties": []
+}

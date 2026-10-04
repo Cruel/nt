@@ -1,0 +1,64 @@
+{
+  "id": "hotspot-popup",
+  "label": "hotspot-popup",
+  "data": {
+    "kind": "scene",
+    "displayName": "hotspot-popup",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "popup",
+        "label": "popup",
+        "type": "set-layout",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "layout": {
+          "$ref": {
+            "collection": "layouts",
+            "id": "trigger-panel"
+          }
+        },
+        "action": "show",
+        "slot": "custom",
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "inspect",
+        "label": "inspect",
+        "type": "show-text",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "This ordinary Scene SetLayout has no Trigger snapshot and uses its measured viewport fallback. Compare it with the explicitly trigger-anchored Inventory opened by a world board. Parent dismissal still removes child Layouts / Inventory. Continue to finish this Scene."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

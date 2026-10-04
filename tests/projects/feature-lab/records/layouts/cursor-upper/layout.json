@@ -1,0 +1,34 @@
+{
+  "id": "cursor-upper",
+  "label": "cursor-upper",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "displayName": "cursor-upper",
+    "target": "default-ui",
+    "contract": {},
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "file"
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "cursor_upper"
+    },
+    "dependencies": {
+      "images": [],
+      "fonts": [],
+      "stylesheets": [],
+      "scripts": [],
+      "data": []
+    },
+    "preview": {
+      "background": "dark"
+    }
+  }
+}

@@ -1,0 +1,80 @@
+{
+  "id": "layout-counter",
+  "label": "Layout owner workshop",
+  "data": {
+    "kind": "scene",
+    "displayName": "Layout owner workshop",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "mount-panels",
+        "label": "mount-panels",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local function checked(ok, err) if not ok then error(err) end end\nfor _, scope in ipairs({'visit', 'room', 'session'}) do\n  local owner = scope == 'visit' and 'current-room' or scope\n  checked(noveltea.layouts.mount(scope .. '-panel', scope .. '-counter', {owner=owner, room=scope == 'room' and 'layout-counter' or nil, clock='unscaled-presentation', inputs={scope=scope, caption=scope .. ' panel', stock={variable='panel-stock'}, owner_label={property='panel-label', target={kind='room',id='layout-counter'}}, mode={facet='runtime-mode'}, current_room={facet='current-room'}, paused={facet='gameplay-paused'}}, signals={'accepted'}}))\nend\nchecked(noveltea.layouts.mount('resource-fragment', 'counter-fragment', {owner='current-room', input='normal'}))",
+        "mayYield": false
+      },
+      {
+        "id": "flow-panel",
+        "label": "flow-panel",
+        "type": "set-layout",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "layout": {
+          "$ref": {
+            "collection": "layouts",
+            "id": "flow-counter"
+          }
+        },
+        "action": "show",
+        "slot": "custom",
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "panel-boundary",
+        "label": "panel-boundary",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Commit a Slot in each panel. Save at this boundary, hide/unmount and reopen, or Continue to end the Flow owner. Leave and revisit through the HUD exit to renew the visit; named Room and session panels survive."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

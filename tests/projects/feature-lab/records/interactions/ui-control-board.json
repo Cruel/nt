@@ -1,0 +1,38 @@
+{
+  "id": "ui-control-board", "label": "UI control board targets",
+  "data": { "kind": "interaction", "rules": [
+    {
+      "id": "pick-world", "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+      "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "input-world-button" } } } }] }],
+      "offer": { "slotId": "target", "rank": 10, "primary": true }, "guard": { "kind": "always" }, "priority": 10,
+      "program": { "instructions": [
+        { "id": "count", "kind": "run-lua", "source": "local count, _, err = Game.prop('world-activations'); if err then error(err) end; assert(Game.set_prop('world-activations', count + 1))" },
+        { "id": "notify", "kind": "notify", "message": { "source": { "kind": "inline", "text": "World button activated." }, "markup": "plain" } }
+      ], "completion": { "kind": "return" }, "outcome": "handled" }
+    },
+    {
+      "id": "pick-alpha", "verb": { "$ref": { "collection": "verbs", "id": "inspect-ui" } },
+      "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "alpha-board" } } } }] }],
+      "offer": { "slotId": "target", "rank": 10, "primary": true }, "guard": { "kind": "always" }, "priority": 10,
+      "program": { "instructions": [ { "id": "notify", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Picked alpha semantic target." }, "markup": "plain" } }, { "id": "inventory", "kind": "present-inventory", "inventory": { "kind": "player-inventory" }, "layout": { "$ref": { "collection": "layouts", "id": "trigger-panel" } }, "useTriggerAnchor": true } ], "completion": { "kind": "return" }, "outcome": "handled" }
+    },
+    {
+      "id": "pick-custom", "verb": { "$ref": { "collection": "verbs", "id": "inspect-ui" } },
+      "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "custom-board" } } } }] }],
+      "offer": { "slotId": "target", "rank": 10, "primary": true }, "guard": { "kind": "always" }, "priority": 10,
+      "program": { "instructions": [ { "id": "notify", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Picked custom semantic target." }, "markup": "plain" } }, { "id": "inventory", "kind": "present-inventory", "inventory": { "kind": "player-inventory" }, "layout": { "$ref": { "collection": "layouts", "id": "trigger-panel" } }, "useTriggerAnchor": true } ], "completion": { "kind": "return" }, "outcome": "handled" }
+    },
+    {
+      "id": "pick-badge", "verb": { "$ref": { "collection": "verbs", "id": "inspect-ui" } },
+      "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "feature", "feature": { "ownerKind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "custom-board" } }, "featureId": "badge" } } }] }],
+      "offer": { "slotId": "target", "rank": 10, "primary": true }, "guard": { "kind": "always" }, "priority": 10,
+      "program": { "instructions": [ { "id": "notify", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Picked badge semantic target." }, "markup": "plain" } }, { "id": "inventory", "kind": "present-inventory", "inventory": { "kind": "player-inventory" }, "layout": { "$ref": { "collection": "layouts", "id": "trigger-panel" } }, "useTriggerAnchor": true } ], "completion": { "kind": "return" }, "outcome": "handled" }
+    },
+    {
+      "id": "pick-strip", "verb": { "$ref": { "collection": "verbs", "id": "inspect-ui" } },
+      "slots": [{ "slotId": "target", "selectors": [{ "kind": "exact", "subject": { "kind": "feature", "feature": { "ownerKind": "room", "room": { "$ref": { "collection": "rooms", "id": "hotspots-and-cursors" } }, "featureId": "board-label" } } }] }],
+      "offer": { "slotId": "target", "rank": 10, "primary": true }, "guard": { "kind": "always" }, "priority": 10,
+      "program": { "instructions": [ { "id": "notify", "kind": "notify", "message": { "source": { "kind": "inline", "text": "Picked strip semantic target." }, "markup": "plain" } }, { "id": "inventory", "kind": "present-inventory", "inventory": { "kind": "player-inventory" }, "layout": { "$ref": { "collection": "layouts", "id": "trigger-panel" } }, "useTriggerAnchor": true } ], "completion": { "kind": "return" }, "outcome": "handled" }
+    }
+  ] }
+}

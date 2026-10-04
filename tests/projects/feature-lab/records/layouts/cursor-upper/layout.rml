@@ -1,0 +1,1 @@
+<rml><head><title>Upper input-None cursor</title></head><body onshow="assert(noveltea.presentation.cursor.set('crosshair'))"><section class="lab-panel" style="left: 1280px; top: 830px; width: 340px; pointer-events: none;"><p>Upper Mount cursor: crosshair, despite Input None. Use Hide upper / Show upper / Unmount upper below.</p></section></body></rml>
