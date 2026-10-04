@@ -732,22 +732,20 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
         report.events = std::move(result.events);
         report.diagnostics = std::move(result.diagnostics);
 
-        // Expectations observe a settled semantic boundary. A zero-duration engine-time advance
-        // drains deterministic runtime work without introducing wall-clock sleeps or elapsed time.
-        if (!step.expectations.empty()) {
-            auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
-            settle_headless_presentation(settled);
-            if (settled.publication)
-                final_publication = std::move(settled.publication);
-            report.events.insert(report.events.end(),
-                                 std::make_move_iterator(settled.events.begin()),
-                                 std::make_move_iterator(settled.events.end()));
-            report.diagnostics.insert(report.diagnostics.end(),
-                                      std::make_move_iterator(settled.diagnostics.begin()),
-                                      std::make_move_iterator(settled.diagnostics.end()));
-            if (settled.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
-                passed = false;
-        }
+        // Every authored step ends at a settled semantic boundary. A zero-duration engine-time
+        // advance drains deterministic runtime work without introducing sleeps or elapsed time, so
+        // adding/removing expectations cannot change the state observed by the next authored input.
+        auto settled = session.dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+        settle_headless_presentation(settled);
+        if (settled.publication)
+            final_publication = std::move(settled.publication);
+        report.events.insert(report.events.end(), std::make_move_iterator(settled.events.begin()),
+                             std::make_move_iterator(settled.events.end()));
+        report.diagnostics.insert(report.diagnostics.end(),
+                                  std::make_move_iterator(settled.diagnostics.begin()),
+                                  std::make_move_iterator(settled.diagnostics.end()));
+        if (settled.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
+            passed = false;
         if (!final_publication)
             return fail("Playback step completed without a runtime publication.");
 

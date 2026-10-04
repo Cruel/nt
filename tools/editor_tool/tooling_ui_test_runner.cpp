@@ -937,19 +937,19 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
             }
         }
 
-        if (!step.expectations.empty()) {
-            auto settled = running_game_instance->session().dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
-            settle_headless_presentation(settled);
-            apply_result(settled);
-            report.events.insert(report.events.end(),
-                                 std::make_move_iterator(settled.events.begin()),
-                                 std::make_move_iterator(settled.events.end()));
-            report.diagnostics.insert(report.diagnostics.end(),
-                                      std::make_move_iterator(settled.diagnostics.begin()),
-                                      std::make_move_iterator(settled.diagnostics.end()));
-            if (settled.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
-                passed = false;
-        }
+        // Match headless playback: each authored input is followed by a zero-duration semantic
+        // settle so expectation metadata cannot affect the state seen by the next authored input.
+        auto settled =
+            running_game_instance->session().dispatch(RuntimeInputMessage{AdvanceTimeInput{}});
+        settle_headless_presentation(settled);
+        apply_result(settled);
+        report.events.insert(report.events.end(), std::make_move_iterator(settled.events.begin()),
+                             std::make_move_iterator(settled.events.end()));
+        report.diagnostics.insert(report.diagnostics.end(),
+                                  std::make_move_iterator(settled.diagnostics.begin()),
+                                  std::make_move_iterator(settled.diagnostics.end()));
+        if (settled.disposition == noveltea::runtime::RuntimeInputDisposition::Failed)
+            passed = false;
         if (!final_publication)
             return fail("Playback step completed without a runtime publication.");
         if (has_errors(report.diagnostics))

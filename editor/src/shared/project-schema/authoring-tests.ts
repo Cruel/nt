@@ -165,6 +165,15 @@ export const testInteractionSubjectSchema = z.discriminatedUnion('kind', [
   z.object({ kind: z.literal('feature'), feature: featureRefSchema }).strict(),
 ]);
 
+const testSaveSlotIdPattern = /^(?:autosave|slot-(?:0|[1-9][0-9]*))$/u;
+export function isCanonicalTestSaveSlotId(value: string): boolean {
+  return testSaveSlotIdPattern.test(value);
+}
+const testSaveSlotIdSchema = withSchemaDocumentation(z.string(), {
+  description:
+    "Authored Test save-slot identity. Use 'autosave' for the reserved autosave slot or 'slot-N' for manual slot N; bare numbers and runtime transport names such as 'manual-N' are not authored forms.",
+});
+
 export const testStepDataSchema = z
   .object({
     id: entityIdSchema,
@@ -211,7 +220,7 @@ export const testStepDataSchema = z
       .strict()
       .default({ verb: null, bindings: [] }),
     saveSlot: z
-      .object({ slotId: z.string().default('autosave') })
+      .object({ slotId: testSaveSlotIdSchema.default('autosave') })
       .strict()
       .default({ slotId: 'autosave' }),
     uiClick: z
@@ -695,8 +704,16 @@ function validateStep(
       ),
     );
   }
-  if ((step.input === 'save' || step.input === 'load') && !step.saveSlot.slotId.trim())
-    diagnostics.push(diagnostic(`${path}/saveSlot/slotId`, 'Save slot is required.'));
+  if (
+    (step.input === 'save' || step.input === 'load') &&
+    !isCanonicalTestSaveSlotId(step.saveSlot.slotId)
+  )
+    diagnostics.push(
+      diagnostic(
+        `${path}/saveSlot/slotId`,
+        "Save slot must be 'autosave' or 'slot-N' for a non-negative integer N.",
+      ),
+    );
   if (step.input === 'ui-click') {
     if (!step.uiClick.documentId.trim())
       diagnostics.push(

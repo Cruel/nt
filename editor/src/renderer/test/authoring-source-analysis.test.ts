@@ -11,6 +11,7 @@ import {
 import {
   buildAuthoringDependencyGraph,
   buildAuthoringDependencyGraphContributionSet,
+  classifyAuthoringLiteralEvidence,
   enumerateAuthoringDependencyContributionKeys,
   projectAuthoringLiteralEvidence,
   reprojectAuthoringDependencyContributionFromCachedSources,
@@ -645,6 +646,92 @@ describe('typed source registry and graph evidence', () => {
           edge.evidence[0].occurrence.candidateTargets.length === 2,
       ),
     ).toBe(true);
+  });
+
+  it('does not treat import() outside Script Module source as an exact module reference', () => {
+    const project = fixture();
+    project.scripts.shared = {
+      id: 'shared',
+      label: 'Shared script',
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return {}' } },
+    };
+    const source = "import('shared')";
+    const start = source.indexOf("'shared'");
+    const classified = classifyAuthoringLiteralEvidence(
+      project,
+      {
+        sourcePath: '/rooms/shared/data/description/source/source',
+        sourceUrl: 'authoring:inline-lua',
+        sourceContentHash: hash('1'),
+        regionOrdinal: 0,
+        regionStartUtf16: start,
+        regionEndUtf16: start + "'shared'".length,
+        line: 1,
+        column: start + 1,
+        rawLiteral: "'shared'",
+        decodedValue: 'shared',
+        literalKind: 'single-quoted',
+        sourceKind: 'lua-field',
+      },
+      {
+        semanticOwner: { kind: 'record', collection: 'rooms', id: 'shared' },
+        sourceKind: 'lua-field',
+        sourcePath: '/rooms/shared/data/description/source/source',
+        sourceUrl: 'authoring:inline-lua',
+        containerContentHash: hash('1'),
+        regionOrdinal: 0,
+        containerLine: 1,
+        containerColumn: 1,
+        decodedSource: source,
+      },
+    );
+
+    expect(classified.classification).toBe('possible-lexical');
+    expect(classified.recognizedBy).toBeUndefined();
+  });
+
+  it('merges Script Module import and Room hook references to the same module as exact edges', async () => {
+    const project = fixture();
+    project.scripts.shared = {
+      id: 'shared',
+      label: 'Shared script',
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return {}' } },
+    };
+    project.scripts.bootstrap!.data = {
+      kind: 'script-module',
+      source: {
+        kind: 'inline-lua',
+        source: [
+          "local shared = import('shared')",
+          "hooks.register('room', 'on-enter', '*', 'shared', 'on_enter')",
+          'return shared',
+        ].join('\n'),
+      },
+    };
+    delete project.scripts.main;
+
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: { entriesByAssetId: new Map() },
+    });
+    const sharedEdges = [...graph.edgesById.values()].filter(
+      (edge) =>
+        edge.source.kind === 'record' &&
+        edge.source.collection === 'scripts' &&
+        edge.source.id === 'bootstrap' &&
+        edge.target.kind === 'record' &&
+        edge.target.collection === 'scripts' &&
+        edge.target.id === 'shared',
+    );
+
+    expect(sharedEdges).toHaveLength(1);
+    expect(sharedEdges[0]?.role).toBe('lua-recognized-reference');
+    expect(
+      sharedEdges[0]?.evidence
+        ?.filter((evidence) => evidence.kind === 'lua-occurrence')
+        .map((evidence) => evidence.recognizedBy)
+        .sort(),
+    ).toEqual(['noveltea.room-hook-module', 'noveltea.script-module-import']);
   });
 
   it('allows a future recognizer to promote one occurrence without changing graph algorithms', async () => {

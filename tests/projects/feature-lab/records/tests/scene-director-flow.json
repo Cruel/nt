@@ -24,13 +24,9 @@
       { "id": "conversation", "input": "continue", "label": "Child returns its Outcome" },
       { "id": "handoff-one", "input": "continue", "label": "First conversation Handoff", "expectations": [{ "id": "caller", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "scene", "flowId": "director-flow-child" } }] },
       { "id": "resume-one", "input": "continue", "label": "Resume retained Dialogue" },
-      { "id": "ready-two", "input": "tick", "label": "Let the resumed second line become ready", "tick": { "deltaSeconds": 0.001 } },
       { "id": "handoff-two", "input": "continue", "label": "Second Handoff" },
-      { "id": "ready-handoff-two", "input": "tick", "label": "Let the caller expose its second Handoff caption", "tick": { "deltaSeconds": 0.001 } },
       { "id": "resume-two", "input": "continue", "label": "Resume third part" },
-      { "id": "ready-three", "input": "tick", "label": "Let the resumed third line become ready", "tick": { "deltaSeconds": 0.001 } },
-      { "id": "finish-conversation", "input": "continue", "label": "Complete the retained Dialogue and return to its Scene caller" },
-      { "id": "resume-caller", "input": "tick", "label": "Run the resumed transaction sequence", "tick": { "deltaSeconds": 0.001 }, "expectations": [
+      { "id": "finish-conversation", "input": "continue", "label": "Complete the retained Dialogue and run the resumed transaction sequence", "expectations": [
         { "id": "annex", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "director-annex" } },
         { "id": "interaction", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true } },
         { "id": "batch", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "director-color", "value": "blue play complete" } }

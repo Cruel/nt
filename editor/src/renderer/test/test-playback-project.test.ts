@@ -13,6 +13,7 @@ import {
 import { roomFeatureRef } from '../../shared/project-schema/authoring-features';
 import {
   buildRuntimePlaybackSpecFromAuthoringTest,
+  buildRuntimePlaybackSpecFromTestData,
   getAuthoringTestRunReadiness,
 } from '../../shared/project-schema/test-playback-project';
 
@@ -162,6 +163,29 @@ describe('authoring test playback project adapter', () => {
           operator: 'absent',
           kind: 'notification',
           value: 'failed',
+        },
+      ],
+    });
+  });
+
+  it('blocks non-canonical authored save-slot identities with a specific diagnostic', () => {
+    const data = defaultTestData('Smoke');
+    data.steps = [
+      {
+        ...defaultTestStep('save'),
+        id: 'save',
+        label: 'Save',
+        saveSlot: { slotId: 'manual-2' },
+      },
+    ];
+
+    expect(buildRuntimePlaybackSpecFromTestData('smoke', data)).toMatchObject({
+      ok: false,
+      diagnostics: [
+        {
+          severity: 'error',
+          path: '/tests/smoke/data/steps/0/saveSlot/slotId',
+          message: "Save slot must be 'autosave' or 'slot-N' for a non-negative integer N.",
         },
       ],
     });
