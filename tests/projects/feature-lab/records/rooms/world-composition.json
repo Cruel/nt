@@ -166,6 +166,9 @@
       "onLeaveRejected": []
     },
     "exits": [
+      { "id": "sound-desk-test-entry", "label": "Sound Desk", "direction": "north", "target": { "$ref": { "collection": "rooms", "id": "sound-desk" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "presentation-effects-test-entry", "label": "Presentation Effects", "direction": "south", "target": { "$ref": { "collection": "rooms", "id": "presentation-effects" } }, "condition": { "kind": "always" }, "onRejected": [] },
+      { "id": "materials-engine2d-test-entry", "label": "Material Samples", "direction": "northeast", "target": { "$ref": { "collection": "rooms", "id": "materials-engine2d-lab" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "layout-counter-test-entry", "label": "Reusable Layout panels", "direction": "east", "target": { "$ref": { "collection": "rooms", "id": "layout-counter" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "return-home", "label": "Return to Feature Lab home", "direction": "west", "target": { "$ref": { "collection": "rooms", "id": "feature-lab-home" } }, "condition": { "kind": "always" }, "onRejected": [] }
     ],

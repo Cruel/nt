@@ -1,0 +1,28 @@
+{
+  "id": "lab-clamp-nearest",
+  "label": "lab-clamp-nearest",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "material",
+      "material": {
+        "$ref": {
+          "collection": "materials",
+          "id": "lab-pattern"
+        }
+      }
+    },
+    "parameters": {},
+    "textures": {
+      "s_texColor": {
+        "address": "clamp",
+        "filter": "nearest"
+      },
+      "s_pattern": {
+        "address": "clamp",
+        "filter": "nearest"
+      }
+    },
+    "displayName": "lab-clamp-nearest"
+  }
+}

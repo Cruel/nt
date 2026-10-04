@@ -1,0 +1,6 @@
+{
+  "id": "lab-invert", "label": "Premultiplied inversion",
+  "data": { "kind": "material", "base": { "kind": "preset", "preset": "postprocess-tint" },
+    "shader": { "fragment": { "kind": "project", "path": "shaders/lab-invert.fs.sc" } },
+    "parameters": {}, "textures": {} }
+}

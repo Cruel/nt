@@ -1,0 +1,6 @@
+{
+  "id": "lab-grade", "label": "Premultiplied green grade",
+  "data": { "kind": "material", "base": { "kind": "preset", "preset": "postprocess-tint" },
+    "shader": { "fragment": { "kind": "project", "path": "shaders/lab-grade.fs.sc" } },
+    "parameters": {}, "textures": {} }
+}

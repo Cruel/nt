@@ -1,0 +1,107 @@
+{
+  "id": "sound-desk",
+  "label": "sound-desk",
+  "data": {
+    "kind": "room",
+    "displayName": "sound-desk",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Listen with stereo output enabled. Continue through a short mix; restart stops this session. Semantic automation checks desired intent only, not sound quality or decoder position."
+      },
+      "markup": "active-text"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1.1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [
+      {
+        "id": "left",
+        "bounds": {
+          "x": 0.1,
+          "y": 0.4,
+          "width": 0.1,
+          "height": 0.1
+        }
+      }
+    ],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "begin",
+          "kind": "call-scene",
+          "scene": {
+            "$ref": {
+              "collection": "scenes",
+              "id": "sound-desk"
+            }
+          }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "leave",
+        "label": "Leave and return from home",
+        "direction": "west",
+        "target": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "feature-lab-home"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "onRejected": []
+      }
+    ],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  },
+  "localProperties": []
+}

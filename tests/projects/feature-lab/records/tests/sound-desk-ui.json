@@ -1,0 +1,77 @@
+{
+  "id": "sound-desk-ui",
+  "label": "sound-desk real launch",
+  "data": {
+    "kind": "test",
+    "displayName": "sound-desk real launch",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh home"
+      },
+      {
+        "id": "category",
+        "input": "ui-click",
+        "label": "Bring category into view",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-category-dialogue-presentation"
+        }
+      },
+      {
+        "id": "launch",
+        "input": "ui-click",
+        "label": "Launch through real catalog control",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-launch-sound-desk"
+        },
+        "expectations": [
+          {
+            "id": "room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "sound-desk"
+            }
+          },
+          {
+            "id": "flow",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "scene",
+              "flowId": "sound-desk"
+            }
+          }
+        ]
+      },
+      {
+        "id": "reopen",
+        "input": "ui-click",
+        "label": "Catalog reopening keeps live Room",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-open"
+        },
+        "expectations": [
+          {
+            "id": "retained",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "sound-desk"
+            }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

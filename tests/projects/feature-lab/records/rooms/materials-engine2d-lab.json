@@ -29,6 +29,9 @@
     "overlays": [],
     "cast": [],
     "props": [
+      { "id": "clamp-nearest", "condition": { "kind": "always" }, "placementId": "sample-a", "asset": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "materialApplication": { "material": { "$ref": { "collection": "materials", "id": "lab-clamp-nearest" } }, "parameters": {}, "textures": {} }, "visible": true, "order": 0 },
+      { "id": "repeat-linear", "condition": { "kind": "always" }, "placementId": "sample-b", "asset": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "materialApplication": { "material": { "$ref": { "collection": "materials", "id": "lab-repeat-linear" } }, "parameters": {}, "textures": {} }, "visible": true, "order": 1 },
+      { "id": "repeat-inherit", "condition": { "kind": "always" }, "placementId": "sample-c", "asset": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "materialApplication": { "material": { "$ref": { "collection": "materials", "id": "lab-repeat-inherit" } }, "parameters": {}, "textures": { "s_pattern": { "source": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } } } } }, "visible": true, "order": 2 },
       {
         "id": "material-ordering-prop",
         "condition": { "kind": "always" },
@@ -63,7 +66,7 @@
       "canEnter": { "kind": "always" },
       "canLeave": { "kind": "always" },
       "beforeEnter": [],
-      "afterEnter": [],
+      "afterEnter": [{ "id": "inspect", "kind": "call-scene", "scene": { "$ref": { "collection": "scenes", "id": "materials-engine2d" } } }],
       "beforeLeave": [],
       "afterLeave": [],
       "onEnterRejected": [],
@@ -71,6 +74,9 @@
     },
     "exits": [],
     "placements": [
+      { "id": "sample-a", "bounds": { "x": 0.34, "y": 0.15, "width": 0.14, "height": 0.18 }, "presentation": { "label": null, "layout": null } },
+      { "id": "sample-b", "bounds": { "x": 0.52, "y": 0.15, "width": 0.14, "height": 0.18 }, "presentation": { "label": null, "layout": null } },
+      { "id": "sample-c", "bounds": { "x": 0.7, "y": 0.15, "width": 0.14, "height": 0.18 }, "presentation": { "label": null, "layout": null } },
       {
         "id": "material-definition-placement",
         "bounds": { "x": 0.28, "y": 0.38, "width": 0.16, "height": 0.24 },

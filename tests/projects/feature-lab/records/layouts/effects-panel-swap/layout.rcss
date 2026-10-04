@@ -1,0 +1,2 @@
+body { background: transparent; }
+#effects-swapped { position: absolute; left: 35%; top: 15%; width: 30%; height: 100px; background: #f6bd60; color: #101827; font-size: 22px; padding: 12px; }

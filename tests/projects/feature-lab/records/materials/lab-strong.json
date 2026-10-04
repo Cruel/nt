@@ -1,0 +1,23 @@
+{
+  "id": "lab-strong",
+  "label": "lab-strong",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "material",
+      "material": {
+        "$ref": {
+          "collection": "materials",
+          "id": "engine2d-draw-contract"
+        }
+      }
+    },
+    "parameters": {
+      "u_strength": {
+        "value": 0.9
+      }
+    },
+    "textures": {},
+    "displayName": "lab-strong"
+  }
+}

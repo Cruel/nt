@@ -1,0 +1,18 @@
+{
+  "id": "presentation-effects-flow", "label": "Presentation owner and postprocess intent",
+  "data": { "kind": "test", "displayName": "Presentation owner and postprocess intent",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh home" },
+      { "id": "route", "input": "navigate", "label": "Presentation corridor", "navigate": { "exitId": "world-composition-test-entry" } },
+      { "id": "enter", "input": "navigate", "label": "Open effects", "navigate": { "exitId": "presentation-effects-test-entry" } },
+      { "id": "return", "input": "continue", "label": "Return from owner child", "expectations": [
+        { "id": "flow-cleanup", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Scene actor absent; visit Prop and session Environment retained." } }
+      ] },
+      { "id": "leave", "input": "continue", "label": "End the visit while retaining session intent", "expectations": [
+        { "id": "visit-cleanup", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Visit Prop and loop absent; session Environment and Music retained." } },
+        { "id": "home", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "feature-lab-home" } }
+      ] }
+    ], "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

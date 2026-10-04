@@ -1,0 +1,971 @@
+{
+  "id": "presentation-effects",
+  "label": "presentation-effects",
+  "data": {
+    "kind": "scene",
+    "displayName": "presentation-effects",
+    "stage": { "kind": "staged-room", "room": { "$ref": { "collection": "rooms", "id": "presentation-effects" } } },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "owner-child",
+        "label": "owner-child",
+        "type": "call-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "effects-owner-child"
+          }
+        },
+        "inputs": [],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-query",
+        "label": "owner-query",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(not noveltea.presentation.actor('owner-guide',{owner='scene'})); assert(noveltea.presentation.actor('visit-guide') and noveltea.presentation.background({owner='session'})); assert(noveltea.presentation.prop('visit-button') and noveltea.presentation.environment('session-light',{owner='session'})); noveltea.notify('Scene actor absent; visit Prop and session Environment retained.')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owners",
+        "label": "owners",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Visit Prop and session Environment remain after Return. Continue to leave the Room: visit loop/Prop end; session light/Music remain. Restart removes everything."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "leave-owners",
+        "label": "leave-owners",
+        "type": "directed-room-change",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "room": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "feature-lab-home"
+          }
+        }
+      },
+      {
+        "id": "visit-query",
+        "label": "visit-query",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(not noveltea.presentation.prop('visit-button')); assert(not noveltea.presentation.actor('visit-guide') and noveltea.presentation.background({owner='session'})); assert(not audio.state('visit-loop',{owner='current-room'})); assert(audio.state('session-loop') and noveltea.presentation.environment('session-light',{owner='session'})); noveltea.notify('Visit Prop and loop absent; session Environment and Music retained.')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "visit-ended",
+        "label": "visit-ended",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Now Current Room is home; this Flow continues with invocation-local visual effects without rerunning a Room lifecycle."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      { "id": "camera", "label": "Camera emphasis", "type": "call-dialogue", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "dialogue": { "$ref": { "collection": "dialogues", "id": "effects-camera" } }, "startBlockId": null, "autosaveSafePoint": false },
+      {
+        "id": "clear-owner-demo",
+        "label": "clear-owner-demo",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.clear_background({owner='session'})); assert(audio.clear_loop('session-loop')); assert(noveltea.presentation.clear_environment('session-light',{owner='session'}))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "baseline",
+        "label": "baseline",
+        "type": "set-background",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-room-backdrop"
+          }
+        },
+        "materialApplication": null,
+        "color": "#172033",
+        "fit": "cover",
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "guide",
+        "label": "guide",
+        "type": "actor-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "slotId": "guide",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "pilot-guide"
+          }
+        },
+        "action": "show",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "neutral",
+        "appearanceId": null,
+        "position": "left",
+        "offset": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": 1,
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "panel",
+        "label": "panel",
+        "type": "set-layout",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "layout": {
+          "$ref": {
+            "collection": "layouts",
+            "id": "effects-panel"
+          }
+        },
+        "action": "show",
+        "slot": "overlay",
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "finite-intro",
+        "label": "finite-intro",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue to start a background fade, actor slide and Layout fade/swap concurrently, then immediately replace only the actor target. Background and Layout must continue; the actor reaches its complete replacement target."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "background-fade",
+        "label": "background-fade",
+        "type": "set-background",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": null,
+        "materialApplication": null,
+        "color": "#512033",
+        "fit": "cover",
+        "transition": "fade",
+        "durationMs": 1500,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "actor-slide",
+        "label": "actor-slide",
+        "type": "actor-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "slotId": "guide",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "pilot-guide"
+          }
+        },
+        "action": "move",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "smile",
+        "appearanceId": null,
+        "position": "right",
+        "offset": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": 1,
+        "transition": "slide",
+        "durationMs": 1500,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "panel-fade",
+        "label": "panel-fade",
+        "type": "set-layout",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "layout": { "$ref": { "collection": "layouts", "id": "effects-panel-swap" } },
+        "action": "swap",
+        "slot": "overlay",
+        "transition": "fade",
+        "durationMs": 1500,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "actor-replace",
+        "label": "actor-replace",
+        "type": "actor-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "slotId": "guide",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "pilot-guide"
+          }
+        },
+        "action": "move",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "neutral",
+        "appearanceId": null,
+        "position": "center",
+        "offset": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": 1,
+        "transition": "fade",
+        "durationMs": 600,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "finite-watch",
+        "label": "finite-watch",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Watch until the unrelated fade completes. Continue through Cut, Fade and Dissolve: background, actor and WorldOverlay marker share one world target; HUD/Scene Text/menu and bars stay outside capture."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "group-cut",
+        "label": "group-cut",
+        "type": "transition-group",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "transitionKind": "cut",
+        "durationMs": 0,
+        "color": null,
+        "waitForCompletion": false,
+        "skippable": true,
+        "children": [
+          {
+            "id": "background",
+            "type": "set-background",
+            "asset": {
+              "$ref": {
+                "collection": "assets",
+                "id": "pilot-room-backdrop"
+              }
+            },
+            "materialApplication": null,
+            "color": "#204050",
+            "fit": "cover"
+          },
+          {
+            "slotId": "guide",
+            "character": {
+              "$ref": {
+                "collection": "characters",
+                "id": "pilot-guide"
+              }
+            },
+            "action": "show",
+            "profileId": "stage",
+            "poseId": "standing",
+            "expressionId": "neutral",
+            "appearanceId": null,
+            "position": "right",
+            "offset": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": 1,
+            "id": "actor",
+            "type": "actor-cue"
+          },
+          {
+            "id": "overlay",
+            "type": "set-layout",
+            "layout": {
+              "$ref": {
+                "collection": "layouts",
+                "id": "effects-panel"
+              }
+            },
+            "action": "show",
+            "slot": "overlay"
+          }
+        ]
+      },
+      {
+        "id": "inspect-cut",
+        "label": "inspect-cut",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Inspect cut world group. Continue for the next effect; try skip during animated groups on a separate restart."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "group-fade",
+        "label": "group-fade",
+        "type": "transition-group",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "transitionKind": "fade",
+        "durationMs": 1200,
+        "color": "#000000",
+        "waitForCompletion": true,
+        "skippable": true,
+        "children": [
+          {
+            "id": "background",
+            "type": "set-background",
+            "asset": null,
+            "materialApplication": null,
+            "color": "#204050",
+            "fit": "cover"
+          },
+          {
+            "slotId": "guide",
+            "character": {
+              "$ref": {
+                "collection": "characters",
+                "id": "pilot-guide"
+              }
+            },
+            "action": "show",
+            "profileId": "stage",
+            "poseId": "standing",
+            "expressionId": "smile",
+            "appearanceId": null,
+            "position": "left",
+            "offset": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": 1,
+            "id": "actor",
+            "type": "actor-cue"
+          },
+          {
+            "id": "overlay",
+            "type": "set-layout",
+            "layout": {
+              "$ref": {
+                "collection": "layouts",
+                "id": "effects-panel"
+              }
+            },
+            "action": "show",
+            "slot": "overlay"
+          }
+        ]
+      },
+      {
+        "id": "inspect-fade",
+        "label": "inspect-fade",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Inspect fade world group. Continue for the next effect; try skip during animated groups on a separate restart."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "group-dissolve",
+        "label": "group-dissolve",
+        "type": "transition-group",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "transitionKind": "dissolve",
+        "durationMs": 1200,
+        "color": null,
+        "waitForCompletion": true,
+        "skippable": true,
+        "children": [
+          {
+            "id": "background",
+            "type": "set-background",
+            "asset": {
+              "$ref": {
+                "collection": "assets",
+                "id": "pilot-room-backdrop"
+              }
+            },
+            "materialApplication": null,
+            "color": "#204050",
+            "fit": "cover"
+          },
+          {
+            "slotId": "guide",
+            "character": {
+              "$ref": {
+                "collection": "characters",
+                "id": "pilot-guide"
+              }
+            },
+            "action": "show",
+            "profileId": "stage",
+            "poseId": "standing",
+            "expressionId": "neutral",
+            "appearanceId": null,
+            "position": "right",
+            "offset": {
+              "x": 0,
+              "y": 0
+            },
+            "scale": 1,
+            "id": "actor",
+            "type": "actor-cue"
+          },
+          {
+            "id": "overlay",
+            "type": "set-layout",
+            "layout": {
+              "$ref": {
+                "collection": "layouts",
+                "id": "effects-panel"
+              }
+            },
+            "action": "show",
+            "slot": "overlay"
+          }
+        ]
+      },
+      {
+        "id": "inspect-dissolve",
+        "label": "inspect-dissolve",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Inspect dissolve world group. Continue for the next effect; try skip during animated groups on a separate restart."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "text-material",
+        "label": "text-material",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "[mat id=\"lab-text\" u_amount=\"1\" u_tint=\"1,0.27,0,1\"]Outer orange [mat id=\"lab-text\" u_amount=\"0\"]inner default white[/mat] orange again[/mat].[page][mat id=\"lab-text\" u_amount=\"1\" u_tint=\"0,0.87,1,1\"]Page two cyan overrides survive pagination.[/mat]"
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "world-grade",
+        "label": "world-grade",
+        "type": "postprocess-effect",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "action": "upsert",
+        "instanceId": "grade",
+        "materialApplication": {
+          "material": {
+            "$ref": {
+              "collection": "materials",
+              "id": "lab-grade"
+            }
+          },
+          "parameters": {},
+          "textures": {}
+        },
+        "scope": "world",
+        "order": 0,
+        "clock": "gameplay"
+      },
+      {
+        "id": "world-grade-watch",
+        "label": "world-grade-watch",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "World grade tints background/actor/WorldOverlay but not HUD/Scene Text. Continue to replace the same identity with full-game scope."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "full-grade",
+        "label": "full-grade",
+        "type": "postprocess-effect",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "action": "upsert",
+        "instanceId": "grade",
+        "materialApplication": {
+          "material": {
+            "$ref": {
+              "collection": "materials",
+              "id": "lab-grade"
+            }
+          },
+          "parameters": {},
+          "textures": {}
+        },
+        "scope": "full-game-viewport",
+        "order": 0,
+        "clock": "gameplay"
+      },
+      {
+        "id": "full-grade-watch",
+        "label": "full-grade-watch",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Full-game scope now tints admitted UI too, not letterbox bars. Continue to add a second effect in world scope; ordered stacks remain independent."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "world-second",
+        "label": "world-second",
+        "type": "postprocess-effect",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "action": "upsert",
+        "instanceId": "world-second",
+        "materialApplication": {
+          "material": {
+            "$ref": {
+              "collection": "materials",
+              "id": "lab-grade"
+            }
+          },
+          "parameters": {},
+          "textures": {}
+        },
+        "scope": "world",
+        "order": 1,
+        "clock": "gameplay"
+      },
+      {
+        "id": "stack-watch",
+        "label": "stack-watch",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Inspect stacked scopes. Continue clears the world effect while retaining full-game grade."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      { "id": "ordered-invert", "label": "Add inversion after tint", "type": "postprocess-effect", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "owner": "invocation", "action": "upsert", "instanceId": "invert", "materialApplication": { "material": { "$ref": { "collection": "materials", "id": "lab-invert" } }, "parameters": {}, "textures": {} }, "scope": "full-game-viewport", "order": 1, "clock": "gameplay" },
+      { "id": "ordered-watch", "label": "Compare effect order", "type": "show-text", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "text": { "source": { "kind": "inline", "text": "Full-game tint then inversion: inspect the colors. Continue reorders inversion before tint; the noncommuting pair must visibly change, while the separate world effect remains." }, "markup": "plain" }, "speaker": null, "wait": "input", "autosaveSafePoint": true },
+      { "id": "reorder-invert", "label": "Move inversion before tint", "type": "postprocess-effect", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "owner": "invocation", "action": "upsert", "instanceId": "invert", "materialApplication": { "material": { "$ref": { "collection": "materials", "id": "lab-invert" } }, "parameters": {}, "textures": {} }, "scope": "full-game-viewport", "order": -1, "clock": "gameplay" },
+      { "id": "reordered-watch", "label": "Inspect reordered effects", "type": "show-text", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "text": { "source": { "kind": "inline", "text": "Inversion then tint now differs from tint then inversion. Continue removes inversion and the separate world effect while retaining full-game grade." }, "markup": "plain" }, "speaker": null, "wait": "input", "autosaveSafePoint": true },
+      { "id": "remove-invert", "label": "Remove inversion", "type": "postprocess-effect", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "owner": "invocation", "action": "remove", "instanceId": "invert", "materialApplication": null, "scope": "full-game-viewport", "order": 0, "clock": "gameplay" },
+      {
+        "id": "keep-grade",
+        "label": "keep-grade",
+        "type": "postprocess-effect",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "action": "upsert",
+        "instanceId": "grade",
+        "materialApplication": { "material": { "$ref": { "collection": "materials", "id": "lab-grade" } }, "parameters": {}, "textures": {} },
+        "scope": "full-game-viewport",
+        "order": 0,
+        "clock": "gameplay"
+      },
+      {
+        "id": "clear-second",
+        "label": "clear-second",
+        "type": "postprocess-effect",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "action": "remove",
+        "instanceId": "world-second",
+        "materialApplication": null,
+        "scope": "world",
+        "order": 0,
+        "clock": "gameplay"
+      },
+      {
+        "id": "tween-background",
+        "label": "tween-background",
+        "type": "set-background",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-room-backdrop"
+          }
+        },
+        "materialApplication": {
+          "material": {
+            "$ref": {
+              "collection": "materials",
+              "id": "engine2d-draw-contract"
+            }
+          },
+          "parameters": {},
+          "textures": {}
+        },
+        "color": "#172033",
+        "fit": "cover",
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "inspect-grade",
+        "label": "inspect-grade",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.postprocess('grade',{owner='scene'})); noveltea.notify('Full-game grade retained after world effect removal.')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "tween-watch",
+        "label": "tween-watch",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Full-game grade remains. Continue to clear it. Parameter tween coverage is blocked: the authored Test compiler omits custom-uniform reflection, and preset color metadata is rejected by the native shader-material decoder. Native parameter-operation tests remain complementary."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "clear-grade",
+        "label": "clear-grade",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.clear_postprocess('grade',{owner='scene'}))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "finish",
+        "label": "finish",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Grade cleared. Continue ends Flow and removes its background, actor and Layout. Shake/punch were exercised by the child Dialogue over this staged Room's zoomed Camera View; flash remains intentionally shared with the Dialogue pilot."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

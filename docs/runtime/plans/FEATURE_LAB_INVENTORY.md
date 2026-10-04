@@ -204,46 +204,15 @@ localization/display/save workflows remain #257-owned. No Map records, focus tar
 
 ### Sound & Presentation — #256
 
-#### `materials-engine2d` — Inspect the material samples
+Transferred to the authoritative Feature Lab catalog:
 
-Retain `engine2d-draw-texture`, `definition-instance-specialization`, and
-`cross-family-worldcontent-order` from the current station. They are distinct rendering contracts,
-not disposable pilot scaffolding. Keep their current IDs/history and the real button image; expand
-this station rather than creating a second shader-namespace showcase.
+- `materials-engine2d` (preserving the three original check IDs and history)
+- `presentation-effects`
+- `sound-desk`
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `material-inheritance` | Compare preset, base Material and sparse child overrides → reset exposes inherited values and custom source extends the role rather than replacing engine inputs. | V | pattern |
-| `runtime-selection-parameters` | Set/clear Material-wide, Definition and Instance runtime layers → documented selection/parameter precedence is visible; switching away/back restores dormant Material-keyed values. | V | button |
-| `property-facet-bindings` | Change typed Property and standard time/size facets → only compatible author uniforms update per occurrence; explicit clearing reveals lower layers. | V | button |
-| `texture-specialization` | Compare author-owned texture overrides, clamp/repeat and nearest/linear/inherit draw sampling → author texture changes independently of renderer-owned draw texture. | V | pattern |
-| `premultiplied-composition` | Overlap translucent edges over light/dark backgrounds → no dark fringe/double-alpha; textureless Engine2D uses neutral white. | V | pattern |
-
-#### `presentation-effects` — Cue the stage lights
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `local-finite-effects` | Fade background, slide/fade actors, fade/swap Layout → complete target is authoritative; same-target replacement affects only its operation, unrelated targets continue. | V | backdrop, character-pair |
-| `grouped-transition` | Cut/Fade/Dissolve a background+actor+WorldOverlay group → one world target transitions together while GameUi/ActiveText/menu/bars remain outside capture. | V | backdrop, character-pair |
-| `camera-emphasis` | Apply admitted Dialogue shake/punch/flash cues over a non-default authored Camera View → temporary emphasis leaves desired framing unchanged and obeys wait/skip. The pilot flash is the shared flash witness. | V | pattern |
-| `presentation-ownership` | Return from Scene, leave Room and restart with longer-lived background/actor/Prop/environment intent → only the selected owner lifetime removes each record. | S | button, character-pair |
-| `active-text-material` | Read nested Material spans with typed overrides → inner Material replaces, not merges, outer occurrence; pagination preserves visible parameters. | V | — |
-| `rmlui-decorator-material` | Resize and clip a Material-decorated RmlUi element → decorator texture/geometry inputs and premultiplied blending match its box. | V | pattern |
-| `postprocess-scopes` | Stack/replace/clear the same effect at world and full-game-viewport scopes → only full-game affects admitted UI, neither affects bars; order and owner lifetime are visible. | V | pattern |
-| `parameter-tween` | Assign/tween a Scene occurrence Material parameter and skip/replace it → logical target survives, transient interpolation does not become saved state. | V | button |
-
-#### `sound-desk` — Mix a short soundscape
-
-The Dialogue station already owns Voice/SFX cue onset; this station exercises other audio contracts.
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `desired-loops` | Layer Ambience and replace Music, then clear exact instance/Purpose → loops coexist or replace only by intended key and reconstruct from start after load. | A | music, sfx |
-| `transient-overlap-stop` | Play two one-shots of one Purpose, stop one owner's Purpose → playback is independent and stopping transient sound never clears desired loops. | A | sfx |
-| `awaited-audio` | Play/stop-and-wait → Flow resumes on actual completion; disposable UI Sound cannot become a gameplay barrier. | M | sfx |
-| `mix-and-duck` | Adjust master/Purpose mix/mute and speak over music → instance gain is independent, optional Voice ducking applies and releases. | A | music, voice |
-| `pan-source` | Compare a moving Scene actor and fixed Room Anchor under authored Camera framing → admitted pan source derives stereo position; explicit pan remains separate from semantic Location. | A | sfx, button |
-| `audio-owner-pause-skip` | Pause, skip, end Flow/Room and restart → owner/follow-gameplay/unscaled policies, causal/disposable/play-on-skip and cleanup differ as authored, without orphan audio. | A | music, sfx |
+The catalog owns implemented/shared coverage, explicit integration gaps and pending perceptual
+acceptance. See the Project README for authoring/verification procedures; do not duplicate statuses
+or Test links here.
 
 ### Language, Display & Persistence — #257
 

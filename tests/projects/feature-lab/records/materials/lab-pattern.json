@@ -1,0 +1,44 @@
+{
+  "id": "lab-pattern",
+  "label": "lab-pattern",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "preset",
+      "preset": "engine-2d"
+    },
+    "parameters": {
+      "u_tiles": {
+        "type": "float",
+        "value": 3
+      },
+      "u_mix": {
+        "type": "float",
+        "value": 0.4
+      }
+    },
+    "textures": {
+      "s_pattern": {
+        "source": {
+          "$ref": {
+            "collection": "assets",
+            "id": "ui-pattern"
+          }
+        },
+        "address": "repeat",
+        "filter": "nearest"
+      },
+      "s_texColor": {
+        "address": "clamp",
+        "filter": "inherit"
+      }
+    },
+    "displayName": "lab-pattern",
+    "shader": {
+      "fragment": {
+        "kind": "project",
+        "path": "shaders/lab-pattern.fs.sc"
+      }
+    }
+  }
+}

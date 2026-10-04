@@ -1,0 +1,10 @@
+{
+  "id": "material-level",
+  "label": "Material Level",
+  "data": {
+    "kind": "variable",
+    "type": "number",
+    "nullable": false,
+    "value": 0.2, "scope": "global"
+  }
+}

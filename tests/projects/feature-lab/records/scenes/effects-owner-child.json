@@ -1,0 +1,56 @@
+{
+  "id": "effects-owner-child",
+  "label": "effects-owner-child",
+  "data": {
+    "kind": "scene",
+    "displayName": "effects-owner-child",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "owners",
+        "label": "owners",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.set_background({owner='session',color='#152530'})); assert(noveltea.presentation.set_actor('visit-guide','pilot-guide','stage','standing','smile',{owner='current-room',position='left'})); assert(noveltea.presentation.set_actor('owner-guide','pilot-guide','stage','standing','neutral',{owner='scene',position='right'})); assert(noveltea.presentation.set_prop('visit-button',{owner='current-room',asset='pilot-button-sprite',x=0.2,y=0.3,width=0.1,height=0.1})); assert(noveltea.presentation.set_environment('session-light','engine2d-draw-contract',{owner='session',opacity=0.1})); assert(audio.set_loop('visit-loop','pilot-cue-audio','ambience',{owner='current-room',gain=0.08})); assert(audio.set_loop('session-loop','music-loop','music',{owner='session',gain=0.1}))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "return",
+        "label": "return",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Owner sample: Scene actor at right, visit button, session textureless light and two loops. Continue to return from this child: only its actor disappears."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}
