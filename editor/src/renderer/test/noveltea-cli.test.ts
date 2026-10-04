@@ -2978,6 +2978,11 @@ describe('NovelTea headless CLI', () => {
         repository: 'https://github.com/Cruel/nt.git',
         revision: 'ae7e3b042b23d5d904fbe949fe6ab50399f1027b',
       },
+      'noveltea-agent-refinement-254': {
+        kind: 'repository',
+        repository: 'https://github.com/Cruel/nt.git',
+        revision: 'ed4174a34052c57d3c7989ee8ca88d24b256112f',
+      },
       rmlui: {
         kind: 'repository',
         repository: 'https://github.com/Cruel/RmlUi.git',
@@ -3041,7 +3046,7 @@ describe('NovelTea headless CLI', () => {
     );
     expect(manifest.provenance.documents['technical/LUA.md'].sources).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ source: 'noveltea' }),
+        expect.objectContaining({ source: 'noveltea-agent-refinement-254' }),
         expect.objectContaining({ source: 'lua-5.5-manual' }),
       ]),
     );

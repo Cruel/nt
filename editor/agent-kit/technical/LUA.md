@@ -50,6 +50,18 @@ Bootstrap can register Room lifecycle handlers with `hooks.register('room', hook
 
 A loaded Script Module can opt into **On Game Ready** by exporting `on_ready = function() ... end`. NovelTea runs these handlers after authoritative state exists on initial session creation, reset, and successful restoration. Imported dependencies run first; otherwise handlers use stable Script Module ID order. On Game Ready is synchronous, query-only, and cannot initialize a previously unloaded module. It may inspect authoritative gameplay state and rebuild transient/module-local Lua state, but gameplay mutations and yielding fail. There is no separate effectful New Game Hook.
 
+`import` is a **Script Module environment helper**, not a gameplay-VM global. Sharing one gameplay VM does not make it available to Scene Lua or other independently owned Lua snippets. Hook registration is narrower still: `hooks.register` succeeds only during the bootstrap phase, including module initialization reached synchronously from Bootstrap, and the registry is frozen before On Game Ready.
+
+| Lua site                                                   | `import('module-id')`                                                                              | `hooks.register(...)`                              |
+| ---------------------------------------------------------- | -------------------------------------------------------------------------------------------------- | -------------------------------------------------- |
+| Bootstrap / module initialization reached during Bootstrap | Available; first import may initialize the target module.                                          | Available during the bootstrap phase.              |
+| Later ordinary Script Module export or Room-hook handler   | Available in that module's environment.                                                            | Rejected because bootstrap registration has ended. |
+| `on_ready` export                                          | Available only for modules already loaded before On Game Ready; it cannot initialize a new module. | Rejected; the registry is frozen.                  |
+| Scene expression, effect, or `run-lua` Event               | Not available.                                                                                     | Registration is rejected outside Bootstrap.        |
+| Layout Lua / RML event Lua                                 | Not available; Layout code runs in the separate frontend VM.                                       | Not available as a gameplay hook registry.         |
+
+A Script Module may validly be both imported by another module and named as a Room-hook handler; those are independent references to the same module identity, not conflicting roles. Scene Lua cannot directly reuse a Script Module export through `import`. Put durable coordination in typed gameplay state/APIs rather than copying a module value into a global: Project globals are transient and are rebuilt, not restored, across save/load and session replacement.
+
 Conditions and text expressions are synchronous. Effect/explicit script instructions can yield only when their authored invocation is declared yield-capable and the engine admits the corresponding capability profile.
 
 Lua VM/coroutine state is not save-game state. Do not use globals as durable game variables. Persist game state through NovelTea Variables, Properties, desired presentation/audio state, and the other typed runtime APIs below.
