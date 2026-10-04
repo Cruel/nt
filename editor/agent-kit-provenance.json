@@ -25,6 +25,11 @@
       "repository": "https://github.com/Cruel/nt.git",
       "revision": "2b3c957ef22bade17329127345fd09453b2e603f"
     },
+    "noveltea-feature-lab-256-followup": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "92cc870474f3a8f1145af5defb995e8e22d36f77"
+    },
     "noveltea-interaction-authoring": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
@@ -239,7 +244,7 @@
       ]
     },
     "technical/LUA.md": {
-      "reviewed": "2026-10-03",
+      "reviewed": "2026-10-04",
       "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, Script Module helper/Bootstrap lifecycle, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
       "sources": [
         {
@@ -273,6 +278,18 @@
             "engine/src/script/lua/runtime_script_api.cpp",
             "engine/src/runtime/runtime_command_gateway.cpp",
             "tests/projects/feature-lab/scripts/layout-counter-ui.lua"
+          ]
+        },
+        {
+          "source": "noveltea-feature-lab-256-followup",
+          "areas": [
+            "engine/src/script/lua/bind_runtime_capabilities.cpp",
+            "docs/runtime/STATE_AND_PLAYBACK.md",
+            "docs/ui/RMLUI_RUNTIME_UI.md",
+            "engine/src/host/game_host.cpp",
+            "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
+            "tests/host/game_host_tests.cpp",
+            "tests/ui/runtime_ui_action_gateway_tests.cpp"
           ]
         }
       ]
@@ -476,7 +493,7 @@
       ]
     },
     "workflows/AUTHORING.md": {
-      "reviewed": "2026-10-03",
+      "reviewed": "2026-10-04",
       "strategy": "Keep one concise coding-agent operating procedure for file-first inspection/editing, canonical record initialization, transaction choice, workspace safety, localization mutation, coherent validation, and authored-Test execution.",
       "sources": [
         {
@@ -496,6 +513,13 @@
             "docs/runtime/plans/FEATURE_LAB_INVENTORY.md",
             "tests/projects/feature-lab/README.md",
             "tests/script/typed_interaction_execution_tests.cpp"
+          ]
+        },
+        {
+          "source": "noveltea-feature-lab-256-followup",
+          "areas": [
+            "docs/editor/CLI.md",
+            "tests/projects/feature-lab/README.md"
           ]
         }
       ]

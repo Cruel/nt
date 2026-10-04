@@ -96,6 +96,12 @@ observable boundary therefore need a focused executable negative-test surface, o
 manual gap when that surface is unavailable. Do not invent Lab-only success flags or private hooks to
 turn expected failures green, and do not weaken analyzer diagnostics to admit a demonstration.
 
+Treat a suite entry reported as `error` because its native/UI worker terminated differently from a
+`failed` authored expectation. Preserve the entry's diagnostics, exit status/signal, and evidence path,
+then rerun the affected Test narrowly to check reproducibility. A later pass is useful evidence but does
+not retroactively prove the earlier worker termination was an authored-content failure or that the
+infrastructure issue is fixed; report the intermittent error separately when it remains unexplained.
+
 ## Localization is an explicit mutation workflow
 
 Direct edits to managed localizable Lua/RML do not update tracking as a side effect of validation or

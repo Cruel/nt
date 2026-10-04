@@ -497,7 +497,7 @@ fit: cover | contain | stretch | center
 ### Actor
 
 ```text
-noveltea.presentation.set_actor(instance_id, character_id, pose_id, expression_id, options?) -> ok, error
+noveltea.presentation.set_actor(instance_id, character_id, profile_id, pose_id, expression_id, options?) -> ok, error
 noveltea.presentation.clear_actor(instance_id, options?) -> ok, error
 noveltea.presentation.actor(instance_id, options?) -> state_or_nil, error
 ```
@@ -513,7 +513,7 @@ offset_x, offset_y: number
 scale: number
 ```
 
-The actor query returns `character`, `pose`, `expression`, `visible`, and `scale` for an existing desired actor.
+`profile_id` selects the Character Presentation Profile that owns the requested Pose and Expression. The actor query returns `character`, `pose`, `expression`, `visible`, and `scale` for an existing desired actor.
 
 ### Prop
 
@@ -680,6 +680,11 @@ owner / room
 Desired loop Purposes are Music or Ambience. `set_music` is the single-BGM convenience policy: it
 uses the reserved `background-music` desired instance/replacement identity with Music Purpose.
 
+Project Settings define the static master and per-Purpose mix/mute policy plus optional Voice ducking.
+Normal gameplay Lua does not expose live master/Purpose gain or mute mutation. Per-instance `gain`,
+loop replacement, transient stop, and Voice ducking are separate controls and are not substitutes for
+a live mixer surface.
+
 `audio.state()` returns `asset`, `purpose`, `gain`, `pan`, `fade_in_ms`, `fade_out_ms`, and optional
 `replacement_key`. Desired audio is reconstructible save state: identity, owner, Purpose, Pause
 Policy, gain/pan policy, loop intent, and replacement policy are authoritative, while decoder/sample
@@ -727,7 +732,7 @@ Game.paused() -> boolean, error
 Game.locale() -> locale_tag, error
 ```
 
-`Game.startup_context()` returns the persistable context supplied when the current fresh session was created. `Game.restart(context, show_title)` requests a fresh Project session with that context; it does not preserve gameplay state from the replaced session. Use it for explicit fresh-run routing such as authored test/reference scenario launch rather than as ordinary Room navigation.
+`Game.startup_context()` returns the persistable context supplied when the current fresh session was created. It is loaded-session metadata: replacing, remounting, or repeatedly showing gameplay RuntimeUI documents does not consume or clear it. It changes when a new session is created (for example through `Game.restart`) and is cleared when that session is detached. `Game.restart(context, show_title)` requests a fresh Project session with that context; it does not preserve gameplay state from the replaced session. Use startup context for explicit fresh-run routing such as authored test/reference scenario launch rather than as ordinary Room navigation.
 
 `Game.locale()` is a read-only query for the active runtime locale. Locale selection belongs to player/shell preference surfaces rather than gameplay mutation APIs, and loading a save does not restore a saved locale.
 
