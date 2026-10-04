@@ -84,7 +84,19 @@ describe('project compiler workspace command', () => {
     expect(result.exitCode, JSON.stringify(result.report.diagnostics)).toBe(
       compileProjectExitCodes.success,
     );
-    expect(result.report.diagnostics).toEqual([]);
+    expect(
+      result.report.diagnostics.map(({ code, severity, jsonPointer }) => ({
+        code,
+        severity,
+        jsonPointer,
+      })),
+    ).toEqual([
+      {
+        code: 'AUTHORING_HOTSPOT_AUTHORING_TARGET_NONE',
+        severity: 'info',
+        jsonPointer: '/interactables/custom-board/data/presentation/hotspots/hotspots/4/target',
+      },
+    ]);
     expect(result.report.bytesWritten).toBeGreaterThan(0);
   });
 

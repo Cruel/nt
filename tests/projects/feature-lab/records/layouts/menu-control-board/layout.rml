@@ -1,0 +1,22 @@
+<rml><head><title>Menus and input control board</title></head>
+<body data-model="noveltea"><section class="lab-panel" style="left: 590px; top: 220px; width: 630px;">
+<h2>Layer policies over the world button</h2>
+<p>Policy probe covers the red world button at lower right. Click the blank covered area, then the probe button, then its Dismiss control.</p>
+<button id="policy-normal" onclick="menu_board_ui.probe('normal', false)">Normal</button>
+<button id="policy-block" onclick="menu_board_ui.probe('block-gameplay', false)">BlockGameplay</button>
+<button id="policy-modal" onclick="menu_board_ui.probe('modal', false)">Modal</button>
+<button id="policy-none" onclick="menu_board_ui.probe('none', false)">Input None</button>
+<button id="policy-pause" onclick="menu_board_ui.probe('normal', true)">Visible pause source</button>
+<button id="explicit-pause" onclick="assert(Game.pause())">Explicit pause</button>
+<button id="explicit-resume" onclick="assert(Game.resume())">Remove explicit pause</button>
+<button id="pause-read" onclick="noveltea.notify('Gameplay paused: ' .. tostring(Game.paused()))">Read pause</button>
+<button id="policy-remove" onclick="assert(noveltea.layouts.unmount('policy-probe'))">Remove probe (also None)</button>
+<button id="shell-pause" data-event-click="shell_pause()">Shell pause</button>
+<button id="focus-activate" onclick="menu_board_ui.activate()">Focusable action</button>
+<button id="focus-disabled" disabled="disabled" onclick="menu_board_ui.activate()">Disabled action</button>
+<button id="focus-hidden" style="display: none;" onclick="menu_board_ui.activate()">Hidden action</button>
+<input id="focus-input" type="text" value="Edit a transient draft"/>
+<div class="scroll-list"><p>Scrollable local list</p><p>Alpha</p><p>Bravo</p><p>Charlie</p><p>Delta</p><p>Echo</p><button id="focus-list-end" onclick="menu_board_ui.activate()">Last row action</button></div>
+<p>Open real Settings from Pause / menus to independently change UI and text scales.</p>
+<button id="scale-pair" onclick="menu_board_ui.scales()">Mount inherit / ignore scale pair</button>
+</section></body></rml>

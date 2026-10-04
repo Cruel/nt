@@ -1,1 +1,18 @@
-{}
+{
+  "rml:record:layouts:lab-pause:/layouts/lab-pause/data/rml/sourceText": {
+    "family": "rml",
+    "ownerKey": "record:layouts:lab-pause",
+    "sourcePath": "/layouts/lab-pause/data/rml/sourceText",
+    "sourceSnapshotFingerprint": "fnv1a:4425cd88015db684c392a92a7ec8e4b8",
+    "occurrences": [
+      {
+        "messageId": "b97bfd6f-e54d-5a4b-9c0f-5b157f56b1bf",
+        "ordinal": 0,
+        "structuralFingerprint": "fnv1a:be38cf111f1ae7154ca8090b4f044681",
+        "anchorFingerprint": "fnv1a:219b91d840fff25458b31882c7450b08",
+        "sourceFingerprint": "fnv1a:ff2a5bc0cb8bad8c0e0b85eed36ee430",
+        "sourceSnapshot": "Feature Lab paused"
+      }
+    ]
+  }
+}

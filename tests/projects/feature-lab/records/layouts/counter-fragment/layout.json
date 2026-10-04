@@ -1,0 +1,58 @@
+{
+  "id": "counter-fragment",
+  "label": "Counter resource fragment",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "fragment",
+    "target": "default-ui",
+    "contract": {},
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "asset",
+      "sourceAsset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "counter-shared-style"
+        }
+      }
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true
+    },
+    "dependencies": {
+      "images": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-button-sprite"
+          }
+        }
+      ],
+      "fonts": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "dejavusans"
+          }
+        }
+      ],
+      "scripts": [],
+      "data": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "notice-board-data"
+          }
+        }
+      ]
+    },
+    "preview": {
+      "background": "dark"
+    }
+  }
+}

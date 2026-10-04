@@ -1,0 +1,15 @@
+{
+  "id": "counter-template",
+  "label": "counter-template",
+  "data": {
+    "kind": "text",
+    "source": {
+      "type": "project-file",
+      "path": "assets/ui/counter-template.rml"
+    },
+    "aliases": [],
+    "mimeType": "text/plain",
+    "extension": ".rml",
+    "imageMetadata": null
+  }
+}

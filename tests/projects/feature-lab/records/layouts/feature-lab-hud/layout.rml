@@ -4,6 +4,7 @@
   <div id="feature-lab-toolbar" data-model="noveltea">
     <button id="feature-lab-open" onclick="feature_lab.open(event, element, document)">Feature Lab</button>
     <button id="feature-lab-restart" onclick="feature_lab.restart_current(event, element, document)">Restart</button>
+    <button id="lab-shell-pause" data-event-click="shell_pause()">Pause / menus</button>
   </div>
   <div id="feature-lab-notification" data-model="noveltea" data-if="gameplay.notification != ''">{{ gameplay.notification }}</div>
   <div id="feature-lab-scenario-guide" class="hidden"></div>
@@ -31,6 +32,7 @@
       <button id="feature-lab-recent" onclick="feature_lab.toggle_recent(event, element, document)">Last 24 Hours</button>
       <button id="feature-lab-home" onclick="feature_lab.fresh_home(event, element, document)">Fresh Home</button>
     </div>
+    <nav id="feature-lab-categories"></nav>
     <div id="feature-lab-results"></div>
   </div>
 </body>

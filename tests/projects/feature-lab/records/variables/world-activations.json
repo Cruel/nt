@@ -1,0 +1,10 @@
+{
+  "id": "world-activations",
+  "label": "World activations",
+  "data": {
+    "kind": "variable",
+    "type": "integer",
+    "nullable": false,
+    "value": 0
+  }
+}

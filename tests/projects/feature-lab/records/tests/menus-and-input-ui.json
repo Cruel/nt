@@ -1,0 +1,19 @@
+{
+  "id": "menus-and-input-ui", "label": "Menu control-board realization",
+  "data": {
+    "kind": "test", "displayName": "Menu control-board realization",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh home" },
+      { "id": "category", "input": "ui-click", "label": "Bring the Layout category into view", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-layouts-interfaces" } },
+      { "id": "launch", "input": "ui-click", "label": "Launch from the real catalog", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-menus-and-input" }, "expectations": [
+        { "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "menus-and-input" } },
+        { "id": "board", "type": "layout", "operator": "present", "layout": { "layoutId": "menu-control-board", "field": "mounted" } }
+      ] },
+      { "id": "open", "input": "ui-click", "label": "Reopen the HUD without resetting the mounted board", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" }, "expectations": [
+        { "id": "board-remains", "type": "layout", "operator": "present", "layout": { "layoutId": "menu-control-board", "field": "mounted" } }
+      ] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

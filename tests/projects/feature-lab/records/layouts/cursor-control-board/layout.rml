@@ -1,0 +1,23 @@
+<rml><head><title>Cursor arbitration board</title></head><body>
+<section class="lab-panel" style="left: 580px; top: 110px; width: 1080px;">
+<h2>Cursor arbitration</h2>
+<button id="cursor-auto" style="cursor: auto;">RCSS auto</button><button id="cursor-default" style="cursor: default;">Default</button>
+<button id="cursor-none" style="cursor: none;">Hidden</button><button id="cursor-system" style="cursor: text;">Text</button>
+<button id="cursor-named" style="cursor: lab-marked;">Named image</button>
+<button id="cursor-image" style="cursor: image(project|/assets/images/cursor-marked.png);">RCSS direct image</button>
+<button id="cursor-large" style="cursor: image(project|/assets/images/cursor-oversized.png);">RCSS oversized</button>
+<button id="cursor-set" onclick="assert(noveltea.presentation.cursor.set('wait'))">Mount wait</button>
+<button id="cursor-set-image" onclick="assert(noveltea.presentation.cursor.set_image('cursor-marked', {hotspot_x=4,hotspot_y=5}))">Mount marked hotspot</button>
+<button id="cursor-set-large" onclick="assert(noveltea.presentation.cursor.set_image('cursor-oversized', {hotspot_x=32,hotspot_y=40}))">Mount oversized hotspot</button>
+<button id="cursor-clear" onclick="assert(noveltea.presentation.cursor.clear())">Clear this Mount</button>
+<button id="cursor-upper" onclick="cursor_board_ui.upper()">Open higher cursor Mount</button>
+<button id="cursor-hide-upper" onclick="cursor_board_ui.visible(false)">Hide upper</button>
+<button id="cursor-show-upper" onclick="cursor_board_ui.visible(true)">Show upper</button>
+<button id="cursor-remove-upper" onclick="assert(noveltea.layouts.unmount('upper-cursor'))">Unmount upper</button>
+<button id="cursor-gameplay" onclick="cursor_board_ui.gameplay()">Gameplay override Scene</button>
+<button id="trigger-pointerless" onclick="assert(noveltea.flow.call_scene('hotspot-popup'))">Pointer-less Scene panel</button>
+<button id="hotspot-toggle" onclick="cursor_board_ui.toggle()">Toggle center: other / owner</button>
+</section>
+<div style="position: absolute; left: 672px; top: 788px; width: 460px; height: 76px; background-color: #26594a; pointer-events: none;">Room Feature strip</div>
+<div style="position: absolute; left: 1248px; top: 788px; width: 460px; height: 76px; background-color: #26594a; pointer-events: none;">Exit strip: leave station</div>
+</body></rml>

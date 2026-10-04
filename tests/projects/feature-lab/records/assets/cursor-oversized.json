@@ -1,0 +1,21 @@
+{
+  "id": "cursor-oversized",
+  "label": "cursor-oversized",
+  "data": {
+    "kind": "image",
+    "source": {
+      "type": "project-file",
+      "path": "assets/images/cursor-oversized.png"
+    },
+    "aliases": [],
+    "sampling": "nearest",
+    "mimeType": "image/png",
+    "extension": ".png",
+    "imageMetadata": {
+      "width": 256,
+      "height": 384,
+      "hasAlpha": true,
+      "orientation": 1
+    }
+  }
+}

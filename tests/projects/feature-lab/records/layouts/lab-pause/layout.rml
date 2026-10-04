@@ -1,0 +1,12 @@
+<rml><head><title>Feature Lab pause replacement</title></head>
+<body data-model="noveltea"><section class="lab-panel">
+<h1><nt-tr>Feature Lab paused</nt-tr></h1>
+<p>Project replacement: these IDs are authored selectors, not engine population hooks.</p>
+<button id="lab-pause-resume" data-event-click="shell_resume()">Resume</button>
+<button id="lab-pause-settings" data-event-click="shell_open_settings()">Settings</button>
+<button id="lab-pause-log" data-event-click="shell_open_text_log()">Text Log</button>
+<button id="lab-pause-save" data-event-click="shell_open_save()">Save</button>
+<button id="lab-pause-load" data-event-click="shell_open_load()">Load</button>
+<button id="lab-pause-title" data-event-click="shell_return_to_title()">Return to title</button>
+<p>{{ shell.status }}</p>
+</section></body></rml>

@@ -1,0 +1,66 @@
+{
+  "id": "cursor-gameplay",
+  "label": "cursor-gameplay",
+  "data": {
+    "kind": "scene",
+    "displayName": "cursor-gameplay",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "set",
+        "label": "set",
+        "type": "run-lua",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.cursor.set('progress'))",
+        "mayYield": false
+      },
+      {
+        "id": "hold",
+        "label": "hold",
+        "type": "show-text",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Gameplay cursor is progress. Clear Mount requests and move outside RmlUi. Continue clears only the gameplay request."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "clear",
+        "label": "clear",
+        "type": "run-lua",
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.cursor.clear())",
+        "mayYield": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

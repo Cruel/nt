@@ -1,0 +1,41 @@
+{
+  "id": "input-policy-probe",
+  "label": "input-policy-probe",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "displayName": "input-policy-probe",
+    "target": "menu-ui",
+    "contract": {
+      "inputs": {
+        "caption": {
+          "type": "string",
+          "defaultValue": "normal"
+        }
+      }
+    },
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "file"
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "input_policy_probe"
+    },
+    "dependencies": {
+      "images": [],
+      "fonts": [],
+      "stylesheets": [],
+      "scripts": [],
+      "data": []
+    },
+    "preview": {
+      "background": "dark"
+    }
+  }
+}

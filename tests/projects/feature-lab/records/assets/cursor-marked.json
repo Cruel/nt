@@ -1,0 +1,21 @@
+{
+  "id": "cursor-marked",
+  "label": "cursor-marked",
+  "data": {
+    "kind": "image",
+    "source": {
+      "type": "project-file",
+      "path": "assets/images/cursor-marked.png"
+    },
+    "aliases": [],
+    "sampling": "nearest",
+    "mimeType": "image/png",
+    "extension": ".png",
+    "imageMetadata": {
+      "width": 32,
+      "height": 48,
+      "hasAlpha": true,
+      "orientation": 1
+    }
+  }
+}

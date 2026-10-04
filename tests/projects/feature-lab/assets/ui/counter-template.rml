@@ -1,0 +1,4 @@
+<template name="counter-shell" content="counter-content">
+<head><link type="text/rcss" href="project:/assets/ui/shared.rcss"/></head>
+<body><div class="counter-frame"><div id="counter-content"></div></div></body>
+</template>

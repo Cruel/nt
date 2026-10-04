@@ -1,0 +1,5 @@
+body { font-family: dejavusans; font-size: 17px; width: 360px; height: auto; }
+.counter-frame { width: 330px; }
+.counter-values { min-height: 70px; }
+.counter-frame img { width: 24px; height: 24px; }
+.counter-frame input { width: 150px; }

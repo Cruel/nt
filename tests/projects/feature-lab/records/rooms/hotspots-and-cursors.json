@@ -1,0 +1,212 @@
+{
+  "id": "hotspots-and-cursors",
+  "label": "Inspect the control board",
+  "data": {
+    "kind": "room",
+    "displayName": "Inspect the control board",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Compare alpha and custom board regions. Pick a board to open trigger-anchored Inventory, then compare its captured geometry with the pointer-less Scene panel."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [
+      {
+        "id": "alpha-board",
+        "interactable": {
+          "$ref": {
+            "registry": "interactableInstances",
+            "id": "alpha-board"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "placementId": "alpha-board",
+        "visible": true,
+        "order": 5
+      },
+      {
+        "id": "custom-board",
+        "interactable": {
+          "$ref": {
+            "registry": "interactableInstances",
+            "id": "custom-board"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "placementId": "custom-board",
+        "visible": true,
+        "order": 10
+      }
+    ],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "mount",
+          "kind": "run-lua",
+          "source": "assert(noveltea.layouts.mount('cursor-board', 'cursor-control-board', {clock='unscaled-presentation'}))"
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "leave",
+        "label": "Leave and return from home",
+        "direction": "west",
+        "target": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "world-composition"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "onRejected": []
+      }
+    ],
+    "placements": [
+      {
+        "id": "alpha-board",
+        "bounds": {
+          "x": 0.35,
+          "y": 0.42,
+          "width": 0.24,
+          "height": 0.28
+        },
+        "presentation": {
+          "label": null,
+          "layout": null
+        }
+      },
+      {
+        "id": "custom-board",
+        "bounds": {
+          "x": 0.65,
+          "y": 0.42,
+          "width": 0.24,
+          "height": 0.28
+        },
+        "presentation": {
+          "label": null,
+          "layout": null
+        }
+      }
+    ],
+    "fallbackInteractablePlacementId": null,
+    "features": [
+      {
+        "id": "board-label",
+        "label": "Room Feature strip",
+        "traits": [],
+        "localProperties": [],
+        "defaultProperties": [],
+        "inventories": []
+      }
+    ],
+    "hotspots": [
+      {
+        "id": "room-feature",
+        "label": "room-feature",
+        "condition": {
+          "kind": "always"
+        },
+        "inputOrder": 15,
+        "highlight": {
+          "kind": "default"
+        },
+        "target": {
+          "kind": "owner-feature",
+          "featureId": "board-label"
+        },
+        "shape": {
+          "kind": "rect",
+          "bounds": {
+            "x": 0.35,
+            "y": 0.73,
+            "width": 0.24,
+            "height": 0.07
+          }
+        }
+      },
+      {
+        "id": "exit",
+        "label": "exit",
+        "condition": {
+          "kind": "always"
+        },
+        "inputOrder": 15,
+        "highlight": {
+          "kind": "default"
+        },
+        "target": {
+          "kind": "exit",
+          "exitId": "leave"
+        },
+        "shape": {
+          "kind": "rect",
+          "bounds": {
+            "x": 0.65,
+            "y": 0.73,
+            "width": 0.24,
+            "height": 0.07
+          }
+        },
+        "cursor": {
+          "kind": "system",
+          "cursor": "pointer"
+        }
+      }
+    ]
+  },
+  "localProperties": []
+}

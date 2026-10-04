@@ -1,0 +1,104 @@
+{
+  "id": "layout-counter",
+  "label": "Reusable Layout control panel",
+  "data": {
+    "kind": "room",
+    "displayName": "Reusable Layout control panel",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Four reusable panels have independent owners and explicit State Slots. Continue the Scene to end Flow; leave and revisit to end Visit. Reopen panels after hiding or unmounting."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "begin",
+          "kind": "call-scene",
+          "scene": {
+            "$ref": {
+              "collection": "scenes",
+              "id": "layout-counter"
+            }
+          }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [
+      {
+        "id": "leave",
+        "label": "Leave and return from home",
+        "direction": "west",
+        "target": {
+          "$ref": {
+            "collection": "rooms",
+            "id": "world-composition"
+          }
+        },
+        "condition": {
+          "kind": "always"
+        },
+        "onRejected": []
+      }
+    ],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  },
+  "localProperties": [
+    {
+      "id": "panel-label",
+      "type": "string",
+      "nullable": false,
+      "value": "Room-owned label"
+    }
+  ]
+}

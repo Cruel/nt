@@ -1,0 +1,5 @@
+body { font-family: Liberation Sans; color: #e8f3f7; }
+.scale-sample { position: absolute; top: 780px; width: 320px; background-color: #102332ee; padding: 12px; font-size: 20px; }
+.scale-ruler { width: 200px; height: 20px; background-color: #8fcbe1; }
+.narrow { display: none; }
+@media (max-width: 1400px) { .wide { display: none; } .narrow { display: block; } }

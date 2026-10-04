@@ -1,0 +1,38 @@
+{
+  "id": "scale-ignore",
+  "label": "scale-ignore",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "displayName": "scale-ignore",
+    "target": "default-ui",
+    "contract": {},
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "file"
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "scale_ignore"
+    },
+    "dependencies": {
+      "images": [],
+      "fonts": [],
+      "stylesheets": [],
+      "scripts": [],
+      "data": []
+    },
+    "preview": {
+      "background": "dark"
+    },
+    "scalePolicy": {
+      "ui": "ignore",
+      "text": "ignore"
+    }
+  }
+}

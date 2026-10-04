@@ -1,0 +1,3 @@
+.counter-frame { background-color: #102332ee; border: 2px #83cce5; padding: 12px; }
+.counter-frame button { margin: 3px; padding: 5px; background-color: #285574; }
+.counter-frame button:focus { border: 2px #fff18b; }

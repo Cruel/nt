@@ -1,0 +1,7 @@
+<rml><head><title>Input policy probe</title></head>
+<body onshow="document:GetElementById('policy-caption').inner_rml = Game.mount_context():input('caption')">
+<section class="lab-panel" style="left: 1340px; top: 350px; width: 310px; height: 340px; pointer-events: none;">
+<h2 id="policy-caption">Policy probe</h2><p style="pointer-events: none;">This area is click-through in RmlUi; host policy still gates world gameplay.</p>
+<button id="probe-activate" style="pointer-events: auto;" onclick="menu_board_ui.activate()">Real UI action</button>
+<button id="probe-dismiss" style="pointer-events: auto;" onclick="assert(Game.mount_context():dismiss())">Dismiss</button>
+</section></body></rml>

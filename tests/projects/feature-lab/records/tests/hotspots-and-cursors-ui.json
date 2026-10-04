@@ -1,0 +1,23 @@
+{
+  "id": "hotspots-and-cursors-ui", "label": "Control-board and contextual Layout realization",
+  "data": {
+    "kind": "test", "displayName": "Control-board and contextual Layout realization",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh home" },
+      { "id": "category", "input": "ui-click", "label": "Bring Layouts into view", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-layouts-interfaces" } },
+      { "id": "launch", "input": "ui-click", "label": "Real catalog launch realizes the cursor board", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-hotspots-and-cursors" }, "expectations": [
+        { "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "hotspots-and-cursors" } },
+        { "id": "board", "type": "layout", "operator": "present", "layout": { "layoutId": "cursor-control-board", "field": "mounted" } }
+      ] },
+      { "id": "activate-alpha", "input": "primary-activate", "label": "Semantic setup for a pointer-less contextual popup, not a picking assertion", "subjectAction": { "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "alpha-board" } } } }, "expectations": [
+        { "id": "popup", "type": "layout", "operator": "present", "layout": { "layoutId": "trigger-panel", "field": "mounted" } }
+      ] },
+      { "id": "open", "input": "ui-click", "label": "Reopen catalog without capturing world input", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" } },
+      { "id": "finish", "input": "ui-click", "label": "Fresh session retires contextual Inventory", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-home" }, "expectations": [
+        { "id": "popup-ended", "type": "layout", "operator": "absent", "layout": { "layoutId": "trigger-panel", "field": "mounted" } }
+      ] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

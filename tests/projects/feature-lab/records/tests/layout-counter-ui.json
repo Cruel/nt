@@ -1,0 +1,26 @@
+{
+  "id": "layout-counter-ui", "label": "Counter resource realization and HUD lifetime",
+  "data": {
+    "kind": "test", "displayName": "Counter resource realization and HUD lifetime",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh home" },
+      { "id": "category", "input": "ui-click", "label": "Bring the Layout category into view", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-layouts-interfaces" } },
+      { "id": "launch", "input": "ui-click", "label": "Launch real counter documents and fragment", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-layout-counter" }, "expectations": [
+        { "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "layout-counter" } },
+        { "id": "visit", "type": "layout", "operator": "present", "layout": { "layoutId": "visit-counter", "field": "mounted" } },
+        { "id": "flow", "type": "layout", "operator": "present", "layout": { "layoutId": "flow-counter", "field": "mounted" } },
+        { "id": "fragment", "type": "layout", "operator": "present", "layout": { "layoutId": "counter-fragment", "field": "mounted" } }
+      ] },
+      { "id": "open", "input": "ui-click", "label": "Reopen catalog without resetting panel owners", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" }, "expectations": [
+        { "id": "flow-still-live", "type": "layout", "operator": "present", "layout": { "layoutId": "flow-counter", "field": "mounted" } }
+      ] },
+      { "id": "close", "input": "ui-click", "label": "Return to live counters", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-close" } },
+      { "id": "end-flow", "input": "continue", "label": "End the Scene without ending the session counter", "expectations": [
+        { "id": "flow-ended", "type": "layout", "operator": "absent", "layout": { "layoutId": "flow-counter", "field": "mounted" } },
+        { "id": "session-live", "type": "layout", "operator": "present", "layout": { "layoutId": "session-counter", "field": "mounted" } }
+      ] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

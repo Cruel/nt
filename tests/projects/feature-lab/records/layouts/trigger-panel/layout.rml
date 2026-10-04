@@ -1,0 +1,10 @@
+<rml><head><title>Immutable trigger geometry</title></head><body onshow="trigger_panel_ui.show(document)"><section id="trigger-box" class="lab-panel" style="position: relative; left: 0px; top: 0px; width: 300px;">
+<h2>Contextual Inventory</h2><p id="trigger-values"></p>
+<div data-model="noveltea"><button data-for="item : gameplay.inventory.items" data-if="item.visible &amp;&amp; item.inventory_key == gameplay.inventory.presented_key" data-attrif-disabled="!item.enabled" data-event-click="ui_primary_activate('interactable', item.id)">{{ item.display_name }} ×{{ item.quantity }}</button></div>
+<button id="trigger-read" onclick="trigger_panel_ui.show(document)">Read captured geometry</button>
+<button id="trigger-child" onclick="assert(Game.mount_context():present_child('trigger-child', 'geometry-child'))">Contextual child</button>
+<button id="trigger-inventory" onclick="assert(Game.mount_context():present_child_inventory())">Child Inventory</button>
+<button id="trigger-remove-source" onclick="assert(Interactable('alpha-board'):set_location({kind='unplaced'}))">Remove alpha source</button>
+<button id="trigger-remove-custom" onclick="assert(Interactable('custom-board'):set_location({kind='unplaced'}))">Remove custom source</button>
+<button id="trigger-dismiss" onclick="assert(Game.mount_context():dismiss())">Dismiss parent + descendants</button>
+</section></body></rml>

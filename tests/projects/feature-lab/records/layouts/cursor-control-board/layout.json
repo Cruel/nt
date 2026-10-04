@@ -1,0 +1,47 @@
+{
+  "id": "cursor-control-board",
+  "label": "cursor-control-board",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "displayName": "cursor-control-board",
+    "target": "default-ui",
+    "contract": {},
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "file"
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "cursor_control_board"
+    },
+    "dependencies": {
+      "images": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "cursor-marked"
+          }
+        },
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "cursor-oversized"
+          }
+        }
+      ],
+      "fonts": [],
+      "stylesheets": [],
+      "scripts": [],
+      "data": []
+    },
+    "preview": {
+      "background": "dark"
+    }
+  }
+}

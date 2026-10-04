@@ -1,0 +1,15 @@
+{
+  "id": "counter-style",
+  "label": "counter-style",
+  "data": {
+    "kind": "text",
+    "source": {
+      "type": "project-file",
+      "path": "assets/ui/counter.rcss"
+    },
+    "aliases": [],
+    "mimeType": "text/plain",
+    "extension": ".rcss",
+    "imageMetadata": null
+  }
+}

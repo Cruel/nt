@@ -1,0 +1,15 @@
+{
+  "id": "counter-shared-style",
+  "label": "counter-shared-style",
+  "data": {
+    "kind": "text",
+    "source": {
+      "type": "project-file",
+      "path": "assets/ui/shared.rcss"
+    },
+    "aliases": [],
+    "mimeType": "text/plain",
+    "extension": ".rcss",
+    "imageMetadata": null
+  }
+}

@@ -100,11 +100,17 @@ function feature_lab.render(document)
   local results = document:GetElementById('feature-lab-results')
   if not results then return end
   local query = lower(feature_lab.query)
+  local links = '<button id="feature-lab-category-all" onclick="feature_lab.choose_category(event, element, document)">All categories</button>'
+  for _, category in ipairs(feature_lab.catalog.categories) do
+    links = links .. '<button id="feature-lab-category-' .. escape(category.id) .. '" onclick="feature_lab.choose_category(event, element, document)">' .. escape(category.title) .. '</button>'
+  end
+  local categories = document:GetElementById('feature-lab-categories')
+  if not categories:HasChildNodes() then categories.inner_rml = links end
   local html = ''
   for _, category in ipairs(feature_lab.catalog.categories) do
     local category_html = ''
     for _, scenario in ipairs(feature_lab.catalog.scenarios) do
-      if scenario.categoryId == category.id and scenario_matches(scenario, query) then
+      if scenario.categoryId == category.id and (not feature_lab.category or category.id == feature_lab.category) and scenario_matches(scenario, query) then
         local modified = effective_modified(scenario)
         local recent = recent_label(scenario.created, modified)
         if (not feature_lab.recent_only) or recent then
@@ -174,6 +180,13 @@ function feature_lab.close(event, element, document)
   feature_lab.sync_scenario_guide(document)
 end
 
+function feature_lab.choose_category(event, element, document)
+  local id = element.id:sub(#'feature-lab-category-' + 1)
+  feature_lab.category = id ~= 'all' and id or nil
+  feature_lab.render(document)
+  document:GetElementById('feature-lab-panel').scroll_top = 0
+end
+
 function feature_lab.apply_search(event, element, document)
   local search = document:GetElementById('feature-lab-search')
   feature_lab.query = search and search.value or ''
@@ -224,6 +237,9 @@ function feature_lab.on_show(event, element, document)
   local scenario = type(context) == 'table' and type(context.feature_lab) == 'table' and context.feature_lab.mode == 'scenario'
   local panel = document:GetElementById('feature-lab-panel')
   if panel then panel:SetClass('hidden', scenario) end
+  local scenario_id = scenario and context.feature_lab.scenario_id or nil
+  local story = document:GetElementById('feature-lab-text-panel')
+  if story then story:SetClass('hidden', scenario_id == 'menus-and-input' or scenario_id == 'hotspots-and-cursors') end
   feature_lab.render(document)
   feature_lab.sync_scenario_guide(document)
 end

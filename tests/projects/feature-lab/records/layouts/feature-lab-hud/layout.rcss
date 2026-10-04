@@ -19,6 +19,8 @@ body { font-family: 'Liberation Sans'; color: #e8f3f7; }
 .feature-lab-header { justify-content: space-between; }
 .feature-lab-controls { margin-bottom: 18px; }
 .feature-lab-controls input { width: 360px; }
+#feature-lab-categories { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 12px; }
+#feature-lab-categories button { font-size: 14px; padding: 6px; }
 .feature-lab-category { display: block; width: 100%; margin-top: 18px; }
 .feature-lab-category h2 { margin: 0 0 8px 0; color: #9dd1df; font-size: 16px; }
 .feature-lab-scenario-grid { display: flex; flex-wrap: wrap; gap: 12px; }

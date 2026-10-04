@@ -177,44 +177,30 @@ form; longest-prefix competition remains intentionally shared with the native Ho
 because authoring entity IDs do not admit dotted qualified targets. Wall-clock assertions remain native
 with an injected fixed clock rather than real-time sleeps. Restart startup-context and host-owned
 preference persistence remain manual/host-integration coverage, while the station itself exercises a
-copied nested typed context and fresh Project defaults. The `structured-data` asset requirement is now
-realized by `notice-board-data` in the catalog but stays in the planning asset table until #255's
-remaining consumers are transferred.
+copied nested typed context and fresh Project defaults. The `structured-data` asset requirement is
+realized by `notice-board-data` in the catalog and shared with #255's Layout examples; its procurement
+row is retired.
 
 ### Layouts & Interfaces — #255
 
-#### `layout-counter` — Assemble a reusable control panel
+Transferred to the authoritative Feature Lab catalog on 2026-10-04:
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `documents-fragments-resources` | Mount a document and fragment with shared stylesheet/template, image/font/data dependencies and dedicated/event Lua → resources resolve through declared namespaces; events reach normal gameplay APIs. | U | pattern, font-set, structured-data |
-| `mount-inputs` | Change literal, Variable, identity-Property and standard-facet inputs → read-only typed bindings refresh after settled state; invalid update leaves prior mount intact. | S | — |
-| `signals-and-children` | Emit typed connected signals, open a contextual child Inventory, then dismiss parent → exact owner receives signals and descendants end with parent; ordinary replacement groups remain distinct. | U | button |
-| `mount-lifetime` | Update/hide/show/swap/unmount the same key under Scene, visit, named-Room and session owners → policy-only update preserves occurrence, resource replacement recreates it, ownership cleans up correctly. | U | — |
-| `layout-state-scopes` | Commit/clear state then unmount/remount, revisit and return from Flow → visit/room/flow/session Slots hydrate and expire at their own boundaries; transient Lua/DOM is not a Slot. | S | — |
-| `state-shape-values` | Commit nested strict objects, arrays and nullable scalar values → accepted shape reconstructs; explicit null survives and invalid value leaves prior state intact. | S | structured-data |
-| `show-reconstruction` | Reopen a stateful panel and position from its measured dimensions → inputs/Slot values and laid-out geometry are available at show, without a visible uninitialized frame. | V | — |
+- `layout-counter`
+- `menus-and-input`
+- `hotspots-and-cursors`
 
-#### `menus-and-input` — Layer menus over the game
+The catalog retains every non-Map inventory check and adds explicit shared Trigger Context,
+scale-policy, and supported-custom-element checks. `layout-counter-flow` protects owner cleanup and
+named-Room projection; the three station UI smoke Tests use the real catalog category/launch controls
+and realize the authored resources. Stateful custom-Mount interaction remains manual/shared with
+focused native Slot, contract, reconstruction and parentage tests: current custom-document IDs contain
+realization counters, and authored state expectations cannot select among multiple scope Slots for one
+Layout. Shell commands are not implemented by the headless UI runner, so shell-role/stack checks remain
+manual plus native shell/action-gateway coverage, not falsely passing UI clicks. The deliberate invalid
+input update is opt-in because ordered mutation errors correctly fail authored playback.
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `system-role-replacement` | Exercise a mix of project-replaced and built-in title/HUD/pause/settings/text-log/modal roles → declarative data-model callbacks retain behavior without magic element IDs. Save/load, Builder and Scene/Dialogue roles are shared with their stations; role assignments remain Project configuration, not a runtime toggle. | U | backdrop |
-| `input-policy` | Click through Normal, BlockGameplay, Modal and input-None mounts at overlapping planes → consumption and gameplay admission differ without accidental world activation. | U | button |
-| `pause-sources` | Combine explicit pause, visible pause-requesting Layout and shell modal; remove one source → other pause sources remain, unscaled UI still operates. | U | — |
-| `escape-and-shell-stack` | Nest menus/confirmation and use Escape/dismiss/back → top eligible occurrence closes, shell stack resets on load/title and gameplay does not receive consumed input. | U | — |
-| `focus-and-controls` | Tab/focus/activate buttons, inputs and scrolling lists → non-pointer control reaches the same actions; hidden/disabled controls cannot activate. Map targets are deferred. | U | — |
-
-#### `hotspots-and-cursors` — Inspect the control board
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `alpha-versus-custom` | Pick transparent holes and custom rectangles on placed sprites → alpha occupancy and analytic custom hits differ as authored; generated highlight masks cover the correct owner union. | U | button, pattern |
-| `target-and-priority` | Overlap conditioned targets including inert none, owner, Feature, other subject and Exit → input priority and eligibility choose one semantic path; two regions may select the same Feature. | U | pattern |
-| `highlight-policy` | Hover/press/leave alpha and custom Hotspots → highlight policy/Material receives correct bounds/state and does not leak across owners. | V | button, pattern |
-| `cursor-arbitration` | Compare Project default/pointer/Hotspot, Definition/custom Hotspot, RCSS auto/default/none/named and gameplay override → centralized priority/fallback and clear behavior agree. | M | cursor |
-| `mount-cursor-lifetime` | Set cursor from two ordered Layout occurrences, hide/unmount the top → underlying Mount/session request reappears; input-None visibility still governs eligibility. | M | cursor |
-| `image-cursor` | Compare RCSS image cursor with Lua image/hotspot request, including oversized input → declared image dependency, sampling, portable fit and hotspot scaling preserve native-pixel alignment independent of UI scale. | M | cursor |
+ActiveText and Inventory behavior remain intentionally shared with their existing stations; broader
+localization/display/save workflows remain #257-owned. No Map records, focus targets or media are added.
 
 ### Sound & Presentation — #256
 
@@ -407,11 +393,9 @@ stations. Source code (Lua, shader files, RML/RCSS) is not a request for new med
 | `sfx` | Short distinguishable causal/disposable cue, also usable as a deliberately synthetic Ambience loop | Reuse `pilot-dialogue-sfx`; perceived natural ambience quality is not the contract. |
 | `voice` | Short intelligible speech with silence after it for completion/duck checks | Reuse `pilot-dialogue-voice`; do not re-curate the working reference line. |
 | `music` | A loop long enough to hear replacement/fade/pause/duck without immediate natural end | Reuse existing `music-loop` Asset record and `assets/audio/music_loop.mp3`; verify loop suitability before ready perceptual acceptance. No second track unless replacement cannot be distinguished by gain/pan/owner. |
-| `pattern` | Small synthetic opaque/alpha regions, thin lines, repeated edges, orientation labels and two visibly different texture regions | One generated image can serve fitting, camera, custom Hotspots, author sampler, postprocess and nearest/linear tests. Reuse at different crops/transforms; add a second texture only for replacement distinction. |
+| `pattern` | Small synthetic opaque/alpha regions, thin lines, repeated edges, orientation labels and two visibly different texture regions | Reuse catalog `ui-pattern`, introduced by #255, for remaining fitting/camera/Material consumers at different crops/transforms; add a second texture only for replacement distinction. |
 | `character-layers` | Minimal synthetic transparent base/overlay and visibly distinct blink/speaking/Gesture frames for two Profiles | Reuse base Character art when feasible; generate simple overlay frames. Required to prove sparse multi-layer composition and finite animation, not a demand for a full curated sprite set. Mark aesthetic claims provisional until deliberately reviewed. |
 | `font-set` | License-cleared regular plus real bold/italic faces and a complementary CJK/RTL fallback covering chosen samples | Reuse shipped/test fonts if redistributable and sufficient; add only uncovered face/cluster paths. Real-face selection versus synthetic fallback is a meaningful A/B check; no font per language. |
-| `structured-data` | One tiny valid JSON tree with nested object/array, null and scalar values | Generate as synthetic data; reuse for gameplay/Layout loading and shaped state examples. Existing catalog remains its own real data consumer, not a mutable test scratchpad. |
-| `cursor` | Asymmetric synthetic cursor image with marked hotspot and a >128-pixel counterpart | Small image and scaled counterpart are justified by native fit/hotspot behavior; use the same art, not two curated cursors. |
 | `locale-text` | Small source plus translated samples exercising plural/select, expansion, RTL, CJK and regional fallback | Authored Messages, not an extra data Asset. Reuse sentences across UI/Dialogue/Scene/log; human language review is required for perceptual ready claims. No full Lab translation requirement. |
 | `localized-media` | One visibly different same-kind image and one audibly different same-kind voice realization | Derive labeled synthetic image from `pattern`; reuse or record one short second-language reference line. Intentional-source/inherited mappings reuse those resources; no full translated media library. |
 | `stress-text` | Generated long mixed-script text and large log/subject counts | Generate on demand in the stress workflow; disclose size, keep default launch small. Not curated reference media. |
