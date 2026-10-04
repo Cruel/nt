@@ -1354,8 +1354,8 @@ decode_input_object(const nlohmann::json& document, const EditorRuntimeProtocolL
     };
     if (*type == "start" || *type == "stop" || *type == "reset" || *type == "continue" ||
         *type == "fast-forward" || *type == "clear-selection" || *type == "begin-playback" ||
-        *type == "end-playback" ||
-        *type == "clear-playback" || *type == "undo-playback-step" || *type == "replay-playback") {
+        *type == "end-playback" || *type == "clear-playback" || *type == "undo-playback-step" ||
+        *type == "replay-playback") {
         exact_fields(*input, {"type"}, diagnostics, path);
         if (!diagnostics.empty())
             return Result<RuntimeInputMessage, Diagnostics>::failure(std::move(diagnostics));
@@ -4660,9 +4660,10 @@ void decode_playback_expectations(const nlohmann::json& value, std::string_view 
             require_string("selector");
             auto field = require_string("field");
             if (field && *field != "present" && *field != "visible")
-                diagnostics.push_back(error("editor_protocol.invalid_expectation_field",
-                                            "UI element expectation field must be present or visible.",
-                                            expectation_path + "/field"));
+                diagnostics.push_back(
+                    error("editor_protocol.invalid_expectation_field",
+                          "UI element expectation field must be present or visible.",
+                          expectation_path + "/field"));
             if (field && *field == "present" && !presence)
                 invalid_operator("UI element presence expectations require presence operators.");
             if (field && *field == "visible" && !equality)
