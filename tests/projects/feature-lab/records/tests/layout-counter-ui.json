@@ -9,7 +9,15 @@
         { "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "layout-counter" } },
         { "id": "visit", "type": "layout", "operator": "present", "layout": { "layoutId": "visit-counter", "field": "mounted" } },
         { "id": "flow", "type": "layout", "operator": "present", "layout": { "layoutId": "flow-counter", "field": "mounted" } },
-        { "id": "fragment", "type": "layout", "operator": "present", "layout": { "layoutId": "counter-fragment", "field": "mounted" } }
+        { "id": "fragment", "type": "layout", "operator": "present", "layout": { "layoutId": "counter-fragment", "field": "mounted" } },
+        { "id": "inline-fragment", "type": "layout", "operator": "present", "layout": { "layoutId": "inline-event-fragment", "field": "mounted" } }
+      ] },
+      { "id": "read-inline-fragment", "input": "ui-click", "label": "Run inline RML event Lua with no dedicated Layout Lua companion", "uiClick": { "documentId": null, "mountInstanceId": "inline-event-fragment", "selector": "#inline-fragment-data" }, "expectations": [
+        { "id": "inline-event-ran", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Evening notices" } }
+      ] },
+      { "id": "read-visit", "input": "ui-click", "label": "Drive the realized visit Mount through its semantic instance id", "uiClick": { "documentId": null, "mountInstanceId": "visit-panel", "selector": "#counter-read" } },
+      { "id": "reject-shape", "input": "ui-click", "label": "Reject an invalid shaped Slot value through the real custom Layout", "uiClick": { "documentId": null, "mountInstanceId": "visit-panel", "selector": "#counter-reject" }, "expectations": [
+        { "id": "rejected", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Strict shape rejected the extra field; prior Slot remains authoritative." } }
       ] },
       { "id": "open", "input": "ui-click", "label": "Reopen catalog without resetting panel owners", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" }, "expectations": [
         { "id": "flow-still-live", "type": "layout", "operator": "present", "layout": { "layoutId": "flow-counter", "field": "mounted" } }

@@ -22,6 +22,7 @@
 #include <atomic>
 #include <cerrno>
 #include <chrono>
+#include <csignal>
 #include <cstdlib>
 #include <cstdint>
 #include <cstring>
@@ -34,6 +35,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
 
 extern int noveltea_bimg_texturec_main(int argc, const char** argv);
@@ -984,6 +986,7 @@ UiTestRunnerProcessResult run_ui_test_runner_process(const std::filesystem::path
                                                      const std::filesystem::path& input_path,
                                                      const std::filesystem::path& response_path)
 {
+    constexpr auto timeout = std::chrono::seconds(120);
 #if defined(_WIN32)
     const auto quote = [](const std::wstring& value) { return L"\"" + value + L"\""; };
     std::wstring command = quote(runner.native()) + L" " + quote(input_path.native()) + L" " +
@@ -998,7 +1001,14 @@ UiTestRunnerProcessResult run_ui_test_runner_process(const std::filesystem::path
                 .detail = "CreateProcessW failed: " +
                           std::error_code(code, std::system_category()).message()};
     }
-    const auto wait = WaitForSingleObject(process.hProcess, INFINITE);
+    const auto wait = WaitForSingleObject(process.hProcess, static_cast<DWORD>(timeout.count() * 1000));
+    if (wait == WAIT_TIMEOUT) {
+        (void)TerminateProcess(process.hProcess, 124);
+        (void)WaitForSingleObject(process.hProcess, INFINITE);
+        CloseHandle(process.hThread);
+        CloseHandle(process.hProcess);
+        return {.status = 124, .detail = "timed out after 120 seconds"};
+    }
     DWORD exit_code = 0;
     const bool exited = wait == WAIT_OBJECT_0 && GetExitCodeProcess(process.hProcess, &exit_code);
     CloseHandle(process.hThread);
@@ -1039,13 +1049,24 @@ UiTestRunnerProcessResult run_ui_test_runner_process(const std::filesystem::path
                           std::error_code(spawned, std::generic_category()).message()};
     }
     int status = 0;
-    while (waitpid(process, &status, 0) < 0) {
-        if (errno != EINTR) {
+    const auto deadline = std::chrono::steady_clock::now() + timeout;
+    while (true) {
+        const auto waited = waitpid(process, &status, WNOHANG);
+        if (waited == process)
+            break;
+        if (waited < 0 && errno != EINTR) {
             const int code = errno;
             return {.status = -1,
                     .detail = "waitpid failed: " +
                               std::error_code(code, std::generic_category()).message()};
         }
+        if (std::chrono::steady_clock::now() >= deadline) {
+            (void)kill(process, SIGKILL);
+            while (waitpid(process, &status, 0) < 0 && errno == EINTR) {
+            }
+            return {.status = 124, .detail = "timed out after 120 seconds"};
+        }
+        std::this_thread::sleep_for(std::chrono::milliseconds(10));
     }
     if (WIFEXITED(status))
         return {.status = WEXITSTATUS(status), .detail = {}};
@@ -1094,18 +1115,19 @@ nlohmann::json run_external_ui_playback(const nlohmann::json& request)
 #endif
     const auto process = run_ui_test_runner_process(*runner, input_path, response_path);
     const auto response_text = read_file(response_path);
-    std::filesystem::remove_all(root, error);
     if (!response_text) {
         auto message = "Runtime UI Test runner did not produce a response (status " +
                        std::to_string(process.status) + ")";
         if (!process.detail.empty())
             message += ": " + process.detail;
-        message += ".";
+        message += ". Evidence retained at " + root.string() + ".";
         return fail(std::move(message));
     }
     auto response = nlohmann::json::parse(*response_text, nullptr, false);
     if (response.is_discarded())
-        return fail("Runtime UI Test runner returned malformed JSON.");
+        return fail("Runtime UI Test runner returned malformed JSON. Evidence retained at " +
+                    root.string() + ".");
+    std::filesystem::remove_all(root, error);
     return response;
 }
 

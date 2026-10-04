@@ -160,6 +160,9 @@ public:
     set_opacity(core::MountedLayoutInstanceId instance, float opacity);
     [[nodiscard]] std::optional<std::string>
     document_id(core::MountedLayoutInstanceId instance) const;
+    [[nodiscard]] std::optional<std::string>
+    document_id(const core::ScopedLayoutInstanceId& semantic_instance) const;
+    [[nodiscard]] std::optional<std::string> document_id(const core::LayoutId& layout) const;
     [[nodiscard]] std::size_t realized_count() const noexcept { return m_realized.size(); }
     [[nodiscard]] std::optional<HostGeneration> host_generation() const noexcept
     {

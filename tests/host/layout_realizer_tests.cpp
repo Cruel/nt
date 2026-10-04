@@ -517,6 +517,9 @@ TEST_CASE("LayoutRealizer deterministically reconciles logical mounted Layout st
     REQUIRE(realizer.bind_session(project, *HostGeneration::from_number(7)));
 
     auto high = memory_layout(2, "high", 20, "<rml><body>high</body></rml>");
+    const auto semantic_instance = core::ScopedLayoutInstanceId::create("stable-panel");
+    REQUIRE(semantic_instance);
+    high.semantic_key = core::ScopedLayoutMountKey{*semantic_instance.value_if()};
     auto low =
         memory_layout(1, "low", -5, "<rml><body>low</body></rml>", core::LayoutVisibility::Hidden);
     REQUIRE(realizer.reconcile_layouts({high, low}));
@@ -527,6 +530,8 @@ TEST_CASE("LayoutRealizer deterministically reconciles logical mounted Layout st
 
     const auto first_document = realizer.document_id(high.mounted.instance);
     REQUIRE(first_document);
+    CHECK(realizer.document_id(*semantic_instance.value_if()) == first_document);
+    CHECK(realizer.document_id(high.mounted.layout) == first_document);
     high.mounted.policy.local_order = -10;
     high.mounted.policy.visibility = core::LayoutVisibility::Hidden;
     REQUIRE(realizer.reconcile_layouts({low, high}));

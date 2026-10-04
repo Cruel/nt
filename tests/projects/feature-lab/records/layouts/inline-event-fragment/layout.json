@@ -1,6 +1,6 @@
 {
-  "id": "counter-fragment",
-  "label": "Counter resource fragment",
+  "id": "inline-event-fragment",
+  "label": "Inline event fragment",
   "data": {
     "kind": "layout",
     "layoutKind": "fragment",
@@ -19,20 +19,13 @@
       }
     },
     "lua": {
-      "sourceMode": "file"
+      "sourceMode": "none"
     },
     "script": {
-      "enabled": true
+      "enabled": false
     },
     "dependencies": {
-      "images": [
-        {
-          "$ref": {
-            "collection": "assets",
-            "id": "ui-pattern"
-          }
-        }
-      ],
+      "images": [],
       "fonts": [
         {
           "$ref": {

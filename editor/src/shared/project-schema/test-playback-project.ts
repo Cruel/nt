@@ -117,7 +117,9 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   if (step.input === 'ui-click')
     return {
       type: 'ui-click',
-      documentId: step.uiClick.documentId,
+      documentId: step.uiClick.mountInstanceId
+        ? `mount:${step.uiClick.mountInstanceId}`
+        : (step.uiClick.documentId ?? ''),
       selector: step.uiClick.selector,
     };
   return null;

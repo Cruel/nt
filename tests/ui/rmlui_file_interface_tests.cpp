@@ -3,6 +3,8 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "ui/rmlui/rmlui_file_interface.hpp"
 
+#include <RmlUi/Core/SystemInterface.h>
+
 #include <array>
 #include <cstdint>
 #include <cstdio>
@@ -139,14 +141,23 @@ TEST_CASE("RmlUi logical asset path normalization is narrow")
     CHECK(ui::rmlui::resolve_asset_path(manager, "|/lua_demo.lua") == "project:/|/lua_demo.lua");
 }
 
-TEST_CASE("RmlUi memory document source URLs use parser-compatible namespace syntax")
+TEST_CASE("RmlUi memory document source URLs preserve logical namespace paths")
 {
-    CHECK(rmlui_document_source_url("project:/ui/layout.rml") == "project://ui/layout.rml");
+    CHECK(rmlui_document_source_url("project:/ui/layout.rml") == "project|/ui/layout.rml");
     CHECK(rmlui_document_source_url("system:/ui/runtime/runtime_game.rml") ==
-          "system://ui/runtime/runtime_game.rml");
+          "system|/ui/runtime/runtime_game.rml");
     CHECK(rmlui_document_source_url("preview://layout/current.rml") ==
           "preview://layout/current.rml");
     CHECK(rmlui_document_source_url("relative/layout.rml") == "relative/layout.rml");
+}
+
+TEST_CASE("RmlUi memory source URLs keep relative resources in the project namespace")
+{
+    Rml::SystemInterface system;
+    Rml::String joined;
+    system.JoinPath(joined, rmlui_document_source_url("project:/records/layouts/panel/layout.rml"),
+                    "../../../assets/images/button.webp");
+    CHECK(joined == "project:/assets/images/button.webp");
 }
 
 TEST_CASE("Encoded namespace paths resolve stylesheets correctly")

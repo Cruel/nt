@@ -746,6 +746,9 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     auto frontend_initialized = frontend_scripts.initialize({&frontend_assets});
     if (!frontend_initialized)
         return fail("RuntimeUI Lua initialization failed.");
+    auto frontend_bootstrap = frontend_scripts.execute_asset("system:/scripts/bootstrap.lua");
+    if (!frontend_bootstrap)
+        return fail("RuntimeUI system Lua bootstrap failed.");
     frontend_scripts.synchronize_project_data_assets(runtime_project);
 
     noveltea::RuntimeUI runtime_ui;
@@ -917,8 +920,53 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         } else {
             const auto& click = std::get<TypedPlaybackUiClickInput>(step.input);
             std::string document_id = click.document_id;
-            if (document_id == "runtime_game")
+            if (document_id == "runtime_game") {
                 document_id = realizer.document_id(game_hud_instance).value_or(document_id);
+            } else if (document_id.starts_with("mount:")) {
+                auto instance = noveltea::core::ScopedLayoutInstanceId::create(document_id.substr(6));
+                if (!instance) {
+                    report.diagnostics.push_back(
+                        {.code = "tooling.ui_test_mount_address_invalid",
+                         .message = "UI click mount address contains an invalid Mount instance id.",
+                         .source_path = click.document_id});
+                    passed = false;
+                    steps.push_back(std::move(report));
+                    continue;
+                }
+                const auto resolved = realizer.document_id(*instance.value_if());
+                if (!resolved) {
+                    report.diagnostics.push_back(
+                        {.code = "tooling.ui_test_mount_address_unresolved",
+                         .message = "UI click Mount instance is not realized uniquely.",
+                         .source_path = click.document_id});
+                    passed = false;
+                    steps.push_back(std::move(report));
+                    continue;
+                }
+                document_id = *resolved;
+            } else if (document_id.starts_with("layout:")) {
+                auto layout = noveltea::core::LayoutId::create(document_id.substr(7));
+                if (!layout) {
+                    report.diagnostics.push_back(
+                        {.code = "tooling.ui_test_layout_address_invalid",
+                         .message = "UI click Layout address contains an invalid Layout id.",
+                         .source_path = click.document_id});
+                    passed = false;
+                    steps.push_back(std::move(report));
+                    continue;
+                }
+                const auto resolved = realizer.document_id(*layout.value_if());
+                if (!resolved) {
+                    report.diagnostics.push_back(
+                        {.code = "tooling.ui_test_layout_address_unresolved",
+                         .message = "UI click Layout is not realized uniquely.",
+                         .source_path = click.document_id});
+                    passed = false;
+                    steps.push_back(std::move(report));
+                    continue;
+                }
+                document_id = *resolved;
+            }
             const auto clicked = driver->click({.document_id = document_id,
                                                 .selector = click.selector});
             runtime_ui.begin_frame({});

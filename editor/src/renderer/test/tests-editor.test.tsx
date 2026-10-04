@@ -168,7 +168,7 @@ describe('TestsEditor', () => {
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('test.replaceData');
   });
 
-  it('authors stable UI click document ids and selectors', async () => {
+  it('authors stable UI click addresses and selectors', async () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
     data.steps = [{ ...defaultTestStep('ui-click'), id: 'click', label: 'Click confirm' }];
@@ -183,7 +183,7 @@ describe('TestsEditor', () => {
     render(<TestsEditor tab={tab} />);
 
     fireEvent.change(screen.getByLabelText('Document ID'), {
-      target: { value: 'layout_inventory_instance_1_realization_1' },
+      target: { value: 'runtime_inventory' },
     });
     fireEvent.change(screen.getByLabelText('Selector'), { target: { value: '#confirm' } });
     await waitFor(() => {
@@ -191,7 +191,22 @@ describe('TestsEditor', () => {
         tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
       };
       expect(document.tests.smoke.data.steps[0]?.uiClick).toEqual({
-        documentId: 'layout_inventory_instance_1_realization_1',
+        documentId: 'runtime_inventory',
+        mountInstanceId: null,
+        selector: '#confirm',
+      });
+    });
+
+    fireEvent.change(screen.getByLabelText('Mount instance ID'), {
+      target: { value: 'inventory-panel' },
+    });
+    await waitFor(() => {
+      const document = useProjectStore.getState().document as {
+        tests: { smoke: { data: ReturnType<typeof defaultTestData> } };
+      };
+      expect(document.tests.smoke.data.steps[0]?.uiClick).toEqual({
+        documentId: null,
+        mountInstanceId: 'inventory-panel',
         selector: '#confirm',
       });
     });
@@ -233,7 +248,7 @@ describe('TestsEditor', () => {
         ...defaultTestStep('ui-click'),
         id: 'click-confirm',
         label: 'Click confirm',
-        uiClick: { documentId: 'runtime_game', selector: '#confirm' },
+        uiClick: { documentId: 'runtime_game', mountInstanceId: null, selector: '#confirm' },
       },
     ];
     data.preview.selectedStepId = 'click-confirm';

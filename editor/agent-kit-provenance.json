@@ -20,6 +20,11 @@
       "repository": "https://github.com/Cruel/nt.git",
       "revision": "ed4174a34052c57d3c7989ee8ca88d24b256112f"
     },
+    "noveltea-feature-lab-255": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "2b3c957ef22bade17329127345fd09453b2e603f"
+    },
     "noveltea-interaction-authoring": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
@@ -217,6 +222,17 @@
           ]
         },
         {
+          "source": "noveltea-feature-lab-255",
+          "areas": [
+            "engine/src/runtime/runtime_executor.cpp",
+            "engine/src/runtime/runtime_executor_interaction.cpp",
+            "engine/src/runtime/runtime_executor_room.cpp",
+            "tools/editor_tool/tooling_ui_test_runner.cpp",
+            "tests/projects/feature-lab/records/scenes/layout-counter.json",
+            "tests/projects/feature-lab/README.md"
+          ]
+        },
+        {
           "source": "rmlui",
           "areas": ["Documentation/", "Include/RmlUi/Core/"]
         }
@@ -248,6 +264,15 @@
             "editor/src/shared/authoring-source-references.ts",
             "tests/projects/feature-lab/scripts/feature-lab-bootstrap.lua",
             "tests/projects/feature-lab/scripts/notice-board.lua"
+          ]
+        },
+        {
+          "source": "noveltea-feature-lab-255",
+          "areas": [
+            "engine/src/script/lua/bind_runtime_capabilities.cpp",
+            "engine/src/script/lua/runtime_script_api.cpp",
+            "engine/src/runtime/runtime_command_gateway.cpp",
+            "tests/projects/feature-lab/scripts/layout-counter-ui.lua"
           ]
         }
       ]

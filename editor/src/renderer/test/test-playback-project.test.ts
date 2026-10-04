@@ -210,6 +210,34 @@ describe('authoring test playback project adapter', () => {
     });
   });
 
+  it('lowers semantic custom-Mount selector clicks without realization document ids', async () => {
+    const project = createAuthoringProject();
+    project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
+    project.entrypoint = { kind: 'scene', id: 'opening' };
+    const data = defaultTestData('Mount click');
+    data.steps = [
+      {
+        ...defaultTestStep('ui-click'),
+        id: 'click',
+        label: 'Click mounted control',
+        uiClick: { documentId: null, mountInstanceId: 'visit-panel', selector: '#counter-read' },
+      },
+    ];
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data };
+
+    const result = await buildRuntimePlaybackSpecFromAuthoringTest(project, 'smoke');
+
+    expect(result.ok).toBe(true);
+    expect(result.spec).toMatchObject({
+      steps: [
+        {
+          index: 0,
+          input: { type: 'ui-click', documentId: 'mount:visit-panel', selector: '#counter-read' },
+        },
+      ],
+    });
+  });
+
   it('routes selector clicks through UI playback while retaining semantic inputs', async () => {
     const project = createAuthoringProject();
     project.scenes.opening = { id: 'opening', label: 'Opening', data: defaultSceneData('Opening') };
@@ -220,7 +248,7 @@ describe('authoring test playback project adapter', () => {
         ...defaultTestStep('ui-click'),
         id: 'click',
         label: 'Click',
-        uiClick: { documentId: 'runtime_game', selector: '#confirm' },
+        uiClick: { documentId: 'runtime_game', mountInstanceId: null, selector: '#confirm' },
       },
       { ...defaultTestStep('continue'), id: 'continue', label: 'Continue' },
     ];

@@ -22,6 +22,7 @@ type DialogueSequenceBlock = Extract<DialogueBlock, { kind: 'sequence' }>;
 type DialogueSegment = DialogueSequenceBlock['segments'][number];
 type DialogueLineSegment = Extract<DialogueSegment, { kind: 'line' }>;
 type DialogueCue = DialogueLineSegment['cues'][number];
+type CharacterDefinition = CompiledProjectWire['definitions']['characters'][number];
 type InteractionProgram = CompiledProjectWire['definitions']['verbs'][number]['defaultProgram'];
 
 function compiledHintTarget(
@@ -351,6 +352,51 @@ function characterDependency(
   };
 }
 
+// Sparse Stage cues are applied to the character occupying the slot at that point in runtime.
+// Prediction is intentionally path-conservative and may consider several possible slot characters,
+// but it must not manufacture impossible Character/profile/pose combinations while doing so.
+function validCharacterDependencies(
+  project: CompiledProjectWire,
+  character: { kind: 'character'; id: string },
+  options: {
+    profileId?: string | null;
+    poseId?: string | null;
+    expressionId?: string | null;
+    appearanceId?: string | null;
+  },
+): PredictionDependency[] {
+  const definition: CharacterDefinition | undefined = project.definitions.characters.find(
+    (candidate) => candidate.id === character.id,
+  );
+  if (!definition) return [characterDependency(character, options)];
+
+  if (
+    options.expressionId &&
+    !definition.expressions.some((expression) => expression.id === options.expressionId)
+  )
+    return [];
+  if (
+    options.appearanceId &&
+    !definition.appearances.some((appearance) => appearance.id === options.appearanceId)
+  )
+    return [];
+
+  if (options.profileId) {
+    const profile = definition.profiles.find((candidate) => candidate.id === options.profileId);
+    if (!profile) return [];
+    if (options.poseId && !profile.poses.some((pose) => pose.id === options.poseId)) return [];
+    return [characterDependency(character, options)];
+  }
+
+  if (options.poseId) {
+    return definition.profiles
+      .filter((profile) => profile.poses.some((pose) => pose.id === options.poseId))
+      .map((profile) => characterDependency(character, { ...options, profileId: profile.id }));
+  }
+
+  return [characterDependency(character, options)];
+}
+
 function dialogueInitialDependencies(dialogue: DialogueDefinition): PredictionDependency[] {
   const dependencies: PredictionDependency[] = [];
   for (const slot of dialogue.stageSlots) {
@@ -428,6 +474,7 @@ function dialogueMediaContents(dialogue: DialogueDefinition, slotId: string) {
 }
 
 function dialogueCueDependencies(
+  project: CompiledProjectWire,
   dialogue: DialogueDefinition,
   block: DialogueSequenceBlock,
   line: DialogueLineSegment,
@@ -448,7 +495,7 @@ function dialogueCueDependencies(
         : dialogueStageCharacters(dialogue, cue.mutation.slotId);
       for (const character of characters)
         dependencies.push(
-          characterDependency(character, {
+          ...validCharacterDependencies(project, character, {
             profileId: cue.mutation.profileId,
             poseId: cue.mutation.poseId,
             expressionId: cue.mutation.expressionId,
@@ -662,7 +709,8 @@ export function compileFlowPredictionIndex(
             const dependencies: PredictionDependency[] = [];
             if (cursor === 0 && speaker) dependencies.push(characterDependency(speaker));
             const cue = segment.cues[cursor];
-            if (cue) dependencies.push(...dialogueCueDependencies(dialogue, block, segment, cue));
+            if (cue)
+              dependencies.push(...dialogueCueDependencies(project, dialogue, block, segment, cue));
             addSlice(
               dialoguePoint(dialogue.id, block.id, 'present-segment', {
                 segmentId: segment.id,

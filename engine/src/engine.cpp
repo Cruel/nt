@@ -2743,19 +2743,27 @@ void Engine::Impl::handle_events()
                 world_trace_result = world;
 #endif
                 if (world.target && !focused_room_preview) {
+                    core::Diagnostics rejection_diagnostics;
+                    const auto dispatch_target =
+                        [this, &rejection_diagnostics](core::RuntimeInputMessage input) {
+                            auto result = m_game_host.submit_runtime_input(std::move(input));
+                            if (!result.accepted())
+                                rejection_diagnostics = std::move(result.diagnostics);
+                            return result.accepted();
+                        };
                     const bool accepted = std::visit(
-                        [this, &world](const auto& target) {
+                        [dispatch_target, &world](const auto& target) {
                             using T = std::decay_t<decltype(target)>;
                             if constexpr (std::is_same_v<T, core::compiled::InteractionSubject>) {
                                 return world.primary_activation
-                                           ? dispatch_runtime_input(core::RuntimeInputMessage{
+                                           ? dispatch_target(core::RuntimeInputMessage{
                                                  core::PrimaryActivateInput{target,
                                                                             world.trigger_context}})
-                                           : dispatch_runtime_input(
+                                           : dispatch_target(
                                                  core::RuntimeInputMessage{core::OpenVerbMenuInput{
                                                      target, world.trigger_context}});
                             } else if (world.primary_activation) {
-                                return dispatch_runtime_input(core::RuntimeInputMessage{
+                                return dispatch_target(core::RuntimeInputMessage{
                                     core::NavigateRoomInput{target.exit_id}});
                             } else {
                                 return true;
@@ -2766,7 +2774,8 @@ void Engine::Impl::handle_events()
                         routed.diagnostics.push_back(
                             {.code = "host.input.hotspot_target_rejected",
                              .message = "The runtime rejected the semantic target selected by a "
-                                        "world hotspot"});
+                                        "world hotspot",
+                             .causes = std::move(rejection_diagnostics)});
                     }
                     m_world_hotspots.target_completed();
                 }

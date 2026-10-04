@@ -1,0 +1,4 @@
+<div class="counter-frame" style="position: absolute; left: 470px; top: 740px; width: 420px; font-family: dejavusans;">
+<h2>Inline event fragment</h2>
+<button id="inline-fragment-data" onclick="noveltea.notify(assert(Data.load('notice-board-data')).notices[1].title)">Read declared Data without dedicated Layout Lua</button>
+</div>

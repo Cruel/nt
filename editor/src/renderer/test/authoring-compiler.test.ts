@@ -1664,6 +1664,106 @@ describe('authoring compiler framework', () => {
     });
   });
 
+  it('does not cross sparse Dialogue presentation axes onto incompatible future Stage characters', () => {
+    const project = validProject();
+    const guide = defaultCharacterData('Guide');
+    const stage = guide.profiles[0]!;
+    stage.poses.push({ ...structuredClone(stage.poses[0]!), id: 'lean', label: 'Lean' });
+    guide.profiles.push({
+      ...structuredClone(stage),
+      id: 'portrait',
+      label: 'Portrait',
+      defaultPoseId: 'close',
+      poses: [{ ...structuredClone(stage.poses[0]!), id: 'close', label: 'Close' }],
+    });
+    project.characters.guide = { id: 'guide', label: 'Guide', data: guide };
+    project.characters.radio = {
+      id: 'radio',
+      label: 'Radio',
+      data: defaultCharacterData('Radio'),
+    };
+
+    const dialogue = defaultDialogueData('Sparse stage');
+    dialogue.stageSlots = [
+      {
+        id: 'left',
+        label: 'Left',
+        speakerSync: false,
+        initial: {
+          character: { $ref: { collection: 'characters', id: 'guide' } },
+          profileId: 'stage',
+          poseId: 'default',
+          expressionId: 'neutral',
+          appearanceId: null,
+          position: 'left',
+          offset: { x: 0, y: 0 },
+          scale: 1,
+          visible: true,
+        },
+      },
+    ];
+    const start = dialogue.blocks[0]!;
+    if (start.type !== 'sequence' || start.segments[0]?.type !== 'line')
+      throw new Error('Expected default Dialogue line.');
+    start.segments[0].cues = [
+      {
+        id: 'lean',
+        kind: 'stage',
+        position: { offset: 0, order: 0 },
+        mutation: { slotId: 'left', action: 'update', poseId: 'lean' },
+      },
+      {
+        id: 'portrait',
+        kind: 'stage',
+        position: { offset: 0, order: 1 },
+        mutation: { slotId: 'left', action: 'update', profileId: 'portrait' },
+      },
+      {
+        id: 'radio',
+        kind: 'stage',
+        position: { offset: 0, order: 2 },
+        mutation: {
+          slotId: 'left',
+          action: 'update',
+          character: { $ref: { collection: 'characters', id: 'radio' } },
+        },
+      },
+    ];
+    project.dialogues.sparse = { id: 'sparse', label: 'Sparse stage', data: dialogue };
+    project.entrypoint = { kind: 'dialogue', id: 'sparse' };
+
+    const result = compileAuthoringProject(project);
+    expect(result.ok).toBe(true);
+    if (!result.ok) return;
+    const characterDependencies = result.project
+      .flowPrediction!.dependencyGroups.flat()
+      .filter((dependency) => dependency.kind === 'character');
+
+    expect(characterDependencies).toContainEqual(
+      expect.objectContaining({
+        character: { kind: 'character', id: 'guide' },
+        profileId: 'stage',
+        poseId: 'lean',
+      }),
+    );
+    expect(characterDependencies).toContainEqual(
+      expect.objectContaining({
+        character: { kind: 'character', id: 'guide' },
+        profileId: 'portrait',
+      }),
+    );
+    expect(characterDependencies).toContainEqual(
+      expect.objectContaining({ character: { kind: 'character', id: 'radio' } }),
+    );
+    expect(
+      characterDependencies.some(
+        (dependency) =>
+          dependency.character.id === 'radio' &&
+          (dependency.poseId === 'lean' || dependency.profileId === 'portrait'),
+      ),
+    ).toBe(false);
+  });
+
   it('lowers prospective Room lifecycle Flow into prediction summaries without rejection programs', () => {
     const project = validProject();
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };

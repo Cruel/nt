@@ -6,7 +6,7 @@
 </head>
 <body template="counter-shell" onshow="layout_counter_ui.show(event, element, document)">
   <h2 id="counter-caption">Counter</h2>
-  <img src="/project|/assets/images/button.webp"/>
+  <img src="/assets/images/ui-pattern.png"/>
   <div id="counter-values" class="counter-values"></div>
   <input id="counter-draft" type="text" value="transient draft"/>
   <button id="counter-read" onclick="layout_counter_ui.read(document)">Read bindings</button>

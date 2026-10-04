@@ -4,7 +4,7 @@
 <button id="trigger-read" onclick="trigger_panel_ui.show(document)">Read captured geometry</button>
 <button id="trigger-child" onclick="assert(Game.mount_context():present_child('trigger-child', 'geometry-child'))">Contextual child</button>
 <button id="trigger-inventory" onclick="assert(Game.mount_context():present_child_inventory())">Child Inventory</button>
-<button id="trigger-remove-source" onclick="assert(Interactable('alpha-board'):set_location({kind='unplaced'}))">Remove alpha source</button>
-<button id="trigger-remove-custom" onclick="assert(Interactable('custom-board'):set_location({kind='unplaced'}))">Remove custom source</button>
+<button id="trigger-remove-source" onclick="assert(noveltea.interactables.set_location('alpha-board', {kind='unplaced'}))">Remove alpha source</button>
+<button id="trigger-remove-custom" onclick="assert(noveltea.interactables.set_location('custom-board', {kind='unplaced'}))">Remove custom source</button>
 <button id="trigger-dismiss" onclick="assert(Game.mount_context():dismiss())">Dismiss parent + descendants</button>
 </section></body></rml>
