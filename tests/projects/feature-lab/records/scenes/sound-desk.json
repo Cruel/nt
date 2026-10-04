@@ -1,0 +1,711 @@
+{
+  "id": "sound-desk",
+  "label": "sound-desk",
+  "data": {
+    "kind": "scene",
+    "displayName": "sound-desk",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "layer",
+        "label": "layer",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(audio.set_music('music-loop', {gain=0.35})); assert(audio.set_loop('left', 'pilot-cue-audio', 'ambience', {gain=0.12,pan=-0.8})); assert(audio.set_loop('right', 'pilot-cue-audio', 'ambience', {gain=0.12,pan=0.8}))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "layered",
+        "label": "layered",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Listen for streamed Music and two synthetic notification Ambience loops, panned left/right. Save here, listen, load: desired loops reconstruct from their beginnings, not the old decoder position. Continue to replace Music at lower gain and clear only right Ambience."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "replace",
+        "label": "replace",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(audio.set_music('music-loop', {gain=0.2,fade_ms=500})); assert(audio.clear_loop('right'))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "inspect-replacement",
+        "label": "inspect-replacement",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "local m = assert(audio.state('background-music')); assert(m.gain == 0.2 and audio.state('left') and not audio.state('right')); noveltea.notify('Music gain 0.2; left ambience retained; right ambience absent.')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "replaced",
+        "label": "replaced",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Music is quieter; left Ambience remains. Continue for two overlapping one-shots followed by a transient Purpose stop. Desired loops must remain audible."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "one-left",
+        "label": "one-left",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 0.5,
+        "pan": -0.8,
+        "panSource": null,
+        "fadeMs": 0,
+        "waitForCompletion": false,
+        "causality": "causal",
+        "synchronized": true,
+        "skipBehavior": "stop",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      {
+        "id": "one-right",
+        "label": "one-right",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 0.5,
+        "pan": 0.8,
+        "panSource": null,
+        "fadeMs": 0,
+        "waitForCompletion": false,
+        "causality": "causal",
+        "synchronized": true,
+        "skipBehavior": "stop",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      {
+        "id": "overlap",
+        "label": "overlap",
+        "type": "wait",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "waitKind": "duration",
+        "durationMs": 250,
+        "skippable": true
+      },
+      {
+        "id": "stop-transient",
+        "label": "stop-transient",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(audio.stop('sound-effect', {fade_ms=150}))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "inspect-stop",
+        "label": "inspect-stop",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(audio.state('background-music') and audio.state('left')); noveltea.notify('Transient stop retained desired Music and Ambience.')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "stop-result",
+        "label": "stop-result",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue to clear all desired Ambience while retaining Music. The notification loop is deliberately synthetic, not a natural-ambience quality sample."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "clear-ambience",
+        "label": "clear-ambience",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(audio.clear_purpose('ambience'))",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "inspect-clear",
+        "label": "inspect-clear",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(not audio.state('left') and audio.state('background-music')); noveltea.notify('Ambience absent; Music retained.')",
+        "mayYield": false,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "await-intro",
+        "label": "await-intro",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue to play-and-wait, then stop-and-wait. The next caption must appear only after completion. Headless Tests do not prove audible completion."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "await",
+        "label": "await",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(audio.play_and_wait('pilot-cue-audio', 'sound-effect')); assert(audio.stop_and_wait('sound-effect', {fade_ms=200})); assert(audio.play_ui('pilot-cue-audio', {gain=0.3}))",
+        "mayYield": true,
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "mix-intro",
+        "label": "mix-intro",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "UI Sound never gates progression. Current shell/Lua has no master/Purpose mix or mute control, so that portion is blocked rather than emulated by instance gain. Continue for Voice over Music: Project ducking should reduce Music during Voice and release afterward."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      { "id": "duck-ambience", "label": "Restore quiet Ambience for Voice ducking", "type": "run-lua", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "source": "assert(audio.set_loop('left','pilot-cue-audio','ambience',{gain=0.08,pan=-0.8}))", "mayYield": false, "autosaveSafePoint": false },
+      {
+        "id": "voice",
+        "label": "voice",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-voice-audio"
+          }
+        },
+        "purpose": "voice",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 1,
+        "pan": 0,
+        "panSource": null,
+        "fadeMs": 0,
+        "waitForCompletion": true,
+        "causality": "causal",
+        "synchronized": true,
+        "skipBehavior": "stop",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      { "id": "clear-duck-ambience", "label": "Clear Ambience before stereo comparison", "type": "run-lua", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "source": "assert(audio.clear_loop('left'))", "mayYield": false, "autosaveSafePoint": false },
+      {
+        "id": "pan-intro",
+        "label": "pan-intro",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue to compare Room Anchor pan at left with a moving actor pan source. Use stereo headphones; camera framing is zoomed. Explicit numeric pan earlier is not semantic Location."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "pan-actor",
+        "label": "pan-actor",
+        "type": "actor-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "slotId": "guide",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "pilot-guide"
+          }
+        },
+        "action": "show",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "neutral",
+        "appearanceId": null,
+        "position": "left",
+        "offset": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": 1,
+        "transition": "none",
+        "durationMs": 0,
+        "waitForCompletion": false,
+        "skippable": true
+      },
+      {
+        "id": "anchor-pan",
+        "label": "anchor-pan",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 0.5,
+        "pan": 0,
+        "panSource": {
+          "kind": "room-anchor",
+          "room": {
+            "$ref": {
+              "collection": "rooms",
+              "id": "sound-desk"
+            }
+          },
+          "anchorId": "left"
+        },
+        "fadeMs": 0,
+        "waitForCompletion": true,
+        "causality": "causal",
+        "synchronized": true,
+        "skipBehavior": "stop",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      {
+        "id": "actor-pan",
+        "label": "actor-pan",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 0.5,
+        "pan": 0,
+        "panSource": {
+          "kind": "scene-actor",
+          "slotId": "guide"
+        },
+        "fadeMs": 0,
+        "waitForCompletion": false,
+        "causality": "causal",
+        "synchronized": true,
+        "skipBehavior": "stop",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      {
+        "id": "move-actor",
+        "label": "move-actor",
+        "type": "actor-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "slotId": "guide",
+        "character": {
+          "$ref": {
+            "collection": "characters",
+            "id": "pilot-guide"
+          }
+        },
+        "action": "move",
+        "profileId": "stage",
+        "poseId": "standing",
+        "expressionId": "neutral",
+        "appearanceId": null,
+        "position": "right",
+        "offset": {
+          "x": 0,
+          "y": 0
+        },
+        "scale": 1,
+        "transition": "slide",
+        "durationMs": 1000,
+        "waitForCompletion": true,
+        "skippable": true
+      },
+      {
+        "id": "pause-intro",
+        "label": "pause-intro",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue for gameplay-following and unscaled one-shots. Pause immediately: gameplay sound pauses, unscaled UI Sound continues. Restart to stop all session loops. Continue/skip the next causal stop/play and disposable suppress controls; no orphan sound may remain after Flow ends."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      },
+      {
+        "id": "pause-gameplay",
+        "label": "pause-gameplay",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 0.5,
+        "pan": 0,
+        "panSource": null,
+        "fadeMs": 0,
+        "waitForCompletion": false,
+        "causality": "causal",
+        "synchronized": true,
+        "skipBehavior": "stop",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      { "id": "pause-owner", "label": "Owner-following one-shot", "type": "audio-cue", "enabled": true, "timeline": { "trackId": "main", "startMs": 0, "durationMs": 0 }, "completionDependencies": [], "owner": "invocation", "asset": { "$ref": { "collection": "assets", "id": "pilot-cue-audio" } }, "purpose": "sound-effect", "action": "play", "lifetime": "one-shot", "pausePolicy": "owner", "gain": 0.25, "pan": 0.8, "panSource": null, "fadeMs": 0, "waitForCompletion": false, "causality": "causal", "synchronized": true, "skipBehavior": "stop", "instanceId": null, "replacementGroup": null },
+      {
+        "id": "pause-unscaled",
+        "label": "pause-unscaled",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "unscaled",
+        "gain": 0.5,
+        "pan": 0,
+        "panSource": null,
+        "fadeMs": 0,
+        "waitForCompletion": false,
+        "causality": "disposable",
+        "synchronized": false,
+        "skipBehavior": "play",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      {
+        "id": "skip-suppress",
+        "label": "skip-suppress",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 0.5,
+        "pan": 0,
+        "panSource": null,
+        "fadeMs": 0,
+        "waitForCompletion": false,
+        "causality": "disposable",
+        "synchronized": false,
+        "skipBehavior": "suppress",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      {
+        "id": "skip-play",
+        "label": "skip-play",
+        "type": "audio-cue",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "owner": "invocation",
+        "asset": {
+          "$ref": {
+            "collection": "assets",
+            "id": "pilot-cue-audio"
+          }
+        },
+        "purpose": "sound-effect",
+        "action": "play",
+        "lifetime": "one-shot",
+        "pausePolicy": "gameplay",
+        "gain": 0.5,
+        "pan": 0,
+        "panSource": null,
+        "fadeMs": 0,
+        "waitForCompletion": false,
+        "causality": "causal",
+        "synchronized": true,
+        "skipBehavior": "play",
+        "instanceId": null,
+        "replacementGroup": null
+      },
+      {
+        "id": "owners",
+        "label": "owners",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue to end Flow: its one-shots end but session Music remains. Leave Room and Music still remains; Restart removes it. Session versus visit-loop cleanup is shared with the presentation owner workflow."
+          },
+          "markup": "active-text"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": true
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

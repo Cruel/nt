@@ -1,0 +1,19 @@
+{
+  "id": "lab-inherited",
+  "label": "lab-inherited",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "material",
+      "material": {
+        "$ref": {
+          "collection": "materials",
+          "id": "engine2d-draw-contract"
+        }
+      }
+    },
+    "parameters": {},
+    "textures": {},
+    "displayName": "lab-inherited"
+  }
+}

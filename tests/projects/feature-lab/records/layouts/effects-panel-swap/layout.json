@@ -1,0 +1,8 @@
+{
+  "id": "effects-panel-swap", "label": "Swapped WorldOverlay",
+  "data": { "kind": "layout", "layoutKind": "document", "target": "scene-overlay",
+    "contract": { "inputs": {}, "signals": {} }, "rml": { "sourceMode": "file" },
+    "rcss": { "sourceMode": "file" }, "lua": { "sourceMode": "none" }, "script": { "enabled": false },
+    "dependencies": { "images": [], "fonts": [], "stylesheets": [], "materials": [], "scripts": [], "data": [] },
+    "preview": { "background": "dark" } }
+}

@@ -1,0 +1,25 @@
+{
+  "id": "sound-desk-flow",
+  "label": "Desired audio replacement and exact clearing",
+  "data": {
+    "kind": "test",
+    "displayName": "Desired audio replacement and exact clearing",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh home" },
+      { "id": "route", "input": "navigate", "label": "Presentation corridor", "navigate": { "exitId": "world-composition-test-entry" } },
+      { "id": "enter", "input": "navigate", "label": "Layer persistent audio", "navigate": { "exitId": "sound-desk-test-entry" } },
+      { "id": "replace", "input": "continue", "label": "Replace music without clearing ambience", "expectations": [
+        { "id": "music", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Music gain 0.2; left ambience retained; right ambience absent." } }
+      ] },
+      { "id": "overlap", "input": "continue", "label": "Start overlapping one-shots" },
+      { "id": "stop", "input": "tick", "tick": { "deltaSeconds": 0.3 }, "label": "Stop transient Purpose, not desired loops", "expectations": [
+        { "id": "loops", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Transient stop retained desired Music and Ambience." } }
+      ] },
+      { "id": "clear", "input": "continue", "label": "Clear only Ambience Purpose", "expectations": [
+        { "id": "purpose", "type": "event", "operator": "present", "event": { "kind": "notification", "value": "Ambience absent; Music retained." } }
+      ] }
+    ],
+    "finalExpectations": [],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

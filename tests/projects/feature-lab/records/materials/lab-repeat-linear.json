@@ -1,0 +1,28 @@
+{
+  "id": "lab-repeat-linear",
+  "label": "lab-repeat-linear",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "material",
+      "material": {
+        "$ref": {
+          "collection": "materials",
+          "id": "lab-pattern"
+        }
+      }
+    },
+    "parameters": {},
+    "textures": {
+      "s_texColor": {
+        "address": "repeat",
+        "filter": "linear"
+      },
+      "s_pattern": {
+        "address": "repeat",
+        "filter": "linear"
+      }
+    },
+    "displayName": "lab-repeat-linear"
+  }
+}

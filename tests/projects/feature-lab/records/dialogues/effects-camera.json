@@ -1,0 +1,125 @@
+{
+  "id": "effects-camera",
+  "label": "Camera emphasis over authored framing",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "Camera emphasis over authored framing",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": true,
+      "logMode": "everything"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "Introduction",
+        "defaultSpeaker": {
+          "$ref": {
+            "collection": "characters",
+            "id": "pilot-guide"
+          }
+        },
+        "segments": [
+          {
+            "id": "shake",
+            "type": "line",
+            "speaker": {
+              "$ref": {
+                "collection": "characters",
+                "id": "pilot-guide"
+              }
+            },
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Inspect shake over the zoomed authored Camera View. Wait for emphasis to settle, then advance. On restart, skip during the cue: the unchanged desired framing must return."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "shake",
+                "kind": "camera",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "emphasis": {
+                  "kind": "shake",
+                  "amplitude": {
+                    "x": 18,
+                    "y": 8
+                  },
+                  "frequencyHz": 12,
+                  "durationMs": 1200,
+                  "skippable": true,
+                  "waitForCompletion": true
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "punch",
+            "type": "line",
+            "speaker": {
+              "$ref": {
+                "collection": "characters",
+                "id": "pilot-guide"
+              }
+            },
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Inspect punch over the zoomed authored Camera View. Wait for emphasis to settle, then advance. On restart, skip during the cue: the unchanged desired framing must return."
+              },
+              "markup": "plain"
+            },
+            "cues": [
+              {
+                "id": "punch",
+                "kind": "camera",
+                "position": {
+                  "offset": 0,
+                  "order": 0
+                },
+                "emphasis": {
+                  "kind": "punch",
+                  "translation": {
+                    "x": 25,
+                    "y": 0
+                  },
+                  "zoomDelta": 0.08,
+                  "rotationDegrees": 2,
+                  "durationMs": 1200,
+                  "skippable": true,
+                  "waitForCompletion": true
+                }
+              }
+            ],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "end"
+    }
+  }
+}

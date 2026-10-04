@@ -1,0 +1,28 @@
+{
+  "id": "lab-repeat-inherit",
+  "label": "lab-repeat-inherit",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "material",
+      "material": {
+        "$ref": {
+          "collection": "materials",
+          "id": "lab-pattern"
+        }
+      }
+    },
+    "parameters": {},
+    "textures": {
+      "s_texColor": {
+        "address": "repeat",
+        "filter": "inherit"
+      },
+      "s_pattern": {
+        "address": "repeat",
+        "filter": "nearest"
+      }
+    },
+    "displayName": "lab-repeat-inherit"
+  }
+}

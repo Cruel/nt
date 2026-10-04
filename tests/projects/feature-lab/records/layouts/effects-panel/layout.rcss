@@ -1,0 +1,3 @@
+body { background: transparent; }
+#effects-clip { position: absolute; left: 35%; top: 15%; width: 30%; height: 100px; overflow: hidden; }
+#effects-decorated { width: 120%; height: 150px; decorator: shader("lab-decorator"); color: white; font-size: 22px; padding: 12px; }

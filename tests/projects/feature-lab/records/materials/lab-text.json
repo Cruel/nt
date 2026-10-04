@@ -1,0 +1,29 @@
+{
+  "id": "lab-text",
+  "label": "lab-text",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "preset",
+      "preset": "active-text"
+    },
+    "displayName": "lab-text",
+    "parameters": {
+      "u_tint": {
+        "type": "vec4",
+        "value": [1, 0.3, 0.15, 1]
+      },
+      "u_amount": {
+        "type": "float",
+        "value": 0.25
+      }
+    },
+    "textures": {},
+    "shader": {
+      "fragment": {
+        "kind": "project",
+        "path": "shaders/lab-text.fs.sc"
+      }
+    }
+  }
+}

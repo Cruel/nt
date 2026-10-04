@@ -1,0 +1,15 @@
+{
+  "id": "lab-decorator",
+  "label": "lab-decorator",
+  "data": {
+    "kind": "material",
+    "base": {
+      "kind": "preset",
+      "preset": "rmlui-decorator"
+    },
+    "displayName": "lab-decorator",
+    "shader": { "fragment": { "kind": "project", "path": "shaders/lab-decorator.fs.sc" } },
+    "parameters": {},
+    "textures": {}
+  }
+}

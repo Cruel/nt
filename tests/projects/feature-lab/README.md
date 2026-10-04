@@ -36,7 +36,7 @@ gameplay admission, world hit testing, or Hotspot hover/highlight state. The Rml
 for the element/style side of that evidence; it is not a separate routing log. See
 `docs/runtime/DEVELOPER_DEBUGGING.md` for the exact evidence sequence and build capability matrix.
 
-The Feature Lab media are reusable reference assets rather than scenario-specific generated placeholders: a WebP bedroom background, transparent WebP button, matched normal/smile Character sprites, MP3 notification SFX, and a spoken MP3 voice line. The Fade remains a manual perceptual check. The registered `music-loop` Asset (`assets/audio/music_loop.mp3`) is reserved for future scenarios and is not played by either pilot. Current media checks are ready; use provisional status only for genuine temporary limitations, not to preserve a placeholder demonstration.
+The Feature Lab media are reusable reference assets rather than scenario-specific generated placeholders: a WebP bedroom background, transparent WebP button, matched normal/smile Character sprites, MP3 notification SFX, and a spoken MP3 voice line. The Fade remains a manual perceptual check. The registered `music-loop` Asset (`assets/audio/music_loop.mp3`) is now used by Sound Desk and presentation owner checks, not either pilot. Its 3.318-second loop seam awaits listening acceptance; related audio checks are explicitly provisional, not certified by metadata.
 
 The World & Interaction expansion adds two focused stations. `room-lifecycle` exercises source/Exit/target rejection, ordered lifecycle program/Script Hook phases, entry context, child Dialogue flow, and authored transition behavior; `room-lifecycle-flow` and `room-lifecycle-child-flow` are its semantic witnesses. `world-composition` exercises background fit cycling, presentation-space bounds/views, multiple occurrences of one gameplay identity, fallback/explicit placements, a placement-attached Layout, conditional composition, cross-plane order, and authored plus runtime Environment lifetime; `world-composition-flow` verifies the authoritative state changes. The existing `rooms-interactions` station also distinguishes guard-vetoed navigation from directed Room Change. Inventory behaviors that still lack a normal authored invocation path are kept explicitly `blocked` rather than narrowed: `no-room-boundary`, full transition-precedence selection including an explicit request, occurrence Location plus independent visibility/eligibility mutation, dynamic/no-presentation placement precedence, and named camera-view/Focus selection.
 
@@ -104,6 +104,55 @@ real panel controls and native Slot/contract/reconstruction tests rather than La
 private transport. ActiveText/Inventory behavior is shared with existing stations;
 localization/display/save detail remains assigned to #257. Maps remain explicitly owner-deferred.
 
+### Sound & Presentation
+
+`materials-engine2d` preserves the original draw-texture, Definition/Instance specialization and
+cross-family ordering witnesses. A small upper sampling row compares clamp-nearest, repeat-linear
+and repeat-inherit with one shared pattern and one author-sampler replacement. Continue the Scene
+for sparse Material inheritance, runtime selection/parameter precedence, dormant values,
+Property/time/size bindings and light/dark premultiplied edges. Application overrides still outrank
+Material defaults; the extra Prop pair deliberately has no application deltas for the base/child
+comparison. Shader source and ordinary authoring records, not private renderer hooks, own these
+examples.
+
+`presentation-effects` compares Scene, visit and session lifetimes (background, actors, Prop,
+Environment and loops), then runs Dialogue shake/punch over an authored zoomed Stage, independent
+finite replacement, one-world-target Cut/Fade/Dissolve, nested paginated ActiveText Materials,
+clipped RmlUi decorators, and world/full-game postprocess replacement/stack/clear. A noncommuting
+tint/inversion pair makes same-scope order changes visible. Flash is shared
+with the existing Dialogue pilot. `presentation-effects-flow` protects public desired-state queries
+across Return and Room leave. A native sandbox entry smoke exercises the initial realization, not
+all later pixel contracts.
+
+`parameter-tween` remains explicitly **blocked**. The authored Test preparation path omits custom
+shader reflection, so a Scene parameter Event referencing a custom uniform is rejected before
+playback. Attempting the preset `u_tint` instead reveals a separate mismatch: current authoring
+color/default values do not match the native shader-material JSON decoder. Keep these owning
+compiler/metadata failures visible; a caption or Lab-only flag is not a substitute tween witness.
+Fix those boundaries before adding the real tween/replace/skip Events. Ordinary shader-compiled
+package export supplies reflection for the supported custom-source paths used by the other checks.
+The decorator uses a project-owned source override: preset-only native authored-Test metadata also
+exposes `system:/` binary paths to package-entry validation, which rejects them as package paths.
+
+`sound-desk` layers desired loops, replaces Music by gain, clears exact instance/Purpose, overlaps
+and stops transient one-shots, awaits audio completion, mixes spoken Voice, compares explicit and
+actor/Anchor pan, and demonstrates pause/skip/owner policy. Project Voice ducking is enabled at 0.5
+for Music/Ambience. Music/Voice/Ambience exercise streaming (including looping); SFX/UI Sound exercise buffered
+one-shot playback. Asset reuse does not change the Purpose-selected preparation path. No new media or codec-permutation assets are needed.
+The 3.318-second Music clip remains provisional pending human seam audition; no headless result
+claims audible quality, backend completion, decoder position, stereo pan or orphan-sound proof.
+`mix-and-duck` retains a second explicit gap: Project mix/mute settings exist, but current shell and
+normal Lua expose no interactive master/Purpose controls. Voice duck/release is playable; instance
+gain is not a substitute for that missing authoring surface. Desired reconstruction after
+save/load remains a manual listening workflow; `sound-desk-flow` protects exact logical replacement
+and clearing, not decoder resumption.
+
+The three new `*-ui` Tests click real catalog category/launch controls and reopen the catalog without
+changing the current Room. Their catalog links are **launch witnesses**, not automated visual/audio
+acceptance. Use a shader-compiled stereo player for the catalog's later pixel/listening checks.
+The category menu is separate from the numbered scenario guide: catalog launches hide the former
+and display the latter. Direct Room entry does not supply Feature Lab scenario startup context.
+
 ### Interaction coverage policy
 
 Canonical Lab configurations remain validation/diagnostic clean. Supported specificity, Guard
@@ -152,6 +201,11 @@ build/cli/linux/noveltea --project tests/projects/feature-lab test run layout-co
 build/cli/linux/noveltea --project tests/projects/feature-lab test run layout-counter-ui
 build/cli/linux/noveltea --project tests/projects/feature-lab test run menus-and-input-ui
 build/cli/linux/noveltea --project tests/projects/feature-lab test run hotspots-and-cursors-ui
+build/cli/linux/noveltea --project tests/projects/feature-lab test run sound-desk-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run presentation-effects-flow
+build/cli/linux/noveltea --project tests/projects/feature-lab test run materials-engine2d-ui
+build/cli/linux/noveltea --project tests/projects/feature-lab test run presentation-effects-ui
+build/cli/linux/noveltea --project tests/projects/feature-lab test run sound-desk-ui
 ```
 
 The bare `test run` command is the normal automation/acceptance entry point. It executes the complete
