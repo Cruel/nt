@@ -1,5 +1,7 @@
 #include "tooling_native_c.h"
 
+#include <nlohmann/json.hpp>
+
 #include <cstdint>
 #include <cstdio>
 #include <cstring>
@@ -21,10 +23,21 @@ int main(int argc, char** argv)
         std::fprintf(stderr, "failed to open native-tool request: %s\n", argv[2]);
         return 66;
     }
-    const std::vector<std::uint8_t> request(std::istreambuf_iterator<char>(input), {});
+    std::vector<std::uint8_t> request(std::istreambuf_iterator<char>(input), {});
     if (!input.eof() && input.fail()) {
         std::fprintf(stderr, "failed to read native-tool request: %s\n", argv[2]);
         return 74;
+    }
+
+    // Only this development executable supplies a build-tree root; the shipped library stays relocatable.
+    if (std::strcmp(argv[1], "font-coverage") == 0) {
+        auto parsed = nlohmann::json::parse(request.begin(), request.end(), nullptr, false);
+        if (parsed.is_object() &&
+            (!parsed.contains("systemRoot") || parsed["systemRoot"] == "")) {
+            parsed["systemRoot"] = NOVELTEA_TOOLING_SYSTEM_ASSET_ROOT;
+            const auto text = parsed.dump();
+            request.assign(text.begin(), text.end());
+        }
     }
 
     const auto* operation = reinterpret_cast<const std::uint8_t*>(argv[1]);

@@ -10,7 +10,8 @@ set(NOVELTEA_RMLUI_BASE_PATCH_REVISION "6a-feature-calc-presentation-1")
 set(NOVELTEA_RMLUI_FONT_RASTER_PATCH_REVISION "6b-feature-calc-font-raster-1")
 set(NOVELTEA_RMLUI_LUA_LISTENER_PATCH_REVISION "6c-feature-calc-lua-listener-state-1")
 set(NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION "6d-dynamic-fallback-fonts-1")
-set(NOVELTEA_RMLUI_PATCH_REVISION "6e-lua-pointer-ownership-1")
+set(NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_REVISION "6e-lua-pointer-ownership-1")
+set(NOVELTEA_RMLUI_PATCH_REVISION "6f-lua-error-severity-1")
 set(NOVELTEA_RMLUI_PATCH_FILE
     "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-feature-calc-noveltea-presentation.patch")
 set(NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE
@@ -21,10 +22,12 @@ set(NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_FILE
     "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-feature-calc-noveltea-dynamic-fallback-fonts.patch")
 set(NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_FILE
     "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-noveltea-lua-pointer-ownership.patch")
+set(NOVELTEA_RMLUI_LUA_ERROR_PATCH_FILE
+    "${CMAKE_SOURCE_DIR}/cmake/patches/rmlui-noveltea-lua-error-severity.patch")
 
 function(_noveltea_write_rmlui_dependency_diagnostic
          provider source_dir patch_sha256 font_raster_patch_sha256 lua_listener_patch_sha256
-         dynamic_fallback_patch_sha256 lua_ownership_patch_sha256)
+         dynamic_fallback_patch_sha256 lua_ownership_patch_sha256 lua_error_patch_sha256)
     if(provider STREQUAL "FetchContent")
         set(_noveltea_rmlui_report_version "${NOVELTEA_RMLUI_VERSION}")
         set(_noveltea_rmlui_report_git_repository "${NOVELTEA_RMLUI_GIT_REPOSITORY}")
@@ -38,6 +41,8 @@ function(_noveltea_write_rmlui_dependency_diagnostic
             "${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_FILE}")
         set(_noveltea_rmlui_report_lua_ownership_patch_file
             "${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_FILE}")
+        set(_noveltea_rmlui_report_lua_error_patch_file
+            "${NOVELTEA_RMLUI_LUA_ERROR_PATCH_FILE}")
         set(_noveltea_rmlui_report_patch_revision "${NOVELTEA_RMLUI_PATCH_REVISION}")
     else()
         set(_noveltea_rmlui_report_version "installed")
@@ -48,6 +53,7 @@ function(_noveltea_write_rmlui_dependency_diagnostic
         set(_noveltea_rmlui_report_lua_listener_patch_file "installed")
         set(_noveltea_rmlui_report_dynamic_fallback_patch_file "installed")
         set(_noveltea_rmlui_report_lua_ownership_patch_file "installed")
+        set(_noveltea_rmlui_report_lua_error_patch_file "installed")
         set(_noveltea_rmlui_report_patch_revision "installed-api-verified")
     endif()
 
@@ -72,6 +78,8 @@ function(_noveltea_write_rmlui_dependency_diagnostic
         "lua_listener_patch_sha256=${lua_listener_patch_sha256}\n"
         "dynamic_fallback_patch_sha256=${dynamic_fallback_patch_sha256}\n"
         "lua_ownership_patch_sha256=${lua_ownership_patch_sha256}\n"
+        "lua_error_patch_file=${_noveltea_rmlui_report_lua_error_patch_file}\n"
+        "lua_error_patch_sha256=${lua_error_patch_sha256}\n"
         "source_dir=${source_dir}\n")
 endfunction()
 
@@ -184,6 +192,13 @@ function(noveltea_provide_rmlui_dependency)
             _noveltea_rmlui_dynamic_fallback_patch_sha256)
         file(SHA256 "${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_FILE}"
             _noveltea_rmlui_lua_ownership_patch_sha256)
+        if(NOT EXISTS "${NOVELTEA_RMLUI_LUA_ERROR_PATCH_FILE}")
+            message(FATAL_ERROR
+                "Missing repository-owned RmlUi Lua error-severity patch: "
+                "${NOVELTEA_RMLUI_LUA_ERROR_PATCH_FILE}")
+        endif()
+        file(SHA256 "${NOVELTEA_RMLUI_LUA_ERROR_PATCH_FILE}"
+            _noveltea_rmlui_lua_error_patch_sha256)
         find_package(Git REQUIRED)
 
         set(BUILD_SHARED_LIBS OFF CACHE BOOL "" FORCE)
@@ -211,7 +226,7 @@ function(noveltea_provide_rmlui_dependency)
                 "-DPATCH_FILE=${NOVELTEA_RMLUI_PATCH_FILE}"
                 "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_patch_sha256}"
                 "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_BASE_PATCH_REVISION}"
-                "-DALTERNATE_EXPECTED_PATCH_REVISIONS=${NOVELTEA_RMLUI_FONT_RASTER_PATCH_REVISION}|${NOVELTEA_RMLUI_LUA_LISTENER_PATCH_REVISION}|${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION}|${NOVELTEA_RMLUI_PATCH_REVISION}"
+                "-DALTERNATE_EXPECTED_PATCH_REVISIONS=${NOVELTEA_RMLUI_FONT_RASTER_PATCH_REVISION}|${NOVELTEA_RMLUI_LUA_LISTENER_PATCH_REVISION}|${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION}|${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_REVISION}|${NOVELTEA_RMLUI_PATCH_REVISION}"
                 "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
                 -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
             COMMAND
@@ -220,7 +235,7 @@ function(noveltea_provide_rmlui_dependency)
                 "-DPATCH_FILE=${NOVELTEA_RMLUI_FONT_RASTER_PATCH_FILE}"
                 "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_font_raster_patch_sha256}"
                 "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_FONT_RASTER_PATCH_REVISION}"
-                "-DALTERNATE_EXPECTED_PATCH_REVISIONS=${NOVELTEA_RMLUI_LUA_LISTENER_PATCH_REVISION}|${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION}|${NOVELTEA_RMLUI_PATCH_REVISION}"
+                "-DALTERNATE_EXPECTED_PATCH_REVISIONS=${NOVELTEA_RMLUI_LUA_LISTENER_PATCH_REVISION}|${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION}|${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_REVISION}|${NOVELTEA_RMLUI_PATCH_REVISION}"
                 "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
                 -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
             COMMAND
@@ -229,7 +244,7 @@ function(noveltea_provide_rmlui_dependency)
                 "-DPATCH_FILE=${NOVELTEA_RMLUI_LUA_LISTENER_PATCH_FILE}"
                 "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_lua_listener_patch_sha256}"
                 "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_LUA_LISTENER_PATCH_REVISION}"
-                "-DALTERNATE_EXPECTED_PATCH_REVISIONS=${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION}|${NOVELTEA_RMLUI_PATCH_REVISION}"
+                "-DALTERNATE_EXPECTED_PATCH_REVISIONS=${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION}|${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_REVISION}|${NOVELTEA_RMLUI_PATCH_REVISION}"
                 "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
                 -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
             COMMAND
@@ -238,7 +253,7 @@ function(noveltea_provide_rmlui_dependency)
                 "-DPATCH_FILE=${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_FILE}"
                 "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_dynamic_fallback_patch_sha256}"
                 "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_DYNAMIC_FALLBACK_PATCH_REVISION}"
-                "-DALTERNATE_EXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_PATCH_REVISION}"
+                "-DALTERNATE_EXPECTED_PATCH_REVISIONS=${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_REVISION}|${NOVELTEA_RMLUI_PATCH_REVISION}"
                 "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
                 -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
             COMMAND
@@ -246,6 +261,15 @@ function(noveltea_provide_rmlui_dependency)
                 "-DSOURCE_DIR=<SOURCE_DIR>"
                 "-DPATCH_FILE=${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_FILE}"
                 "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_lua_ownership_patch_sha256}"
+                "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_LUA_OWNERSHIP_PATCH_REVISION}"
+                "-DALTERNATE_EXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_PATCH_REVISION}"
+                "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
+                -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
+            COMMAND
+                "${CMAKE_COMMAND}"
+                "-DSOURCE_DIR=<SOURCE_DIR>"
+                "-DPATCH_FILE=${NOVELTEA_RMLUI_LUA_ERROR_PATCH_FILE}"
+                "-DEXPECTED_PATCH_SHA256=${_noveltea_rmlui_lua_error_patch_sha256}"
                 "-DEXPECTED_PATCH_REVISION=${NOVELTEA_RMLUI_PATCH_REVISION}"
                 "-DGIT_EXECUTABLE=${GIT_EXECUTABLE}"
                 -P "${CMAKE_SOURCE_DIR}/cmake/ApplyRepositoryPatch.cmake"
@@ -286,7 +310,7 @@ function(noveltea_provide_rmlui_dependency)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_REVISION
             "${NOVELTEA_RMLUI_PATCH_REVISION}" CACHE INTERNAL "" FORCE)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_SHA256
-            "${_noveltea_rmlui_patch_sha256}+${_noveltea_rmlui_font_raster_patch_sha256}+${_noveltea_rmlui_lua_listener_patch_sha256}+${_noveltea_rmlui_dynamic_fallback_patch_sha256}+${_noveltea_rmlui_lua_ownership_patch_sha256}"
+            "${_noveltea_rmlui_patch_sha256}+${_noveltea_rmlui_font_raster_patch_sha256}+${_noveltea_rmlui_lua_listener_patch_sha256}+${_noveltea_rmlui_dynamic_fallback_patch_sha256}+${_noveltea_rmlui_lua_ownership_patch_sha256}+${_noveltea_rmlui_lua_error_patch_sha256}"
             CACHE INTERNAL "" FORCE)
         _noveltea_write_rmlui_dependency_diagnostic(
             "FetchContent" "${_noveltea_rmlui_source_dir}"
@@ -294,7 +318,8 @@ function(noveltea_provide_rmlui_dependency)
             "${_noveltea_rmlui_font_raster_patch_sha256}"
             "${_noveltea_rmlui_lua_listener_patch_sha256}"
             "${_noveltea_rmlui_dynamic_fallback_patch_sha256}"
-            "${_noveltea_rmlui_lua_ownership_patch_sha256}")
+            "${_noveltea_rmlui_lua_ownership_patch_sha256}"
+            "${_noveltea_rmlui_lua_error_patch_sha256}")
         message(STATUS
             "NovelTea RmlUi: provider=FetchContent version=${NOVELTEA_RMLUI_VERSION} "
             "git_commit=${NOVELTEA_RMLUI_GIT_COMMIT} "
@@ -303,7 +328,8 @@ function(noveltea_provide_rmlui_dependency)
             "font_raster_patch_sha256=${_noveltea_rmlui_font_raster_patch_sha256} "
             "lua_listener_patch_sha256=${_noveltea_rmlui_lua_listener_patch_sha256} "
             "dynamic_fallback_patch_sha256=${_noveltea_rmlui_dynamic_fallback_patch_sha256} "
-            "lua_ownership_patch_sha256=${_noveltea_rmlui_lua_ownership_patch_sha256}")
+            "lua_ownership_patch_sha256=${_noveltea_rmlui_lua_ownership_patch_sha256} "
+            "lua_error_patch_sha256=${_noveltea_rmlui_lua_error_patch_sha256}")
     else()
         find_package(RmlUi CONFIG REQUIRED)
         _noveltea_verify_installed_rmlui_extension_api()
@@ -315,7 +341,7 @@ function(noveltea_provide_rmlui_dependency)
         set(NOVELTEA_RMLUI_CONFIGURED_PATCH_SHA256 "installed" CACHE INTERNAL "" FORCE)
         _noveltea_write_rmlui_dependency_diagnostic(
             "installed-extension-api-verified" "" "installed" "installed" "installed" "installed"
-            "installed")
+            "installed" "installed")
         message(STATUS "NovelTea RmlUi: provider=installed-extension-api-verified")
     endif()
 

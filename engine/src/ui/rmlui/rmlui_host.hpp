@@ -172,6 +172,7 @@ public:
     void set_raster_snapping(bool geometry_enabled, bool text_enabled);
     void set_context_render_observer(ContextRenderObserver observer);
     void set_context_initializer(ContextInitializer initializer);
+    void set_error_sink(std::function<void(std::string)> sink);
     void set_cursor_owner_resolver(CursorOwnerResolver resolver);
     void set_cursor_presentation_resolver(CursorPresentationResolver resolver);
 #if NOVELTEA_ENABLE_DEVTOOLS

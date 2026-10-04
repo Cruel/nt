@@ -1719,6 +1719,42 @@ TEST_CASE("RmlUiHost rejects a secondary context when required context initializ
     host.shutdown();
 }
 
+TEST_CASE("RuntimeUI reports Lua callback errors separately from successful pointer dispatch")
+{
+    std::vector<std::string> errors;
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    ui.bind_rmlui_error_sink([&](std::string message) { errors.push_back(std::move(message)); });
+    constexpr const char* rml = R"RML(
+<rml><head><style>
+body { width: 640px; height: 360px; }
+button { display: block; width: 160px; height: 48px; }
+</style></head><body>
+<button id="broken" onclick="callback_count = (callback_count or 0) + 1; error('callback-probe')">Fail</button>
+<button id="healthy" onclick="callback_count = (callback_count or 0) + 1">Succeed</button>
+</body></rml>)RML";
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "callback-errors", rml,
+                                                             "project:/callback-errors.rml", true));
+    ui.begin_frame({});
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    REQUIRE(errors.empty());
+    const auto broken = driver->click({.document_id = "callback-errors", .selector = "#broken"});
+    CHECK(broken.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    REQUIRE(errors.size() == 1);
+    CHECK(errors.front().find("callback-probe") != std::string::npos);
+    CHECK(errors.front().find("stack traceback") != std::string::npos);
+    lua_getglobal(fixture.lua_state(), "callback_count");
+    CHECK(lua_tointeger(fixture.lua_state(), -1) == 1);
+    lua_pop(fixture.lua_state(), 1);
+    errors.clear();
+    const auto healthy = driver->click({.document_id = "callback-errors", .selector = "#healthy"});
+    CHECK(healthy.status == noveltea::ui::rmlui::RuntimeUiPlaybackClickStatus::Dispatched);
+    CHECK(errors.empty());
+    ui.bind_rmlui_error_sink({});
+}
+
 TEST_CASE("RuntimeUI selector playback and native inspection use the internal playback driver")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;

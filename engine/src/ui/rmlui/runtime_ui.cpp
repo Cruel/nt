@@ -3467,6 +3467,12 @@ bool RuntimeUI::wants_keyboard_input() const
     return m_state && m_state->host && m_state->host->wants_keyboard_input();
 }
 
+void RuntimeUI::bind_rmlui_error_sink(std::function<void(std::string)> sink)
+{
+    if (m_state && m_state->host)
+        m_state->host->set_error_sink(std::move(sink));
+}
+
 #if NOVELTEA_ENABLE_DEVTOOLS
 void RuntimeUI::bind_devtools_console_sink(
     std::function<void(devtools::ConsoleSeverity severity, std::string message)> sink)

@@ -97,6 +97,11 @@ void SdlSystemInterface::DeactivateKeyboard()
         SDL_StopTextInput(m_window);
 }
 
+void SdlSystemInterface::set_error_sink(std::function<void(std::string)> sink)
+{
+    m_error_sink = std::move(sink);
+}
+
 bool SdlSystemInterface::LogMessage(Rml::Log::Type type, const Rml::String& message)
 {
     SDL_LogPriority priority = SDL_LOG_PRIORITY_INFO;
@@ -116,6 +121,8 @@ bool SdlSystemInterface::LogMessage(Rml::Log::Type type, const Rml::String& mess
     } else if (type == Rml::Log::LT_DEBUG) {
         priority = SDL_LOG_PRIORITY_DEBUG;
     }
+    if (m_error_sink && (type == Rml::Log::LT_ERROR || type == Rml::Log::LT_ASSERT))
+        m_error_sink(message);
     SDL_LogMessage(SDL_LOG_CATEGORY_APPLICATION, priority, "[rmlui] %s", message.c_str());
 #if NOVELTEA_ENABLE_DEVTOOLS
     if (m_devtools_log_sink)

@@ -8,7 +8,7 @@ provided, CMake emits a `FATAL_ERROR` with a clear message.
 | Dependency | Purpose | Acquisition |
 |---|---|---|
 | bgfx | Cross-platform rendering backend. | Desktop: `bgfx` vcpkg package. Web/Android: `NOVELTEA_FETCH_BGFX=ON` (FetchContent). |
-| RmlUi | Runtime UI framework (with Lua bindings and CSS math expressions). | Linux, Web, and Android use commit `c6744d15bda5e9df7ad9c1f8eae937157e7ed309` from Cruel/RmlUi's `feature-calc` line with the rebased presentation, font-raster, Lua-listener, dynamic-fallback-font, and Lua pointer-ownership patches through `NOVELTEA_FETCH_RMLUI=ON`. The final revision is `6e-lua-pointer-ownership-1`. The vcpkg manifest contains no RmlUi dependency or override. An installed desktop package is accepted only when it reports that exact revision and exposes the complete NovelTea extension API. |
+| RmlUi | Runtime UI framework (with Lua bindings and CSS math expressions). | Linux, Web, and Android use commit `c6744d15bda5e9df7ad9c1f8eae937157e7ed309` from Cruel/RmlUi's `feature-calc` line with the rebased presentation, font-raster, Lua-listener, dynamic-fallback-font, Lua pointer-ownership, and Lua error-severity patches through `NOVELTEA_FETCH_RMLUI=ON`. The final revision is `6f-lua-error-severity-1`. The vcpkg manifest contains no RmlUi dependency or override. An installed desktop package is accepted only when it reports that exact revision and exposes the complete NovelTea extension API. |
 | rmlui-bgfx | Reusable RmlUi renderer package. | `find_package(rmlui_bgfx)` or `NOVELTEA_FETCH_RMLUI_BGFX=ON` (FetchContent). |
 | RmlUi::Lua | Official RmlUi Lua plugin. | Bundled with RmlUi; the `lua` feature must be enabled. |
 | Lua 5.5 + sol2 | Runtime scripting. | Desktop: `lua` 5.5 and `sol2` vcpkg packages. Web/Android: FetchContent. |
@@ -81,9 +81,11 @@ revision `6b-feature-calc-font-raster-1` with SHA-256
 `6c-feature-calc-lua-listener-state-1` with SHA-256
 `b519e72f0dfe1666445dccfddedf9ebf884f48ecb61ecd2ce5cddeb71327ff27`, dynamic-fallback
 revision `6d-dynamic-fallback-fonts-1` with SHA-256
-`eabc10c8b95f8287f27a4979b4aac28da31e83c1143786f14fb79f47d2be19f3`, and final Lua pointer-ownership
+`eabc10c8b95f8287f27a4979b4aac28da31e83c1143786f14fb79f47d2be19f3`, Lua pointer-ownership
 revision `6e-lua-pointer-ownership-1` with SHA-256
-`d2218173bbde8be648c24be0f8b2cd844e75b17f4fdc3cfe06f149e66c87d4e8`. Linux, Web, and Android
+`d2218173bbde8be648c24be0f8b2cd844e75b17f4fdc3cfe06f149e66c87d4e8`, and final Lua error-severity
+revision `6f-lua-error-severity-1` with SHA-256
+`915b7a49e69adc8a3523e1f0e6fec6b748ed5db10be11c17111db66f405978a8`. Linux, Web, and Android
 configuration reports must agree on all values. Native Linux test builds expose the focused
 `rmlui-patch-test` target, which validates the patch marker, media-query-dimension and context
 text/font-raster-scale extensions, dynamic fallback-family replacement over already-loaded faces,

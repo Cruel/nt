@@ -40,6 +40,7 @@ public:
     double GetElapsedTime() override;
     void set_elapsed_time(std::chrono::microseconds elapsed) noexcept;
     void set_cursor_request_sink(CursorRequestSink sink);
+    void set_error_sink(std::function<void(std::string)> sink);
 #if NOVELTEA_ENABLE_DEVTOOLS
     void set_devtools_log_sink(DevtoolsLogSink sink);
 #endif
@@ -55,6 +56,7 @@ public:
 private:
     SDL_Window* m_window = nullptr;
     CursorRequestSink m_cursor_request_sink;
+    std::function<void(std::string)> m_error_sink;
 #if NOVELTEA_ENABLE_DEVTOOLS
     DevtoolsLogSink m_devtools_log_sink;
 #endif

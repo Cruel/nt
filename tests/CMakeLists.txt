@@ -429,9 +429,17 @@ catch_discover_tests(noveltea_runtime_cache_probe_tests
     PROPERTIES LABELS early-windows)
 
 if(TARGET noveltea_tooling_native)
+    add_test(
+        NAME noveltea_tooling_bridge_font_coverage
+        COMMAND "${CMAKE_COMMAND}"
+            "-DBRIDGE=$<TARGET_FILE:noveltea-tooling-bridge>"
+            "-DSOURCE_ROOT=${CMAKE_SOURCE_DIR}"
+            "-DWORK_ROOT=${CMAKE_CURRENT_BINARY_DIR}/tooling-bridge-font-coverage"
+            -P "${CMAKE_CURRENT_SOURCE_DIR}/cmake/tooling_bridge_font_coverage.cmake")
     add_executable(noveltea_tooling_tests
         tooling/daemon_scriptc_adapter_tests.cpp
         tooling/native_shader_compile_tests.cpp
+        tooling/font_coverage_tests.cpp
         tooling/playback_expectation_tests.cpp
     )
     target_include_directories(noveltea_tooling_tests PRIVATE

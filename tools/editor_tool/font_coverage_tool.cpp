@@ -296,7 +296,9 @@ nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
     system_family.regular = noveltea::FontDesc{std::string(noveltea::kSystemFontAsset)};
     const auto system_handle = engine.register_font_family(system_family);
     if (!system_handle)
-        return failure("Font coverage could not load the safe system fallback font.");
+        return failure("Font coverage could not load the safe system fallback font '" +
+                       std::string(noveltea::kSystemFontAsset) + "' from system root '" +
+                       system_root.string() + "'. Check that the system font assets are available.");
     engine.set_default_font_family(system_handle);
 
     nlohmann::json diagnostics = nlohmann::json::array();

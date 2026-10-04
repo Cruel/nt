@@ -474,6 +474,12 @@ const std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() const noexcep
 
 std::vector<RmlUiHost::ContextRecord>& RmlUiHost::contexts() noexcept { return m_contexts; }
 
+void RmlUiHost::set_error_sink(std::function<void(std::string)> sink)
+{
+    if (m_system_interface)
+        m_system_interface->set_error_sink(std::move(sink));
+}
+
 #if NOVELTEA_ENABLE_DEVTOOLS
 void RmlUiHost::set_devtools_log_sink(DevtoolsLogSink sink)
 {

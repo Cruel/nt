@@ -112,6 +112,16 @@ These inspect the linked binaries for RmlUi Debugger and Dear ImGui rather than 
 option text. CI runs the enabled checks in the Linux developer build and the disabled check against
 the Linux production player. See `docs/runtime/DEVELOPER_DEBUGGING.md` for the full capability matrix.
 
+## Development tooling resources
+
+When `NOVELTEA_NATIVE_TOOL_BRIDGE` selects a CMake-built tooling bridge, font-coverage validation
+uses that build's configured `${NOVELTEA_RUNTIME_ASSET_ROOT}/system`, matching the native UI Test
+runner. No assets need to be copied beside the development bridge, and Project fonts must not be
+changed to compensate for missing engine resources. An explicit native font-coverage request
+`systemRoot` overrides this root and must resolve successfully; failure does not silently retry a
+different root. Standalone distributions continue to resolve `assets/system` beside their executable.
+Fallback-font failures identify the logical font Asset and selected system root.
+
 ## Compile a Project Without the Editor
 
 Compile a saved project into canonical Compiled Project Format V1 gameplay JSON from the repository root:
