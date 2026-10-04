@@ -278,8 +278,8 @@ void RuntimeUiActionGateway::commit(RuntimeUiGameplayValues values) noexcept
 
 void RuntimeUiActionGateway::clear_gameplay_values()
 {
+    // Startup context belongs to the loaded session, not its transient UI subview.
     m_values.reset();
-    m_startup_context = core::PersistableValue{core::PersistableValue::Object{}};
     m_command_builder_draft.reset();
     m_command_builder_watch_dirty = false;
 }

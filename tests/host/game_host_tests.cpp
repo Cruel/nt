@@ -221,11 +221,7 @@ public:
         return true;
     }
 
-    void clear_gameplay_ui_values() override
-    {
-        gameplay_values.reset();
-        startup_context = core::PersistableValue{core::PersistableValue::Object{}};
-    }
+    void clear_gameplay_ui_values() override { gameplay_values.reset(); }
     void clear_runtime_shell_view() override { ++shell_clear_count; }
     void set_runtime_notification(std::string notification) override
     {
@@ -2458,6 +2454,7 @@ TEST_CASE("GameHost lifecycle transitions are idempotent and replace runtime gen
     REQUIRE(runtime_ui.gameplay_cursor_name);
     host.shutdown();
     CHECK_FALSE(runtime_ui.gameplay_cursor_name);
+    CHECK(runtime_ui.startup_context == core::PersistableValue{core::PersistableValue::Object{}});
 }
 
 TEST_CASE("GameHost suspend backend reset and shutdown ordering is idempotent")

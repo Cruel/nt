@@ -40,6 +40,12 @@ capture, and typed gameplay input/shell-command dispatch through the host-provid
 callbacks and equivalent Lua helpers converge on these same named native action methods rather than
 duplicating validation.
 
+`Game.startup_context()` is a loaded-session snapshot, not transient gameplay-view storage.
+Clearing a stale UI subview during runtime replacement must retain the newly installed startup
+context while Layout assets/publication are pending. `GameHost` resets it explicitly when detaching
+the loaded session. This keeps repeated HUD show callbacks from treating a scenario launch as a
+fresh home launch while additional Layouts load.
+
 RuntimeUI projects Scene/Dialogue choices, Room exits/placements/controls, inventory, Text Log,
 selection, Continue state, title metadata, settings/checkpoint/save-slot shell state, and other
 ordinary UI values through the data model. RML authors its own loops, visibility, labels, classes,
