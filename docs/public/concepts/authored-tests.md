@@ -22,14 +22,25 @@ or explicit test-oriented attributes for that selector; coordinate clicks are no
 The current typed step families are: logical-time `tick`, `continue`, Dialogue and Scene choice,
 Room `navigate`, subject selection/primary activation/Verb-menu opening/selection clearing,
 `run-interaction`, save/load, and `ui-click`. Only the payload selected by a step's input kind is active;
-disabled steps remain authored but are omitted from playback.
+disabled steps remain authored but are omitted from playback. Save/load steps use exactly `autosave` or
+`slot-N` (for example `slot-3`) as their authored `slotId`; bare numbers and runtime transport names
+such as `manual-3` are not authored save-slot identities.
+
+Every enabled input step ends at an engine-owned settled semantic boundary. Playback performs a
+zero-duration runtime drain after the authored input before it accepts the next authored input or
+evaluates that step's expectations. Authors must not insert `tick` merely to make a resumed Dialogue,
+Scene continuation, transaction sequence, or other deterministic zero-time work become ready. Use
+`tick` only when the behavior itself depends on advancing logical game time; a zero-duration settle is
+playback machinery, not an authored timing convention.
 
 ## Tests do not define another game setup
 
 A Test runs the Project's ordinary entrypoint and runtime content. It does not provide a private
 Room/Scene/Dialogue entrypoint, an alternate starting inventory, arbitrary initialization Lua, or a
 parallel state model. Setup that matters to game behavior belongs in ordinary authoring content or in
-the supported semantic flow that the Test drives.
+the supported semantic flow that the Test drives. Test records themselves are tooling-only: runtime
+compilation excludes them, and Test playback lowers them separately into the Runtime Test Catalog. An
+invalid Test can therefore be blocked without making otherwise valid game content unplayable.
 
 The current Test model is also not an arbitrary assertion DSL. Verification comes from the supported
 playback report and public runtime observations/diagnostics. If a behavior cannot be exercised through

@@ -152,25 +152,27 @@ payload.
 Authoring input names use editor-readable kebab-case. The adapter maps them to
 the native playback runner names.
 
-| Authoring input | Native input | Active fields |
-| --- | --- | --- |
-| `tick` | `advance-time` | `tick.deltaSeconds` lowered to microseconds |
-| `continue` | `continue` | none |
-| `dialogue-choice` | `dialogue-choice` | exact `dialogueChoice.edgeId` |
-| `scene-choice` | `scene-choice` | exact `sceneChoice.optionId` |
-| `navigate` | `navigate` | exact `navigate.exitId` |
-| `select-subjects` | `select-subjects` | `selectSubjects.subjects` |
-| `primary-activate` | `primary-activate` | `subjectAction.subject` |
-| `open-verb-menu` | `open-verb-menu` | `subjectAction.subject` |
-| `clear-subject-selection` | `clear-selection` | none |
-| `run-interaction` | `invoke-interaction` | `runInteraction.verb`, `runInteraction.bindings` |
-| `save` | `save` | `saveSlot.slotId` |
-| `load` | `load` | `saveSlot.slotId` |
-| `ui-click` | `ui-click` | `uiClick.documentId`, `uiClick.selector` |
+| Authoring input           | Native input         | Active fields                                    |
+| ------------------------- | -------------------- | ------------------------------------------------ |
+| `tick`                    | `advance-time`       | `tick.deltaSeconds` lowered to microseconds      |
+| `continue`                | `continue`           | none                                             |
+| `dialogue-choice`         | `dialogue-choice`    | exact `dialogueChoice.edgeId`                    |
+| `scene-choice`            | `scene-choice`       | exact `sceneChoice.optionId`                     |
+| `navigate`                | `navigate`           | exact `navigate.exitId`                          |
+| `select-subjects`         | `select-subjects`    | `selectSubjects.subjects`                        |
+| `primary-activate`        | `primary-activate`   | `subjectAction.subject`                          |
+| `open-verb-menu`          | `open-verb-menu`     | `subjectAction.subject`                          |
+| `clear-subject-selection` | `clear-selection`    | none                                             |
+| `run-interaction`         | `invoke-interaction` | `runInteraction.verb`, `runInteraction.bindings` |
+| `save`                    | `save`               | `saveSlot.slotId`                                |
+| `load`                    | `load`               | `saveSlot.slotId`                                |
+| `ui-click`                | `ui-click`           | `uiClick.documentId`, `uiClick.selector`         |
 
 Dialogue and Scene choices never store list indexes. Navigation never stores a direction ordinal or
-target guess. Save/load steps store typed slot identities rather than arbitrary payloads. `ui-click`
-selects the RuntimeUI runner, resolves the authored selector against the named visible document, and
+target guess. Save/load steps store exactly `autosave` or `slot-N` for a non-negative manual slot N;
+the playback adapter lowers `slot-N` to the native `manual-N` transport identity. Bare numbers,
+`slotN`, and `manual-N` are not authored forms. `ui-click` selects the RuntimeUI runner, resolves the
+authored selector against the named visible document, and
 dispatches real RmlUi pointer input through the normal Layout-event capability path. Stable element IDs
 or explicit test-oriented attributes are preferred selector contracts. Coordinate clicks are not the
 default Test seam and are reserved for future geometry/hit-target cases where coordinates themselves
@@ -188,9 +190,13 @@ quantity, Trait presence, enabled/visible entity state, active Scene/Dialogue id
 presence/state, notification/save outcomes, and diagnostic codes. Operators are deliberately limited
 to equality/inequality, presence/absence, and numeric comparisons where the target supports them.
 
-Before evaluating step expectations, native playback performs a zero-duration engine-time advance.
-This drains deterministic runtime work without wall-clock sleeps or artificial elapsed gameplay time.
-Final expectations use the same semantic observation seam after a final zero-duration settle.
+After every enabled authored input, native playback performs a zero-duration engine-time advance before
+accepting the next authored input. This drains deterministic runtime work without wall-clock sleeps or
+artificial elapsed gameplay time and makes step sequencing independent of whether the preceding step
+happens to declare expectations. Step expectations observe that settled boundary; final expectations
+use the same semantic observation seam after a final zero-duration settle. Authored `tick` steps are
+therefore for genuine logical-time advancement, not for making zero-time Scene/Dialogue continuation
+work become ready.
 
 Playback reports include ordered per-step expectation results plus final expectation results and the
 coherent final publication. Expectation failures make the report fail while preserving the individual
@@ -335,9 +341,11 @@ and `error` statuses; blocked/error diagnostics stay visible in the suite list. 
 their complete playback report and expose it through the existing Test Playback panel.
 
 For a clean saved Project, suite execution uses the shared persistent canonical runtime artifact and
-lowered Test catalog. Compilation-relevant dirty or recovered Project state is compiled from the
-current in-memory Project for that invocation only and is not published to the persistent cache.
-Single-Test execution keeps the same clean-cache/session-local distinction.
+lowered Test catalog. Authored Test records are tooling-only and are excluded from runtime compilation;
+they are validated and lowered separately into that catalog, so a blocked Test does not invalidate an
+otherwise playable runtime artifact. Compilation-relevant dirty or recovered Project state is compiled
+from the current in-memory Project for that invocation only and is not published to the persistent
+cache. Single-Test execution keeps the same clean-cache/session-local distinction.
 
 The step list shows each step’s order, label, input type, disabled state, and any
 matching playback observation state from the last report.

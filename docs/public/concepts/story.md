@@ -52,7 +52,16 @@ Room's subjects interactable.
 
 Scene actor slots are presentation occurrences of Characters. Event IDs, choice option IDs, and
 other stable nested IDs matter because later events, tests, diagnostics, and tooling can address them
-semantically.
+semantically. A Scene `call-interaction` binds the same exact live subject identities used by ordinary
+Interaction execution: an Interactable subject references an Interactable **Instance** identity, not
+its reusable Interactable Definition.
+
+A detached Scene runs concurrently with foreground Flow and declares who owns its lifetime. `flow`
+ends it when the initiating Flow ends; `active-room` requires a Current Room and ends it when that Room
+visit ends; `runtime-session` survives both Flow and Room changes until the Runtime Session ends.
+Reconstructible detached execution is part of checkpoint state with that ownership intact, so choosing
+`runtime-session` does not make the detached Scene unsavable merely because its initiating Flow later
+ends.
 
 Use Dialogue when the core structure is conversation and choices, Scene when the sequence coordinates
 multiple story/presentation/gameplay concerns, and Interaction when the behavior is command matching

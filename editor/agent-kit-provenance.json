@@ -15,6 +15,11 @@
       "repository": "https://github.com/Cruel/nt.git",
       "revision": "ae7e3b042b23d5d904fbe949fe6ab50399f1027b"
     },
+    "noveltea-agent-refinement-254": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "ed4174a34052c57d3c7989ee8ca88d24b256112f"
+    },
     "noveltea-interaction-authoring": {
       "kind": "repository",
       "repository": "https://github.com/Cruel/nt.git",
@@ -63,15 +68,23 @@
       ]
     },
     "concepts/authored-tests.md": {
-      "reviewed": "2026-10-02",
-      "strategy": "Share the canonical public authored-Test mental model byte-for-byte with the human documentation surface; leave exact step payloads to generated reference and execution workflow to agent-only guidance.",
+      "reviewed": "2026-10-03",
+      "strategy": "Share the canonical public authored-Test mental model byte-for-byte with the human documentation surface, including tooling-only Test compilation, canonical save-slot identity, and engine-owned semantic settling; leave exact step payloads to generated reference and execution workflow to agent-only guidance.",
       "sources": [
         {
           "source": "noveltea-shared-concepts",
+          "areas": ["docs/engine/TEST.md", "editor/src/cli/"]
+        },
+        {
+          "source": "noveltea-agent-refinement-254",
           "areas": [
-            "docs/engine/TEST.md",
             "editor/src/shared/project-schema/authoring-tests.ts",
-            "editor/src/cli/"
+            "editor/src/shared/project-schema/test-playback-project.ts",
+            "editor/src/shared/runtime-artifact-preparation.ts",
+            "tools/editor_tool/tooling_native.cpp",
+            "tools/editor_tool/tooling_ui_test_runner.cpp",
+            "tests/projects/feature-lab/records/tests/scene-director-flow.json",
+            "tests/projects/feature-lab/records/tests/script-and-data-flow.json"
           ]
         }
       ]
@@ -146,12 +159,22 @@
       ]
     },
     "concepts/story.md": {
-      "reviewed": "2026-10-02",
-      "strategy": "Share the canonical public relationship among persistent Characters, Dialogue conversation graphs, and ordered Scene orchestration without reproducing record variants.",
+      "reviewed": "2026-10-03",
+      "strategy": "Share the canonical public relationship among persistent Characters, Dialogue conversation graphs, ordered Scene orchestration, exact Interaction subjects, and detached Scene lifetime ownership without reproducing record variants.",
       "sources": [
         {
           "source": "noveltea-shared-concepts",
           "areas": ["docs/engine/CHARACTER.md", "docs/engine/DIALOGUE.md", "docs/engine/SCENE.md"]
+        },
+        {
+          "source": "noveltea-agent-refinement-254",
+          "areas": [
+            "editor/src/shared/project-schema/authoring-scenes.ts",
+            "engine/src/runtime/runtime_session.cpp",
+            "tests/script/typed_runtime_session_tests.cpp",
+            "tests/projects/feature-lab/records/scenes/director-flow-child.json",
+            "tests/projects/feature-lab/records/scenes/background-stories.json"
+          ]
         }
       ]
     },
@@ -200,8 +223,8 @@
       ]
     },
     "technical/LUA.md": {
-      "reviewed": "2026-08-16",
-      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
+      "reviewed": "2026-10-03",
+      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, Script Module helper/Bootstrap lifecycle, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
       "sources": [
         {
           "source": "lua-5.5-manual",
@@ -210,7 +233,7 @@
           ]
         },
         {
-          "source": "noveltea",
+          "source": "noveltea-agent-refinement-254",
           "areas": [
             "cmake/NovelTeaLua.cmake (Lua 5.5.0 archive SHA256 57ccc32bbbd005cab75bcc52444052535af691789dba2b9016d5c50640d68b3d)",
             "docs/runtime/LUA_RUNTIME.md",
@@ -221,7 +244,10 @@
             "engine/src/script/lua/script_runtime.cpp",
             "engine/include/noveltea/runtime/runtime_capabilities.hpp",
             "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
-            "engine/src/ui/rmlui/runtime_ui.cpp"
+            "engine/src/ui/rmlui/runtime_ui.cpp",
+            "editor/src/shared/authoring-source-references.ts",
+            "tests/projects/feature-lab/scripts/feature-lab-bootstrap.lua",
+            "tests/projects/feature-lab/scripts/notice-board.lua"
           ]
         }
       ]

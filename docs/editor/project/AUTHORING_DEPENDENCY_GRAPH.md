@@ -14,9 +14,10 @@ Lua execution-surface and explicit-fallback-owner registry.
 `editor/src/shared/authoring-source-analysis.ts` owns source enumeration over that registry,
 content artifacts, owner projection, external-source closure, and literal indexing.
 `editor/src/shared/authoring-source-references.ts` owns the semantic source-reference recognizer
-extension boundary. Its production registry is intentionally empty until a concrete Lua/RML API is
-designed; adding an API-specific recognizer must not require changes to graph assembly or mutation
-algorithms.
+extension boundary. Its production registry contains only concrete designed APIs: Script Module
+`import`, the Script Module argument of literal Room `hooks.register`, typed gameplay-identity lookup,
+and named cursor selection. Adding another API-specific recognizer must not require changes to graph
+assembly or mutation algorithms.
 `buildAuthoringStructuralDependencyGraph(project)` is exactly the assembly of
 `buildAuthoringStructuralDependencyGraphContributionSet(project)`.
 
