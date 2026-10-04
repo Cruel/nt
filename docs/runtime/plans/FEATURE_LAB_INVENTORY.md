@@ -216,40 +216,16 @@ or Test links here.
 
 ### Language, Display & Persistence — #257
 
-#### `localized-story` — Read the same story in another language
+Transferred to the authoritative Feature Lab catalog:
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `message-realization` | Switch language for inline/named, managed Lua and nt-tr text with typed arguments → all share formatting; live nt-tr bindings refresh without remount. | U | locale-text, font-set |
-| `plural-select-format` | Change count/string selectors in recursive named Messages and Lua helpers → plural categories, exact select/other and locale number formatting select correct realizations. | S | locale-text |
-| `message-property` | Select a typed Message-valued Property and realize its opaque reference → dynamic text localizes without treating arbitrary strings as keys. | S | locale-text |
-| `locale-negotiation` | Start with a regional preference and switch supported locales with inherited/missing translations → source/default/parent policy and native language labels/font stack are honored. | U | locale-text, font-set |
-| `live-causal-text` | Switch during reveal, open choice and Text Log → captured arguments re-realize without rerunning Lua; normalized reveal and locale-positioned cues cross once. | M | locale-text, voice |
-| `localized-images` | Switch a semantic image with a translated physical variant and intentional-source mapping → visible replacement is coherent and explicit source stops inheritance. | V | localized-media |
-| `localized-audio` | Switch during Voice/Music, then switch again → changed physical stream replaces after text commit, preserves operation/waiter, and stale locale work cannot win. | A | localized-media, voice, music |
-| `localized-command-template` | Build a multi-slot command whose translated word order changes → named bindings and selection order remain stable. Shares Builder behavior, tests localization only. | U | locale-text |
-| `system-message-overrides` | Open built-in menus and undefined response in two locales → engine defaults and Project overrides share Message realization; no private string catalog. | U | locale-text |
+- `localized-story`
+- `display-and-accessibility`
+- `save-and-resume`
 
-#### `display-and-accessibility` — Resize the reading room
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `fitted-viewport-input` | Resize to wide/tall and HiDPI outputs, click edge targets → reference composition remains fixed, half-open bars reject input, world/UI Hotspots align. | V | pattern |
-| `ui-text-scale` | Independently change UI and text scales → policy ranges clamp, disabled scale is 1, WorldOverlay/screen-space inheritance differs; world positions are unchanged. | U | font-set, pattern |
-| `layout-scale-media` | Compare inherit/ignore mounts and responsive RCSS → intended reference/media-query environment changes, not an accidental host-DPR layout reflow. | V | — |
-| `native-ui-raster` | Inspect text over enlarged world output → UI/ActiveText stays native-resolution and clipped to fitted viewport; Project capped/native world policy comparison is a build-profile check below. | V | pattern, font-set |
-
-#### `save-and-resume` — Put the story down and return
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `retained-versus-deferred` | Save during causal reveal/finite/audio work, then request autosave → manual writes retained boundary; deferred waits for next eligible one, never a forced unsafe snapshot. | S | voice |
-| `world-round-trip` | Save dirty Properties/Traits/quantities/Locations, runtime-created/configured Instances and random stream → exact logical state/allocator returns with no identity reuse. | S | button |
-| `flow-round-trip` | Save at Scene wait, Dialogue choice/Handoff, nested effect or rejection continuation and detached timer → exact logical cursor resumes without repeating completed mutations/cues/hooks. | S | — |
-| `presentation-reconstruction` | Restore desired actors/loops/Material state and stateful Layouts → semantic intent/Slots reconstruct, finite phases/one-shots/Lua VM/DOM do not replay or persist. | M | character-pair, music |
-| `locale-independent-save` | Save in one locale and load in another → semantic text/choice/log arguments realize in current preference; checkpoint does not restore language. | U | locale-text |
-| `slot-menus-thumbnail` | Save, overwrite with confirmation and select/load slots → metadata and fitted-game thumbnail correspond to persisted checkpoint; unrelated later frame cannot overwrite it. | U | backdrop |
-| `restart-preferences` | New game/restart after saving and changing volume/scales/locale → slots/preferences remain, gameplay defaults return, pause/menu stack reset, no implicit load. Shared restart path with script station. | U | locale-text |
+The catalog owns every assigned check, intentional sharing, language-review provisionality and the
+remaining blocked localized-audio procurement/listening workflow. The Project README documents the
+semantic checkpoint and UI Slot round-trip witnesses and actual-player requirements. No headless
+launch witness claims shell preference, HiDPI, perceptual or localized-media acceptance.
 
 ### Edge Cases & Host Behavior — #258
 
@@ -365,8 +341,6 @@ stations. Source code (Lua, shader files, RML/RCSS) is not a request for new med
 | `pattern` | Small synthetic opaque/alpha regions, thin lines, repeated edges, orientation labels and two visibly different texture regions | Reuse catalog `ui-pattern`, introduced by #255, for remaining fitting/camera/Material consumers at different crops/transforms; add a second texture only for replacement distinction. |
 | `character-layers` | Minimal synthetic transparent base/overlay and visibly distinct blink/speaking/Gesture frames for two Profiles | Reuse base Character art when feasible; generate simple overlay frames. Required to prove sparse multi-layer composition and finite animation, not a demand for a full curated sprite set. Mark aesthetic claims provisional until deliberately reviewed. |
 | `font-set` | License-cleared regular plus real bold/italic faces and a complementary CJK/RTL fallback covering chosen samples | Reuse shipped/test fonts if redistributable and sufficient; add only uncovered face/cluster paths. Real-face selection versus synthetic fallback is a meaningful A/B check; no font per language. |
-| `locale-text` | Small source plus translated samples exercising plural/select, expansion, RTL, CJK and regional fallback | Authored Messages, not an extra data Asset. Reuse sentences across UI/Dialogue/Scene/log; human language review is required for perceptual ready claims. No full Lab translation requirement. |
-| `localized-media` | One visibly different same-kind image and one audibly different same-kind voice realization | Derive labeled synthetic image from `pattern`; reuse or record one short second-language reference line. Intentional-source/inherited mappings reuse those resources; no full translated media library. |
 | `stress-text` | Generated long mixed-script text and large log/subject counts | Generate on demand in the stress workflow; disclose size, keep default launch small. Not curated reference media. |
 | `stress-images` | A small bounded set of synthetic images large enough to exceed the chosen Warm allowance | Separate opt-in stress/export fixture or stress station prerequisites; record actual dimensions/decoded budget and avoid bloating the normal download. No giant curated art collection. |
 

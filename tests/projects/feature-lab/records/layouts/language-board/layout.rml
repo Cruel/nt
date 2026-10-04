@@ -1,0 +1,11 @@
+<rml><head><title>Language reading desk</title></head><body data-model="noveltea"><section class="reading-desk">
+<h2><nt-tr key="lab.greeting" arg-name="Ada"/></h2>
+<p><nt-tr key="lab.sample"/></p>
+<p><nt-tr key="noveltea.settings.language"/> / <nt-tr key="noveltea.shell.resume"/></p>
+<p><nt-tr>Managed reading desk</nt-tr></p>
+<button id="language-count" onclick="language_board.count(document)">Change count / selector</button>
+<p><nt-tr id="language-result" key="lab.letters" arg-count="1" arg-kind="open" arg-amount="1234.5"/></p>
+<img src="/assets/images/ui-pattern.png" style="width: 192px; height: 128px;"/>
+<p>Use Pause → Settings for English, Français, Français (Canada), 日本語 and العربية. Regional French inherits; untranslated text deliberately falls back to source. Read the same open Scene text, choice and log.</p>
+<button id="language-pause" data-event-click="shell_pause()">Pause / language settings</button>
+</section></body></rml>

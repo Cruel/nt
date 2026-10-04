@@ -89,7 +89,7 @@
       "includeShaderSources": false,
       "includeTests": true,
       "previewAfterExport": false,
-      "localization": { "locales": ["en"], "defaultLocale": "en", "quality": "development" }
+      "localization": { "locales": ["en", "fr", "fr-CA", "ja", "ar"], "defaultLocale": "en", "quality": "development" }
     },
     "profiles": [],
     "assetMemoryPolicies": []

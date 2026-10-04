@@ -1,0 +1,46 @@
+{
+  "id": "language-board",
+  "label": "Language board",
+  "data": {
+    "kind": "layout",
+    "layoutKind": "document",
+    "target": "default-ui",
+    "contract": {},
+    "rml": {
+      "sourceMode": "file"
+    },
+    "rcss": {
+      "sourceMode": "file"
+    },
+    "lua": {
+      "sourceMode": "file"
+    },
+    "script": {
+      "enabled": true,
+      "namespace": "language_board"
+    },
+    "dependencies": {
+      "images": [{"$ref":{"collection":"assets","id":"ui-pattern"}}],
+      "fonts": [
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "dejavusans"
+          }
+        },
+        {
+          "$ref": {
+            "collection": "assets",
+            "id": "ipag"
+          }
+        }
+      ],
+      "stylesheets": [],
+      "scripts": [],
+      "data": []
+    },
+    "preview": {
+      "background": "dark"
+    }
+  }
+}

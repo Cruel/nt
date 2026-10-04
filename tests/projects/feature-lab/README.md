@@ -102,7 +102,7 @@ realized custom Mount with `uiClick.mountInstanceId` plus that stable selector; 
 document counters are internal and must not be frozen into Test data. Stateful multi-scope checks use
 real panel controls and native Slot/contract/reconstruction tests rather than Lab-only flags or
 private transport. ActiveText/Inventory behavior is shared with existing stations;
-localization/display/save detail remains assigned to #257. Maps remain explicitly owner-deferred.
+localization/display/save workflows are documented below. Maps remain explicitly owner-deferred.
 
 ### Sound & Presentation
 
@@ -151,6 +151,39 @@ changing the current Room. Their catalog links are **launch witnesses**, not aut
 acceptance. Use a shader-compiled stereo player for the catalog's later pixel/listening checks.
 The category menu is separate from the numbered scenario guide: catalog launches hide the former
 and display the latter. Direct Room entry does not supply Feature Lab scenario startup context.
+
+### Language, Display & Persistence
+
+`localized-story` compares named Messages, managed Lua plural/select/tr calls, live `nt-tr`
+arguments, an opaque Message-valued Global Property, Scene text/choice and Text Log. French is
+sparse; Canadian French inherits its text but explicitly uses the source image. Japanese/Arabic
+samples use the existing DejaVu/IPA stack. The magenta/teal PNG is original synthetic comparison art,
+not a curated reference. AI-authored translations remain `needs-review`; no full Lab translation or
+linguistic certification is claimed. French also reverses the shared Deliver template's placeholder
+order without changing binding order, and overrides the reserved Language system Message.
+
+`display-and-accessibility` reuses the inherit/ignore Layouts rather than implementing another scale
+policy. Change independent UI/text settings through real Pause → Settings; resize the actual player
+for fitting/native text raster checks and use the shared Rooms & Interactions pointer subjects.
+Disabled scaling, WorldOverlay variants and immutable capped/native Project comparisons stay native
+or temporary-Project tests. UI launch automation is not a shell-setting or HiDPI witness.
+
+`save-and-resume-flow` dirties and restores real Properties, quantity and Location, proves the next
+Scene mutation runs once, restores a partially elapsed timer, and loads a deferred autosave captured
+at the next eligible boundary. `save-and-resume-ui` commits an exact recursive session Slot, saves,
+dirties and loads it, restarts from defaults while retaining saved slots, and verifies a cleared Slot
+also persists. Uncommitted default Slots are not stored: the fresh/cleared proof commits once and
+expects count 1, rather than pretending an absent Slot is a persisted default tree.
+
+These regressions exposed and fixed three boundaries: headless playback must apply host-owned load
+candidates using a fresh Project VM; UI publications must retain actual startup context; and successful
+Slot commit/clear must invalidate the retained checkpoint structurally. The runners register declared
+detached catalog paths in their metadata-only package admission, but do not implement shell locale
+switching. Use the real player for locale-independent saves, settings across restart, slot confirmation,
+thumbnail pixels and desired audio/actor/Material reconstruction. The catalog explicitly shares those
+flows with the existing stations/native tests rather than treating their smoke Tests as save proofs.
+Localized audio remains blocked pending a second intelligible reference realization and listening
+acceptance; the catalog records that procurement follow-up.
 
 ### Interaction coverage policy
 

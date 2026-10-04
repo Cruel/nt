@@ -1,0 +1,13 @@
+{
+  "ui-pattern": {
+    "asset": {
+      "$ref": {
+        "collection": "assets",
+        "id": "locale-pattern"
+      }
+    },
+    "sourceFingerprint": "fnv1a:ecfefeb37b02a0df67014ef9f7e899c3",
+    "origin": "ai",
+    "review": "needs-review"
+  }
+}

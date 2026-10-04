@@ -3414,11 +3414,15 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                         value.value);
                     if (!committed)
                         result.diagnostics = std::move(committed).error();
+                    else
+                        record_structural_mutation();
                 } else if constexpr (std::is_same_v<T, core::ClearLayoutStateInput>) {
                     auto cleared = m_kernel->state().clear_layout_state(
                         m_project, value.owner, value.key, value.occurrence, value.scope);
                     if (!cleared)
                         result.diagnostics = std::move(cleared).error();
+                    else
+                        record_structural_mutation();
                 } else if constexpr (std::is_same_v<T, core::DismissLayoutInput>) {
                     const auto& mounted = m_kernel->state().mounted_layouts();
                     const auto found = std::find_if(mounted.begin(), mounted.end(),

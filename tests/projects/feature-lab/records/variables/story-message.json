@@ -1,0 +1,13 @@
+{
+  "id": "story-message",
+  "label": "Story Message",
+  "data": {
+    "kind": "variable",
+    "type": "message",
+    "nullable": false,
+    "value": {
+      "$message": "lab.greeting"
+    },
+    "scope": "global"
+  }
+}

@@ -177,12 +177,15 @@ public:
     {
         auto result = m_running_game->session().dispatch(std::move(input));
         if (result.session_replacement_request && result.diagnostics.empty()) {
-            const auto* reset =
-                std::get_if<noveltea::core::ResetRuntimeInput>(&*result.session_replacement_request);
-            if (reset == nullptr) {
+            const auto* reset = std::get_if<noveltea::core::ResetRuntimeInput>(
+                &*result.session_replacement_request);
+            const auto* load =
+                std::get_if<noveltea::core::LoadRuntimeInput>(&*result.session_replacement_request);
+            if (reset == nullptr && load == nullptr) {
                 m_diagnostics.push_back(
                     {.code = "tooling.ui_test_session_replacement_unsupported",
-                     .message = "Runtime UI Test only supports reset session replacement requests."});
+                     .message =
+                         "Runtime UI Test only supports reset/load session replacement requests."});
                 return false;
             }
 
@@ -195,7 +198,8 @@ public:
                 return false;
             }
             candidate_scripts->synchronize_project_data_assets(m_running_game->package().project());
-            candidate_scripts->set_startup_context(reset->startup_context);
+            candidate_scripts->set_startup_context(reset ? reset->startup_context
+                                                         : m_running_game->startup_context());
             auto prepared = candidate_scripts->prepare_project_modules(m_running_game->package().project());
             if (!prepared) {
                 m_diagnostics.push_back({.code = "tooling.ui_test_reset_script_modules_failed",
@@ -217,8 +221,10 @@ public:
                                          .source_path = frozen.error().chunk});
                 return false;
             }
-            auto candidate =
-                m_running_game->prepare_reset_candidate(*reset, *candidate_scripts, m_presentation);
+            auto candidate = reset ? m_running_game->prepare_reset_candidate(
+                                         *reset, *candidate_scripts, m_presentation)
+                                   : m_running_game->prepare_load_candidate(
+                                         load->slot, *candidate_scripts, m_presentation);
             if (!candidate) {
                 const auto& diagnostics = candidate.error();
                 m_diagnostics.insert(m_diagnostics.end(), diagnostics.begin(), diagnostics.end());
@@ -267,9 +273,9 @@ public:
                 m_diagnostics.insert(m_diagnostics.end(), diagnostics.begin(), diagnostics.end());
                 return false;
             }
-            if (!m_runtime_ui.apply_gameplay_ui_values(
-                    noveltea::RuntimeUiGameplayValues{result.publication->revision.number(),
-                                                      result.publication->gameplay_ui, {}})) {
+            if (!m_runtime_ui.apply_gameplay_ui_values(noveltea::RuntimeUiGameplayValues{
+                    result.publication->revision.number(), result.publication->gameplay_ui,
+                    m_running_game->startup_context()})) {
                 m_diagnostics.push_back(
                     {.code = "tooling.ui_test_runtime_ui_rejected",
                      .message = "RuntimeUI rejected gameplay values after UI input."});
@@ -373,6 +379,14 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
         const auto package_path = runtime_package_entry_path(asset.path);
         entries.push_back({{"path", package_path}, {"size", 0}});
         files.push_back({package_path, 0, std::nullopt});
+    }
+
+    for (const auto& locale : decoded_project.value_if()->localization().locales) {
+        if (!locale.catalog_path)
+            continue;
+        const auto path = runtime_package_entry_path(*locale.catalog_path);
+        entries.push_back({{"path", path}, {"size", 0}});
+        files.push_back({path, 0, std::nullopt});
     }
 
     nlohmann::json manifest = {
@@ -903,9 +917,9 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
                                       std::make_move_iterator(diagnostics.end()));
             passed = false;
         }
-        if (!runtime_ui.apply_gameplay_ui_values(
-                noveltea::RuntimeUiGameplayValues{result.publication->revision.number(),
-                                                  result.publication->gameplay_ui, {}})) {
+        if (!runtime_ui.apply_gameplay_ui_values(noveltea::RuntimeUiGameplayValues{
+                result.publication->revision.number(), result.publication->gameplay_ui,
+                running_game_instance->startup_context()})) {
             result.diagnostics.push_back(
                 {.code = "tooling.ui_test_runtime_ui_rejected",
                  .message = "RuntimeUI rejected gameplay values after semantic input."});
@@ -986,8 +1000,17 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         TypedPlaybackStepReport report;
         report.index = step.index;
         ui_sink.clear_step_outputs();
-        if (std::holds_alternative<RuntimeInputMessage>(step.input)) {
-            auto result = running_game_instance->session().dispatch(std::get<RuntimeInputMessage>(step.input));
+        const auto* semantic_input = std::get_if<RuntimeInputMessage>(&step.input);
+        if (semantic_input && std::holds_alternative<LoadRuntimeInput>(*semantic_input)) {
+            report.handled = ui_sink.submit_gameplay_input(*semantic_input);
+            report.events.assign(ui_sink.events().begin(), ui_sink.events().end());
+            report.diagnostics.assign(ui_sink.diagnostics().begin(), ui_sink.diagnostics().end());
+            if (ui_sink.publication())
+                final_publication = *ui_sink.publication();
+            if (!report.handled)
+                passed = false;
+        } else if (semantic_input) {
+            auto result = running_game_instance->session().dispatch(*semantic_input);
             settle_headless_presentation(result);
             report.handled = result.disposition == noveltea::runtime::RuntimeInputDisposition::Handled;
             apply_result(result);

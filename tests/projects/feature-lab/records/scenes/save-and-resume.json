@@ -1,0 +1,163 @@
+{
+  "id": "save-and-resume",
+  "label": "save-and-resume",
+  "data": {
+    "kind": "scene",
+    "displayName": "save-and-resume",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "prepare",
+        "label": "prepare",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(Game.set_prop('resume-deliveries', 1)); assert(noveltea.interactables.consume('supply-split-stack', 1)); assert(noveltea.interactables.set_location('supply-split-stack', {kind='inventory', inventory={owner={kind='project'}, id='player'}})); assert(noveltea.layouts.mount('resume-panel', 'session-counter', {owner='session', clock='unscaled-presentation', inputs={scope='session',caption='Saved session Slot'}}))",
+        "mayYield": false
+      },
+      {
+        "id": "save-boundary",
+        "label": "save-boundary",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Delivery 1 is settled: supply quantity 3 in the Project Inventory. Commit the session Slot, edit its transient draft, then save. Continue to dirty state; load to restore delivery 1, quantity 3 and the committed Slot, not the draft. Restart returns gameplay defaults and Slot count 0, but does not erase slots or client settings."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "dirty",
+        "label": "dirty",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(Game.set_prop('resume-deliveries', 2)); assert(noveltea.interactables.consume('supply-split-stack', 1)); assert(noveltea.interactables.set_location('supply-split-stack', {kind='unplaced'}))",
+        "mayYield": false
+      },
+      {
+        "id": "dirty-boundary",
+        "label": "dirty-boundary",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Delivery 2: quantity 2, now Unplaced. Load the earlier slot; the Scene resumes before delivery 2 without rerunning delivery 1. Open Settings before loading to compare current language/scales with saved gameplay."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "wait-guide",
+        "label": "wait-guide",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Continue for a reconstructible timed wait. Save during the timer and load to resume its remaining duration; completed deliveries must not repeat."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "timer",
+        "label": "timer",
+        "type": "wait",
+        "waitKind": "duration",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "durationMs": 5000,
+        "skippable": false
+      },
+      {
+        "id": "finish",
+        "label": "finish",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(Game.set_prop('resume-deliveries', 3))",
+        "mayYield": false
+      },
+      {
+        "id": "finished",
+        "label": "finished",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Delivery 3 finished. Use real Pause / Save and Load menus for overwrite confirmation and thumbnail inspection; use the HUD Restart for fresh-session comparison."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

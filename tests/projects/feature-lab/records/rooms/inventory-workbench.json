@@ -52,6 +52,7 @@
       "onEnterRejected": [], "onLeaveRejected": []
     },
     "exits": [
+      {"id":"save-and-resume-test-entry","label":"Save and resume","direction":"northwest","target":{"$ref":{"collection":"rooms","id":"save-and-resume"}},"condition":{"kind":"always"},"onRejected":[]},
       { "id": "script-and-data-test-entry", "label": "Script & Data", "direction": "southwest", "target": { "$ref": { "collection": "rooms", "id": "script-and-data" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "background-stories-test-entry", "label": "Background Stories", "direction": "southeast", "target": { "$ref": { "collection": "rooms", "id": "background-stories" } }, "condition": { "kind": "always" }, "onRejected": [] },
       { "id": "scene-director-test-entry", "label": "Scene Director", "direction": "northeast", "target": { "$ref": { "collection": "rooms", "id": "scene-director" } }, "condition": { "kind": "always" }, "onRejected": [] },

@@ -1,0 +1,22 @@
+{
+ "id":"save-and-resume-ui","label":"Committed Layout state, restore and fresh restart",
+ "data":{"kind":"test","displayName":"Committed Layout state, restore and fresh restart","steps":[
+ {"id":"start","input":"tick","label":"Fresh home"},
+ {"id":"category","input":"ui-click","label":"Category","uiClick":{"documentId":"runtime_game","selector":"#feature-lab-category-language-display-persistence"}},
+ {"id":"launch","input":"ui-click","label":"Launch","uiClick":{"documentId":"runtime_game","selector":"#feature-lab-launch-save-and-resume"}},
+ {"id":"commit","input":"ui-click","label":"Commit shaped session Slot","uiClick":{"documentId":null,"mountInstanceId":"resume-panel","selector":"#counter-commit"},"expectations":[{"id":"slot","type":"layout","operator":"eq","layout":{"layoutId":"session-counter","field":"state","value":{"count":1,"details":{"label":"committed","optional":null},"samples":[1,null,2.5]}}}]},
+ {"id":"save","input":"save","label":"Save committed Slot","saveSlot":{"slotId":"slot-58"}},
+ {"id":"dirty-slot","input":"ui-click","label":"Dirty Slot","uiClick":{"documentId":null,"mountInstanceId":"resume-panel","selector":"#counter-commit"},"expectations":[{"id":"slot","type":"layout","operator":"eq","layout":{"layoutId":"session-counter","field":"state","value":{"count":2,"details":{"label":"committed","optional":null},"samples":[1,null,2.5]}}}]},
+ {"id":"dirty-world","input":"continue","label":"Dirty world","expectations":[{"id":"delivery","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":2}}]},
+ {"id":"load","input":"load","label":"Restore Slot and gameplay","saveSlot":{"slotId":"slot-58"},"expectations":[{"id":"slot","type":"layout","operator":"eq","layout":{"layoutId":"session-counter","field":"state","value":{"count":1,"details":{"label":"committed","optional":null},"samples":[1,null,2.5]}}},{"id":"delivery","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":1}}]},
+ {"id":"restart","input":"ui-click","label":"Restart without implicitly loading","uiClick":{"documentId":"runtime_game","selector":"#feature-lab-restart"},"expectations":[{"id":"delivery","type":"property","operator":"eq","property":{"scope":"global","ownerId":"","propertyId":"resume-deliveries","value":1}}]},
+ {"id":"fresh-commit","input":"ui-click","label":"First commit after restart starts from default zero","uiClick":{"documentId":null,"mountInstanceId":"resume-panel","selector":"#counter-commit"},"expectations":[{"id":"slot","type":"layout","operator":"eq","layout":{"layoutId":"session-counter","field":"state","value":{"count":1,"details":{"label":"committed","optional":null},"samples":[1,null,2.5]}}}]},
+ {"id":"load-after-restart","input":"load","label":"Restart retained saved slots","saveSlot":{"slotId":"slot-58"},"expectations":[{"id":"slot","type":"layout","operator":"eq","layout":{"layoutId":"session-counter","field":"state","value":{"count":1,"details":{"label":"committed","optional":null},"samples":[1,null,2.5]}}}]}
+,
+ {"id":"clear","input":"ui-click","label":"Clear committed Slot","uiClick":{"documentId":null,"mountInstanceId":"resume-panel","selector":"#counter-clear"}},
+ {"id":"save-cleared","input":"save","label":"Persist cleared Slot","saveSlot":{"slotId":"slot-60"}},
+ {"id":"dirty-cleared","input":"ui-click","label":"Recreate after cleared checkpoint","uiClick":{"documentId":null,"mountInstanceId":"resume-panel","selector":"#counter-commit"}},
+ {"id":"load-cleared","input":"load","label":"Restore clear, not previous committed tree","saveSlot":{"slotId":"slot-60"}},
+ {"id":"commit-cleared","input":"ui-click","label":"Restored default begins again at zero","uiClick":{"documentId":null,"mountInstanceId":"resume-panel","selector":"#counter-commit"},"expectations":[{"id":"slot","type":"layout","operator":"eq","layout":{"layoutId":"session-counter","field":"state","value":{"count":1,"details":{"label":"committed","optional":null},"samples":[1,null,2.5]}}}]}
+ ],"finalExpectations":[],"preview":{"selectedStepId":"start","selectedObservationIndex":null,"autoOpenReport":true}}
+}

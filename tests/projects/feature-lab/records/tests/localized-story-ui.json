@@ -1,0 +1,129 @@
+{
+  "id": "localized-story-ui",
+  "label": "localized-story-ui",
+  "data": {
+    "kind": "test",
+    "displayName": "localized-story-ui",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh home"
+      },
+      {
+        "id": "category",
+        "input": "ui-click",
+        "label": "category",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "mountInstanceId": null,
+          "selector": "#feature-lab-category-language-display-persistence"
+        }
+      },
+      {
+        "id": "launch",
+        "input": "ui-click",
+        "label": "launch",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "mountInstanceId": null,
+          "selector": "#feature-lab-launch-localized-story"
+        },
+        "expectations": [
+          {
+            "id": "greeting",
+            "type": "event",
+            "operator": "present",
+            "event": {
+              "kind": "notification",
+              "value": "Hello, Ada!"
+            }
+          },
+          {
+            "id": "managed",
+            "type": "event",
+            "operator": "present",
+            "event": {
+              "kind": "notification",
+              "value": "Managed letter for Ada"
+            }
+          },
+          {
+            "id": "plural-one",
+            "type": "event",
+            "operator": "present",
+            "event": {
+              "kind": "notification",
+              "value": "One letter"
+            }
+          },
+          {
+            "id": "select",
+            "type": "event",
+            "operator": "present",
+            "event": {
+              "kind": "notification",
+              "value": "Sealed letter"
+            }
+          }
+        ]
+      },
+      {
+        "id": "count",
+        "input": "ui-click",
+        "label": "count",
+        "uiClick": {
+          "documentId": null,
+          "mountInstanceId": "language-board",
+          "selector": "#language-count"
+        },
+        "expectations": [
+          {
+            "id": "count-two",
+            "type": "property",
+            "operator": "eq",
+            "property": {"scope":"global","ownerId":"","propertyId":"story-count","value":2}
+          }
+        ]
+      },
+      {
+        "id": "count-again",
+        "input": "ui-click",
+        "label": "count-again",
+        "uiClick": {
+          "documentId": null,
+          "mountInstanceId": "language-board",
+          "selector": "#language-count"
+        },
+        "expectations": [
+          {
+            "id": "count-three",
+            "type": "property",
+            "operator": "eq",
+            "property": {"scope":"global","ownerId":"","propertyId":"story-count","value":3}
+          }
+        ]
+      },
+      {
+        "id": "choice",
+        "input": "continue",
+        "label": "Open localized choice",
+        "expectations":[{"id":"recursive-grammar","type":"event","operator":"present","event":{"kind":"notification","value":"3 open letters; 1,234.5"}}]
+      },
+      {
+        "id": "read",
+        "input": "scene-choice",
+        "label": "Choose stable ID",
+        "sceneChoice": {
+          "optionId": "read"
+        }
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

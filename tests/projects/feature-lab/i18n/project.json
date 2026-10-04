@@ -3,6 +3,10 @@
   "sourceLocaleLock": null,
   "defaultLocale": "en",
   "locales": {
-    "en": { "supported": true, "parentLocale": null, "fontStack": null }
+    "en": { "supported": true, "parentLocale": null, "fontStack": null },
+    "fr": { "supported": true, "parentLocale": null, "fontStack": null },
+    "fr-CA": { "supported": true, "parentLocale": "fr", "fontStack": null },
+    "ja": { "supported": true, "parentLocale": null, "fontStack": null },
+    "ar": { "supported": true, "parentLocale": null, "fontStack": null }
   }
 }

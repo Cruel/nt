@@ -1,0 +1,1 @@
+.reading-desk { position: absolute; left: 580px; top: 220px; width: 630px; padding: 16px; background: #102030ee; color: #fff; font-family: dejavusans; font-size: 24px; }
