@@ -43,10 +43,6 @@ function M.calendar()
   noveltea.notify('Local ' .. local_date .. ' / UTC ' .. utc_date .. ' / difference ' .. tostring(difference) .. ' seconds. Wall time is external to gameplay.')
 end
 
-function M.prefix_before_enter()
-  assert(Game.set_prop('board-hook', 'prefix'))
-end
-
 function M.catchall_before_enter()
   assert(Game.set_prop('board-hook', 'catchall'))
 end
