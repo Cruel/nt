@@ -40,6 +40,12 @@ capture, and typed gameplay input/shell-command dispatch through the host-provid
 callbacks and equivalent Lua helpers converge on these same named native action methods rather than
 duplicating validation.
 
+Both SDL input and private selector playback capture typed actions while RmlUi dispatches the
+originating event. Playback submits the captured inputs only after the event and its Layout
+capability scope return, before the caller settles the next frame. Host publication or Layout
+reconciliation must not run inline from a data-event callback: it may remove the document/context
+and destroy the expression/controller that RmlUi is still executing.
+
 `Game.startup_context()` is a loaded-session snapshot, not transient gameplay-view storage.
 Clearing a stale UI subview during runtime replacement must retain the newly installed startup
 context while Layout assets/publication are pending. `GameHost` resets it explicitly when detaching

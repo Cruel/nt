@@ -1964,10 +1964,19 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
         *m_state->host, *m_state->document_registry,
         [state = m_state](const std::string& document_id, core::MountedLayoutOwner owner,
                           const std::function<bool()>& dispatch) {
-            return state->with_active_layout_mount_document(document_id, [&]() {
-                return state->action_gateway &&
-                       state->action_gateway->dispatch_layout_event(owner, dispatch);
+            if (!state->action_gateway)
+                return false;
+            // Match SDL input capture: a host action may remove the executing event controller.
+            state->action_gateway->begin_event_capture();
+            const bool consumed = state->with_active_layout_mount_document(document_id, [&]() {
+                return state->action_gateway->dispatch_layout_event(owner, dispatch);
             });
+            auto captured = state->action_gateway->finish_event_capture();
+            for (const auto& input : captured.runtime_inputs)
+                (void)state->action_gateway->dispatch_input(input);
+            for (const auto& command : captured.shell_commands)
+                (void)state->action_gateway->dispatch_shell_command(command);
+            return consumed;
         });
 
     m_initialized = true;

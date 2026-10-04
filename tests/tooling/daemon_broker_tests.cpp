@@ -5,6 +5,7 @@
 #include <catch2/catch_test_macros.hpp>
 #include <nlohmann/json.hpp>
 
+#include <algorithm>
 #include <chrono>
 #include <csignal>
 #include <cstdint>
@@ -678,10 +679,69 @@ TEST_CASE("daemon frames are length-prefixed, fragment-safe, and bounded")
     REQUIRE(decoder.frames().size() == 1);
     CHECK(decoder.frames().front() == R"({"type":"request","requestId":"abc"})");
 
-    std::vector<std::uint8_t> oversized = {0x00, 0x10, 0x00, 0x01};
+    const auto oversized_length = static_cast<std::uint32_t>(max_frame_bytes + 1);
+    std::vector<std::uint8_t> oversized = {static_cast<std::uint8_t>(oversized_length >> 24U),
+                                           static_cast<std::uint8_t>(oversized_length >> 16U),
+                                           static_cast<std::uint8_t>(oversized_length >> 8U),
+                                           static_cast<std::uint8_t>(oversized_length)};
     FrameDecoder rejected;
     CHECK_FALSE(rejected.feed(oversized));
     CHECK(rejected.error() == "daemon frame exceeds maximum size");
+}
+
+TEST_CASE("daemon frames carry complete authored suite results larger than one MiB")
+{
+    using namespace noveltea::tooling::daemon;
+    const std::string report(1100 * 1024, 'x');
+    const auto completed = result_event_json("suite", true, "[0,\"" + report + "\",\"\"]");
+    const auto frame = encode_frame(completed);
+    REQUIRE_FALSE(frame.empty());
+
+    FrameDecoder decoder;
+    for (std::size_t offset = 0; offset < frame.size(); offset += 8192) {
+        const auto count = std::min<std::size_t>(8192, frame.size() - offset);
+        REQUIRE(decoder.feed(std::span(frame).subspan(offset, count)));
+    }
+    REQUIRE(decoder.frames().size() == 1);
+    CHECK(decoder.frames().front() == completed);
+    CHECK(encode_frame(std::string(max_frame_bytes + 1, 'x')).empty());
+}
+
+TEST_CASE("daemon oversized disposable completion returns an explicit failure to the caller")
+{
+    using namespace noveltea::tooling::daemon;
+    auto request = scheduler_context(unique_build("oversized-completion"));
+    request["action"] = "serve-start";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    request["action"] = "serve-ready";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableStandbyWorkers"] == 1; }));
+    const auto ids = disposable_worker_ids(daemon_status(request));
+    REQUIRE_FALSE(ids.empty());
+    auto ready = request;
+    ready["action"] = "disposable-ready";
+    ready["disposableWorkerId"] = ids.front();
+    REQUIRE(invoke_daemon(ready)["ok"] == true);
+    const auto job = disposable_request(request, "oversized-result");
+    auto pending = std::async(std::launch::async, [job] { return invoke_daemon(job); });
+    REQUIRE(wait_until([&] { return daemon_status(request)["disposableBusyWorkers"] == 1; }));
+    auto next = ready;
+    next["action"] = "disposable-next";
+    const auto work = invoke_daemon(next);
+    auto complete = ready;
+    complete["action"] = "disposable-complete";
+    complete["token"] = work["token"];
+    complete["requestOk"] = true;
+    complete["result"] = std::string(max_frame_bytes + 1, 'x');
+    const auto completion = invoke_daemon(complete);
+    const auto status = pending.wait_for(std::chrono::seconds(2));
+    request["action"] = "serve-abort";
+    REQUIRE(invoke_daemon(request)["ok"] == true);
+    const auto result = pending.get();
+    CHECK(completion["ok"] == true);
+    CHECK(status == std::future_status::ready);
+    CHECK(result["ok"] == false);
+    CHECK(result["error"] == "daemon completion exceeds the transport frame limit");
 }
 
 TEST_CASE("daemon endpoint identity separates build and protocol")

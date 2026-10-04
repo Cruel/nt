@@ -53,7 +53,10 @@ Project Settings has no whole-form draft and no Apply action. Every structurally
 control edit is dispatched immediately through an undoable command and becomes part of the
 authoritative working document. This includes semantically invalid but representable values such as
 empty required strings, malformed colors, zero or negative numeric values, and unresolved record
-references. Validation reports those values without reverting, normalizing, or unloading the
+references. Project loading also retains an invalid-but-present string at
+`/settings/display/worldRasterPolicy` for settings recovery, with an error diagnostic; a missing or
+non-string value remains structural corruption. This does not relax strict validation for saving,
+compilation, or export. Validation reports those values without reverting, normalizing, or unloading the
 project. Mode-switching controls may atomically replace fields that are inactive under the selected
 mode so the command never creates a transiently invalid combination.
 
