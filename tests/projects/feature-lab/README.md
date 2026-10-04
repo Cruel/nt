@@ -216,8 +216,11 @@ aggregate contract. Individual `test run <id>` commands remain useful for diagno
 complete playback report for that Test.
 
 Earlier full-suite runs encountered a native UI-worker SIGSEGV and a stalled invocation, including
-on unchanged-baseline Project source. These are historical observations, not currently reproduced
-failures: four consecutive rechecks passed all 29 authored Tests. The native file-backed Layout
+on unchanged-baseline Project source. During #256 verification the worker instability recurred:
+`verbs-and-offers-rank-ui` aborted once and later crashed alongside `verbs-and-offers-ambiguity-ui`.
+No authored expectation failed in those runs; the workers failed to return a response. A targeted
+rank recheck, an isolated unchanged-baseline 29-Test suite, and the final expanded 34-Test suite
+passed. This intermittent failure remains undiagnosed; a green rerun is not a crash fix. The native file-backed Layout
 playback fixture also passes after the resource/addressing changes. The native runner bounds each
 worker to 120 seconds and retains its request/response evidence directory when no valid response is
 produced; use that path if a failure recurs rather than weakening authored expectations. The separate
