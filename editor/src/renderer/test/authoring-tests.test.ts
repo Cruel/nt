@@ -106,6 +106,30 @@ describe('authoring tests schema', () => {
     ).not.toBeNull();
   });
 
+  it('accepts only canonical authored save-slot identities', () => {
+    const project = createAuthoringProject();
+    const diagnosticsFor = (slotId: string) => {
+      const data = defaultTestData('Smoke');
+      data.steps = [{ ...defaultTestStep('save'), saveSlot: { slotId } }];
+      data.preview.selectedStepId = data.steps[0]!.id;
+      return validateTestData(project, 'smoke', { id: 'smoke', label: 'Smoke', data });
+    };
+
+    expect(diagnosticsFor('autosave')).toEqual([]);
+    expect(diagnosticsFor('slot-0')).toEqual([]);
+    expect(diagnosticsFor('slot-54')).toEqual([]);
+    for (const slotId of ['54', 'slot54', 'manual-54', 'slot-054'])
+      expect(diagnosticsFor(slotId)).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            path: '/tests/smoke/data/steps/0/saveSlot/slotId',
+            severity: 'error',
+            message: "Save slot must be 'autosave' or 'slot-N' for a non-negative integer N.",
+          }),
+        ]),
+      );
+  });
+
   it('validates referenced semantic subjects and duplicate step IDs', () => {
     const project = createAuthoringProject();
     const data = defaultTestData('Smoke');
@@ -213,6 +237,7 @@ describe('authoring tests schema', () => {
           category: 'Tests',
           path: '/tests/smoke/data/steps/0/saveSlot/slotId',
           severity: 'error',
+          message: "Save slot must be 'autosave' or 'slot-N' for a non-negative integer N.",
         }),
       ]),
     );

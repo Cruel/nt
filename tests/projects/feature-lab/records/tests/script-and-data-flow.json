@@ -88,7 +88,7 @@
         "id": "save",
         "input": "save",
         "label": "Save before the next draw",
-        "saveSlot": { "slotId": "54" }
+        "saveSlot": { "slotId": "slot-54" }
       },
       {
         "id": "draw",
@@ -112,7 +112,7 @@
         "id": "load",
         "input": "load",
         "label": "Restore the saved VM and random state",
-        "saveSlot": { "slotId": "54" }
+        "saveSlot": { "slotId": "slot-54" }
       },
       {
         "id": "redraw",

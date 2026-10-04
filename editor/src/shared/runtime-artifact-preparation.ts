@@ -266,6 +266,9 @@ function runtimeProjectVersion(value: string): string {
 function runtimeCompilationProject(project: AuthoringProject): AuthoringProject {
   const runtimeProject = cloneAuthoringProject(project);
   runtimeProject.editor = emptyEditorProjectState();
+  // Authored Tests are tooling-only. Runtime compilation excludes them; test playback lowers the
+  // original authoring records separately into the Runtime Test Catalog.
+  runtimeProject.tests = {};
   runtimeProject.project.name = runtimeProjectName(project.project.name);
   runtimeProject.project.version = runtimeProjectVersion(project.project.version);
   runtimeProject.settings = {

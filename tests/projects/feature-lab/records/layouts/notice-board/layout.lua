@@ -1,9 +1,7 @@
-local notice_board = import('notice-board')
-
 notice_board_ui = {}
 
-function notice_board_ui.ready_cache()
-  noveltea.notify('On Game Ready cache: ' .. tostring(notice_board.title()))
+function notice_board_ui.ready_state()
+  noveltea.notify('Authoritative board title: ' .. tostring(Game.prop('board-title')))
 end
 
 function notice_board_ui.read()

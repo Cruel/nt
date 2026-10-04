@@ -6,6 +6,7 @@ import {
   prepareRuntimeArtifact,
 } from '../runtime-artifact-preparation';
 import {
+  isCanonicalTestSaveSlotId,
   parseTestData,
   type TestData,
   type TestExpectationData,
@@ -108,11 +109,10 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
     };
   }
   if (step.input === 'save' || step.input === 'load') {
-    const slot = step.saveSlot.slotId.trim();
+    const slot = step.saveSlot.slotId;
     if (slot === 'autosave') return { type: step.input, slot: 'autosave' };
-    const number = Number(slot.replace(/^slot-?/, ''));
-    if (Number.isInteger(number) && number >= 0)
-      return { type: step.input, slot: `manual-${number}` };
+    const manual = slot.match(/^slot-(0|[1-9][0-9]*)$/u);
+    if (manual) return { type: step.input, slot: `manual-${manual[1]}` };
   }
   if (step.input === 'ui-click')
     return {
@@ -162,6 +162,19 @@ export function buildRuntimePlaybackSpecFromTestData(
   data.steps
     .filter((step) => step.enabled)
     .forEach((step, index) => {
+      if (
+        (step.input === 'save' || step.input === 'load') &&
+        !isCanonicalTestSaveSlotId(step.saveSlot.slotId)
+      ) {
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `/tests/${testId}/data/steps/${index}/saveSlot/slotId`,
+            "Save slot must be 'autosave' or 'slot-N' for a non-negative integer N.",
+          ),
+        );
+        return;
+      }
       const input = buildTypedInput(step);
       if (!input) {
         diagnostics.push(

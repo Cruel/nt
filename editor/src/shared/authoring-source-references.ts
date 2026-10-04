@@ -37,10 +37,7 @@ export interface AuthoringSourceReferenceRecognizerInput {
   region: EmbeddedLuaSourceRegion;
 }
 
-/**
- * Extension seam for future, explicitly designed Lua/RML semantic APIs.
- * No product recognizers are registered until a concrete semantic API requires one.
- */
+/** Extension seam for explicitly designed Lua/RML semantic APIs. */
 export interface AuthoringSourceReferenceRecognizer {
   readonly id: string;
   recognize(
@@ -52,6 +49,18 @@ function literalCallPrefix(input: AuthoringSourceReferenceRecognizerInput): stri
   const start = input.occurrence.regionStartUtf16;
   if (start < 0 || start > input.region.decodedSource.length) return '';
   return input.region.decodedSource.slice(0, start);
+}
+
+function scriptModuleSource(input: AuthoringSourceReferenceRecognizerInput): boolean {
+  const owner = input.region.semanticOwner;
+  return (
+    typeof owner === 'object' &&
+    owner !== null &&
+    'kind' in owner &&
+    owner.kind === 'record' &&
+    'collection' in owner &&
+    owner.collection === 'scripts'
+  );
 }
 
 function rewriteableLiteral(
@@ -74,8 +83,27 @@ function rewriteableLiteral(
 const scriptModuleImportRecognizer: AuthoringSourceReferenceRecognizer = {
   id: 'noveltea.script-module-import',
   recognize(input) {
-    if (input.region.sourceKind !== 'lua-field') return null;
+    if (input.region.sourceKind !== 'lua-field' || !scriptModuleSource(input)) return null;
     if (!/(?:^|[^\w.])import\s*\(\s*$/.test(literalCallPrefix(input))) return null;
+    return rewriteableLiteral(input, {
+      kind: 'record',
+      collection: 'scripts',
+      id: input.occurrence.decodedValue,
+    });
+  },
+};
+
+const roomHookModuleRecognizer: AuthoringSourceReferenceRecognizer = {
+  id: 'noveltea.room-hook-module',
+  recognize(input) {
+    if (input.region.sourceKind !== 'lua-field' || !scriptModuleSource(input)) return null;
+    const prefix = literalCallPrefix(input);
+    if (
+      !/(?:^|[^\w.])hooks\s*\.\s*register\s*\(\s*(['"])room\1\s*,\s*(['"])[^'"\r\n]*\2\s*,\s*(['"])[^'"\r\n]*\3\s*,\s*$/u.test(
+        prefix,
+      )
+    )
+      return null;
     return rewriteableLiteral(input, {
       kind: 'record',
       collection: 'scripts',
@@ -119,7 +147,12 @@ const gameplayIdentityRecognizer: AuthoringSourceReferenceRecognizer = {
 
 /** Product recognizers are registered only after their Lua/RML API contract is designed. */
 export const AUTHORING_SOURCE_REFERENCE_RECOGNIZERS: readonly AuthoringSourceReferenceRecognizer[] =
-  Object.freeze([scriptModuleImportRecognizer, gameplayIdentityRecognizer, cursorNameRecognizer]);
+  Object.freeze([
+    scriptModuleImportRecognizer,
+    roomHookModuleRecognizer,
+    gameplayIdentityRecognizer,
+    cursorNameRecognizer,
+  ]);
 
 export interface ClassifiedAuthoringSourceReference {
   classification: AuthoringSourceReferenceClassification;

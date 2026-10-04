@@ -1355,8 +1355,8 @@
         {
           "id": "module-and-ready",
           "title": "Module initialization and On Game Ready have distinct lifetimes",
-          "action": "Enter the station and press Show On Game Ready cache; save at the ticket boundary, draw, load the save, then press the cache control again before redrawing.",
-          "expected": "Bootstrap imports the shared module once per VM even when requested twice. On Game Ready first reconstructs its transient cache from default established state, then after load reconstructs from the restored board title without replaying the gameplay entrypoint.",
+          "action": "Enter the station and observe the exact Room-hook notification; save at the ticket boundary, draw, load the save, and continue from the restored boundary.",
+          "expected": "Bootstrap imports the shared module once per VM even when requested twice and registers that same module as a Room-hook handler. On Game Ready reconstructs its transient cache from established gameplay state on the fresh VM and again on the replacement VM created by load; the hook observes that cache without a global bridge or Layout import.",
           "status": "ready", "verification": "semantic", "created": "2026-10-03T21:00:00Z", "modified": "2026-10-03T21:00:00Z",
           "assetRequirements": [], "automation": [{ "kind": "semantic-test", "id": "script-and-data-flow" }]
         },
