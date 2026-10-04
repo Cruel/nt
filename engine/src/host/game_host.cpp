@@ -1414,6 +1414,8 @@ void GameHost::detach_runtime_bindings() noexcept
     m_dependencies.runtime_ui.bind_input_sink(nullptr);
     m_runtime_ui_input_sink.reset();
     m_retired_runtime_ui_input_sinks.clear();
+    m_dependencies.runtime_ui.set_startup_context(
+        core::PersistableValue{core::PersistableValue::Object{}});
     m_dependencies.runtime_ui.clear_gameplay_ui_values();
     m_dependencies.runtime_ui.clear_runtime_shell_view();
     m_dependencies.runtime_ui.set_runtime_notification({});

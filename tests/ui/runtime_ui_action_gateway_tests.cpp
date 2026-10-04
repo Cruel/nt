@@ -72,9 +72,24 @@ TEST_CASE("RuntimeUiActionGateway owns one revisioned gameplay UI subview")
     REQUIRE_FALSE(diagnostics.empty());
     CHECK(diagnostics.back().code == "runtime_ui.stale_gameplay_values");
 
+    const noveltea::core::PersistableValue replacement_context{
+        noveltea::core::PersistableValue::Object{
+            {"scenario", noveltea::core::PersistableValue{std::string("layout-counter")}}}};
+    binder.set_startup_context(replacement_context);
     binder.clear_gameplay_values();
     CHECK_FALSE(binder.view());
     CHECK(binder.revision() == 0);
+    CHECK(binder.startup_context() == replacement_context);
+
+    values.revision = 1;
+    values.view.mode = "replacement";
+    values.startup_context = replacement_context;
+    REQUIRE(binder.apply(values));
+    CHECK(binder.startup_context() == replacement_context);
+    binder.set_startup_context(
+        noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{}});
+    CHECK(binder.startup_context() ==
+          noveltea::core::PersistableValue{noveltea::core::PersistableValue::Object{}});
 }
 
 TEST_CASE("RuntimeUiActionGateway emits typed inputs and capabilities through the host seam")
