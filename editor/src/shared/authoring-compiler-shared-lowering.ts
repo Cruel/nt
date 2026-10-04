@@ -51,6 +51,7 @@ import type {
   MaterialApplication,
   MaterialApplicationParameterOverride,
 } from './project-schema/authoring-material-applications';
+import { normalizedShaderColorValue } from './project-schema/authoring-shaders';
 import { compileRoomNavigationTransition, parseRoomData } from './project-schema/authoring-rooms';
 import { parseSceneData } from './project-schema/authoring-scenes';
 import { parseDialogueData } from './project-schema/authoring-dialogues';
@@ -276,7 +277,7 @@ function compileMaterialApplicationValue(
     case 'vec4':
       return { type: 'vec4', value: value as [number, number, number, number] };
     case 'color':
-      return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+      return { type: 'color', value: normalizedShaderColorValue(value) };
     case 'int':
       return { type: 'int', value: value as number };
     case 'bool':
@@ -690,7 +691,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       case 'vec4':
         return { type: 'vec4', value: value as [number, number, number, number] };
       case 'color':
-        return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+        return { type: 'color', value: normalizedShaderColorValue(value) };
       case 'int':
         return { type: 'int', value: value as number };
       case 'bool':

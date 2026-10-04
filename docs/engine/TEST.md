@@ -156,6 +156,7 @@ the native playback runner names.
 | ------------------------- | -------------------- | ------------------------------------------------ |
 | `tick`                    | `advance-time`       | `tick.deltaSeconds` lowered to microseconds      |
 | `continue`                | `continue`           | none                                             |
+| `fast-forward`            | `fast-forward`       | none                                             |
 | `dialogue-choice`         | `dialogue-choice`    | exact `dialogueChoice.edgeId`                    |
 | `scene-choice`            | `scene-choice`       | exact `sceneChoice.optionId`                     |
 | `navigate`                | `navigate`           | exact `navigate.exitId`                          |
@@ -187,8 +188,10 @@ or an expression language.
 
 The initial families cover Properties, current Room, Character/Interactable location, Interactable
 quantity, Trait presence, enabled/visible entity state, active Scene/Dialogue identity, mounted Layout
-presence/state, notification/save outcomes, and diagnostic codes. Operators are deliberately limited
-to equality/inequality, presence/absence, and numeric comparisons where the target supports them.
+presence/state, RuntimeUI element presence/visibility, notification/save outcomes, and diagnostic
+codes. Operators are deliberately limited to equality/inequality, presence/absence, and numeric
+comparisons where the target supports them. `ui-element` expectations address a named RuntimeUI
+document plus a selector and can distinguish an absent element from one that is present but hidden.
 
 After every enabled authored input, native playback performs a zero-duration engine-time advance before
 accepting the next authored input. This drains deterministic runtime work without wall-clock sleeps or
@@ -380,7 +383,7 @@ getAuthoringTestRunReadiness(project, testId)
 It serializes:
 
 - enabled steps only;
-- RuntimeUI document IDs and stable element selectors for `ui-click` steps (built-in documents use their stable runtime IDs);
+- RuntimeUI document IDs and stable element selectors for `ui-click` steps and `ui-element` expectations (built-in documents use their stable runtime IDs);
 - typed Character, exact Interactable Instance, and owner-qualified Feature subjects;
 - exact Dialogue Edge IDs, Scene Choice Option IDs, Room Exit IDs, and Verb IDs;
 - named Interaction bindings;
@@ -391,9 +394,9 @@ runtime-project shape. For a clean active Project, the Electron main process adm
 shared Project-local persistent generation and consumes its lowered Test catalog; this is the same
 cache generation used by the CLI. Unsaved/recovered Test content or pending Test input is compiled
 for that invocation only and is never published over the saved canonical catalog. Semantic-only Tests
-select the `runtime` runner. Any enabled `ui-click` step selects `runtime-ui`, which initializes
-RuntimeUI/RmlUi and still uses the same typed semantic expectation/reporting protocol as the semantic
-runner.
+select the `runtime` runner. Any enabled `ui-click` step or `ui-element` expectation selects
+`runtime-ui`, which initializes RuntimeUI/RmlUi and still uses the same typed semantic
+expectation/reporting protocol as the semantic runner.
 
 ## Run Readiness
 

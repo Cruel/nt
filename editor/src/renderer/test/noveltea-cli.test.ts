@@ -2064,6 +2064,53 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
+  it('compiles authored shaders before Test playback preparation', async () => {
+    const project = validProject();
+    project.materials.basic = {
+      id: 'basic',
+      label: 'Basic',
+      data: {
+        ...defaultMaterialData('Basic', 'engine-2d'),
+        shader: { fragment: { kind: 'project', path: 'shaders/basic.fs.sc' } },
+      },
+    };
+    project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };
+    const value = fixture(project);
+    let compileOptions: import('../../shared/editor-tooling').ShaderCompileOptions | undefined;
+    let playbackRuns = 0;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async compileShaders(_shaderProject, options) {
+        compileOptions = options;
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          outputs: [],
+          error: 'shader compile sentinel',
+        };
+      },
+      async runHeadlessTest() {
+        playbackRuns += 1;
+        return { ok: true, success: true };
+      },
+    };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'test', 'run', 'smoke'],
+      options(value, root, nativeTools),
+    );
+
+    expect(result.exitCode).toBe(6);
+    expect(compileOptions).toMatchObject({ projectRoot: root });
+    expect(playbackRuns).toBe(0);
+    expect(JSON.parse(result.stdout).diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ message: expect.stringContaining('shader compile sentinel') }),
+      ]),
+    );
+  });
+
   it('routes bare test run through the native suite operation with lowered catalog', async () => {
     const project = validProject();
     project.tests.smoke = { id: 'smoke', label: 'Smoke', data: defaultTestData('Smoke') };

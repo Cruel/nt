@@ -19,9 +19,10 @@ are not stable Test identities. The one admitted UI seam is `ui-click`: it names
 document plus an authored selector and dispatches normal RmlUi pointer input. Prefer stable element IDs
 or explicit test-oriented attributes for that selector; coordinate clicks are not the current contract.
 
-The current typed step families are: logical-time `tick`, `continue`, Dialogue and Scene choice,
-Room `navigate`, subject selection/primary activation/Verb-menu opening/selection clearing,
-`run-interaction`, save/load, and `ui-click`. Only the payload selected by a step's input kind is active;
+The current typed step families are: logical-time `tick`, `continue`, semantic `fast-forward`, Dialogue
+and Scene choice, Room `navigate`, subject selection/primary activation/Verb-menu opening/selection
+clearing, `run-interaction`, save/load, and `ui-click`. Only the payload selected by a step's input kind
+is active;
 disabled steps remain authored but are omitted from playback. Save/load steps use exactly `autosave` or
 `slot-N` (for example `slot-3`) as their authored `slotId`; bare numbers and runtime transport names
 such as `manual-3` are not authored save-slot identities.
@@ -50,10 +51,12 @@ force it into an authored Test.
 Each enabled step may carry typed semantic expectations, and a Test may also carry
 `finalExpectations`. The supported expectation families cover Properties, current Room,
 Character/Interactable Location, Interactable quantity, Trait presence, enabled/visible entity state,
-active Scene/Dialogue identity, mounted Layout presence/state, notification/save outcomes, and
-diagnostic codes. Operators are intentionally closed to equality/inequality, presence/absence, and
-numeric comparisons where the target admits them. Expectations observe settled authoritative runtime
-state; they do not execute arbitrary assertion Lua or inspect private RuntimeSession state.
+active Scene/Dialogue identity, mounted Layout presence/state, RuntimeUI element presence/visibility,
+notification/save outcomes, and diagnostic codes. `ui-element` expectations address a named RuntimeUI
+document plus a stable selector and can distinguish absence from present-but-hidden state. Operators are
+intentionally closed to equality/inequality, presence/absence, and numeric comparisons where the target
+admits them. Expectations observe settled authoritative runtime state; they do not execute arbitrary
+assertion Lua or inspect private RuntimeSession state.
 
 Stable step IDs are useful because diagnostics, playback reports, and tooling can refer to the
 authored action without depending on array position.

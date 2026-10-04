@@ -385,6 +385,11 @@ TEST_CASE("editor runtime input protocol decodes only closed typed inputs")
     const auto* input = std::get_if<NavigateRoomInput>(&result.value());
     REQUIRE(input != nullptr);
     CHECK(input->exit.text() == "north-exit");
+
+    auto fast_forward = decode_editor_runtime_input(
+        {{"schema", runtime_input_schema}, {"version", 1}, {"input", {{"type", "fast-forward"}}}});
+    REQUIRE(fast_forward);
+    CHECK(std::holds_alternative<FastForwardInput>(fast_forward.value()));
 }
 
 TEST_CASE("editor runtime input protocol decodes owner-qualified Feature selection")

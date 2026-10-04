@@ -19,7 +19,10 @@ import type {
   MaterialApplication,
   MaterialApplicationParameterOverride,
 } from './project-schema/authoring-material-applications';
-import type { ShaderUniformValue } from './project-schema/authoring-shaders';
+import {
+  normalizedShaderColorValue,
+  type ShaderUniformValue,
+} from './project-schema/authoring-shaders';
 import {
   parseSceneData,
   type SceneStepData,
@@ -135,7 +138,7 @@ function compileMaterialApplicationLiteral(
     case 'vec4':
       return { type: 'vec4', value: value as [number, number, number, number] };
     case 'color':
-      return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+      return { type: 'color', value: normalizedShaderColorValue(value) };
     case 'int':
       return { type: 'int', value: value as number };
     case 'bool':
@@ -210,7 +213,7 @@ function compileMaterialParameterValue(
     case 'vec4':
       return { type: 'vec4', value: value as [number, number, number, number] };
     case 'color':
-      return { type: 'color', value: value as { r: number; g: number; b: number; a: number } };
+      return { type: 'color', value: normalizedShaderColorValue(value) };
     case 'int':
       return { type: 'int', value: value as number };
     case 'bool':

@@ -24,6 +24,7 @@ enum class TypedPlaybackExpectationKind : std::uint8_t {
     EntityState,
     ActiveFlow,
     Layout,
+    UiElement,
     Event,
     Diagnostic,
 };

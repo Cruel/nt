@@ -359,7 +359,8 @@ struct HeadlessRuntimeInput {
 
 Result<HeadlessRuntimeInput, Diagnostics>
 make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                        std::string runtime_locale)
+                        std::string runtime_locale,
+                        std::vector<std::string> shader_variants = {})
 {
     auto decoded_project = decode_compiled_project(gameplay, "game");
     if (!decoded_project)
@@ -411,15 +412,28 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
         if (!decoded_materials)
             return Result<HeadlessRuntimeInput, Diagnostics>::failure(
                 std::move(decoded_materials).error());
-        std::vector<std::string> variants;
+        if (shader_variants.empty()) {
+            std::set<std::string> inferred;
+            for (const auto& shader : decoded_materials.value_if()->shaders)
+                for (const auto& stage : shader.stages)
+                    for (const auto& binary : stage.compiled)
+                        if (!binary.path.starts_with("system:/"))
+                            inferred.insert(binary.variant);
+            if (inferred.empty())
+                for (const auto& shader : decoded_materials.value_if()->shaders)
+                    for (const auto& stage : shader.stages)
+                        for (const auto& binary : stage.compiled)
+                            inferred.insert(binary.variant);
+            shader_variants.assign(inferred.begin(), inferred.end());
+        }
         std::set<std::string> binary_paths;
         bool has_shader_sources = false;
         for (const auto& shader : decoded_materials.value_if()->shaders) {
             for (const auto& stage : shader.stages) {
                 has_shader_sources = has_shader_sources || !stage.source.empty() || !stage.source_text.empty();
                 for (const auto& binary : stage.compiled) {
-                    if (std::find(variants.begin(), variants.end(), binary.variant) == variants.end())
-                        variants.push_back(binary.variant);
+                    if (binary.path.starts_with("system:/"))
+                        continue;
                     const auto package_path = runtime_package_entry_path(binary.path);
                     if (binary_paths.insert(package_path).second) {
                         entries.push_back({{"path", package_path}, {"size", 0}});
@@ -431,7 +445,7 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
         entries.push_back({{"path", "shader-materials.json"}, {"size", 0}});
         files.push_back({"shader-materials.json", 0, std::nullopt});
         manifest["entries"] = entries;
-        manifest["shader_variants"] = std::move(variants);
+        manifest["shader_variants"] = std::move(shader_variants);
         if (has_shader_sources)
             manifest["kind"] = "editable";
         manifest["shader_materials"] = {{"entry", "shader-materials.json"},
@@ -708,7 +722,18 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         return fail("Lua runtime initialization failed.");
     TypedMemorySaveSlotStore saves;
     HeadlessPresentationRuntime presentation;
-    auto input = make_running_game_input(project_json, shader_materials, "en");
+    std::vector<std::string> shader_variants;
+    if (const auto variants = request.find("shaderVariants"); variants != request.end()) {
+        if (!variants->is_array())
+            return fail("Runtime UI Test shaderVariants must be an array.");
+        for (const auto& variant : *variants) {
+            if (!variant.is_string() || variant.get_ref<const std::string&>().empty())
+                return fail("Runtime UI Test shaderVariants contains an invalid entry.");
+            shader_variants.push_back(variant.get<std::string>());
+        }
+    }
+    auto input = make_running_game_input(project_json, shader_materials, "en",
+                                         std::move(shader_variants));
     if (!input)
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   diagnostics_json(input.error()));
@@ -904,6 +929,59 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     if (!driver)
         return fail("RuntimeUI playback driver is unavailable.");
 
+    const auto evaluate_ui_expectation = [&](const TypedPlaybackExpectation& expectation)
+        -> std::optional<TypedPlaybackExpectationReport> {
+        if (expectation.kind != TypedPlaybackExpectationKind::UiElement)
+            return std::nullopt;
+        TypedPlaybackExpectationReport report{expectation.id, false, {}};
+        const auto& fields = expectation.fields;
+        std::string document_id = json_access::value_or(fields, "documentId", std::string{});
+        if (document_id == "runtime_game") {
+            document_id = realizer.document_id(game_hud_instance).value_or(document_id);
+        } else if (document_id.starts_with("mount:")) {
+            auto instance = noveltea::core::ScopedLayoutInstanceId::create(document_id.substr(6));
+            if (!instance) {
+                report.message = "UI element expectation contains an invalid Mount instance id.";
+                return report;
+            }
+            const auto resolved = realizer.document_id(*instance.value_if());
+            if (!resolved) {
+                report.message = "UI element expectation Mount instance is not realized uniquely.";
+                return report;
+            }
+            document_id = *resolved;
+        } else if (document_id.starts_with("layout:")) {
+            auto layout = noveltea::core::LayoutId::create(document_id.substr(7));
+            if (!layout) {
+                report.message = "UI element expectation contains an invalid Layout id.";
+                return report;
+            }
+            const auto resolved = realizer.document_id(*layout.value_if());
+            if (!resolved) {
+                report.message = "UI element expectation Layout is not realized uniquely.";
+                return report;
+            }
+            document_id = *resolved;
+        }
+        const auto selector = json_access::value_or(fields, "selector", std::string{});
+        const auto field = json_access::value_or(fields, "field", std::string{});
+        if (field == "present") {
+            const bool present = driver->query_present(document_id, selector);
+            const bool expected = expectation.op == TypedPlaybackExpectationOperator::Present;
+            report.passed = present == expected;
+            report.message = report.passed ? "Expectation passed."
+                                           : "UI element presence did not match.";
+            return report;
+        }
+        const bool visible = driver->query_visible(document_id, selector);
+        const bool expected = json_access::value_or(fields, "value", false);
+        const bool equal = visible == expected;
+        report.passed = expectation.op == TypedPlaybackExpectationOperator::Equal ? equal : !equal;
+        report.message = report.passed ? "Expectation passed."
+                                       : "UI element visibility did not match.";
+        return report;
+    };
+
     for (const auto& step : decoded_spec.value().steps) {
         TypedPlaybackStepReport report;
         report.index = step.index;
@@ -1003,9 +1081,13 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         if (has_errors(report.diagnostics))
             passed = false;
         for (const auto& expectation : step.expectations) {
-            auto expectation_report = evaluate_playback_expectation(
-                expectation, running_game_instance->session(), *final_publication, report.events,
-                report.diagnostics);
+            auto ui_expectation_report = evaluate_ui_expectation(expectation);
+            auto expectation_report = ui_expectation_report
+                                          ? std::move(*ui_expectation_report)
+                                          : evaluate_playback_expectation(
+                                                expectation, running_game_instance->session(),
+                                                *final_publication, report.events,
+                                                report.diagnostics);
             if (!expectation_report.passed)
                 passed = false;
             report.expectations.push_back(std::move(expectation_report));
@@ -1027,9 +1109,12 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
     if (!final_publication)
         return fail("Playback completed without a final runtime publication.");
     for (const auto& expectation : decoded_spec.value().final_expectations) {
-        auto expectation_report = evaluate_playback_expectation(
-            expectation, running_game_instance->session(), *final_publication, all_events,
-            all_diagnostics);
+        auto ui_expectation_report = evaluate_ui_expectation(expectation);
+        auto expectation_report = ui_expectation_report
+                                      ? std::move(*ui_expectation_report)
+                                      : evaluate_playback_expectation(
+                                            expectation, running_game_instance->session(),
+                                            *final_publication, all_events, all_diagnostics);
         if (!expectation_report.passed)
             passed = false;
         final_expectations.push_back(std::move(expectation_report));

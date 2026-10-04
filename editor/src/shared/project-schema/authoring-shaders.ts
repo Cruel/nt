@@ -82,7 +82,14 @@ export const shaderSamplerDataSchema = z
   .strict();
 
 export type ShaderUniformValue = z.infer<typeof shaderUniformValueSchema>;
+export type ShaderColorValue = { r: number; g: number; b: number; a: number };
 export type ShaderUniformData = z.infer<typeof shaderUniformDataSchema>;
+
+export function normalizedShaderColorValue(value: ShaderUniformValue): ShaderColorValue {
+  if (Array.isArray(value) && value.length === 4)
+    return { r: value[0], g: value[1], b: value[2], a: value[3] };
+  return value as ShaderColorValue;
+}
 export type ShaderSamplerData = z.infer<typeof shaderSamplerDataSchema>;
 
 export const defaultVertexShaderSource = `$input a_position, a_texcoord0, a_color0

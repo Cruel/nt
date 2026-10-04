@@ -168,6 +168,75 @@ describe('authoring test playback project adapter', () => {
     });
   });
 
+  it('lowers UI element presence and visibility expectations through the Runtime UI runner', () => {
+    const data = defaultTestData('UI state');
+    const present = defaultTestExpectation('ui-element', 'present');
+    present.id = 'catalog-present';
+    present.uiElement = {
+      documentId: 'runtime_game',
+      mountInstanceId: null,
+      selector: '#feature-lab-catalog',
+      field: 'present',
+      value: true,
+    };
+    const hidden = defaultTestExpectation('ui-element', 'eq');
+    hidden.id = 'catalog-hidden';
+    hidden.uiElement = {
+      documentId: null,
+      mountInstanceId: 'catalog-panel',
+      selector: '#feature-lab-catalog',
+      field: 'visible',
+      value: false,
+    };
+    data.steps[0]!.expectations = [present];
+    data.finalExpectations = [hidden];
+
+    expect(buildRuntimePlaybackSpecFromTestData('ui-state', data)).toMatchObject({
+      ok: true,
+      runner: 'runtime-ui',
+      spec: {
+        steps: [
+          {
+            expectations: [
+              {
+                id: 'catalog-present',
+                type: 'ui-element',
+                operator: 'present',
+                documentId: 'runtime_game',
+                selector: '#feature-lab-catalog',
+                field: 'present',
+                value: true,
+              },
+            ],
+          },
+        ],
+        finalExpectations: [
+          {
+            id: 'catalog-hidden',
+            type: 'ui-element',
+            operator: 'eq',
+            documentId: 'mount:catalog-panel',
+            selector: '#feature-lab-catalog',
+            field: 'visible',
+            value: false,
+          },
+        ],
+      },
+    });
+  });
+
+  it('lowers semantic fast-forward to the runtime fast-forward input', () => {
+    const data = defaultTestData('Fast forward');
+    data.steps = [{ ...defaultTestStep('fast-forward'), id: 'skip', label: 'Skip presentation' }];
+
+    expect(buildRuntimePlaybackSpecFromTestData('fast-forward', data)).toMatchObject({
+      ok: true,
+      spec: {
+        steps: [{ index: 0, input: { type: 'fast-forward' } }],
+      },
+    });
+  });
+
   it('blocks non-canonical authored save-slot identities with a specific diagnostic', () => {
     const data = defaultTestData('Smoke');
     data.steps = [

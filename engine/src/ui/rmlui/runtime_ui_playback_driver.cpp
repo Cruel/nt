@@ -218,6 +218,27 @@ Rml::Element* RuntimeUiPlaybackDriver::element(const std::string& document_id,
     return m_documents.element(document_id, element_id);
 }
 
+Rml::Element* RuntimeUiPlaybackDriver::query(const std::string& document_id,
+                                             const std::string& selector) const noexcept
+{
+    auto* document = m_documents.document(document_id);
+    return document ? resolve_target(*document, selector) : nullptr;
+}
+
+bool RuntimeUiPlaybackDriver::query_present(const std::string& document_id,
+                                            const std::string& selector) const noexcept
+{
+    return query(document_id, selector) != nullptr;
+}
+
+bool RuntimeUiPlaybackDriver::query_visible(const std::string& document_id,
+                                            const std::string& selector) const noexcept
+{
+    auto* document = m_documents.document(document_id);
+    auto* target = document ? resolve_target(*document, selector) : nullptr;
+    return document && document->IsVisible() && target && target->IsVisible(true);
+}
+
 const char* to_string(RuntimeUiPlaybackClickStatus status) noexcept
 {
     switch (status) {

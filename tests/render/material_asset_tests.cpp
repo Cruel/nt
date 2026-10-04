@@ -150,7 +150,7 @@ TEST_CASE("project shader and material records parse")
           },
           "uniforms":{
             "u_amount":{"type":"float","default":0.25,"range":[0.0,1.0]},
-            "u_tint":{"type":"color","default":"#66ccffff"},
+            "u_tint":{"type":"color","default":[0.4,0.8,1.0,1.0]},
             "u_time":{"type":"float","binding":"engine.time"},
             "u_dims":{"type":"vec2","binding":"engine.paint_dimensions"},
             "u_world_scale":{"type":"vec2","binding":"engine.reference_to_world_raster_scale"},
@@ -170,7 +170,7 @@ TEST_CASE("project shader and material records parse")
           "display_name":"Noise Panel",
           "role":"rmlui-decorator",
           "shader":"soft_noise",
-          "uniforms":{"u_amount":0.5,"u_tint":"#ffffffff"},
+          "uniforms":{"u_amount":0.5,"u_tint":{"r":1.0,"g":1.0,"b":1.0,"a":1.0}},
           "textures":{"s_noise":{"source":"project:/textures/noise.png","address":"clamp","filter":"linear"}}
         },
         "world/water":{

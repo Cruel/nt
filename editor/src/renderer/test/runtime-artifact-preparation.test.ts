@@ -18,6 +18,7 @@ import {
 } from './runtime-artifact-test-helpers';
 import {
   PREPARED_RUNTIME_ARTIFACT_SCHEMA,
+  prepareRuntimeArtifact,
   verifyPreparedRuntimeArtifact,
 } from '../../shared/runtime-artifact-preparation';
 import {
@@ -1248,6 +1249,60 @@ describe('Prepared Runtime Artifact module', () => {
       paths,
     });
     expect(verified).toEqual(expect.objectContaining({ status: 'verified' }));
+  });
+
+  it('compiles shaders for authored Test playback before reconciling custom Material Parameters', async () => {
+    const project = roomProject();
+    const { program, request } = await addCustomShaderMaterial(project);
+    const scene = defaultSceneData('Custom Material Scene');
+    scene.events = [
+      {
+        ...defaultSceneStep('material-parameter'),
+        id: 'custom-parameter',
+        target: { kind: 'background' },
+        material: sceneMaterialRef('basic'),
+        parameter: 'u_custom',
+        value: 0.5,
+        transition: 'none',
+        durationMs: 0,
+      },
+    ];
+    project.scenes.custom = { id: 'custom', label: 'Custom Material Scene', data: scene };
+    const fragment = {
+      ...compiledShaderOutput(program, request.fragmentSource, 'fragment', 'a'),
+      reflectedInputs: [{ name: 'u_custom', kind: 'uniform' as const, type: 'vec4', arraySize: 1 }],
+    };
+    let compileCalls = 0;
+    const result = await prepareRuntimeArtifact({
+      project,
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), shaderVariants: ['glsl-330'] },
+      intent: 'test-playback',
+      paths: rendererRuntimeArtifactPaths,
+      shaderCompiler: {
+        async compile() {
+          compileCalls += 1;
+          return {
+            ok: true,
+            success: true,
+            diagnostics: [],
+            outputs: [compiledShaderOutput(program, request.vertexSource, 'vertex', 'b'), fragment],
+          };
+        },
+      },
+    });
+
+    expect(compileCalls).toBe(1);
+    expect(result.status).toBe('prepared');
+    if (result.status !== 'prepared') return;
+    const compiledScene = result.artifact.compiledProject.definitions.scenes.find(
+      (candidate) => candidate.id === 'custom',
+    );
+    expect(compiledScene?.program.events[0]?.instruction).toMatchObject({
+      kind: 'material-parameter',
+      parameter: 'u_custom',
+      value: { type: 'float', value: 0.5 },
+    });
   });
 
   it('reconciles Scene custom Material Parameters against reflected shader interfaces', async () => {

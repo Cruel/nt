@@ -470,6 +470,8 @@ TypedPlaybackExpectationReport evaluate_playback_expectation(
                    ? pass()
                    : fail("Layout state did not match.");
     }
+    case TypedPlaybackExpectationKind::UiElement:
+        return fail("UI element expectations require Runtime UI playback.");
     case TypedPlaybackExpectationKind::Event: {
         const auto kind = json_access::value_or(fields, "kind", std::string{});
         const auto expected = json_access::value_or(fields, "value", std::string{});

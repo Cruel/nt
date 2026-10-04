@@ -8,7 +8,6 @@
       "preset": "rmlui-decorator"
     },
     "displayName": "lab-decorator",
-    "shader": { "fragment": { "kind": "project", "path": "shaders/lab-decorator.fs.sc" } },
     "parameters": {},
     "textures": {}
   }

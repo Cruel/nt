@@ -1,0 +1,11 @@
+{
+  "id": "lab-parameter-tween",
+  "label": "Occurrence parameter tween",
+  "data": {
+    "kind": "material",
+    "base": { "kind": "preset", "preset": "postprocess-tint" },
+    "displayName": "Occurrence Parameter Tween",
+    "parameters": {},
+    "textures": {}
+  }
+}

@@ -2,10 +2,7 @@ import { randomUUID } from 'node:crypto';
 import path from 'node:path';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
-import {
-  logicalRuntimeArtifactPaths,
-  prepareRuntimeArtifact,
-} from '../../shared/runtime-artifact-preparation';
+import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
 import {
   captureRuntimeBuildCacheTestInputs,
   lookupCanonicalRuntimeBuildCache,
@@ -390,14 +387,22 @@ async function prepareCachedTestRuntime(context: CliCommandContext, forceRebuild
   if (!artifact) {
     const prepared = await prepareRuntimeArtifact({
       project: context.snapshot.project,
-      projectRoot: null,
+      projectRoot: context.snapshot.projectRoot,
       profile: selectedExportProfile(context.snapshot.project),
       intent: 'test-playback',
-      paths: logicalRuntimeArtifactPaths,
+      shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
+        context.nativeTools.compileShaders(shaderProject, {
+          ...options,
+          sourceOverlays: {
+            ...options.sourceOverlays,
+            ...pinnedShaderSourceOverlays(context.pinnedProjectTextSources),
+          },
+        }),
+      ),
+      paths: context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
     });
     if (prepared.status !== 'prepared') {
-      const diagnostics =
-        prepared.status === 'cancelled' ? prepared.diagnostics : prepared.assessment.diagnostics;
+      const diagnostics = prepared.diagnostics;
       return {
         ok: false as const,
         result: withRuntimeCacheObservation(
@@ -500,6 +505,7 @@ export const testRunCommand: CliCommandDefinition = {
               projectRoot: context.snapshot.projectRoot,
               ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
               shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
+              shaderVariants: runtime.artifact.packageOptions.shaderVariants,
             });
           };
           const response = await executeCachedRuntimeArtifactWithRecovery({
@@ -557,6 +563,7 @@ export const testRunCommand: CliCommandDefinition = {
             projectRoot: context.snapshot.projectRoot,
             ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
             shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
+            shaderVariants: runtime.artifact.packageOptions.shaderVariants,
           };
           return runtimeEntry.runner === 'runtime-ui'
             ? context.nativeTools.runUiTest(request)
@@ -616,6 +623,7 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
                   projectRoot: context.snapshot.projectRoot,
                   ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
                   shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
+                  shaderVariants: runtime.artifact.packageOptions.shaderVariants,
                 })
               : context.nativeTools.runHeadlessTest({
                   project: runtime.artifact.compiledProject,
@@ -623,6 +631,7 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
                   projectRoot: context.snapshot.projectRoot,
                   ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
                   shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
+                  shaderVariants: runtime.artifact.packageOptions.shaderVariants,
                 });
           const response = await executeCachedRuntimeArtifactWithRecovery({
             cached: prepared.cacheHit,

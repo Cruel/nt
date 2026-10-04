@@ -31,6 +31,7 @@ export interface RuntimePlaybackSpecBuildResult {
   spec?: unknown;
   project?: unknown;
   shaderMaterialMetadata?: unknown;
+  shaderVariants?: string[];
   diagnostics: ToolDiagnostic[];
 }
 
@@ -78,6 +79,16 @@ function buildTypedExpectation(expectation: TestExpectationData): Record<string,
   if (expectation.type === 'entity-state') return { ...base, ...expectation.entityState };
   if (expectation.type === 'active-flow') return { ...base, ...expectation.activeFlow };
   if (expectation.type === 'layout') return { ...base, ...expectation.layout };
+  if (expectation.type === 'ui-element')
+    return {
+      ...base,
+      documentId: expectation.uiElement.mountInstanceId
+        ? `mount:${expectation.uiElement.mountInstanceId}`
+        : (expectation.uiElement.documentId ?? ''),
+      selector: expectation.uiElement.selector,
+      field: expectation.uiElement.field,
+      value: expectation.uiElement.value,
+    };
   if (expectation.type === 'event') return { ...base, ...expectation.event };
   return { ...base, ...expectation.diagnostic };
 }
@@ -86,6 +97,7 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
   if (step.input === 'tick')
     return { type: 'advance-time', microseconds: Math.round(step.tick.deltaSeconds * 1_000_000) };
   if (step.input === 'continue') return { type: 'continue' };
+  if (step.input === 'fast-forward') return { type: 'fast-forward' };
   if (step.input === 'dialogue-choice')
     return { type: 'dialogue-choice', edge: step.dialogueChoice.edgeId };
   if (step.input === 'scene-choice')
@@ -126,26 +138,36 @@ function buildTypedInput(step: TestStepData): Record<string, unknown> | null {
 }
 
 function usesRuntimeUi(data: TestData) {
-  return data.steps.some((step) => step.enabled && step.input === 'ui-click');
+  const hasUiExpectation = (expectations: TestData['finalExpectations']) =>
+    expectations.some((expectation) => expectation.type === 'ui-element');
+  return (
+    data.steps.some(
+      (step) => step.enabled && (step.input === 'ui-click' || hasUiExpectation(step.expectations)),
+    ) || hasUiExpectation(data.finalExpectations)
+  );
 }
 
 async function compiledProjectForAuthoring(project: AuthoringProject): Promise<{
   project?: unknown;
   shaderMaterialMetadata?: unknown;
+  shaderVariants: string[];
   diagnostics: ToolDiagnostic[];
   ok: boolean;
 }> {
+  const profile = selectedExportProfile(project);
   const prepared = await prepareRuntimeArtifact({
     project,
     projectRoot: null,
-    profile: selectedExportProfile(project),
+    profile,
     intent: 'test-playback',
     paths: logicalRuntimeArtifactPaths,
   });
-  if (prepared.status === 'cancelled') return { diagnostics: prepared.diagnostics, ok: false };
+  if (prepared.status === 'cancelled')
+    return { shaderVariants: profile.shaderVariants, diagnostics: prepared.diagnostics, ok: false };
   return {
     project: prepared.assessment.compiledProject,
     shaderMaterialMetadata: prepared.assessment.shaderMaterialMetadata,
+    shaderVariants: profile.shaderVariants,
     diagnostics: prepared.assessment.diagnostics,
     ok: prepared.status === 'prepared',
   };
@@ -234,6 +256,7 @@ export async function buildRuntimePlaybackSpecFromAuthoringTest(
     ok: built.ok && compiledProject.ok,
     project: compiledProject.project,
     shaderMaterialMetadata: compiledProject.shaderMaterialMetadata,
+    shaderVariants: compiledProject.shaderVariants,
     diagnostics: [...built.diagnostics, ...compiledProject.diagnostics],
   };
 }

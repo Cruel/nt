@@ -12,6 +12,7 @@ import { withSchemaDocumentation } from './schema-documentation';
 export const testInputTypeValues = [
   'tick',
   'continue',
+  'fast-forward',
   'dialogue-choice',
   'scene-choice',
   'navigate',
@@ -35,6 +36,7 @@ export const testExpectationTypeValues = [
   'entity-state',
   'active-flow',
   'layout',
+  'ui-element',
   'event',
   'diagnostic',
 ] as const;
@@ -134,6 +136,22 @@ export const testExpectationDataSchema = z
       })
       .strict()
       .default({ layoutId: '', field: 'mounted', value: null }),
+    uiElement: z
+      .object({
+        documentId: z.string().nullable().default('runtime_game'),
+        mountInstanceId: entityIdSchema.nullable().default(null),
+        selector: z.string().default('#target'),
+        field: z.enum(['present', 'visible']).default('present'),
+        value: z.boolean().default(true),
+      })
+      .strict()
+      .default({
+        documentId: 'runtime_game',
+        mountInstanceId: null,
+        selector: '#target',
+        field: 'present',
+        value: true,
+      }),
     event: z
       .object({
         kind: z.enum(['notification', 'save-outcome']).default('notification'),
@@ -324,6 +342,7 @@ export function defaultTestExpectation(
   type: TestExpectationType = 'current-room',
   operator: TestExpectationOperator = type === 'trait' ||
   type === 'layout' ||
+  type === 'ui-element' ||
   type === 'current-room'
     ? 'present'
     : 'eq',
@@ -498,6 +517,32 @@ function validateExpectation(
     );
   if (expectation.type === 'entity-state' && !equality.has(expectation.operator))
     diagnostics.push(diagnostic(`${path}/operator`, 'Entity-state expectations require eq or ne.'));
+  if (expectation.type === 'ui-element') {
+    const documentId = expectation.uiElement.documentId?.trim() ?? '';
+    const mountInstanceId = expectation.uiElement.mountInstanceId?.trim() ?? '';
+    if (documentId.length > 0 === mountInstanceId.length > 0)
+      diagnostics.push(
+        diagnostic(
+          `${path}/uiElement`,
+          'UI element expectation requires exactly one address: documentId or mountInstanceId.',
+        ),
+      );
+    if (!expectation.uiElement.selector.trim())
+      diagnostics.push(
+        diagnostic(`${path}/uiElement/selector`, 'UI element expectation selector is required.'),
+      );
+    if (expectation.uiElement.field === 'present' && !presence.has(expectation.operator))
+      diagnostics.push(
+        diagnostic(
+          `${path}/operator`,
+          'UI element presence expectations require present or absent.',
+        ),
+      );
+    if (expectation.uiElement.field === 'visible' && !equality.has(expectation.operator))
+      diagnostics.push(
+        diagnostic(`${path}/operator`, 'UI element visibility expectations require eq or ne.'),
+      );
+  }
   if (
     (expectation.type === 'current-room' || expectation.type === 'active-flow') &&
     !equality.has(expectation.operator) &&

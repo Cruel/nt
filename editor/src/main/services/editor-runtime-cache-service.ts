@@ -487,10 +487,12 @@ export class EditorRuntimeCacheService {
             spec: built.spec,
             projectRoot: workspace.projectRoot(),
             shaderMaterialMetadata: built.shaderMaterialMetadata ?? null,
+            shaderVariants: built.shaderVariants ?? [],
           })
         : this.invokeNative('run-test', {
             project: built.project,
             spec: built.spec,
+            shaderVariants: built.shaderVariants ?? [],
           });
     }
 
@@ -521,7 +523,11 @@ export class EditorRuntimeCacheService {
           success: false,
           diagnostics: runtimeEntry?.status === 'blocked' ? runtimeEntry.diagnostics : [],
         });
-      const request = { project: runtime.artifact.compiledProject, spec: runtimeEntry.spec };
+      const request = {
+        project: runtime.artifact.compiledProject,
+        spec: runtimeEntry.spec,
+        shaderVariants: runtime.artifact.packageOptions.shaderVariants,
+      };
       return runtimeEntry.runner === 'runtime-ui'
         ? this.invokeNative('run-ui-test', {
             ...request,
@@ -564,6 +570,7 @@ export class EditorRuntimeCacheService {
         catalog: buildRuntimeTestCatalog(project),
         projectRoot: workspace.projectRoot(),
         shaderMaterialMetadata: prepared.artifact.shaderMaterialMetadata ?? null,
+        shaderVariants: prepared.artifact.packageOptions.shaderVariants,
       });
     }
 
@@ -576,6 +583,7 @@ export class EditorRuntimeCacheService {
         catalog: runtime.testCatalog,
         projectRoot: workspace.projectRoot(),
         shaderMaterialMetadata: runtime.artifact.shaderMaterialMetadata ?? null,
+        shaderVariants: runtime.artifact.packageOptions.shaderVariants,
       });
     let rebuildFailure: unknown = null;
     const response = await executeCachedRuntimeArtifactWithRecovery({

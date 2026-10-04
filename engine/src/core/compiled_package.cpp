@@ -444,13 +444,15 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
             }
             for (const auto& stage : shader.stages) {
                 for (const auto& binary : stage.compiled) {
-                    const std::string path = normalized_package_path(binary.path);
+                    if (binary.path.starts_with("system:/"))
+                        continue;
                     if (std::find(manifest.shader_variants.begin(), manifest.shader_variants.end(),
                                   binary.variant) == manifest.shader_variants.end())
                         add_assembly_error(diagnostics, "runtime_package.undeclared_shader_variant",
                                            "Compiled shader variant '" + binary.variant +
                                                "' is not declared by the package.",
                                            "/shader_variants");
+                    const std::string path = normalized_package_path(binary.path);
                     if (!ProjectPackageWriter::is_allowed_package_path(path) ||
                         !declared.contains(path))
                         add_assembly_error(diagnostics, "runtime_package.missing_shader_binary",
