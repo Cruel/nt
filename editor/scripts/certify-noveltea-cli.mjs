@@ -4575,6 +4575,32 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
     )
   )
     fail(`Feature Lab human suite summary is not aggregate-driven: ${humanSuite.stdout}`);
+
+  const daemonRoot = path.join(tempRoot, 'feature-lab-daemon');
+  await cp(source, daemonRoot, { recursive: true });
+  await rm(path.join(daemonRoot, '.noveltea', 'cache', 'runtime'), {
+    recursive: true,
+    force: true,
+  });
+  const daemonEnvironment = { ...process.env, NOVELTEA_NO_DAEMON: '0' };
+  for (const cold of [true, false]) {
+    const result = requireSuccess(
+      `Feature Lab ${cold ? 'cold' : 'warm'} daemon authored suite`,
+      runNative(['--project', daemonRoot, '--json', 'test', 'run'], {
+        cwd: daemonRoot,
+        env: daemonEnvironment,
+      }),
+    );
+    const payload = JSON.parse(result.stdout);
+    const cache = payload.runtimeCache;
+    if (
+      payload.native?.report?.counts?.passed !== expectedTestIds.length ||
+      (cold
+        ? cache?.status !== 'miss' || cache?.published !== true
+        : cache?.status !== 'hit' || cache?.testCatalogStatus !== 'hit')
+    )
+      fail(`Feature Lab daemon suite did not publish/reuse its unchanged inputs: ${result.stdout}`);
+  }
 }
 
 async function certifyNativeOperations(tempRoot, pristine) {

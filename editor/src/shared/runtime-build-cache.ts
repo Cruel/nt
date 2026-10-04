@@ -83,7 +83,17 @@ export function pinnedRuntimeBuildCacheInputsFromAuthority(
       ? null
       : { entries: entries as ProjectSourceInventory['entries'] };
   };
-  const runtime = inventory(runtimeAuthoritativePaths(snapshot));
+  const discoveredRuntimePaths = [...byPath.keys()].filter((path) =>
+    runtimeDiscoveryScopes.some(
+      (scope) =>
+        path.startsWith(`${scope.root}/`) &&
+        scope.extensions.some((extension) => path.endsWith(extension)) &&
+        !scope.excludedPrefixes.some(
+          (prefix) => path === prefix.replace(/\/$/u, '') || path.startsWith(prefix),
+        ),
+    ),
+  );
+  const runtime = inventory([...runtimeAuthoritativePaths(snapshot), ...discoveredRuntimePaths]);
   const tests = inventory(
     snapshot.canonicalSourceFiles.filter((file) => file.startsWith('records/tests/')),
   );

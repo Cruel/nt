@@ -27,6 +27,7 @@ import {
 } from '../../shared/project-workspace';
 import {
   lookupCanonicalRuntimeBuildCache,
+  pinnedRuntimeBuildCacheInputsFromAuthority,
   publishCanonicalRuntimeBuildCache,
 } from '../../shared/runtime-build-cache';
 
@@ -164,6 +165,38 @@ function generationPath(root: string, generation: string, file: string) {
 }
 
 describe('persistent runtime build cache', () => {
+  it('includes discovered noncanonical sources in pinned runtime inputs without including Tests or unrelated files', async () => {
+    const root = await createProjectWorkspace();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    const opened = await new ProjectWorkspaceService(fileSystem).open(root);
+    if (!opened.ok) throw new Error('Project did not open.');
+    const extras = {
+      'scripts/helpers/unreferenced.lua': 'return {}\n',
+      'scripts/README.md': '# ignored\n',
+      'records/layouts/unreferenced/controller.rml': '<rml/>\n',
+      'i18n/extra.json': '{}\n',
+      'outside.lua': 'return {}\n',
+    };
+    for (const [file, text] of Object.entries(extras)) {
+      await mkdir(path.dirname(path.join(root, file)), { recursive: true });
+      await writeFile(path.join(root, file), text);
+    }
+    const live = await lookupCanonicalRuntimeBuildCache(fileSystem, opened.snapshot);
+    if (!live.enabled || !live.inputSnapshot) throw new Error('Live inventory unavailable.');
+    const authority = [...live.inputSnapshot.entries];
+    for (const file of [...opened.snapshot.canonicalSourceFiles, ...Object.keys(extras)]) {
+      if (authority.some((entry) => entry.path === file)) continue;
+      const metadata = await fileSystem.readPathMetadata!(path.join(root, file));
+      authority.push({
+        path: file,
+        byteSize: metadata.byteSize!,
+        mtimeNanoseconds: metadata.mtimeNanoseconds!,
+      });
+    }
+    const pinned = pinnedRuntimeBuildCacheInputsFromAuthority(opened.snapshot, authority);
+    expect(pinned?.runtime).toEqual(live.inputSnapshot);
+  });
+
   it('publishes on the first authored test run and reuses the unchanged compiled project', async () => {
     const root = await createProjectWorkspace();
     const projects: unknown[] = [];
@@ -182,6 +215,7 @@ describe('persistent runtime build cache', () => {
 
   it('admits and publishes cache state against pinned generation authority instead of newer live metadata', async () => {
     const root = await createProjectWorkspace();
+    await writeFile(path.join(root, 'scripts/unreferenced.lua'), 'return {}\n');
     const fileSystem = new NodeProjectWorkspaceFileSystem();
     const opened = await new ProjectWorkspaceService(fileSystem).open(root);
     expect(opened.ok).toBe(true);
@@ -197,10 +231,11 @@ describe('persistent runtime build cache', () => {
         inputs: readonly { path: string; byteSize: number; mtimeNanoseconds: string }[];
       };
     };
-    const pinnedInputs = {
-      runtime: { entries: manifest.inputs },
-      tests: { entries: manifest.testCatalog.inputs },
-    };
+    const pinnedInputs = pinnedRuntimeBuildCacheInputsFromAuthority(opened.snapshot, [
+      ...manifest.inputs,
+      ...manifest.testCatalog.inputs,
+    ]);
+    if (!pinnedInputs) throw new Error('Pinned authority could not produce cache inputs.');
     const pinnedHit = await lookupCanonicalRuntimeBuildCache(
       fileSystem,
       opened.snapshot,
@@ -210,6 +245,27 @@ describe('persistent runtime build cache', () => {
     expect(pinnedHit.enabled && pinnedHit.observation.status).toBe('hit');
     if (!pinnedHit.enabled || !pinnedHit.artifact || !pinnedHit.testCatalog)
       throw new Error('Pinned baseline cache did not admit.');
+
+    const publishPinned = () =>
+      publishCanonicalRuntimeBuildCache(
+        fileSystem,
+        opened.snapshot,
+        opened.snapshot,
+        pinnedHit.artifact!,
+        pinnedHit.testCatalog!,
+        pinnedInputs.runtime,
+        pinnedInputs.tests,
+        pinnedHit.artifactText,
+        {
+          pid: process.pid,
+          processLiveness: {
+            async isProcessAlive() {
+              return true;
+            },
+          },
+        },
+      );
+    expect(await publishPinned()).toEqual({ published: true });
 
     const roomPath = path.join(root, 'records/rooms/start.json');
     const room = JSON.parse(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
@@ -228,24 +284,7 @@ describe('persistent runtime build cache', () => {
       reason: 'input-metadata-changed',
     });
 
-    const publication = await publishCanonicalRuntimeBuildCache(
-      fileSystem,
-      opened.snapshot,
-      opened.snapshot,
-      pinnedHit.artifact,
-      pinnedHit.testCatalog,
-      pinnedInputs.runtime,
-      pinnedInputs.tests,
-      pinnedHit.artifactText,
-      {
-        pid: process.pid,
-        processLiveness: {
-          async isProcessAlive() {
-            return true;
-          },
-        },
-      },
-    );
+    const publication = await publishPinned();
     expect(publication).toEqual({ published: false, reason: 'inputs-changed-during-preparation' });
   });
 
