@@ -1849,6 +1849,58 @@ TEST_CASE("RuntimeUI selector playback and native inspection use the internal pl
     CHECK(noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui) == nullptr);
 }
 
+TEST_CASE("RuntimeUI selector playback defers inputs until data-event dispatch returns")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture;
+    REQUIRE(fixture.initialize());
+    auto& ui = fixture.runtime_ui();
+    REQUIRE(RuntimeUiFacadeAccess::load_document_from_memory(ui, "closing-menu", R"RML(<rml>
+<head><style>button { width: 160px; height: 48px; }</style></head>
+<body data-model="noveltea">
+<button id="close" data-event-click="shell_close(); shell_open_settings()">Close</button>
+</body></rml>)RML",
+                                                             "preview://closing-menu.rml", true));
+
+    class ClosingInputSink final : public noveltea::RuntimeUiInputSink {
+    public:
+        explicit ClosingInputSink(noveltea::RuntimeUI& ui) : ui(ui) {}
+
+        bool submit_gameplay_input(noveltea::core::RuntimeInputMessage) override { return false; }
+        bool submit_shell_command(noveltea::core::RuntimeShellCommand command) override
+        {
+            CHECK_FALSE(dispatch_active);
+            commands.push_back(command);
+            // Avoid undefined behavior on the red run while still checking the lifetime boundary.
+            if (!dispatch_active && commands.size() == 1)
+                CHECK(ui.unload_document("closing-menu"));
+            return true;
+        }
+        bool dispatch_layout_event(noveltea::core::MountedLayoutOwner,
+                                   const std::function<bool()>& dispatch) override
+        {
+            dispatch_active = true;
+            const bool consumed = dispatch();
+            dispatch_active = false;
+            return consumed;
+        }
+
+        noveltea::RuntimeUI& ui;
+        bool dispatch_active = false;
+        std::vector<noveltea::core::RuntimeShellCommand> commands;
+    } sink(ui);
+    ui.bind_input_sink(&sink);
+    ui.begin_frame({});
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    REQUIRE(driver);
+    const auto click = driver->click({.document_id = "closing-menu", .selector = "#close"});
+    CHECK(click.dispatched);
+    REQUIRE(sink.commands.size() == 2);
+    CHECK(std::holds_alternative<noveltea::core::CloseShellScreenCommand>(sink.commands[0]));
+    CHECK(std::holds_alternative<noveltea::core::OpenSettingsShellCommand>(sink.commands[1]));
+    CHECK_FALSE(ui.has_document("closing-menu"));
+    ui.bind_input_sink(nullptr);
+}
+
 TEST_CASE("RuntimeUI keeps context-logical event coordinates and leaves on presentation bars")
 {
     noveltea::test::RuntimeUiLifecycleFixture fixture;

@@ -289,8 +289,14 @@ function collectBasicStructuralDiagnostics(project: Record<string, unknown>) {
   return diagnostics;
 }
 
-function isSemanticSchemaIssue(issue: z.core.$ZodIssue): boolean {
-  return ['too_small', 'too_big', 'invalid_format', 'custom'].includes(issue.code);
+function isSemanticSchemaIssue(issue: z.core.$ZodIssue, project: Record<string, unknown>): boolean {
+  if (['too_small', 'too_big', 'invalid_format', 'custom'].includes(issue.code)) return true;
+  // This settings leaf remains editable for recovery; structural enum discriminants stay fatal.
+  return (
+    issue.code === 'invalid_value' &&
+    exactPath('settings', 'display', 'worldRasterPolicy')(issue.path.map(String)) &&
+    typeof getAtPath(project, issue.path.map(String)) === 'string'
+  );
 }
 
 function attachEditorStateForSchema(project: Record<string, unknown>): Record<string, unknown> {
@@ -342,8 +348,12 @@ export function decodeAuthoringProject(value: unknown): AuthoringProjectDecodeRe
     };
   }
 
-  const semanticIssues = strict.error.issues.filter(isSemanticSchemaIssue);
-  const structuralIssues = strict.error.issues.filter((issue) => !isSemanticSchemaIssue(issue));
+  const semanticIssues = strict.error.issues.filter((issue) =>
+    isSemanticSchemaIssue(issue, working),
+  );
+  const structuralIssues = strict.error.issues.filter(
+    (issue) => !isSemanticSchemaIssue(issue, working),
+  );
   if (structuralIssues.length > 0) {
     return {
       project: null,

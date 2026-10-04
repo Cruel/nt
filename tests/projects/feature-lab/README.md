@@ -219,12 +219,21 @@ on unchanged-baseline Project source. During #256 verification the worker instab
 `verbs-and-offers-rank-ui` aborted once and later crashed alongside `verbs-and-offers-ambiguity-ui`.
 No authored expectation failed in those runs; the workers failed to return a response. A targeted
 rank recheck, an isolated unchanged-baseline 29-Test suite, and the final expanded 34-Test suite
-passed. This intermittent failure remains undiagnosed; a green rerun is not a crash fix. The native file-backed Layout
-playback fixture also passes after the resource/addressing changes. The native runner bounds each
-worker to 120 seconds and retains its request/response evidence directory when no valid response is
-produced; use that path if a failure recurs rather than weakening authored expectations. The separate
-editor decoder recovery test still fails in broader verification; distinguish that editor-wide
-baseline gate from the green authored Project suite.
+passed. A later retained `verbs-and-offers-rank-ui` SIGSEGV was reproduced directly from its request
+and localized to RmlUi data-event execution: selector playback submitted host actions inline, allowing
+Layout reconciliation to remove the executing event controller. Playback now captures actions until
+event/capability dispatch returns, matching SDL input ordering; a focused native lifetime regression
+protects that boundary. A separate cold-daemon full-suite failure was not a native crash: LLDB
+confirmed normal worker exit (status 0), but the complete report exceeded the former 1 MiB daemon
+frame limit and its completion was lost. The transport now admits 16 MiB frames and converts
+oversized completions into explicit caller failures instead of unexpected-worker-exit diagnostics.
+These fixes diagnose the reproduced inner SIGSEGV and outer completion loss, not every historical
+abort or stall. Continue retaining evidence for any recurrence rather than inferring a universal
+worker-stability guarantee from green reruns. The native runner bounds each worker to
+120 seconds and retains its request/response evidence directory plus `runner.log` when no valid
+response is produced; use that path rather than weakening authored expectations. The separately
+reported editor decoder recovery failure is now protected by passing invalid-string preservation and
+missing/non-string rejection tests.
 
 Standalone release certification copies this Project to an isolated temporary workspace, runs the
 bare suite from a cold cache, verifies the aggregate result, then runs a targeted Test from the shared

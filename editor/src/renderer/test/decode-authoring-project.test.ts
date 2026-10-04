@@ -109,6 +109,7 @@ describe('decodeAuthoringProject', () => {
     const decoded = decodeAuthoringProject(stripEditorProjectState(project));
 
     expect(decoded.project?.settings.display.worldRasterPolicy).toBe('future-policy');
+    expect(decoded.structuralDiagnostics).toEqual([]);
     expect(decoded.repairs).toEqual([]);
     expect(decoded.differsFromDisk).toBe(false);
     expect(decoded.semanticDiagnostics).toContainEqual(
@@ -118,6 +119,26 @@ describe('decodeAuthoringProject', () => {
       }),
     );
   });
+
+  it.each([undefined, null, 1, {}, []])(
+    'rejects a missing or structurally invalid world raster policy (%j)',
+    (value) => {
+      const project = createAuthoringProject();
+      project.settings.display.worldRasterPolicy = value as never;
+
+      const decoded = decodeAuthoringProject(stripEditorProjectState(project));
+
+      expect(decoded.project).toBeNull();
+      expect(decoded.repairs).toEqual([]);
+      expect(decoded.differsFromDisk).toBe(false);
+      expect(decoded.structuralDiagnostics).toContainEqual(
+        expect.objectContaining({
+          severity: 'error',
+          path: '/settings/display/worldRasterPolicy',
+        }),
+      );
+    },
+  );
 
   it('rejects structural corruption without inventing a generic fallback', () => {
     const project = createAuthoringProject() as unknown as Record<string, unknown>;

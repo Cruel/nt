@@ -60,6 +60,8 @@ namespace {
 using Json = nlohmann::json;
 using Clock = std::chrono::steady_clock;
 using IoDeadline = std::optional<Clock::time_point>;
+constexpr std::string_view completion_frame_limit_error =
+    "daemon completion exceeds the transport frame limit";
 
 volatile std::sig_atomic_t client_interrupt_signal = 0;
 
@@ -1580,7 +1582,11 @@ public:
         const auto client = active.client.lock();
         if (client && client->current() != invalid_connection) {
             const auto result_text = result.dump();
-            delivered = client->send(result_event_json(active.request_id, ok, result_text, error));
+            auto event = result_event_json(active.request_id, ok, result_text, error);
+            if (event.size() > max_frame_bytes)
+                event = result_event_json(active.request_id, false, "null",
+                                          completion_frame_limit_error);
+            delivered = client->send(event);
         }
         {
             std::scoped_lock lock(queue_mutex_);
@@ -5671,11 +5677,20 @@ public:
             endpoint_key_ = endpoint_key;
         }
 
-        const Json request = {{"type", "request"},
-                              {"requestId", request_id},
-                              {"method", std::string(method)},
-                              {"payload", payload}};
-        if (!send_payload(connection_, request.dump())) {
+        Json request = {{"type", "request"},
+                        {"requestId", request_id},
+                        {"method", std::string(method)},
+                        {"payload", payload}};
+        auto request_text = request.dump();
+        if (request_text.size() > max_frame_bytes &&
+            (method == "owner-complete" || method == "disposable-complete")) {
+            // Complete the active request with a small failure instead of losing worker completion.
+            request["payload"]["requestOk"] = false;
+            request["payload"]["result"] = nullptr;
+            request["payload"]["error"] = completion_frame_limit_error;
+            request_text = request.dump();
+        }
+        if (!send_payload(connection_, request_text)) {
             reset_locked();
             return {{"ok", false}, {"error", "failed to send daemon owner request"}};
         }
