@@ -11,6 +11,7 @@ import {
   type AuthoringCollectionKey,
 } from './authoring-collections';
 import { parseAssetData, isSafeProjectAssetPath, validateAssetAlias } from './authoring-assets';
+import { validateAnimationData } from './authoring-animations';
 import {
   gameplayInstanceKindForCollection,
   isArchetypeOverridePathAllowed,
@@ -2049,6 +2050,10 @@ export function validateAdmittedAuthoringProject(
       diagnostics.push(...validateInteractableInstanceInventories(project, id)),
     );
   runEffective('assets', validateAssets);
+  for (const id of idsForKeyPrefix('record:animations:', project.animations))
+    runEffective(`record:animations:${id}`, (project, diagnostics) => {
+      diagnostics.push(...validateAnimationData(project, id, project.animations[id]!.data));
+    });
   run('prefetch-hints', validatePrefetchHints);
   run('asset-memory', validateAssetMemoryPolicies);
   runEffective('settings', (project, diagnostics) =>

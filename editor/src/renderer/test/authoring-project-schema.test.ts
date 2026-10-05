@@ -9,6 +9,7 @@ import {
   parseAuthoringProject,
 } from '../../shared/project-schema/authoring-project';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import {
   EDITOR_PROJECT_STATE_SCHEMA,
   stripEditorProjectState,
@@ -41,6 +42,55 @@ describe('authoring project schema', () => {
       else expect(project[key]).toEqual({});
     expect('objects' in project).toBe(false);
     expect('actions' in project).toBe(false);
+  });
+
+  it('admits first-class raster Animations with explicit positive frame durations', () => {
+    const project = createAuthoringProject();
+    project.assets.frame = {
+      id: 'frame',
+      label: 'Frame',
+      data: assetDataFromImportMetadata({
+        kind: 'image',
+        projectRelativePath: 'assets/frame.png',
+        extension: '.png',
+        byteSize: 1,
+        contentHash: 'frame',
+        imageMetadata: { width: 16, height: 16, hasAlpha: true, orientation: 1 },
+      }),
+    };
+    project.animations.pulse = {
+      id: 'pulse',
+      label: 'Pulse',
+      data: {
+        kind: 'animation',
+        canvas: { width: 16, height: 16 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
+          },
+        ],
+      },
+    };
+
+    expect(authoringProjectSchema.safeParse(project).success).toBe(true);
+    expect(
+      validateAuthoringProject(project).filter((diagnostic) => diagnostic.severity === 'error'),
+    ).toEqual([]);
+
+    const invalidDuration = structuredClone(project);
+    invalidDuration.animations.pulse!.data.motions[0]!.frames[0]!.durationMs = 0;
+    expect(authoringProjectSchema.safeParse(invalidDuration).success).toBe(false);
+
+    const invalidDefault = structuredClone(project);
+    invalidDefault.animations.pulse!.data.defaultMotionId = 'missing';
+    expect(validateAuthoringProject(invalidDefault)).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ code: 'animation.default-motion.missing' }),
+      ]),
+    );
   });
 
   it('accepts canonical local/named Messages and sparse target translations', () => {

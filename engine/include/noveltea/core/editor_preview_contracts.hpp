@@ -254,6 +254,25 @@ struct TypedFocusedCharacterVisual {
 };
 
 struct TypedFocusedRoomWorldDefinition {
+    struct Visual {
+        std::string kind;
+        std::string resource_id;
+        std::optional<std::string> motion_id;
+    };
+    struct Animation {
+        struct Frame {
+            std::string asset_id;
+            std::uint64_t duration_ms = 0;
+        };
+        struct Motion {
+            std::string id;
+            std::vector<Frame> frames;
+        };
+        std::string id;
+        compiled::ReferenceResolution canvas{};
+        std::string default_motion_id;
+        std::vector<Motion> motions;
+    };
     struct PresentationSpace {
         compiled::Vector2 size{1920.0, 1080.0};
         std::optional<compiled::WorldPresentationRect> bounds;
@@ -327,6 +346,7 @@ struct TypedFocusedRoomWorldDefinition {
         std::string environment_id;
         TypedFocusedCondition condition;
         std::optional<std::string> asset_id;
+        std::optional<Visual> visual;
         std::string material_id;
         std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
         std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
@@ -367,6 +387,7 @@ struct TypedFocusedRoomWorldDefinition {
         std::optional<std::string> placement_id;
     };
     PresentationSpace presentation_space;
+    std::vector<Animation> animations;
     std::vector<Anchor> anchors;
     Background background;
     std::vector<Placement> placements;

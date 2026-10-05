@@ -1,0 +1,26 @@
+{
+  "id": "guide-expression-loop",
+  "label": "Guide Expression Loop",
+  "data": {
+    "kind": "animation",
+    "canvas": { "width": 384, "height": 768 },
+    "defaultMotionId": "expressions",
+    "motions": [
+      {
+        "id": "expressions",
+        "kind": "sprite-sequence",
+        "frames": [
+          { "image": { "$ref": { "collection": "assets", "id": "pilot-character-neutral" } }, "durationMs": 700 },
+          { "image": { "$ref": { "collection": "assets", "id": "pilot-character-smile" } }, "durationMs": 300 }
+        ]
+      },
+      {
+        "id": "still",
+        "kind": "sprite-sequence",
+        "frames": [
+          { "image": { "$ref": { "collection": "assets", "id": "pilot-character-neutral" } }, "durationMs": 1000 }
+        ]
+      }
+    ]
+  }
+}

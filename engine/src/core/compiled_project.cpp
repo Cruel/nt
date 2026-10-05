@@ -724,6 +724,10 @@ Result<CompiledProject, Diagnostics> CompiledProject::create(compiled::CompiledP
         AssetId, assets,
         [](const compiled::AssetResource& value) -> const AssetId& { return value.id; }, "asset");
     BUILD_INDEX(
+        AnimationId, animations,
+        [](const compiled::AnimationResource& value) -> const AnimationId& { return value.id; },
+        "animation");
+    BUILD_INDEX(
         LayoutId, layouts,
         [](const compiled::LayoutResource& value) -> const LayoutId& { return value.id; },
         "layout");
@@ -774,7 +778,7 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
       m_localization(std::move(input.localization)), m_properties(std::move(input.properties)),
       m_traits(std::move(input.traits)), m_archetypes(std::move(input.archetypes)),
       m_inventories(std::move(input.inventories)), m_assets(std::move(input.assets)),
-      m_layouts(std::move(input.layouts)),
+      m_animations(std::move(input.animations)), m_layouts(std::move(input.layouts)),
       m_material_interfaces(std::move(input.material_interfaces)),
       m_scripts(std::move(input.scripts)), m_characters(std::move(input.characters)),
       m_rooms(std::move(input.rooms)), m_interactables(std::move(input.interactables)),
@@ -801,6 +805,10 @@ CompiledProject::CompiledProject(compiled::CompiledProjectInput input)
     INDEX(
         AssetId, asset, assets,
         [](const compiled::AssetResource& value) -> const AssetId& { return value.id; }, "asset");
+    INDEX(
+        AnimationId, animation, animations,
+        [](const compiled::AnimationResource& value) -> const AnimationId& { return value.id; },
+        "animation");
     INDEX(
         LayoutId, layout, layouts,
         [](const compiled::LayoutResource& value) -> const LayoutId& { return value.id; },
@@ -921,6 +929,7 @@ FIND(property, properties, PropertyId, PropertyDefinition)
 FIND(trait, traits, TraitId, compiled::TraitDefinition)
 FIND(archetype, archetypes, ArchetypeId, compiled::ArchetypeDefinition)
 FIND(asset, assets, AssetId, compiled::AssetResource)
+FIND(animation, animations, AnimationId, compiled::AnimationResource)
 
 const compiled::AssetResource*
 CompiledProject::resolve_asset(const AssetId& id, std::string_view locale) const noexcept

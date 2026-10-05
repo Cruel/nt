@@ -638,6 +638,19 @@ The focused Room environment carries project reference resolution, world-raster 
 and accessibility scale policies through native decoding and environment preparation. The built-in
 focused Game HUD resolves from the canonical packaged path
 `system:/ui/runtime/runtime_game.rml`.
+Focused Room `world.animations` carries bounded immutable Animation resources referenced by
+Environment `visual` selections (image or Animation, with nullable selected motion). The builder
+includes their frame Assets in the normal resource manifest. Native decoding rejects invalid canvas
+sizes, non-positive/non-integer frame durations, empty motions/frames, duplicate Animation or local
+motion IDs, and missing default/selected motions. Manifest closure covers image Visuals and every
+included Animation frame; missing entries fail before candidate publication.
+
+The focused presenter uses the production resource resolver and raster world backend under focused
+mandatory leases. Successful prepared publication preserves compatible live Animation occurrence
+epochs; unrelated edits therefore do not restart playback. Replacement or backend reconstruction
+starts fresh. No playback phase is transported in the focused document. See
+[Animation realization](../../rendering/ANIMATION_AND_TWEENING.md#raster-animation-realization).
+
 Focused Room Hotspot documents preserve authored `target: { kind: 'none' }` so the editor can keep
 draft geometry visible and selectable. Native decoding accepts that closed target variant, but the
 focused presenter omits it from runtime presentation Hotspots; it therefore performs no pointer hit

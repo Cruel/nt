@@ -628,6 +628,22 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }
   }
 
+  const animations: WireResources['animations'] = sortedEntries(project.animations).map(
+    ([id, record]) => ({
+      id,
+      canvas: { ...record.data.canvas },
+      defaultMotionId: record.data.defaultMotionId,
+      motions: record.data.motions.map((motion) => ({
+        id: motion.id,
+        kind: motion.kind,
+        frames: motion.frames.map((frame) => ({
+          image: { kind: 'asset' as const, id: frame.image.$ref.id },
+          durationMs: frame.durationMs,
+        })),
+      })),
+    }),
+  );
+
   const layouts: WireResources['layouts'] = [];
   for (const [id, record] of sortedEntries(project.layouts)) {
     const data = requireData(parseLayoutData(record.data), `/layouts/${id}/data`);
@@ -992,6 +1008,31 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               id: entry.id,
               condition: compileCondition(entry.condition),
               asset: assetRef(entry.asset),
+              ...(entry.visual
+                ? {
+                    visual:
+                      entry.visual.kind === 'image'
+                        ? {
+                            kind: 'image' as const,
+                            image: { kind: 'asset' as const, id: entry.visual.image.$ref.id },
+                          }
+                        : {
+                            kind: 'animation' as const,
+                            animation: {
+                              kind: 'animation' as const,
+                              id: entry.visual.animation.$ref.id,
+                            },
+                            motionId: entry.visual.motionId,
+                          },
+                  }
+                : entry.asset
+                  ? {
+                      visual: {
+                        kind: 'image' as const,
+                        image: { kind: 'asset' as const, id: entry.asset.$ref.id },
+                      },
+                    }
+                  : {}),
               ...compileMaterialApplication(entry.materialApplication),
               material: materialRef(entry.materialApplication.material)!,
               bounds: { ...entry.bounds },
@@ -1875,7 +1916,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     inventories: projectInventoryUsed ? [{ id: 'player', label: 'Player Inventory' }] : [],
     interactableInstances,
     localization: compileLocalization(project),
-    resources: { assets, layouts, materialInterfaces, scripts },
+    resources: { assets, animations, layouts, materialInterfaces, scripts },
     definitions: {
       characters,
       rooms,

@@ -87,14 +87,16 @@ public:
                 failure({{.code = "test.focused_texture_not_ready",
                           .message = "focused texture preparation was canceled"}});
         }
-        return core::Result<assets::PreparedAsset<assets::TextureAsset>,
-                            core::Diagnostics>::success({.asset =
-                                                             assets::TextureAsset{
-                                                                 .handle = 1,
-                                                                 .path = std::move(m_request.path),
-                                                                 .sampler = m_request.sampler},
-                                                         .cost = {.prepared_cpu_bytes = 1},
-                                                         .destroy_on_owner = {}});
+        return core::Result<assets::PreparedAsset<assets::TextureAsset>, core::Diagnostics>::
+            success(
+                {.asset = assets::TextureAsset{.handle = static_cast<std::uint16_t>(
+                                                   m_request.path.ends_with("frame-b.png") ? 2 : 1),
+                                               .path = m_request.path,
+                                               .width = 64,
+                                               .height = 32,
+                                               .sampler = m_request.sampler},
+                 .cost = {.prepared_cpu_bytes = 1},
+                 .destroy_on_owner = {}});
     }
 
 private:
@@ -119,6 +121,58 @@ public:
     }
 
     std::vector<assets::TextureAssetRequest> requests;
+};
+
+template<class Asset>
+class FocusedRasterPreparationTask final : public assets::AssetPreparationTask<Asset> {
+public:
+    explicit FocusedRasterPreparationTask(Asset asset) : m_asset(std::move(asset)) {}
+    assets::ResidencyCost estimated_cost_on_owner() const noexcept override { return {}; }
+    jobs::JobStepOutcome step(jobs::JobContext&) noexcept override
+    {
+        return {.status = jobs::JobStepStatus::Completed, .diagnostics = {}};
+    }
+    core::Result<assets::PreparedAsset<Asset>, core::Diagnostics>
+    finalize_on_owner() noexcept override
+    {
+        return core::Result<assets::PreparedAsset<Asset>, core::Diagnostics>::success(
+            {.asset = m_asset, .cost = {}, .destroy_on_owner = {}});
+    }
+
+private:
+    Asset m_asset;
+};
+
+class FocusedRasterResourceLoader final : public assets::MaterialAssetLoader,
+                                          public assets::ShaderProgramAssetLoader {
+public:
+    FocusedRasterResourceLoader() { m_material.role = ShaderRole::Engine2D; }
+    assets::AssetLoadResult<assets::MaterialAsset>
+    load_material(const assets::MaterialAssetRequest& request) override
+    {
+        return {assets::MaterialAsset{.definition = &m_material, .id = request.id}, {}};
+    }
+    std::unique_ptr<assets::AssetPreparationTask<assets::MaterialAsset>>
+    create_material_preparation_task(const assets::MaterialAssetRequest& request) override
+    {
+        return std::make_unique<FocusedRasterPreparationTask<assets::MaterialAsset>>(
+            *load_material(request).value);
+    }
+    assets::AssetLoadResult<assets::ShaderProgramAsset>
+    load_shader_program(const assets::ShaderProgramAssetRequest& request) override
+    {
+        return {assets::ShaderProgramAsset{.handle = 3, .key = request.resolution.key}, {}};
+    }
+    std::unique_ptr<assets::AssetPreparationTask<assets::ShaderProgramAsset>>
+    create_shader_program_preparation_task(
+        const assets::ShaderProgramAssetRequest& request) override
+    {
+        return std::make_unique<FocusedRasterPreparationTask<assets::ShaderProgramAsset>>(
+            *load_shader_program(request).value);
+    }
+
+private:
+    MaterialDefinition m_material;
 };
 
 class FakeLayoutBackend final : public LayoutRealizer::Backend {
@@ -1902,6 +1956,9 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(focused_textures.requests.back().path == "project:/images/alpha-sprite-two.png");
     CHECK(focused_textures.requests.back().retain_alpha_coverage);
 
+    FocusedRasterResourceLoader raster_resources;
+    assets.bind_material_loader(&raster_resources);
+    assets.bind_shader_program_loader(&raster_resources);
     auto renderer_owned_texture_room = room;
     renderer_owned_texture_room["shaderMaterials"] = {
         {"schema", "noveltea.shader-materials"},
@@ -1934,6 +1991,96 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
          .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl330},
     };
     REQUIRE(presenter.apply(std::move(renderer_owned_texture_request)));
+
+    auto animated_room = renderer_owned_texture_room;
+    animated_room["world"]["animations"] = nlohmann::json::array(
+        {{{"id", "rain"},
+          {"canvas", {{"width", 64}, {"height", 32}}},
+          {"defaultMotionId", "fall"},
+          {"motions", nlohmann::json::array(
+                          {{{"id", "fall"},
+                            {"kind", "sprite-sequence"},
+                            {"frames", nlohmann::json::array(
+                                           {{{"assetId", "frame-a"}, {"durationMs", 50}},
+                                            {{"assetId", "frame-b"}, {"durationMs", 100}}})}}})}}});
+    animated_room["world"]["environments"] = nlohmann::json::array(
+        {{{"environmentId", "rain"},
+          {"condition", {{"kind", "always"}}},
+          {"assetId", nullptr},
+          {"visual", {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}},
+          {"materialId", "panel"},
+          {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+          {"plane", "world-overlay"},
+          {"order", 2},
+          {"clock", "unscaled-presentation"},
+          {"scrollPerSecond", {{"x", 0.0}, {"y", 0.0}}},
+          {"opacity", 1.0},
+          {"visible", true}}});
+    auto animation_request = make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                          "room-animation", animated_room, 20);
+    animation_request.resources = {
+        {.resource_id = "shader:variant-marker",
+         .source_kind = "shader-compiled-output",
+         .logical_path = "project:/shaders/variant-marker.bin",
+         .shader_variant = core::editor::EditorPreviewShaderVariant::Glsl330},
+        {.resource_id = "asset:frame-a",
+         .source_kind = "authoring-asset",
+         .logical_path = "project:/images/frame-a.png",
+         .kind = "image",
+         .sampling = "linear",
+         .asset_id = "frame-a"},
+        {.resource_id = "asset:frame-b",
+         .source_kind = "authoring-asset",
+         .logical_path = "project:/images/frame-b.png",
+         .kind = "image",
+         .sampling = "linear",
+         .asset_id = "frame-b"}};
+    REQUIRE(presenter.apply(animation_request));
+    const auto publish = [&]() {
+        for (std::size_t attempt = 0; attempt < 32; ++attempt) {
+            (void)asset_executor.advance_one_step();
+            (void)asset_executor.dispatch_owner_completions(
+                std::numeric_limits<std::size_t>::max());
+            presenter.update();
+        }
+    };
+    publish();
+    REQUIRE(completions.back() == std::pair<std::string, std::string>{"room-animation", "applied"});
+    REQUIRE(world_backend.frame());
+    REQUIRE(world_backend.frame()->draws.size() == 1);
+    REQUIRE(world_backend.frame()->draws.front().raster_animation_frames[1].texture_lease);
+    CHECK_FALSE(assets.has_published_leases_on_owner());
+    CHECK(assets.has_focused_published_leases_on_owner());
+    core::RuntimeClockUpdate clock;
+    world_backend.realize(clock);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          1);
+    clock.unscaled_presentation_time = std::chrono::milliseconds{75};
+    world_backend.realize(clock);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          2);
+
+    animation_request.request_id = "room-animation-republish";
+    animation_request.apply_sequence = 21;
+    animated_room["room"]["recordLabel"] = "Unrelated label edit";
+    animation_request.data_json = animated_room.dump();
+    REQUIRE(presenter.apply(animation_request));
+    publish();
+    REQUIRE(completions.back() ==
+            std::pair<std::string, std::string>{"room-animation-republish", "applied"});
+    clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+    world_backend.realize(clock);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          2);
+
+    animation_request.request_id = "room-animation-outside-manifest";
+    animation_request.apply_sequence = 22;
+    animation_request.resources.pop_back();
+    CHECK_FALSE(presenter.apply(animation_request));
+    CHECK(presenter.committed_owner().apply_sequence == 21);
+    CHECK(last_diagnostic.find("editor_preview.manifest_asset_missing") != std::string::npos);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          2);
 
     const auto changes_before_clear = world_presentation_changes;
     presenter.clear();

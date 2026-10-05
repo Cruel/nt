@@ -86,6 +86,26 @@ interpolation, and transition composite progress. The backend advances each trac
 declared gameplay or unscaled-presentation clock and reports completion through the existing typed
 presentation acknowledgement path.
 
+## Raster Animation realization
+
+The first [Animation resource](../engine/ANIMATION.md) tracer selects static image or sprite-sequence
+Visuals on Room Environments. It reuses mandatory Asset publication, `AssetWorldPresentationResourceResolver`,
+retained texture/Material leases, and the raster quad/Engine2D Material path.
+
+`WorldPresentationBackend` owns occurrence-local loop epochs on the Environment's existing gameplay
+or unscaled-presentation clock. Compatibility includes selected Animation/motion, logical canvas,
+and ordered semantic frame IDs/durations. Compatible unchanged occurrences retain phase across
+snapshot republishes and focused prepared-publication swaps. Incompatible selections in retained
+predecessor/current revisions have separate anchors so realizing one cannot restart the other.
+Replacement starts at the first sample; reset/load/backend reconstruction discards epochs. Phase,
+frame index, and elapsed time never enter the immutable snapshot or Session/Save state.
+
+Focused candidate preparation copies only compatible epochs of currently live occurrences; a failed
+candidate cannot mutate the published backend. Other realization state is not transferred by this
+Animation seam. Frames are sampled at millisecond boundaries and loop over explicit durations,
+including valid one-frame motions. This tracer introduces no second renderer, clock, cache, or
+finite-operation lifecycle.
+
 ## Persistence and diagnostics
 
 Tween state is disposable realization. Saves and checkpoints contain committed desired targets and

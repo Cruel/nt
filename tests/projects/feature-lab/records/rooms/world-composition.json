@@ -112,6 +112,42 @@
     ],
     "environments": [
       {
+        "id": "animation-gameplay",
+        "condition": { "kind": "always" },
+        "asset": null,
+        "visual": { "kind": "animation", "animation": { "$ref": { "collection": "animations", "id": "guide-expression-loop" } }, "motionId": null },
+        "materialApplication": {
+          "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
+          "parameters": {},
+          "textures": {}
+        },
+        "bounds": { "x": 0.37, "y": 0.12, "width": 0.06, "height": 0.21 },
+        "plane": "world-overlay",
+        "order": 65,
+        "clock": "gameplay",
+        "scrollPerSecond": { "x": 0, "y": 0 },
+        "opacity": 1,
+        "visible": true
+      },
+      {
+        "id": "animation-unscaled",
+        "condition": { "kind": "always" },
+        "asset": null,
+        "visual": { "kind": "animation", "animation": { "$ref": { "collection": "animations", "id": "guide-expression-loop" } }, "motionId": "expressions" },
+        "materialApplication": {
+          "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
+          "parameters": {},
+          "textures": {}
+        },
+        "bounds": { "x": 0.45, "y": 0.12, "width": 0.06, "height": 0.21 },
+        "plane": "world-overlay",
+        "order": 66,
+        "clock": "unscaled-presentation",
+        "scrollPerSecond": { "x": 0, "y": 0 },
+        "opacity": 1,
+        "visible": true
+      },
+      {
         "id": "slow-pattern",
         "condition": { "kind": "always" },
         "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },

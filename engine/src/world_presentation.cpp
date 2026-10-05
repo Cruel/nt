@@ -186,7 +186,16 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
                      std::nullopt,
                      {},
                      {},
-                     false});
+                     false,
+                     {},
+                     {},
+                     {}});
+    auto& draw = draws.back();
+    draw.raster_animation_key = visual.animation_key;
+    draw.raster_animation_frames.reserve(visual.animation_frames.size());
+    for (const auto& frame : visual.animation_frames)
+        draw.raster_animation_frames.push_back({frame.duration_ms, Texture{frame.texture.handle},
+                                                frame.texture.sampler, frame.texture_lease});
 }
 
 void append_resource_diagnostics(core::Diagnostics& diagnostics,
@@ -198,6 +207,8 @@ void append_resource_diagnostics(core::Diagnostics& diagnostics,
 
 Size visual_size(const WorldPreparedVisual& visual) noexcept
 {
+    if (visual.logical_size)
+        return *visual.logical_size;
     return visual.texture ? Size{static_cast<float>(visual.texture->width),
                                  static_cast<float>(visual.texture->height)}
                           : Size{};
@@ -324,6 +335,11 @@ std::string loop_key(const WorldPresentationDraw& draw)
     return std::to_string(static_cast<std::uint8_t>(draw.family)) + ":" + draw.stable_identity;
 }
 
+std::string raster_animation_loop_key(const WorldPresentationDraw& draw)
+{
+    return loop_key(draw) + ":visual-animation:" + std::to_string(draw.raster_animation_epoch);
+}
+
 bool same_hotspot_owner(const core::compiled::HotspotRef& left,
                         const core::compiled::HotspotRef& right)
 {
@@ -401,6 +417,7 @@ void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledPr
                                   .logical_path = "project:/" + resolved->path,
                                   .sampler = sampler});
     }
+    catalog.animations = project.animations();
     bind_catalog(std::move(catalog));
 }
 
@@ -409,9 +426,16 @@ void AssetWorldPresentationResourceResolver::bind_catalog(WorldPresentationResou
     m_images.clear();
     for (auto& image : catalog.images)
         m_images.emplace(image.asset_id.text(), std::move(image));
+    m_animations.clear();
+    for (auto& animation : catalog.animations)
+        m_animations.emplace(animation.id.text(), std::move(animation));
 }
 
-void AssetWorldPresentationResourceResolver::clear() { m_images.clear(); }
+void AssetWorldPresentationResourceResolver::clear()
+{
+    m_images.clear();
+    m_animations.clear();
+}
 
 core::Result<WorldPreparedVisual, core::Diagnostics>
 AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> asset,
@@ -465,6 +489,70 @@ AssetWorldPresentationResourceResolver::resolve(std::optional<core::AssetId> ass
         }
         result.material = MaterialId(material->text());
         result.material_lease = *lease;
+    }
+    return core::Result<WorldPreparedVisual, core::Diagnostics>::success(std::move(result));
+}
+
+core::Result<WorldPreparedVisual, core::Diagnostics>
+AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Visual& visual,
+                                                       std::optional<core::MaterialId> material,
+                                                       std::string_view context)
+{
+    if (const auto* image = std::get_if<core::compiled::ImageVisual>(&visual))
+        return resolve(image->image, material, context);
+
+    const auto& selection = std::get<core::compiled::AnimationVisual>(visual);
+    const auto resource = m_animations.find(selection.animation.text());
+    if (resource == m_animations.end()) {
+        return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+            {diagnostic("presentation.world_animation_unresolved",
+                        "World presentation Animation is not in the prepared project catalog: " +
+                            selection.animation.text(),
+                        context)});
+    }
+    const auto motion_id = selection.motion.value_or(resource->second.default_motion);
+    const auto motion = std::ranges::find_if(
+        resource->second.motions, [&](const auto& candidate) { return candidate.id == motion_id; });
+    if (motion == resource->second.motions.end()) {
+        return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+            "presentation.world_animation_motion_unresolved",
+            "World presentation Animation motion is unavailable: " + motion_id.text(), context)});
+    }
+
+    auto material_result = resolve(std::nullopt, material, context);
+    if (!material_result)
+        return material_result;
+    WorldPreparedVisual result = std::move(*material_result.value_if());
+    result.logical_size = Size{static_cast<float>(resource->second.canvas.width),
+                               static_cast<float>(resource->second.canvas.height)};
+    result.animation_key = std::to_string(selection.animation.text().size()) + ":" +
+                           selection.animation.text() + ":" +
+                           std::to_string(motion_id.text().size()) + ":" + motion_id.text() + ":" +
+                           std::to_string(resource->second.canvas.width) + "x" +
+                           std::to_string(resource->second.canvas.height);
+    result.animation_frames.reserve(motion->frames.size());
+    for (std::size_t index = 0; index < motion->frames.size(); ++index) {
+        const auto& frame = motion->frames[index];
+        auto frame_result = resolve(frame.image, std::nullopt,
+                                    std::string(context) + "/frame/" + std::to_string(index));
+        if (!frame_result)
+            return frame_result;
+        auto prepared = std::move(*frame_result.value_if());
+        if (!prepared.texture) {
+            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+                {diagnostic("presentation.world_animation_frame_unresolved",
+                            "World presentation Animation frame did not resolve to a texture: " +
+                                frame.image.text(),
+                            context)});
+        }
+        result.animation_key += ":" + std::to_string(frame.image.text().size()) + ":" +
+                                frame.image.text() + ":" + std::to_string(frame.duration_ms);
+        result.animation_frames.push_back(
+            {frame.duration_ms, *prepared.texture, std::move(prepared.texture_lease)});
+    }
+    if (!result.animation_frames.empty()) {
+        result.texture = result.animation_frames.front().texture;
+        result.texture_lease = result.animation_frames.front().texture_lease;
     }
     return core::Result<WorldPreparedVisual, core::Diagnostics>::success(std::move(result));
 }
@@ -680,7 +768,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                            std::nullopt,
                                            {},
                                            {},
-                                           false});
+                                           false,
+                                           {},
+                                           {},
+                                           {}});
             }
         }
         auto resolved = m_resources.resolve(background.asset, background.material, "background");
@@ -716,8 +807,12 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                            "environment/" + environment.instance.text()));
             continue;
         }
-        auto resolved = m_resources.resolve(environment.asset, environment.material,
-                                            "environment/" + environment.instance.text());
+        auto resolved =
+            environment.visual
+                ? m_resources.resolve_visual(*environment.visual, environment.material,
+                                             "environment/" + environment.instance.text())
+                : m_resources.resolve(environment.asset, environment.material,
+                                      "environment/" + environment.instance.text());
         if (!resolved) {
             append_resource_diagnostics(diagnostics, resolved);
         } else {
@@ -1040,6 +1135,23 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                         lhs.sublayer) < std::tie(rhs.plane, rhs_rank, rhs.order, rhs.family,
                                                  rhs.stable_identity, rhs.sublayer);
     });
+    for (auto& draw : candidate.draws) {
+        if (draw.raster_animation_frames.empty())
+            continue;
+        if (m_frame) {
+            const auto previous = std::ranges::find_if(m_frame->draws, [&](const auto& value) {
+                return loop_key(value) == loop_key(draw) &&
+                       value.raster_animation_key == draw.raster_animation_key &&
+                       value.environment_clock == draw.environment_clock;
+            });
+            if (previous != m_frame->draws.end())
+                draw.raster_animation_epoch = previous->raster_animation_epoch;
+        }
+        // Returning to an older selection is a new occurrence anchor, not a retained revision's
+        // phase.
+        if (draw.raster_animation_epoch == 0)
+            draw.raster_animation_epoch = ++m_animation_epoch_generation;
+    }
     rebuild_batches(candidate);
 
     m_snapshot = snapshot;
@@ -1314,6 +1426,36 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
     frame.base_game_ui_underlay_batch.clear();
     for (const auto& draw : frame.draws) {
         QuadCommand command = draw.command;
+        if (clock && !draw.raster_animation_frames.empty()) {
+            const auto domain = draw.environment_clock.value_or(core::LayoutClockDomain::Gameplay);
+            std::uint64_t total_duration_ms = 0;
+            for (const auto& animation_frame : draw.raster_animation_frames)
+                total_duration_ms += animation_frame.duration_ms;
+            if (total_duration_ms > 0) {
+                const auto now = clock_time(*clock, domain);
+                const auto key = raster_animation_loop_key(draw);
+                auto [epoch, inserted] = m_loop_epochs.try_emplace(
+                    key, LoopEpoch{domain, now, draw.raster_animation_key});
+                if (!inserted && (epoch->second.clock != domain ||
+                                  epoch->second.compatibility != draw.raster_animation_key))
+                    epoch->second = LoopEpoch{domain, now, draw.raster_animation_key};
+                const auto elapsed = now >= epoch->second.started_at
+                                         ? now - epoch->second.started_at
+                                         : std::chrono::microseconds{0};
+                auto phase_ms =
+                    static_cast<std::uint64_t>(
+                        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()) %
+                    total_duration_ms;
+                for (const auto& animation_frame : draw.raster_animation_frames) {
+                    if (phase_ms < animation_frame.duration_ms) {
+                        command.texture = animation_frame.texture;
+                        command.texture_sampler = animation_frame.sampler;
+                        break;
+                    }
+                    phase_ms -= animation_frame.duration_ms;
+                }
+            }
+        }
         if (clock && !draw.actor_animation_clips.empty()) {
             const WorldPresentationDraw::ActorAnimationClip* active_clip = nullptr;
             std::uint64_t lead_in_ms = 0;
@@ -1345,9 +1487,9 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                     const auto key = loop_key(draw) + ":animation:" + active_clip->id.text() +
                                      (draw.actor_speaking ? ":speaking" : ":blink");
                     auto [epoch, inserted] =
-                        m_loop_epochs.try_emplace(key, LoopEpoch{active_clip->clock, now});
+                        m_loop_epochs.try_emplace(key, LoopEpoch{active_clip->clock, now, {}});
                     if (!inserted && epoch->second.clock != active_clip->clock)
-                        epoch->second = LoopEpoch{active_clip->clock, now};
+                        epoch->second = LoopEpoch{active_clip->clock, now, {}};
                     const auto elapsed = now >= epoch->second.started_at
                                              ? now - epoch->second.started_at
                                              : std::chrono::microseconds{0};
@@ -1377,9 +1519,9 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
         if (clock && domain) {
             const auto now = clock_time(*clock, *domain);
             const auto key = loop_key(draw);
-            auto [epoch, inserted] = m_loop_epochs.try_emplace(key, LoopEpoch{*domain, now});
+            auto [epoch, inserted] = m_loop_epochs.try_emplace(key, LoopEpoch{*domain, now, {}});
             if (!inserted && epoch->second.clock != *domain)
-                epoch->second = LoopEpoch{*domain, now};
+                epoch->second = LoopEpoch{*domain, now, {}};
             const auto elapsed = now >= epoch->second.started_at ? now - epoch->second.started_at
                                                                  : std::chrono::microseconds{0};
             elapsed_seconds = std::chrono::duration<double>(elapsed).count();
@@ -1444,9 +1586,9 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                                              std::to_string(draw.sublayer) + "/" +
                                              command.material.string() + "/" + parameter.parameter;
                             auto [epoch, inserted] =
-                                m_loop_epochs.try_emplace(key, LoopEpoch{domain, now});
+                                m_loop_epochs.try_emplace(key, LoopEpoch{domain, now, {}});
                             if (!inserted && epoch->second.clock != domain)
-                                epoch->second = LoopEpoch{domain, now};
+                                epoch->second = LoopEpoch{domain, now, {}};
                             const auto elapsed = now >= epoch->second.started_at
                                                      ? now - epoch->second.started_at
                                                      : std::chrono::microseconds{0};
@@ -1511,9 +1653,9 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                                          std::to_string(surface.overlay.sublayer) + "/" +
                                          command.material.string() + "/" + parameter.name;
                         auto [epoch, inserted] =
-                            m_loop_epochs.try_emplace(key, LoopEpoch{domain, now});
+                            m_loop_epochs.try_emplace(key, LoopEpoch{domain, now, {}});
                         if (!inserted && epoch->second.clock != domain)
-                            epoch->second = LoopEpoch{domain, now};
+                            epoch->second = LoopEpoch{domain, now, {}};
                         const auto elapsed = now >= epoch->second.started_at
                                                  ? now - epoch->second.started_at
                                                  : std::chrono::microseconds{0};
@@ -1619,6 +1761,8 @@ void WorldPresentationBackend::prune_loop_epochs()
         for (const auto& draw : frame.draws) {
             if (draw.actor_idle || draw.environment_clock)
                 active.insert(loop_key(draw));
+            if (!draw.raster_animation_frames.empty())
+                active.insert(raster_animation_loop_key(draw));
             if (draw.actor_speaking && draw.actor_automatic_animations.speaking)
                 active.insert(loop_key(draw) + ":animation:" +
                               draw.actor_automatic_animations.speaking->clip_id.text() +
@@ -1692,6 +1836,7 @@ void WorldPresentationBackend::reset()
     m_snapshots.clear();
     m_frames.clear();
     m_loop_epochs.clear();
+    m_animation_epoch_generation = 0;
     m_generation = 0;
     m_hotspot_visual_state = {};
 }
@@ -1727,6 +1872,40 @@ bool WorldPresentationBackend::restore_revision(
     return true;
 }
 
+void WorldPresentationBackend::preserve_animation_epochs_from(
+    const WorldPresentationBackend& previous)
+{
+    if (!m_snapshot || !previous.m_frame)
+        return;
+    m_animation_epoch_generation =
+        std::max(m_animation_epoch_generation, previous.m_animation_epoch_generation);
+    const auto found = m_frames.find(m_snapshot->revision.number());
+    if (found == m_frames.end())
+        return;
+    auto& frame = found->second;
+    for (auto& draw : frame.draws) {
+        if (draw.raster_animation_frames.empty())
+            continue;
+        const auto previous_draw =
+            std::ranges::find_if(previous.m_frame->draws, [&](const auto& value) {
+                return !value.raster_animation_frames.empty() &&
+                       loop_key(value) == loop_key(draw) &&
+                       value.raster_animation_key == draw.raster_animation_key &&
+                       value.environment_clock == draw.environment_clock;
+            });
+        if (previous_draw == previous.m_frame->draws.end()) {
+            draw.raster_animation_epoch = ++m_animation_epoch_generation;
+            continue;
+        }
+        draw.raster_animation_epoch = previous_draw->raster_animation_epoch;
+        const auto key = raster_animation_loop_key(draw);
+        const auto epoch = previous.m_loop_epochs.find(key);
+        if (epoch != previous.m_loop_epochs.end())
+            m_loop_epochs.insert_or_assign(key, epoch->second);
+    }
+    m_frame = frame;
+}
+
 void WorldPresentationBackend::swap_prepared(WorldPresentationBackend& prepared) noexcept
 {
     using std::swap;
@@ -1736,6 +1915,7 @@ void WorldPresentationBackend::swap_prepared(WorldPresentationBackend& prepared)
     swap(m_snapshots, prepared.m_snapshots);
     swap(m_frames, prepared.m_frames);
     swap(m_loop_epochs, prepared.m_loop_epochs);
+    swap(m_animation_epoch_generation, prepared.m_animation_epoch_generation);
     swap(m_generation, prepared.m_generation);
     swap(m_hotspot_visual_state, prepared.m_hotspot_visual_state);
 }

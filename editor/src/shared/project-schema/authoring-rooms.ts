@@ -26,6 +26,7 @@ import { featureDataSchema, roomHotspotTargetSchema } from './authoring-features
 import { parseCharacterData } from './authoring-characters';
 import { interactableInstanceRefSchema, parseInteractableData } from './authoring-interactables';
 import { resolveGameplayInstanceRecord } from './authoring-archetypes';
+import { visualSchema } from './authoring-animations';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -179,6 +180,7 @@ export const roomEnvironmentDataSchema = strict({
   id: entityIdSchema,
   condition: conditionSchema,
   asset: roomAssetRefSchema.nullable(),
+  visual: visualSchema.nullable().optional(),
   materialApplication: materialApplicationSchema,
   bounds: roomNormalizedRectSchema,
   plane: z.enum(roomEnvironmentPlaneValues),
@@ -777,6 +779,34 @@ export function validateRoomData(
     const path = `${base}/environments/${index}`;
     if (entry.asset && !project.assets[entry.asset.$ref.id])
       diagnostics.push(diagnostic(`${path}/asset/$ref`, `Missing asset '${entry.asset.$ref.id}'.`));
+    if (entry.visual?.kind === 'image') {
+      const assetId = entry.visual.image.$ref.id;
+      const asset = project.assets[assetId];
+      if (!asset)
+        diagnostics.push(diagnostic(`${path}/visual/image/$ref`, `Missing asset '${assetId}'.`));
+      else if (parseAssetData(asset.data)?.kind !== 'image')
+        diagnostics.push(
+          diagnostic(`${path}/visual/image/$ref`, `Visual Asset '${assetId}' must be an image.`),
+        );
+    } else if (entry.visual?.kind === 'animation') {
+      const visual = entry.visual;
+      const animationId = visual.animation.$ref.id;
+      const animation = project.animations[animationId];
+      if (!animation)
+        diagnostics.push(
+          diagnostic(`${path}/visual/animation/$ref`, `Missing Animation '${animationId}'.`),
+        );
+      else if (
+        visual.motionId &&
+        !animation.data.motions.some((motion) => motion.id === visual.motionId)
+      )
+        diagnostics.push(
+          diagnostic(
+            `${path}/visual/motionId`,
+            `Animation '${animationId}' has no motion '${visual.motionId}'.`,
+          ),
+        );
+    }
     const materialId = entry.materialApplication.material.$ref.id;
     if (!project.materials[materialId])
       diagnostics.push(

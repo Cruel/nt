@@ -34,6 +34,7 @@ const typedReference = <Collection extends string>(collection: Collection) =>
   });
 
 const assetReferenceSchema = typedReference('asset');
+const animationReferenceSchema = typedReference('animation');
 const archetypeReferenceSchema = typedReference('archetype');
 const characterReferenceSchema = typedReference('character');
 const dialogueReferenceSchema = typedReference('dialogue');
@@ -42,6 +43,14 @@ const interactableReferenceSchema = typedReference('interactable');
 const interactionReferenceSchema = typedReference('interaction');
 const layoutReferenceSchema = typedReference('layout');
 const materialReferenceSchema = typedReference('material');
+export const compiledVisualSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('image'), image: assetReferenceSchema }),
+  strict({
+    kind: z.literal('animation'),
+    animation: animationReferenceSchema,
+    motionId: id.nullable(),
+  }),
+]);
 const compiledMaterialRoleSchema = z.enum([
   'engine-2d',
   'active-text',
@@ -1387,6 +1396,7 @@ const roomDefinitionSchema = strict({
         id,
         condition: compiledConditionSchema,
         asset: assetReferenceSchema.nullable(),
+        visual: compiledVisualSchema.optional(),
         material: materialReferenceSchema,
         materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
         materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
@@ -2260,6 +2270,28 @@ const assetResourceSchema = z.discriminatedUnion('kind', [
     localized: z.array(localizedAssetRealizationSchema).optional(),
   }),
 ]);
+const animationResourceSchema = strict({
+  id,
+  canvas: strict({
+    width: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+    height: z.number().int().positive().max(MAX_REFERENCE_RESOLUTION_DIMENSION),
+  }),
+  defaultMotionId: id,
+  motions: z.array(
+    strict({
+      id,
+      kind: z.literal('sprite-sequence'),
+      frames: z
+        .array(
+          strict({
+            image: assetReferenceSchema,
+            durationMs: z.number().int().positive(),
+          }),
+        )
+        .min(1),
+    }),
+  ),
+});
 const layoutSourceSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('inline'), text: z.string() }),
   strict({ asset: assetReferenceSchema, kind: z.literal('asset') }),
@@ -2604,6 +2636,7 @@ export const compiledProjectWireSchema = strict({
   interactableInstances: z.array(interactableInstanceDeclarationSchema),
   resources: strict({
     assets: z.array(assetResourceSchema),
+    animations: z.array(animationResourceSchema).default([]),
     layouts: z.array(layoutResourceSchema),
     materialInterfaces: z.array(compiledMaterialInterfaceSchema),
     scripts: z.array(scriptResourceSchema),
@@ -2628,6 +2661,7 @@ export const compiledProjectWireSchema = strict({
     { path: ['archetypes'], records: project.archetypes },
     { path: ['interactableInstances'], records: project.interactableInstances },
     { path: ['resources', 'assets'], records: project.resources.assets },
+    { path: ['resources', 'animations'], records: project.resources.animations },
     { path: ['resources', 'layouts'], records: project.resources.layouts },
     { path: ['resources', 'scripts'], records: project.resources.scripts },
   ];

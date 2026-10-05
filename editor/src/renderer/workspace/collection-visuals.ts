@@ -28,6 +28,7 @@ export interface VisualIdentity {
 export const collectionVisuals: Record<AuthoringCollectionKey, VisualIdentity> = {
   interactions: { icon: Bolt, colorClassName: 'text-emerald-700 dark:text-emerald-300' },
   assets: { icon: Image, colorClassName: 'text-blue-700 dark:text-blue-300' },
+  animations: { icon: Clapperboard, colorClassName: 'text-cyan-700 dark:text-cyan-300' },
   archetypes: { icon: Layers, colorClassName: 'text-purple-700 dark:text-purple-300' },
   characters: { icon: User, colorClassName: 'text-violet-700 dark:text-violet-300' },
   dialogues: { icon: MessageSquareText, colorClassName: 'text-sky-700 dark:text-sky-300' },

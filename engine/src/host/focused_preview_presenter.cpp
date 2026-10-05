@@ -286,7 +286,24 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
         require_material_textures(document.world.props[index].material_textures,
                                   "/world/props/" + std::to_string(index) + "/materialTextures");
     }
+    for (std::size_t animation_index = 0; animation_index < document.world.animations.size();
+         ++animation_index) {
+        const auto& animation = document.world.animations[animation_index];
+        for (std::size_t motion_index = 0; motion_index < animation.motions.size();
+             ++motion_index) {
+            const auto& motion = animation.motions[motion_index];
+            for (std::size_t frame_index = 0; frame_index < motion.frames.size(); ++frame_index)
+                require_asset(motion.frames[frame_index].asset_id,
+                              "/world/animations/" + std::to_string(animation_index) + "/motions/" +
+                                  std::to_string(motion_index) + "/frames/" +
+                                  std::to_string(frame_index) + "/assetId");
+        }
+    }
     for (std::size_t index = 0; index < document.world.environments.size(); ++index) {
+        const auto& visual = document.world.environments[index].visual;
+        if (visual && visual->kind == "image")
+            require_asset(visual->resource_id,
+                          "/world/environments/" + std::to_string(index) + "/visual/assetId");
         require_asset(document.world.environments[index].asset_id,
                       "/world/environments/" + std::to_string(index) + "/assetId");
         require_material_textures(document.world.environments[index].material_textures,
@@ -949,12 +966,23 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
              prop.material_id ? std::optional{decoded_id<core::MaterialId>(*prop.material_id)}
                               : std::nullopt,
              prop.material_parameters, prop.material_textures, prop.visible, prop.order});
+    const auto focused_visual =
+        [](const core::editor::TypedFocusedRoomWorldDefinition::Visual& value)
+        -> core::compiled::Visual {
+        if (value.kind == "image")
+            return core::compiled::ImageVisual{decoded_id<core::AssetId>(value.resource_id)};
+        return core::compiled::AnimationVisual{
+            decoded_id<core::AnimationId>(value.resource_id),
+            value.motion_id ? std::optional{decoded_id<core::AnimationMotionId>(*value.motion_id)}
+                            : std::nullopt};
+    };
     for (const auto& environment : document.world.environments)
         definition.environments.push_back(
             {decoded_id<core::RoomEnvironmentId>(environment.environment_id),
              condition_token(environment.condition),
              environment.asset_id ? std::optional{decoded_id<core::AssetId>(*environment.asset_id)}
                                   : std::nullopt,
+             environment.visual ? std::optional{focused_visual(*environment.visual)} : std::nullopt,
              decoded_id<core::MaterialId>(environment.material_id),
              environment.material_parameters,
              environment.material_textures,
@@ -1518,6 +1546,24 @@ FocusedPreviewPresenter::prepare_room_state(
              .logical_path = resource.logical_path,
              .sampler = resource.sampling == "nearest" ? MaterialTextureSampler::ClampNearest
                                                        : MaterialTextureSampler::ClampLinear});
+    }
+    for (const auto& animation : document.world.animations) {
+        core::compiled::AnimationResource resource{
+            decoded_id<core::AnimationId>(animation.id),
+            animation.canvas,
+            decoded_id<core::AnimationMotionId>(animation.default_motion_id),
+            {}};
+        resource.motions.reserve(animation.motions.size());
+        for (const auto& motion : animation.motions) {
+            core::compiled::SpriteAnimationMotion compiled_motion{
+                decoded_id<core::AnimationMotionId>(motion.id), {}};
+            compiled_motion.frames.reserve(motion.frames.size());
+            for (const auto& frame : motion.frames)
+                compiled_motion.frames.push_back(
+                    {decoded_id<core::AssetId>(frame.asset_id), frame.duration_ms});
+            resource.motions.push_back(std::move(compiled_motion));
+        }
+        state.world_catalog.animations.push_back(std::move(resource));
     }
     for (const auto& layout : document.layouts)
         state.layout_instance_ids.push_back(layout.instance_id);
@@ -2165,6 +2211,7 @@ void FocusedPreviewPresenter::commit_candidate(assets::StructuredAssetLeaseSet l
         release_state(candidate.state);
         return;
     }
+    candidate.prepared_world->preserve_animation_epochs_from(m_dependencies.world);
     auto prepared_environment = m_dependencies.prepare_environment(*candidate.state.environment);
     if (!prepared_environment) {
         m_dependencies.layouts.rollback_focused_preview();

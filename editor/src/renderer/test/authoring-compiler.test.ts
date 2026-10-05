@@ -3465,6 +3465,115 @@ describe('authoring compiler framework', () => {
     });
   });
 
+  it('lowers first-class raster Animations and Room Environment Visual selections', () => {
+    const project = validProject();
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    for (const [id, width] of [
+      ['rain-a', 24],
+      ['rain-b', 48],
+    ] as const) {
+      project.assets[id] = {
+        id,
+        label: id,
+        data: assetDataFromImportMetadata({
+          kind: 'image',
+          projectRelativePath: `assets/images/${id}.png`,
+          extension: '.png',
+          byteSize: 64,
+          contentHash: `${id}-hash`,
+          imageMetadata: { width, height: 32, hasAlpha: true, orientation: 1 },
+        }),
+      };
+    }
+    project.animations.rain = {
+      id: 'rain',
+      label: 'Rain',
+      data: {
+        kind: 'animation',
+        canvas: { width: 64, height: 32 },
+        defaultMotionId: 'fall',
+        motions: [
+          {
+            id: 'fall',
+            kind: 'sprite-sequence',
+            frames: [
+              {
+                image: { $ref: { collection: 'assets', id: 'rain-a' } },
+                durationMs: 75,
+              },
+              {
+                image: { $ref: { collection: 'assets', id: 'rain-b' } },
+                durationMs: 125,
+              },
+            ],
+          },
+        ],
+      },
+    };
+    const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;
+    room.environments.push({
+      id: 'rain',
+      condition: { kind: 'always' },
+      asset: null,
+      visual: {
+        kind: 'animation',
+        animation: { $ref: { collection: 'animations', id: 'rain' } },
+        motionId: null,
+      },
+      materialApplication: {
+        material: { $ref: { collection: 'materials', id: 'panel' } },
+        parameters: {},
+        textures: {},
+      },
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+      plane: 'world-background',
+      order: 0,
+      clock: 'gameplay',
+      scrollPerSecond: { x: 0, y: 0 },
+      opacity: 1,
+      visible: true,
+    });
+
+    const result = compileAuthoringProject(project);
+
+    expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
+      true,
+    );
+    if (!result.ok) return;
+    expect(result.project.resources.animations).toEqual([
+      {
+        id: 'rain',
+        canvas: { width: 64, height: 32 },
+        defaultMotionId: 'fall',
+        motions: [
+          {
+            id: 'fall',
+            kind: 'sprite-sequence',
+            frames: [
+              { image: { kind: 'asset', id: 'rain-a' }, durationMs: 75 },
+              { image: { kind: 'asset', id: 'rain-b' }, durationMs: 125 },
+            ],
+          },
+        ],
+      },
+    ]);
+    const environment = result.project.definitions.rooms.find(
+      (candidate) => candidate.id === 'foyer',
+    )!.environments![0]!;
+    expect(environment).toMatchObject({
+      asset: null,
+      visual: {
+        kind: 'animation',
+        animation: { kind: 'animation', id: 'rain' },
+        motionId: null,
+      },
+    });
+  });
+
   it('lowers sparse Interactable Definition Material Applications without discarding dormant entries', () => {
     const project = validProject();
     project.materials.panel = {

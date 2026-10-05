@@ -2,6 +2,7 @@ export { AUTHORING_PROJECT_SCHEMA } from '../schema-static-contracts';
 
 export const authoringCollectionKeys = [
   'assets',
+  'animations',
   'variables',
   'materials',
   'layouts',
@@ -26,6 +27,7 @@ export interface AuthoringCollectionMetadata {
   singularLabel: string;
   nodeType:
     | 'asset'
+    | 'animation'
     | 'variable'
     | 'material'
     | 'layout'
@@ -47,6 +49,12 @@ export const authoringCollectionMetadata: Record<
   AuthoringCollectionMetadata
 > = {
   assets: { key: 'assets', label: 'Assets', singularLabel: 'Asset', nodeType: 'asset' },
+  animations: {
+    key: 'animations',
+    label: 'Animations',
+    singularLabel: 'Animation',
+    nodeType: 'animation',
+  },
   variables: {
     key: 'variables',
     label: 'Variables',

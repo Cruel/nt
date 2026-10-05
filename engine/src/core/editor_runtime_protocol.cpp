@@ -3638,10 +3638,138 @@ decode_editor_room_preview_document_text(std::string_view data_text,
 
     if (const auto* world = object("world")) {
         exact_fields(*world,
-                     {"presentationSpace", "anchors", "background", "placements",
+                     {"animations", "presentationSpace", "anchors", "background", "placements",
                       "persistentCharacters", "cast", "interactables", "props", "environments",
                       "overlays", "hotspots"},
                      diagnostics, "/world");
+        if (const auto animations = world->find("animations");
+            animations != world->end() && animations->is_array()) {
+            for (std::size_t animation_index = 0; animation_index < animations->size();
+                 ++animation_index) {
+                const auto& value = (*animations)[animation_index];
+                const auto path = "/world/animations/" + std::to_string(animation_index);
+                if (!value.is_object()) {
+                    diagnostics.push_back(
+                        error("editor_preview.wrong_type", "Animation must be an object.", path));
+                    continue;
+                }
+                exact_fields(value, {"id", "canvas", "defaultMotionId", "motions"}, diagnostics,
+                             path);
+                TypedFocusedRoomWorldDefinition::Animation animation{
+                    .id = required_string(value, "id", path),
+                    .canvas = {},
+                    .default_motion_id = required_string(value, "defaultMotionId", path),
+                    .motions = {}};
+                if (const auto canvas = value.find("canvas");
+                    canvas != value.end() && canvas->is_object()) {
+                    exact_fields(*canvas, {"width", "height"}, diagnostics, path + "/canvas");
+                    animation.canvas.width =
+                        json_access::member_as<std::uint32_t>(*canvas, "width").value_or(0);
+                    animation.canvas.height =
+                        json_access::member_as<std::uint32_t>(*canvas, "height").value_or(0);
+                } else {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Animation canvas must be an object.",
+                                                path + "/canvas"));
+                }
+                if (const auto motions = value.find("motions");
+                    motions != value.end() && motions->is_array()) {
+                    for (std::size_t motion_index = 0; motion_index < motions->size();
+                         ++motion_index) {
+                        const auto& motion_value = (*motions)[motion_index];
+                        const auto motion_path = path + "/motions/" + std::to_string(motion_index);
+                        if (!motion_value.is_object()) {
+                            diagnostics.push_back(error("editor_preview.wrong_type",
+                                                        "Animation motion must be an object.",
+                                                        motion_path));
+                            continue;
+                        }
+                        exact_fields(motion_value, {"id", "kind", "frames"}, diagnostics,
+                                     motion_path);
+                        if (required_string(motion_value, "kind", motion_path) != "sprite-sequence")
+                            diagnostics.push_back(
+                                error("editor_preview.invalid_value",
+                                      "Animation motion kind must be sprite-sequence.",
+                                      motion_path + "/kind"));
+                        TypedFocusedRoomWorldDefinition::Animation::Motion motion{
+                            .id = required_string(motion_value, "id", motion_path), .frames = {}};
+                        if (const auto frames = motion_value.find("frames");
+                            frames != motion_value.end() && frames->is_array()) {
+                            for (std::size_t frame_index = 0; frame_index < frames->size();
+                                 ++frame_index) {
+                                const auto& frame_value = (*frames)[frame_index];
+                                const auto frame_path =
+                                    motion_path + "/frames/" + std::to_string(frame_index);
+                                if (!frame_value.is_object()) {
+                                    diagnostics.push_back(
+                                        error("editor_preview.wrong_type",
+                                              "Animation frame must be an object.", frame_path));
+                                    continue;
+                                }
+                                exact_fields(frame_value, {"assetId", "durationMs"}, diagnostics,
+                                             frame_path);
+                                motion.frames.push_back(
+                                    {.asset_id =
+                                         required_string(frame_value, "assetId", frame_path),
+                                     .duration_ms = json_access::member_as<std::uint64_t>(
+                                                        frame_value, "durationMs")
+                                                        .value_or(0)});
+                            }
+                        } else {
+                            diagnostics.push_back(error("editor_preview.wrong_type",
+                                                        "Animation frames must be an array.",
+                                                        motion_path + "/frames"));
+                        }
+                        animation.motions.push_back(std::move(motion));
+                    }
+                } else {
+                    diagnostics.push_back(error("editor_preview.wrong_type",
+                                                "Animation motions must be an array.",
+                                                path + "/motions"));
+                }
+                if (animation.canvas.width == 0 || animation.canvas.height == 0 ||
+                    animation.canvas.width > compiled::max_reference_resolution_dimension ||
+                    animation.canvas.height > compiled::max_reference_resolution_dimension)
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Animation canvas dimensions are out of range.",
+                                                path + "/canvas"));
+                if (std::ranges::any_of(result.world.animations, [&](const auto& other) {
+                        return other.id == animation.id;
+                    }))
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Animation IDs must be unique.", path + "/id"));
+                std::set<std::string> motion_ids;
+                for (std::size_t motion_index = 0; motion_index < animation.motions.size();
+                     ++motion_index) {
+                    const auto& motion = animation.motions[motion_index];
+                    const auto motion_path = path + "/motions/" + std::to_string(motion_index);
+                    if (!motion_ids.insert(motion.id).second)
+                        diagnostics.push_back(error("editor_preview.invalid_value",
+                                                    "Animation motion IDs must be unique.",
+                                                    motion_path + "/id"));
+                    if (motion.frames.empty())
+                        diagnostics.push_back(error("editor_preview.invalid_value",
+                                                    "Animation motion must contain a frame.",
+                                                    motion_path + "/frames"));
+                    for (std::size_t frame_index = 0; frame_index < motion.frames.size();
+                         ++frame_index)
+                        if (motion.frames[frame_index].duration_ms == 0)
+                            diagnostics.push_back(
+                                error("editor_preview.invalid_value",
+                                      "Animation frame duration must be a positive integer.",
+                                      motion_path + "/frames/" + std::to_string(frame_index) +
+                                          "/durationMs"));
+                }
+                if (!motion_ids.contains(animation.default_motion_id))
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Animation default motion must name a motion.",
+                                                path + "/defaultMotionId"));
+                result.world.animations.push_back(std::move(animation));
+            }
+        } else if (animations != world->end()) {
+            diagnostics.push_back(error("editor_preview.wrong_type", "Animations must be an array.",
+                                        "/world/animations"));
+        }
         if (const auto presentation = world->find("presentationSpace");
             presentation != world->end() && presentation->is_object()) {
             exact_fields(*presentation, {"size", "bounds", "edgePolicy", "view"}, diagnostics,
@@ -3946,12 +4074,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                 exact_fields(value,
                              {"environmentId", "condition", "assetId", "materialId",
                               "materialParameters", "materialTextures", "bounds", "plane", "order",
-                              "clock", "scrollPerSecond", "opacity", "visible"},
+                              "clock", "scrollPerSecond", "opacity", "visible", "visual"},
                              diagnostics, path);
                 TypedFocusedRoomWorldDefinition::Environment typed{
                     .environment_id = required_string(value, "environmentId", path),
                     .condition = condition(value["condition"], path + "/condition"),
                     .asset_id = optional_string(value, "assetId", path),
+                    .visual = std::nullopt,
                     .material_id = required_string(value, "materialId", path),
                     .material_parameters = {},
                     .material_textures = {},
@@ -3963,6 +4092,55 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         vector2(value["scrollPerSecond"], path + "/scrollPerSecond"),
                     .opacity = json_access::member_as<double>(value, "opacity").value_or(1.0),
                     .visible = required_bool(value, "visible", path)};
+                if (const auto visual = value.find("visual");
+                    visual != value.end() && !visual->is_null()) {
+                    if (!visual->is_object()) {
+                        diagnostics.push_back(error("editor_preview.wrong_type",
+                                                    "Environment Visual must be an object or null.",
+                                                    path + "/visual"));
+                    } else {
+                        const auto kind = required_string(*visual, "kind", path + "/visual");
+                        if (kind == "image") {
+                            exact_fields(*visual, {"kind", "assetId"}, diagnostics,
+                                         path + "/visual");
+                            typed.visual = TypedFocusedRoomWorldDefinition::Visual{
+                                .kind = kind,
+                                .resource_id =
+                                    required_string(*visual, "assetId", path + "/visual"),
+                                .motion_id = std::nullopt};
+                        } else if (kind == "animation") {
+                            exact_fields(*visual, {"kind", "animationId", "motionId"}, diagnostics,
+                                         path + "/visual");
+                            typed.visual = TypedFocusedRoomWorldDefinition::Visual{
+                                .kind = kind,
+                                .resource_id =
+                                    required_string(*visual, "animationId", path + "/visual"),
+                                .motion_id =
+                                    optional_string(*visual, "motionId", path + "/visual")};
+                        } else {
+                            diagnostics.push_back(error("editor_preview.invalid_value",
+                                                        "Visual kind must be image or animation.",
+                                                        path + "/visual/kind"));
+                        }
+                    }
+                }
+                if (typed.visual && typed.visual->kind == "animation") {
+                    const auto animation =
+                        std::ranges::find_if(result.world.animations, [&](const auto& candidate) {
+                            return candidate.id == typed.visual->resource_id;
+                        });
+                    if (animation == result.world.animations.end())
+                        diagnostics.push_back(error("editor_preview.invalid_value",
+                                                    "Environment references a missing Animation.",
+                                                    path + "/visual/animationId"));
+                    else if (typed.visual->motion_id &&
+                             std::ranges::none_of(animation->motions, [&](const auto& motion) {
+                                 return motion.id == *typed.visual->motion_id;
+                             }))
+                        diagnostics.push_back(error("editor_preview.invalid_value",
+                                                    "Environment references a missing motion.",
+                                                    path + "/visual/motionId"));
+                }
                 if (const auto parameters = value.find("materialParameters");
                     parameters != value.end())
                     typed.material_parameters =

@@ -1377,12 +1377,18 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                           : std::nullopt;
 
     std::optional<std::vector<AssetResource>> assets;
+    std::optional<std::vector<AnimationResource>> animations{std::in_place};
     std::optional<std::vector<LayoutResource>> layouts;
     std::optional<std::vector<MaterialInterfaceResource>> material_interfaces;
     std::optional<std::vector<ScriptResource>> scripts;
-    if (resources_value && decoder.object(*resources_value, "/resources",
-                                          {"assets", "layouts", "materialInterfaces", "scripts"})) {
+    if (resources_value &&
+        decoder.object(*resources_value, "/resources",
+                       {"animations", "assets", "layouts", "materialInterfaces", "scripts"})) {
         const auto* assets_value = decoder.member(*resources_value, "assets", "/resources");
+        const auto* animations_value =
+            resources_value->contains("animations")
+                ? decoder.member(*resources_value, "animations", "/resources")
+                : nullptr;
         const auto* layouts_value = decoder.member(*resources_value, "layouts", "/resources");
         const auto* material_interfaces_value =
             decoder.member(*resources_value, "materialInterfaces", "/resources");
@@ -1392,6 +1398,12 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                 *assets_value, "/resources/assets",
                 [&](const nlohmann::json& item, const std::string& pointer) {
                     return decode_asset(decoder, item, pointer);
+                });
+        if (animations_value)
+            animations = decoder.array<AnimationResource>(
+                *animations_value, "/resources/animations",
+                [&](const nlohmann::json& item, const std::string& pointer) {
+                    return decode_animation(decoder, item, pointer);
                 });
         if (layouts_value)
             layouts = decoder.array<LayoutResource>(
@@ -1567,6 +1579,10 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
         decoder.duplicate_ids(
             *assets, "/resources/assets",
             [](const AssetResource& value) -> const AssetId& { return value.id; });
+    if (animations)
+        decoder.duplicate_ids(
+            *animations, "/resources/animations",
+            [](const AnimationResource& value) -> const AnimationId& { return value.id; });
     if (layouts)
         decoder.duplicate_ids(
             *layouts, "/resources/layouts",
@@ -1596,7 +1612,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
 
     const bool complete = schema && version && identity && settings && entrypoint && bootstrap &&
                           save_contract && localization && inventories && properties && traits &&
-                          archetypes && interactable_instances && assets && layouts &&
+                          archetypes && interactable_instances && assets && animations && layouts &&
                           material_interfaces && scripts && characters && rooms && interactables &&
                           verbs && interactions && undefined_interaction_valid && scenes &&
                           dialogues && maps;
@@ -1616,6 +1632,7 @@ Result<SharedProject, Diagnostics> decode_shared_project(const nlohmann::json& d
                       std::move(*archetypes),
                       std::move(*inventories),
                       std::move(*assets),
+                      std::move(*animations),
                       std::move(*layouts),
                       std::move(*material_interfaces),
                       std::move(*scripts),

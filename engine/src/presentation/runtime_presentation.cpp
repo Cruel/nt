@@ -33,6 +33,34 @@ void validate_asset(const CompiledProject& project, const std::optional<AssetId>
         diagnostics.push_back(unresolved(std::move(family), asset->text()));
 }
 
+void validate_visual(const CompiledProject& project, const std::optional<compiled::Visual>& visual,
+                     std::string family, Diagnostics& diagnostics)
+{
+    if (!visual)
+        return;
+    if (const auto* image = std::get_if<compiled::ImageVisual>(&*visual)) {
+        validate_asset(project, std::optional<AssetId>{image->image}, compiled::AssetKind::Image,
+                       std::move(family), diagnostics);
+        return;
+    }
+    const auto& animation_visual = std::get<compiled::AnimationVisual>(*visual);
+    const auto* animation = project.find_animation(animation_visual.animation);
+    if (animation == nullptr) {
+        diagnostics.push_back(unresolved(std::move(family), animation_visual.animation.text()));
+        return;
+    }
+    const auto motion_id = animation_visual.motion.value_or(animation->default_motion);
+    const auto motion = std::ranges::find_if(
+        animation->motions, [&](const auto& candidate) { return candidate.id == motion_id; });
+    if (motion == animation->motions.end()) {
+        diagnostics.push_back(unresolved("Animation motion", motion_id.text()));
+        return;
+    }
+    for (const auto& frame : motion->frames)
+        validate_asset(project, std::optional<AssetId>{frame.image}, compiled::AssetKind::Image,
+                       "Animation frame image", diagnostics);
+}
+
 const compiled::RoomPlacement* find_placement(const runtime::RuntimeWorld& world,
                                               const compiled::RoomPlacementRef& ref) noexcept
 {
@@ -628,10 +656,11 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
         }
         validate_asset(project, environment.asset, compiled::AssetKind::Image,
                        "Room environment asset", diagnostics);
+        validate_visual(project, environment.visual, "Room environment Visual", diagnostics);
         result.environments.push_back(PresentationEnvironment{
             std::move(*instance.value_if()), RoomPresentationOwner{room.visit.room},
             PropertyOwnerRef{room.visit.room}, std::move(*stop_key.value_if()), environment.asset,
-            environment.material, environment.material_parameters,
+            environment.visual, environment.material, environment.material_parameters,
             material_application_textures(
                 project, material_application(std::optional<MaterialId>{environment.material},
                                               environment.material_parameters,
@@ -873,6 +902,7 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
                                     PropertyOwnerRef{passive.presentation.visit.room},
                                     std::move(*stop_key.value_if()),
                                     environment.asset,
+                                    environment.visual,
                                     environment.material,
                                     environment.material_parameters,
                                     {},
@@ -1057,7 +1087,8 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             std::move(*instance.value_if()),
             RoomPresentationOwner{resolution.presentation.visit.room},
             PropertyOwnerRef{resolution.presentation.visit.room}, std::move(*stop_key.value_if()),
-            environment.asset, environment.material, environment.material_parameters,
+            environment.asset, environment.visual, environment.material,
+            environment.material_parameters,
             material_application_textures(
                 project, material_application(std::optional<MaterialId>{environment.material},
                                               environment.material_parameters,
@@ -1492,6 +1523,7 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
                                                               std::nullopt,
                                                               desired.stop_key,
                                                               desired.asset,
+                                                              std::nullopt,
                                                               desired.material,
                                                               {},
                                                               {},

@@ -374,6 +374,34 @@ inline constexpr std::uint32_t max_reference_resolution_dimension = 10'000;
 struct ReferenceResolution {
     std::uint32_t width;
     std::uint32_t height;
+    bool operator==(const ReferenceResolution&) const = default;
+};
+struct ImageVisual {
+    AssetId image;
+    bool operator==(const ImageVisual&) const = default;
+};
+struct AnimationVisual {
+    AnimationId animation;
+    std::optional<AnimationMotionId> motion;
+    bool operator==(const AnimationVisual&) const = default;
+};
+using Visual = std::variant<ImageVisual, AnimationVisual>;
+struct SpriteAnimationFrame {
+    AssetId image;
+    std::uint64_t duration_ms = 0;
+    bool operator==(const SpriteAnimationFrame&) const = default;
+};
+struct SpriteAnimationMotion {
+    AnimationMotionId id;
+    std::vector<SpriteAnimationFrame> frames;
+    bool operator==(const SpriteAnimationMotion&) const = default;
+};
+struct AnimationResource {
+    AnimationId id;
+    ReferenceResolution canvas;
+    AnimationMotionId default_motion;
+    std::vector<SpriteAnimationMotion> motions;
+    bool operator==(const AnimationResource&) const = default;
 };
 enum class DisplayOrientation : std::uint8_t {
     Landscape,
@@ -949,6 +977,7 @@ struct RoomEnvironment {
     RoomEnvironmentId id;
     Condition condition;
     std::optional<AssetId> asset;
+    std::optional<Visual> visual;
     MaterialId material;
     std::vector<MaterialApplicationParameterOverride> material_parameters;
     std::vector<MaterialApplicationTextureOverride> material_textures;
@@ -2218,6 +2247,7 @@ struct CompiledProjectInput {
     std::vector<ArchetypeDefinition> archetypes;
     std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
+    std::vector<AnimationResource> animations;
     std::vector<LayoutResource> layouts;
     std::vector<MaterialInterfaceResource> material_interfaces;
     std::vector<ScriptResource> scripts;
@@ -2283,6 +2313,10 @@ public:
     [[nodiscard]] const std::vector<compiled::AssetResource>& assets() const noexcept
     {
         return m_assets;
+    }
+    [[nodiscard]] const std::vector<compiled::AnimationResource>& animations() const noexcept
+    {
+        return m_animations;
     }
     [[nodiscard]] const std::vector<compiled::LayoutResource>& layouts() const noexcept
     {
@@ -2350,6 +2384,8 @@ public:
     [[nodiscard]] const compiled::InventoryDefinition*
     find_inventory(const compiled::InventoryRef& reference) const noexcept;
     [[nodiscard]] const compiled::AssetResource* find_asset(const AssetId& id) const noexcept;
+    [[nodiscard]] const compiled::AnimationResource*
+    find_animation(const AnimationId& id) const noexcept;
     [[nodiscard]] const compiled::AssetResource*
     resolve_asset(const AssetId& id, std::string_view locale) const noexcept;
     [[nodiscard]] const compiled::LayoutResource* find_layout(const LayoutId& id) const noexcept;
@@ -2392,6 +2428,7 @@ private:
     std::vector<compiled::ArchetypeDefinition> m_archetypes;
     std::vector<compiled::InventoryDefinition> m_inventories;
     std::vector<compiled::AssetResource> m_assets;
+    std::vector<compiled::AnimationResource> m_animations;
     std::vector<compiled::LayoutResource> m_layouts;
     std::vector<compiled::MaterialInterfaceResource> m_material_interfaces;
     std::vector<compiled::ScriptResource> m_scripts;
@@ -2411,6 +2448,7 @@ private:
     NOVELTEA_COMPILED_INDEX(TraitId, trait);
     NOVELTEA_COMPILED_INDEX(ArchetypeId, archetype);
     NOVELTEA_COMPILED_INDEX(AssetId, asset);
+    NOVELTEA_COMPILED_INDEX(AnimationId, animation);
     NOVELTEA_COMPILED_INDEX(LayoutId, layout);
     NOVELTEA_COMPILED_INDEX(MaterialId, material_interface);
     NOVELTEA_COMPILED_INDEX(ScriptId, script);

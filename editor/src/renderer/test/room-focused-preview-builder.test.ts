@@ -100,6 +100,101 @@ function fixtureWithRoomMaterial() {
 }
 
 describe('graph-driven Room builder', () => {
+  it('carries raster Animation resources and frame Assets through focused Room preview', async () => {
+    const project = fixture();
+    for (const [id, path] of [
+      ['rain-a', 'assets/images/rain-a.png'],
+      ['rain-b', 'assets/images/rain-b.png'],
+    ] as const) {
+      project.assets[id] = {
+        id,
+        label: id,
+        data: {
+          kind: 'image',
+          source: { type: 'project-file', path },
+          aliases: [],
+          sampling: 'nearest',
+          imageMetadata: { width: 64, height: 32, hasAlpha: true, orientation: 1 },
+        },
+      };
+    }
+    project.animations.rain = {
+      id: 'rain',
+      label: 'Rain',
+      data: {
+        kind: 'animation',
+        canvas: { width: 64, height: 32 },
+        defaultMotionId: 'fall',
+        motions: [
+          {
+            id: 'fall',
+            kind: 'sprite-sequence',
+            frames: [
+              { image: { $ref: { collection: 'assets', id: 'rain-a' } }, durationMs: 75 },
+              { image: { $ref: { collection: 'assets', id: 'rain-b' } }, durationMs: 125 },
+            ],
+          },
+        ],
+      },
+    };
+    project.materials.rain = {
+      id: 'rain',
+      label: 'Rain',
+      data: defaultMaterialData('Rain', 'engine-2d'),
+    };
+    project.rooms.bedroom!.data.environments = [
+      {
+        id: 'rain',
+        condition: { kind: 'always' },
+        asset: null,
+        visual: {
+          kind: 'animation',
+          animation: { $ref: { collection: 'animations', id: 'rain' } },
+          motionId: null,
+        },
+        materialApplication: emptyMaterialApplication('rain'),
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        plane: 'world-overlay',
+        order: 2,
+        clock: 'gameplay',
+        scrollPerSecond: { x: 0, y: 0 },
+        opacity: 1,
+        visible: true,
+      },
+    ];
+
+    const result = await build(project);
+
+    expect(result.data.world.animations).toEqual([
+      {
+        id: 'rain',
+        canvas: { width: 64, height: 32 },
+        defaultMotionId: 'fall',
+        motions: [
+          {
+            id: 'fall',
+            kind: 'sprite-sequence',
+            frames: [
+              { assetId: 'rain-a', durationMs: 75 },
+              { assetId: 'rain-b', durationMs: 125 },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(result.data.world.environments[0]?.visual).toEqual({
+      kind: 'animation',
+      animationId: 'rain',
+      motionId: null,
+    });
+    expect(result.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ resourceId: 'asset:rain-a', kind: 'image' }),
+        expect.objectContaining({ resourceId: 'asset:rain-b', kind: 'image' }),
+      ]),
+    );
+  });
+
   it('uses the bounded Asset protocol for Room original-image resources', async () => {
     const project = fixture();
     project.assets.background = {
