@@ -22,7 +22,7 @@ if (
   showcase?.toolchain?.player?.engineVersion !== releaseTag ||
   showcase?.toolchain?.player?.buildId !== `${releaseTag}-web-wasm32-threads-release` ||
   !Array.isArray(showcase.examples) ||
-  showcase.examples.length === 0
+  !['materials', 'verbs', 'feature-lab'].every((id) => showcase.examples.some((example: { id: string }) => example.id === id))
 ) {
   throw new Error(`Prepared release examples do not match ${releaseTag}.`);
 }

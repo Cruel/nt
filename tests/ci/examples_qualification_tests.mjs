@@ -1,10 +1,14 @@
 import assert from "node:assert/strict";
-import { readFileSync } from "node:fs";
+import { readFileSync, writeFileSync, mkdirSync, mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { resolve, dirname } from "node:path";
+import { createHash } from "node:crypto";
 import { test } from "node:test";
 
 import {
   parseExamplesRevision,
   validateQualifiedExamplesCatalog,
+  aggregateQualifiedExamples,
 } from "../../scripts/qualify-examples.mjs";
 
 const revision = "1".repeat(40);
@@ -52,7 +56,7 @@ function catalog() {
     examples: [
       {
         id: "materials",
-        source: { revision },
+        source: { revision, path: "projects/materials" },
         artifacts: {
           runtimePackage: { path: "artifacts/materials.ntpkg", size: 1, sha256: digest("d") },
           projectBundle: { path: "artifacts/materials.ntproject", size: 1, sha256: digest("e") },
@@ -64,7 +68,7 @@ function catalog() {
       },
       {
         id: "verbs",
-        source: { revision },
+        source: { revision, path: "projects/verbs" },
         artifacts: {
           runtimePackage: { path: "artifacts/verbs.ntpkg", size: 1, sha256: digest("1") },
           projectBundle: { path: "artifacts/verbs.ntproject", size: 1, sha256: digest("2") },
@@ -88,6 +92,93 @@ function expectedToolchain(overrides = {}) {
     ...overrides,
   };
 }
+
+test("publication qualifies independent producers before sharing one player", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "nt-publication-test-"));
+  try {
+    const external = catalog();
+    const lab = catalog();
+    lab.source = { repository: "https://github.com/Cruel/nt", revision: ntRevision };
+    lab.examples = [
+      {
+        ...lab.examples[0],
+        id: "feature-lab",
+        source: { revision: ntRevision, path: "tests/projects/feature-lab" },
+        artifacts: {
+          runtimePackage: { path: "artifacts/feature-lab.ntpkg" },
+          projectBundle: { path: "artifacts/feature-lab.ntproject" },
+          playable: {
+            path: "playable/feature-lab",
+            files: [{ path: "playable/feature-lab/index.html" }],
+          },
+        },
+      },
+    ];
+    const producers = [external, lab].map((value, index) => {
+      const outputRoot = resolve(root, String(index));
+      const files = [
+        ...value.toolchain.player.files,
+        ...value.examples.flatMap((example) => [
+          example.artifacts.runtimePackage,
+          example.artifacts.projectBundle,
+          ...example.artifacts.playable.files,
+        ]),
+      ];
+      for (const file of files) {
+        const path = resolve(outputRoot, file.path);
+        mkdirSync(dirname(path), { recursive: true });
+        const bytes = Buffer.from(file.path);
+        writeFileSync(path, bytes);
+        file.size = bytes.length;
+        file.sha256 = createHash("sha256").update(bytes).digest("hex");
+      }
+      return {
+        catalog: value,
+        outputRoot,
+        expected: expectedToolchain({
+          revision: value.source.revision,
+          repository: value.source.repository,
+          requiredIds: value.examples.map((example) => example.id),
+        }),
+      };
+    });
+    const output = resolve(root, "publication");
+    const result = aggregateQualifiedExamples({ producers, output, ntRevision });
+    assert.equal(result.format, "noveltea.publication-catalog");
+    assert.equal(result.publication.ntRevision, ntRevision);
+    assert.deepEqual(
+      result.examples.map((example) => example.id),
+      ["materials", "verbs", "feature-lab"],
+    );
+    assert.equal(result.examples[2].source.repository, "https://github.com/Cruel/nt");
+    assert.equal(result.examples[2].source.revision, ntRevision);
+    assert.equal(result.examples[2].source.path, "tests/projects/feature-lab");
+    assert.equal(result.examples[2].sourceUrl, undefined);
+    assert.match(result.examples[0].sourceUrl, /noveltea-examples\/tree/);
+    assert.equal(result.toolchain.player.files.length, 3);
+    assert.equal(
+      readFileSync(resolve(output, "artifacts/feature-lab.ntproject"), "utf8"),
+      "artifacts/feature-lab.ntproject",
+    );
+    lab.toolchain.player.files[0].sha256 = digest("9");
+    assert.throws(() => aggregateQualifiedExamples({ producers, output, ntRevision }), /artifact/);
+    const alteredPlayer = Buffer.from("different but accurately catalogued player");
+    const playerFile = lab.toolchain.player.files[0];
+    writeFileSync(resolve(producers[1].outputRoot, playerFile.path), alteredPlayer);
+    playerFile.size = alteredPlayer.length;
+    playerFile.sha256 = createHash("sha256").update(alteredPlayer).digest("hex");
+    assert.throws(
+      () => aggregateQualifiedExamples({ producers, output, ntRevision }),
+      /exact shared Web player/,
+    );
+    assert.equal(
+      readFileSync(resolve(output, "artifacts/feature-lab.ntproject"), "utf8"),
+      "artifacts/feature-lab.ntproject",
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 test("examples revision pin is an exact commit", () => {
   const pinned = readFileSync(
@@ -174,13 +265,24 @@ test("qualified catalog requires both initial examples and complete artifacts", 
   missingExample.examples.pop();
   assert.throws(
     () => validateQualifiedExamplesCatalog(missingExample, expectedToolchain()),
-    /Materials and Verbs/,
+    /required example IDs/,
   );
 
   const emptyPlayable = catalog();
   emptyPlayable.examples[0].artifacts.playable.files = [];
   assert.throws(
     () => validateQualifiedExamplesCatalog(emptyPlayable, expectedToolchain()),
+    /complete generated artifacts/,
+  );
+
+  const duplicatedPlayer = catalog();
+  duplicatedPlayer.examples[0].artifacts.playable.files.push({
+    path: "playable/materials/player.aaa.wasm",
+    size: 10,
+    sha256: digest("4"),
+  });
+  assert.throws(
+    () => validateQualifiedExamplesCatalog(duplicatedPlayer, expectedToolchain()),
     /complete generated artifacts/,
   );
 

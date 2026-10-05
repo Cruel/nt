@@ -2,8 +2,19 @@
 
 import { execFileSync } from "node:child_process";
 import { createHash } from "node:crypto";
-import { existsSync, readFileSync, statSync } from "node:fs";
-import { dirname, isAbsolute, relative, resolve } from "node:path";
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  statSync,
+  writeFileSync,
+} from "node:fs";
+import { tmpdir } from "node:os";
+import { basename, dirname, isAbsolute, relative, resolve } from "node:path";
+import { isDeepStrictEqual } from "node:util";
 import { fileURLToPath } from "node:url";
 
 const repositoryRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
@@ -64,6 +75,8 @@ export function validateQualifiedExamplesCatalog(
   catalog,
   {
     revision,
+    repository = examplesRepository,
+    requiredIds = ["materials", "verbs"],
     ntRevision,
     cliSha256,
     playerTemplateSha256,
@@ -75,7 +88,7 @@ export function validateQualifiedExamplesCatalog(
   if (
     catalog?.format !== "noveltea.example-catalog" ||
     catalog?.formatVersion !== 1 ||
-    catalog?.source?.repository !== examplesRepository ||
+    catalog?.source?.repository !== repository ||
     catalog?.source?.revision !== revision
   ) {
     throw new Error("Qualified catalog does not match the pinned examples revision");
@@ -108,17 +121,24 @@ export function validateQualifiedExamplesCatalog(
   }
 
   if (!Array.isArray(catalog.examples)) {
-    throw new Error("Qualified examples must contain Materials and Verbs");
+    throw new Error("Qualified examples must contain all required example IDs exactly once");
   }
   const ids = new Set(catalog.examples.map((example) => example?.id));
-  if (!ids.has("materials") || !ids.has("verbs")) {
-    throw new Error("Qualified examples must contain Materials and Verbs");
+  if (ids.size !== catalog.examples.length || requiredIds.some((id) => !ids.has(id))) {
+    throw new Error("Qualified examples must contain all required example IDs exactly once");
   }
 
   for (const example of catalog.examples) {
     const artifacts = example?.artifacts;
     try {
-      if (example?.source?.revision !== revision) throw new Error("source revision mismatch");
+      if (
+        example?.source?.revision !== revision ||
+        typeof example?.source?.path !== "string" ||
+        !example.source.path ||
+        isAbsolute(example.source.path) ||
+        example.source.path.split("/").includes("..")
+      )
+        throw new Error("source provenance mismatch");
       assertArtifactMetadata(
         artifacts?.runtimePackage,
         `${example?.id ?? "unknown"} runtime package`,
@@ -136,6 +156,9 @@ export function validateQualifiedExamplesCatalog(
       }
       for (const file of artifacts.playable.files) {
         assertArtifactMetadata(file, `${example?.id ?? "unknown"} playable file`);
+        if (/^player\..+\.(?:wasm|js|data)$/.test(basename(file.path))) {
+          throw new Error("playable export duplicates the shared player");
+        }
       }
     } catch {
       throw new Error("Qualified examples must contain complete generated artifacts");
@@ -156,6 +179,76 @@ export function verifyQualifiedExamplesOutput(outputRoot, catalog) {
       verifyArtifact(outputRoot, file, `${example.id} playable file`);
     }
   }
+}
+
+export function aggregateQualifiedExamples({ producers, output, ntRevision }) {
+  if (!/^[0-9a-f]{40}$/.test(ntRevision) || producers.length !== 2) {
+    throw new Error("Publication requires an exact nt revision and both qualified producers");
+  }
+  for (const producer of producers) {
+    validateQualifiedExamplesCatalog(producer.catalog, producer.expected);
+    verifyQualifiedExamplesOutput(producer.outputRoot, producer.catalog);
+  }
+  const [external, lab] = producers;
+  if (
+    external.catalog.source.repository !== examplesRepository ||
+    lab.catalog.source.repository !== "https://github.com/Cruel/nt" ||
+    lab.catalog.source.revision !== ntRevision ||
+    lab.catalog.examples.length !== 1 ||
+    lab.catalog.examples[0].id !== "feature-lab" ||
+    producers.some((producer) => producer.expected.ntRevision !== ntRevision) ||
+    !isDeepStrictEqual(external.catalog.toolchain, lab.catalog.toolchain)
+  ) {
+    throw new Error("Publication producers must use the exact shared Web player and toolchain");
+  }
+  const catalog = {
+    format: "noveltea.publication-catalog",
+    publication: { ntRevision },
+    source: external.catalog.source,
+    toolchain: external.catalog.toolchain,
+    examples: [],
+  };
+  const paths = new Set();
+  const ids = new Set();
+  const copy = (root, file) => {
+    if (paths.has(file.path)) throw new Error(`Duplicate publication artifact: ${file.path}`);
+    paths.add(file.path);
+    const destination = generatedPath(output, file.path);
+    mkdirSync(dirname(destination), { recursive: true });
+    cpSync(generatedPath(root, file.path), destination);
+  };
+  rmSync(output, { recursive: true, force: true });
+  for (const file of catalog.toolchain.player.files) copy(external.outputRoot, file);
+  for (const producer of producers) {
+    for (const example of producer.catalog.examples) {
+      if (ids.has(example.id)) throw new Error(`Duplicate publication example: ${example.id}`);
+      ids.add(example.id);
+      const entry = {
+        id: example.id,
+        order: example.order,
+        title: example.title,
+        description: example.description,
+        highlights: example.highlights,
+        artifacts: example.artifacts,
+        source: { ...example.source, repository: producer.catalog.source.repository },
+        ...(producer === external
+          ? {
+              sourceUrl: `${examplesRepository}/tree/${example.source.revision}/${example.source.path}`,
+            }
+          : {}),
+      };
+      catalog.examples.push(entry);
+      for (const file of [
+        example.artifacts.runtimePackage,
+        example.artifacts.projectBundle,
+        ...example.artifacts.playable.files,
+      ])
+        copy(producer.outputRoot, file);
+    }
+  }
+  verifyQualifiedExamplesOutput(output, catalog);
+  writeFileSync(resolve(output, "catalog.json"), `${JSON.stringify(catalog, null, 2)}\n`);
+  return catalog;
 }
 
 function usage() {
@@ -246,6 +339,9 @@ export function qualifyExamples({
   assertRegularFile(playerTemplate, "Threaded Web player template");
   assertRegularFile(playerDescriptor, "Threaded Web player descriptor");
 
+  if (runGit(repositoryRoot, ["rev-parse", "HEAD"]) !== ntRevision) {
+    throw new Error("Feature Lab checkout must match the publication nt revision");
+  }
   const revision = parseExamplesRevision(readFileSync(pin, "utf8"));
   const checkoutRevision = runGit(examplesRoot, ["rev-parse", "HEAD"]);
   if (checkoutRevision !== revision) {
@@ -260,37 +356,104 @@ export function qualifyExamples({
 
   const builder = resolve(examplesRoot, "scripts/build-examples.mjs");
   assertRegularFile(builder, "Shared examples build entrypoint");
-  execFileSync(
-    process.execPath,
-    [
-      builder,
-      "--cli",
-      cli,
-      "--player-template",
-      playerTemplate,
-      "--player-descriptor",
-      playerDescriptor,
-      "--source-revision",
-      revision,
-      "--output",
+  const temporaryRoot = mkdtempSync(resolve(tmpdir(), "nt-publication-"));
+  try {
+    const externalOutput = resolve(temporaryRoot, "external");
+    const labOutput = resolve(temporaryRoot, "lab");
+    const labSource = resolve(temporaryRoot, "lab-source");
+    mkdirSync(resolve(labSource, "projects"), { recursive: true });
+    cpSync(
+      resolve(repositoryRoot, "tests/projects/feature-lab"),
+      resolve(labSource, "projects/feature-lab"),
+      {
+        recursive: true,
+        filter: (path) => ![".noveltea", ".git", "dist"].includes(basename(path)),
+      },
+    );
+    writeFileSync(
+      resolve(labSource, "examples.json"),
+      JSON.stringify({
+        format: "noveltea.examples",
+        formatVersion: 1,
+        repository: "https://github.com/Cruel/nt",
+        examples: [
+          {
+            id: "feature-lab",
+            order: 3,
+            title: "Feature Lab",
+            description: "Explore NovelTea's authored runtime features in one reference Project.",
+            sourcePath: "projects/feature-lab",
+            highlights: [
+              "Isolated feature scenarios",
+              "Authored semantic and UI checks",
+              "Editable reference Project",
+            ],
+          },
+        ],
+      }),
+    );
+    const buildProducer = (producerOutput, sourceRevision, sourceRoot) =>
+      execFileSync(
+        process.execPath,
+        [
+          builder,
+          "--cli",
+          cli,
+          "--player-template",
+          playerTemplate,
+          "--player-descriptor",
+          playerDescriptor,
+          "--source-revision",
+          sourceRevision,
+          "--output",
+          producerOutput,
+        ],
+        {
+          cwd: examplesRoot,
+          stdio: "inherit",
+          env: { ...process.env, NOVELTEA_EXAMPLES_SOURCE_ROOT: sourceRoot },
+        },
+      );
+    buildProducer(externalOutput, revision, examplesRoot);
+    buildProducer(labOutput, ntRevision, labSource);
+    const expected = {
+      ntRevision,
+      cliSha256: sha256File(cli),
+      playerTemplateSha256: sha256File(playerTemplate),
+      playerDescriptorSha256: sha256File(playerDescriptor),
+      playerEngineVersion,
+      playerBuildId,
+    };
+    const externalCatalog = JSON.parse(
+      readFileSync(resolve(externalOutput, "catalog.json"), "utf8"),
+    );
+    const labCatalog = JSON.parse(readFileSync(resolve(labOutput, "catalog.json"), "utf8"));
+    labCatalog.examples[0].source.path = "tests/projects/feature-lab";
+    aggregateQualifiedExamples({
       output,
-    ],
-    { cwd: examplesRoot, stdio: "inherit", env: process.env },
-  );
-
-  const catalogPath = resolve(output, "catalog.json");
-  assertRegularFile(catalogPath, "Generated examples catalog");
-  const catalog = validateQualifiedExamplesCatalog(JSON.parse(readFileSync(catalogPath, "utf8")), {
-    revision,
-    ntRevision,
-    cliSha256: sha256File(cli),
-    playerTemplateSha256: sha256File(playerTemplate),
-    playerDescriptorSha256: sha256File(playerDescriptor),
-    playerEngineVersion,
-    playerBuildId,
-  });
-  verifyQualifiedExamplesOutput(output, catalog);
-  return { revision, catalogPath };
+      ntRevision,
+      producers: [
+        {
+          catalog: externalCatalog,
+          outputRoot: externalOutput,
+          expected: { ...expected, revision },
+        },
+        {
+          catalog: labCatalog,
+          outputRoot: labOutput,
+          expected: {
+            ...expected,
+            revision: ntRevision,
+            repository: "https://github.com/Cruel/nt",
+            requiredIds: ["feature-lab"],
+          },
+        },
+      ],
+    });
+    return { revision, catalogPath: resolve(output, "catalog.json") };
+  } finally {
+    rmSync(temporaryRoot, { recursive: true, force: true });
+  }
 }
 
 function main() {

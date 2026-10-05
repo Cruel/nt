@@ -106,12 +106,14 @@ test(
           engineVersion: productionCatalog.toolchain.player.engineVersion,
         },
       },
-      examples: productionCatalog.examples.map((example) => ({
-        ...example,
-        sourceUrl: `https://github.com/Cruel/noveltea-examples/tree/${sourceRevision}/projects/${example.id}`,
-        projectUrl: `${prefix}artifacts/${example.id}.ntproject`,
-        playerUrl: `${prefix}playable/${example.id}/index.html`,
-      })),
+      examples: productionCatalog.examples
+        .filter((example) => example.id !== "feature-lab")
+        .map((example) => ({
+          ...example,
+          sourceUrl: `https://github.com/Cruel/noveltea-examples/tree/${sourceRevision}/projects/${example.id}`,
+          projectUrl: `${prefix}artifacts/${example.id}.ntproject`,
+          playerUrl: `${prefix}playable/${example.id}/index.html`,
+        })),
     };
 
     await withServer(async (origin) => {
@@ -230,7 +232,7 @@ if (process.env.NOVELTEA_DOCS_RELEASE_VERSION) {
 }
 
 test(
-  "development showcase runs both qualified players and recreates state when switching",
+  "development showcase runs all qualified players and recreates state when switching",
   { timeout: 90_000 },
   async () => {
     assert.equal(
@@ -250,7 +252,7 @@ test(
             .locator("[data-example-select]")
             .allTextContents()
             .then((items) => items.length),
-          2,
+          3,
         );
 
         const materialsFrameElement = await page
@@ -290,6 +292,21 @@ test(
           await page.locator("[data-example-project]").getAttribute("href"),
           /verbs\.ntproject$/,
         );
+
+        const labFramePromise = page.waitForEvent("framenavigated", {
+          predicate: (frame) => frame.url().includes("/playable/feature-lab/index.html"),
+        });
+        await page.locator('[data-example-select="feature-lab"]').click();
+        const labFrame = await labFramePromise;
+        await startPlayer(labFrame);
+        assert.equal(await page.locator("[data-example-source]").isVisible(), false);
+        assert.equal(await page.locator("[data-example-source]").getAttribute("href"), null);
+        assert.match(
+          await page.locator("[data-example-project]").getAttribute("href"),
+          /feature-lab\.ntproject$/,
+        );
+        await page.locator('[data-example-select="verbs"]').click();
+        assert.equal(await page.locator("[data-example-source]").isVisible(), true);
 
         await page.locator("[data-example-open]").click();
         await page.waitForFunction(() => !document.querySelector("[data-example-handoff]")?.hidden);
