@@ -1,5 +1,5 @@
 /* oxlint-disable typescript/no-explicit-any -- ScriptC static lowering requires erased native JSON boundary shapes here; unknown/union forms force this fast path into the dynamic island. */
-import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -1455,11 +1455,8 @@ function requestEnvironment(): Record<string, string> {
   const result: Record<string, string> = {
     NOVELTEA_CLI_CERTIFICATION: '',
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '',
-    NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '',
-    NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_GATE_PATH: '',
     NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '',
     NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH: '',
-    NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '',
     NOVELTEA_CLI_SCHEDULER_PROFILE: '',
   };
   for (const [key, value] of Object.entries(process.env))
@@ -1855,19 +1852,6 @@ function requestInvokeHost(
     ) {
       if (context.environment.NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH === '1')
         process.exit(97);
-      const delayMs = Number(
-        context.environment.NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS || '0',
-      );
-      if (Number.isSafeInteger(delayMs) && delayMs > 0 && delayMs <= 10_000) {
-        const deadline = Date.now() + delayMs;
-        while (Date.now() < deadline) {
-          const status = hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
-            disposableWorkerId,
-            token,
-          });
-          if (status.cancelled === true) break;
-        }
-      }
     }
     return envelope.response;
   };
@@ -2210,38 +2194,11 @@ async function runHiddenDaemonDisposable(
   }
 
   try {
-    if (payload.environment.NOVELTEA_CLI_CERTIFICATION === '1') {
-      const gatePath = payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_GATE_PATH;
-      if (gatePath) {
-        const deadline = Date.now() + 120_000;
-        while (existsSync(gatePath)) {
-          if (Date.now() >= deadline)
-            throw new Error('Disposable certification gate was not released within 120 seconds.');
-          // Stay assigned until the observer releases the gate; cancellation still exercises the
-          // broker's forced-retirement grace period rather than a machine-dependent delay. Keep the
-          // certification-only probe sparse so a held gate cannot starve control-plane traffic.
-          hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
-            disposableWorkerId: invocation.disposableWorkerId,
-            token,
-          });
-          await new Promise((resolve) => setTimeout(resolve, 100));
-        }
-      }
-      const delayText = payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS;
-      const delayMs = delayText ? Number(delayText) : 0;
-      if (Number.isSafeInteger(delayMs) && delayMs > 0 && delayMs <= 10_000) {
-        const deadline = Date.now() + delayMs;
-        while (Date.now() < deadline) {
-          // Deliberately remain alive after cancellation here. The certification path proves that
-          // native cancellation may retire a disposable worker after the cooperative grace period.
-          hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
-            disposableWorkerId: invocation.disposableWorkerId,
-            token,
-          });
-        }
-      }
-      if (payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH === '1') process.exit(97);
-    }
+    if (
+      payload.environment.NOVELTEA_CLI_CERTIFICATION === '1' &&
+      payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH === '1'
+    )
+      process.exit(97);
     const output: RequestOutputCapture = { stdout: '', stderr: '' };
     if (payload.environment.NOVELTEA_CLI_SCHEDULER_PROFILE === '1')
       output.stderr += `[worker-profile] ${JSON.stringify({

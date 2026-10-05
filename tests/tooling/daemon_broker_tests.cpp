@@ -1514,7 +1514,6 @@ TEST_CASE(
     REQUIRE(ids.size() == 1);
     const auto cancelled_worker = ids.front();
     auto cancelled_request = disposable_request(request, "cancelled-heavy");
-    cancelled_request["cancelAfterMs"] = 250;
     auto cancelled = std::async(std::launch::async,
                                 [cancelled_request] { return invoke_daemon(cancelled_request); });
     REQUIRE(wait_until([&] { return daemon_status(request)["disposableBusyWorkers"] == 1; }));
@@ -1524,11 +1523,29 @@ TEST_CASE(
     const auto cancelled_work = invoke_daemon(next);
     REQUIRE(cancelled_work["ok"] == true);
     REQUIRE(cancelled_work["requestId"] == "cancelled-heavy");
+
+    auto cancellation_files = temp_runtime_root("disposable-cancellation-output");
+    const auto staged_output = cancellation_files.path / "cancelled.stage";
+    auto register_output = request;
+    register_output["action"] = "disposable-register-staged-output";
+    register_output["disposableWorkerId"] = cancelled_worker;
+    register_output["token"] = cancelled_work["token"];
+    register_output["stagedOutputPath"] = staged_output.string();
+    REQUIRE(invoke_daemon(register_output)["ok"] == true);
+    write_project_file(staged_output, "staged");
+
+    auto cancel = request;
+    cancel["action"] = "serve-cancel-active-disposable-for-tests";
+    cancel["workerId"] = cancelled_worker;
+    cancel["token"] = cancelled_work["token"];
+    REQUIRE(invoke_daemon(cancel)["ok"] == true);
+
     REQUIRE(cancelled.wait_for(std::chrono::seconds(2)) == std::future_status::ready);
     const auto cancelled_result = cancelled.get();
     CHECK(cancelled_result["ok"] == false);
     CHECK(cancelled_result["cancelled"] == true);
     CHECK(cancelled_result["error"] == "request cancelled");
+    REQUIRE(wait_until([&] { return !std::filesystem::exists(staged_output); }));
     REQUIRE(wait_until([&] {
         const auto current = daemon_status(request);
         const auto current_ids = disposable_worker_ids(current);

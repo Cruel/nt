@@ -2119,6 +2119,20 @@ public:
         return {{"ok", true}, {"workerId", worker_id}};
     }
 
+    Json cancel_active_disposable_for_tests(std::uint64_t worker_id, std::uint64_t token)
+    {
+        if (!context_.simulate_worker_processes_for_tests)
+            return error_json("simulated disposable cancellation is available only in scheduler tests");
+        std::scoped_lock lock(queue_mutex_);
+        const auto active = active_.find(token);
+        if (active == active_.end() || active->second.disposable_worker_id != worker_id)
+            return error_json("simulated disposable cancellation requires an active request");
+        active->second.cancelled = true;
+        active->second.cancellation_requested_millis = now_millis();
+        disposable_cv_.notify_all();
+        return {{"ok", true}};
+    }
+
 private:
     struct ValidationPublicationState {
         std::mutex mutex;
@@ -4882,6 +4896,23 @@ Json start_local_extra_disposable_for_tests()
                   : Json{{"ok", false}, {"error", "daemon broker is not running in this process"}};
 }
 
+Json cancel_local_active_disposable_for_tests(const Json& request)
+{
+    std::shared_ptr<BrokerServer> server;
+    {
+        std::scoped_lock lock(server_mutex);
+        server = local_server;
+    }
+    if (!server)
+        return {{"ok", false}, {"error", "daemon broker is not running in this process"}};
+    if (!request.contains("workerId") || !request["workerId"].is_number_unsigned() ||
+        !request.contains("token") || !request["token"].is_number_unsigned())
+        return {{"ok", false},
+                {"error", "simulated disposable cancellation requires workerId and token"}};
+    return server->cancel_active_disposable_for_tests(request["workerId"].get<std::uint64_t>(),
+                                                       request["token"].get<std::uint64_t>());
+}
+
 bool parse_string_array(const Json& object, std::string_view field,
                         std::vector<std::string>& output, std::string& error, bool required = true)
 {
@@ -6521,6 +6552,8 @@ extern "C" std::uint64_t noveltea_tooling_daemon_json(const std::uint8_t* reques
         result = simulate_local_worker_exit_for_tests(parsed);
     else if (action == "serve-start-extra-disposable-for-tests")
         result = start_local_extra_disposable_for_tests();
+    else if (action == "serve-cancel-active-disposable-for-tests")
+        result = cancel_local_active_disposable_for_tests(parsed);
     else if (action == "serve-project-observe")
         result = observe_local_project(parsed);
     else if (action == "serve-project-release")
