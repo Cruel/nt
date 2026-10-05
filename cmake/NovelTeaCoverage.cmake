@@ -15,7 +15,8 @@ if(NOVELTEA_ENABLE_COVERAGE)
             endif()
             get_target_property(type "${target}" TYPE)
             if(type MATCHES "^(STATIC_LIBRARY|SHARED_LIBRARY|MODULE_LIBRARY|OBJECT_LIBRARY|EXECUTABLE)$")
-                target_compile_options("${target}" PRIVATE --coverage -O0 -g)
+                # Runtime workers update shared counters; non-atomic increments corrupt profiles.
+                target_compile_options("${target}" PRIVATE --coverage -fprofile-update=atomic -O0 -g)
                 if(NOT type STREQUAL "OBJECT_LIBRARY")
                     # Static libraries must propagate the gcov runtime to their final executable.
                     target_link_options("${target}" PUBLIC --coverage)

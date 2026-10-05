@@ -60,6 +60,12 @@ function(noveltea_configure_embedded_shaderc)
         endif()
         add_library(noveltea_bgfx_shaderc_embedded ALIAS noveltea_shaderc::embedded)
         add_library(noveltea_bimg_texturec_embedded ALIAS noveltea_texturec::embedded)
+        # A runtime source checkout may still declare unused upstream host executables.
+        foreach(_tool IN ITEMS shaderc texturec)
+            if(TARGET "${_tool}")
+                set_target_properties("${_tool}" PROPERTIES EXCLUDE_FROM_ALL TRUE)
+            endif()
+        endforeach()
 
         set(_resource_dir "${CMAKE_BINARY_DIR}/generated/noveltea-bgfx-toolchain")
         file(MAKE_DIRECTORY "${_resource_dir}")

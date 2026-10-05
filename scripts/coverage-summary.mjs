@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import { pathToFileURL } from 'node:url';
 
-export function coverageSummary(kind, report) {
+export function coverageSummary(kind, report, scope) {
   let title;
   let metrics;
   if (kind === 'cpp') {
@@ -25,10 +25,10 @@ export function coverageSummary(kind, report) {
     const percent = total === 0 ? 'n/a' : `${(100 * covered / total).toFixed(2)}%`;
     return `| ${name} | ${covered} / ${total} | ${percent} |`;
   });
-  return `## ${title} coverage\n\n| Metric | Covered / Total | Coverage |\n| --- | --- | --- |\n${rows.join('\n')}\n\nInformational hole detector; coverage does not prove behavioral correctness.\n`;
+  return `## ${title} coverage${scope ? ` — ${scope}` : ''}\n\n| Metric | Covered / Total | Coverage |\n| --- | --- | --- |\n${rows.join('\n')}\n\nInformational hole detector; coverage does not prove behavioral correctness.\n`;
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  const [, , kind, file] = process.argv;
-  process.stdout.write(coverageSummary(kind, JSON.parse(readFileSync(file, 'utf8'))));
+  const [, , kind, file, scope] = process.argv;
+  process.stdout.write(coverageSummary(kind, JSON.parse(readFileSync(file, 'utf8')), scope));
 }

@@ -113,14 +113,35 @@ test('CI publishes distinct informational coverage summaries and detailed artifa
   const native = job('linux');
   const editor = job('editor');
   assert.match(step(native, 'Configure'), /NOVELTEA_ENABLE_COVERAGE=ON/);
-  assert.match(step(native, 'Report C++ coverage'), /--html-details/);
-  assert.match(step(native, 'Report C++ coverage'), /--json-summary/);
-  assert.match(step(native, 'Report C++ coverage'), /coverage-summary\.mjs cpp .*GITHUB_STEP_SUMMARY/);
+  const ctest = step(native, 'CTest');
+  const ctestReport = step(native, 'Report CTest coverage');
+  const resetLab = step(native, 'Reset Feature Lab coverage counters');
+  const lab = step(native, 'Feature Lab authored Tests');
+  const labReport = step(native, 'Report Feature Lab coverage');
+  const combined = step(native, 'Report combined native coverage');
+  assert.match(step(native, 'Configure'), /NOVELTEA_BUILD_HOST_TOOLS=ON/);
+  assert.match(step(native, 'Build Node coverage driver'), /vp pack/);
+  assert.match(lab, /NOVELTEA_NATIVE_TOOL_BRIDGE: .*build\/linux-debug\/tools\/editor_tool\/noveltea-tooling-bridge/);
+  assert.match(lab, /NOVELTEA_UI_TEST_RUNNER: .*build\/linux-debug\/tools\/editor_tool\/noveltea-ui-test-runner/);
+  assert.match(lab, /--project tests\/projects\/feature-lab --json test run/);
+  assert.ok(native.indexOf(step(native, 'Reset CTest coverage counters')) < native.indexOf(ctest));
+  assert.ok(native.indexOf(ctest) < native.indexOf(ctestReport));
+  assert.ok(native.indexOf(ctestReport) < native.indexOf(resetLab));
+  assert.ok(native.indexOf(resetLab) < native.indexOf(lab));
+  assert.ok(native.indexOf(lab) < native.indexOf(labReport));
+  assert.ok(native.indexOf(labReport) < native.indexOf(combined));
+  assert.match(ctestReport, /native-coverage\.mjs report .*\/ctest/);
+  assert.match(labReport, /native-coverage\.mjs report .*\/feature-lab/);
+  assert.match(combined, /native-coverage\.mjs merge/);
+  for (const report of [ctestReport, labReport, combined]) {
+    assert.match(report, /coverage-summary\.mjs cpp .*GITHUB_STEP_SUMMARY/);
+    assert.equal(field(report, 'if'), '${{ !cancelled() }}');
+  }
   assert.match(step(editor, 'Test'), /test:coverage/);
   assert.match(step(editor, 'Summarize editor coverage'), /coverage-summary\.mjs editor .*GITHUB_STEP_SUMMARY/);
   assert.match(step(native, 'Upload C++ coverage'), /name: noveltea-coverage-cpp/);
   assert.match(step(editor, 'Upload editor coverage'), /name: noveltea-coverage-editor/);
-  assert.doesNotMatch(step(native, 'Report C++ coverage'), /--fail-under/);
+  assert.doesNotMatch(native, /--fail-under/);
 });
 
 test('desktop player and authoring presets keep compatibility floors separate', () => {
