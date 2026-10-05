@@ -101,6 +101,21 @@ function requireSuccess(label, result) {
   return result;
 }
 
+function requireDaemonStatus(label, environment, timeoutMs = 5000) {
+  let result;
+  try {
+    result = runNative(['--json', 'daemon', 'status'], {
+      env: environment,
+      timeout: timeoutMs,
+    });
+  } catch (error) {
+    if (error?.code === 'ETIMEDOUT')
+      fail(`${label} exceeded its ${timeoutMs}ms control-plane timeout.`);
+    throw error;
+  }
+  return requireSuccess(label, result);
+}
+
 function sha256(bytes) {
   return createHash('sha256').update(bytes).digest('hex');
 }
@@ -2557,6 +2572,8 @@ async function certifyDisposableGate(runtimeRoot, environment, status) {
     await waitForDisposableAdmission('Disposable gate regression', status, command, {
       standby: true,
     });
+    // A held disposable gate must not starve daemon control-plane requests.
+    for (let probe = 0; probe < 5; probe += 1) status();
     // Outlive the former export delay with a trivial command, so normal command cost cannot mask
     // a host that ignores the gate and completes before its observer resumes.
     await new Promise((resolve) => setTimeout(resolve, 2000));
@@ -2591,13 +2608,8 @@ async function certifyDisposableTestScheduling(tempRoot) {
     await rm(path.join(root, '.noveltea', 'cache'), { recursive: true, force: true });
     return root;
   };
-  const status = () => {
-    const result = requireSuccess(
-      'disposable Test scheduler status',
-      runNative(['--json', 'daemon', 'status'], { env: environment }),
-    );
-    return JSON.parse(result.stdout).daemon;
-  };
+  const status = () =>
+    JSON.parse(requireDaemonStatus('disposable Test scheduler status', environment).stdout).daemon;
   const waitForStatus = async (label, predicate, timeoutMs = 15000) => {
     const deadline = Date.now() + timeoutMs;
     let latest = null;
@@ -2907,6 +2919,16 @@ async function certifyDisposableTestScheduling(tempRoot) {
 
 async function certifyDisposableOutputScheduling(tempRoot) {
   const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+  const startSubcase = (name) => {
+    process.stdout.write(`[certification] disposable-output/${name}: START\n`);
+    return process.hrtime.bigint();
+  };
+  const passSubcase = (name, startedAt) => {
+    const elapsedMs = Number(process.hrtime.bigint() - startedAt) / 1_000_000;
+    process.stdout.write(
+      `[certification] disposable-output/${name}: PASS (${(elapsedMs / 1000).toFixed(2)}s)\n`,
+    );
+  };
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-output-disposable-'));
   const environment = {
     ...process.env,
@@ -2924,13 +2946,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     await rm(path.join(root, '.noveltea', 'cache'), { recursive: true, force: true });
     return root;
   };
-  const status = () => {
-    const result = requireSuccess(
-      'disposable output scheduler status',
-      runNative(['--json', 'daemon', 'status'], { env: environment }),
-    );
-    return JSON.parse(result.stdout).daemon;
-  };
+  const status = () =>
+    JSON.parse(requireDaemonStatus('disposable output scheduler status', environment).stdout)
+      .daemon;
   const waitForStatus = async (label, predicate, timeoutMs = 15000) => {
     const deadline = Date.now() + timeoutMs;
     let latest = null;
@@ -2954,7 +2972,11 @@ async function certifyDisposableOutputScheduling(tempRoot) {
 
   runNative(['daemon', 'stop'], { env: environment });
   try {
+    let subcaseStartedAt = startSubcase('gate-regression');
     await certifyDisposableGate(runtimeRoot, traceEnvironment, status);
+    passSubcase('gate-regression', subcaseStartedAt);
+
+    subcaseStartedAt = startSubcase('portable-project-export');
     const portableRoot = await resetFeatureLab('disposable-portable-project-export');
     const portableOutput = path.join(tempRoot, 'disposable-portable-project.ntproject');
     await rm(portableOutput, { force: true });
@@ -2997,7 +3019,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       );
     if (!(await stat(portableOutput).catch(() => null)))
       fail('Disposable Portable Project export did not publish its bundle.');
+    passSubcase('portable-project-export', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('portable-project-drift');
     const portableDriftRoot = await resetFeatureLab('disposable-portable-project-drift');
     const portableDriftOutput = path.join(tempRoot, 'disposable-portable-project-drift.ntproject');
     await rm(portableDriftOutput, { force: true });
@@ -3048,7 +3072,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       );
     if (await stat(portableDriftOutput).catch(() => null))
       fail('Disposable Portable Project export published after source drift.');
+    passSubcase('portable-project-drift', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('shader-compile');
     const shaderRoot = await resetFeatureLab('disposable-shader-compile');
     const shaderGate = await createDisposableGate(runtimeRoot, 'shaders', portableEnvironment);
     const shaderCompile = await runAsync(
@@ -3077,7 +3103,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       shaderWorkerProfile.hasProjectSnapshot !== true
     )
       fail(`Shader compile did not use a pinned disposable generation: ${shaderResult.stderr}`);
+    passSubcase('shader-compile', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('generation-pinning');
     const generationRoot = await resetFeatureLab('disposable-output-generation');
     const layoutRecordPath = path.join(
       generationRoot,
@@ -3159,7 +3187,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail(
         'Generation-pinned disposable package export observed the newer live Project generation.',
       );
+    passSubcase('generation-pinning', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('asset-drift');
     const driftRoot = await resetFeatureLab('disposable-output-drift');
     const driftOutput = path.join(tempRoot, 'disposable-drift.ntpkg');
     await rm(driftOutput, { force: true });
@@ -3183,7 +3213,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail('Disposable package export published successfully after pinned Asset drift.');
     if (await stat(driftOutput).catch(() => null))
       fail('Disposable package export published a final output after pinned Asset drift.');
+    passSubcase('asset-drift', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('cancellation');
     const cancellationRoot = await resetFeatureLab('disposable-output-cancellation');
     const cancellationOutput = path.join(tempRoot, 'disposable-cancellation.ntpkg');
     await rm(cancellationOutput, { force: true });
@@ -3247,7 +3279,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         fail('Cancelled disposable package export leaked staging files.');
       await new Promise((resolve) => setTimeout(resolve, 20));
     }
+    passSubcase('cancellation', subcaseStartedAt);
 
+    subcaseStartedAt = startSubcase('crash-recovery');
     const crashRoot = await resetFeatureLab('disposable-output-crash');
     const crashOutput = path.join(tempRoot, 'disposable-crash.ntpkg');
     await rm(crashOutput, { force: true });
@@ -3293,6 +3327,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     );
     if ((await publicationDebris(crashOutput)).length !== 0)
       fail('Post-crash disposable package export left recovery debris.');
+    passSubcase('crash-recovery', subcaseStartedAt);
 
     return {
       portableProjectExportPinned: true,
