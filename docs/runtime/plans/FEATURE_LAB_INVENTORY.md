@@ -227,51 +227,18 @@ remaining blocked localized-audio procurement/listening workflow. The Project RE
 semantic checkpoint and UI Slot round-trip witnesses and actual-player requirements. No headless
 launch witness claims shell preference, HiDPI, perceptual or localized-media acceptance.
 
-### Edge Cases & Host Behavior — #258
+### Edge Cases, Host Behavior & Stress — #258
 
-#### `runtime-diagnostics` — Reject an intentional bad request
+Transferred to the authoritative Feature Lab catalog:
 
-Keep errors opt-in with an explicit recovery/restart control. Normal successful checks elsewhere
-already cover expected navigation, quantity, Trait/configuration and Interaction rejection; do not
-copy them here.
+- `runtime-diagnostics`
+- `host-behavior`
+- `stress-content`
 
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `script-fault-and-authority` | Opt into a runtime Lua error, forbidden mutation from a pure context and invalid immediate yield → attributed diagnosis, no leaked mutation and no falsely advanced Flow cursor. | S | — |
-| `stale-identity` | Retain a reference, destroy its Instance, then query/use it → explicit stale/missing result rather than a new object or old authority. | S | button |
-| `handoff-without-caller` | Run Handoff in a directly entered Dialogue → warning and ordinary continuation at the advanced cursor, not a stranded invocation. | S | — |
-| `failure-commit-boundaries` | Fail pre-commit Room work, post-commit work and a later Scene Event → source, committed target and earlier Events are respectively preserved; restart recovers. | S | — |
-| `debug-console-trace` | In a devtools build, emit Debug severities/print and diagnose workshop pointer routing → Console/Trace/Snapshot explain the causal path; ordinary player Debug calls are harmless. An authored debug-overlay role, if used, needs an explicit Layout (no built-in fallback); do not emulate developer tools in gameplay. | M | button |
-
-#### `host-behavior` — Check the actual player
-
-These checks use the same Project packaged for the named host, not per-platform copies of every
-scenario. Prerequisites belong in check descriptions. No privileged in-game host hooks.
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `web-resize-pointer` | In Web, grow then repeatedly shrink/resize the canvas and click landmark targets → retained backbuffer does not flicker/reset on in-capacity resize or offset mouse/touch input. | M | pattern |
-| `web-persistent-storage` | In a storage-enabled browser, save/change settings, wait for persistence, reload → namespace-scoped IDBFS returns slots/preferences; private/quota failures are diagnosed, not claimed durable. | M | — |
-| `touch-versus-pointer` | On Android/touch Web, tap subjects and focus semantic controls → primary activation works without hover; explicit menu controls remain usable without right-click. | M | button |
-| `native-cursor-fallback` | On cursor-capable desktop/Web, compare named/system cursors and a platform rejection → native fallback leaves gameplay usable; cursorless touch is not a missing hover failure. Forced API rejection remains automated. | M | cursor |
-| `host-suspension` | Background/resume the packaged player with timed/audio work → platform pause admission composes with explicit/menu pause rather than clearing it; no burst of queued input. | M | music |
-| `packaged-entry-and-display` | Launch packaged Lab cold, enter play, toggle available fullscreen/window output → real title/Start and host display work; packaging identity/signing itself remains automation-only. | M | backdrop |
-
-### Stress & Extremes — #258
-
-#### `stress-content` — Deliberately heavy content
-
-Never run on ordinary launch. Require an explicit warning, reset/exit route, disclosed counts/sizes,
-and generated synthetic content rather than more curated media. These are separate checks, not
-promises of arbitrary speed or fixed FPS. Automation benchmarks own exact budgets.
-
-| Check ID | Action → observable contract | Mode | Assets |
-| --- | --- | --- | --- |
-| `long-text-and-log` | Explicitly open long mixed-script/paged text and a large log → navigation/reveal/scroll remains usable and bounded; no corrupt clusters or stuck continuation. | M | stress-text, font-set |
-| `many-subjects` | Generate many Instances/Hotspots/Inventory rows → picking still selects exact identity, scrolling/focus works and restart clears generated gameplay. | M | button, pattern |
-| `concurrent-owners` | Start many admitted detached waits, layered mounts and audio/finite operations, then cancel owner/restart → cleanup leaves no input capture, sound or stalled Flow. | M | sfx |
-| `asset-pressure` | Navigate among deliberately large generated images under a disclosed low-memory export profile → mandatory presentation remains coherent, loading is visible and speculative misses do not alter gameplay. | M | stress-images |
-| `extreme-view-and-scale` | Use narrow/large/HiDPI output and maximum permitted text/UI scale → clipping, scrolling, input projection and recovery remain correct; no extra ordinary media needed. | V | pattern, font-set |
+The catalog owns every assigned check and intentional sharing. See the Project README for opt-in
+failure controls, generated workload provenance, actual-host prerequisites and verification limits.
+Real error-emitting branches remain manual/native negatives rather than falsely passing authored
+Tests. No corrupt Project/parser/compiler fixtures or owner-deferred Maps were added.
 
 ## Deferred coverage
 
@@ -341,8 +308,6 @@ stations. Source code (Lua, shader files, RML/RCSS) is not a request for new med
 | `pattern` | Small synthetic opaque/alpha regions, thin lines, repeated edges, orientation labels and two visibly different texture regions | Reuse catalog `ui-pattern`, introduced by #255, for remaining fitting/camera/Material consumers at different crops/transforms; add a second texture only for replacement distinction. |
 | `character-layers` | Minimal synthetic transparent base/overlay and visibly distinct blink/speaking/Gesture frames for two Profiles | Reuse base Character art when feasible; generate simple overlay frames. Required to prove sparse multi-layer composition and finite animation, not a demand for a full curated sprite set. Mark aesthetic claims provisional until deliberately reviewed. |
 | `font-set` | License-cleared regular plus real bold/italic faces and a complementary CJK/RTL fallback covering chosen samples | Reuse shipped/test fonts if redistributable and sufficient; add only uncovered face/cluster paths. Real-face selection versus synthetic fallback is a meaningful A/B check; no font per language. |
-| `stress-text` | Generated long mixed-script text and large log/subject counts | Generate on demand in the stress workflow; disclose size, keep default launch small. Not curated reference media. |
-| `stress-images` | A small bounded set of synthetic images large enough to exceed the chosen Warm allowance | Separate opt-in stress/export fixture or stress station prerequisites; record actual dimensions/decoded budget and avoid bloating the normal download. No giant curated art collection. |
 
 Machine-checkable requirement properties should stay small (kind, alpha, dimensions where actually
 validated); perceptual/linguistic quality is not inferred from file metadata. Acquisition/licensing

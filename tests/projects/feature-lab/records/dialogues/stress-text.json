@@ -1,0 +1,1668 @@
+{
+  "id": "stress-text",
+  "label": "stress-text",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "stress-text",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": true,
+      "logMode": "everything"
+    },
+    "entryBlockId": "notice",
+    "blocks": [
+      {
+        "id": "notice",
+        "type": "sequence",
+        "label": "notice",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "line-1",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Page 1/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 2/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 3/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 4/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 5/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 6/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 7/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 8/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 9/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 10/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 11/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 12/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 13/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 14/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 15/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f]  [p]Page 16/16 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-2",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 2/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-3",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 3/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-4",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 4/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-5",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 5/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-6",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 6/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-7",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 7/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-8",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 8/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-9",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 9/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-10",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 10/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-11",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 11/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-12",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 12/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-13",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 13/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-14",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 14/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-15",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 15/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-16",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 16/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-17",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 17/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-18",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 18/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-19",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 19/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-20",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 20/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-21",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 21/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-22",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 22/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-23",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 23/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-24",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 24/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-25",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 25/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-26",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 26/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-27",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 27/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-28",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 28/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-29",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 29/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-30",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 30/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-31",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 31/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-32",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 32/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-33",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 33/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-34",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 34/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-35",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 35/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-36",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 36/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-37",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 37/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-38",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 38/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-39",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 39/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-40",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 40/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-41",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 41/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-42",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 42/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-43",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 43/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-44",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 44/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-45",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 45/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-46",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 46/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-47",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 47/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-48",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 48/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-49",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 49/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-50",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 50/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-51",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 51/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-52",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 52/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-53",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 53/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-54",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 54/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-55",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 55/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-56",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 56/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-57",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 57/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-58",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 58/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-59",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 59/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-60",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 60/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-61",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 61/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-62",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 62/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-63",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 63/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-64",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 64/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-65",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 65/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-66",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 66/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-67",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 67/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-68",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 68/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-69",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 69/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-70",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 70/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-71",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 71/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-72",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 72/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-73",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 73/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-74",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 74/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-75",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 75/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-76",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 76/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-77",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 77/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-78",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 78/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-79",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 79/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-80",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 80/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-81",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 81/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-82",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 82/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-83",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 83/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-84",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 84/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-85",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 85/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-86",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 86/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-87",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 87/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-88",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 88/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-89",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 89/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-90",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 90/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-91",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 91/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-92",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 92/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-93",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 93/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-94",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 94/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-95",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 95/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "line-96",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Log row 96/96 [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] [f=dejavusans]é Å العربية [b]cluster-safe[/b][/f] [f=ipag]日本語[/f] "
+              },
+              "markup": "active-text"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "room",
+      "id": "active-text-finish"
+    }
+  }
+}

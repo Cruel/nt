@@ -185,6 +185,56 @@ flows with the existing stations/native tests rather than treating their smoke T
 Localized audio remains blocked pending a second intelligible reference realization and listening
 acceptance; the catalog records that procurement follow-up.
 
+### Edge Cases, Host Behavior & Stress
+
+`runtime-diagnostics` starts at a safe warning/Choice, never at a fault. Select one negative per
+fresh session and use the persistent Restart control to recover. Pure-context mutation and invalid
+yield run in immediate Room guards/hooks; the pre-commit fault uses a `before-enter` Script Hook
+because pre-commit Gameplay Command programs do not admit `run-lua`. The post-commit fault uses an
+ordinary after-enter command; the later Scene fault follows a separately committed Event and an
+input boundary. The direct Handoff control replaces the Scene with a Dialogue, intentionally leaving
+no Scene caller. Console attribution and current runtime/debugger state are evidence, not a Lab pass
+flag. Expected error branches must fail authored playback; do not add expectations that pretend to
+suppress them. Stale identity and ordinary successful rejection paths share existing station/native
+coverage. Debug instrumentation is opt-in too; `Debug.error` does not throw. Pointer Trace/Snapshot
+inspection stays at the Rooms & Interactions workshop. No debug-overlay role is mounted.
+
+`host-behavior` is a launch brief and catalog of actual-host procedures, deliberately sharing real
+landmarks, controls, saves, cursors and audio from existing stations. Export the same Project to the
+named host. Browser storage requires a stable namespace and successful persistence completion;
+private/quota failures are not durable saves. Cursorless touch and unavailable fullscreen modes are
+not failures. Cold title/Start, retained Web canvas/input, suspension and browser persistence cannot
+be certified by the headless UI launch witness. Forced platform/backend rejection and damaged
+Project/parser/compiler fixtures remain isolated automated negatives, never playable broken content.
+
+`stress-content` has its own final category and explicit warning/Choice. No workload executes on
+home or station launch. Each workload is bounded synthetic content:
+
+- `stress-text`: 96 logged Dialogue lines; the first is 16 explicitly paged mixed-script samples.
+  The registered DejaVu/IPA faces are reused; no new font or linguistic-quality claim.
+- `stress-subjects`: a generated 16×8 analytic Room Feature grid and 128 runtime-created
+  non-stackable Inventory Instances. The grid lies to the right of the guide; the HUD's ordinary
+  story panel is hidden in this station so it cannot obscure picking. Each cell's Interaction
+  reports its exact `cell-NNN` identity and opens real Inventory. Restart restores the warning
+  Choice and clears generated Instances; selecting the workload again reproduces the authored grid.
+- `stress-owners`: 32 Flow-owned 60-second detached waits, eight Scene-owned layered Layouts and
+  eight Scene-owned finite SFX one-shots. Continue promptly to cancel the Scene owner or Restart.
+  `stress-owners-ui` protects warning-before-work and mounted Layout retirement, **not** backend
+  sound, all detached-operation races or perceptual acceptance.
+- `stress-images`: three original 2048×2048 RGBA grids, 16 MiB decoded each before mips, about
+  76 KiB compressed each. Regenerate with `python3 tools/feature-lab/generate-stress-images.py`.
+  These synthetic originals require no third-party license. Export a copy with a disclosed
+  [Asset Memory Policy](../../../docs/assets/ASSET_MEMORY_PROFILES.md): Warm CPU/GPU below one
+  image, adequate temporary decode admission, and recorded target/total ceilings/device. Demand
+  may exceed ceilings while pinned; no FPS, forced miss or rejection is promised. Actual player
+  loading/profiler evidence remains manual.
+- Extreme viewport/scale mounts the existing inherit/ignore samples. Use actual Settings and
+  narrow/large/HiDPI output, then restore client preferences; gameplay Restart does not clear them.
+
+The three `*-ui` launch witnesses keep the warning/brief and catalog reopening diagnostic-clean.
+No headless result is host, pixel, shaping or listening certification; actual-host/perceptual
+acceptance remains the catalog's manual workflow for #259. Maps remain owner-deferred.
+
 ### Interaction coverage policy
 
 Canonical Lab configurations remain validation/diagnostic clean. Supported specificity, Guard

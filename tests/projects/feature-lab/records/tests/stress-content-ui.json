@@ -1,0 +1,77 @@
+{
+  "id": "stress-content-ui",
+  "label": "stress-content opt-in launch",
+  "data": {
+    "kind": "test",
+    "displayName": "stress-content opt-in launch",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh home"
+      },
+      {
+        "id": "category",
+        "input": "ui-click",
+        "label": "Bring category into view",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-category-stress-extremes"
+        }
+      },
+      {
+        "id": "launch",
+        "input": "ui-click",
+        "label": "Launch through real catalog control",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-launch-stress-content"
+        },
+        "expectations": [
+          {
+            "id": "room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "stress-content"
+            }
+          },
+          {
+            "id": "flow",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "scene",
+              "flowId": "stress-content"
+            }
+          }
+        ]
+      },
+      {
+        "id": "reopen",
+        "input": "ui-click",
+        "label": "Catalog reopening keeps live Room",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-open"
+        },
+        "expectations": [
+          {
+            "id": "retained",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "stress-content"
+            }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

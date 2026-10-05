@@ -1,0 +1,17 @@
+{
+  "id": "stress-owners-ui",
+  "label": "Cancel stress Flow ownership",
+  "data": {
+    "kind": "test",
+    "displayName": "Cancel stress Flow ownership",
+    "steps": [
+      {"id":"start","label":"Fresh home","input":"tick"},
+      {"id":"category","label":"Find opt-in category","input":"ui-click","uiClick":{"documentId":"runtime_game","selector":"#feature-lab-category-stress-extremes"}},
+      {"id":"launch","label":"Launch only the warning Choice","input":"ui-click","uiClick":{"documentId":"runtime_game","selector":"#feature-lab-launch-stress-content"},"expectations":[{"id":"warning","type":"active-flow","operator":"eq","activeFlow":{"kind":"scene","flowId":"stress-content"}},{"id":"no-workload","type":"layout","operator":"absent","layout":{"layoutId":"scale-ignore","field":"mounted","value":null}}]},
+      {"id":"choose","label":"Explicitly admit concurrent owners","input":"scene-choice","sceneChoice":{"optionId":"owners"},"expectations":[{"id":"layers","type":"layout","operator":"present","layout":{"layoutId":"scale-ignore","field":"mounted","value":null}},{"id":"foreground","type":"active-flow","operator":"eq","activeFlow":{"kind":"scene","flowId":"stress-owners"}}]},
+      {"id":"return","label":"Return retires Scene-owned mounts","input":"continue","expectations":[{"id":"clean","type":"layout","operator":"absent","layout":{"layoutId":"scale-ignore","field":"mounted","value":null}}]}
+    ],
+    "finalExpectations": [],
+    "preview": {"selectedStepId":"start","selectedObservationIndex":null,"autoOpenReport":true}
+  }
+}

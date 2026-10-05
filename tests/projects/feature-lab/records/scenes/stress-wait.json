@@ -1,0 +1,34 @@
+{
+  "id": "stress-wait",
+  "label": "stress-wait",
+  "data": {
+    "kind": "scene",
+    "displayName": "stress-wait",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "delay",
+        "label": "delay",
+        "type": "wait",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "waitKind": "duration",
+        "durationMs": 60000,
+        "skippable": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

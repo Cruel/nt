@@ -6,6 +6,7 @@
     "displayName": "Verbs & Offers lower-rank discovery",
     "steps": [
       { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [] },
+      { "id": "category", "input": "ui-click", "label": "Bring Commands & Discovery into view", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-commands-discovery" } },
       { "id": "launch", "input": "ui-click", "label": "Launch Verbs & Offers", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-verbs-and-offers" }, "expectations": [] },
       { "id": "rank-primary", "input": "primary-activate", "label": "Lower-ranked non-primary Offer opens a menu without executing Probe", "subjectAction": { "subject": { "kind": "interactable", "interactable": { "$ref": { "registry": "interactableInstances", "id": "offer-ranked" } } } }, "expectations": [{ "id": "no-primary-execution", "type": "property", "operator": "eq", "property": { "propertyId": "commands-result", "value": "idle" } }] },
       { "id": "choose-ranked-probe", "input": "ui-click", "label": "Execute the discovered Probe through its real menu action", "uiClick": { "documentId": "runtime_verb_menu", "selector": "#nt-verb-menu-action-probe" }, "expectations": [{ "id": "ranked-menu-ran", "type": "property", "operator": "eq", "property": { "propertyId": "commands-result", "value": "probe" } }] }

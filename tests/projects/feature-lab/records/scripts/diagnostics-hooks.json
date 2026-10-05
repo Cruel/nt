@@ -1,0 +1,8 @@
+{
+  "id": "diagnostics-hooks",
+  "label": "Opt-in immediate Room failures",
+  "data": {
+    "kind": "script-module",
+    "source": {"kind": "project-file", "path": "scripts/diagnostics-hooks.lua"}
+  }
+}

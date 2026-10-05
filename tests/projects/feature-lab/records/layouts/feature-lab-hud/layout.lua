@@ -239,7 +239,7 @@ function feature_lab.on_show(event, element, document)
   if panel then panel:SetClass('hidden', scenario) end
   local scenario_id = scenario and context.feature_lab.scenario_id or nil
   local story = document:GetElementById('feature-lab-text-panel')
-  if story then story:SetClass('hidden', scenario_id == 'menus-and-input' or scenario_id == 'hotspots-and-cursors') end
+  if story then story:SetClass('hidden', scenario_id == 'menus-and-input' or scenario_id == 'hotspots-and-cursors' or scenario_id == 'stress-content') end
   feature_lab.render(document)
   feature_lab.sync_scenario_guide(document)
 end
