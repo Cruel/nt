@@ -1,0 +1,77 @@
+{
+  "id": "host-behavior-ui",
+  "label": "host-behavior opt-in launch",
+  "data": {
+    "kind": "test",
+    "displayName": "host-behavior opt-in launch",
+    "steps": [
+      {
+        "id": "start",
+        "input": "tick",
+        "label": "Fresh home"
+      },
+      {
+        "id": "category",
+        "input": "ui-click",
+        "label": "Bring category into view",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-category-edge-host"
+        }
+      },
+      {
+        "id": "launch",
+        "input": "ui-click",
+        "label": "Launch through real catalog control",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-launch-host-behavior"
+        },
+        "expectations": [
+          {
+            "id": "room",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "host-behavior"
+            }
+          },
+          {
+            "id": "flow",
+            "type": "active-flow",
+            "operator": "eq",
+            "activeFlow": {
+              "kind": "scene",
+              "flowId": "host-behavior"
+            }
+          }
+        ]
+      },
+      {
+        "id": "reopen",
+        "input": "ui-click",
+        "label": "Catalog reopening keeps live Room",
+        "uiClick": {
+          "documentId": "runtime_game",
+          "selector": "#feature-lab-open"
+        },
+        "expectations": [
+          {
+            "id": "retained",
+            "type": "current-room",
+            "operator": "eq",
+            "currentRoom": {
+              "roomId": "host-behavior"
+            }
+          }
+        ]
+      }
+    ],
+    "finalExpectations": [],
+    "preview": {
+      "selectedStepId": "start",
+      "selectedObservationIndex": null,
+      "autoOpenReport": true
+    }
+  }
+}

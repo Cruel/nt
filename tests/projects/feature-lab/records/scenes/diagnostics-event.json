@@ -1,0 +1,90 @@
+{
+  "id": "diagnostics-event",
+  "label": "diagnostics-event",
+  "data": {
+    "kind": "scene",
+    "displayName": "diagnostics-event",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "committed-earlier-event",
+        "label": "committed-earlier-event",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(Game.set_prop('diagnostics-progress',1)); noveltea.notify('Earlier Scene Event committed diagnostics-progress=1.')",
+        "mayYield": false
+      },
+      {
+        "id": "boundary",
+        "label": "boundary",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Progress is 1. Continue to fail the NEXT Event. Earlier Event must remain committed; the later caption must never appear."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "intentional-fault",
+        "label": "intentional-fault",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "error('Feature Lab later Scene Event failure')",
+        "mayYield": false
+      },
+      {
+        "id": "must-not-appear",
+        "label": "must-not-appear",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "FAIL: cursor advanced past the fault."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

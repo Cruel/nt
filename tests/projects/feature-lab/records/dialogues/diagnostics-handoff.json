@@ -1,0 +1,73 @@
+{
+  "id": "diagnostics-handoff",
+  "label": "diagnostics-handoff",
+  "data": {
+    "kind": "dialogue",
+    "displayName": "diagnostics-handoff",
+    "defaultSpeaker": {
+      "$ref": {
+        "collection": "characters",
+        "id": "pilot-guide"
+      }
+    },
+    "stageSlots": [],
+    "mediaSlots": [],
+    "settings": {
+      "showDisabledChoices": false,
+      "logMode": "only-lines"
+    },
+    "entryBlockId": "intro",
+    "blocks": [
+      {
+        "id": "intro",
+        "type": "sequence",
+        "label": "intro",
+        "defaultSpeaker": null,
+        "segments": [
+          {
+            "id": "line-1",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Direct Dialogue, no Scene caller. Continue through Handoff: expect a warning, then exactly the next line."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          },
+          {
+            "id": "handoff-1",
+            "type": "handoff"
+          },
+          {
+            "id": "line-2",
+            "type": "line",
+            "speaker": null,
+            "text": {
+              "source": {
+                "kind": "inline",
+                "text": "Handoff advanced once and ordinary continuation reached this line, without stranding the invocation. Continue to exploration."
+              },
+              "markup": "plain"
+            },
+            "cues": [],
+            "effects": [],
+            "showOnce": false,
+            "logged": true,
+            "autosaveSafePoint": false
+          }
+        ]
+      }
+    ],
+    "edges": [],
+    "completion": {
+      "kind": "return"
+    }
+  }
+}

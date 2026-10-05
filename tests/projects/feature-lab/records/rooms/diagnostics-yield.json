@@ -1,0 +1,82 @@
+{
+  "id": "diagnostics-yield",
+  "label": "diagnostics-yield",
+  "data": {
+    "kind": "room",
+    "displayName": "diagnostics-yield",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Opt-in checks only. Restart returns this station to clean defaults; Feature Lab opens the catalog without running workloads."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [
+      {
+        "hook": "before-enter",
+        "handler": {
+          "module": {
+            "$ref": {
+              "collection": "scripts",
+              "id": "diagnostics-hooks"
+            }
+          },
+          "export": "before_enter_yield"
+        }
+      }
+    ],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

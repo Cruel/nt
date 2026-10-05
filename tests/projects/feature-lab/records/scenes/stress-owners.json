@@ -1,0 +1,727 @@
+{
+  "id": "stress-owners",
+  "label": "stress-owners",
+  "data": {
+    "kind": "scene",
+    "displayName": "stress-owners",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "owner-1",
+        "label": "owner-1",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-2",
+        "label": "owner-2",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-3",
+        "label": "owner-3",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-4",
+        "label": "owner-4",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-5",
+        "label": "owner-5",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-6",
+        "label": "owner-6",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-7",
+        "label": "owner-7",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-8",
+        "label": "owner-8",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-9",
+        "label": "owner-9",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-10",
+        "label": "owner-10",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-11",
+        "label": "owner-11",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-12",
+        "label": "owner-12",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-13",
+        "label": "owner-13",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-14",
+        "label": "owner-14",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-15",
+        "label": "owner-15",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-16",
+        "label": "owner-16",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-17",
+        "label": "owner-17",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-18",
+        "label": "owner-18",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-19",
+        "label": "owner-19",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-20",
+        "label": "owner-20",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-21",
+        "label": "owner-21",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-22",
+        "label": "owner-22",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-23",
+        "label": "owner-23",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-24",
+        "label": "owner-24",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-25",
+        "label": "owner-25",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-26",
+        "label": "owner-26",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-27",
+        "label": "owner-27",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-28",
+        "label": "owner-28",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-29",
+        "label": "owner-29",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-30",
+        "label": "owner-30",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-31",
+        "label": "owner-31",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "owner-32",
+        "label": "owner-32",
+        "type": "start-detached-scene",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "scene": {
+          "$ref": {
+            "collection": "scenes",
+            "id": "stress-wait"
+          }
+        },
+        "inputs": [],
+        "owner": "flow",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "layers",
+        "label": "layers",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "for i=1,8 do assert(noveltea.layouts.mount('stress-layer-'..i,'scale-ignore',{owner='scene',order=i})); local ok, err=audio.play('pilot-cue-audio','sound-effect',{owner='scene',gain=0.1}); assert(ok,err) end",
+        "mayYield": false
+      },
+      {
+        "id": "cancel-owners",
+        "label": "cancel-owners",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "32 Flow-owned waits (60 seconds), 8 overlapping Scene-owned Layout mounts and 8 SFX one-shots were admitted. Continue NOW to return and cancel owners; no residual panel/input/audio or stalled Flow may remain. Alternatively Restart. Sound quality and finite/backend cleanup are manual/native, not asserted by this caption."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

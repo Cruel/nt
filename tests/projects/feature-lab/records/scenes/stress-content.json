@@ -1,0 +1,164 @@
+{
+  "id": "stress-content",
+  "label": "stress-content",
+  "data": {
+    "kind": "scene",
+    "displayName": "stress-content",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "choose",
+        "label": "choose",
+        "type": "choice",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "prompt": {
+          "source": {
+            "kind": "inline",
+            "text": "STRESS ONLY: not a performance benchmark. One workload per fresh session. Long text: 96 logged lines, first line 16 pages. Subjects: 128 Hotspots + 128 runtime Inventory Instances. Owners: 32 detached waits + 8 mounts + 8 one-shots. Images: 3 x 2048² RGBA, 16 MiB each before mips. Restart/Feature Lab always provide exit. Select explicitly:"
+          },
+          "markup": "plain"
+        },
+        "options": [
+          {
+            "id": "text",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Long mixed-script text and 96-line log"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "text",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_dialogue('stress-text')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "subjects",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "128 subjects / hotspots / Inventory rows"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "subjects",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_room('stress-subjects')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "owners",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "32 detached owners / mounts / audio"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "owners",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_scene('stress-owners')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "images",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Large images: low-memory player prerequisite"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "images",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_scene('stress-images')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "scale",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Extreme viewport and scale (actual player)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "scales",
+                "kind": "run-lua",
+                "source": "assert(noveltea.layouts.mount('stress-scale-inherit','scale-inherit',{owner='current-room'})); assert(noveltea.layouts.mount('stress-scale-ignore','scale-ignore',{owner='current-room'}))"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "cancel",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Cancel: no workload"
+              },
+              "markup": "plain"
+            },
+            "effects": [],
+            "targetStepId": "done"
+          }
+        ],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "done",
+        "label": "done",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Check the stated result. Continue to exploration. Use Restart before another destructive check, or Feature Lab to leave. No success is inferred from reaching this caption."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

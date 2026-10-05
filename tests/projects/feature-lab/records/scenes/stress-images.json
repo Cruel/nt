@@ -1,0 +1,149 @@
+{
+  "id": "stress-images",
+  "label": "stress-images",
+  "data": {
+    "kind": "scene",
+    "displayName": "stress-images",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "profile",
+        "label": "profile",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Prerequisite: export/run with a disclosed small asset pool, e.g. 24 MiB; record actual profile and device. Three 2048² RGBA images cost 16 MiB each before mips. Continue individually; mandatory images must stay coherent, visible loading must recover, speculative misses cannot change gameplay. No fixed FPS claim."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "stress-image-1",
+        "label": "stress-image-1",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.set_background({owner='scene',asset='stress-image-1',fit='contain',color='#151827'}))",
+        "mayYield": false
+      },
+      {
+        "id": "view-1",
+        "label": "view-1",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Image 1/3: inspect complete colored grid, then Continue. Restart cancels this workload."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "stress-image-2",
+        "label": "stress-image-2",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.set_background({owner='scene',asset='stress-image-2',fit='contain',color='#151827'}))",
+        "mayYield": false
+      },
+      {
+        "id": "view-2",
+        "label": "view-2",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Image 2/3: inspect complete colored grid, then Continue. Restart cancels this workload."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "stress-image-3",
+        "label": "stress-image-3",
+        "type": "run-lua",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "source": "assert(noveltea.presentation.set_background({owner='scene',asset='stress-image-3',fit='contain',color='#151827'}))",
+        "mayYield": false
+      },
+      {
+        "id": "view-3",
+        "label": "view-3",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Image 3/3: inspect complete colored grid, then Continue. Restart cancels this workload."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "return",
+      "outcome": null
+    }
+  }
+}

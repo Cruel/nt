@@ -1,0 +1,75 @@
+{
+  "id": "diagnostics-post",
+  "label": "diagnostics-post",
+  "data": {
+    "kind": "room",
+    "displayName": "diagnostics-post",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Opt-in checks only. Restart returns this station to clean defaults; Feature Lab opens the catalog without running workloads."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "intentional-fault",
+          "kind": "run-lua",
+          "source": "error('Feature Lab afterEnter failure')"
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

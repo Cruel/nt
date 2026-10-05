@@ -1,0 +1,80 @@
+{
+  "id": "host-behavior",
+  "label": "host-behavior",
+  "data": {
+    "kind": "room",
+    "displayName": "host-behavior",
+    "background": {
+      "asset": {
+        "$ref": {
+          "collection": "assets",
+          "id": "pilot-room-backdrop"
+        }
+      },
+      "materialApplication": null,
+      "fit": "cover",
+      "color": "#151827"
+    },
+    "description": {
+      "source": {
+        "kind": "inline",
+        "text": "Opt-in checks only. Restart returns this station to clean defaults; Feature Lab opens the catalog without running workloads."
+      },
+      "markup": "plain"
+    },
+    "presentationSpace": {
+      "size": {
+        "width": 1920,
+        "height": 1080
+      },
+      "bounds": null,
+      "edgePolicy": "contain",
+      "defaultView": {
+        "center": {
+          "x": 960,
+          "y": 540
+        },
+        "zoom": 1,
+        "rotationDegrees": 0
+      },
+      "views": []
+    },
+    "anchors": [],
+    "overlays": [],
+    "cast": [],
+    "props": [],
+    "interactables": [],
+    "environments": [],
+    "scriptHooks": [],
+    "lifecycle": {
+      "canEnter": {
+        "kind": "always"
+      },
+      "canLeave": {
+        "kind": "always"
+      },
+      "beforeEnter": [],
+      "afterEnter": [
+        {
+          "id": "begin",
+          "kind": "call-scene",
+          "scene": {
+            "$ref": {
+              "collection": "scenes",
+              "id": "host-behavior"
+            }
+          }
+        }
+      ],
+      "beforeLeave": [],
+      "afterLeave": [],
+      "onEnterRejected": [],
+      "onLeaveRejected": []
+    },
+    "exits": [],
+    "placements": [],
+    "fallbackInteractablePlacementId": null,
+    "features": [],
+    "hotspots": []
+  }
+}

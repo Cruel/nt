@@ -1,0 +1,236 @@
+{
+  "id": "runtime-diagnostics",
+  "label": "runtime-diagnostics",
+  "data": {
+    "kind": "scene",
+    "displayName": "runtime-diagnostics",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "choose",
+        "label": "choose",
+        "type": "choice",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "prompt": {
+          "source": {
+            "kind": "inline",
+            "text": "WARNING: deliberate runtime errors. Select ONE check, inspect attributed diagnostics and state, then Restart. Ordinary launch does not fail."
+          },
+          "markup": "plain"
+        },
+        "options": [
+          {
+            "id": "fault",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Lua fault (expected error)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "fault",
+                "kind": "run-lua",
+                "source": "error('Feature Lab intentional runtime Lua fault')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "pure",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Pure-context mutation (expected error)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "pure",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_room('diagnostics-pure')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "yield",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Immediate yield (expected error)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "yield",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_room('diagnostics-yield')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "stale",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Destroy and reuse a retained identity"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "stale",
+                "kind": "run-lua",
+                "source": "local id = assert(noveltea.instances.create('interactable','definition','lab-specimen')); assert(noveltea.instances.destroy('interactable',id)); local missing, err = noveltea.interactables.location(id); assert(missing == nil and type(err) == 'string'); local fresh = assert(noveltea.instances.create('interactable','definition','lab-specimen')); assert(fresh ~= id); local rejected, use_err = noveltea.interactables.set_location(id,{kind='room',room='runtime-diagnostics'}); assert(not rejected and type(use_err) == 'string'); noveltea.notify('Ended identity '..id..' remains missing; fresh identity '..fresh..'. '..err..' / '..use_err)"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "handoff",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Direct Dialogue Handoff (expected warning)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "direct",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_dialogue('diagnostics-handoff')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "pre",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Room failure BEFORE commit (expected error)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "pre",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_room('diagnostics-pre')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "post",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Room failure AFTER commit (expected error)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "post",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_room('diagnostics-post')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "event",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Later Scene Event fails (expected error)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "event",
+                "kind": "run-lua",
+                "source": "noveltea.flow.replace_scene('diagnostics-event')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "debug",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Emit instrumentation (devtools only)"
+              },
+              "markup": "plain"
+            },
+            "effects": [
+              {
+                "id": "debug",
+                "kind": "run-lua",
+                "source": "Debug.info('Feature Lab info'); Debug.warn('Feature Lab warning'); Debug.error('Feature Lab instrumentation error, NOT a Flow fault'); print('Feature Lab print'); noveltea.notify('Instrumentation emitted. Use Rooms & Interactions for pointer Trace/Snapshot; ordinary player remains playable.')"
+              }
+            ],
+            "targetStepId": "done"
+          },
+          {
+            "id": "cancel",
+            "label": {
+              "source": {
+                "kind": "inline",
+                "text": "Cancel: no fault"
+              },
+              "markup": "plain"
+            },
+            "effects": [],
+            "targetStepId": "done"
+          }
+        ],
+        "autosaveSafePoint": false
+      },
+      {
+        "id": "done",
+        "label": "done",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "Check the stated result. Continue to exploration. Use Restart before another destructive check, or Feature Lab to leave. No success is inferred from reaching this caption."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

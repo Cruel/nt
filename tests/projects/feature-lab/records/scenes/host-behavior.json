@@ -1,0 +1,40 @@
+{
+  "id": "host-behavior",
+  "label": "host-behavior",
+  "data": {
+    "kind": "scene",
+    "displayName": "host-behavior",
+    "stage": {
+      "kind": "inherited"
+    },
+    "inputs": [],
+    "outcomes": [],
+    "events": [
+      {
+        "id": "prerequisites",
+        "label": "prerequisites",
+        "type": "show-text",
+        "enabled": true,
+        "timeline": {
+          "trackId": "main",
+          "startMs": 0,
+          "durationMs": 0
+        },
+        "completionDependencies": [],
+        "text": {
+          "source": {
+            "kind": "inline",
+            "text": "ACTUAL PACKAGED PLAYER ONLY. Use Feature Lab to launch the shared check station named in the guide. Web: retained-canvas resize + Rooms & Interactions; persistence + Save & Resume. Touch: Verbs & Offers / Menus & Input. Desktop cursor: Hotspots & Cursors. Suspend: Sound Desk / Menus & Input. Cold title/Start/display: restart the packaged application. No host privileges or simulated pass flags. Continue to exploration."
+          },
+          "markup": "plain"
+        },
+        "speaker": null,
+        "wait": "input",
+        "autosaveSafePoint": false
+      }
+    ],
+    "terminal": {
+      "kind": "release-to-exploration"
+    }
+  }
+}

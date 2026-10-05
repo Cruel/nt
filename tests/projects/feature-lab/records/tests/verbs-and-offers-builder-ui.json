@@ -6,6 +6,7 @@
     "displayName": "Verbs & Offers Command Builder",
     "steps": [
       { "id": "start", "input": "tick", "label": "Fresh Lab home", "expectations": [] },
+      { "id": "category", "input": "ui-click", "label": "Bring Commands & Discovery into view", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-commands-discovery" } },
       { "id": "launch", "input": "ui-click", "label": "Launch Verbs & Offers", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-verbs-and-offers" }, "expectations": [] },
       { "id": "open-builder-menu", "input": "open-verb-menu", "label": "Open menu on the recipient to begin Deliver", "subjectAction": { "subject": { "kind": "character", "character": { "$ref": { "collection": "characters", "id": "verbs-recipient" } } } }, "expectations": [] },
       { "id": "choose-deliver", "input": "ui-click", "label": "Choose Deliver from the real menu", "uiClick": { "documentId": "runtime_verb_menu", "selector": "#nt-verb-menu-action-deliver" }, "expectations": [] },
