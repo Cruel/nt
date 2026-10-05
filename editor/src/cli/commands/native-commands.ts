@@ -697,48 +697,51 @@ export const packageExportCommand: CliCommandDefinition = {
               ),
             ],
           };
-        const prepared = await prepareRuntimeArtifact({
-          project: context.snapshot.project,
-          projectRoot: context.snapshot.projectRoot,
-          profile: {
-            ...profile,
-            ...(includeUnusedAssets ? { excludeUnusedAssets: false } : {}),
-            ...(includeShaderSources
-              ? { includeShaderSources: true, stripShaderSources: false }
-              : {}),
-          },
-          intent: 'runtime-package-export',
-          shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
-            context.nativeTools.compileShaders(shaderProject, options),
-          ),
-          paths: context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
-        });
-        if (prepared.status !== 'prepared')
-          return {
-            ok: false,
-            diagnostics: prepared.diagnostics.map((item) =>
-              cliDiagnostic(item.code, item.path, item.message, item.severity),
-            ),
-          };
-        const localizationWarnings = localizationWarningDiagnostics(prepared.artifact.diagnostics);
-        if (localizationWarnings.length > 0 && !allowLocalizationWarnings)
-          return {
-            ok: false,
-            diagnostics: [
-              ...localizationWarnings.map((item) =>
-                cliDiagnostic(item.code, item.path, item.message, item.severity),
-              ),
-              cliDiagnostic(
-                'localization.export.warning_override_required',
-                '/export/runtime/localization',
-                'Localization quality warnings require explicit acknowledgement; pass --allow-localization-warnings to continue.',
-              ),
-            ],
-          };
         const outputPath = path.resolve(context.cwd, output);
         const stagedPath = `${outputPath}.tmp-${process.pid}-${randomUUID()}`;
         try {
           await context.nativeTools.registerStagedOutput?.(stagedPath);
+          await context.fileSystem.writeBytesAtomic(stagedPath, new Uint8Array());
+          const prepared = await prepareRuntimeArtifact({
+            project: context.snapshot.project,
+            projectRoot: context.snapshot.projectRoot,
+            profile: {
+              ...profile,
+              ...(includeUnusedAssets ? { excludeUnusedAssets: false } : {}),
+              ...(includeShaderSources
+                ? { includeShaderSources: true, stripShaderSources: false }
+                : {}),
+            },
+            intent: 'runtime-package-export',
+            shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
+              context.nativeTools.compileShaders(shaderProject, options),
+            ),
+            paths: context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
+          });
+          if (prepared.status !== 'prepared')
+            return {
+              ok: false,
+              diagnostics: prepared.diagnostics.map((item) =>
+                cliDiagnostic(item.code, item.path, item.message, item.severity),
+              ),
+            };
+          const localizationWarnings = localizationWarningDiagnostics(
+            prepared.artifact.diagnostics,
+          );
+          if (localizationWarnings.length > 0 && !allowLocalizationWarnings)
+            return {
+              ok: false,
+              diagnostics: [
+                ...localizationWarnings.map((item) =>
+                  cliDiagnostic(item.code, item.path, item.message, item.severity),
+                ),
+                cliDiagnostic(
+                  'localization.export.warning_override_required',
+                  '/export/runtime/localization',
+                  'Localization quality warnings require explicit acknowledgement; pass --allow-localization-warnings to continue.',
+                ),
+              ],
+            };
           const response = await context.nativeTools.exportPackage({
             project: prepared.artifact.compiledProject,
             outputPath: stagedPath,

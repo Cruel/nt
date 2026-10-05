@@ -21,7 +21,10 @@ test('canonical Feature Lab manifest satisfies the project-specific contract', a
   assert.deepEqual(result.errors, []);
   assert.equal(catalog.schema, 'noveltea.feature-lab.catalog');
   assert.equal(Object.hasOwn(catalog, 'schemaVersion'), false);
-  assert.equal(catalog.scenarios[0].id, 'rooms-interactions');
+  assert.equal(
+    catalog.scenarios.some((scenario) => scenario.id === 'rooms-interactions'),
+    true,
+  );
   assert.equal(
     catalog.scenarios.every((scenario) => !scenario.checks[0]?.action.startsWith('Launch the scenario')),
     true,

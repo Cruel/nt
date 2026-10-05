@@ -3149,7 +3149,10 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     };
     const cancellationEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '1000',
+      // Give the certifier a reliable observation window even on constrained runners. The worker
+      // leaves this hook immediately after it observes cancellation, so this is a maximum rather
+      // than a fixed delay.
+      NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '10000',
     };
     const cancellationArgs = packageArguments(cancellationRoot, cancellationOutput);
     const cancellation = isWindows
