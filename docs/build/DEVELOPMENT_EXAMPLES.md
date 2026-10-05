@@ -1,6 +1,6 @@
 # Development example qualification
 
-NovelTea development examples are authored in the public `Cruel/noveltea-examples` repository, but `nt` owns the exact revision that is allowed to become a development-site input. The pin is the single 40-character commit in `examples/noveltea-examples.revision`; CI never floats to examples `main` while building the site/toolchain contract.
+NovelTea publishes the pinned public `Cruel/noveltea-examples` Projects and the certified in-tree Feature Lab through one qualified catalog. `nt` owns the exact external revision that is allowed to become a development-site input. The pin is the single 40-character commit in `examples/noveltea-examples.revision`; CI never floats to examples `main` while building the site/toolchain contract.
 
 ## Qualification contract
 
@@ -12,7 +12,13 @@ The shared public examples repository owns `scripts/build-examples.mjs`. `nt` in
 - the matching player descriptor; and
 - an explicit output directory.
 
-`scripts/qualify-examples.mjs` first requires the examples checkout to be clean and exactly at the pinned revision. The public build then validates both Projects, exports and round-trips each `.ntproject`, emits `.ntpkg` files, and exercises each Project through the supplied Web template. The aggregate output factors the byte-identical Web runtime into one shared `player/` directory and leaves each example with only its launcher/config/runtime-package/project-specific files. Afterward, `nt` verifies that `catalog.json` names the pinned source revision and exact CLI/player digests and that the shared player plus all cataloged generated files still match their recorded sizes and SHA-256 values.
+`scripts/qualify-examples.mjs` requires the external checkout to be clean and exactly at the pin, and the `nt` checkout HEAD to match `--nt-revision`. It invokes the same pinned public builder twice: once for the external producer, once with a temporary source root containing only the ordinary Feature Lab Project and a one-example manifest. No external repository changes or Feature-Lab-specific channel mode are required. The Lab's normal `web-threaded` export profile retains its authored locales and development-quality localization; its existing reference button doubles as the application icon.
+
+Each producer validates its Projects, exports and imports each `.ntproject` and validates the imported Project, emits runtime packages, and exports through the supplied Web template. Qualification verifies each producer's current `noveltea.example-catalog`, exact CLI/player identity and all file sizes/digests **before** aggregation. Both producers must have identical toolchain metadata, including shared player filenames and bytes. Export success is not a browser-execution claim; the site browser checks cover player startup and switching.
+
+The resulting disposable `noveltea.publication-catalog` is the sole site input; old producer catalogs are not accepted at that boundary. It keeps the public external pin in `source`, records the global `publication.ntRevision`, and gives every example independent repository/revision/path provenance. Feature Lab's provenance points to `tests/projects/feature-lab` at the selected `nt` revision, not the external pin. The catalog contains exactly one Lab example, not an entry per scenario/check. Aggregation copies one shared `player/` and each example's separate launcher/config/content-hashed Web runtime payload and Project bundle, rechecking the assembled output. Producer temporaries are removed on success or failure.
+
+Site preparation projects this internal catalog into the existing public showcase model. Only external examples receive public `sourceUrl` navigation; the Lab's private repository/path provenance is omitted from public JSON and HTML. Play and Project download/editor handoff remain available for every example. Runtime `.ntpkg` files are playback resources, never a download action; the separate runtime export is not staged as a public artifact.
 
 The Build workflow uploads the successful output once as `noveltea-development-examples`. Downstream site work should consume that artifact/catalog shape rather than rebuilding examples independently. The site stages that one shared player once and recreates an iframe around the selected example's `.ntpkg`; switching examples does not duplicate the Wasm runtime. A failed qualification job is the compatibility signal that a proposed pin must not merge.
 
@@ -60,4 +66,10 @@ The contract-level tests are part of the CI test inventory:
 node --test tests/ci/examples_qualification_tests.mjs
 ```
 
-For the full integration seam, run the local qualification command above against a clean examples checkout at the pinned revision. A successful run proves the real CLI/project/package/player path rather than only validating manifest structure.
+For the full integration seam, run the local qualification command above against a clean examples checkout at the pinned revision. A successful run proves the real CLI/project/package/player path rather than only validating manifest structure. Local uncommitted Lab edits are usable for iteration; only clean CI/tag checkouts establish exact-revision publication provenance.
+
+### #260 verification limit
+
+At implementation baseline `89ef0f7a0588836a6626ac6b98fcff051847083b`, full local qualification is blocked by pinned external commit `a9fa80fedf6278150ebc87f78cce1386c44b1aea`: Materials fails `WORKSPACE_SOURCE_READ` with an unsupported workspace-v1 shape using the current rebuilt CLI. The pin remains unchanged and qualification still fails closed. Update the public Projects to the current canonical workspace contract, then advance the pin through normal qualification; do not add a compatibility reader or silently patch their source during publication.
+
+The independent Feature Lab producer passed real validation, package export, Project export/import/validate and threaded Web export with the current CLI/player. Site build and browser interaction were checked using that real Lab output plus **Lab-backed external selector fixtures**, not qualified Materials/Verbs payloads. Those checks prove the three-entry UI, shared-player staging, optional Source hiding/restoration and Lab startup; they do not resolve the external qualification blocker. Final checks passed: all 56 CI contract tests, 30 site tests, two browser tests, Astro typechecking, Lab manifest validation and all 43 authored Lab Tests. Linux host CLI and canonical threaded release Web player were rebuilt. Full native/editor suites, Android and an actual tagged release publication were not rerun: no runtime/editor implementation or platform build wiring changed. Review used local Standards and #260 Spec axes because this harness has no subagent tool; the external real-qualification gap remains explicit.

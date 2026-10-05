@@ -10,7 +10,7 @@ interface ShowcaseExample {
   title: string;
   description: string;
   highlights: string[];
-  sourceUrl: string;
+  sourceUrl?: string;
   projectUrl: string;
   projectSha256: string;
   playerUrl: string;
@@ -46,7 +46,7 @@ const catalogHref = isDevelopment ? '/examples/dev/catalog.json' : '/examples/ca
     <p class="nt-status" data-example-channel>{channelLabel}</p>
     <h1>See the project model in motion.</h1>
     <p>
-      These examples come from the exact public <code>noveltea-examples</code> revision qualified against this
+      These Projects include public examples and the in-tree Feature Lab, qualified against this
       {isDevelopment ? ' NovelTea development build' : ` NovelTea ${releaseTag} release`}. Switch projects without leaving the showcase; each selection starts in a fresh
       player context.
     </p>
@@ -94,7 +94,7 @@ const catalogHref = isDevelopment ? '/examples/dev/catalog.json' : '/examples/ca
         <div class="nt-example-actions">
           <a class="nt-button nt-button--primary" data-example-open href="#">Open in NovelTea</a>
           <a class="nt-button" data-example-project href={firstExample.projectUrl} download>Download Project</a>
-          <a class="nt-text-link" data-example-source href={firstExample.sourceUrl}>View Source <span aria-hidden="true">→</span></a>
+          <a class="nt-text-link" data-example-source href={firstExample.sourceUrl} hidden={!firstExample.sourceUrl}>View Source <span aria-hidden="true">→</span></a>
         </div>
         <div class="nt-example-handoff" data-example-handoff hidden>
           <strong>If nothing opened, you still have options.</strong>
@@ -262,7 +262,11 @@ const catalogHref = isDevelopment ? '/examples/dev/catalog.json' : '/examples/ca
         if (title) title.textContent = example.title;
         if (description) description.textContent = example.description;
         if (playerLabel) playerLabel.textContent = example.title;
-        if (sourceLink instanceof HTMLAnchorElement) sourceLink.href = example.sourceUrl;
+        if (sourceLink instanceof HTMLAnchorElement) {
+          sourceLink.hidden = !example.sourceUrl;
+          if (example.sourceUrl) sourceLink.href = example.sourceUrl;
+          else sourceLink.removeAttribute('href');
+        }
         if (projectLink instanceof HTMLAnchorElement) projectLink.href = example.projectUrl;
         if (handoffProject instanceof HTMLAnchorElement) handoffProject.href = example.projectUrl;
         if (highlights) highlights.replaceChildren(...example.highlights.map((text) => {
@@ -303,3 +307,9 @@ const catalogHref = isDevelopment ? '/examples/dev/catalog.json' : '/examples/ca
     });
   </script>
 </SiteLayout>
+
+<style>
+  [data-example-source][hidden] {
+    display: none;
+  }
+</style>

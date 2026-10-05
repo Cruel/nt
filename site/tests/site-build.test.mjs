@@ -207,6 +207,8 @@ test("development showcase exposes the pinned examples and handoff actions", asy
   const html = await readFile(new URL("../dist/examples/dev/index.html", import.meta.url), "utf8");
   assert.match(html, /Materials/);
   assert.match(html, /Verbs/);
+  assert.match(html, /Feature Lab/);
+  assert.doesNotMatch(html, /github\.com\/Cruel\/nt(?:\/|\")|tests\/projects\/feature-lab/);
   assert.match(html, /Open in NovelTea/);
   assert.match(html, /Download Project/);
   assert.match(html, /View Source/);
@@ -219,10 +221,12 @@ test("development showcase exposes the pinned examples and handoff actions", asy
   assert.equal(catalog.format, "noveltea.site-example-catalog");
   assert.deepEqual(
     catalog.examples.map((example) => example.id),
-    ["materials", "verbs"],
+    ["materials", "verbs", "feature-lab"],
   );
   assert.match(catalog.examples[0].projectUrl, /\.ntproject$/);
   assert.match(catalog.examples[0].projectSha256, /^[0-9a-f]{64}$/);
+  assert.equal(Object.hasOwn(catalog.examples[2], "sourceUrl"), false);
+  assert.doesNotMatch(JSON.stringify(catalog), /Cruel\/nt|tests\/projects|\.ntpkg/);
 });
 
 test("development showcase stages one shared Web player for all examples", async () => {
@@ -236,7 +240,7 @@ test("development showcase stages one shared Web player for all examples", async
     false,
   );
 
-  for (const id of ["materials", "verbs"]) {
+  for (const id of ["materials", "verbs", "feature-lab"]) {
     const launcher = await readFile(new URL(`playable/${id}/index.html`, root), "utf8");
     assert.match(launcher, /\.\.\/\.\.\/player\/player\..+\.wasm/);
     assert.match(launcher, /\.\.\/\.\.\/player\/player\..+\.js/);

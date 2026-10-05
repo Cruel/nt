@@ -24,6 +24,10 @@ Asset Requirements, Test step counts and unlinked Tests, and separate exclusions
 are not execution results or proof of every manual step; unlinked Tests and checks without automation
 are permitted. `ready` means the workflow exists, not that perceptual acceptance has occurred.
 
+## Web publication
+
+Feature Lab is one example in the [unified publication pipeline](../../../docs/build/DEVELOPMENT_EXAMPLES.md), regardless of scenario/check count. Its ordinary `web-threaded` profile preserves all authored locales at development localization quality; platform export uses the existing reference button image as the application icon. Project export/import/validate is required before publication, just like the external examples. This adds no engine-only behavior or separate development/release mode. Public Play and Project actions are available; private source provenance stays in the qualification artifact rather than becoming a Source link.
+
 ## Catalog contract
 
 The project-specific validator is `tools/feature-lab/validate.mjs`. It checks stable IDs and references, `ready` / `provisional` / `blocked` statuses, valid UTC calendar timestamps, automation targets, Asset Requirement realizations, and derived scenario metadata. Reference collections must be arrays, including when empty. The catalog inherits Project Workspace Format; it has no independent `schemaVersion`, and the replaced versioned shape is rejected. Automation references resolve actual authored Test identities/kinds or stable IDs declared in the manifest's `visualCheckpoints` registry. Launch Rooms and Asset realizations resolve record identities; requirement kinds and Project-file source existence are checked. Synthetic/curated describes acceptance intent, not a ban on documented cross-use of reference art. Blocked/provisional scenarios and checks require an explicit `statusReason`.

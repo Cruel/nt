@@ -45,7 +45,7 @@
       "applicationId": "org.noveltea.featurelab",
       "saveNamespace": "org.noveltea.featurelab",
       "versionName": "0.1.0",
-      "icon": null,
+      "icon": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
       "launchImage": null,
       "desktop": {},
       "web": {},
@@ -91,7 +91,31 @@
       "previewAfterExport": false,
       "localization": { "locales": ["en", "fr", "fr-CA", "ja", "ar"], "defaultLocale": "en", "quality": "development" }
     },
-    "profiles": [],
+    "profiles": [
+      {
+        "format": "noveltea.platform-export-profile",
+        "id": "web-threaded",
+        "label": "Web Threaded",
+        "buildFlavor": "release",
+        "compression": "default",
+        "includeDebugSymbols": false,
+        "excludeUnusedAssets": true,
+        "includeShaderSources": false,
+        "assetMemory": { "kind": "builtin", "preset": "balanced" },
+        "localization": { "locales": ["en", "fr", "fr-CA", "ja", "ar"], "defaultLocale": "en", "quality": "development" },
+        "target": "web",
+        "architecture": "wasm32",
+        "packageAccess": "web-fetch",
+        "web": {
+          "artifact": "directory-zip",
+          "threaded": true,
+          "pwa": true,
+          "display": "standalone",
+          "basePath": "/",
+          "serviceWorker": "disabled"
+        }
+      }
+    ],
     "assetMemoryPolicies": []
   },
   "bootstrapModule": { "$ref": { "collection": "scripts", "id": "feature-lab-bootstrap" } },
