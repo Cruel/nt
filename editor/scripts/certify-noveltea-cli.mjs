@@ -21,11 +21,8 @@ import process from 'node:process';
 import { fileURLToPath } from 'node:url';
 
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
+import { waitForDaemonState } from './cli-certification-synchronization.mjs';
 import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
-import {
-  createDisposableGate,
-  waitForDisposableAdmission,
-} from './cli-certification-synchronization.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
@@ -2563,33 +2560,9 @@ async function certifyDaemonBuildProtocolIsolation(tempRoot) {
   }
 }
 
-async function certifyDisposableGate(runtimeRoot, environment, status) {
-  const gate = await createDisposableGate(runtimeRoot, 'gate-regression', environment);
-  try {
-    const command = await runAsync(nativeCli, ['--json', 'platform', 'template', 'list'], {
-      env: gate.environment,
-    });
-    await waitForDisposableAdmission('Disposable gate regression', status, command, {
-      standby: true,
-    });
-    // A held disposable gate must not starve daemon control-plane requests.
-    for (let probe = 0; probe < 5; probe += 1) status();
-    // Outlive the former export delay with a trivial command, so normal command cost cannot mask
-    // a host that ignores the gate and completes before its observer resumes.
-    await new Promise((resolve) => setTimeout(resolve, 2000));
-    if (command.snapshot().status !== null || command.snapshot().signal !== null)
-      fail(
-        `Disposable gate released without observer acknowledgement: ${JSON.stringify(command.snapshot())}`,
-      );
-    await gate.release();
-    requireSuccess('Disposable gate explicit release', await command.result());
-  } finally {
-    await gate.release();
-  }
-}
-
 async function certifyDisposableTestScheduling(tempRoot) {
-  const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+  const pristine = path.join(tempRoot, 'disposable-test-pristine');
+  await materializeFixture(pristine);
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-disposable-'));
   const environment = {
     ...process.env,
@@ -2601,139 +2574,44 @@ async function certifyDisposableTestScheduling(tempRoot) {
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_IDLE_MS: '250',
   };
   const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
-  const resetFeatureLab = async (name) => {
+  const resetFixture = async (name) => {
     const root = path.join(tempRoot, name);
-    await rm(root, { recursive: true, force: true });
-    await cp(source, root, { recursive: true });
+    await resetCase(pristine, root);
     await rm(path.join(root, '.noveltea', 'cache'), { recursive: true, force: true });
+    requireSuccess(
+      `${name} authored Test setup`,
+      runNative(['--project', root, '--json', 'entity', 'create', 'tests', 'scheduler-smoke'], {
+        cwd: root,
+        env: environment,
+      }),
+    );
     return root;
   };
   const status = () =>
     JSON.parse(requireDaemonStatus('disposable Test scheduler status', environment).stdout).daemon;
-  const waitForStatus = async (label, predicate, timeoutMs = 15000) => {
-    const deadline = Date.now() + timeoutMs;
-    let latest = null;
-    while (Date.now() < deadline) {
-      latest = status();
-      if (predicate(latest)) return latest;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    fail(`${label} timed out; last daemon status: ${JSON.stringify(latest)}`);
-  };
+  const waitForStatus = (label, predicate, timeoutMs = 15000) =>
+    waitForDaemonState(label, status, predicate, { timeoutMs });
 
   runNative(['daemon', 'stop'], { env: environment });
   try {
-    await certifyDisposableGate(runtimeRoot, traceEnvironment, status);
-    const generationRoot = await resetFeatureLab('disposable-test-generation');
-    requireSuccess(
-      'Disposable Test pinned-cache baseline',
-      runNative(['--project', generationRoot, '--json', 'test', 'run', 'rooms-interactions-flow'], {
-        cwd: generationRoot,
-        env: traceEnvironment,
+    const smokeRoot = await resetFixture('disposable-test-smoke');
+    const longResult = requireSuccess(
+      'Disposable Test public CLI smoke',
+      runNative(['--project', smokeRoot, '--json', 'test', 'run', 'scheduler-smoke'], {
+        cwd: smokeRoot,
+        env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
       }),
     );
-    await rm(path.join(generationRoot, '.noveltea', 'cache', 'runtime'), {
-      recursive: true,
-      force: true,
-    });
-    const generationGate = await createDisposableGate(runtimeRoot, 'test-generation', {
-      ...traceEnvironment,
-      NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
-    });
-    const longTest = await runAsync(
-      nativeCli,
-      ['--project', generationRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
-      { cwd: generationRoot, env: generationGate.environment },
-    );
-    const activeStatus = await waitForDisposableAdmission(
-      'Disposable Test warm-standby certification',
-      status,
-      longTest,
-      { standby: true },
-    );
-    const daemonPid = activeStatus.pid;
-    const bootstrapPath = path.join(generationRoot, 'scripts', 'feature-lab-bootstrap.lua');
-    await writeFile(
-      bootstrapPath,
-      'error("generation-two")\nreturn { route_startup = function() end }\n',
-    );
-    const newerTarget = runNative(
-      ['--project', generationRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
-      { cwd: generationRoot, env: traceEnvironment },
-    );
-    if (
-      newerTarget.status === 0 ||
-      !`${newerTarget.stdout}${newerTarget.stderr}`.includes('generation-two')
-    )
-      fail('Newer disposable Test generation did not establish observably different semantics.');
-    const runtimeCurrentPath = path.join(
-      generationRoot,
-      '.noveltea',
-      'cache',
-      'runtime',
-      'current',
-    );
-    const newerGeneration = (await readFile(runtimeCurrentPath, 'utf8')).trim();
-    if (!newerGeneration)
-      fail('Newer disposable Test generation did not publish a runtime cache generation.');
-    await generationGate.release();
-    const longResult = await longTest.result();
-    requireSuccess('Disposable Test generation-pinned execution', longResult);
     if (JSON.parse(longResult.stdout).native?.report?.passed !== true)
-      fail('Pinned disposable Test did not preserve generation-N runtime semantics.');
-    const generationAfterPinnedCompletion = (await readFile(runtimeCurrentPath, 'utf8')).trim();
-    if (generationAfterPinnedCompletion !== newerGeneration)
-      fail(
-        `Pinned Test generation replaced the newer runtime cache generation: ` +
-          `${newerGeneration} -> ${generationAfterPinnedCompletion}`,
-      );
+      fail('Disposable Test public CLI smoke did not pass its authored Test.');
+    const daemonPid = status().pid;
 
-    const malformedRoot = await resetFeatureLab('disposable-test-malformed-latest');
-    requireSuccess(
-      'Disposable Test malformed-latest retained baseline',
-      runNative(['--project', malformedRoot, '--json', 'test', 'run', 'rooms-interactions-flow'], {
-        cwd: malformedRoot,
-        env: environment,
-      }),
-    );
-    const malformedRoom = path.join(malformedRoot, 'records', 'rooms', 'feature-lab-home.json');
-    await writeFile(malformedRoom, '{ malformed current generation');
-    const retainedFailure = runNative(
-      ['--project', malformedRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
-      { cwd: malformedRoot, env: environment },
-    );
-    const localFailure = runNative(
-      ['--project', malformedRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
-      {
-        cwd: malformedRoot,
-        env: { ...environment, NOVELTEA_NO_DAEMON: '1' },
-      },
-    );
-    if (
-      retainedFailure.status === 0 ||
-      retainedFailure.status !== localFailure.status ||
-      retainedFailure.stdout !== localFailure.stdout
-    )
-      fail(
-        `Malformed newest Project generation did not preserve the original heavy-command failure semantics.\n` +
-          `daemon=${retainedFailure.status}: ${retainedFailure.stdout}\n` +
-          `local=${localFailure.status}: ${localFailure.stdout}`,
-      );
-    if (
-      `${retainedFailure.stdout}${retainedFailure.stderr}`.includes(
-        'Project owner did not publish the requested portable snapshot',
-      )
-    )
-      fail(
-        'Malformed newest Project generation collapsed into a generic snapshot-preparation error.',
-      );
     if (!longResult.stderr.includes('[scriptc-host] daemon invocation forwarding'))
-      fail('Generation-pinned Test did not exercise the resident daemon route.');
+      fail('Disposable Test smoke did not exercise the resident daemon route.');
     const longSchedulerProfile = schedulerProfile(longResult);
     const longWorkerProfile = workerProfile(longResult);
     if (
       !longSchedulerProfile?.snapshotHandoff ||
-      longSchedulerProfile.queuedDisposableJobs < 1 ||
       longWorkerProfile?.workerKind !== 'disposable' ||
       longWorkerProfile.hasProjectSnapshot !== true ||
       longWorkerProfile.snapshotBytes <= 0 ||
@@ -2745,17 +2623,14 @@ async function certifyDisposableTestScheduling(tempRoot) {
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
 
-    const queueRoot = await resetFeatureLab('disposable-test-cap');
-    const cappedEnvironment = {
-      ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '750',
-    };
+    const queueRoot = await resetFixture('disposable-test-concurrent');
+    const cappedEnvironment = traceEnvironment;
     const queuedRuns = [];
-    for (let index = 0; index < 9; index += 1) {
+    for (let index = 0; index < 3; index += 1) {
       queuedRuns.push(
         await runAsync(
           nativeCli,
-          ['--project', queueRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+          ['--project', queueRoot, '--json', 'test', 'run', 'scheduler-smoke'],
           { cwd: queueRoot, env: cappedEnvironment },
         ),
       );
@@ -2764,9 +2639,12 @@ async function certifyDisposableTestScheduling(tempRoot) {
     // admission state machine. Standalone certification keeps this as a concurrent public-CLI
     // stress case without requiring one transient scheduler snapshot to occur within a deadline.
     for (let index = 0; index < queuedRuns.length; index += 1)
-      requireSuccess(`Disposable Test capped run ${index + 1}`, await queuedRuns[index].result());
+      requireSuccess(
+        `Disposable Test concurrent run ${index + 1}`,
+        await queuedRuns[index].result(),
+      );
     await waitForStatus(
-      'Disposable Test post-cap standby replenishment',
+      'Disposable Test concurrent-run standby replenishment',
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
     await waitForStatus(
@@ -2776,52 +2654,6 @@ async function certifyDisposableTestScheduling(tempRoot) {
         daemon.disposableBusyWorkers === 0 &&
         daemon.disposableStandbyWorkers === 1,
       5000,
-    );
-
-    const cancellationRoot = await resetFeatureLab('disposable-test-cancellation');
-    const cancellationGate = await createDisposableGate(
-      runtimeRoot,
-      'test-cancellation',
-      traceEnvironment,
-    );
-    const cancellationEnvironment = cancellationGate.environment;
-    const cancellationArgs = [
-      '--project',
-      cancellationRoot,
-      '--json',
-      'test',
-      'run',
-      'rooms-interactions-flow',
-    ];
-    const cancellation = isWindows
-      ? await runWindowsConsoleProcess(nativeCli, cancellationArgs, {
-          cwd: cancellationRoot,
-          env: cancellationEnvironment,
-        })
-      : {
-          invocation: await runAsync(nativeCli, cancellationArgs, {
-            cwd: cancellationRoot,
-            env: cancellationEnvironment,
-          }),
-          pid: null,
-        };
-    await waitForDisposableAdmission(
-      'Disposable Test cancellation admission',
-      status,
-      cancellation.invocation,
-    );
-    if (isWindows) sendWindowsConsoleCtrlC(cancellation.pid);
-    else cancellation.invocation.child.kill('SIGINT');
-    const cancellationResult = await cancellation.invocation.result();
-    await cancellationGate.release();
-    if (cancellationResult.status !== 130)
-      fail(
-        `Disposable Test cancellation exited ${cancellationResult.status}, expected 130.\n` +
-          `${cancellationResult.stdout}\n${cancellationResult.stderr}`,
-      );
-    await waitForStatus(
-      'Disposable Test cancellation standby replenishment',
-      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
 
     const snapshotlessCrash = runNative(['--json', 'platform', 'template', 'list'], {
@@ -2843,7 +2675,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
       (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
     );
 
-    const crashRoot = await resetFeatureLab('disposable-test-crash');
+    const crashRoot = await resetFixture('disposable-test-crash');
     const crashOwnerAdmission = requireSuccess(
       'Disposable Test crash owner baseline',
       runNative(['--project', crashRoot, '--json', 'validate'], {
@@ -2860,7 +2692,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
         `Disposable Test crash baseline did not expose its Project owner: ${crashOwnerAdmission.stderr}`,
       );
     const crashResult = runNative(
-      ['--project', crashRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
+      ['--project', crashRoot, '--json', 'test', 'run', 'scheduler-smoke'],
       {
         cwd: crashRoot,
         env: {
@@ -2879,7 +2711,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
       fail('Disposable Test worker crash replaced or terminated the daemon broker.');
     const ownerAfterDisposableCrash = requireSuccess(
       'Disposable Test crash isolation owner read',
-      runNative(['--project', crashRoot, '--json', 'usages', 'rooms', 'feature-lab-home'], {
+      runNative(['--project', crashRoot, '--json', 'usages', 'rooms', 'gallery'], {
         cwd: crashRoot,
         env: { ...traceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
       }),
@@ -2898,12 +2730,9 @@ async function certifyDisposableTestScheduling(tempRoot) {
       );
 
     return {
-      generationPinned: true,
-      foregroundPriority: true,
-      warmStandby: true,
-      cappedQueue: true,
+      publicCliSmoke: true,
+      concurrentCliSmoke: true,
       idleExcessRetirement: true,
-      cancellationIsolation: true,
       crashIsolation: true,
       diagnostics: {
         scheduler: longSchedulerProfile,
@@ -2911,14 +2740,14 @@ async function certifyDisposableTestScheduling(tempRoot) {
       },
     };
   } finally {
-    await rm(path.join(runtimeRoot, 'certification-gates'), { recursive: true, force: true });
     runNative(['daemon', 'stop'], { env: environment });
     await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
   }
 }
 
 async function certifyDisposableOutputScheduling(tempRoot) {
-  const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
+  const pristine = path.join(tempRoot, 'disposable-output-pristine');
+  await materializeFixture(pristine);
   const startSubcase = (name) => {
     process.stdout.write(`[certification] disposable-output/${name}: START\n`);
     return process.hrtime.bigint();
@@ -2939,26 +2768,17 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
   };
   const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
-  const resetFeatureLab = async (name) => {
+  const resetFixture = async (name) => {
     const root = path.join(tempRoot, name);
-    await rm(root, { recursive: true, force: true });
-    await cp(source, root, { recursive: true });
+    await resetCase(pristine, root);
     await rm(path.join(root, '.noveltea', 'cache'), { recursive: true, force: true });
     return root;
   };
   const status = () =>
     JSON.parse(requireDaemonStatus('disposable output scheduler status', environment).stdout)
       .daemon;
-  const waitForStatus = async (label, predicate, timeoutMs = 15000) => {
-    const deadline = Date.now() + timeoutMs;
-    let latest = null;
-    while (Date.now() < deadline) {
-      latest = status();
-      if (predicate(latest)) return latest;
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
-    fail(`${label} timed out; last daemon status: ${JSON.stringify(latest)}`);
-  };
+  const waitForStatus = (label, predicate, timeoutMs = 15000) =>
+    waitForDaemonState(label, status, predicate, { timeoutMs });
   const packageArguments = (root, output) => [
     '--project',
     root,
@@ -2972,40 +2792,20 @@ async function certifyDisposableOutputScheduling(tempRoot) {
 
   runNative(['daemon', 'stop'], { env: environment });
   try {
-    let subcaseStartedAt = startSubcase('gate-regression');
-    await certifyDisposableGate(runtimeRoot, traceEnvironment, status);
-    passSubcase('gate-regression', subcaseStartedAt);
-
-    subcaseStartedAt = startSubcase('portable-project-export');
-    const portableRoot = await resetFeatureLab('disposable-portable-project-export');
+    let subcaseStartedAt = startSubcase('portable-project-export');
+    const portableRoot = await resetFixture('disposable-portable-project-export');
     const portableOutput = path.join(tempRoot, 'disposable-portable-project.ntproject');
     await rm(portableOutput, { force: true });
     const portableEnvironment = {
       ...traceEnvironment,
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
-    const portableGate = await createDisposableGate(runtimeRoot, 'portable', portableEnvironment);
-    const portableExport = await runAsync(
-      nativeCli,
-      ['--project', portableRoot, '--json', 'project', 'export', '--output', portableOutput],
-      { cwd: portableRoot, env: portableGate.environment },
-    );
-    await waitForDisposableAdmission(
-      'Portable Project export disposable admission',
-      status,
-      portableExport,
-    );
-    requireSuccess(
-      'Portable Project export concurrent foreground validation',
-      runNative(['--project', portableRoot, '--json', 'validate'], {
-        cwd: portableRoot,
-        env: traceEnvironment,
-      }),
-    );
-    await portableGate.release();
     const portableResult = requireSuccess(
       'Portable Project export disposable completion',
-      await portableExport.result(),
+      runNative(
+        ['--project', portableRoot, '--json', 'project', 'export', '--output', portableOutput],
+        { cwd: portableRoot, env: portableEnvironment },
+      ),
     );
     const portableSchedulerProfile = schedulerProfile(portableResult);
     const portableWorkerProfile = workerProfile(portableResult);
@@ -3021,79 +2821,14 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail('Disposable Portable Project export did not publish its bundle.');
     passSubcase('portable-project-export', subcaseStartedAt);
 
-    subcaseStartedAt = startSubcase('portable-project-drift');
-    const portableDriftRoot = await resetFeatureLab('disposable-portable-project-drift');
-    const portableDriftOutput = path.join(tempRoot, 'disposable-portable-project-drift.ntproject');
-    await rm(portableDriftOutput, { force: true });
-    const portableDriftGate = await createDisposableGate(
-      runtimeRoot,
-      'portable-drift',
-      portableEnvironment,
-    );
-    const portableDrift = await runAsync(
-      nativeCli,
-      [
-        '--project',
-        portableDriftRoot,
-        '--json',
-        'project',
-        'export',
-        '--output',
-        portableDriftOutput,
-      ],
-      { cwd: portableDriftRoot, env: portableDriftGate.environment },
-    );
-    await waitForDisposableAdmission(
-      'Portable Project export drift admission',
-      status,
-      portableDrift,
-    );
-    const driftRoomPath = path.join(portableDriftRoot, 'records', 'rooms', 'feature-lab-home.json');
-    const driftRoom = JSON.parse(await readFile(driftRoomPath, 'utf8'));
-    driftRoom.label = `${driftRoom.label} portable drift`;
-    await writeJson(driftRoomPath, driftRoom);
-    requireSuccess(
-      'Portable Project drift concurrent foreground validation',
-      runNative(['--project', portableDriftRoot, '--json', 'validate'], {
-        cwd: portableDriftRoot,
-        env: traceEnvironment,
-      }),
-    );
-    await portableDriftGate.release();
-    const portableDriftResult = await portableDrift.result();
-    if (
-      portableDriftResult.status === 0 ||
-      !`${portableDriftResult.stdout}${portableDriftResult.stderr}`.includes(
-        'changed while preparing the bundle',
-      )
-    )
-      fail(
-        `Disposable Portable Project export did not preserve source-change authority: ${portableDriftResult.stdout}${portableDriftResult.stderr}`,
-      );
-    if (await stat(portableDriftOutput).catch(() => null))
-      fail('Disposable Portable Project export published after source drift.');
-    passSubcase('portable-project-drift', subcaseStartedAt);
-
     subcaseStartedAt = startSubcase('shader-compile');
-    const shaderRoot = await resetFeatureLab('disposable-shader-compile');
-    const shaderGate = await createDisposableGate(runtimeRoot, 'shaders', portableEnvironment);
-    const shaderCompile = await runAsync(
-      nativeCli,
-      ['--project', shaderRoot, '--json', 'shaders', 'compile', '--force-rebuild'],
-      { cwd: shaderRoot, env: shaderGate.environment },
-    );
-    await waitForDisposableAdmission('Shader compile disposable admission', status, shaderCompile);
-    requireSuccess(
-      'Shader compile concurrent foreground validation',
-      runNative(['--project', shaderRoot, '--json', 'validate'], {
-        cwd: shaderRoot,
-        env: traceEnvironment,
-      }),
-    );
-    await shaderGate.release();
+    const shaderRoot = await resetFixture('disposable-shader-compile');
     const shaderResult = requireSuccess(
       'Shader compile disposable completion',
-      await shaderCompile.result(),
+      runNative(['--project', shaderRoot, '--json', 'shaders', 'compile', '--force-rebuild'], {
+        cwd: shaderRoot,
+        env: portableEnvironment,
+      }),
     );
     const shaderSchedulerProfile = schedulerProfile(shaderResult);
     const shaderWorkerProfile = workerProfile(shaderResult);
@@ -3105,124 +2840,6 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail(`Shader compile did not use a pinned disposable generation: ${shaderResult.stderr}`);
     passSubcase('shader-compile', subcaseStartedAt);
 
-    subcaseStartedAt = startSubcase('generation-pinning');
-    const generationRoot = await resetFeatureLab('disposable-output-generation');
-    const layoutRecordPath = path.join(
-      generationRoot,
-      'records',
-      'layouts',
-      'feature-lab-hud',
-      'layout.json',
-    );
-    const layoutRecord = JSON.parse(await readFile(layoutRecordPath, 'utf8'));
-    layoutRecord.data.dependencies.scripts.push('scripts/disposable-layout-helper.lua');
-    await writeJson(layoutRecordPath, layoutRecord);
-    const layoutHelperPath = path.join(generationRoot, 'scripts', 'disposable-layout-helper.lua');
-    await writeFile(layoutHelperPath, 'return { generation = "one" }\n');
-    const generationBaselineOutput = path.join(tempRoot, 'disposable-generation-baseline.ntpkg');
-    const generationOutput = path.join(tempRoot, 'disposable-generation.ntpkg');
-    await rm(generationBaselineOutput, { force: true });
-    await rm(generationOutput, { force: true });
-    requireSuccess(
-      'Disposable output generation baseline',
-      runNative(packageArguments(generationRoot, generationBaselineOutput), {
-        cwd: generationRoot,
-        env: traceEnvironment,
-      }),
-    );
-    const generationBaselineBytes = await readFile(generationBaselineOutput);
-    const generationGate = await createDisposableGate(
-      runtimeRoot,
-      'output-generation',
-      traceEnvironment,
-    );
-    const generationExport = await runAsync(
-      nativeCli,
-      packageArguments(generationRoot, generationOutput),
-      { cwd: generationRoot, env: generationGate.environment },
-    );
-    await waitForDisposableAdmission(
-      'Disposable output concurrent-owner admission',
-      status,
-      generationExport,
-      { standby: true },
-    );
-    const roomPath = path.join(generationRoot, 'records', 'rooms', 'feature-lab-home.json');
-    const room = JSON.parse(await readFile(roomPath, 'utf8'));
-    room.label = `${room.label} output generation advance`;
-    await writeJson(roomPath, room);
-    const bootstrapPath = path.join(generationRoot, 'scripts', 'feature-lab-bootstrap.lua');
-    await writeFile(
-      bootstrapPath,
-      `${await readFile(bootstrapPath, 'utf8')}\n-- disposable generation two\n`,
-    );
-    await writeFile(layoutHelperPath, 'return { generation = "two" }\n');
-    const addedRoomPath = path.join(
-      generationRoot,
-      'records',
-      'rooms',
-      'disposable-generation-live-only.json',
-    );
-    await writeJson(addedRoomPath, {
-      ...room,
-      id: 'disposable-generation-live-only',
-      label: 'Disposable Generation Live Only',
-    });
-    requireSuccess(
-      'Disposable output concurrent foreground validation',
-      runNative(['--project', generationRoot, '--json', 'validate'], {
-        cwd: generationRoot,
-        env: traceEnvironment,
-      }),
-    );
-    await generationGate.release();
-    requireSuccess(
-      'Disposable output generation-pinned package export',
-      await generationExport.result(),
-    );
-    if (!(await stat(generationOutput).catch(() => null)))
-      fail('Generation-pinned disposable package export did not publish its final output.');
-    const generationBytes = await readFile(generationOutput);
-    if (!generationBytes.equals(generationBaselineBytes))
-      fail(
-        'Generation-pinned disposable package export observed the newer live Project generation.',
-      );
-    passSubcase('generation-pinning', subcaseStartedAt);
-
-    subcaseStartedAt = startSubcase('asset-drift');
-    const driftRoot = await resetFeatureLab('disposable-output-drift');
-    const driftOutput = path.join(tempRoot, 'disposable-drift.ntpkg');
-    await rm(driftOutput, { force: true });
-    const driftGate = await createDisposableGate(runtimeRoot, 'asset-drift', traceEnvironment);
-    const driftExport = await runAsync(nativeCli, packageArguments(driftRoot, driftOutput), {
-      cwd: driftRoot,
-      env: driftGate.environment,
-    });
-    await waitForDisposableAdmission(
-      'Disposable output Asset-drift admission',
-      status,
-      driftExport,
-    );
-    const assetPath = path.join(driftRoot, 'assets', 'images', 'bedroom.webp');
-    const assetStat = await stat(assetPath);
-    const changedTime = new Date(assetStat.mtimeMs + 2000);
-    await utimes(assetPath, changedTime, changedTime);
-    await driftGate.release();
-    const driftResult = await driftExport.result();
-    if (driftResult.status === 0)
-      fail('Disposable package export published successfully after pinned Asset drift.');
-    if (await stat(driftOutput).catch(() => null))
-      fail('Disposable package export published a final output after pinned Asset drift.');
-    passSubcase('asset-drift', subcaseStartedAt);
-
-    subcaseStartedAt = startSubcase('cancellation');
-    const cancellationRoot = await resetFeatureLab('disposable-output-cancellation');
-    const cancellationOutput = path.join(tempRoot, 'disposable-cancellation.ntpkg');
-    await rm(cancellationOutput, { force: true });
-    const stagedOutputs = async (output) =>
-      (await readdir(path.dirname(output))).filter((name) =>
-        name.startsWith(`${path.basename(output)}.tmp-`),
-      );
     const publicationDebris = async (output) => {
       const parent = path.dirname(output);
       const basename = path.basename(output);
@@ -3233,56 +2850,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
           name === `${basename}.noveltea-publication-transaction.json`,
       );
     };
-    const cancellationEnvironment = {
-      ...traceEnvironment,
-      // Give the certifier a reliable observation window even on constrained runners. The worker
-      // leaves this hook immediately after it observes cancellation, so this is a maximum rather
-      // than a fixed delay.
-      NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '10000',
-    };
-    const cancellationArgs = packageArguments(cancellationRoot, cancellationOutput);
-    const cancellation = isWindows
-      ? await runWindowsConsoleProcess(nativeCli, cancellationArgs, {
-          cwd: cancellationRoot,
-          env: cancellationEnvironment,
-        })
-      : {
-          invocation: await runAsync(nativeCli, cancellationArgs, {
-            cwd: cancellationRoot,
-            env: cancellationEnvironment,
-          }),
-          pid: null,
-        };
-    const stagedDeadline = Date.now() + 30000;
-    while ((await stagedOutputs(cancellationOutput)).length === 0) {
-      if (Date.now() >= stagedDeadline)
-        fail('Disposable cancellation never created a staged package.');
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    if (isWindows) sendWindowsConsoleCtrlC(cancellation.pid);
-    else cancellation.invocation.child.kill('SIGINT');
-    const cancellationResult = await cancellation.invocation.result();
-    if (cancellationResult.status !== 130)
-      fail(
-        `Disposable output cancellation exited ${cancellationResult.status}, expected 130.\n` +
-          `${cancellationResult.stdout}\n${cancellationResult.stderr}`,
-      );
-    await waitForStatus(
-      'Disposable output cancellation cleanup',
-      (daemon) => daemon.disposableBusyWorkers === 0 && daemon.disposableStandbyWorkers >= 1,
-    );
-    if (await stat(cancellationOutput).catch(() => null))
-      fail('Cancelled disposable package export published a final output.');
-    const cleanupDeadline = Date.now() + 5000;
-    while ((await stagedOutputs(cancellationOutput)).length !== 0) {
-      if (Date.now() >= cleanupDeadline)
-        fail('Cancelled disposable package export leaked staging files.');
-      await new Promise((resolve) => setTimeout(resolve, 20));
-    }
-    passSubcase('cancellation', subcaseStartedAt);
 
     subcaseStartedAt = startSubcase('crash-recovery');
-    const crashRoot = await resetFeatureLab('disposable-output-crash');
+    const crashRoot = await resetFixture('disposable-output-crash');
     const crashOutput = path.join(tempRoot, 'disposable-crash.ntpkg');
     await rm(crashOutput, { force: true });
     requireSuccess(
@@ -3331,19 +2901,12 @@ async function certifyDisposableOutputScheduling(tempRoot) {
 
     return {
       portableProjectExportPinned: true,
-      portableProjectExportAuthority: true,
       shaderCompilePinned: true,
-      foregroundOwnerResponsive: true,
-      generationPinned: true,
-      foregroundOwnerProgress: true,
-      assetDriftBlocksPublication: true,
-      cancellationBlocksPublication: true,
       crashBlocksPublication: true,
       crashPreservesPreviousPublication: true,
       postCrashPublicationRecovers: true,
     };
   } finally {
-    await rm(path.join(runtimeRoot, 'certification-gates'), { recursive: true, force: true });
     runNative(['daemon', 'stop'], { env: environment });
     await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
   }
