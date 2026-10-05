@@ -40,7 +40,12 @@ describe('new entity wizard registry', () => {
   });
 
   it('excludes records that should use dedicated flows instead of the generic wizard', () => {
-    expect(newEntityWizardExcludedCollections).toEqual(['assets', 'variables', 'tests']);
+    expect(newEntityWizardExcludedCollections).toEqual([
+      'assets',
+      'animations',
+      'variables',
+      'tests',
+    ]);
     expect(newEntityWizardDefinitions.map((definition) => definition.collection)).not.toContain(
       'assets',
     );

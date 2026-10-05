@@ -723,6 +723,74 @@ describe('authoring structural dependency graph and queries', () => {
     }
   });
 
+  it('tracks Animation frame Assets and Room Environment Animation Visuals as typed dependencies', () => {
+    const project = createAuthoringProject();
+    project.assets.frame = {
+      id: 'frame',
+      label: 'Frame',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'images/frame.png' },
+        aliases: [],
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.animations.pulse = {
+      id: 'pulse',
+      label: 'Pulse',
+      data: {
+        kind: 'animation',
+        canvas: { width: 32, height: 32 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
+          },
+        ],
+      },
+    };
+    project.materials.panel = {
+      id: 'panel',
+      label: 'Panel',
+      data: defaultMaterialData('Panel', 'engine-2d'),
+    };
+    const room = defaultRoomData();
+    room.environments.push({
+      id: 'pulse',
+      condition: { kind: 'always' },
+      asset: null,
+      visual: {
+        kind: 'animation',
+        animation: { $ref: { collection: 'animations', id: 'pulse' } },
+        motionId: null,
+      },
+      materialApplication: {
+        material: { $ref: { collection: 'materials', id: 'panel' } },
+        parameters: {},
+        textures: {},
+      },
+      bounds: { x: 0, y: 0, width: 1, height: 1 },
+      plane: 'world-background',
+      order: 0,
+      clock: 'gameplay',
+      scrollPerSecond: { x: 0, y: 0 },
+      opacity: 1,
+      visible: true,
+    });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+
+    const graph = buildAuthoringStructuralDependencyGraph(project);
+
+    expect(
+      outgoingAuthoringDependencies(graph, recordNodeKey('animations', 'pulse')),
+    ).toContainEqual(expect.objectContaining({ target: recordNodeKey('assets', 'frame') }));
+    expect(outgoingAuthoringDependencies(graph, recordNodeKey('rooms', 'foyer'))).toContainEqual(
+      expect.objectContaining({ target: recordNodeKey('animations', 'pulse') }),
+    );
+  });
+
   it('derives Message locale fallback relationships without a global identity Property node', () => {
     const project = createAuthoringProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f010';

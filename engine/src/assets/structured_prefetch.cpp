@@ -241,6 +241,7 @@ struct StructuredAssetDependencyIndex::Impl {
     std::unordered_map<std::string, const core::compiled::AssetResource*> assets_by_logical_path;
 
     std::unordered_map<core::AssetId, const core::compiled::AssetResource*> assets;
+    std::unordered_map<core::AnimationId, const core::compiled::AnimationResource*> animations;
     std::unordered_map<core::LayoutId, const core::compiled::LayoutResource*> layouts;
     std::unordered_map<core::CharacterId, const core::compiled::CharacterDefinition*> characters;
     std::unordered_map<core::RoomId, const core::compiled::RoomDefinition*> rooms;
@@ -377,6 +378,38 @@ struct StructuredAssetDependencyIndex::Impl {
             return;
         }
         output.add(audio_descriptor(*asset, channel, source_generation));
+    }
+
+    void append_visual(DescriptorAccumulator& output, const core::compiled::Visual& visual,
+                       core::Diagnostics& collection_diagnostics, std::string_view context) const
+    {
+        if (const auto* image = std::get_if<core::compiled::ImageVisual>(&visual)) {
+            append_asset(output, image->image, core::compiled::AssetKind::Image,
+                         collection_diagnostics, context);
+            return;
+        }
+        const auto& selected = std::get<core::compiled::AnimationVisual>(visual);
+        const auto found = animations.find(selected.animation);
+        if (found == animations.end()) {
+            add_diagnostic(collection_diagnostics, "assets.prefetch_missing_animation",
+                           std::string(context) + " references missing Animation '" +
+                               selected.animation.text() + "'");
+            return;
+        }
+        const auto& animation = *found->second;
+        const auto motion_id = selected.motion.value_or(animation.default_motion);
+        const auto motion = std::ranges::find_if(
+            animation.motions, [&](const auto& candidate) { return candidate.id == motion_id; });
+        if (motion == animation.motions.end()) {
+            add_diagnostic(collection_diagnostics, "assets.prefetch_missing_animation_motion",
+                           std::string(context) + " references missing Animation motion '" +
+                               motion_id.text() + "' on Animation '" + selected.animation.text() +
+                               "'");
+            return;
+        }
+        for (const auto& frame : motion->frames)
+            append_asset(output, frame.image, core::compiled::AssetKind::Image,
+                         collection_diagnostics, context);
     }
 
     void append_material(DescriptorAccumulator& output, const core::MaterialId& id,
@@ -673,7 +706,10 @@ struct StructuredAssetDependencyIndex::Impl {
                 append_material(output, *prop.material, collection_diagnostics, "Room prop");
         }
         for (const auto& environment : room.environments) {
-            if (environment.asset)
+            if (environment.visual)
+                append_visual(output, *environment.visual, collection_diagnostics,
+                              "Room environment");
+            else if (environment.asset)
                 append_asset(output, *environment.asset, core::compiled::AssetKind::Image,
                              collection_diagnostics, "Room environment");
             append_material(output, environment.material, collection_diagnostics,
@@ -765,6 +801,8 @@ StructuredAssetDependencyIndex StructuredAssetDependencyIndex::build(
                            core::ErrorSeverity::Error);
         }
     }
+    for (const auto& animation : project.animations())
+        impl->animations.emplace(animation.id, &animation);
     for (const auto& layout : project.layouts()) {
         const auto* registered = package.resources().find_layout(layout.id);
         if (registered != nullptr) {
@@ -969,7 +1007,10 @@ MandatoryAssetDependencyCollector::collect(const MandatoryAssetDependencyContext
         for (const auto& environment : snapshot->environments) {
             if (!environment.visible)
                 continue;
-            if (environment.asset)
+            if (environment.visual)
+                m_index.m_impl->append_visual(current, *environment.visual, current_diagnostics,
+                                              "current environment");
+            else if (environment.asset)
                 m_index.m_impl->append_asset(current, *environment.asset,
                                              core::compiled::AssetKind::Image, current_diagnostics,
                                              "current environment");

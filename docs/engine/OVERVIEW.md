@@ -12,6 +12,7 @@ Read the specific component doc before changing its schema, commands, editor UI,
 
 - `docs/engine/PROJECT.md` — root project document, metadata, settings, runtime defaults, and project-wide references.
 - `docs/engine/ASSET.md` — authoring assets, import metadata, asset editor/library behavior, runtime/export status.
+- `docs/engine/ANIMATION.md` — first-class raster Animation resources, named sprite motions, Room Environment Visual tracer, production resource realization, and current scope.
 - `docs/engine/ROOM.md` — typed Room definitions, owner-local Features, Hotspot target geometry, placements/exits, lifecycle pipeline, and mutable room state.
 - `docs/engine/CHARACTER.md` — immutable Character definitions, actor state, poses/expressions, and current scaffolding.
 - `docs/engine/DIALOGUE.md` — the specialized dialogue graph/program, call-return and state semantics, and current scaffolding.

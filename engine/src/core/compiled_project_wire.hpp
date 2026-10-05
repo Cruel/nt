@@ -233,6 +233,7 @@ struct SharedProject {
     std::vector<ArchetypeDefinition> archetypes;
     std::vector<InventoryDefinition> inventories;
     std::vector<AssetResource> assets;
+    std::vector<AnimationResource> animations;
     std::vector<LayoutResource> layouts;
     std::vector<MaterialInterfaceResource> material_interfaces;
     std::vector<ScriptResource> scripts;

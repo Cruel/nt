@@ -8,6 +8,7 @@ import type { NewEntityWizardTypeDefinition } from './types/common';
 
 export const newEntityWizardExcludedCollections = [
   'assets',
+  'animations',
   'variables',
   'tests',
 ] as const satisfies readonly AuthoringCollectionKey[];

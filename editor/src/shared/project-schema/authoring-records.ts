@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { assetRecordSchema } from './authoring-asset-record';
 export { assetRecordSchema } from './authoring-asset-record';
+import { animationDataSchema } from './authoring-animations';
 import { archetypeDataSchema, archetypeRefSchema } from './authoring-archetypes';
 import { entityIdSchema, jsonValueSchema } from './authoring-common';
 import { characterDataSchema } from './authoring-characters';
@@ -57,6 +58,7 @@ function ownerDefaultPropertyRecordSchema<Data extends z.ZodType>(data: Data) {
 }
 
 export const variableRecordSchema = recordSchema(variableDataSchema);
+export const animationRecordSchema = recordSchema(animationDataSchema);
 export const materialRecordSchema = recordSchema(materialDataSchema.strict());
 export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());
 export const archetypeRecordSchema = recordSchema(archetypeDataSchema);
@@ -75,6 +77,7 @@ export const testRecordSchema = recordSchema(testDataSchema.strict());
 
 export const authoringRecordSchemas = {
   assets: assetRecordSchema,
+  animations: animationRecordSchema,
   variables: variableRecordSchema,
   materials: materialRecordSchema,
   layouts: layoutRecordSchema,
@@ -93,6 +96,7 @@ export const authoringRecordSchemas = {
 
 export const authoringCollectionSchemas = {
   assets: z.record(entityIdSchema, authoringRecordSchemas.assets),
+  animations: z.record(entityIdSchema, authoringRecordSchemas.animations),
   variables: z.record(entityIdSchema, authoringRecordSchemas.variables),
   materials: z.record(entityIdSchema, authoringRecordSchemas.materials),
   layouts: z.record(entityIdSchema, authoringRecordSchemas.layouts),
@@ -110,6 +114,7 @@ export const authoringCollectionSchemas = {
 } as const;
 
 export type AssetAuthoringRecord = z.infer<typeof assetRecordSchema>;
+export type AnimationAuthoringRecord = z.infer<typeof animationRecordSchema>;
 export type VariableAuthoringRecord = z.infer<typeof variableRecordSchema>;
 export type MaterialAuthoringRecord = z.infer<typeof materialRecordSchema>;
 export type LayoutAuthoringRecord = z.infer<typeof layoutRecordSchema>;
@@ -127,6 +132,7 @@ export type TestAuthoringRecord = z.infer<typeof testRecordSchema>;
 
 export type AuthoringRecord =
   | AssetAuthoringRecord
+  | AnimationAuthoringRecord
   | VariableAuthoringRecord
   | MaterialAuthoringRecord
   | LayoutAuthoringRecord

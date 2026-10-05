@@ -134,6 +134,7 @@ struct PresentationEnvironment {
     std::optional<PropertyOwnerRef> material_property_owner;
     PresentationEnvironmentStopKey stop_key;
     std::optional<AssetId> asset;
+    std::optional<compiled::Visual> visual;
     MaterialId material;
     std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
     std::vector<PresentationMaterialTextureOverride> material_texture_overrides;

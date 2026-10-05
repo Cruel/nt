@@ -1660,6 +1660,174 @@ std::optional<AssetResource> decode_asset(Decoder& decoder, const nlohmann::json
                          std::move(height),   std::move(*localized)};
 }
 
+std::optional<Visual> decode_visual(Decoder& decoder, const nlohmann::json& value,
+                                    std::string_view pointer)
+{
+    if (!value.is_object()) {
+        decoder.error(k_code_type, "Visual must be an object.", std::string(pointer));
+        return std::nullopt;
+    }
+    const auto* kind_value = decoder.member(value, "kind", pointer);
+    auto kind = kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind"), true)
+                           : std::nullopt;
+    if (!kind)
+        return std::nullopt;
+    if (*kind == "image") {
+        if (!decoder.object(value, pointer, {"image", "kind"}))
+            return std::nullopt;
+        const auto* image_value = decoder.member(value, "image", pointer);
+        auto image = image_value
+                         ? decode_reference<AssetId>(decoder, *image_value,
+                                                     pointer_child(pointer, "image"), "asset")
+                         : std::nullopt;
+        if (!image)
+            return std::nullopt;
+        return Visual{ImageVisual{std::move(*image)}};
+    }
+    if (*kind == "animation") {
+        if (!decoder.object(value, pointer, {"animation", "kind", "motionId"}))
+            return std::nullopt;
+        const auto* animation_value = decoder.member(value, "animation", pointer);
+        const auto* motion_value = decoder.member(value, "motionId", pointer);
+        auto animation =
+            animation_value
+                ? decode_reference<AnimationId>(decoder, *animation_value,
+                                                pointer_child(pointer, "animation"), "animation")
+                : std::nullopt;
+        std::optional<AnimationMotionId> motion;
+        bool motion_ok = motion_value != nullptr;
+        if (motion_value && !motion_value->is_null()) {
+            motion =
+                decoder.id<AnimationMotionId>(*motion_value, pointer_child(pointer, "motionId"));
+            motion_ok = motion.has_value();
+        }
+        if (!animation || !motion_ok)
+            return std::nullopt;
+        return Visual{AnimationVisual{std::move(*animation), std::move(motion)}};
+    }
+    decoder.error(k_code_enum, "Visual kind must be 'image' or 'animation'.",
+                  pointer_child(pointer, "kind"));
+    return std::nullopt;
+}
+
+std::optional<AnimationResource> decode_animation(Decoder& decoder, const nlohmann::json& value,
+                                                  std::string_view pointer)
+{
+    if (!decoder.object(value, pointer, {"canvas", "defaultMotionId", "id", "motions"}))
+        return std::nullopt;
+    const auto* id_value = decoder.member(value, "id", pointer);
+    const auto* canvas_value = decoder.member(value, "canvas", pointer);
+    const auto* default_value = decoder.member(value, "defaultMotionId", pointer);
+    const auto* motions_value = decoder.member(value, "motions", pointer);
+    auto id =
+        id_value ? decoder.id<AnimationId>(*id_value, pointer_child(pointer, "id")) : std::nullopt;
+    std::optional<ReferenceResolution> canvas;
+    if (canvas_value &&
+        decoder.object(*canvas_value, pointer_child(pointer, "canvas"), {"height", "width"})) {
+        const auto canvas_pointer = pointer_child(pointer, "canvas");
+        const auto* width_value = decoder.member(*canvas_value, "width", canvas_pointer);
+        const auto* height_value = decoder.member(*canvas_value, "height", canvas_pointer);
+        auto width = width_value ? decoder.unsigned_integer<std::uint32_t>(
+                                       *width_value, pointer_child(canvas_pointer, "width"))
+                                 : std::nullopt;
+        auto height = height_value ? decoder.unsigned_integer<std::uint32_t>(
+                                         *height_value, pointer_child(canvas_pointer, "height"))
+                                   : std::nullopt;
+        if (width && height && *width > 0 && *height > 0 &&
+            *width <= max_reference_resolution_dimension &&
+            *height <= max_reference_resolution_dimension)
+            canvas = ReferenceResolution{*width, *height};
+        else if (width && height)
+            decoder.error(k_code_number, "Animation canvas dimensions are out of range.",
+                          canvas_pointer);
+    }
+    auto default_motion =
+        default_value ? decoder.id<AnimationMotionId>(*default_value,
+                                                      pointer_child(pointer, "defaultMotionId"))
+                      : std::nullopt;
+    auto motions =
+        motions_value
+            ? decoder.array<SpriteAnimationMotion>(
+                  *motions_value, pointer_child(pointer, "motions"),
+                  [&](const nlohmann::json& motion_value,
+                      const std::string& motion_pointer) -> std::optional<SpriteAnimationMotion> {
+                      if (!decoder.object(motion_value, motion_pointer, {"frames", "id", "kind"}))
+                          return std::nullopt;
+                      const auto* motion_id_value =
+                          decoder.member(motion_value, "id", motion_pointer);
+                      const auto* kind_value = decoder.member(motion_value, "kind", motion_pointer);
+                      const auto* frames_value =
+                          decoder.member(motion_value, "frames", motion_pointer);
+                      auto motion_id =
+                          motion_id_value
+                              ? decoder.id<AnimationMotionId>(*motion_id_value,
+                                                              pointer_child(motion_pointer, "id"))
+                              : std::nullopt;
+                      auto kind = kind_value
+                                      ? decoder.string(*kind_value,
+                                                       pointer_child(motion_pointer, "kind"), true)
+                                      : std::nullopt;
+                      if (kind && *kind != "sprite-sequence") {
+                          decoder.error(k_code_enum,
+                                        "Animation motion kind must be 'sprite-sequence'.",
+                                        pointer_child(motion_pointer, "kind"));
+                          kind.reset();
+                      }
+                      auto frames =
+                          frames_value
+                              ? decoder.array<SpriteAnimationFrame>(
+                                    *frames_value, pointer_child(motion_pointer, "frames"),
+                                    [&](const nlohmann::json& frame_value,
+                                        const std::string& frame_pointer)
+                                        -> std::optional<SpriteAnimationFrame> {
+                                        if (!decoder.object(frame_value, frame_pointer,
+                                                            {"durationMs", "image"}))
+                                            return std::nullopt;
+                                        const auto* image_value =
+                                            decoder.member(frame_value, "image", frame_pointer);
+                                        const auto* duration_value = decoder.member(
+                                            frame_value, "durationMs", frame_pointer);
+                                        auto image =
+                                            image_value ? decode_reference<AssetId>(
+                                                              decoder, *image_value,
+                                                              pointer_child(frame_pointer, "image"),
+                                                              "asset")
+                                                        : std::nullopt;
+                                        auto duration =
+                                            duration_value
+                                                ? decoder.unsigned_integer<std::uint64_t>(
+                                                      *duration_value,
+                                                      pointer_child(frame_pointer, "durationMs"))
+                                                : std::nullopt;
+                                        if (duration && *duration == 0) {
+                                            decoder.error(
+                                                k_code_number,
+                                                "Animation frame duration must be positive.",
+                                                pointer_child(frame_pointer, "durationMs"));
+                                            duration.reset();
+                                        }
+                                        if (!image || !duration)
+                                            return std::nullopt;
+                                        return SpriteAnimationFrame{std::move(*image), *duration};
+                                    })
+                              : std::nullopt;
+                      if (frames && frames->empty()) {
+                          decoder.error(k_code_missing,
+                                        "Animation motion must contain at least one frame.",
+                                        pointer_child(motion_pointer, "frames"));
+                          frames.reset();
+                      }
+                      if (!motion_id || !kind || !frames)
+                          return std::nullopt;
+                      return SpriteAnimationMotion{std::move(*motion_id), std::move(*frames)};
+                  })
+            : std::nullopt;
+    if (!id || !canvas || !default_motion || !motions || motions->empty())
+        return std::nullopt;
+    return AnimationResource{std::move(*id), *canvas, std::move(*default_motion),
+                             std::move(*motions)};
+}
+
 std::optional<LayoutStateShape>
 decode_layout_state_shape(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {

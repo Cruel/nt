@@ -73,6 +73,53 @@ CompiledProject fixture()
     return std::move(decoded).value();
 }
 
+CompiledProject animation_room_fixture()
+{
+    std::ifstream input(
+        std::string(NOVELTEA_SOURCE_DIR) +
+        "/editor/src/renderer/test/fixtures/compiled-project-golden/scene-program.json");
+    REQUIRE(input.good());
+    const std::string source((std::istreambuf_iterator<char>(input)), {});
+    auto document = nlohmann::json::parse(source);
+    nlohmann::json animation;
+    animation["id"] = "rain";
+    animation["canvas"] = {{"width", 64}, {"height", 32}};
+    animation["defaultMotionId"] = "fall";
+    nlohmann::json motion;
+    motion["id"] = "fall";
+    motion["kind"] = "sprite-sequence";
+    motion["frames"] = nlohmann::json::array(
+        {{{"image", {{"kind", "asset"}, {"id", "image-main"}}}, {"durationMs", 75}},
+         {{"image", {{"kind", "asset"}, {"id", "image-main"}}}, {"durationMs", 125}}});
+    animation["motions"] = nlohmann::json::array({std::move(motion)});
+    document["resources"]["animations"] = nlohmann::json::array({std::move(animation)});
+    auto& rooms = document["definitions"]["rooms"];
+    auto start = std::find_if(rooms.begin(), rooms.end(),
+                              [](const nlohmann::json& value) { return value["id"] == "start"; });
+    REQUIRE(start != rooms.end());
+    nlohmann::json environment;
+    environment["id"] = "rain";
+    environment["condition"] = {{"kind", "always"}};
+    environment["asset"] = nullptr;
+    environment["visual"] = {{"kind", "animation"},
+                             {"animation", {{"kind", "animation"}, {"id", "rain"}}},
+                             {"motionId", nullptr}};
+    environment["material"] = {{"kind", "material"}, {"id", "sprite-material"}};
+    environment["materialParameters"] = nlohmann::json::array();
+    environment["materialTextures"] = nlohmann::json::array();
+    environment["bounds"] = {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}};
+    environment["plane"] = "world-overlay";
+    environment["order"] = 4;
+    environment["clock"] = "unscaled-presentation";
+    environment["scrollPerSecond"] = {{"x", 0.0}, {"y", 0.0}};
+    environment["opacity"] = 0.8;
+    environment["visible"] = true;
+    (*start)["environments"] = nlohmann::json::array({std::move(environment)});
+    auto decoded = decode_compiled_project(document, "animation-room.json");
+    REQUIRE(decoded);
+    return std::move(decoded).value();
+}
+
 CompiledProject staged_scene_fixture()
 {
     std::ifstream input(
@@ -749,6 +796,39 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     CHECK(focused_baseline.value().interactables == runtime.value().interactables);
     CHECK(focused_baseline.value().props == runtime.value().props);
     CHECK(focused_baseline.value().environments == runtime.value().environments);
+}
+
+TEST_CASE("Room runtime presentation preserves raster Animation Visual selection")
+{
+    const auto project = animation_room_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    REQUIRE(state.room_visit());
+
+    RuntimeWorld world(project, state);
+    RoomPresentationResolver resolver;
+    auto resolution = resolver.resolve(
+        project, world, state, *state.room_visit(),
+        [](const Condition&) { return Result<bool, Diagnostics>::success(true); },
+        [&project](const TextSource& source) {
+            return Result<std::string, Diagnostics>::success(resolve_text(project, source));
+        });
+    REQUIRE(resolution);
+    auto projected = project_snapshot(project, state, &resolution.value().presentation);
+    REQUIRE(projected);
+
+    REQUIRE(projected.value().environments.size() == 1);
+    const auto& environment = projected.value().environments.front();
+    CHECK_FALSE(environment.asset);
+    REQUIRE(environment.visual);
+    const auto* animation = std::get_if<compiled::AnimationVisual>(&*environment.visual);
+    REQUIRE(animation);
+    CHECK(animation->animation == id<AnimationId>("rain"));
+    CHECK_FALSE(animation->motion);
+    CHECK(environment.clock == LayoutClockDomain::UnscaledPresentation);
+    CHECK(environment.opacity == 0.8);
 }
 
 TEST_CASE("Room and Character authored Material Applications project parameters and textures")

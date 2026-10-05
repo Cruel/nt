@@ -108,6 +108,90 @@ TEST_CASE("focused Room decoder admits the strict native contract")
     CHECK_FALSE(decode_editor_room_preview_document_text(open.dump()));
 }
 
+TEST_CASE("focused Room decoder carries raster Animation Visual resources")
+{
+    auto document = focused_room_document();
+    const nlohmann::json frames =
+        nlohmann::json::array({{{"assetId", "rain-a"}, {"durationMs", 75}},
+                               {{"assetId", "rain-b"}, {"durationMs", 125}}});
+    const nlohmann::json motions =
+        nlohmann::json::array({{{"id", "fall"}, {"kind", "sprite-sequence"}, {"frames", frames}}});
+    document["world"]["animations"] = nlohmann::json::array({
+        {{"id", "rain"},
+         {"canvas", {{"width", 64}, {"height", 32}}},
+         {"defaultMotionId", "fall"},
+         {"motions", motions}},
+    });
+    document["world"]["environments"] = nlohmann::json::array(
+        {{{"environmentId", "rain"},
+          {"condition", {{"kind", "always"}}},
+          {"assetId", nullptr},
+          {"visual", {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}},
+          {"materialId", "rain-material"},
+          {"materialParameters", nlohmann::json::array()},
+          {"materialTextures", nlohmann::json::array()},
+          {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+          {"plane", "world-overlay"},
+          {"order", 2},
+          {"clock", "unscaled-presentation"},
+          {"scrollPerSecond", {{"x", 0.0}, {"y", 0.0}}},
+          {"opacity", 1.0},
+          {"visible", true}}});
+
+    auto result = decode_editor_room_preview_document_text(document.dump());
+
+    REQUIRE(result);
+    REQUIRE(result.value().world.animations.size() == 1);
+    const auto& animation = result.value().world.animations.front();
+    CHECK(animation.id == "rain");
+    CHECK(animation.canvas.width == 64);
+    CHECK(animation.canvas.height == 32);
+    CHECK(animation.default_motion_id == "fall");
+    REQUIRE(animation.motions.size() == 1);
+    REQUIRE(animation.motions.front().frames.size() == 2);
+    CHECK(animation.motions.front().frames[0].asset_id == "rain-a");
+    CHECK(animation.motions.front().frames[0].duration_ms == 75);
+    CHECK(animation.motions.front().frames[1].asset_id == "rain-b");
+    CHECK(animation.motions.front().frames[1].duration_ms == 125);
+
+    REQUIRE(result.value().world.environments.size() == 1);
+    const auto& environment = result.value().world.environments.front();
+    REQUIRE(environment.visual);
+    CHECK(environment.visual->kind == "animation");
+    CHECK(environment.visual->resource_id == "rain");
+    CHECK_FALSE(environment.visual->motion_id);
+    CHECK(environment.clock == "unscaled-presentation");
+
+    SECTION("one-frame motions are valid")
+    {
+        document["world"]["animations"][0]["motions"][0]["frames"].erase(1);
+        CHECK(decode_editor_room_preview_document_text(document.dump()));
+    }
+    SECTION("invalid Animation resources and selections are rejected")
+    {
+        const auto rejects = [&](std::string_view pointer, nlohmann::json value) {
+            auto invalid = document;
+            invalid[nlohmann::json::json_pointer{std::string(pointer)}] = std::move(value);
+            INFO(pointer);
+            CHECK_FALSE(decode_editor_room_preview_document_text(invalid.dump()));
+        };
+        rejects("/world/animations", true);
+        rejects("/world/animations/0/canvas/width", 0);
+        rejects("/world/animations/0/canvas/height", 10'001);
+        rejects("/world/animations/0/defaultMotionId", "missing");
+        rejects("/world/animations/0/motions", nlohmann::json::array());
+        rejects("/world/animations/0/motions/0/frames", nlohmann::json::array());
+        for (const auto& duration :
+             {nlohmann::json(0), nlohmann::json(-1), nlohmann::json(0.5), nlohmann::json("75")})
+            rejects("/world/animations/0/motions/0/frames/0/durationMs", duration);
+        rejects("/world/animations/0/motions", nlohmann::json::array({motions[0], motions[0]}));
+        rejects("/world/animations", nlohmann::json::array({document["world"]["animations"][0],
+                                                            document["world"]["animations"][0]}));
+        rejects("/world/environments/0/visual/animationId", "missing");
+        rejects("/world/environments/0/visual/motionId", "missing");
+    }
+}
+
 TEST_CASE("focused Room decoder enforces exact Material integer literals")
 {
     const auto parameter = [](std::int64_t value) {

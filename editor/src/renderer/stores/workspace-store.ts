@@ -27,6 +27,7 @@ export interface AssetNode {
     | 'cutscene'
     | 'script'
     | 'asset'
+    | 'animation'
     | 'variable'
     | 'material'
     | 'layout'

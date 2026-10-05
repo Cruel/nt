@@ -512,6 +512,14 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
     OWNER,
   ],
   [/^\/interactables\/\*\/data\/presentation\/hotspots\/hotspots\/\*\/cursor(?:\/|$)/, OWNER],
+  // #394 introduces first-class raster Animation resources and the initial closed Image/Animation
+  // Visual selection on Room Environments. Animation metadata and frame timing change the owning
+  // Animation projection; Visual selection changes the owning Environment projection. Typed `$ref`
+  // leaves still contribute their normal dependency edges through the dependency-graph walker.
+  [/^\/animations\/\*\/data(?:\/|$)/, OWNER],
+  [/^\/animations\/\*\/id$/, SYMBOL],
+  [/^\/animations\/\*\/(?:label|description)$/, OWNER],
+  [/^\/rooms\/\*\/data\/environments\/\*\/visual(?:\/|$)/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -1135,6 +1143,7 @@ export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string,
 // corresponding fingerprint in the same change. This intentionally has no generated fallback.
 export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
   Object.freeze({
+    animations: 'b656fab7',
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
@@ -1152,7 +1161,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '60045c56',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: '90995c3f',
+    rooms: 'ffcc3586',
     scenes: '6650b472',
     schema: '63fb9bb9',
     scripts: '278134b5',

@@ -123,6 +123,38 @@ public:
         return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
 
+    Result<WorldPreparedVisual, Diagnostics>
+    resolve_visual(const compiled::Visual& visual, std::optional<core::MaterialId> material,
+                   std::string_view context) override
+    {
+        if (const auto* image = std::get_if<compiled::ImageVisual>(&visual))
+            return resolve(image->image, material, context);
+        const auto& animation = std::get<compiled::AnimationVisual>(visual);
+        if (animation.animation.text() != "rain-animation")
+            return Result<WorldPreparedVisual, Diagnostics>::failure(
+                {{.code = "test.world_animation_missing",
+                  .message = "missing " + animation.animation.text(),
+                  .source_path = std::string(context)}});
+        auto prepared = resolve(std::nullopt, material, context);
+        if (!prepared)
+            return prepared;
+        auto result = std::move(*prepared.value_if());
+        const auto first = m_textures.find("rain-a");
+        const auto second = m_textures.find("rain-b");
+        if (first == m_textures.end() || second == m_textures.end())
+            return Result<WorldPreparedVisual, Diagnostics>::failure(
+                {{.code = "test.world_animation_frame_missing",
+                  .message = "missing animation frame",
+                  .source_path = std::string(context)}});
+        result.logical_size = Size{64.0f, 32.0f};
+        result.animation_key = animation.animation.text() + ":" +
+                               (animation.motion ? animation.motion->text() : "fall");
+        result.animation_frames = {{50, first->second, std::nullopt},
+                                   {100, second->second, std::nullopt}};
+        result.texture = first->second;
+        return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
+    }
+
     Result<WorldPreparedHotspotResources, Diagnostics>
     resolve_hotspot(const PresentationHotspot& hotspot, std::span<const PresentationHotspot>,
                     std::string_view context) override
@@ -392,6 +424,7 @@ TEST_CASE("world backend interleaves WorldContent families by authored order")
          SessionPresentationOwner{PresentationSessionId::from_number(1)},
          std::nullopt,
          id<PresentationEnvironmentStopKey>("weather"),
+         std::nullopt,
          std::nullopt,
          id<core::MaterialId>("rain"),
          {},
@@ -677,6 +710,129 @@ TEST_CASE("Engine2D Material Applications reach background prop environment and 
     check_uniform(actor_material, 0.4f);
 }
 
+TEST_CASE("raster Animation playback is occurrence-local and survives unrelated republishes")
+{
+    FakeWorldResources resources;
+    resources.add_texture("rain-a", 21, 24, 32);
+    resources.add_texture("rain-b", 22, 48, 32);
+    WorldPresentationBackend backend(resources);
+
+    auto snapshot = base_snapshot(1);
+    const auto room = id<RoomId>("atrium");
+    snapshot.environments.push_back(PresentationEnvironment{
+        .instance = id<PresentationEnvironmentInstanceId>("rain"),
+        .owner = RoomPresentationOwner{room},
+        .material_property_owner = PropertyOwnerRef{room},
+        .stop_key = id<PresentationEnvironmentStopKey>("rain-stop"),
+        .asset = std::nullopt,
+        .visual = compiled::AnimationVisual{id<AnimationId>("rain-animation"), std::nullopt},
+        .material = id<core::MaterialId>("environment-material"),
+        .bounds = {0.0, 0.0, 1.0, 1.0},
+        .plane = PresentationPlane::WorldBackground,
+        .order = 0,
+        .clock = LayoutClockDomain::UnscaledPresentation,
+        .scroll_per_second = {0.0, 0.0},
+        .opacity = 1.0,
+        .visible = true,
+    });
+
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    RuntimeClockUpdate clock;
+    clock.gameplay_time = std::chrono::milliseconds{1000};
+    clock.unscaled_presentation_time = std::chrono::milliseconds{2000};
+    backend.realize(clock);
+    REQUIRE(backend.frame());
+    REQUIRE(backend.frame()->base_world_composition_batch.commands().size() == 1);
+    CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle == 21);
+
+    // Only the selected unscaled presentation clock advances this occurrence.
+    clock.gameplay_time += std::chrono::milliseconds{500};
+    backend.realize(clock);
+    CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle == 21);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{75};
+    backend.realize(clock);
+    CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle == 22);
+
+    SECTION("retained revisions with different motions advance independently")
+    {
+        std::get<compiled::AnimationVisual>(*snapshot.environments.front().visual).motion =
+            id<AnimationMotionId>("splash");
+        snapshot.revision = PresentationSnapshotRevision::from_number(2);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        backend.realize(clock);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              21);
+        clock.unscaled_presentation_time += std::chrono::milliseconds{75};
+        backend.realize(clock);
+        REQUIRE(backend.frame(PresentationSnapshotRevision::from_number(1)));
+        CHECK(backend.frame(PresentationSnapshotRevision::from_number(1))
+                  ->base_world_composition_batch.commands()
+                  .front()
+                  .texture.handle == 21);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              22);
+        clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+        backend.realize(clock);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              22);
+        std::get<compiled::AnimationVisual>(*snapshot.environments.front().visual).motion.reset();
+        snapshot.revision = PresentationSnapshotRevision::from_number(3);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        backend.realize(clock);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              21);
+        clock.unscaled_presentation_time += std::chrono::milliseconds{75};
+        backend.realize(clock);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              22);
+        return;
+    }
+    SECTION("prepared publication preserves compatible Animation epochs")
+    {
+        WorldPresentationBackend prepared(resources);
+        snapshot.revision = PresentationSnapshotRevision::from_number(2);
+        REQUIRE(prepared.reconcile(snapshot, {640.0f, 360.0f}));
+        prepared.preserve_animation_epochs_from(backend);
+        backend.swap_prepared(prepared);
+        clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+        backend.realize(clock);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              22);
+        return;
+    }
+    SECTION("ordinary republication and reconstruction") {}
+
+    // An unrelated snapshot publication keeps the stable occurrence epoch and therefore its phase.
+    snapshot.revision = PresentationSnapshotRevision::from_number(2);
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+    backend.realize(clock);
+    CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle == 22);
+
+    // A second occurrence sharing the same Animation starts from its own local epoch.
+    auto second = snapshot.environments.front();
+    second.instance = id<PresentationEnvironmentInstanceId>("rain-second");
+    second.stop_key = id<PresentationEnvironmentStopKey>("rain-second-stop");
+    second.order = 1;
+    snapshot.environments.push_back(std::move(second));
+    snapshot.revision = PresentationSnapshotRevision::from_number(3);
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+    backend.realize(clock);
+    REQUIRE(backend.frame()->base_world_composition_batch.commands().size() == 2);
+    CHECK(backend.frame()->base_world_composition_batch.commands()[0].texture.handle == 22);
+    CHECK(backend.frame()->base_world_composition_batch.commands()[1].texture.handle == 21);
+
+    // Reconstruction is intentionally a fresh playback realization.
+    backend.reset();
+    snapshot.revision = PresentationSnapshotRevision::from_number(4);
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    backend.realize(clock);
+    REQUIRE(backend.frame()->base_world_composition_batch.commands().size() == 2);
+    CHECK(backend.frame()->base_world_composition_batch.commands()[0].texture.handle == 21);
+    CHECK(backend.frame()->base_world_composition_batch.commands()[1].texture.handle == 21);
+}
+
 TEST_CASE("world reconciliation is failure atomic and identical snapshots do no work")
 {
     FakeWorldResources resources;
@@ -768,6 +924,7 @@ TEST_CASE("reconstructible environment loops restart from phase zero after backe
          SessionPresentationOwner{PresentationSessionId::from_number(1)},
          std::nullopt,
          id<PresentationEnvironmentStopKey>("weather"),
+         std::nullopt,
          std::nullopt,
          id<core::MaterialId>("rain"),
          {},

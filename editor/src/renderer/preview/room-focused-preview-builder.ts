@@ -875,9 +875,13 @@ function collectVisualIds(data: RoomPreviewDocument) {
   }
   for (const item of data.world.environments) {
     addAsset(item.assetId);
+    if (item.visual?.kind === 'image') addAsset(item.visual.assetId);
     addMaterial(item.materialId);
     addApplicationTextures(item.materialTextures);
   }
+  for (const animation of data.world.animations)
+    for (const motion of animation.motions)
+      for (const frame of motion.frames) addAsset(frame.assetId);
   return { assets, materials };
 }
 
@@ -1262,6 +1266,34 @@ export async function buildFocusedRoomPreview(
       }),
     },
     world: {
+      animations: [
+        ...new Set(
+          room.environments.flatMap((item) =>
+            item.visual?.kind === 'animation' ? [item.visual.animation.$ref.id] : [],
+          ),
+        ),
+      ]
+        .sort((left, right) => left.localeCompare(right))
+        .flatMap((animationId) => {
+          const animation = project.animations[animationId]?.data;
+          return animation
+            ? [
+                {
+                  id: animationId,
+                  canvas: { ...animation.canvas },
+                  defaultMotionId: animation.defaultMotionId,
+                  motions: animation.motions.map((motion) => ({
+                    id: motion.id,
+                    kind: motion.kind,
+                    frames: motion.frames.map((frame) => ({
+                      assetId: frame.image.$ref.id,
+                      durationMs: frame.durationMs,
+                    })),
+                  })),
+                },
+              ]
+            : [];
+        }),
       presentationSpace: {
         size: { ...room.presentationSpace.size },
         bounds: room.presentationSpace.bounds ? { ...room.presentationSpace.bounds } : null,
@@ -1350,6 +1382,17 @@ export async function buildFocusedRoomPreview(
         environmentId: item.id,
         condition: focusedCondition(item.condition),
         assetId: item.asset?.$ref.id ?? null,
+        visual: item.visual
+          ? item.visual.kind === 'image'
+            ? { kind: 'image' as const, assetId: item.visual.image.$ref.id }
+            : {
+                kind: 'animation' as const,
+                animationId: item.visual.animation.$ref.id,
+                motionId: item.visual.motionId,
+              }
+          : item.asset
+            ? { kind: 'image' as const, assetId: item.asset.$ref.id }
+            : null,
         materialId: item.materialApplication.material.$ref.id,
         ...focusedMaterialApplication(item.materialApplication),
         bounds: item.bounds,

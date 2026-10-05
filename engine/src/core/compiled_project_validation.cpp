@@ -58,6 +58,7 @@ public:
         }
         INDEX(traits, input.traits[index].id);
         INDEX(assets, input.assets[index].id);
+        INDEX(animations, input.animations[index].id);
         INDEX(layouts, input.layouts[index].id);
         INDEX(material_interfaces, input.material_interfaces[index].id);
         INDEX(scripts, input.scripts[index].id);
@@ -340,6 +341,40 @@ private:
     {
         const auto found = m_assets.find(id);
         return found == m_assets.end() ? nullptr : &m_input.assets[found->second];
+    }
+
+    const AnimationResource* animation(const AnimationId& id) const
+    {
+        const auto found = m_animations.find(id);
+        return found == m_animations.end() ? nullptr : &m_input.animations[found->second];
+    }
+
+    void validate_visual(const Visual& visual, const std::string& path)
+    {
+        std::visit(
+            [&](const auto& value) {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, ImageVisual>) {
+                    require(m_assets, value.image, "asset", path + "/image");
+                    const auto* source = asset(value.image);
+                    if (source && source->kind != AssetKind::Image)
+                        error("compiled_project.invalid_asset_kind",
+                              "Image Visual must reference an image Asset.", path + "/image");
+                } else {
+                    require(m_animations, value.animation, "animation", path + "/animation");
+                    const auto* resource = animation(value.animation);
+                    if (!resource)
+                        return;
+                    const auto motion = value.motion.value_or(resource->default_motion);
+                    if (std::ranges::none_of(resource->motions, [&](const auto& candidate) {
+                            return candidate.id == motion;
+                        }))
+                        error("compiled_project.unresolved_animation_motion",
+                              "Animation Visual selects unknown motion '" + motion.text() + "'.",
+                              path + "/motionId");
+                }
+            },
+            visual);
     }
 
     void validate_text(const TextContent& text, const std::string& path)
@@ -1963,6 +1998,52 @@ private:
         if (m_input.settings.title_screen.title_image)
             require(m_assets, *m_input.settings.title_screen.title_image, "asset",
                     "/settings/titleScreen/titleImage");
+        for (std::size_t animation_index = 0; animation_index < m_input.animations.size();
+             ++animation_index) {
+            const auto& resource = m_input.animations[animation_index];
+            const auto path = item("/resources/animations", animation_index);
+            if (resource.canvas.width == 0 || resource.canvas.height == 0 ||
+                resource.canvas.width > max_reference_resolution_dimension ||
+                resource.canvas.height > max_reference_resolution_dimension)
+                error("compiled_project.invalid_animation_canvas",
+                      "Animation logical canvas dimensions must be positive and within the "
+                      "reference-resolution limit.",
+                      path + "/canvas");
+            std::unordered_set<AnimationMotionId> motion_ids;
+            bool default_found = false;
+            for (std::size_t motion_index = 0; motion_index < resource.motions.size();
+                 ++motion_index) {
+                const auto& motion = resource.motions[motion_index];
+                const auto motion_path = path + "/motions/" + std::to_string(motion_index);
+                if (!motion_ids.insert(motion.id).second)
+                    error("compiled_project.duplicate_animation_motion",
+                          "Animation motion IDs must be unique.", motion_path + "/id");
+                default_found = default_found || motion.id == resource.default_motion;
+                if (motion.frames.empty())
+                    error("compiled_project.empty_animation_motion",
+                          "Animation motion must contain at least one sprite frame.",
+                          motion_path + "/frames");
+                for (std::size_t frame_index = 0; frame_index < motion.frames.size();
+                     ++frame_index) {
+                    const auto& frame = motion.frames[frame_index];
+                    const auto frame_path = motion_path + "/frames/" + std::to_string(frame_index);
+                    require(m_assets, frame.image, "asset", frame_path + "/image");
+                    const auto* source = asset(frame.image);
+                    if (source && source->kind != AssetKind::Image)
+                        error("compiled_project.invalid_animation_frame_asset",
+                              "Animation sprite frames must reference image Assets.",
+                              frame_path + "/image");
+                    if (frame.duration_ms == 0)
+                        error("compiled_project.invalid_animation_frame_duration",
+                              "Animation frame duration must be positive.",
+                              frame_path + "/durationMs");
+                }
+            }
+            if (!default_found)
+                error("compiled_project.unresolved_animation_default_motion",
+                      "Animation default motion must name one of its motions.",
+                      path + "/defaultMotionId");
+        }
         for (std::size_t index = 0; index < m_input.layouts.size(); ++index) {
             const auto path = item("/resources/layouts", index);
             const auto& layout = m_input.layouts[index];
@@ -2667,6 +2748,8 @@ private:
                           environment_path + "/id");
                 if (environment.asset)
                     require(m_assets, *environment.asset, "asset", environment_path + "/asset");
+                if (environment.visual)
+                    validate_visual(*environment.visual, environment_path + "/visual");
                 validate_condition(environment.condition, environment_path + "/condition");
                 register_presentation_order(environment.plane, environment.order,
                                             environment_path + "/order");
@@ -5057,6 +5140,7 @@ private:
     MAP(properties, PropertyId);
     MAP(traits, TraitId);
     MAP(assets, AssetId);
+    MAP(animations, AnimationId);
     MAP(layouts, LayoutId);
     MAP(material_interfaces, MaterialId);
     MAP(scripts, ScriptId);

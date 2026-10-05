@@ -1,3 +1,5 @@
+#include <noveltea/world_presentation.hpp>
+
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/assets/asset_cache_keys.hpp"
@@ -528,6 +530,52 @@ core::LoadedCompiledPackage collector_package()
     return package_from_document(std::move(document), "structured-prefetch-project.json");
 }
 
+core::LoadedCompiledPackage animation_collector_package()
+{
+    auto document = read_comprehensive_project();
+    for (const auto& id : {"animation-frame-a", "animation-frame-b"})
+        document["resources"]["assets"].push_back(
+            {{"aliases", nlohmann::json::array()},
+             {"id", id},
+             {"kind", "image"},
+             {"path", std::string("assets/images/") + id + ".png"},
+             {"sampling", "linear"},
+             {"width", 32},
+             {"height", 32}});
+    document["resources"]["animations"] = nlohmann::json::array(
+        {{{"id", "rain-loop"},
+          {"canvas", {{"width", 64}, {"height", 32}}},
+          {"defaultMotionId", "fall"},
+          {"motions",
+           nlohmann::json::array(
+               {{{"id", "fall"},
+                 {"kind", "sprite-sequence"},
+                 {"frames", nlohmann::json::array(
+                                {{{"image", {{"kind", "asset"}, {"id", "animation-frame-a"}}},
+                                  {"durationMs", 50}},
+                                 {{"image", {{"kind", "asset"}, {"id", "animation-frame-b"}}},
+                                  {"durationMs", 100}}})}}})}}});
+    document["definitions"]["rooms"][0]["environments"] = nlohmann::json::array(
+        {{{"id", "rain"},
+          {"condition", {{"kind", "always"}}},
+          {"asset", nullptr},
+          {"visual",
+           {{"kind", "animation"},
+            {"animation", {{"kind", "animation"}, {"id", "rain-loop"}}},
+            {"motionId", nullptr}}},
+          {"material", {{"kind", "material"}, {"id", "sprite-material"}}},
+          {"materialParameters", nlohmann::json::array()},
+          {"materialTextures", nlohmann::json::array()},
+          {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+          {"plane", "world-background"},
+          {"order", 0},
+          {"clock", "gameplay"},
+          {"scrollPerSecond", {{"x", 0.0}, {"y", 0.0}}},
+          {"opacity", 1.0},
+          {"visible", true}}});
+    return package_from_document(std::move(document), "structured-prefetch-animation-project.json");
+}
+
 template<class Request, class Predicate>
 std::optional<std::size_t>
 find_request(const std::vector<assets::StructuredAssetRequestDescriptor>& list, Predicate predicate)
@@ -690,7 +738,13 @@ public:
         requests.push_back(request);
         m_recorder.calls.push_back("texture:" + request.path);
         return std::make_unique<ImmediatePreparationTask<assets::TextureAsset>>(
-            assets::TextureAsset{.handle = 1, .path = request.path, .sampler = request.sampler},
+            assets::TextureAsset{.handle = static_cast<std::uint16_t>(
+                                     request.path.ends_with("animation-frame-b.png") ? 2 : 1),
+                                 .path = request.path,
+                                 .width = static_cast<std::uint16_t>(
+                                     request.path.ends_with("animation-frame-b.png") ? 48 : 24),
+                                 .height = 32,
+                                 .sampler = request.sampler},
             &m_recorder.preparation_steps);
     }
 
@@ -747,7 +801,7 @@ public:
     assets::AssetLoadResult<assets::MaterialAsset>
     load_material(const assets::MaterialAssetRequest& request) override
     {
-        return {assets::MaterialAsset{.id = request.id}, {}};
+        return {assets::MaterialAsset{.definition = definition, .id = request.id}, {}};
     }
     std::unique_ptr<assets::AssetPreparationTask<assets::MaterialAsset>>
     create_material_preparation_task(const assets::MaterialAssetRequest& request) override
@@ -756,8 +810,11 @@ public:
         if (m_recorder.reject_material)
             return {};
         return std::make_unique<ImmediatePreparationTask<assets::MaterialAsset>>(
-            assets::MaterialAsset{.id = request.id}, &m_recorder.preparation_steps);
+            assets::MaterialAsset{.definition = definition, .id = request.id},
+            &m_recorder.preparation_steps);
     }
+
+    const MaterialDefinition* definition = nullptr;
 
 private:
     DispatchRecorder& m_recorder;
@@ -889,6 +946,80 @@ TEST_CASE("mandatory collector builds typed publication closure without speculat
         CHECK(std::find(keys.begin(), keys.end(), item.cache_key) == keys.end());
         keys.push_back(item.cache_key);
     }
+}
+
+TEST_CASE("mandatory collector retains every frame of a selected raster Animation motion",
+          "[assets][structured-prefetch][animation]")
+{
+    PlannerFixture fixture;
+    MaterialDefinition material;
+    material.role = ShaderRole::Engine2D;
+    fixture.materials.definition = &material;
+    auto package = animation_collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
+    CHECK_FALSE(has_code(index.diagnostics(), "assets.prefetch_missing_animation"));
+
+    core::RuntimePresentationSnapshot snapshot;
+    const auto room = id<core::RoomId>("hall");
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(1);
+    snapshot.current_room = room;
+    snapshot.environments.push_back(core::PresentationEnvironment{
+        .instance = id<core::PresentationEnvironmentInstanceId>("rain"),
+        .owner = core::RoomPresentationOwner{room},
+        .material_property_owner = core::PropertyOwnerRef{room},
+        .stop_key = id<core::PresentationEnvironmentStopKey>("rain-stop"),
+        .asset = std::nullopt,
+        .visual = core::compiled::AnimationVisual{id<core::AnimationId>("rain-loop"), std::nullopt},
+        .material = id<core::MaterialId>("sprite-material"),
+        .bounds = {0.0, 0.0, 1.0, 1.0},
+        .plane = core::PresentationPlane::WorldBackground,
+        .order = 0,
+        .clock = core::LayoutClockDomain::Gameplay,
+        .scroll_per_second = {0.0, 0.0},
+        .opacity = 1.0,
+        .visible = true,
+    });
+    assets::MandatoryAssetDependencyContext context;
+    context.current_presentation = &snapshot;
+
+    const auto collected = assets::MandatoryAssetDependencyCollector(index).collect(context);
+
+    REQUIRE(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == "project:/assets/images/animation-frame-a.png";
+    }));
+    REQUIRE(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == "project:/assets/images/animation-frame-b.png";
+    }));
+
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+
+    AssetWorldPresentationResourceResolver resources(fixture.manager);
+    resources.bind_project(package.project());
+    WorldPresentationBackend world(resources);
+    REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+    REQUIRE(world.frame()->draws.size() == 1);
+    const auto& draw = world.frame()->draws.front();
+    REQUIRE(draw.raster_animation_frames.size() == 2);
+    CHECK(draw.material_lease.has_value());
+    CHECK(draw.raster_animation_frames[0].texture_lease.has_value());
+    CHECK(draw.raster_animation_frames[1].texture_lease.has_value());
+    core::RuntimeClockUpdate clock;
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 1);
+    clock.gameplay_time = std::chrono::milliseconds{75};
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 2);
+    gate.clear_package_on_owner();
 }
 
 TEST_CASE("mandatory collector resolves localized physical Assets before residency keys are formed",

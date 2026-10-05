@@ -15,6 +15,7 @@ const typedRef = <Collection extends string>(collection: Collection) =>
   );
 
 export const assetRefSchema = typedRef('assets');
+export const animationRefSchema = typedRef('animations');
 export const archetypeRefSchema = typedRef('archetypes');
 export const materialRefSchema = typedRef('materials');
 export const characterRefSchema = typedRef('characters');

@@ -19,11 +19,19 @@
 namespace noveltea {
 
 struct WorldPreparedVisual {
+    struct AnimationFrame {
+        std::uint64_t duration_ms = 0;
+        assets::TextureAsset texture;
+        std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
+    };
     std::optional<assets::TextureAsset> texture;
     std::optional<MaterialId> material;
     Color tint{};
     std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
     std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
+    std::optional<Size> logical_size;
+    std::string animation_key;
+    std::vector<AnimationFrame> animation_frames;
 };
 
 struct WorldPreparedHotspotResources {
@@ -40,6 +48,17 @@ public:
     [[nodiscard]] virtual core::Result<WorldPreparedVisual, core::Diagnostics>
     resolve(std::optional<core::AssetId> asset, std::optional<core::MaterialId> material,
             std::string_view context) = 0;
+    [[nodiscard]] virtual core::Result<WorldPreparedVisual, core::Diagnostics>
+    resolve_visual(const core::compiled::Visual& visual, std::optional<core::MaterialId> material,
+                   std::string_view context)
+    {
+        if (const auto* image = std::get_if<core::compiled::ImageVisual>(&visual))
+            return resolve(image->image, material, context);
+        return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+            {{.code = "presentation.world_animation_unsupported",
+              .message = "World presentation resource resolver does not support Animation Visuals.",
+              .source_path = std::string(context)}});
+    }
     [[nodiscard]] virtual core::Result<WorldPreparedHotspotResources, core::Diagnostics>
     resolve_hotspot(const core::PresentationHotspot& hotspot,
                     std::span<const core::PresentationHotspot> owner_hotspots,
@@ -54,6 +73,7 @@ struct WorldPresentationImageResource {
 
 struct WorldPresentationResourceCatalog {
     std::vector<WorldPresentationImageResource> images;
+    std::vector<core::compiled::AnimationResource> animations;
 };
 
 class AssetWorldPresentationResourceResolver final : public WorldPresentationResourceResolver {
@@ -76,6 +96,9 @@ public:
     [[nodiscard]] core::Result<WorldPreparedVisual, core::Diagnostics>
     resolve(std::optional<core::AssetId> asset, std::optional<core::MaterialId> material,
             std::string_view context) override;
+    [[nodiscard]] core::Result<WorldPreparedVisual, core::Diagnostics>
+    resolve_visual(const core::compiled::Visual& visual, std::optional<core::MaterialId> material,
+                   std::string_view context) override;
     [[nodiscard]] core::Result<WorldPreparedHotspotResources, core::Diagnostics>
     resolve_hotspot(const core::PresentationHotspot& hotspot,
                     std::span<const core::PresentationHotspot> owner_hotspots,
@@ -85,6 +108,7 @@ private:
     const assets::AssetManager& m_assets;
     assets::AssetLeaseLookupScope m_lookup_scope = assets::AssetLeaseLookupScope::Runtime;
     std::unordered_map<std::string, WorldPresentationImageResource> m_images;
+    std::unordered_map<std::string, core::compiled::AnimationResource> m_animations;
 };
 
 struct WorldFittedRect {
@@ -151,6 +175,15 @@ struct WorldPresentationDraw {
     core::compiled::CharacterAutomaticAnimations actor_automatic_animations;
     bool actor_speaking = false;
     std::vector<core::PresentationHotspotMaterialParameter> authored_hotspot_parameters{};
+    struct RasterAnimationFrame {
+        std::uint64_t duration_ms = 0;
+        Texture texture;
+        MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
+        std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
+    };
+    std::string raster_animation_key;
+    std::vector<RasterAnimationFrame> raster_animation_frames;
+    std::uint64_t raster_animation_epoch = 0;
 };
 
 struct WorldPreparedHotspotSurface {
@@ -307,6 +340,7 @@ public:
     snapshot(core::PresentationSnapshotRevision revision) const noexcept;
     [[nodiscard]] Size viewport() const noexcept { return m_viewport; }
     [[nodiscard]] bool restore_revision(core::PresentationSnapshotRevision revision) noexcept;
+    void preserve_animation_epochs_from(const WorldPresentationBackend& previous);
     void swap_prepared(WorldPresentationBackend& prepared) noexcept;
     void discard_revision(core::PresentationSnapshotRevision revision) noexcept;
     void retain_only(std::span<const core::PresentationSnapshotRevision> revisions);
@@ -316,6 +350,7 @@ private:
     struct LoopEpoch {
         core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
         std::chrono::microseconds started_at{0};
+        std::string compatibility;
     };
 
     void rebuild_batches(WorldPresentationFrame& frame,
@@ -330,6 +365,7 @@ private:
     std::unordered_map<std::uint64_t, core::RuntimePresentationSnapshot> m_snapshots;
     std::unordered_map<std::uint64_t, WorldPresentationFrame> m_frames;
     std::unordered_map<std::string, LoopEpoch> m_loop_epochs;
+    std::uint64_t m_animation_epoch_generation = 0;
     std::uint64_t m_generation = 0;
     HotspotInteractionVisualState m_hotspot_visual_state;
     bool m_resources_dirty = false;

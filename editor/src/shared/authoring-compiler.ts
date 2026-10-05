@@ -123,6 +123,7 @@ interface LoweringResult {
 
 interface ResourceReferenceClosure {
   assets: ReadonlySet<string>;
+  animations: ReadonlySet<string>;
   layouts: ReadonlySet<string>;
   materials: ReadonlySet<string>;
   scripts: ReadonlySet<string>;
@@ -130,6 +131,7 @@ interface ResourceReferenceClosure {
 
 function collectResourceReferenceClosure(project: CompiledProjectWire): ResourceReferenceClosure {
   const assets = new Set<string>();
+  const animations = new Set<string>();
   const layouts = new Set<string>();
   const materials = new Set<string>();
   const scripts = new Set<string>();
@@ -142,6 +144,7 @@ function collectResourceReferenceClosure(project: CompiledProjectWire): Resource
     const record = Object.fromEntries(Object.entries(value));
     if (typeof record.id === 'string') {
       if (record.kind === 'asset') assets.add(record.id);
+      else if (record.kind === 'animation') animations.add(record.id);
       else if (record.kind === 'layout') layouts.add(record.id);
       else if (record.kind === 'material') materials.add(record.id);
       else if (record.kind === 'script') scripts.add(record.id);
@@ -149,12 +152,13 @@ function collectResourceReferenceClosure(project: CompiledProjectWire): Resource
     Object.values(record).forEach(visit);
   };
   visit(project);
-  return { assets, layouts, materials, scripts };
+  return { assets, animations, layouts, materials, scripts };
 }
 
 function validateResourceClosure(project: CompiledProjectWire): CompiledDiagnostic[] {
   const closure = collectResourceReferenceClosure(project);
   const availableAssets = new Set(project.resources.assets.map((resource) => resource.id));
+  const availableAnimations = new Set(project.resources.animations.map((resource) => resource.id));
   const availableLayouts = new Set(project.resources.layouts.map((resource) => resource.id));
   const availableScripts = new Set(project.resources.scripts.map((resource) => resource.id));
   const diagnostics: CompiledDiagnostic[] = [];
@@ -166,6 +170,17 @@ function validateResourceClosure(project: CompiledProjectWire): CompiledDiagnost
           'error',
           '/resources/assets',
           `Referenced asset '${assetId}' is absent from the gameplay resource table.`,
+        ),
+      );
+  }
+  for (const animationId of [...closure.animations].sort()) {
+    if (!availableAnimations.has(animationId))
+      diagnostics.push(
+        makeDiagnostic(
+          'COMPILER_RESOURCE_ANIMATION_MISSING',
+          'error',
+          '/resources/animations',
+          `Referenced Animation '${animationId}' is absent from the gameplay resource table.`,
         ),
       );
   }

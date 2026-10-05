@@ -296,6 +296,9 @@ std::optional<TraitProperty> decode_owner_property_contract(Decoder&, const nloh
                                                             std::string_view);
 std::optional<TraitDeclaration> decode_trait(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<AssetResource> decode_asset(Decoder&, const nlohmann::json&, std::string_view);
+std::optional<AnimationResource> decode_animation(Decoder&, const nlohmann::json&,
+                                                  std::string_view);
+std::optional<Visual> decode_visual(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<LayoutResource> decode_layout(Decoder&, const nlohmann::json&, std::string_view);
 std::optional<ScriptResource> decode_script(Decoder&, const nlohmann::json&, std::string_view);
 

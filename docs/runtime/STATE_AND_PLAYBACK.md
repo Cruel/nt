@@ -275,6 +275,12 @@ presentation-operation handler, or completion queue. Layout, transition, tween, 
 and direct-render code remain presentation backends only. They cannot inspect compiled gameplay JSON
 or own Flow/session/save state.
 
+Authored Room Environment [Animation Visuals](../engine/ANIMATION.md) project semantic resource and
+motion selection into the same immutable presentation snapshot. Their mandatory closure includes
+all selected sprite frames. Sampling/phase remains backend-local on existing presentation clocks;
+compatible republishes retain phase and reset/load reconstructs from the first sample. No Animation
+frame cursor or epoch is added to SessionState, SaveState, or snapshot output.
+
 Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only compiled audio Asset
 IDs and realizes semantic Purpose, Owner, Pause Policy, gain, stereo pan, causality, and skip policy
 through `AudioSystem`. Project mix/mute settings and optional Voice ducking are applied independently

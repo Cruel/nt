@@ -246,8 +246,31 @@ const focusedHotspotShapeSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('alpha') }),
   strict({ kind: z.literal('rect'), bounds: normalizedRect }),
 ]);
+const focusedVisualSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('image'), assetId: z.string().min(1) }),
+  strict({
+    kind: z.literal('animation'),
+    animationId: z.string().min(1),
+    motionId: z.string().min(1).nullable(),
+  }),
+]);
+const focusedAnimationResourceSchema = strict({
+  id: z.string().min(1),
+  canvas: strict({ width: z.number().int().positive(), height: z.number().int().positive() }),
+  defaultMotionId: z.string().min(1),
+  motions: z.array(
+    strict({
+      id: z.string().min(1),
+      kind: z.literal('sprite-sequence'),
+      frames: z
+        .array(strict({ assetId: z.string().min(1), durationMs: z.number().int().positive() }))
+        .min(1),
+    }),
+  ),
+});
 
 export const focusedRoomWorldDefinitionSchema = strict({
+  animations: z.array(focusedAnimationResourceSchema).default([]),
   presentationSpace: strict({
     size: strict({ width: z.number().finite().positive(), height: z.number().finite().positive() }),
     bounds: focusedWorldRectSchema.nullable(),
@@ -329,6 +352,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       environmentId: z.string().min(1),
       condition: focusedConditionSchema,
       assetId: z.string().min(1).nullable(),
+      visual: focusedVisualSchema.nullable().optional(),
       materialId: z.string().min(1),
       materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
       materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),

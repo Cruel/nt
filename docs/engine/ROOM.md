@@ -142,10 +142,13 @@ bounds and labels, live Interactable state, and resolved exits. RmlUi and other 
 consume this value view only; they do not own navigation, flow, or saves.
 
 Room environment records are immutable definition-derived desired presentation. Each record has a
-stable nested `RoomEnvironmentId`, condition, optional image, required material, normalized bounds,
+stable nested `RoomEnvironmentId`, condition, optional image/Animation Visual, required material, normalized bounds,
 world plane/order, clock domain, UV scroll rate, opacity, and visibility. Room resolution derives
 these records after load; they are not duplicated in save bytes. Runtime-selected environment records
 with explicit presentation owners use the scoped desired-state path and are persisted separately.
+The first [Animation tracer](ANIMATION.md) adds immutable Visual selection to authored Environments;
+its backend-local phase is not persisted. The temporary image `asset` field remains only for this
+expand-contract slice, and Visual takes precedence when present.
 
 ## Authoring and validation
 
