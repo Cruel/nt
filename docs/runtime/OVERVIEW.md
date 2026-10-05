@@ -22,12 +22,12 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
 - `docs/editor/preview/PREVIEW_AND_TEST_PLAYBACK.md` describes editor-side preview/test playback integration.
 - `docs/editor/preview/ENGINE_PREVIEW_COMMUNICATION.md` describes preview iframe protocol and transport behavior.
 
-## Active Population Work
+## Feature Lab Baseline
 
-- [Feature Lab capability inventory](plans/FEATURE_LAB_INVENTORY.md) assigns the one-time #249
-  scenario/check and minimal-asset population plan to #250–#258, with Map coverage explicitly
-  owner-deferred. Implemented coverage remains in the Project's catalog; retire planning rows as
-  they are implemented.
+- [Feature Lab baseline certification](certifications/FEATURE_LAB_BASELINE.md) records the
+  comprehensive non-Map Project verification and its explicit acceptance limits. The Project
+  catalog owns implemented checks, automation-only classifications and owner-deferred coverage;
+  its accounting view is generated from catalog/Test data. Population planning is retired.
 
 ## Code Areas
 

@@ -1,4 +1,8 @@
-# Feature Lab capability inventory
+# Feature Lab capability inventory (retired)
+
+Archived at #259 after all population rows transferred. This is implementation history, not an
+active coverage ledger or evergreen task list. Current classification/accounting and certification
+are owned by the Project catalog and `docs/runtime/certifications/FEATURE_LAB_BASELINE.md`.
 
 Delivery authority for #249 (parent #234), against repository `856cf6310b69464444b20f1363c39b30bedb02e1`, 2026-10-02.
 Prerequisite #248 is closed: the owner completed #247 and the reconciliation reports no blocking pilot findings.
@@ -57,7 +61,7 @@ Materials, Assets, Script Modules, Messages/localized resources, authored Tests,
 input/display, and host-specific runtime behavior. Editor-only metadata is accounted for separately.
 
 The source set is the current [engine overview](../../engine/OVERVIEW.md) and its component documents,
-[Lua API](../LUA_RUNTIME.md), [state/playback](../STATE_AND_PLAYBACK.md),
+[Lua API](../../runtime/LUA_RUNTIME.md), [state/playback](../../runtime/STATE_AND_PLAYBACK.md),
 [UI components](../../ui/RMLUI_CUSTOM_COMPONENTS.md),
 [Layout contract](../../engine/LAYOUT.md), [assets](../../assets/OVERVIEW.md),
 [text implementation](../../rendering/TEXT_IMPLEMENTATION.md),

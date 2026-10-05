@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
-import { readFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
@@ -96,6 +97,49 @@ test('validator rejects duplicate IDs, broken references, invalid statuses, and 
   assert(codes.has('missing-automation-target'));
 });
 
+test('certification requires explicit reasons and separate non-playable classifications', async () => {
+  const catalog = await manifest();
+  delete catalog.automationOnly;
+  delete catalog.deferredCoverage;
+  const check = catalog.scenarios[0].checks[0];
+  check.status = 'blocked';
+  delete check.statusReason;
+  const result = await validateFeatureLabManifest(catalog);
+  assert(result.errors.some((item) => item.path === '/automationOnly'));
+  assert(result.errors.some((item) => item.path === '/deferredCoverage'));
+  assert(result.errors.some((item) => item.path.endsWith('/statusReason')));
+  const overlapping = await manifest();
+  overlapping.automationOnly.push(overlapping.deferredCoverage[0]);
+  const overlap = await validateFeatureLabManifest(overlapping);
+  assert(overlap.errors.some((item) => item.code === 'conflicting-accounting'));
+});
+
+test('realizations and automation resolve record identities and existing source bytes', async (t) => {
+  const temporaryRoot = await mkdtemp(path.join(os.tmpdir(), 'feature-lab-contract-'));
+  t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
+  for (const collection of ['rooms', 'assets', 'tests'])
+    await mkdir(path.join(temporaryRoot, 'records', collection), { recursive: true });
+  await writeFile(path.join(temporaryRoot, 'records/rooms/workshop.json'), JSON.stringify({ id: 'workshop', data: { kind: 'room' } }));
+  await writeFile(path.join(temporaryRoot, 'records/assets/image.json'), JSON.stringify({ id: 'wrong-image', data: { kind: 'audio', source: { type: 'project-file', path: 'missing.png' } } }));
+  await writeFile(path.join(temporaryRoot, 'records/tests/flow.json'), JSON.stringify({ id: 'wrong-flow', data: { kind: 'room' } }));
+  const catalog = await manifest();
+  catalog.launches = [{ id: 'workshop', roomId: 'workshop' }];
+  catalog.assetRequirements = [{ id: 'picture', purpose: 'Landmark', source: 'curated', properties: { kind: 'image' }, realizations: [{ assetId: 'image', quality: 'reference' }] }];
+  catalog.scenarios = [catalog.scenarios[0]];
+  catalog.scenarios[0].launch = { entry: 'workshop' };
+  catalog.scenarios[0].checks = [catalog.scenarios[0].checks[0]];
+  catalog.scenarios[0].checks[0].assetRequirements = ['picture'];
+  catalog.scenarios[0].checks[0].automation = [{ kind: 'semantic-test', id: 'flow' }];
+  const result = await validateFeatureLabManifest(catalog, { projectRoot: temporaryRoot });
+  const codes = new Set(result.errors.map((item) => item.code));
+  assert(codes.has('record-identity-mismatch'));
+  assert(codes.has('record-kind-mismatch'));
+  assert(codes.has('missing-asset-source'));
+  await mkdir(path.join(temporaryRoot, 'missing.png'));
+  const directorySource = await validateFeatureLabManifest(catalog, { projectRoot: temporaryRoot });
+  assert(directorySource.errors.some((item) => item.code === 'missing-asset-source'));
+});
+
 test('catalog inherits Project versioning and rejects an independent epoch', async () => {
   const catalog = await manifest();
   catalog.schemaVersion = 1;
@@ -173,6 +217,41 @@ test('timestamp history requires immutable created and meaningful modified chang
     previousManifest: catalog,
   });
   assert(result.errors.some((error) => error.code === 'created-changed'));
+});
+
+test('generated accounting separates availability, automation links, exclusions and deferral', async () => {
+  const { generateFeatureLabAccounting } = await import('../../tools/feature-lab/report.mjs');
+  const catalog = await manifest();
+  const scenario = catalog.scenarios.find((entry) => entry.id === 'rooms-interactions');
+  scenario.checks = [scenario.checks[0], scenario.checks.find((entry) => entry.id === 'fade-transition')];
+  catalog.scenarios = [scenario];
+  const result = await generateFeatureLabAccounting(catalog, { projectRoot });
+  assert.equal(result.summary.scenarios, 1);
+  assert.equal(result.summary.checks, 2);
+  assert.equal(result.summary.checksWithAutomation, 1);
+  assert.equal(result.checks[1].automation.length, 0);
+  assert.equal(result.deferredCoverage[0].id, 'maps');
+  assert.equal(result.automationOnly.some((entry) => entry.id === 'maps'), false);
+  const witness = result.tests.find((entry) => entry.id === 'rooms-interactions-flow');
+  assert.deepEqual(witness.checks, ['rooms-interactions/initial-world-state']);
+  const unlinked = result.tests.find((entry) => entry.id === 'runtime-diagnostics-handoff-ui');
+  assert.deepEqual(unlinked.checks, []);
+  assert(unlinked.steps > 0);
+  assert.equal(Object.hasOwn(result.summary, 'passed'), false);
+});
+
+test('timestamp history rejects regressions and cosmetic-only timestamp churn', async () => {
+  const previousManifest = await manifest();
+  const catalog = structuredClone(previousManifest);
+  const check = catalog.scenarios[0].checks[0];
+  check.expected += ' Changed behavior.';
+  check.modified = '2026-10-04T23:21:51Z';
+  let result = await validateFeatureLabManifest(catalog, { previousManifest });
+  assert(result.errors.some((item) => item.code === 'modified-regressed'));
+  check.expected = previousManifest.scenarios[0].checks[0].expected;
+  check.modified = '2026-10-05T02:03:54Z';
+  result = await validateFeatureLabManifest(catalog, { previousManifest });
+  assert(result.errors.some((item) => item.code === 'unnecessary-modified'));
 });
 
 test('scenario effective modification and asset requirements are derived from child checks', async () => {

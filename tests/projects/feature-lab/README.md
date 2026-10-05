@@ -4,20 +4,31 @@ Feature Lab is NovelTea's canonical in-tree authored acceptance and working-refe
 
 The Project root is `tests/projects/feature-lab/`; this README lives beside `project.json`. Its authoritative catalog is the registered JSON `data` Asset `feature-lab-catalog`, backed by `assets/data/feature-lab.json`. The persistent Game HUD Layout reads that exact Asset at runtime; do not introduce a second Lua or generated catalog.
 
-## Comprehensive population
+## Comprehensive baseline
 
-The [capability inventory](../../../docs/runtime/plans/FEATURE_LAB_INVENTORY.md) assigns final
-stations/checks and minimal asset needs to #250–#258 after the validated pilot checkpoint. It is a
-one-time population plan, not implemented coverage: transfer entries into this Project's catalog
-and remove the corresponding planning rows as work lands. Do not add fake launch targets for
-unbuilt scenarios or maintain a parallel coverage ledger. Map-specific coverage is owner-deferred
-until it can provide meaningful acceptance checks; ordinary Room navigation remains in scope.
+The [baseline certification](../../../docs/runtime/certifications/FEATURE_LAB_BASELINE.md) records
+non-Map composition verification and acceptance limits. The one-time population plan is retired.
+The catalog owns checks plus explicit `automationOnly` and `deferredCoverage` families, each with
+stable identity, title and reason. Deferred Maps are neither covered nor automation-only and do not
+block non-Map certification; reopening Map Lab work requires explicit owner approval. Ordinary
+Room navigation remains in scope. Do not maintain a parallel coverage ledger.
+
+Generate the accounting view from the catalog and all authored Test records:
+
+```sh
+node tools/feature-lab/report.mjs --output build/reports/feature-lab-accounting.json
+```
+
+The JSON view includes qualified check IDs, statuses/reasons, expected scope, automation links,
+Asset Requirements, Test step counts and unlinked Tests, and separate exclusions/deferrals. Links
+are not execution results or proof of every manual step; unlinked Tests and checks without automation
+are permitted. `ready` means the workflow exists, not that perceptual acceptance has occurred.
 
 ## Catalog contract
 
-The project-specific validator is `tools/feature-lab/validate.mjs`. It checks stable IDs and references, `ready` / `provisional` / `blocked` statuses, valid UTC calendar timestamps, automation targets, Asset Requirement realizations, and derived scenario metadata. Reference collections must be arrays, including when empty. The catalog inherits Project Workspace Format; it has no independent `schemaVersion`, and the replaced versioned shape is rejected. Automation references resolve authored semantic/UI Tests or stable IDs declared in the manifest's `visualCheckpoints` registry.
+The project-specific validator is `tools/feature-lab/validate.mjs`. It checks stable IDs and references, `ready` / `provisional` / `blocked` statuses, valid UTC calendar timestamps, automation targets, Asset Requirement realizations, and derived scenario metadata. Reference collections must be arrays, including when empty. The catalog inherits Project Workspace Format; it has no independent `schemaVersion`, and the replaced versioned shape is rejected. Automation references resolve actual authored Test identities/kinds or stable IDs declared in the manifest's `visualCheckpoints` registry. Launch Rooms and Asset realizations resolve record identities; requirement kinds and Project-file source existence are checked. Synthetic/curated describes acceptance intent, not a ban on documented cross-use of reference art. Blocked/provisional scenarios and checks require an explicit `statusReason`.
 
-`created` is immutable after an entry is introduced. Update `modified` only when the scenario/check's meaningful behavior or acceptance content changes. Pass `--previous <previous-catalog.json>` to validate timestamp history.
+`created` is immutable after an entry is introduced. Update `modified` only when the scenario/check's meaningful behavior or acceptance content changes. Pass `--previous <previous-catalog.json>` to validate immutable creation, monotonic modification and unchanged-content timestamp preservation. JSON object key order does not change content; authored array order does.
 
 Categories, scenarios, and checks use their JSON array order as authoring order. The HUD search includes scenario identity/title/description and child-check identity/title/description/action/expected text. A child-check hit keeps its parent scenario visible. The rolling `Last 24 Hours` view uses the runtime wall clock; `New` is based on `created`, `Updated` on `modified` only when the entry is no longer new, and a scenario's effective modification time is the maximum of its own and its checks' `modified` values.
 
@@ -27,7 +38,7 @@ Asset Requirements describe acceptance intent separately from concrete Asset rec
 
 Opening or closing the HUD's Feature Lab panel does not reset gameplay. The catalog presents full-width category headings with each category's scenarios in its own two-column grid; an odd final scenario leaves the second column empty rather than allowing the next category to fill it. Each entire scenario entry is the launch control. Launching one calls `Game.restart(...)` with Feature Lab startup context so it begins from fresh project defaults. The bootstrap module consumes the resolved launch target from that context and routes the fresh session. The persistent `Feature Lab` HUD control reopens the catalog during normal gameplay, while the adjacent `Restart` control restarts the current scenario (or the home session when no scenario is active). In-scenario guidance is rendered as numbered, prominent action steps. Checks may provide a short `guideSubtext` only when a secondary cue materially helps the manual check; the full `expected` text remains acceptance metadata rather than being dumped into the HUD.
 
-The Rooms & Interactions pilot demonstrates authored Room conditions, a Room Feature, an Interactable, a Verb/Interaction state mutation, rejected and successful navigation, a non-Cut Fade transition, destination lifecycle behavior, and typed semantic expectations. The reusable bedroom background provides a real door landmark and wall area; a separate transparent button sprite is placed over the wall switch and uses its own sprite-alpha Interactable hotspot, so clicking and highlighting belong to the visible button itself. In the workshop, click the bedroom door while it is locked, click the red wall button itself, then click the bedroom door again. The locked door remains a normal Room exit hotspot, so the first click reaches authored navigation rejection and the second succeeds after the button Interaction unlocks it. The HUD displays rejection, button, and arrival notifications. The UI Test covers scenario launch, catalog reopening without reset, and fresh re-entry; the world-pointer sequence is exercised manually while the semantic Test covers the same rejection, mutation, and navigation behavior without surrogate HUD controls.
+The Rooms & Interactions pilot demonstrates authored Room conditions, a Room Feature, an Interactable, a Verb/Interaction state mutation, rejected and successful navigation, a non-Cut Fade transition, destination lifecycle behavior, and typed semantic expectations. The reusable bedroom background provides a real door landmark and wall area; a separate transparent button sprite is placed over the wall switch and uses its own sprite-alpha Interactable hotspot, so clicking and highlighting belong to the visible button itself. In the workshop, click the bedroom door while it is locked, click the red wall button itself, then click the bedroom door again. The locked door remains a normal Room exit hotspot, so the first click reaches authored navigation rejection and the second succeeds after the button Interaction unlocks it. The HUD displays rejection, button, and arrival notifications. The UI Test dirties the gate before catalog reopening, proves reopening retains the mutation and re-entry resets it, then switches to the stress warning and back to prove cross-station defaults and Flow retirement; the world-pointer sequence is exercised manually while the semantic Test covers the same rejection, mutation, and navigation behavior without surrogate HUD controls.
 
 That same pilot is the manual debugger acceptance surface for pointer/Hotspot diagnosis. In a
 devtools build, hover the wall button or bedroom door and use the shared Trace plus current Devtools
