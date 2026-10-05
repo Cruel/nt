@@ -94,6 +94,21 @@ export default defineConfig({
     setupFiles: ['./src/renderer/test/setup.ts'],
     include: ['src/renderer/**/*.test.{ts,tsx}'],
     css: true,
+    coverage: {
+      provider: 'v8',
+      reportsDirectory: 'coverage',
+      reporter: ['text-summary', 'html', 'json', 'json-summary', 'lcov'],
+      include: ['src/**/*.{ts,tsx}'],
+      exclude: [
+        'src/**/*.test.{ts,tsx}',
+        'src/**/*.d.ts',
+        'src/**/test/**',
+        'src/**/test-support/**',
+        'src/**/*.gen.ts',
+        'src/renderer/components/ui/**',
+      ],
+      reportOnFailure: true,
+    },
   },
   fmt: {
     ignorePatterns: [

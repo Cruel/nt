@@ -109,6 +109,20 @@ test('vcpkg binary caches have independent configuration writers and refresh on 
   );
 });
 
+test('CI publishes distinct informational coverage summaries and detailed artifacts', () => {
+  const native = job('linux');
+  const editor = job('editor');
+  assert.match(step(native, 'Configure'), /NOVELTEA_ENABLE_COVERAGE=ON/);
+  assert.match(step(native, 'Report C++ coverage'), /--html-details/);
+  assert.match(step(native, 'Report C++ coverage'), /--json-summary/);
+  assert.match(step(native, 'Report C++ coverage'), /coverage-summary\.mjs cpp .*GITHUB_STEP_SUMMARY/);
+  assert.match(step(editor, 'Test'), /test:coverage/);
+  assert.match(step(editor, 'Summarize editor coverage'), /coverage-summary\.mjs editor .*GITHUB_STEP_SUMMARY/);
+  assert.match(step(native, 'Upload C++ coverage'), /name: noveltea-coverage-cpp/);
+  assert.match(step(editor, 'Upload editor coverage'), /name: noveltea-coverage-editor/);
+  assert.doesNotMatch(step(native, 'Report C++ coverage'), /--fail-under/);
+});
+
 test('desktop player and authoring presets keep compatibility floors separate', () => {
   const presets = new Map(cmakePresets.configurePresets.map((preset) => [preset.name, preset]));
   const linuxPlayer = presets.get('linux-release');

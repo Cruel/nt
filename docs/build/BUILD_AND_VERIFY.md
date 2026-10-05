@@ -112,6 +112,12 @@ These inspect the linked binaries for RmlUi Debugger and Dear ImGui rather than 
 option text. CI runs the enabled checks in the Linux developer build and the disabled check against
 the Linux production player. See `docs/runtime/DEVELOPER_DEBUGGING.md` for the full capability matrix.
 
+## Informational coverage
+
+See [Coverage](COVERAGE.md) for separate native GCC/gcovr and editor Vitest coverage commands,
+report boundaries, CI summaries/artifacts, and fresh-counter procedures. Coverage has no global
+numeric gate and is not evidence of behavioral correctness.
+
 ## Development tooling resources
 
 When `NOVELTEA_NATIVE_TOOL_BRIDGE` selects a CMake-built tooling bridge, font-coverage validation
@@ -327,7 +333,7 @@ CLI certification downloads both the executable and its bgfx shader headers from
 The headers come from the CLI producer's installed dependency tree; certification must not depend on
 an optional cache hit or bootstrap a full vcpkg checkout merely to recover those headers.
 
-The main CI workflow keeps separate `ccache` namespaces for Linux debug, release CLI, sanitizer,
+The main CI workflow keeps separate `ccache` namespaces for Linux debug coverage, release CLI, sanitizer,
 and cooperative builds; Emscripten preview and release builds; Android threaded and cooperative
 builds; and Windows MSVC. Keys include explicitly versioned toolchain identities and the current
 commit. Compiler outputs are saved immediately after successful compilation, before later tests or

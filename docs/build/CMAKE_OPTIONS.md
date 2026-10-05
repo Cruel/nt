@@ -34,6 +34,7 @@ developer frontends that opt into it.
 | `NOVELTEA_BUILD_SANDBOX` | `ON` | Build the sandbox application. |
 | `NOVELTEA_BUILD_PLAYER` | `ON` | Build the dedicated release-facing `noveltea-player` application. |
 | `NOVELTEA_BUILD_HOST_TOOLS` | `ON` | Build native editor/host-tool targets, including the embedded shaderc tooling. Player-only builds can disable this to avoid compiling host tooling. |
+| `NOVELTEA_ENABLE_COVERAGE` | `OFF` | Instrument first-party targets in native GCC builds for informational gcov coverage. See [Coverage](COVERAGE.md). |
 | `NOVELTEA_BUILD_BENCHMARKS` | `OFF` | Build the reusable release microbenchmark executable for JSON and Lua regression measurements. |
 | `NOVELTEA_ENABLE_DEVTOOLS` | `ON` | Compile shared developer-observation/debugging infrastructure and versioned Devtools Snapshot capabilities. Host composition decides whether a Dear ImGui frontend is also compiled; the optimized Web editor-preview preset enables instrumentation without ImGui. |
 | `NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER` | `OFF` | Compile the editor-only asset memory and prefetch profiler. Enabled only by dedicated editor-profiler presets. |
