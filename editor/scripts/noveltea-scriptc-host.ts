@@ -1452,6 +1452,7 @@ function requestEnvironment(): Record<string, string> {
     NOVELTEA_CLI_CERTIFICATION: '',
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_CRASH: '',
     NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '',
+    NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_GATE_PATH: '',
     NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '',
     NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_CRASH: '',
     NOVELTEA_CLI_CERTIFICATION_STAGED_OUTPUT_DELAY_MS: '',
@@ -2206,6 +2207,23 @@ async function runHiddenDaemonDisposable(
 
   try {
     if (payload.environment.NOVELTEA_CLI_CERTIFICATION === '1') {
+      const gatePath = payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_GATE_PATH;
+      if (gatePath) {
+        const deadline = Date.now() + 120_000;
+        while (true) {
+          const gate = JSON.parse(invokeHost('path-metadata', JSON.stringify({ path: gatePath })));
+          if (gate.ok !== true) throw new Error('Failed to inspect disposable certification gate.');
+          if (gate.kind === 'missing') break;
+          if (Date.now() >= deadline)
+            throw new Error('Disposable certification gate was not released within 120 seconds.');
+          // Stay assigned until the observer releases the gate; cancellation still exercises the
+          // broker's forced-retirement grace period rather than a machine-dependent delay.
+          hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
+            disposableWorkerId: invocation.disposableWorkerId,
+            token,
+          });
+        }
+      }
       const delayText = payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS;
       const delayMs = delayText ? Number(delayText) : 0;
       if (Number.isSafeInteger(delayMs) && delayMs > 0 && delayMs <= 10_000) {
