@@ -14,6 +14,7 @@ import {
   verifyStandaloneNovelTeaCli,
 } from './editor-distribution-lib.mjs';
 import { inspectNodePtyNativeClosure } from './node-pty-distribution.mjs';
+import { verifyPrivateMediaTools } from './private-media-tools.mjs';
 
 const expectedFuses = new Map([
   [FuseV1Options.RunAsNode, FuseState.DISABLE],
@@ -208,6 +209,7 @@ export async function verifyPackagedEditor(outputOrApplication) {
     }
   }
   await verifyStandaloneNovelTeaCli(cliPath);
+  await verifyPrivateMediaTools(path.join(application.resources, 'tools', 'ffmpeg'));
 
   for (const required of ['node_modules/sharp/package.json', 'node_modules/sharp/dist/index.cjs']) {
     if (!(await pathExists(path.join(unpackedRoot, ...required.split('/'))))) {

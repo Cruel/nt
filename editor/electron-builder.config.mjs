@@ -130,6 +130,11 @@ export default {
   ],
   extraResources: [
     {
+      from: path.join(stageRoot, 'resources', 'tools'),
+      to: 'tools',
+      filter: ['**/*'],
+    },
+    {
       from: path.join(stageRoot, 'resources', 'engine-preview'),
       to: 'engine-preview',
       filter: ['**/*'],

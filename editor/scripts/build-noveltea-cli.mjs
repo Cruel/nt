@@ -4,6 +4,7 @@ import {
   cp,
   lstat,
   mkdir,
+  mkdtemp,
   readFile,
   readdir,
   rm,
@@ -14,6 +15,7 @@ import path from 'node:path';
 import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
+import { tmpdir } from 'node:os';
 
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 
@@ -567,6 +569,7 @@ try {
   const stagedHostSource = (await readFile(hostSource, 'utf8'))
     .replace('../src/cli/static-contracts', './static-contracts')
     .replace('../src/cli/command-routing', './command-routing')
+    .replace('../src/main/services/media-preparation-service', './media-preparation-service')
     .replaceAll(
       '// @ts-expect-error The private island package is materialized only during release staging.',
       '',
@@ -581,6 +584,21 @@ try {
   await cp(schemaStaticContractsSource, stagedSchemaStaticContracts);
   await cp(commandRoutingSource, stagedCommandRouting);
   await writeFile(stagedProductVersion, stagedProductVersionSource);
+  const mediaServiceSource = await readFile(
+    path.join(editorRoot, 'src', 'main', 'services', 'media-preparation-service.ts'),
+    'utf8',
+  );
+  const mediaPin = await readFile(
+    path.join(editorRoot, 'src', 'shared', 'media-tool-pin.json'),
+    'utf8',
+  );
+  await writeFile(
+    path.join(stageRoot, 'media-preparation-service.ts'),
+    mediaServiceSource.replace(
+      "import pin from '../../shared/media-tool-pin.json';",
+      `const pin = ${mediaPin.trim()};`,
+    ),
+  );
   await cp(hostProcessSource, stagedHostProcess);
   await writeFile(stagedHost, stagedHostSource);
   const ffiPath = path.join(stageRoot, 'ffi.json');
@@ -659,4 +677,20 @@ try {
   await rm(stageRoot, { recursive: true, force: true });
 }
 
+const { stagePrivateMediaTools } = await import('./private-media-tools.mjs');
+await stagePrivateMediaTools(outputDirectory, { archivePath: process.env.NOVELTEA_FFMPEG_ARCHIVE });
+const relocatedMediaRoot = await mkdtemp(path.join(tmpdir(), 'noveltea media relocation '));
+try {
+  const relocatedCli = path.join(relocatedMediaRoot, executableName);
+  await cp(outputPath, relocatedCli);
+  await cp(path.join(outputDirectory, 'tools'), path.join(relocatedMediaRoot, 'tools'), {
+    recursive: true,
+  });
+  run(relocatedCli, ['--json', 'media-tool', 'check'], {
+    cwd: tmpdir(),
+    env: { ...process.env, NOVELTEA_FFMPEG: undefined },
+  });
+} finally {
+  await rm(relocatedMediaRoot, { recursive: true, force: true });
+}
 console.log(`NovelTea CLI: ${outputPath}`);

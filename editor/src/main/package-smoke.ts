@@ -16,7 +16,7 @@ import { assetDataFromImportMetadata } from '../shared/project-schema/authoring-
 import { isAuthoringProject } from '../shared/project-schema/authoring-project';
 import { NOVELTEA_VERSION } from '../shared/product-version';
 import type { EnginePreviewServer } from './engine-preview-server';
-import { openProject } from './services/editor-tool-service';
+import { checkMediaTools, openProject, prepareMedia } from './services/editor-tool-service';
 import { createProject, saveProjectContent } from './services/project-file-service';
 import { importUntrackedProjectAssets } from './services/project-asset-audit-service';
 import { characterizePackagedNodePty } from './services/terminal-package-smoke';
@@ -448,6 +448,52 @@ export async function runPackageSmoke(
 
     const sharpFormats = await characterizeSharpFormats();
     checks.sharp = Object.values(sharpFormats).every(Boolean);
+
+    const mediaRoot = await fs.promises.mkdtemp(
+      path.join(app.getPath('temp'), 'noveltea media smoke '),
+    );
+    try {
+      const identity = checkMediaTools();
+      const source = path.join(mediaRoot, 'source.rgb');
+      const prepared = path.join(mediaRoot, 'prepared.webm');
+      const decoded = path.join(mediaRoot, 'decoded.rgb');
+      const pixels = Buffer.alloc(12);
+      await fs.promises.writeFile(source, pixels);
+      prepareMedia([
+        '-f',
+        'rawvideo',
+        '-pix_fmt',
+        'rgb24',
+        '-s',
+        '2x2',
+        '-r',
+        '1',
+        '-i',
+        source,
+        '-frames:v',
+        '1',
+        '-c:v',
+        'libvpx-vp9',
+        '-lossless',
+        '1',
+        prepared,
+      ]);
+      prepareMedia([
+        '-i',
+        prepared,
+        '-frames:v',
+        '1',
+        '-f',
+        'rawvideo',
+        '-pix_fmt',
+        'rgb24',
+        decoded,
+      ]);
+      checks.privateMediaTools =
+        identity.bundled && (await fs.promises.readFile(decoded)).equals(pixels);
+    } finally {
+      await fs.promises.rm(mediaRoot, { recursive: true, force: true });
+    }
     for (const [name, passed] of Object.entries(sharpFormats)) {
       checks[`sharp.${name}`] = passed;
     }
