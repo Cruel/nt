@@ -73,6 +73,10 @@ jobs:
           node-version-file: .node-version
       - name: Verify Material contract projections
         run: node scripts/generate-material-contract-registry.mjs --check
+      - name: Set up coverage contract reporter
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
       - name: Test CI contracts
         run: node --test tests/ci/*.mjs
       - name: Verify compiler feature policy header
@@ -135,7 +139,7 @@ jobs:
           if-no-files-found: error
 
   linux:
-    name: Linux desktop
+    name: Linux desktop and native coverage
     runs-on: ubuntu-24.04
     needs: shader-assets
     timeout-minutes: 120
@@ -144,10 +148,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v6
 
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+
       - name: Set up Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
+          cache: pnpm
+          cache-dependency-path: pnpm-lock.yaml
+
+      - name: Install workspace dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build Node coverage driver
+        run: pnpm -C editor exec vp pack
 
       - name: Set up Linux native dependencies
         uses: ./.github/actions/setup-linux-native
@@ -183,13 +198,31 @@ jobs:
           name: noveltea-shader-assets
           path: build/prebuilt-shader-assets
 
+      - name: Download prebuilt embedded bgfx tool closure
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          mkdir -p build/prebuilt-shaderc-download build/prebuilt-shaderc-toolchain
+          gh release download "$NOVELTEA_SHADERC_TOOLCHAIN_TAG" \
+            --repo Cruel/nt-tools \
+            --pattern 'noveltea-bgfx-shaderc-linux-x64.tar.gz' \
+            --pattern 'noveltea-bgfx-shaderc-linux-x64.tar.gz.sha256' \
+            --dir build/prebuilt-shaderc-download
+          (
+            cd build/prebuilt-shaderc-download
+            sha256sum -c noveltea-bgfx-shaderc-linux-x64.tar.gz.sha256
+          )
+          tar -xzf build/prebuilt-shaderc-download/noveltea-bgfx-shaderc-linux-x64.tar.gz \
+            -C build/prebuilt-shaderc-toolchain
+          echo "NOVELTEA_PREBUILT_SHADERC_ROOT=${{ github.workspace }}/build/prebuilt-shaderc-toolchain" >> "$GITHUB_ENV"
+
       - name: Configure
-        # Host-tool-specific shader compiler tests remain covered by linux-sanitize and CLI certification.
         run: |
           cmake --preset linux-debug -G Ninja \
             -DVCPKG_MANIFEST_FEATURES=tests \
             -DNOVELTEA_ENABLE_COVERAGE=ON \
-            -DNOVELTEA_BUILD_HOST_TOOLS=OFF \
+            -DNOVELTEA_BUILD_HOST_TOOLS=ON \
+            -DNOVELTEA_PREBUILT_SHADERC_ROOT="$NOVELTEA_PREBUILT_SHADERC_ROOT" \
             -DNOVELTEA_COMPILE_SHADERS=OFF \
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
             -DBUILD_TESTING=ON \
@@ -213,19 +246,47 @@ jobs:
       - name: Enforce C++ runtime and dependency policy
         run: cmake --build --preset linux-debug --target cxx-policy
 
-      - name: Unit tests
-        run: xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure
+      - name: Reset CTest coverage counters
+        run: node scripts/native-coverage.mjs reset build/linux-debug
 
-      - name: Report C++ coverage
+      - name: CTest
+        run: |
+          mkdir -p build/reports/coverage/cpp/ctest
+          xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure \
+            --output-junit "$GITHUB_WORKSPACE/build/reports/coverage/cpp/ctest/test-results.xml"
+
+      - name: Report CTest coverage
         if: ${{ !cancelled() }}
         run: |
-          mkdir -p build/reports/coverage/cpp
-          uv tool run gcovr==8.4 --config cmake/gcovr.cfg build/linux-debug \
-            --html-details build/reports/coverage/cpp/index.html \
-            --json build/reports/coverage/cpp/coverage.json \
-            --json-summary build/reports/coverage/cpp/summary.json \
-            --xml build/reports/coverage/cpp/cobertura.xml
-          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/summary.json >> "$GITHUB_STEP_SUMMARY"
+          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest/summary.json CTest >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Reset Feature Lab coverage counters
+        if: ${{ !cancelled() }}
+        run: node scripts/native-coverage.mjs reset build/linux-debug
+
+      - name: Feature Lab authored Tests
+        if: ${{ !cancelled() }}
+        env:
+          NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-tooling-bridge
+          NOVELTEA_UI_TEST_RUNNER: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-ui-test-runner
+        run: |
+          mkdir -p build/reports/coverage/cpp/feature-lab
+          xvfb-run -a node editor/dist-electron/tools/noveltea.mjs \
+            --project tests/projects/feature-lab --json test run \
+            > build/reports/coverage/cpp/feature-lab/test-results.json
+
+      - name: Report Feature Lab coverage
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/feature-lab
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/feature-lab/summary.json 'Feature Lab' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Report combined native coverage
+        if: ${{ !cancelled() }}
+        run: |
+          node scripts/native-coverage.mjs merge build/reports/coverage/cpp
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/combined/summary.json 'Combined (union)' >> "$GITHUB_STEP_SUMMARY"
 
       - name: Upload C++ coverage
         if: ${{ !cancelled() }}
