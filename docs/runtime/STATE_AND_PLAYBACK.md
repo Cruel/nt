@@ -168,7 +168,15 @@ retained save includes the committed tree or its removal, rather than waiting fo
 or elapsed time to invalidate the candidate. Retained checkpoint publication does not request a visual thumbnail.
 A thumbnail capture is queued only after a manual save, autosave, or other typed save-slot write
 actually persists that checkpoint, and the asynchronous result updates only slots still bound to the
-same checkpoint revision.
+same checkpoint revision whose current save bytes, metadata, and thumbnail still match the captured
+checkpoint. Slot contents are authoritative: deletion and direct replacement through the store need
+no notification to the checkpoint service. Attachment checks existence and reads current contents
+before writing, so it neither recreates deleted slots nor overwrites changed contents. Store access
+and attachment are serialized by the runtime owner; this is not a cross-process compare-and-swap
+contract. Completed or invalidated slot bindings are removed immediately, including on partial
+failure. A retry rechecks remaining slots without replaying completed writes; retained checkpoint
+thumbnail state and the pending capture commit only after all remaining writes succeed. Save formats
+are unchanged.
 
 The presentation coordinator publishes exact causal status before backend work. Awaited finite
 presentation/audio, voice and gameplay SFX until semantic termination, ActiveText reveal/fade, and any
