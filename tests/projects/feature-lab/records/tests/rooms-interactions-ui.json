@@ -33,6 +33,21 @@
         ]
       },
       {
+        "id": "dirty-pilot",
+        "input": "run-interaction",
+        "label": "Unlock before checking restart isolation",
+        "runInteraction": {
+          "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+          "bindings": [{ "slotId": "target", "subject": {
+            "kind": "interactable",
+            "interactable": { "$ref": { "registry": "interactableInstances", "id": "gate-lever-1" } }
+          } }]
+        },
+        "expectations": [{ "id": "dirty-gate", "type": "property", "operator": "eq",
+          "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true }
+        }]
+      },
+      {
         "id": "reopen-lab",
         "input": "ui-click",
         "label": "Reopen the Lab without resetting gameplay",
@@ -45,10 +60,10 @@
             "currentRoom": { "roomId": "rooms-interactions-workshop" }
           },
           {
-            "id": "locked-preserved",
+            "id": "unlocked-preserved",
             "type": "property",
             "operator": "eq",
-            "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": false }
+            "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": true }
           }
         ]
       },
@@ -70,6 +85,38 @@
             "operator": "eq",
             "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": false }
           }
+        ]
+      },
+      {
+        "id": "dirty-again", "input": "run-interaction", "label": "Dirty before switching stations",
+        "runInteraction": {
+          "verb": { "$ref": { "collection": "verbs", "id": "use" } },
+          "bindings": [{ "slotId": "target", "subject": {
+            "kind": "interactable",
+            "interactable": { "$ref": { "registry": "interactableInstances", "id": "gate-lever-1" } }
+          } }]
+        }
+      },
+      { "id": "open-before-switch", "input": "ui-click", "label": "Open catalog before switching", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" } },
+      { "id": "stress-category", "input": "ui-click", "label": "Show stress station", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-stress-extremes" } },
+      {
+        "id": "switch-to-stress", "input": "ui-click", "label": "Switch with fresh defaults",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-stress-content" },
+        "expectations": [
+          { "id": "stress-room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "stress-content" } },
+          { "id": "stress-warning", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "scene", "flowId": "stress-content" } },
+          { "id": "cross-station-default", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": false } }
+        ]
+      },
+      { "id": "open-before-return", "input": "ui-click", "label": "Open catalog with suspended Scene", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-open" } },
+      { "id": "world-category", "input": "ui-click", "label": "Show world stations", "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-world-interaction" } },
+      {
+        "id": "return-to-pilot", "input": "ui-click", "label": "Return without the previous Flow",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-rooms-interactions" },
+        "expectations": [
+          { "id": "return-room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "rooms-interactions-workshop" } },
+          { "id": "no-old-flow", "type": "active-flow", "operator": "absent", "activeFlow": { "kind": "scene", "flowId": "stress-content" } },
+          { "id": "return-default", "type": "property", "operator": "eq", "property": { "scope": "global", "ownerId": "", "propertyId": "gate-unlocked", "value": false } }
         ]
       }
     ],

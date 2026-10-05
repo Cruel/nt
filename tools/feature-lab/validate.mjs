@@ -1,4 +1,4 @@
-import { access, readFile } from 'node:fs/promises';
+import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -81,17 +81,45 @@ function compareTimestampHistory(current, previous, pathName, errors) {
   if (!previous) return;
   if (current.created !== previous.created)
     errors.push(error('created-changed', `${pathName}/created`, 'created is immutable for an existing manifest entry.'));
-  if (stable(withoutModified(current)) !== stable(withoutModified(previous)) && current.modified === previous.modified)
+  const changed = stable(withoutModified(current)) !== stable(withoutModified(previous));
+  if (changed && current.modified === previous.modified)
     errors.push(error('stale-modified', `${pathName}/modified`, 'Meaningful manifest content changed without updating modified.'));
+  if (Date.parse(current.modified) < Date.parse(previous.modified))
+    errors.push(error('modified-regressed', `${pathName}/modified`, 'modified cannot move backwards for an existing entry.'));
+  if (!changed && current.modified !== previous.modified)
+    errors.push(error('unnecessary-modified', `${pathName}/modified`, 'Unchanged content must preserve modified.'));
 }
 
 async function fileExists(filename) {
   try {
-    await access(filename);
-    return true;
+    return (await stat(filename)).isFile();
   } catch {
     return false;
   }
+}
+
+async function readRecord(projectRoot, collection, id, kind, pathName, missingCode, errors) {
+  if (typeof id !== 'string' || !MANIFEST_ID.test(id)) {
+    errors.push(error('invalid-reference-id', pathName, 'Record references must use lowercase kebab-case IDs.'));
+    return null;
+  }
+  const filename = path.join(projectRoot, 'records', collection, `${id}.json`);
+  if (!(await fileExists(filename))) {
+    errors.push(error(missingCode, pathName, `Missing ${collection} record '${id}'.`));
+    return null;
+  }
+  let record;
+  try {
+    record = JSON.parse(await readFile(filename, 'utf8'));
+  } catch {
+    errors.push(error('invalid-record', pathName, `Cannot read JSON record '${id}'.`));
+    return null;
+  }
+  if (record?.id !== id)
+    errors.push(error('record-identity-mismatch', pathName, `Record '${id}' declares a different identity.`));
+  if (kind && record?.data?.kind !== kind)
+    errors.push(error('record-kind-mismatch', pathName, `Record '${id}' must have kind '${kind}'.`));
+  return record;
 }
 
 export async function validateFeatureLabManifest(catalog, options = {}) {
@@ -104,11 +132,32 @@ export async function validateFeatureLabManifest(catalog, options = {}) {
   if (Object.hasOwn(catalog, 'schemaVersion'))
     errors.push(error('unsupported-field', '/schemaVersion', 'The catalog inherits Project Workspace Format and has no independent schemaVersion.'));
 
+  for (const collection of ['automationOnly', 'deferredCoverage']) {
+    const entries = requireArray(catalog[collection], `/${collection}`, errors);
+    validateUniqueIds(entries, `/${collection}`, errors);
+    entries.forEach((entry, index) => {
+      const base = `/${collection}/${index}`;
+      if (!requireObject(entry, base, errors)) return;
+      requireText(entry.title, `${base}/title`, errors);
+      requireText(entry.reason, `${base}/reason`, errors);
+    });
+  }
+
   const categories = requireArray(catalog.categories, '/categories', errors);
   const launches = requireArray(catalog.launches, '/launches', errors);
   const requirements = requireArray(catalog.assetRequirements, '/assetRequirements', errors);
   const visualCheckpoints = requireArray(catalog.visualCheckpoints, '/visualCheckpoints', errors);
   const scenarios = requireArray(catalog.scenarios, '/scenarios', errors);
+
+  const accountingIds = new Set();
+  for (const collection of ['scenarios', 'automationOnly', 'deferredCoverage']) {
+    for (const [index, entry] of (Array.isArray(catalog[collection]) ? catalog[collection] : []).entries()) {
+      if (typeof entry?.id !== 'string') continue;
+      if (accountingIds.has(entry.id))
+        errors.push(error('conflicting-accounting', `/${collection}/${index}/id`, `Identity '${entry.id}' must have exactly one accounting classification.`));
+      accountingIds.add(entry.id);
+    }
+  }
 
   validateUniqueIds(categories, '/categories', errors);
   validateUniqueIds(launches, '/launches', errors);
@@ -130,9 +179,7 @@ export async function validateFeatureLabManifest(catalog, options = {}) {
     if (!requireObject(launch, `/launches/${index}`, errors)) continue;
     requireText(launch.roomId, `/launches/${index}/roomId`, errors);
     if (projectRoot && typeof launch.roomId === 'string') {
-      const roomFile = path.join(projectRoot, 'records', 'rooms', `${launch.roomId}.json`);
-      if (!(await fileExists(roomFile)))
-        errors.push(error('missing-launch-target', `/launches/${index}/roomId`, `Launch '${launch.id}' references missing Room '${launch.roomId}'.`));
+      await readRecord(projectRoot, 'rooms', launch.roomId, 'room', `/launches/${index}/roomId`, 'missing-launch-target', errors);
     }
   }
 
@@ -154,9 +201,15 @@ export async function validateFeatureLabManifest(catalog, options = {}) {
       if (!['placeholder', 'reference'].includes(realization.quality))
         errors.push(error('invalid-realization-quality', `/assetRequirements/${index}/realizations/${realizationIndex}/quality`, "Realization quality must be 'placeholder' or 'reference'."));
       if (projectRoot && typeof realization.assetId === 'string') {
-        const assetFile = path.join(projectRoot, 'records', 'assets', `${realization.assetId}.json`);
-        if (!(await fileExists(assetFile)))
-          errors.push(error('missing-asset-realization', `/assetRequirements/${index}/realizations/${realizationIndex}/assetId`, `Missing Asset record '${realization.assetId}'.`));
+        const refPath = `/assetRequirements/${index}/realizations/${realizationIndex}/assetId`;
+        const record = await readRecord(projectRoot, 'assets', realization.assetId, requirement.properties?.kind, refPath, 'missing-asset-realization', errors);
+        const source = record?.data?.source;
+        if (record && source?.type === 'project-file') {
+          const sourcePath = typeof source.path === 'string' ? path.resolve(projectRoot, source.path) : projectRoot;
+          const relative = path.relative(projectRoot, sourcePath);
+          if (!relative || relative === '..' || relative.startsWith(`..${path.sep}`) || path.isAbsolute(relative) || !(await fileExists(sourcePath)))
+            errors.push(error('missing-asset-source', refPath, `Asset '${realization.assetId}' must resolve source bytes inside the Project.`));
+        }
       }
     }
   }
@@ -183,6 +236,7 @@ export async function validateFeatureLabManifest(catalog, options = {}) {
       errors.push(error('missing-category', `${base}/categoryId`, `Unknown category '${scenario.categoryId}'.`));
     if (!VALID_STATUSES.has(scenario.status))
       errors.push(error('invalid-status', `${base}/status`, `Unknown status '${scenario.status}'.`));
+    if (scenario.status !== 'ready') requireText(scenario.statusReason, `${base}/statusReason`, errors);
     if (!launchIds.has(scenario.launch?.entry))
       errors.push(error('missing-launch', `${base}/launch/entry`, `Unknown launch entry '${scenario.launch?.entry}'.`));
     if (scenario.launch?.setup !== undefined && !launchIds.has(scenario.launch.setup))
@@ -221,6 +275,7 @@ export async function validateFeatureLabManifest(catalog, options = {}) {
         );
       if (!VALID_STATUSES.has(check.status))
         errors.push(error('invalid-status', `${checkBase}/status`, `Unknown status '${check.status}'.`));
+      if (check.status !== 'ready') requireText(check.statusReason, `${checkBase}/statusReason`, errors);
       if (!VALID_VERIFICATION.has(check.verification))
         errors.push(error('invalid-verification', `${checkBase}/verification`, `Unknown verification mode '${check.verification}'.`));
       effectiveDates.push(check.modified);
@@ -253,9 +308,8 @@ export async function validateFeatureLabManifest(catalog, options = {}) {
             );
           continue;
         }
-        const filename = projectRoot ? path.join(projectRoot, 'records', 'tests', `${target.id}.json`) : null;
-        if (filename && !(await fileExists(filename)))
-          errors.push(error('missing-automation-target', `${targetPath}/id`, `Missing authored Test '${target.id}'.`));
+        if (projectRoot)
+          await readRecord(projectRoot, 'tests', target.id, 'test', `${targetPath}/id`, 'missing-automation-target', errors);
       }
     }
 
