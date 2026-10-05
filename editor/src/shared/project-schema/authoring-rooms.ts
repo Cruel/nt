@@ -7,6 +7,7 @@ import {
   characterRefSchema,
   conditionSchema,
   gameplayCommandSchema,
+  type GameplayCommand,
   inlineTextContent,
   layoutRefSchema,
   materialRefSchema,
@@ -243,6 +244,7 @@ export const roomLifecycleDataSchema = withSchemaDocumentation(
     lifecycle: [
       'canEnter/canLeave are Exploration guards.',
       'beforeEnter/beforeLeave run before the Room switch commits and therefore admit only immediate commands.',
+      'Pre-commit eligibility is checked recursively through if branches. call-scene, call-dialogue, notify, and run-lua are Flow-capable and forbidden here regardless of Lua source; use an immediate before-enter/before-leave Script Hook for Lua pre-commit work.',
       'afterEnter/afterLeave run after the Room switch commits and may use Flow-capable commands.',
       'onEnterRejected runs when target canEnter rejects; onLeaveRejected runs when source canLeave rejects and is also the fallback for an Exit rejection without its own onRejected commands.',
       'Exploration rejection keeps the Current Room unchanged while rejection commands execute.',
@@ -415,6 +417,39 @@ export function compileRoomNavigationTransition(
     color: value.kind === 'fade' ? value.color : null,
   };
 }
+export function validateRoomPrecommitCommands(
+  lifecycle: RoomData['lifecycle'],
+  path: string,
+): RoomSchemaDiagnostic[] {
+  const diagnostics: RoomSchemaDiagnostic[] = [];
+  const visit = (commands: GameplayCommand[], base: string) => {
+    commands.forEach((command, index) => {
+      const commandPath = `${base}/${index}`;
+      if (command.kind === 'if') {
+        visit(command.then, `${commandPath}/then`);
+        visit(command.else, `${commandPath}/else`);
+      } else if (
+        command.kind === 'call-scene' ||
+        command.kind === 'call-dialogue' ||
+        command.kind === 'notify' ||
+        command.kind === 'run-lua'
+      ) {
+        diagnostics.push(
+          diagnostic(
+            commandPath,
+            'Before Leave and Before Enter Room programs admit only immediate Gameplay Commands; use an immediate Script Hook for Lua pre-commit work.',
+            'error',
+            'room.lifecycle.non-immediate-command',
+          ),
+        );
+      }
+    });
+  };
+  for (const stage of ['beforeEnter', 'beforeLeave'] as const)
+    visit(lifecycle[stage], `${path}/${stage}`);
+  return diagnostics;
+}
+
 export function validateRoomData(
   project: AuthoringProject,
   roomId: string,
@@ -777,5 +812,6 @@ export function validateRoomData(
   });
   validateCondition(project, data.lifecycle.canEnter, `${base}/lifecycle/canEnter`, diagnostics);
   validateCondition(project, data.lifecycle.canLeave, `${base}/lifecycle/canLeave`, diagnostics);
+  diagnostics.push(...validateRoomPrecommitCommands(data.lifecycle, `${base}/lifecycle`));
   return diagnostics;
 }

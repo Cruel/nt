@@ -42,6 +42,86 @@ describe('authoring rooms schema', () => {
     });
   });
 
+  it.each(['beforeEnter', 'beforeLeave'] as const)(
+    'rejects Flow-capable commands recursively in %s, regardless of Lua source',
+    (stage) => {
+      const project = createAuthoringProject();
+      const data = defaultRoomData('Foyer');
+      project.rooms.foyer = { id: 'foyer', label: 'Foyer', data };
+      data.lifecycle[stage] = [
+        {
+          id: 'branch',
+          kind: 'if',
+          condition: { kind: 'always' },
+          // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
+          then: [{ id: 'fault', kind: 'run-lua', source: "error('intentional')" }],
+          else: [{ id: 'notify', kind: 'notify', message: data.description }],
+        },
+      ];
+      const errors = validateAuthoringProject(project).filter(
+        (item) => item.code === 'room.lifecycle.non-immediate-command',
+      );
+      expect(errors.map((item) => item.path)).toEqual([
+        `/rooms/foyer/data/lifecycle/${stage}/0/else/0`,
+        `/rooms/foyer/data/lifecycle/${stage}/0/then/0`,
+      ]);
+      data.lifecycle.afterEnter = data.lifecycle[stage];
+      data.lifecycle[stage] = [];
+      expect(
+        validateAuthoringProject(project).filter(
+          (item) => item.code === 'room.lifecycle.non-immediate-command',
+        ),
+      ).toEqual([]);
+    },
+  );
+
+  it('checks unused Room Archetype pre-commit programs and permits immediate branches', () => {
+    const project = createAuthoringProject();
+    project.archetypes.shared = {
+      id: 'shared',
+      label: 'Shared',
+      data: {
+        kind: 'archetype',
+        instanceKind: 'room',
+        base: null,
+        overrides: {
+          '/data/lifecycle/beforeEnter': [
+            {
+              id: 'call',
+              kind: 'call-scene',
+              scene: { $ref: { collection: 'scenes', id: 'scene' } },
+            },
+          ],
+          '/data/lifecycle/beforeLeave': [
+            {
+              id: 'call',
+              kind: 'call-dialogue',
+              dialogue: { $ref: { collection: 'dialogues', id: 'dialogue' } },
+            },
+          ],
+        },
+      },
+    };
+    expect(
+      validateAuthoringProject(project)
+        .filter((item) => item.code === 'room.lifecycle.non-immediate-command')
+        .map((item) => item.path),
+    ).toEqual([
+      '/archetypes/shared/data/effectiveConfiguration/data/lifecycle/beforeEnter/0',
+      '/archetypes/shared/data/effectiveConfiguration/data/lifecycle/beforeLeave/0',
+    ]);
+    const data = defaultRoomData('Foyer');
+    data.lifecycle.beforeEnter = [
+      // oxlint-disable-next-line unicorn/no-thenable -- canonical authored Gameplay Command field.
+      { id: 'immediate', kind: 'if', condition: { kind: 'always' }, then: [], else: [] },
+    ];
+    expect(
+      validateRoomData(project, 'foyer', { id: 'foyer', label: 'Foyer', data }).filter(
+        (item) => item.code === 'room.lifecycle.non-immediate-command',
+      ),
+    ).toEqual([]);
+  });
+
   it('authors Room Interactable occurrences against exact declared Instance identities', () => {
     const data = defaultRoomData('Foyer');
     data.placements = [

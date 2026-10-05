@@ -537,8 +537,29 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
   }
   fields.native = nativeResponse;
 
-  if (!suite)
-    return formatStaticCommand(json, true, 0, root, authoringDiagnostics, fields, successMessage);
+  if (!suite) {
+    const passed = nativeResponse.success !== false && nativeResponse.report?.passed !== false;
+    const diagnostics = passed
+      ? authoringDiagnostics
+      : [
+          ...authoringDiagnostics,
+          {
+            code: 'native.test.failed',
+            severity: 'error' as const,
+            path: '/tests',
+            message: 'Authored Test failed.',
+          },
+        ];
+    return formatStaticCommand(
+      json,
+      passed,
+      passed ? 0 : 6,
+      root,
+      diagnostics,
+      fields,
+      passed ? successMessage : '',
+    );
+  }
 
   const report: any =
     nativeResponse.report && typeof nativeResponse.report === 'object'

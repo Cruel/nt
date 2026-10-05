@@ -562,6 +562,44 @@ TEST_CASE(
     CHECK(runtime_state.game_completed);
 }
 
+TEST_CASE("direct Dialogue Handoff warnings preserve handled input and ordinary continuation")
+{
+    RuntimeFixture runtime;
+    auto gameplay = fixture("canonical-flow");
+    for (auto& dialogue : gameplay["definitions"]["dialogues"])
+        if (dialogue["id"] == "handoff")
+            dialogue["completion"] = {{"kind", "end"}};
+    gameplay["entrypoint"] = {{"kind", "dialogue"},
+                              {"dialogue", {{"kind", "dialogue"}, {"id", "handoff"}}}};
+    auto loaded = runtime::load_running_game(load_input(std::move(gameplay)), runtime.scripts,
+                                             runtime.presentation, runtime.saves);
+    REQUIRE(loaded.has_value());
+    auto& session = loaded.value()->session();
+    auto started = session.dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}});
+    REQUIRE(started.disposition == runtime::RuntimeInputDisposition::Handled);
+
+    for (const auto next_line : {"second-line", "third-line"}) {
+        auto continued = session.dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+        CHECK(continued.disposition == runtime::RuntimeInputDisposition::Handled);
+        REQUIRE(continued.diagnostics.size() == 1);
+        CHECK(continued.diagnostics.front().code ==
+              "execution.dialogue_handoff_without_awaiting_scene");
+        CHECK(continued.diagnostics.front().severity == core::ErrorSeverity::Warning);
+        REQUIRE(continued.publication);
+        REQUIRE(continued.publication->gameplay_ui.dialogue);
+        REQUIRE(continued.publication->gameplay_ui.dialogue->segment);
+        CHECK(continued.publication->gameplay_ui.dialogue->segment->text() == next_line);
+        auto settled = session.dispatch(core::RuntimeInputMessage{core::AdvanceTimeInput{}});
+        REQUIRE(settled.disposition == runtime::RuntimeInputDisposition::Handled);
+    }
+    auto completed = session.dispatch(core::RuntimeInputMessage{core::ContinueInput{}});
+    CHECK(completed.disposition == runtime::RuntimeInputDisposition::Handled);
+    CHECK(completed.diagnostics.empty());
+    REQUIRE(completed.publication);
+    CHECK_FALSE(completed.publication->gameplay_ui.dialogue);
+    CHECK(session.presentation_state().text_log().size() == 3);
+}
+
 TEST_CASE("exploration state mutates saves and restores through the canonical RunningGame seam")
 {
     RuntimeFixture runtime;

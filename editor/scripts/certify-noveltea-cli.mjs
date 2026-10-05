@@ -4568,6 +4568,24 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
       `Feature Lab targeted Test did not retain single-test report semantics: ${targeted.stdout}`,
     );
 
+  const handoff = requireSuccess(
+    'Feature Lab warning-only direct Handoff',
+    runNative(['--project', root, '--json', 'test', 'run', 'runtime-diagnostics-handoff-ui'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
+  const handoffReport = JSON.parse(handoff.stdout).native?.report;
+  const handoffLog = handoffReport?.finalPublication?.gameplayUi?.textLog;
+  if (
+    handoffReport?.passed !== true ||
+    handoffReport.steps.some((step) => !step.handled) ||
+    handoffLog?.length !== 2 ||
+    !handoffLog[0]?.startsWith('Direct Dialogue, no Scene caller.') ||
+    !handoffLog[1]?.startsWith('Handoff advanced once and ordinary continuation')
+  )
+    fail(`Direct Handoff did not advance once and complete: ${handoff.stdout}`);
+
   const humanSuite = requireSuccess(
     'Feature Lab human authored suite',
     runNative(['--project', root, 'test', 'run'], { cwd: root }),
@@ -4621,6 +4639,33 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
   );
   if (JSON.parse(afterAddition.stdout).native?.report?.passed !== true)
     fail(`Daemon source addition did not preserve companion selectors: ${afterAddition.stdout}`);
+
+  const precommitRoot = path.join(tempRoot, 'feature-lab-precommit-admission');
+  await cp(source, precommitRoot, { recursive: true });
+  await rm(path.join(precommitRoot, '.noveltea'), { recursive: true, force: true });
+  const precommitPath = path.join(precommitRoot, 'records/rooms/diagnostics-pre.json');
+  const precommitRoom = JSON.parse(await readFile(precommitPath, 'utf8'));
+  precommitRoom.data.scriptHooks = [];
+  precommitRoom.data.lifecycle.beforeEnter = [
+    { id: 'fault', kind: 'run-lua', source: "error('certification pre-commit fault')" },
+  ];
+  await writeFile(precommitPath, JSON.stringify(precommitRoom));
+  const precommitResult = runNative(
+    ['--no-daemon', '--project', precommitRoot, '--json', 'validate'],
+    { cwd: precommitRoot },
+  );
+  const precommitPayload = JSON.parse(precommitResult.stdout);
+  if (
+    precommitResult.status === 0 ||
+    precommitPayload.success !== false ||
+    !precommitPayload.diagnostics?.some(
+      (item) =>
+        item.code === 'room.lifecycle.non-immediate-command' &&
+        item.severity === 'error' &&
+        item.path === '/rooms/diagnostics-pre/data/lifecycle/beforeEnter/0',
+    )
+  )
+    fail(`Validation admitted a Flow-capable pre-commit Lua command: ${precommitResult.stdout}`);
 
   const callbackRoot = path.join(tempRoot, 'feature-lab-callback-error');
   await cp(source, callbackRoot, { recursive: true });
@@ -4784,6 +4829,65 @@ async function certifyNativeOperations(tempRoot, pristine) {
     );
     assertIslandTrace(`runtime-cache warm ${label}`, warm, false);
   }
+
+  const failedExpectations = [
+    { id: 'room-present', type: 'current-room', operator: 'present' },
+    { id: 'room-absent', type: 'current-room', operator: 'absent' },
+  ];
+  const failedSpecPath = path.join(tempRoot, 'failed-playback.json');
+  await writeFile(
+    failedSpecPath,
+    JSON.stringify({
+      schema: 'noveltea.editor.playback',
+      version: 1,
+      id: 'failed-playback',
+      steps: [],
+      finalExpectations: failedExpectations.map((expectation) => ({ ...expectation, roomId: '' })),
+    }),
+  );
+  const failedTestPath = path.join(root, 'records/tests/cache-failure.json');
+  const failedTest = JSON.parse(
+    await readFile(path.join(root, 'records/tests/cache-certification.json'), 'utf8'),
+  );
+  failedTest.id = 'cache-failure';
+  failedTest.data.finalExpectations = failedExpectations;
+  await writeFile(failedTestPath, JSON.stringify(failedTest));
+  for (const operation of ['run', 'run-spec', 'run-ui-spec']) {
+    await rm(cacheRoot, { recursive: true, force: true });
+    for (const cold of [true, false]) {
+      const args = ['--project', root, '--json', 'test', operation];
+      const result =
+        operation === 'run'
+          ? runNative([...args, 'cache-failure'], { cwd: root, env: tracedEnvironment })
+          : runNativeWithStdinFile(args, failedSpecPath, { cwd: root, env: tracedEnvironment });
+      const payload = JSON.parse(result.stdout);
+      if (
+        result.status !== 6 ||
+        payload.success !== false ||
+        payload.exitCode !== 6 ||
+        payload.native?.report?.passed !== false ||
+        !payload.diagnostics?.some((item) => item.code === 'native.test.failed')
+      )
+        fail(
+          `${operation} ${cold ? 'cold' : 'warm'} failed Test status disagrees: ${result.stdout}`,
+        );
+      assertIslandTrace(`${operation} failed Test ${cold ? 'cold' : 'warm'}`, result, cold);
+    }
+  }
+  const failedHuman = runNative(['--project', root, 'test', 'run', 'cache-failure'], {
+    cwd: root,
+    env: tracedEnvironment,
+  });
+  if (failedHuman.status !== 6 || failedHuman.stdout.includes('succeeded.'))
+    fail(`Failed Test human output claimed success: ${failedHuman.stdout}`);
+  await rm(failedTestPath);
+  requireSuccess(
+    'runtime-cache refresh catalog after failed Test deletion',
+    runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
+      cwd: root,
+      env: tracedEnvironment,
+    }),
+  );
 
   const admittedGeneration = (await readFile(path.join(cacheRoot, 'current'), 'utf8')).trim();
   const admittedGenerationRoot = path.join(cacheRoot, 'generations', admittedGeneration);

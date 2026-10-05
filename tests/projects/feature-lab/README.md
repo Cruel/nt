@@ -194,7 +194,9 @@ because pre-commit Gameplay Command programs do not admit `run-lua`. The post-co
 ordinary after-enter command; the later Scene fault follows a separately committed Event and an
 input boundary. The direct Handoff control replaces the Scene with a Dialogue, intentionally leaving
 no Scene caller. Console attribution and current runtime/debugger state are evidence, not a Lab pass
-flag. Expected error branches must fail authored playback; do not add expectations that pretend to
+flag. `runtime-diagnostics-handoff-ui` is a green warning-only witness: it asserts the warning and
+ordinary completion; native/CLI regressions additionally check handled input and exactly two Text Log
+lines. Expected error branches must fail authored playback; do not add expectations that pretend to
 suppress them. Stale identity and ordinary successful rejection paths share existing station/native
 coverage. Debug instrumentation is opt-in too; `Debug.error` does not throw. Pointer Trace/Snapshot
 inspection stays at the Rooms & Interactions workshop. No debug-overlay role is mounted.
