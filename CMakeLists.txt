@@ -578,6 +578,7 @@ foreach(_noveltea_library_target IN ITEMS
     endforeach()
 endforeach()
 
+include(NovelTeaCoverage)
 include(NovelTeaModuleInventory)
 noveltea_add_module_dependency_inventory(
     OUTPUT "${CMAKE_BINARY_DIR}/reports/module-dependency-inventory.txt")

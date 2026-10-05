@@ -170,7 +170,12 @@ jobs:
         id: ccache
         uses: ./.github/actions/setup-ccache
         with:
-          scope: linux-debug
+          scope: linux-debug-coverage
+
+      - name: Set up coverage reporter
+        uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
+        with:
+          enable-cache: false
 
       - name: Download shader assets
         uses: actions/download-artifact@v7
@@ -183,6 +188,7 @@ jobs:
         run: |
           cmake --preset linux-debug -G Ninja \
             -DVCPKG_MANIFEST_FEATURES=tests \
+            -DNOVELTEA_ENABLE_COVERAGE=ON \
             -DNOVELTEA_BUILD_HOST_TOOLS=OFF \
             -DNOVELTEA_COMPILE_SHADERS=OFF \
             -DNOVELTEA_PREBUILT_SHADER_ASSET_ROOT="${{ github.workspace }}/build/prebuilt-shader-assets" \
@@ -209,6 +215,25 @@ jobs:
 
       - name: Unit tests
         run: xvfb-run -a ctest --test-dir build/linux-debug --output-on-failure
+
+      - name: Report C++ coverage
+        if: ${{ !cancelled() }}
+        run: |
+          mkdir -p build/reports/coverage/cpp
+          uv tool run gcovr==8.4 --config cmake/gcovr.cfg build/linux-debug \
+            --html-details build/reports/coverage/cpp/index.html \
+            --json build/reports/coverage/cpp/coverage.json \
+            --json-summary build/reports/coverage/cpp/summary.json \
+            --xml build/reports/coverage/cpp/cobertura.xml
+          node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload C++ coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-cpp
+          path: build/reports/coverage/cpp
+          if-no-files-found: error
 
       - name: Show ccache statistics
         if: always()
@@ -1330,7 +1355,19 @@ jobs:
         run: pnpm -C editor run check
 
       - name: Test
-        run: pnpm -C editor run test
+        run: pnpm -C editor run test:coverage
+
+      - name: Summarize editor coverage
+        if: ${{ !cancelled() }}
+        run: node scripts/coverage-summary.mjs editor editor/coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload editor coverage
+        if: ${{ !cancelled() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-coverage-editor
+          path: editor/coverage
+          if-no-files-found: error
 
       - name: Build
         run: pnpm -C editor run build
