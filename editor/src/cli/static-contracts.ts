@@ -64,6 +64,7 @@ Commands:
   shaders compile [--variant <id>]... [--force-rebuild]
   shaderc <bgfx-shaderc-args...>
   texturec <bimg-texturec-args...>
+  media-tool check
   daemon status
   daemon stop
   test run [<test-id>]

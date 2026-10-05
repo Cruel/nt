@@ -62,6 +62,7 @@ const child = spawn(command, commandArguments, {
   env: {
     ...process.env,
     ELECTRON_ENABLE_LOGGING: '1',
+    NOVELTEA_FFMPEG: undefined,
     NOVELTEA_EDITOR_PACKAGE_SMOKE_CACHE_ROOT: path.join(temporaryRoot, 'editor-cache'),
   },
   stdio: ['ignore', 'pipe', 'pipe'],

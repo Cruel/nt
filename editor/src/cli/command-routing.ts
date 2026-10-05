@@ -3,7 +3,8 @@ export type CliStaticCompletion =
   | 'daemon-control'
   | 'authoring-cache'
   | 'runtime-cache'
-  | 'native-tool';
+  | 'native-tool'
+  | 'media-tool';
 
 export type CliProjectAccess = 'none' | 'read' | 'transactional-write' | 'opaque-write';
 export type CliStdinRequirement = 'none' | 'json';
@@ -75,6 +76,13 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
       staticCompletion: 'daemon-control',
       quickJsRequiredAfterStaticMiss: false,
       replaySafe: operation === 'status',
+    };
+
+  if (family === 'media-tool' && operation === 'check')
+    return {
+      ...noProjectRead,
+      staticCompletion: 'media-tool',
+      quickJsRequiredAfterStaticMiss: false,
     };
 
   if (family === 'shaderc' || family === 'texturec')

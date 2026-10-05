@@ -12,6 +12,10 @@ import {
 } from '../src/cli/static-contracts';
 import { classifyNovelTeaCliCommand, type CliCommandRouting } from '../src/cli/command-routing';
 import { runNovelTeaScriptcProcess } from './noveltea-scriptc-process';
+import {
+  inspectMediaTool,
+  installedMediaTool,
+} from '../src/main/services/media-preparation-service';
 
 declare function nativeInvokeToFile(
   operation: string,
@@ -2326,6 +2330,38 @@ function staticCommandPath(
   routing: CliCommandRouting | null,
 ): HostResult | null {
   if (!routing) return null;
+  if (routing.staticCompletion === 'media-tool') {
+    const noDaemonIndex = argv.indexOf('--no-daemon');
+    const arguments_ =
+      noDaemonIndex >= 0 && noDaemonIndex < argv.indexOf('media-tool')
+        ? [...argv.slice(0, noDaemonIndex), ...argv.slice(noDaemonIndex + 1)]
+        : argv;
+    const parsed = staticProjectCommand(arguments_);
+    if (!parsed) return null;
+    const index: number = parsed.index;
+    const json: boolean = parsed.json;
+    if (arguments_.slice(index).length !== 2)
+      return formatStaticUsageError(json, 'Expected media-tool check with no arguments.');
+    try {
+      const tool = inspectMediaTool(installedMediaTool());
+      return [
+        0,
+        json
+          ? `${JSON.stringify({ success: true, exitCode: 0, diagnostics: [], protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION, tool })}\n`
+          : `FFmpeg ${tool.version}: ${tool.executable}\n`,
+        '',
+      ];
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      return [
+        6,
+        json
+          ? `${JSON.stringify({ success: false, exitCode: 6, protocolVersion: NOVELTEA_CLI_JSON_PROTOCOL_VERSION, diagnostics: [{ code: 'media.tool', severity: 'error', path: '/', message }] })}\n`
+          : '',
+        json ? '' : `${message}\n`,
+      ];
+    }
+  }
   if (routing.staticCompletion === 'daemon-control') return staticDaemonPath(argv);
   if (routing.staticCompletion === 'authoring-cache') return staticValidationPath(argv);
   if (routing.staticCompletion === 'runtime-cache') return staticTestPath(argv);

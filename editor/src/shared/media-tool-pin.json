@@ -1,0 +1,9 @@
+{
+  "release": "ffmpeg-r1",
+  "version": "9.0.1",
+  "artifacts": {
+    "linux-x64": "3bcde21133a822de824c4022222c4da6b3b09e34284bc66949e3e5d7d8f72245",
+    "windows-x64": "6731edb30f5a2a3e211ce269dd4ff2a5d12e8e294e475d3a6b7524c410f6d6bd",
+    "macos-arm64": "5e3754b8ab6b1759e3fdfe954e391ef3946f6d02113fbdf86b07942ba6cbd421"
+  }
+}

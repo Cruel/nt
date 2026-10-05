@@ -11,6 +11,13 @@ if (bootstrap.complete) {
   if (bootstrap.result.stdout) process.stdout.write(bootstrap.result.stdout);
   if (bootstrap.result.stderr) process.stderr.write(bootstrap.result.stderr);
   process.exitCode = bootstrap.result.exitCode;
+} else if (bootstrap.globals.command[0] === 'media-tool') {
+  const { mediaToolCheckCommand } = await import('../src/cli/media-tool-command');
+  const { resolveNovelTeaCliPath } = await import('../src/main/services/editor-tool-service');
+  const result = mediaToolCheckCommand(bootstrap.globals, resolveNovelTeaCliPath());
+  if (result.stdout) process.stdout.write(result.stdout);
+  if (result.stderr) process.stderr.write(result.stderr);
+  process.exitCode = result.exitCode;
 } else {
   const command = bootstrap.globals.command;
   const family = command[0];

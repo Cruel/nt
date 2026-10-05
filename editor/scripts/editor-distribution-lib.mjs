@@ -27,6 +27,7 @@ import {
   readNovelTeaVersion,
 } from '../../scripts/noveltea-version.mjs';
 import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
+import { stagePrivateMediaTools, verifyPrivateMediaTools } from './private-media-tools.mjs';
 import {
   inspectNodePtyNativeClosure,
   pruneForeignNodePtyPrebuilds,
@@ -448,6 +449,16 @@ async function copyResources(resourcesRoot) {
     throw new Error(`The NovelTea UI Test system assets are missing: ${nativeSystemAssetsSource}`);
   }
 
+  const privateToolsSource = path.join(nativeSourceRoot, 'tools', 'ffmpeg');
+  if (await pathExists(privateToolsSource)) {
+    await verifyPrivateMediaTools(privateToolsSource);
+    await cp(privateToolsSource, path.join(resourcesRoot, 'tools', 'ffmpeg'), { recursive: true });
+  } else {
+    await stagePrivateMediaTools(resourcesRoot, {
+      archivePath: process.env.NOVELTEA_FFMPEG_ARCHIVE,
+    });
+  }
+
   const destinationBin = path.join(resourcesRoot, 'bin');
   const destinationCli = path.join(destinationBin, expectedNovelTeaCliName());
   const destinationUiTestRunner = path.join(destinationBin, expectedUiTestRunnerName());
@@ -760,6 +771,11 @@ export async function verifyStage(stageRoot, options = {}) {
     }
   }
   await verifyStandaloneNovelTeaCli(cliPath);
+  await verifyPrivateMediaTools(path.join(resourcesRoot, 'tools', 'ffmpeg'));
+  await runCommand(cliPath, ['--json', 'media-tool', 'check'], {
+    capture: true,
+    env: { ...process.env, NOVELTEA_FFMPEG: undefined },
+  });
 
   const records = [
     ...(await listTree(stageRoot, 'app')),

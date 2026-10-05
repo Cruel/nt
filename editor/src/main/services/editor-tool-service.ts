@@ -28,7 +28,16 @@ export {
   invokeNovelTeaNativeOperation,
   resolveNovelTeaCliPath,
 } from '../../shared/noveltea-cli-subprocess';
-import { invokeNovelTeaNativeOperation } from '../../shared/noveltea-cli-subprocess';
+import {
+  invokeNovelTeaNativeOperation,
+  resolveNovelTeaCliPath,
+} from '../../shared/noveltea-cli-subprocess';
+import {
+  inspectMediaTool,
+  installedMediaTool,
+  runMediaPreparation,
+} from './media-preparation-service';
+
 import { buildRuntimePlaybackSpecFromAuthoringTest } from '../../shared/project-schema/test-playback-project';
 import {
   logicalRuntimeArtifactPaths,
@@ -36,6 +45,14 @@ import {
 } from '../../shared/runtime-artifact-preparation';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { buildRuntimeTestCatalog } from '../../shared/runtime-test-catalog';
+
+export function checkMediaTools() {
+  return inspectMediaTool(installedMediaTool(resolveNovelTeaCliPath()));
+}
+
+export function prepareMedia(args: readonly string[]) {
+  return runMediaPreparation(installedMediaTool(resolveNovelTeaCliPath()), args);
+}
 
 export async function openProject(projectPath: string) {
   const workspace = createNodeProjectWorkspaceService();

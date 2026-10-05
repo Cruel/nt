@@ -2,6 +2,15 @@
 
 NovelTea ships one public headless executable: `noveltea`. It is a scriptc-built standalone binary containing the shared TypeScript authoring/workspace implementation in an embedded QuickJS-ng island plus a narrow statically linked host/native tooling boundary. The editor invokes this same installed binary for native/headless operations; `noveltea-editor-tool` and a separately distributed bgfx `shaderc` executable are retired.
 
+## Private media-tool diagnosis
+
+`noveltea [--json] media-tool check` checks the installation-relative private FFmpeg tool without
+loading a Project. It reports executable, version, bundled/external selection, and release; installation
+or capability failures return exit code 6 (`media.tool`). An absolute `NOVELTEA_FFMPEG` override
+selects an external developer/distro build explicitly. See [Media Tools](MEDIA_TOOLS.md) for pin,
+configuration, packaging, and shared Editor/headless invocation ownership. This command does not
+add video playback or a Project media-transcoding policy.
+
 ## Project discovery and direct editing
 
 A project is identified by its root directory and `<project-root>/project.json`. Use `--project <project-directory>` to select a project explicitly. Without it, the CLI walks upward from the current directory and stops at the first `project.json`. A malformed NovelTea manifest, wrong workspace identity, or unsupported workspace version is a terminal discovery error at that directory; discovery does not fall through to a parent project or accept a retired monolithic project file.
