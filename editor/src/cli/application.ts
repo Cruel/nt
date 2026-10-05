@@ -196,7 +196,10 @@ function failure(
   fields: Readonly<Record<string, unknown>> = {},
 ): NovelTeaCliCommandResult {
   return formatCliResult({ success: false, exitCode, diagnostics, ...fields }, json, {
-    failure: diagnostics[0]?.message ?? 'Command failed.',
+    failure:
+      diagnostics.find((item) => item.severity === 'error')?.message ??
+      diagnostics[0]?.message ??
+      'Command failed.',
   });
 }
 

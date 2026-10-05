@@ -128,6 +128,9 @@ target_link_libraries(noveltea-ui-test-runner PRIVATE
 if(MINGW)
     target_link_options(noveltea-ui-test-runner PRIVATE -static -static-libgcc -static-libstdc++)
 endif()
+if(MSVC)
+    target_compile_options(noveltea-ui-test-runner PRIVATE /bigobj)
+endif()
 target_compile_definitions(noveltea-ui-test-runner PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS}
     NOVELTEA_UI_TEST_SYSTEM_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}/system")

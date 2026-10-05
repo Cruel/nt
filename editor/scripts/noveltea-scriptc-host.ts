@@ -1834,11 +1834,13 @@ function requestInvokeHost(
       );
       if (Number.isSafeInteger(delayMs) && delayMs > 0 && delayMs <= 10_000) {
         const deadline = Date.now() + delayMs;
-        while (Date.now() < deadline)
-          hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
+        while (Date.now() < deadline) {
+          const status = hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
             disposableWorkerId,
             token,
           });
+          if (status.cancelled === true) break;
+        }
       }
     }
     return envelope.response;
