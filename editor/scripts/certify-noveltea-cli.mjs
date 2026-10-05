@@ -22,6 +22,10 @@ import { fileURLToPath } from 'node:url';
 
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
+import {
+  createDisposableGate,
+  waitForDisposableAdmission,
+} from './cli-certification-synchronization.mjs';
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
@@ -300,6 +304,9 @@ async function runAsync(command, args, options = {}) {
   if (options.stdin !== undefined) child.stdin.end(options.stdin);
   return {
     child,
+    snapshot() {
+      return { status: child.exitCode, signal: child.signalCode, stdout, stderr };
+    },
     async result() {
       const status = await completion;
       return { status, stdout, stderr };
@@ -2541,6 +2548,29 @@ async function certifyDaemonBuildProtocolIsolation(tempRoot) {
   }
 }
 
+async function certifyDisposableGate(runtimeRoot, environment, status) {
+  const gate = await createDisposableGate(runtimeRoot, 'gate-regression', environment);
+  try {
+    const command = await runAsync(nativeCli, ['--json', 'platform', 'template', 'list'], {
+      env: gate.environment,
+    });
+    await waitForDisposableAdmission('Disposable gate regression', status, command, {
+      standby: true,
+    });
+    // Outlive the former export delay with a trivial command, so normal command cost cannot mask
+    // a host that ignores the gate and completes before its observer resumes.
+    await new Promise((resolve) => setTimeout(resolve, 2000));
+    if (command.snapshot().status !== null || command.snapshot().signal !== null)
+      fail(
+        `Disposable gate released without observer acknowledgement: ${JSON.stringify(command.snapshot())}`,
+      );
+    await gate.release();
+    requireSuccess('Disposable gate explicit release', await command.result());
+  } finally {
+    await gate.release();
+  }
+}
+
 async function certifyDisposableTestScheduling(tempRoot) {
   const source = path.join(repositoryRoot, 'tests', 'projects', 'feature-lab');
   const runtimeRoot = await mkdtemp(path.join(os.tmpdir(), 'nt-disposable-'));
@@ -2581,6 +2611,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
 
   runNative(['daemon', 'stop'], { env: environment });
   try {
+    await certifyDisposableGate(runtimeRoot, traceEnvironment, status);
     const generationRoot = await resetFeatureLab('disposable-test-generation');
     requireSuccess(
       'Disposable Test pinned-cache baseline',
@@ -2593,21 +2624,20 @@ async function certifyDisposableTestScheduling(tempRoot) {
       recursive: true,
       force: true,
     });
-    const longEnvironment = {
+    const generationGate = await createDisposableGate(runtimeRoot, 'test-generation', {
       ...traceEnvironment,
-      // Keep the disposable assignment observable long enough for a separate CLI process to
-      // sample daemon status even on a loaded CI runner.
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
-    };
+    });
     const longTest = await runAsync(
       nativeCli,
       ['--project', generationRoot, '--json', 'test', 'run', 'rooms-interactions-flow'],
-      { cwd: generationRoot, env: longEnvironment },
+      { cwd: generationRoot, env: generationGate.environment },
     );
-    const activeStatus = await waitForStatus(
+    const activeStatus = await waitForDisposableAdmission(
       'Disposable Test warm-standby certification',
-      (daemon) => daemon.disposableBusyWorkers >= 1 && daemon.disposableStandbyWorkers >= 1,
+      status,
+      longTest,
+      { standby: true },
     );
     const daemonPid = activeStatus.pid;
     const bootstrapPath = path.join(generationRoot, 'scripts', 'feature-lab-bootstrap.lua');
@@ -2634,6 +2664,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
     const newerGeneration = (await readFile(runtimeCurrentPath, 'utf8')).trim();
     if (!newerGeneration)
       fail('Newer disposable Test generation did not publish a runtime cache generation.');
+    await generationGate.release();
     const longResult = await longTest.result();
     requireSuccess('Disposable Test generation-pinned execution', longResult);
     if (JSON.parse(longResult.stdout).native?.report?.passed !== true)
@@ -2736,11 +2767,12 @@ async function certifyDisposableTestScheduling(tempRoot) {
     );
 
     const cancellationRoot = await resetFeatureLab('disposable-test-cancellation');
-    const cancellationEnvironment = {
-      ...traceEnvironment,
-      // Cancellation certification must first observe the assigned worker before signalling it.
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
-    };
+    const cancellationGate = await createDisposableGate(
+      runtimeRoot,
+      'test-cancellation',
+      traceEnvironment,
+    );
+    const cancellationEnvironment = cancellationGate.environment;
     const cancellationArgs = [
       '--project',
       cancellationRoot,
@@ -2761,13 +2793,15 @@ async function certifyDisposableTestScheduling(tempRoot) {
           }),
           pid: null,
         };
-    await waitForStatus(
+    await waitForDisposableAdmission(
       'Disposable Test cancellation admission',
-      (daemon) => daemon.disposableBusyWorkers >= 1,
+      status,
+      cancellation.invocation,
     );
     if (isWindows) sendWindowsConsoleCtrlC(cancellation.pid);
     else cancellation.invocation.child.kill('SIGINT');
     const cancellationResult = await cancellation.invocation.result();
+    await cancellationGate.release();
     if (cancellationResult.status !== 130)
       fail(
         `Disposable Test cancellation exited ${cancellationResult.status}, expected 130.\n` +
@@ -2865,6 +2899,7 @@ async function certifyDisposableTestScheduling(tempRoot) {
       },
     };
   } finally {
+    await rm(path.join(runtimeRoot, 'certification-gates'), { recursive: true, force: true });
     runNative(['daemon', 'stop'], { env: environment });
     await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -2919,24 +2954,24 @@ async function certifyDisposableOutputScheduling(tempRoot) {
 
   runNative(['daemon', 'stop'], { env: environment });
   try {
+    await certifyDisposableGate(runtimeRoot, traceEnvironment, status);
     const portableRoot = await resetFeatureLab('disposable-portable-project-export');
     const portableOutput = path.join(tempRoot, 'disposable-portable-project.ntproject');
     await rm(portableOutput, { force: true });
     const portableEnvironment = {
       ...traceEnvironment,
-      // Export/shader admission is observed through a separate status process; retain enough
-      // time for that observer to start under CI contention.
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
+    const portableGate = await createDisposableGate(runtimeRoot, 'portable', portableEnvironment);
     const portableExport = await runAsync(
       nativeCli,
       ['--project', portableRoot, '--json', 'project', 'export', '--output', portableOutput],
-      { cwd: portableRoot, env: portableEnvironment },
+      { cwd: portableRoot, env: portableGate.environment },
     );
-    await waitForStatus(
+    await waitForDisposableAdmission(
       'Portable Project export disposable admission',
-      (daemon) => daemon.disposableBusyWorkers >= 1,
+      status,
+      portableExport,
     );
     requireSuccess(
       'Portable Project export concurrent foreground validation',
@@ -2945,6 +2980,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         env: traceEnvironment,
       }),
     );
+    await portableGate.release();
     const portableResult = requireSuccess(
       'Portable Project export disposable completion',
       await portableExport.result(),
@@ -2965,6 +3001,11 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const portableDriftRoot = await resetFeatureLab('disposable-portable-project-drift');
     const portableDriftOutput = path.join(tempRoot, 'disposable-portable-project-drift.ntproject');
     await rm(portableDriftOutput, { force: true });
+    const portableDriftGate = await createDisposableGate(
+      runtimeRoot,
+      'portable-drift',
+      portableEnvironment,
+    );
     const portableDrift = await runAsync(
       nativeCli,
       [
@@ -2976,11 +3017,12 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         '--output',
         portableDriftOutput,
       ],
-      { cwd: portableDriftRoot, env: portableEnvironment },
+      { cwd: portableDriftRoot, env: portableDriftGate.environment },
     );
-    await waitForStatus(
+    await waitForDisposableAdmission(
       'Portable Project export drift admission',
-      (daemon) => daemon.disposableBusyWorkers >= 1,
+      status,
+      portableDrift,
     );
     const driftRoomPath = path.join(portableDriftRoot, 'records', 'rooms', 'feature-lab-home.json');
     const driftRoom = JSON.parse(await readFile(driftRoomPath, 'utf8'));
@@ -2993,6 +3035,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         env: traceEnvironment,
       }),
     );
+    await portableDriftGate.release();
     const portableDriftResult = await portableDrift.result();
     if (
       portableDriftResult.status === 0 ||
@@ -3007,15 +3050,13 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       fail('Disposable Portable Project export published after source drift.');
 
     const shaderRoot = await resetFeatureLab('disposable-shader-compile');
+    const shaderGate = await createDisposableGate(runtimeRoot, 'shaders', portableEnvironment);
     const shaderCompile = await runAsync(
       nativeCli,
       ['--project', shaderRoot, '--json', 'shaders', 'compile', '--force-rebuild'],
-      { cwd: shaderRoot, env: portableEnvironment },
+      { cwd: shaderRoot, env: shaderGate.environment },
     );
-    await waitForStatus(
-      'Shader compile disposable admission',
-      (daemon) => daemon.disposableBusyWorkers >= 1,
-    );
+    await waitForDisposableAdmission('Shader compile disposable admission', status, shaderCompile);
     requireSuccess(
       'Shader compile concurrent foreground validation',
       runNative(['--project', shaderRoot, '--json', 'validate'], {
@@ -3023,6 +3064,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         env: traceEnvironment,
       }),
     );
+    await shaderGate.release();
     const shaderResult = requireSuccess(
       'Shader compile disposable completion',
       await shaderCompile.result(),
@@ -3061,20 +3103,21 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       }),
     );
     const generationBaselineBytes = await readFile(generationBaselineOutput);
-    const delayedEnvironment = {
-      ...traceEnvironment,
-      // This window lets certification mutate the live Project while the disposable worker stays
-      // pinned to the prior generation.
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
-    };
+    const generationGate = await createDisposableGate(
+      runtimeRoot,
+      'output-generation',
+      traceEnvironment,
+    );
     const generationExport = await runAsync(
       nativeCli,
       packageArguments(generationRoot, generationOutput),
-      { cwd: generationRoot, env: delayedEnvironment },
+      { cwd: generationRoot, env: generationGate.environment },
     );
-    await waitForStatus(
+    await waitForDisposableAdmission(
       'Disposable output concurrent-owner admission',
-      (daemon) => daemon.disposableBusyWorkers >= 1 && daemon.disposableStandbyWorkers >= 1,
+      status,
+      generationExport,
+      { standby: true },
     );
     const roomPath = path.join(generationRoot, 'records', 'rooms', 'feature-lab-home.json');
     const room = JSON.parse(await readFile(roomPath, 'utf8'));
@@ -3104,6 +3147,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
         env: traceEnvironment,
       }),
     );
+    await generationGate.release();
     requireSuccess(
       'Disposable output generation-pinned package export',
       await generationExport.result(),
@@ -3119,18 +3163,21 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const driftRoot = await resetFeatureLab('disposable-output-drift');
     const driftOutput = path.join(tempRoot, 'disposable-drift.ntpkg');
     await rm(driftOutput, { force: true });
+    const driftGate = await createDisposableGate(runtimeRoot, 'asset-drift', traceEnvironment);
     const driftExport = await runAsync(nativeCli, packageArguments(driftRoot, driftOutput), {
       cwd: driftRoot,
-      env: delayedEnvironment,
+      env: driftGate.environment,
     });
-    await waitForStatus(
+    await waitForDisposableAdmission(
       'Disposable output Asset-drift admission',
-      (daemon) => daemon.disposableBusyWorkers >= 1,
+      status,
+      driftExport,
     );
     const assetPath = path.join(driftRoot, 'assets', 'images', 'bedroom.webp');
     const assetStat = await stat(assetPath);
     const changedTime = new Date(assetStat.mtimeMs + 2000);
     await utimes(assetPath, changedTime, changedTime);
+    await driftGate.release();
     const driftResult = await driftExport.result();
     if (driftResult.status === 0)
       fail('Disposable package export published successfully after pinned Asset drift.');
@@ -3261,6 +3308,7 @@ async function certifyDisposableOutputScheduling(tempRoot) {
       postCrashPublicationRecovers: true,
     };
   } finally {
+    await rm(path.join(runtimeRoot, 'certification-gates'), { recursive: true, force: true });
     runNative(['daemon', 'stop'], { env: environment });
     await rm(runtimeRoot, { recursive: true, force: true }).catch(() => undefined);
   }
