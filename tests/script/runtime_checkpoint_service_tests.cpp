@@ -92,6 +92,47 @@ public:
     }
 };
 
+class ThumbnailSaveStore final : public core::TypedSaveSlotStore {
+public:
+    core::TypedMemorySaveSlotStore store;
+    std::vector<core::TypedSaveSlotId> attempted_slots;
+    std::size_t fail_on_attempt = 0;
+
+    core::Result<bool, core::Diagnostics> has_slot(core::TypedSaveSlotId slot) const override
+    {
+        return store.has_slot(slot);
+    }
+    core::Result<std::string, core::Diagnostics>
+    read_slot(core::TypedSaveSlotId slot) const override
+    {
+        return store.read_slot(slot);
+    }
+    core::Result<void, core::Diagnostics> write_slot(core::TypedSaveSlotId slot,
+                                                     std::string_view bytes) override
+    {
+        return store.write_slot(slot, bytes);
+    }
+    core::Result<void, core::Diagnostics> delete_slot(core::TypedSaveSlotId slot) override
+    {
+        return store.delete_slot(slot);
+    }
+    core::Result<core::TypedSaveSlotCheckpoint, core::Diagnostics>
+    read_checkpoint(core::TypedSaveSlotId slot) const override
+    {
+        return store.read_checkpoint(slot);
+    }
+    core::Result<void, core::Diagnostics>
+    write_checkpoint(core::TypedSaveSlotId slot,
+                     const core::TypedSaveSlotCheckpoint& checkpoint) override
+    {
+        attempted_slots.push_back(slot);
+        if (attempted_slots.size() == fail_on_attempt)
+            return core::Result<void, core::Diagnostics>::failure(
+                core::Diagnostics{core::Diagnostic{"test.write_failed", "write failed"}});
+        return store.write_checkpoint(slot, checkpoint);
+    }
+};
+
 RuntimeCheckpointFacts ready_facts()
 {
     return RuntimeCheckpointFacts{
@@ -566,6 +607,102 @@ TEST_CASE("delayed checkpoint thumbnails do not overwrite a newer save in the sa
     CHECK(service.pending_thumbnail_capture()->checkpoint == latest.revision);
     CHECK(service.pending_thumbnail_capture()->presentation ==
           core::PresentationSnapshotRevision::from_number(8));
+}
+
+TEST_CASE("delayed checkpoint thumbnails preserve deleted and externally replaced slots")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    core::TypedMemorySaveSlotStore saves;
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
+    REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(7)));
+    const auto deleted = core::TypedSaveSlotId::manual(1);
+    const auto replaced = core::TypedSaveSlotId::manual(2);
+    const auto raw_replaced = core::TypedSaveSlotId::manual(3);
+    const auto untouched = core::TypedSaveSlotId::manual(4);
+    for (const auto slot : {deleted, replaced, raw_replaced, untouched})
+        REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+            service.request(core::ImmediateRetainedCheckpointWriteRequest{slot})));
+    const auto request = *service.pending_thumbnail_capture();
+    const auto retained = *service.latest_checkpoint();
+    REQUIRE(saves.delete_slot(deleted));
+    auto external = saves.read_checkpoint(replaced).value();
+    // Same save bytes with different metadata are still an external replacement.
+    external.metadata->play_time += std::chrono::milliseconds{1};
+    REQUIRE(saves.write_checkpoint(replaced, external));
+    REQUIRE(saves.write_slot(raw_replaced, retained.encoded_save));
+    const auto raw = saves.read_checkpoint(raw_replaced).value();
+    const core::SaveCheckpointThumbnail thumbnail{.encoding =
+                                                      core::SaveCheckpointThumbnailEncoding::Png,
+                                                  .width = 1,
+                                                  .height = 1,
+                                                  .bytes = "\x89PNG\r\n\x1a\nlate-thumbnail"};
+    REQUIRE(service.attach_thumbnail(request, thumbnail));
+    CHECK_FALSE(saves.has_slot(deleted).value());
+    CHECK(saves.read_checkpoint(replaced).value() == external);
+    CHECK(saves.read_checkpoint(raw_replaced).value() == raw);
+    auto expected =
+        core::TypedSaveSlotCheckpoint{retained.encoded_save, retained.metadata, thumbnail};
+    CHECK(saves.read_checkpoint(untouched).value() == expected);
+    auto expected_retained = retained;
+    expected_retained.thumbnail = thumbnail;
+    CHECK(*service.latest_checkpoint() == expected_retained);
+    CHECK_FALSE(service.pending_thumbnail_capture());
+}
+
+TEST_CASE("delayed checkpoint thumbnail retries preserve completed writes and external changes")
+{
+    const auto project = load_fixture("minimal.json");
+    auto state = make_state(project);
+    ThumbnailSaveStore saves;
+    RuntimeCheckpointService service(project, saves, test_support::save_codec());
+    REQUIRE(service.publish_candidate(state, core::PresentationSnapshotRevision::from_number(7)));
+    const auto first = core::TypedSaveSlotId::manual(1);
+    const auto second = core::TypedSaveSlotId::manual(2);
+    for (const auto slot : {first, second})
+        REQUIRE(std::holds_alternative<core::CheckpointWriteSucceeded>(
+            service.request(core::ImmediateRetainedCheckpointWriteRequest{slot})));
+    const auto request = *service.pending_thumbnail_capture();
+    const auto retained = *service.latest_checkpoint();
+    const core::SaveCheckpointThumbnail thumbnail{.encoding =
+                                                      core::SaveCheckpointThumbnailEncoding::Png,
+                                                  .width = 1,
+                                                  .height = 1,
+                                                  .bytes = "\x89PNG\r\n\x1a\nretry-thumbnail"};
+    saves.attempted_slots.clear();
+    saves.fail_on_attempt = 2;
+    auto failed = service.attach_thumbnail(request, thumbnail);
+    REQUIRE_FALSE(failed);
+    CHECK(failed.error().front().code == "test.write_failed");
+    CHECK(*service.latest_checkpoint() == retained);
+    CHECK(service.pending_thumbnail_capture() == request);
+    REQUIRE(saves.attempted_slots.size() == 2);
+    const auto completed = saves.attempted_slots.front();
+    const auto pending = saves.attempted_slots.back();
+    CHECK(saves.read_checkpoint(completed).value().thumbnail == thumbnail);
+    CHECK_FALSE(saves.read_checkpoint(pending).value().thumbnail);
+
+    SECTION("retry completes remaining writes without rewriting successful slots")
+    {
+        REQUIRE(service.attach_thumbnail(request, thumbnail));
+        REQUIRE(saves.attempted_slots.size() == 3);
+        CHECK(saves.attempted_slots.back() == pending);
+        CHECK(saves.read_checkpoint(first).value().thumbnail == thumbnail);
+        CHECK(saves.read_checkpoint(second).value().thumbnail == thumbnail);
+    }
+    SECTION("retry does not resurrect a completed slot or overwrite an external replacement")
+    {
+        REQUIRE(saves.delete_slot(completed));
+        REQUIRE(saves.write_slot(pending, "external-save"));
+        REQUIRE(service.attach_thumbnail(request, thumbnail));
+        CHECK(saves.attempted_slots.size() == 2);
+        CHECK_FALSE(saves.has_slot(completed).value());
+        CHECK(saves.read_slot(pending).value() == "external-save");
+    }
+    CHECK(service.latest_checkpoint()->encoded_save == retained.encoded_save);
+    CHECK(service.latest_checkpoint()->metadata == retained.metadata);
+    CHECK(service.latest_checkpoint()->thumbnail == thumbnail);
+    CHECK_FALSE(service.pending_thumbnail_capture());
 }
 
 TEST_CASE("discarding a missed saved thumbnail advances the pending capture queue")

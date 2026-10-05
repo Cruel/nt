@@ -493,14 +493,36 @@ RuntimeCheckpointService::attach_thumbnail(const core::CheckpointThumbnailCaptur
 
     auto replacement = m_pending_thumbnail_captures.front().checkpoint;
     replacement.thumbnail = std::move(thumbnail);
-    for (const auto& [slot, revision] : m_written_slots) {
-        if (revision != replacement.revision)
+    const auto& captured = m_pending_thumbnail_captures.front().checkpoint;
+    const core::TypedSaveSlotCheckpoint expected{captured.encoded_save, captured.metadata,
+                                                 captured.thumbnail};
+    for (auto entry = m_written_slots.begin(); entry != m_written_slots.end();) {
+        const auto& [slot, revision] = *entry;
+        if (revision != replacement.revision) {
+            ++entry;
             continue;
+        }
+        auto exists = m_saves.has_slot(slot);
+        if (!exists)
+            return core::Result<void, core::Diagnostics>::failure(std::move(exists).error());
+        if (!exists.value()) {
+            entry = m_written_slots.erase(entry);
+            continue;
+        }
+        auto stored = m_saves.read_checkpoint(slot);
+        if (!stored)
+            return core::Result<void, core::Diagnostics>::failure(std::move(stored).error());
+        if (stored.value() != expected) {
+            entry = m_written_slots.erase(entry);
+            continue;
+        }
         auto written = m_saves.write_checkpoint(
             slot, core::TypedSaveSlotCheckpoint{replacement.encoded_save, replacement.metadata,
                                                 replacement.thumbnail});
         if (!written)
             return core::Result<void, core::Diagnostics>::failure(std::move(written).error());
+        // Completed writes must not be replayed if another slot fails and attachment is retried.
+        entry = m_written_slots.erase(entry);
     }
     if (m_deferred_autosave_target && m_deferred_autosave_target->revision == replacement.revision)
         m_deferred_autosave_target->thumbnail = replacement.thumbnail;
