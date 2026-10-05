@@ -55,7 +55,7 @@ describe('LocalizationEditor', () => {
     render(<LocalizationEditor tab={tab} />);
 
     await user.click(screen.getByRole('combobox', { name: 'Preview locale' }));
-    await user.click(screen.getByRole('option', { name: /Pseudo-localized/u }));
+    await user.click(await screen.findByRole('option', { name: /Pseudo-localized/u }));
 
     const project = useProjectStore.getState().document as AuthoringProject;
     expect(project.editor.previewLocale).toBe(PSEUDO_PREVIEW_LOCALE);

@@ -2595,7 +2595,9 @@ async function certifyDisposableTestScheduling(tempRoot) {
     });
     const longEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1000',
+      // Keep the disposable assignment observable long enough for a separate CLI process to
+      // sample daemon status even on a loaded CI runner.
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
     const longTest = await runAsync(
@@ -2736,7 +2738,8 @@ async function certifyDisposableTestScheduling(tempRoot) {
     const cancellationRoot = await resetFeatureLab('disposable-test-cancellation');
     const cancellationEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1000',
+      // Cancellation certification must first observe the assigned worker before signalling it.
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '5000',
     };
     const cancellationArgs = [
       '--project',
@@ -2921,7 +2924,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     await rm(portableOutput, { force: true });
     const portableEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '750',
+      // Export/shader admission is observed through a separate status process; retain enough
+      // time for that observer to start under CI contention.
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
     };
     const portableExport = await runAsync(
@@ -3058,7 +3063,9 @@ async function certifyDisposableOutputScheduling(tempRoot) {
     const generationBaselineBytes = await readFile(generationBaselineOutput);
     const delayedEnvironment = {
       ...traceEnvironment,
-      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '750',
+      // This window lets certification mutate the live Project while the disposable worker stays
+      // pinned to the prior generation.
+      NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS: '1500',
     };
     const generationExport = await runAsync(
       nativeCli,
