@@ -56,8 +56,11 @@ covers lifecycle/time, continue/choice/navigation/interaction, debug mutations, 
 playback controls, and acknowledgement/cancellation of typed presentation/audio operations.
 
 The settled `RuntimeDispatchResult` contains a disposition, at most one coherent
-`RuntimePublication`, ordered `RuntimeEvent` values, diagnostics, and a closed budget outcome. The
-budget outcome distinguishes normal completion, deterministic instruction-budget yield, rejected
+`RuntimePublication`, ordered `RuntimeEvent` values, diagnostics, and a closed budget outcome.
+Dispatch failure is based on error or fatal severity, not the presence of any diagnostic. Warnings
+remain observable without changing a handled input into failure. In particular, a direct Dialogue
+Handoff without an awaiting Scene warns, advances once, and continues normally.
+The budget outcome distinguishes normal completion, deterministic instruction-budget yield, rejected
 self-generating command cycles, and Flow execution faults. The publication carries the gameplay UI
 view, desired presentation snapshot, and idempotent observations in one settled envelope revision.
 The presentation snapshot also carries its own strong target revision, which increments only when the

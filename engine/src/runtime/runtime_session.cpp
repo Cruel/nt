@@ -2610,7 +2610,7 @@ RuntimeDispatchResult RuntimeSession::dispatch(const core::RuntimeInputMessage& 
             runtime::ObservationEvent{core::RuntimeObservation{checkpoint_observation}});
         m_last_checkpoint_observation = checkpoint_observation;
     }
-    if (!result.diagnostics.empty()) {
+    if (has_blocking_diagnostic(result.diagnostics)) {
         result.disposition = runtime::RuntimeInputDisposition::Failed;
         m_session_replacement_request.reset();
     } else {
@@ -2935,7 +2935,7 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
                             }
                         } else
                             result.diagnostics = run_kernel(result.events, result.observations);
-                        if (result.diagnostics.empty())
+                        if (!has_blocking_diagnostic(result.diagnostics))
                             run_detached_flows(result.events, result.observations,
                                                result.diagnostics, elapsed);
                     }
@@ -3517,12 +3517,12 @@ RuntimeSession::WorkResult RuntimeSession::apply_input(const core::RuntimeInputM
     drain_script_inputs(result.events, result.observations, result.diagnostics);
     collect_runtime_actions(result.diagnostics);
     drain_pending_events(result.events);
-    if (result.diagnostics.empty())
+    if (!has_blocking_diagnostic(result.diagnostics))
         drain_deferred_commands(result.events, result.observations, result.diagnostics);
     else
         m_kernel->gateway().command_queue().clear();
     attach_runtime_context(result.diagnostics, *m_kernel);
-    if (!result.diagnostics.empty())
+    if (has_blocking_diagnostic(result.diagnostics))
         result.disposition = runtime::RuntimeInputDisposition::Failed;
     core::RuntimeObservation state_observation{core::RuntimeStateObservation{
         .mode = m_kernel->state().mode(),

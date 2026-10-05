@@ -29,7 +29,12 @@ tags, selections, graph coordinates, and preview state are editor-only metadata.
 The current Room-transition path is `FlowExecutor`. It validates the source/target and executes the
 ordered `beforeLeave`, `beforeEnter`, `afterLeave`, and `afterEnter` Gameplay Command programs before
 the corresponding Script Hook Registry handler. Before-leave and before-enter are pre-commit and
-therefore admit only immediate non-yielding commands. After-leave and after-enter are post-commit and
+therefore admit only immediate non-yielding commands, recursively through both `if` branches.
+Project validation rejects `call-scene`, `call-dialogue`, `notify`, and `run-lua` in those programs,
+including effective Room Archetype configurations. `run-lua` is always Flow-capable: even
+`error('intentional')` or non-yielding source is not eligible. Use an immediate `before-enter` or
+`before-leave` Script Hook for Lua pre-commit work; Feature Lab's `diagnostics-pre` is a checked
+intentional-failure example. After-leave and after-enter are post-commit and
 may suspend on the normal Flow-capable command vocabulary, including child Scene or Dialogue calls.
 The Room switch, visit increment, and view publication occur at the defined commit point. Failed
 pre-commit work resumes the source; post-commit fault handling preserves the target. A suspended

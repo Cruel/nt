@@ -1,0 +1,39 @@
+{
+  "id": "runtime-diagnostics-handoff-ui",
+  "label": "Direct Handoff warning and completion",
+  "data": {
+    "kind": "test",
+    "displayName": "Direct Handoff warning and completion",
+    "steps": [
+      { "id": "start", "input": "tick", "label": "Fresh home" },
+      {
+        "id": "category", "input": "ui-click", "label": "Open diagnostics category",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-category-edge-host" }
+      },
+      {
+        "id": "launch", "input": "ui-click", "label": "Launch safe diagnostics station",
+        "uiClick": { "documentId": "runtime_game", "selector": "#feature-lab-launch-runtime-diagnostics" }
+      },
+      {
+        "id": "direct", "input": "scene-choice", "label": "Replace Scene with direct Dialogue",
+        "sceneChoice": { "optionId": "handoff" },
+        "expectations": [
+          { "id": "dialogue", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "dialogue", "flowId": "diagnostics-handoff" } }
+        ]
+      },
+      {
+        "id": "handoff", "input": "continue", "label": "Warning still advances to next line",
+        "expectations": [
+          { "id": "warning", "type": "diagnostic", "operator": "present", "diagnostic": { "code": "execution.dialogue_handoff_without_awaiting_scene" } },
+          { "id": "continued", "type": "active-flow", "operator": "eq", "activeFlow": { "kind": "dialogue", "flowId": "diagnostics-handoff" } }
+        ]
+      },
+      { "id": "complete", "input": "continue", "label": "Complete ordinary continuation" }
+    ],
+    "finalExpectations": [
+      { "id": "finished", "type": "active-flow", "operator": "absent", "activeFlow": { "kind": "dialogue", "flowId": "diagnostics-handoff" } },
+      { "id": "room", "type": "current-room", "operator": "eq", "currentRoom": { "roomId": "runtime-diagnostics" } }
+    ],
+    "preview": { "selectedStepId": "start", "selectedObservationIndex": null, "autoOpenReport": true }
+  }
+}

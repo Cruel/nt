@@ -64,6 +64,15 @@ playback even when the step has no expectations; the report retains the error an
 already committed before that error are not rolled back. Ordinary RmlUi warnings are not callback
 failures, and Lua errors deliberately caught by authored `pcall` remain the author's responsibility.
 
+Warning-only runtime operations may be green witnesses: warnings remain in the report and can be
+asserted with a `diagnostic` expectation, but do not by themselves fail playback. Feature Lab's
+`runtime-diagnostics-handoff-ui` selects direct Dialogue Handoff, expects its warning, then Continues
+to completion; focused runtime/CLI tests also check handled input and exactly-once Text Log progress.
+The report's `passed` verdict combines runtime failures and expectations, not merely the presence
+of diagnostics or the `handled` observation. Real error diagnostics still fail the Test even when
+expected. CLI automation can trust the process exit status: a failed playback verdict exits `6`
+and retains the nested report for diagnosis.
+
 A Layout `state` expectation observes explicitly committed Layout State Slots and requires exactly
 one live Slot for the named Layout definition. A visible Mount alone does not satisfy that requirement:
 `context:state(scope)` can return the declared default without creating a Slot, and `clear_state` removes

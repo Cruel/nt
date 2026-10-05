@@ -51,7 +51,7 @@ import {
   type TraitDefinition,
   type TraitProperty,
 } from './authoring-properties';
-import { parseRoomData, validateRoomData } from './authoring-rooms';
+import { parseRoomData, validateRoomData, validateRoomPrecommitCommands } from './authoring-rooms';
 import {
   validateInteractableRecordHotspotAuthoringSemantics,
   validateInteractableHotspotAuthoringSemantics,
@@ -917,7 +917,7 @@ function validateArchetypeDefinition(
       }
     } else if (data.instanceKind === 'room') {
       const parsed = parseRoomData(effective.data);
-      if (parsed)
+      if (parsed) {
         validateOwnerFeatures(
           project,
           parsed.features,
@@ -926,6 +926,13 @@ function validateArchetypeDefinition(
           diagnostics,
           false,
         );
+        diagnostics.push(
+          ...validateRoomPrecommitCommands(
+            parsed.lifecycle,
+            `${base}/data/effectiveConfiguration/data/lifecycle`,
+          ),
+        );
+      }
     }
   }
 }

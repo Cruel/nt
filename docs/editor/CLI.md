@@ -237,6 +237,21 @@ The standalone release keeps operating-system/native capabilities in a small sta
 
 Rename/delete use the shared dependency graph and source recognizers. Proven rewriteable source ranges may be changed transactionally; exact manual references block unsafe rename; possible lexical references require explicit acknowledgement; delete's `--force` handling of exact blockers is independent from possible-source acknowledgement. `--dry-run` performs discovery, assembly, validation/preflight, graph/source analysis, and projected transaction planning without changing tracked or ignored project files.
 
+## Validation and Test verdicts
+
+`validate` checks Project authoring structure, references, and supported static semantic rules;
+it does not execute Lua or guarantee successful runtime execution. Room pre-commit command eligibility
+is a static rule and is checked during validation. Compiled Project admission remains a separate
+runtime boundary, and dynamic hook/capability failures are diagnosed when exercised.
+
+For single authored Tests and stdin `run-spec`/`run-ui-spec`, `native.report.passed` is the Test
+verdict. A false verdict produces `success:false`, exit code `6`, and `native.test.failed`, while
+retaining the full native report. Native `ok:true` means playback produced a report, not that the
+Test passed. Cold, cached, daemon, JSON, and human paths share this status precedence; human output
+must not print success for a failed Test. Warning diagnostics alone do not fail playback, and a
+diagnostic expectation cannot turn a real runtime error into success. See the
+[authored-Test contract](../public/concepts/authored-tests.md) for supported warning-path witnesses.
+
 ## Persistent validation cache
 
 `validate` can reuse an unchanged exact disk-authoritative validation result from

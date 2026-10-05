@@ -78,8 +78,8 @@
       ]
     },
     "concepts/authored-tests.md": {
-      "reviewed": "2026-10-03",
-      "strategy": "Share the canonical public authored-Test mental model byte-for-byte with the human documentation surface, including tooling-only Test compilation, canonical save-slot identity, and engine-owned semantic settling; leave exact step payloads to generated reference and execution workflow to agent-only guidance.",
+      "reviewed": "2026-10-05",
+      "strategy": "Share the canonical public authored-Test mental model byte-for-byte with the human documentation surface, including tooling-only Test compilation, canonical save-slot identity, engine-owned semantic settling, warning-only Handoff witnesses, and CLI playback verdict precedence; leave exact step payloads to generated reference and execution workflow to agent-only guidance.",
       "sources": [
         {
           "source": "noveltea-shared-concepts",
