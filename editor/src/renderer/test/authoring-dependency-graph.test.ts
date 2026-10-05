@@ -322,9 +322,12 @@ describe('authoring structural dependency graph and queries', () => {
       },
     };
     const item = defaultInteractableData('Item');
-    item.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
+    item.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'sprite' } },
+    };
     item.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: defaultHotspotBehavior('Item'),
     };
     item.features.push({
@@ -557,7 +560,10 @@ describe('authoring structural dependency graph and queries', () => {
       data: defaultCharacterData('Alice'),
     };
     const interactable = defaultInteractableData('Door');
-    interactable.presentation.sprite = { $ref: { collection: 'assets', id: 'background' } };
+    interactable.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'background' } },
+    };
     project.interactables.door = { id: 'door', label: 'Door', data: interactable };
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData() };
     project.rooms.foyer.data.placements.push({
@@ -616,7 +622,7 @@ describe('authoring structural dependency graph and queries', () => {
       findAuthoringDependencyUsages(graph, recordNodeKey('assets', 'background')).map(
         (usage) => usage.role,
       ),
-    ).toEqual(expect.arrayContaining(['default-font', 'interactable-sprite', 'room-background']));
+    ).toEqual(expect.arrayContaining(['default-font', 'interactable-visual', 'room-background']));
     expect(
       findAuthoringDependencyUsages(graph, recordNodeKey('materials', 'base')).map(
         (usage) => usage.role,

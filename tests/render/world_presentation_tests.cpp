@@ -149,9 +149,17 @@ public:
         result.logical_size = Size{64.0f, 32.0f};
         result.animation_key = animation.animation.text() + ":" +
                                (animation.motion ? animation.motion->text() : "fall");
-        result.animation_frames = {{50, first->second, std::nullopt},
-                                   {100, second->second, std::nullopt}};
+        auto first_prepared = resolve(id<AssetId>("rain-a"), std::nullopt, context);
+        auto second_prepared = resolve(id<AssetId>("rain-b"), std::nullopt, context);
+        if (!first_prepared)
+            return first_prepared;
+        if (!second_prepared)
+            return second_prepared;
+        result.animation_frames = {
+            {50, first->second, first_prepared.value_if()->texture_lease},
+            {100, second->second, second_prepared.value_if()->texture_lease}};
         result.texture = first->second;
+        result.texture_lease = result.animation_frames.front().texture_lease;
         return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
 
@@ -452,7 +460,7 @@ TEST_CASE("world backend interleaves WorldContent families by authored order")
     snapshot.interactables.push_back({id<InteractableInstanceId>("key"),
                                       {id<RoomId>("atrium"), id<RoomPlacementId>("table")},
                                       {0.4, 0.5, 0.1, 0.15},
-                                      id<AssetId>("item"),
+                                      compiled::ImageVisual{id<AssetId>("item")},
                                       id<core::MaterialId>("item-material"),
                                       std::nullopt,
                                       {},
@@ -522,6 +530,11 @@ TEST_CASE("world rendering keeps Interactable stacking occurrence-owned across p
 
         FakeWorldResources resources;
         resources.add_texture("image-main", 1, 64, 64);
+        resources.set_alpha_coverage("image-main",
+                                     {.width = 64,
+                                      .height = 64,
+                                      .row_stride_bytes = 8,
+                                      .occupancy_bits = std::vector<std::uint8_t>(512, 255)});
         WorldPresentationBackend backend(resources);
         REQUIRE(backend.reconcile(snapshot.value(), {1000.0f, 500.0f}));
         REQUIRE(backend.frame());
@@ -536,14 +549,14 @@ TEST_CASE("world rendering keeps Interactable stacking occurrence-owned across p
 
     const auto shared_placement = render_interactables(placement_independent_order_project(false));
     REQUIRE(shared_placement.size() == 2);
-    CHECK(shared_placement[0].first == "key-2");
-    CHECK(shared_placement[1].first == "key");
+    CHECK(shared_placement[0].first == "start/key-2/authored/key-2");
+    CHECK(shared_placement[1].first == "start/key/authored/key");
     CHECK(shared_placement[0].second == Catch::Approx(shared_placement[1].second));
 
     const auto moved_placement = render_interactables(placement_independent_order_project(true));
     REQUIRE(moved_placement.size() == 2);
-    CHECK(moved_placement[0].first == "key-2");
-    CHECK(moved_placement[1].first == "key");
+    CHECK(moved_placement[0].first == "start/key-2/authored/key-2");
+    CHECK(moved_placement[1].first == "start/key/authored/key");
     CHECK(moved_placement[0].second != Catch::Approx(moved_placement[1].second));
 }
 
@@ -560,7 +573,7 @@ TEST_CASE("Interactable Material Application overrides reach the draw command")
     snapshot.interactables.push_back({interactable,
                                       {id<RoomId>("atrium"), id<RoomPlacementId>("table")},
                                       {0.4, 0.5, 0.1, 0.15},
-                                      id<AssetId>("item"),
+                                      compiled::ImageVisual{id<AssetId>("item")},
                                       material,
                                       owner,
                                       {{"s_noise", "project:/assets/noise.png"}},
@@ -1176,9 +1189,9 @@ TEST_CASE("no-highlight hotspots stay semantic and allocate no overlay resources
                                                  .material = std::nullopt};
     snapshot.hotspots.push_back(
         {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("hidden")}, "Hidden", true,
-         true, semantic_target("hidden"), AlphaHotspotShape{}, 0, compiled::NoHotspotHighlight{},
-         id<AssetId>("room-image"), 1600, 900, std::nullopt, std::nullopt,
-         PresentationPlane::WorldBackground, 0});
+         true, semantic_target("hidden"), compiled::NormalizedRect{0, 0, 1, 1}, 0,
+         compiled::NoHotspotHighlight{}, id<AssetId>("room-image"), 1600, 900, std::nullopt,
+         std::nullopt, PresentationPlane::WorldBackground, 0});
 
     REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -1190,12 +1203,16 @@ TEST_CASE("Interactable hotspot overlays inherit placement geometry and authored
 {
     FakeWorldResources resources;
     resources.add_texture("item", 23, 400, 200);
+    resources.set_alpha_coverage("item", {.width = 400,
+                                          .height = 200,
+                                          .row_stride_bytes = 50,
+                                          .occupancy_bits = std::vector<std::uint8_t>(10000, 255)});
     WorldPresentationBackend backend(resources);
     auto snapshot = base_snapshot();
     snapshot.interactables.push_back({id<InteractableInstanceId>("key"),
                                       {id<RoomId>("room"), id<RoomPlacementId>("table")},
                                       {0.25, 0.4, 0.3, 0.2},
-                                      id<AssetId>("item"),
+                                      compiled::ImageVisual{id<AssetId>("item")},
                                       std::nullopt,
                                       std::nullopt,
                                       {},
@@ -1255,9 +1272,9 @@ TEST_CASE("failed hotspot preparation preserves the prior world candidate")
     candidate.revision = PresentationSnapshotRevision::from_number(2);
     candidate.hotspots.push_back(
         {compiled::RoomHotspotRef{id<RoomId>("room"), id<HotspotId>("desk")}, "Desk", true, true,
-         semantic_target("desk"), AlphaHotspotShape{}, 0, compiled::DefaultHotspotHighlight{},
-         id<AssetId>("room-image"), 1600, 900, std::nullopt, std::nullopt,
-         PresentationPlane::WorldBackground, 0});
+         semantic_target("desk"), compiled::NormalizedRect{0, 0, 1, 1}, 0,
+         compiled::DefaultHotspotHighlight{}, id<AssetId>("room-image"), 1600, 900, std::nullopt,
+         std::nullopt, PresentationPlane::WorldBackground, 0});
     resources.fail_hotspot_resources = true;
     CHECK_FALSE(backend.reconcile(candidate, {1000.0f, 500.0f}));
     REQUIRE(backend.frame());
@@ -1278,7 +1295,7 @@ TEST_CASE("world hotspot controller honors draw order input order and background
     snapshot.interactables.push_back({id<InteractableInstanceId>("item"),
                                       {id<RoomId>("room"), id<RoomPlacementId>("item-place")},
                                       {0.4, 0.4, 0.2, 0.2},
-                                      id<AssetId>("item"),
+                                      compiled::ImageVisual{id<AssetId>("item")},
                                       std::nullopt,
                                       std::nullopt,
                                       {},
@@ -1439,6 +1456,130 @@ TEST_CASE("multiple hotspot geometries publish the same owner-qualified Feature 
     CHECK(*right.target == shared);
 }
 
+TEST_CASE("animated visual-alpha follows the realized frame without a new snapshot")
+{
+    FakeWorldResources resources;
+    resources.add_texture("rain-a", 21, 2, 1);
+    resources.add_texture("rain-b", 22, 2, 1);
+    resources.set_alpha_coverage(
+        "rain-a", {.width = 2, .height = 1, .row_stride_bytes = 1, .occupancy_bits = {0b01}});
+    resources.set_alpha_coverage(
+        "rain-b", {.width = 2, .height = 1, .row_stride_bytes = 1, .occupancy_bits = {0b10}});
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.interactables.push_back(
+        {id<InteractableInstanceId>("rain"),
+         {id<RoomId>("room"), id<RoomPlacementId>("place")},
+         {0, 0, 1, 1},
+         compiled::AnimationVisual{id<AnimationId>("rain-animation"), std::nullopt}});
+    const compiled::HotspotRef alpha = compiled::InteractableHotspotRef{
+        id<InteractableInstanceId>("rain"), id<HotspotId>("alpha")};
+    snapshot.hotspots.push_back({alpha, "Rain", true, true, semantic_target("rain"),
+                                 AlphaHotspotShape{}, 0, compiled::DefaultHotspotHighlight{},
+                                 std::nullopt, 64, 32});
+    snapshot.interactables.front().occurrence = id<RoomInteractableEntryId>("first");
+    snapshot.hotspots.front().interactable_occurrence = snapshot.interactables.front().occurrence;
+    snapshot.hotspots.front().interactable_placement = snapshot.interactables.front().placement;
+    REQUIRE(backend.reconcile(snapshot, {100, 100}));
+    const auto hit = [&](float x) {
+        return controller
+            .handle({WorldPointerEventKind::MouseMove, {x, 50}, {x, 50}, 0, false, true})
+            .hit;
+    };
+    RuntimeClockUpdate clock;
+    backend.realize(clock);
+    CHECK(hit(25));
+    CHECK_FALSE(hit(75));
+    CHECK(hit(25));
+    REQUIRE(controller.hovered_target());
+    clock.gameplay_time = std::chrono::milliseconds{75};
+    backend.realize(clock);
+    controller.realization_changed();
+    CHECK(controller.hovered_target() == nullptr);
+    CHECK_FALSE(hit(25));
+    CHECK(hit(75));
+    CHECK(backend.frame()->revision == snapshot.revision);
+    CHECK(backend.frame()->base_batch.commands().front().texture.handle == 22);
+    CHECK(backend.frame()->hotspot_surfaces.front().overlay.command.texture.handle == 22);
+    snapshot.revision = PresentationSnapshotRevision::from_number(2);
+    REQUIRE(backend.reconcile(snapshot, {100, 100}));
+    backend.realize(clock);
+    CHECK(hit(75));
+    CHECK_FALSE(hit(25));
+
+    auto second = snapshot.interactables.front();
+    second.occurrence = id<RoomInteractableEntryId>("second");
+    second.bounds = {0, 0, 0.2, 1};
+    snapshot.interactables.push_back(second);
+    auto second_hotspot = snapshot.hotspots.front();
+    second_hotspot.interactable_occurrence = second.occurrence;
+    snapshot.hotspots.push_back(second_hotspot);
+    snapshot.revision = PresentationSnapshotRevision::from_number(3);
+    REQUIRE(backend.reconcile(snapshot, {100, 100}));
+    backend.realize(clock);
+    REQUIRE(backend.frame()->draws.size() == 2);
+    CHECK(backend.frame()->draws[0].stable_identity != backend.frame()->draws[1].stable_identity);
+    CHECK(backend.frame()->base_batch.commands()[0].texture.handle == 22);
+    CHECK(backend.frame()->base_batch.commands()[1].texture.handle == 21);
+    CHECK(hit(5));
+    CHECK(backend.frame()->batch.commands().back().rect.width == Catch::Approx(20));
+    CHECK_FALSE(hit(15));
+    CHECK(hit(75));
+    REQUIRE(controller.handle({WorldPointerEventKind::MouseDown, {75, 50}, {75, 50}, 0, true, true})
+                .consumed);
+    const auto first_release =
+        controller.handle({WorldPointerEventKind::MouseUp, {75, 50}, {75, 50}, 0, true, true});
+    REQUIRE(first_release.target);
+    REQUIRE(first_release.trigger_context);
+    CHECK(first_release.trigger_context->source_bounds->width == Catch::Approx(1));
+    REQUIRE(controller.handle({WorldPointerEventKind::MouseDown, {5, 50}, {5, 50}, 0, true, true})
+                .consumed);
+    const auto second_release =
+        controller.handle({WorldPointerEventKind::MouseUp, {5, 50}, {5, 50}, 0, true, true});
+    REQUIRE(second_release.target);
+    REQUIRE(second_release.trigger_context);
+    CHECK(second_release.trigger_context->source_bounds->width == Catch::Approx(0.2));
+}
+
+TEST_CASE(
+    "visual-alpha fails explicitly without retained coverage while custom geometry stays usable")
+{
+    FakeWorldResources resources;
+    resources.add_texture("item", 23, 2, 1);
+    WorldPresentationBackend backend(resources);
+    auto snapshot = base_snapshot();
+    snapshot.interactables.push_back({id<InteractableInstanceId>("item"),
+                                      {id<RoomId>("room"), id<RoomPlacementId>("place")},
+                                      {0, 0, 1, 1},
+                                      compiled::ImageVisual{id<AssetId>("item")}});
+    snapshot.hotspots.push_back({compiled::InteractableHotspotRef{
+                                     id<InteractableInstanceId>("item"), id<HotspotId>("alpha")},
+                                 "Item", true, true, semantic_target("item"), AlphaHotspotShape{},
+                                 0, compiled::NoHotspotHighlight{}, id<AssetId>("item"), 2, 1});
+    SECTION("a Visual with no realized raster sample fails rather than becoming a rectangle")
+    {
+        snapshot.interactables.front().visual.reset();
+    }
+    SECTION("an Image without CPU coverage fails") {}
+    auto failed = backend.reconcile(snapshot, {100, 100});
+    REQUIRE_FALSE(failed);
+    CHECK(failed.error().front().code == "presentation.visual_alpha_coverage_unavailable");
+    snapshot.interactables.front().visual = compiled::ImageVisual{id<AssetId>("item")};
+    snapshot.hotspots.front().shape = compiled::NormalizedRect{0, 0, 1, 1};
+    SECTION("custom rectangles do not require alpha coverage") {}
+    SECTION("highlight source capability does not gate custom hit geometry")
+    {
+        snapshot.interactables.front().visual.reset();
+        snapshot.interactables.front().material = id<core::MaterialId>("panel");
+        snapshot.hotspots.front().highlight = compiled::DefaultHotspotHighlight{};
+    }
+    REQUIRE(backend.reconcile(snapshot, {100, 100}));
+    WorldHotspotController controller(backend);
+    CHECK(controller.handle({WorldPointerEventKind::MouseMove, {25, 50}, {25, 50}, 0, false, true})
+              .hit);
+}
+
 TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
 {
     FakeWorldResources resources;
@@ -1451,7 +1592,7 @@ TEST_CASE("world hotspot alpha coverage passes transparent pixels through")
     snapshot.interactables.push_back({id<InteractableInstanceId>("item"),
                                       {id<RoomId>("room"), id<RoomPlacementId>("item-place")},
                                       {0.0, 0.0, 1.0, 1.0},
-                                      id<AssetId>("item"),
+                                      compiled::ImageVisual{id<AssetId>("item")},
                                       std::nullopt,
                                       std::nullopt,
                                       {},
@@ -1505,11 +1646,16 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
             .handle(
                 {WorldPointerEventKind::MouseDown, {10.0f, 10.0f}, {10.0f, 10.0f}, 0, true, true})
             .consumed);
+    controller.realization_changed();
+    CHECK_FALSE(controller.hovered_target());
     REQUIRE(
         controller
             .handle(
                 {WorldPointerEventKind::MouseMove, {19.0f, 10.0f}, {19.0f, 10.0f}, 0, true, true})
             .consumed);
+    controller.realization_changed();
+    CHECK_FALSE(controller.hovered_target());
+    CHECK(backend.frame()->batch.commands().size() == 1);
     auto canceled = controller.handle(
         {WorldPointerEventKind::MouseUp, {19.0f, 10.0f}, {19.0f, 10.0f}, 0, true, true});
     CHECK(canceled.consumed);

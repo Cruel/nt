@@ -210,6 +210,7 @@ struct WorldHotspotHitTarget {
 struct HotspotInteractionVisualState {
     std::optional<core::compiled::HotspotRef> hovered;
     std::optional<core::compiled::HotspotRef> pressed;
+    std::optional<std::string> owner_identity = std::nullopt;
 };
 
 struct OrderedWorldOverlayBatch {
@@ -286,11 +287,13 @@ public:
     [[nodiscard]] WorldHotspotDebugObservation debug_observation() const;
     void target_completed();
     void presentation_changed();
+    void realization_changed();
     void cancel() noexcept;
 
 private:
     struct Capture {
         core::compiled::HotspotRef ref;
+        std::string owner_identity;
         Vec2 host_origin{};
         Vec2 reference_position{};
         std::uint64_t pointer_id = 0;
@@ -299,10 +302,13 @@ private:
         bool target_canceled = false;
     };
 
+    [[nodiscard]] const WorldHotspotHitTarget* hit_target_at(Vec2 point) const;
     [[nodiscard]] std::optional<core::compiled::HotspotRef> hit_test(Vec2 point) const;
     [[nodiscard]] const WorldHotspotHitTarget*
-    hit_target(const core::compiled::HotspotRef& ref) const;
-    [[nodiscard]] bool contains(const core::compiled::HotspotRef& ref, Vec2 point) const;
+    hit_target(const core::compiled::HotspotRef& ref,
+               const std::optional<std::string>& owner_identity) const;
+    [[nodiscard]] bool contains(const core::compiled::HotspotRef& ref,
+                                const std::string& owner_identity, Vec2 point) const;
     void set_visual_state(std::optional<core::compiled::HotspotRef> hovered,
                           std::optional<core::compiled::HotspotRef> pressed);
     void synchronize_generation();
@@ -310,8 +316,10 @@ private:
     WorldPresentationBackend& m_backend;
     std::optional<Capture> m_capture;
     std::optional<core::compiled::HotspotRef> m_hovered;
+    std::optional<std::string> m_hovered_owner_identity;
     Vec2 m_last_mouse_reference{};
     bool m_last_mouse_valid = false;
+    bool m_last_mouse_admitted = false;
     std::uint64_t m_generation = 0;
 };
 

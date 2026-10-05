@@ -375,7 +375,7 @@ export function resolveProjectDiagnosticTarget(
       if (typeof hotspotMode === 'object' && hotspotMode !== null && !Array.isArray(hotspotMode)) {
         const mode = hotspotMode as Record<string, unknown>;
         const rowId =
-          mode.kind === 'sprite-alpha'
+          mode.kind === 'visual-alpha'
             ? typeof (mode.hotspot as { id?: unknown } | undefined)?.id === 'string'
               ? ((mode.hotspot as { id: string }).id ?? null)
               : null
@@ -388,8 +388,8 @@ export function resolveProjectDiagnosticTarget(
       }
       return target(tab, 'interactable.hotspots');
     }
-    if (scope === 'data' && field === 'presentation' && segments[4] === 'sprite')
-      return fieldTarget(tab, 'interactable.sprite');
+    if (scope === 'data' && field === 'presentation' && segments[4] === 'visual')
+      return fieldTarget(tab, 'interactable.visual');
     if (scope === 'data' && field === 'presentation' && segments[4] === 'material')
       return fieldTarget(tab, 'interactable.material');
     return target(tab, 'interactable.summary');

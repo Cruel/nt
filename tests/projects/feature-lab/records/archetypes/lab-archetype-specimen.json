@@ -17,9 +17,9 @@
         }
       ],
       "/data/displayName": "Archetype specimen",
-      "/data/presentation/sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+      "/data/presentation/visual": { "kind": "image", "image": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } } },
       "/data/presentation/hotspots": {
-        "kind": "sprite-alpha",
+        "kind": "visual-alpha",
         "hotspot": {
           "id": "archetype-backed",
           "label": "Archetype-backed specimen",

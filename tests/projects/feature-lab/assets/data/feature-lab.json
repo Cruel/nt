@@ -1878,7 +1878,7 @@
       "description": "Pixel occupancy versus analytic picking, conditioned semantic targets and native cursor arbitration. Contextual popups retain snapshots, not live source handles. Cursor checks require a cursor-capable host. Custom-center activation and captured Trigger lifetime have passed real player pointer checks; remaining picking/cursor permutations retain manual/native verification.",
       "status": "ready",
       "created": "2026-10-04T00:50:00Z",
-      "modified": "2026-10-04T05:38:08Z",
+      "modified": "2026-10-05T22:12:21Z",
       "launch": {
         "entry": "hotspots-and-cursors"
       },
@@ -1886,16 +1886,28 @@
         {
           "id": "alpha-versus-custom",
           "title": "Compare occupancy with custom rectangles",
-          "action": "Pick transparent left/right centers; hover opaque sides.",
-          "expected": "Alpha hole does not hit; custom rectangle center hits despite transparency. Side regions share one badge Feature; generated mask is correct owner union. Curated button is shared sprite-alpha witness; pattern adds a distinct hole. Real player custom-center activation passes; the prior runtime rejection did not recur. The full occupancy/hover matrix remains this manual/native workflow.",
+          "action": "During the left Animation's pattern frame, pick transparent left/right centers; hover opaque sides.",
+          "expected": "Alpha hole does not hit; custom rectangle center hits despite transparency. Side regions share one badge Feature; generated mask is correct owner union. Curated button is shared visual-alpha witness; pattern adds a distinct hole. Real player custom-center activation passes; the prior runtime rejection did not recur. The full occupancy/hover matrix remains this manual/native workflow.",
           "status": "ready",
           "verification": "ui",
           "created": "2026-10-04T00:50:00Z",
-          "modified": "2026-10-04T05:38:08Z",
+          "modified": "2026-10-05T22:12:21Z",
           "assetRequirements": [
             "ui-pattern",
             "pilot-button-sprite"
           ],
+          "automation": []
+        },
+        {
+          "id": "animated-alpha-sample",
+          "title": "Follow the current Visual alpha sample",
+          "action": "Keep the pointer over the left board's center while it alternates pattern and button every 1.5 seconds. Click in each frame, then leave and re-enter the station.",
+          "expected": "Hit area and highlight follow the visible frame: the pattern center is transparent and the button center is opaque. Placement stays fixed despite different source dimensions. Re-entry reconstructs playback; static gate button and custom right-board picking stay unchanged. Native automation covers frame sampling and independent occurrence reconciliation; this authored workflow remains manual.",
+          "status": "ready",
+          "verification": "manual",
+          "created": "2026-10-05T22:12:21Z",
+          "modified": "2026-10-05T22:12:21Z",
+          "assetRequirements": ["ui-pattern", "pilot-button-sprite"],
           "automation": []
         },
         {

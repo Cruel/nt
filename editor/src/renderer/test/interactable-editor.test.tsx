@@ -6,7 +6,10 @@ import {
   MaterialPreviewGroupProvider,
   MaterialPreviewProjectProvider,
 } from '@/material-preview/material-preview-provider';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import {
   defaultInteractableData,
   defaultInteractableInstanceData,
@@ -111,9 +114,12 @@ describe('InteractableEditor', () => {
       },
     };
     const data = defaultInteractableData('Door');
-    data.presentation.sprite = { $ref: { collection: 'assets', id: 'sprite' } };
+    data.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'sprite' } },
+    };
     data.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: defaultHotspotBehavior('Door'),
     };
     project.interactables.door = {
@@ -180,7 +186,10 @@ describe('InteractableEditor', () => {
       },
     };
     const data = defaultInteractableData('Door');
-    data.presentation.sprite = { $ref: { collection: 'assets', id: 'sound' } };
+    data.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'sound' } },
+    };
     project.interactables.door = {
       id: 'door',
       label: 'Door',
@@ -291,13 +300,42 @@ describe('InteractableEditor', () => {
       traits: [],
       data: defaultInteractableData('Door'),
     };
+    project.animations.loop = {
+      id: 'loop',
+      label: 'Door Loop',
+      data: {
+        kind: 'animation',
+        canvas: { width: 32, height: 32 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            frames: [{ image: { $ref: { collection: 'assets', id: 'sprite' } }, durationMs: 100 }],
+          },
+        ],
+      },
+    };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
     renderEditor();
 
-    await user.click(screen.getByRole('button', { name: /choose sprite/i }));
-    expect(await screen.findByText('Choose Interactable sprite')).toBeInTheDocument();
+    await user.click(screen.getByRole('button', { name: /choose Interactable Visual/i }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Choose Interactable Visual' }),
+    ).toBeInTheDocument();
     expect(screen.getByText('Door Sprite')).toBeInTheDocument();
     expect(screen.queryByText('Door Sound')).not.toBeInTheDocument();
+    await user.click(screen.getByText('Door Loop'));
+    const changed = useProjectStore.getState().document;
+    expect(
+      isAuthoringProject(changed) &&
+        parseInteractableData(changed.interactables.door?.data)?.presentation.visual,
+    ).toEqual({
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'loop' } },
+      motionId: null,
+    });
+    expect(screen.getByRole('combobox', { name: 'Animation motion' })).toBeInTheDocument();
   });
 
   it('uses the shared visual Material selector and commits one undoable compatible assignment', async () => {

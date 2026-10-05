@@ -119,3 +119,58 @@ export function validateAnimationData(
 
 export type AnimationData = z.infer<typeof animationDataSchema>;
 export type Visual = z.infer<typeof visualSchema>;
+
+export function visualImageAssetId(
+  project: AuthoringProject,
+  visual: Visual | null,
+): string | null {
+  if (!visual) return null;
+  if (visual.kind === 'image') return visual.image.$ref.id;
+  const parsed = animationDataSchema.safeParse(project.animations[visual.animation.$ref.id]?.data);
+  if (!parsed.success) return null;
+  const motionId = visual.motionId ?? parsed.data.defaultMotionId;
+  return (
+    parsed.data.motions.find((motion) => motion.id === motionId)?.frames[0]?.image.$ref.id ?? null
+  );
+}
+
+export function validateVisualData(
+  project: AuthoringProject,
+  visual: Visual,
+  path: string,
+): (ProjectValidationDiagnosticLike & { path: string })[] {
+  if (visual.kind === 'image') {
+    const asset = project.assets[visual.image.$ref.id];
+    return asset && parseAssetData(asset.data)?.kind === 'image'
+      ? []
+      : [
+          {
+            severity: 'error',
+            path: `${path}/image/$ref`,
+            category: 'Interactables',
+            message: `Visual must reference a valid Image Asset '${visual.image.$ref.id}'.`,
+          },
+        ];
+  }
+  const parsed = animationDataSchema.safeParse(project.animations[visual.animation.$ref.id]?.data);
+  if (!parsed.success)
+    return [
+      {
+        severity: 'error',
+        path: `${path}/animation/$ref`,
+        category: 'Interactables',
+        message: `Missing or invalid Animation '${visual.animation.$ref.id}'.`,
+      },
+    ];
+  const motionId = visual.motionId ?? parsed.data.defaultMotionId;
+  return parsed.data.motions.some((motion) => motion.id === motionId)
+    ? []
+    : [
+        {
+          severity: 'error',
+          path: `${path}/motionId`,
+          category: 'Interactables',
+          message: `Unknown Animation motion '${motionId}'.`,
+        },
+      ];
+}

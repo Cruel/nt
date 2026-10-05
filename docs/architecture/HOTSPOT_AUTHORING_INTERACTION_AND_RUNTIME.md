@@ -43,8 +43,8 @@ creation so references do not silently drift. Deleting a referenced Feature is s
 normal dependency/validation diagnostics rather than by inventing a replacement identity.
 
 Room Hotspots use normalized rectangular bounds relative to the complete background source image.
-Interactable Hotspots use either the sprite alpha footprint or normalized custom rectangles relative
-to the complete Interactable sprite image. Every Hotspot retains a stable owner-local ID, label,
+Interactable Hotspots use either current-sample Visual alpha coverage or normalized custom rectangles
+relative to the complete image/Animation Visual canvas. Every Hotspot retains a stable owner-local ID, label,
 condition, input order, highlight policy, and target. `none` is a valid target for either owner kind;
 new Room geometry defaults to `none`, while new Interactable Hotspots may continue to default to the
 owner. Validation emits an informational diagnostic for the inert state instead of rejecting it.
@@ -69,10 +69,10 @@ the Hotspot collection and semantic fields such as target, condition, cursor, hi
 ID, and label. `Edit geometry` opens **Hotspot Focus**, a reusable temporary full-tab workspace over
 the owner's source image. The shared React image stage inside Hotspot Focus provides selection,
 rectangle creation, move, resize, entity deletion, zoom, pan, Fit, native 100% view, and
-image-coordinate conversion. Sprite-alpha Interactables use the same focused source-image workspace
+image-coordinate conversion. Visual-alpha Interactables use the same focused source-image workspace
 for inspection without exposing rectangle creation. Focus derives an alpha-coverage overlay directly
 from the full-resolution source image so transparent versus interactive pixels remain visible, while
-the geometry-less sprite-alpha Hotspot behavior still appears in the shared item list and can be
+the geometry-less visual-alpha Hotspot behavior still appears in the shared item list and can be
 selected for inspection without manufacturing a fake rectangle.
 
 Room Edit projects authored Room Hotspots back through the background's source-image UV mapping, so
@@ -155,7 +155,11 @@ generated as binary runtime resources by the typed asset preparation pipeline. B
 normal request coalescing, cancellation, reservation, residency, eviction, telemetry, structured
 prefetch, and mandatory publication gates.
 
-World presentation resolves immutable Hotspot projections in authored reference coordinates. Default
+World presentation resolves immutable Hotspot projections in authored reference coordinates. An
+Interactable projection retains the owner occurrence and Visual selection, not a changing frame Asset.
+Mandatory preparation retains CPU coverage for every selected frame; realization updates hit-target
+leases and overlay textures from the same sample. Unsupported alpha coverage fails explicitly without
+rectangle fallback. Custom hit geometry does not depend on highlight-source support. Default
 and custom highlights bind through the strict `hotspot-overlay` Material contract. The alpha preset
 requires only the renderer-owned source image at reserved stage 0; the custom-mask preset requires
 that image plus the renderer-owned mask at reserved stage 1. Their clamp/filter policies and

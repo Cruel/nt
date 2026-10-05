@@ -764,7 +764,7 @@ private:
         return std::visit(
             [&](const auto& definition) -> const InteractableHotspotBehavior* {
                 using T = std::decay_t<decltype(definition)>;
-                if constexpr (std::is_same_v<T, SpriteAlphaHotspots>)
+                if constexpr (std::is_same_v<T, VisualAlphaHotspots>)
                     return definition.hotspot.id == reference.hotspot_id ? &definition.hotspot
                                                                          : nullptr;
                 else if constexpr (std::is_same_v<T, CustomInteractableHotspots>) {
@@ -2892,9 +2892,8 @@ private:
             }
             validate_features(value, path);
             validate_inventories(value.inventories, path + "/inventories");
-            if (value.presentation.sprite)
-                require(m_assets, *value.presentation.sprite, "asset",
-                        path + "/presentation/sprite");
+            if (value.presentation.visual)
+                validate_visual(*value.presentation.visual, path + "/presentation/visual");
             if (value.presentation.material) {
                 const auto* material = material_interface(*value.presentation.material);
                 if (!material) {
@@ -2937,10 +2936,10 @@ private:
                       "Interactable Material Application overrides require a selected Material.",
                       path + "/presentation");
             }
-            const bool requires_sprite = std::visit(
+            const bool requires_visual = std::visit(
                 [](const auto& definition) {
                     using T = std::decay_t<decltype(definition)>;
-                    if constexpr (std::is_same_v<T, SpriteAlphaHotspots>)
+                    if constexpr (std::is_same_v<T, VisualAlphaHotspots>)
                         return true;
                     else if constexpr (std::is_same_v<T, CustomInteractableHotspots>)
                         return !definition.hotspots.empty();
@@ -2948,23 +2947,9 @@ private:
                         return false;
                 },
                 value.presentation.hotspots);
-            if (requires_sprite && !value.presentation.sprite)
+            if (requires_visual && !value.presentation.visual)
                 error("compiled_project.hotspot_source_image_required",
-                      "Interactable hotspots require a sprite image Asset.",
-                      path + "/presentation/sprite");
-            else if (value.presentation.sprite) {
-                const auto* source = asset(*value.presentation.sprite);
-                if (source && source->kind != AssetKind::Image) {
-                    if (requires_sprite)
-                        error("compiled_project.hotspot_source_image_invalid",
-                              "Interactable hotspot source Asset must be an image.",
-                              path + "/presentation/sprite");
-                    else
-                        error("compiled_project.invalid_asset_kind",
-                              "Interactable sprite must use an image Asset.",
-                              path + "/presentation/sprite");
-                }
-            }
+                      "Interactable hotspots require a Visual.", path + "/presentation/visual");
             std::unordered_set<HotspotId> hotspot_ids;
             std::visit(
                 [&](const auto& definition) {
@@ -2990,7 +2975,7 @@ private:
                             },
                             hotspot.target);
                     };
-                    if constexpr (std::is_same_v<T, SpriteAlphaHotspots>) {
+                    if constexpr (std::is_same_v<T, VisualAlphaHotspots>) {
                         const auto& hotspot = definition.hotspot;
                         const auto hotspot_path = path + "/presentation/hotspots/hotspot";
                         validate_hotspot_common(hotspot.condition, hotspot.highlight, hotspot_path);

@@ -614,16 +614,15 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
                 unresolved("Interactable Room placement", interactable.placement.text()));
             continue;
         }
-        validate_asset(project, definition->presentation.sprite, compiled::AssetKind::Image,
-                       "Interactable sprite", diagnostics);
+
         result.interactables.push_back(PresentationInteractable{
             interactable.interactable, placement, placement_definition->bounds,
-            definition->presentation.sprite, definition->presentation.material,
+            definition->presentation.visual, definition->presentation.material,
             RoomPresentationOwner{room.visit.room},
             material_application_textures(
                 project, interactable_material_application(definition->presentation)),
             PresentationPlane::WorldContent, interactable.order, interactable.enabled,
-            interactable.visible});
+            interactable.visible, interactable.occurrence});
     }
 
     for (const auto& prop : room.props) {
@@ -684,8 +683,8 @@ void canonicalize(RuntimePresentationSnapshot& result)
     });
     std::sort(result.interactables.begin(), result.interactables.end(),
               [](const auto& a, const auto& b) {
-                  return std::tie(a.plane, a.order, a.interactable) <
-                         std::tie(b.plane, b.order, b.interactable);
+                  return std::tie(a.plane, a.order, a.interactable, a.occurrence) <
+                         std::tie(b.plane, b.order, b.interactable, b.occurrence);
               });
     std::sort(result.props.begin(), result.props.end(), [](const auto& a, const auto& b) {
         return std::tie(a.plane, a.order, a.key) < std::tie(b.plane, b.order, b.key);
@@ -750,7 +749,7 @@ build_room_visual_catalog_impl(const CompiledProject* project, const runtime::Ru
         const auto* definition = world.resolved_configuration(interactable.interactable);
         if (definition != nullptr)
             catalog.interactables.push_back(
-                {interactable.interactable, definition->presentation.sprite,
+                {interactable.interactable, definition->presentation.visual,
                  interactable_material_application(definition->presentation)});
     }
     return catalog;
@@ -813,14 +812,15 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
             PresentationInteractable{interactable.interactable,
                                      {passive.presentation.visit.room, interactable.placement},
                                      bounds->bounds,
-                                     visual->sprite,
+                                     visual->visual,
                                      material_application_material(visual->material_application),
                                      RoomPresentationOwner{passive.presentation.visit.room},
                                      {},
                                      PresentationPlane::WorldContent,
                                      interactable.order,
                                      interactable.enabled,
-                                     interactable.visible});
+                                     interactable.visible,
+                                     interactable.occurrence});
     }
     for (const auto& actor : passive.presentation.actors) {
         const auto visual = std::find_if(
@@ -933,12 +933,25 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
                     return value.bounds;
             },
             hotspot.shape);
-        result.hotspots.push_back({hotspot.ref, hotspot.label, hotspot.condition_eligible,
-                                   hotspot.target_available, hotspot.target, shape,
-                                   hotspot.input_order, hotspot.highlight, visual->source_image,
-                                   visual->source_width, visual->source_height,
-                                   hotspot.interactable_placement, hotspot.interactable_bounds,
-                                   hotspot.owner_plane, hotspot.owner_order, hotspot.cursor});
+        result.hotspots.push_back({hotspot.ref,
+                                   hotspot.label,
+                                   hotspot.condition_eligible,
+                                   hotspot.target_available,
+                                   hotspot.target,
+                                   shape,
+                                   hotspot.input_order,
+                                   hotspot.highlight,
+                                   visual->source_image,
+                                   visual->source_width,
+                                   visual->source_height,
+                                   hotspot.interactable_placement,
+                                   hotspot.interactable_bounds,
+                                   hotspot.owner_plane,
+                                   hotspot.owner_order,
+                                   hotspot.cursor,
+                                   {},
+                                   {},
+                                   hotspot.interactable_occurrence});
     }
     canonicalize(result);
     if (!diagnostics.empty())
@@ -1046,14 +1059,15 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             interactable.interactable,
             {resolution.presentation.visit.room, interactable.placement},
             bounds->bounds,
-            visual->sprite,
+            visual->visual,
             material_application_material(visual->material_application),
             RoomPresentationOwner{resolution.presentation.visit.room},
             material_application_textures(project, visual->material_application),
             PresentationPlane::WorldContent,
             interactable.order,
             interactable.enabled,
-            interactable.visible});
+            interactable.visible,
+            interactable.occurrence});
     }
     for (const auto& prop : resolution.presentation.props) {
         const auto* bounds = placement(prop.placement);
@@ -1098,6 +1112,8 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
     }
     for (const auto& hotspot : resolution.presentation.hotspots) {
         std::optional<AssetId> source;
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
         if (std::holds_alternative<compiled::RoomHotspotRef>(hotspot.ref)) {
             source = resolution.presentation.background.asset;
         } else {
@@ -1105,12 +1121,22 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             const auto visual = std::find_if(
                 visuals.interactables.begin(), visuals.interactables.end(),
                 [&](const auto& candidate) { return candidate.interactable == ref.interactable; });
-            if (visual != visuals.interactables.end())
-                source = visual->sprite;
+            if (visual != visuals.interactables.end() && visual->visual) {
+                if (const auto* still = std::get_if<compiled::ImageVisual>(&*visual->visual))
+                    source = still->image;
+                else if (const auto* animation = project.find_animation(
+                             std::get<compiled::AnimationVisual>(*visual->visual).animation)) {
+                    width = animation->canvas.width;
+                    height = animation->canvas.height;
+                }
+            }
         }
         const auto* image = source ? project.find_asset(*source) : nullptr;
-        if (!source || image == nullptr || !image->width || !image->height || *image->width == 0 ||
-            *image->height == 0 || *image->width > UINT16_MAX || *image->height > UINT16_MAX) {
+        if (image) {
+            width = image->width.value_or(0);
+            height = image->height.value_or(0);
+        }
+        if (width == 0 || height == 0 || width > UINT16_MAX || height > UINT16_MAX) {
             diagnostics.push_back(invalid("presentation.hotspot_source_image_invalid",
                                           "Presented hotspot requires a dimensioned source image"));
             continue;
@@ -1124,12 +1150,25 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
                     return value.bounds;
             },
             hotspot.shape);
-        result.hotspots.push_back(
-            {hotspot.ref, hotspot.label, hotspot.condition_eligible, hotspot.target_available,
-             hotspot.target, shape, hotspot.input_order, hotspot.highlight, *source,
-             static_cast<std::uint16_t>(*image->width), static_cast<std::uint16_t>(*image->height),
-             hotspot.interactable_placement, hotspot.interactable_bounds, hotspot.owner_plane,
-             hotspot.owner_order, hotspot.cursor});
+        result.hotspots.push_back({hotspot.ref,
+                                   hotspot.label,
+                                   hotspot.condition_eligible,
+                                   hotspot.target_available,
+                                   hotspot.target,
+                                   shape,
+                                   hotspot.input_order,
+                                   hotspot.highlight,
+                                   source,
+                                   static_cast<std::uint16_t>(width),
+                                   static_cast<std::uint16_t>(height),
+                                   hotspot.interactable_placement,
+                                   hotspot.interactable_bounds,
+                                   hotspot.owner_plane,
+                                   hotspot.owner_order,
+                                   hotspot.cursor,
+                                   {},
+                                   {},
+                                   hotspot.interactable_occurrence});
     }
     canonicalize(result);
     if (!diagnostics.empty())

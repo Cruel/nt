@@ -253,8 +253,9 @@ describe('ProjectExplorer', () => {
           ],
           '/data/displayName': 'Template Prop',
           '/data/inventories': [{ id: 'pocket', label: 'Pocket' }],
-          '/data/presentation/sprite': {
-            $ref: { collection: 'assets', id: 'template-sprite' },
+          '/data/presentation/visual': {
+            kind: 'image',
+            image: { $ref: { collection: 'assets', id: 'template-sprite' } },
           },
           '/data/presentation/hotspots': {
             kind: 'custom',
@@ -322,7 +323,7 @@ describe('ProjectExplorer', () => {
         displayName: 'Template Prop',
         inventories: [{ id: 'pocket', label: 'Pocket' }],
         presentation: {
-          sprite: { $ref: { collection: 'assets', id: 'key-sprite' } },
+          visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'key-sprite' } } },
           hotspots: {
             kind: 'custom',
             hotspots: [expect.objectContaining({ id: 'template-hotspot' })],
@@ -354,12 +355,15 @@ describe('ProjectExplorer', () => {
 
     const updatedDocument = useProjectStore.getState().document as AuthoringProject;
     const inherited = updatedDocument.interactables['brass-key']!;
-    expect(inherited.archetypeOverrides).not.toHaveProperty('/data/presentation/sprite');
+    expect(inherited.archetypeOverrides).not.toHaveProperty('/data/presentation/visual');
     expect(resolveGameplayInstanceRecord(updatedDocument, 'interactable', inherited)).toMatchObject(
       {
         data: {
           presentation: {
-            sprite: { $ref: { collection: 'assets', id: 'template-sprite' } },
+            visual: {
+              kind: 'image',
+              image: { $ref: { collection: 'assets', id: 'template-sprite' } },
+            },
             hotspots: {
               kind: 'custom',
               hotspots: [expect.objectContaining({ id: 'template-hotspot' })],

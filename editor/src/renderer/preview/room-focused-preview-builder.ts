@@ -1,3 +1,4 @@
+import { animationDataSchema } from '../../shared/project-schema/authoring-animations';
 import type {
   AuthoringDependencyGraphDiagnostic,
   AuthoringDependencyGraphSnapshot,
@@ -864,7 +865,7 @@ function collectVisualIds(data: RoomPreviewDocument) {
     }
   }
   for (const item of data.world.interactables) {
-    addAsset(item.spriteAssetId);
+    if (item.visual?.kind === 'image') addAsset(item.visual.assetId);
     addMaterial(item.materialId);
     addApplicationTextures(item.materialTextures);
   }
@@ -1084,7 +1085,15 @@ export async function buildFocusedRoomPreview(
           interactableId: instance.id,
           condition: focusedCondition(occurrence.condition),
           placementId: occurrence.placementId,
-          spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
+          visual: definition.presentation.visual
+            ? definition.presentation.visual.kind === 'image'
+              ? { kind: 'image' as const, assetId: definition.presentation.visual.image.$ref.id }
+              : {
+                  kind: 'animation' as const,
+                  animationId: definition.presentation.visual.animation.$ref.id,
+                  motionId: definition.presentation.visual.motionId,
+                }
+            : null,
           materialId: materialApplication?.material.$ref.id ?? null,
           ...focusedMaterialApplication(materialApplication),
           enabled: instance.enabled,
@@ -1126,6 +1135,7 @@ export async function buildFocusedRoomPreview(
   const hotspots: RoomPreviewDocument['world']['hotspots'] = roomHotspotSource
     ? room.hotspots.map((hotspot) => ({
         ownerKind: 'room' as const,
+        occurrenceId: null,
         ownerId: roomId,
         hotspotId: hotspot.id,
         label: hotspot.label,
@@ -1146,18 +1156,30 @@ export async function buildFocusedRoomPreview(
         )
       : null;
     if (!definition || definition.presentation.hotspots.kind === 'none') continue;
-    const source = hotspotSource(
-      definition.presentation.sprite?.$ref.id ?? null,
-      `/interactables/${instance?.definition.$ref.id ?? occurrence.interactableId}/data/presentation/sprite`,
-    );
+    const visual = definition.presentation.visual;
+    const animation =
+      visual?.kind === 'animation'
+        ? animationDataSchema.safeParse(project.animations[visual.animation.$ref.id]?.data)
+        : null;
+    const source = animation?.success
+      ? {
+          sourceAssetId: null,
+          sourceWidth: animation.data.canvas.width,
+          sourceHeight: animation.data.canvas.height,
+        }
+      : hotspotSource(
+          visual?.kind === 'image' ? visual.image.$ref.id : null,
+          `/interactables/${instance?.definition.$ref.id ?? occurrence.interactableId}/data/presentation/visual`,
+        );
     if (!source) continue;
     const fallbackCursor = definition.presentation.cursor
       ? cursorName(definition.presentation.cursor)
       : projectHotspotCursorName(project);
-    if (definition.presentation.hotspots.kind === 'sprite-alpha') {
+    if (definition.presentation.hotspots.kind === 'visual-alpha') {
       const hotspot = definition.presentation.hotspots.hotspot;
       hotspots.push({
         ownerKind: 'interactable',
+        occurrenceId: occurrence.occurrenceId,
         ownerId: occurrence.interactableId,
         hotspotId: hotspot.id,
         label: hotspot.label,
@@ -1174,6 +1196,7 @@ export async function buildFocusedRoomPreview(
     for (const hotspot of definition.presentation.hotspots.hotspots) {
       hotspots.push({
         ownerKind: 'interactable',
+        occurrenceId: occurrence.occurrenceId,
         ownerId: occurrence.interactableId,
         hotspotId: hotspot.id,
         label: hotspot.label,
@@ -1267,11 +1290,14 @@ export async function buildFocusedRoomPreview(
     },
     world: {
       animations: [
-        ...new Set(
-          room.environments.flatMap((item) =>
+        ...new Set([
+          ...room.environments.flatMap((item) =>
             item.visual?.kind === 'animation' ? [item.visual.animation.$ref.id] : [],
           ),
-        ),
+          ...interactables.flatMap((item) =>
+            item.visual?.kind === 'animation' ? [item.visual.animationId] : [],
+          ),
+        ]),
       ]
         .sort((left, right) => left.localeCompare(right))
         .flatMap((animationId) => {
@@ -1502,9 +1528,18 @@ export async function buildFocusedRoomPreview(
               recordForOwner(project, 'interactable', instance.definition.$ref.id)?.data,
             )
           : null;
-        return source?.presentation.hotspots.kind === 'sprite-alpha' && interactable.spriteAssetId
-          ? [interactable.spriteAssetId]
-          : [];
+        if (source?.presentation.hotspots.kind !== 'visual-alpha') return [];
+        if (interactable.visual?.kind === 'image') return [interactable.visual.assetId];
+        if (interactable.visual?.kind !== 'animation') return [];
+        const selection = interactable.visual;
+        const animation = data.world.animations.find(
+          (animation) => animation.id === selection.animationId,
+        );
+        return (
+          animation?.motions
+            .find((motion) => motion.id === (selection.motionId ?? animation.defaultMotionId))
+            ?.frames.map((frame) => frame.assetId) ?? []
+        );
       }),
     ),
     layoutIds.scripts,

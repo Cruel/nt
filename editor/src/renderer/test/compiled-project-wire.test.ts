@@ -304,7 +304,7 @@ function representativeWireFixture() {
           features: [],
           inventories: [{ id: 'compartment', label: 'Compartment' }],
           presentation: {
-            sprite: null,
+            visual: null,
             material: null,
             cursor: null,
             hotspots: {

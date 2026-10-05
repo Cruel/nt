@@ -441,7 +441,7 @@ describe('Archetype authoring semantics', () => {
       overrides: {
         '/traits': ['template-trait'],
         '/data/presentation/hotspots': {
-          kind: 'sprite-alpha',
+          kind: 'visual-alpha',
           hotspot: {
             id: 'primary',
             label: 'Prop',
@@ -472,7 +472,7 @@ describe('Archetype authoring semantics', () => {
     });
     expect(project.interactables.prop!.archetypeOverrides).not.toHaveProperty('/traits');
     expect(resolveArchetypeConfiguration(project, 'prop-base')?.data).toMatchObject({
-      presentation: { hotspots: { kind: 'sprite-alpha' } },
+      presentation: { hotspots: { kind: 'visual-alpha' } },
     });
   });
 

@@ -4,8 +4,9 @@
 
 Animation is immutable reusable raster content, separate from source Assets and gameplay identities.
 The first tracer (#394) supports named sprite-sequence motions and closed image/Animation Visual
-references on Room Environments. Character clips, Interactable sprites, and other image-bearing
-fields are not cut over by this slice.
+references on Room Environments. Interactable presentation also selects canonical image/Animation
+Visuals (#395), including current-frame `visual-alpha` hit testing. Character clips and other
+image-bearing fields are not cut over by these slices.
 
 ## Authoring and validation
 
@@ -45,7 +46,8 @@ interpreter. Temporary Environment `asset` input remains for the explicitly scop
 slice; Visual takes precedence during realization.
 
 Video, finite motion operations, transient playback controls, mutable desired motion, animated
-Hotspots, and broader sprite-field cutover are later tickets, not implied support.
+Inventory icons, and broader sprite-field cutover remain later work. Interactable world Hotspots can
+already sample a selected raster Animation frame's CPU coverage.
 
 ## Verification
 

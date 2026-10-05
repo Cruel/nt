@@ -335,7 +335,7 @@ describe('Room Edit spatial projection', () => {
         ...defaultInteractableData('Terminal'),
         presentation: {
           ...defaultInteractableData('Terminal').presentation,
-          sprite: { $ref: { collection: 'assets', id: 'desk-image' } },
+          visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'desk-image' } } },
           materialApplication: emptyMaterialApplication('world-material'),
         },
       },

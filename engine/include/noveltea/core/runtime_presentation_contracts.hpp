@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/feature_state.hpp"
+#include "noveltea/core/room_presentation_contracts.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -90,7 +91,7 @@ struct PresentationInteractable {
     InteractableInstanceId interactable;
     compiled::RoomPlacementRef placement;
     compiled::NormalizedRect bounds;
-    std::optional<AssetId> sprite;
+    std::optional<compiled::Visual> visual;
     std::optional<MaterialId> material;
     std::optional<PresentationOwner> material_owner;
     std::vector<PresentationMaterialTextureOverride> material_texture_overrides;
@@ -98,6 +99,7 @@ struct PresentationInteractable {
     std::int32_t order = 0;
     bool enabled = true;
     bool visible = true;
+    std::optional<ResolvedRoomInteractableOccurrenceId> occurrence = std::nullopt;
     bool operator==(const PresentationInteractable&) const = default;
 };
 
@@ -231,7 +233,7 @@ struct PresentationHotspot {
     std::variant<AlphaHotspotShape, compiled::NormalizedRect> shape;
     std::int32_t input_order = 0;
     compiled::HotspotHighlight highlight;
-    AssetId source_image;
+    std::optional<AssetId> source_image;
     std::uint16_t source_width = 0;
     std::uint16_t source_height = 0;
     std::optional<compiled::RoomPlacementRef> interactable_placement;
@@ -241,6 +243,7 @@ struct PresentationHotspot {
     std::optional<compiled::CursorTarget> cursor;
     std::vector<PresentationHotspotMaterialParameter> material_parameters{};
     std::vector<PresentationMaterialTextureOverride> material_texture_overrides{};
+    std::optional<ResolvedRoomInteractableOccurrenceId> interactable_occurrence = std::nullopt;
     bool operator==(const PresentationHotspot&) const = default;
 };
 

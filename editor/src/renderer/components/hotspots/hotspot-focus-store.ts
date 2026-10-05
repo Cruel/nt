@@ -1,3 +1,4 @@
+import { visualImageAssetId } from '../../../shared/project-schema/authoring-animations';
 import { create } from 'zustand';
 import { z } from 'zod';
 import { useCommandStore } from '@/commands/command-store';
@@ -41,7 +42,7 @@ import {
 } from './hotspot-focus-session';
 
 export type HotspotFocusOwnerKind = 'room' | 'interactable';
-export type HotspotFocusMode = 'rectangles' | 'sprite-alpha';
+export type HotspotFocusMode = 'rectangles' | 'visual-alpha';
 
 export interface HotspotFocusReturnViewportScreenRect {
   x: number;
@@ -126,7 +127,7 @@ const hotspotFocusDraftPayloadSchema = z
     ownerId: z.string(),
     assetId: z.string().nullable(),
     sourceIdentity: hotspotFocusSourceIdentitySchema.nullable(),
-    mode: z.enum(['rectangles', 'sprite-alpha']),
+    mode: z.enum(['rectangles', 'visual-alpha']),
     initialItems: z.array(z.unknown()),
     currentItems: z.array(z.unknown()),
     selectedHotspotId: z.string().nullable(),
@@ -185,7 +186,7 @@ function currentOwnerAssetId(
   const interactable = parseInteractableData(
     resolveGameplayInstanceRecord(document, 'interactable', record)?.data,
   );
-  return interactable ? (interactable.presentation.sprite?.$ref.id ?? null) : undefined;
+  return interactable ? visualImageAssetId(document, interactable.presentation.visual) : undefined;
 }
 
 function currentOwnerMode(
@@ -202,7 +203,7 @@ function currentOwnerMode(
   );
   if (!interactable) return undefined;
   if (interactable.presentation.hotspots.kind === 'none') return null;
-  return interactable.presentation.hotspots.kind === 'custom' ? 'rectangles' : 'sprite-alpha';
+  return interactable.presentation.hotspots.kind === 'custom' ? 'rectangles' : 'visual-alpha';
 }
 
 function sameSourceIdentity(

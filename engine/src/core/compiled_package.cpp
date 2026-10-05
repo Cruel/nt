@@ -150,7 +150,7 @@ void collect_hotspot_material_ids(const CompiledProject& project,
         std::visit(
             [&](const auto& definitions) {
                 using T = std::decay_t<decltype(definitions)>;
-                if constexpr (std::is_same_v<T, compiled::SpriteAlphaHotspots>)
+                if constexpr (std::is_same_v<T, compiled::VisualAlphaHotspots>)
                     add(definitions.hotspot.highlight);
                 else if constexpr (std::is_same_v<T, compiled::CustomInteractableHotspots>)
                     for (const auto& hotspot : definitions.hotspots)

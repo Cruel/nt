@@ -29,12 +29,12 @@ struct RoomPresentationVisualCatalog {
     };
     struct InteractableVisual {
         InteractableInstanceId interactable;
-        std::optional<AssetId> sprite;
+        std::optional<compiled::Visual> visual;
         std::optional<compiled::MaterialApplication> material_application;
     };
     struct HotspotVisual {
         compiled::HotspotRef ref;
-        AssetId source_image;
+        std::optional<AssetId> source_image;
         std::uint16_t source_width = 0;
         std::uint16_t source_height = 0;
     };

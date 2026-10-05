@@ -5,6 +5,8 @@ import { authoringRecordSchemas } from './authoring-records';
 import { layoutAssetRefSchema, layoutPersistableValueSchema } from './authoring-layouts';
 import { interactableLocationSchema } from './authoring-interactables';
 import { entityIdSchema, jsonValueSchema, layoutContractIdSchema } from './authoring-common';
+import { visualSchema } from './authoring-animations';
+import { animationRefSchema } from './authoring-flow';
 import {
   archetypeRefSchema,
   assetRefSchema,
@@ -132,6 +134,8 @@ export const schemaSources = {
 } as const;
 
 const sharedReferenceSchemaSources = {
+  Visual: visualSchema,
+  AnimationRef: animationRefSchema,
   EntityId: entityIdSchema,
   LayoutContractId: layoutContractIdSchema,
   JsonValue: jsonValueSchema,

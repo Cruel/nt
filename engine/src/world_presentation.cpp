@@ -335,6 +335,27 @@ std::string loop_key(const WorldPresentationDraw& draw)
     return std::to_string(static_cast<std::uint8_t>(draw.family)) + ":" + draw.stable_identity;
 }
 
+std::string interactable_draw_identity(
+    const core::InteractableInstanceId& instance,
+    const std::optional<core::ResolvedRoomInteractableOccurrenceId>& occurrence,
+    const std::optional<core::compiled::RoomPlacementRef>& placement)
+{
+    if (!occurrence)
+        return instance.text();
+    return (placement ? placement->room.text() + "/" : std::string{}) + instance.text() + "/" +
+           std::visit(
+               [](const auto& value) {
+                   using T = std::decay_t<decltype(value)>;
+                   if constexpr (std::is_same_v<T, core::RoomInteractableEntryId>)
+                       return std::string{"authored/"} + value.text();
+                   else if constexpr (std::is_same_v<T, core::DynamicRoomInteractableOccurrenceId>)
+                       return std::string{"dynamic/"} + value.interactable.text();
+                   else
+                       return std::string{"fallback/"} + value.interactable.text();
+               },
+               *occurrence);
+}
+
 std::string raster_animation_loop_key(const WorldPresentationDraw& draw)
 {
     return loop_key(draw) + ":visual-animation:" + std::to_string(draw.raster_animation_epoch);
@@ -873,7 +894,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     for (const auto& interactable : snapshot.interactables) {
         if (!interactable.visible)
             continue;
-        const std::string identity = interactable.interactable.text();
+        const std::string identity = interactable_draw_identity(
+            interactable.interactable, interactable.occurrence, interactable.placement);
         if (!valid_draw_plane(interactable.plane)) {
             diagnostics.push_back(
                 diagnostic("presentation.world_plane_unsupported",
@@ -881,13 +903,18 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                            "interactable/" + identity));
             continue;
         }
-        auto resolved = m_resources.resolve(interactable.sprite, interactable.material,
-                                            "interactable/" + identity);
+        auto resolved =
+            interactable.visual
+                ? m_resources.resolve_visual(*interactable.visual, interactable.material,
+                                             "interactable/" + identity)
+                : m_resources.resolve(std::nullopt, interactable.material,
+                                      "interactable/" + identity);
         if (!resolved) {
             append_resource_diagnostics(diagnostics, resolved);
             continue;
         }
         const auto* visual = resolved.value_if();
+        const auto draw_index = candidate.draws.size();
         append_visual_draw(
             candidate.draws, interactable.plane, WorldDrawFamily::Interactable, interactable.order,
             identity, 0,
@@ -897,6 +924,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 ? std::optional<core::MaterialOccurrence>{core::InteractableMaterialOccurrence{
                       interactable.interactable}}
                 : std::nullopt);
+        if (candidate.draws.size() == draw_index)
+            continue;
         auto& command = candidate.draws.back().command;
         for (const auto& texture : interactable.material_texture_overrides)
             command.material_texture_overrides.push_back(
@@ -1004,7 +1033,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     }
 
     const auto owner_draw_for =
-        [&](const core::compiled::HotspotRef& ref) -> const WorldPresentationDraw* {
+        [&](const core::PresentationHotspot& hotspot) -> const WorldPresentationDraw* {
+        const auto& ref = hotspot.ref;
         if (std::holds_alternative<core::compiled::RoomHotspotRef>(ref)) {
             const auto found =
                 std::find_if(candidate.draws.begin(), candidate.draws.end(), [](const auto& draw) {
@@ -1017,7 +1047,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
         const auto found =
             std::find_if(candidate.draws.begin(), candidate.draws.end(), [&](const auto& draw) {
                 return draw.family == WorldDrawFamily::Interactable &&
-                       draw.stable_identity == interactable.interactable.text() &&
+                       draw.stable_identity ==
+                           interactable_draw_identity(interactable.interactable,
+                                                      hotspot.interactable_occurrence,
+                                                      hotspot.interactable_placement) &&
                        draw.sublayer == 0;
             });
         return found == candidate.draws.end() ? nullptr : &*found;
@@ -1026,9 +1059,39 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     for (const auto& hotspot : snapshot.hotspots) {
         if (!hotspot.condition_eligible || !hotspot.target_available)
             continue;
-        const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot.ref);
-        if (owner_draw == nullptr || !owner_draw->command.texture.valid())
+        const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot);
+        if (owner_draw == nullptr) {
+            const auto* ref = std::get_if<core::compiled::InteractableHotspotRef>(&hotspot.ref);
+            const auto occurrence =
+                std::ranges::find_if(snapshot.interactables, [&](const auto& value) {
+                    return ref && value.interactable == ref->interactable &&
+                           value.occurrence == hotspot.interactable_occurrence;
+                });
+            const bool hidden = occurrence != snapshot.interactables.end() && !occurrence->visible;
+            if (!hidden && std::holds_alternative<core::AlphaHotspotShape>(hotspot.shape))
+                diagnostics.push_back(diagnostic("presentation.visual_alpha_coverage_unavailable",
+                                                 "Visual-alpha owner has no realized raster sample",
+                                                 hotspot_identity(hotspot.ref)));
             continue;
+        }
+        if (std::holds_alternative<core::AlphaHotspotShape>(hotspot.shape)) {
+            const auto has_coverage = [](const auto& lease) {
+                return lease && (*lease)->alpha_coverage.has_value();
+            };
+            const bool supported =
+                owner_draw->raster_animation_frames.empty()
+                    ? has_coverage(owner_draw->texture_lease)
+                    : std::ranges::all_of(
+                          owner_draw->raster_animation_frames,
+                          [&](const auto& frame) { return has_coverage(frame.texture_lease); });
+            if (!supported) {
+                diagnostics.push_back(diagnostic(
+                    "presentation.visual_alpha_coverage_unavailable",
+                    "Visual-alpha requires retained CPU coverage for every realized frame",
+                    hotspot_identity(hotspot.ref)));
+                continue;
+            }
+        }
         candidate.hotspot_hit_targets.push_back({.ref = hotspot.ref,
                                                  .target = hotspot.target,
                                                  .plane = owner_draw->plane,
@@ -1059,13 +1122,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
     for (const auto& hotspot : snapshot.hotspots) {
         if (std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight))
             continue;
-        const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot.ref);
-        if (owner_draw == nullptr || !owner_draw->command.texture.valid()) {
-            diagnostics.push_back(diagnostic("presentation.hotspot_owner_visual_missing",
-                                             "Hotspot owner has no prepared source-image draw",
-                                             hotspot_identity(hotspot.ref)));
+        const WorldPresentationDraw* owner_draw = owner_draw_for(hotspot);
+        // Highlight source support does not determine whether analytic geometry can be hit.
+        if (owner_draw == nullptr || !owner_draw->command.texture.valid())
             continue;
-        }
         std::vector<core::PresentationHotspot> owner_hotspots;
         for (const auto& candidate_hotspot : snapshot.hotspots) {
             if (same_hotspot_owner(hotspot.ref, candidate_hotspot.ref))
@@ -1209,36 +1269,47 @@ bool hotspot_target_contains(const WorldHotspotHitTarget& target, Vec2 point)
 
 } // namespace
 
-std::optional<core::compiled::HotspotRef> WorldHotspotController::hit_test(Vec2 point) const
+const WorldHotspotHitTarget* WorldHotspotController::hit_target_at(Vec2 point) const
 {
     const auto* frame = m_backend.frame();
     if (frame == nullptr)
-        return std::nullopt;
+        return nullptr;
     if (frame->camera)
         point = inverse_camera_point(point, *frame->camera, m_backend.viewport());
     for (const auto& target : frame->hotspot_hit_targets) {
         if (hotspot_target_contains(target, point))
-            return target.ref;
+            return &target;
     }
-    return std::nullopt;
+    return nullptr;
+}
+
+std::optional<core::compiled::HotspotRef> WorldHotspotController::hit_test(Vec2 point) const
+{
+    const auto* target = hit_target_at(point);
+    return target ? std::optional{target->ref} : std::nullopt;
 }
 
 const WorldHotspotHitTarget*
-WorldHotspotController::hit_target(const core::compiled::HotspotRef& ref) const
+WorldHotspotController::hit_target(const core::compiled::HotspotRef& ref,
+                                   const std::optional<std::string>& owner_identity) const
 {
     const auto* frame = m_backend.frame();
     if (frame == nullptr)
         return nullptr;
     const auto found =
         std::find_if(frame->hotspot_hit_targets.begin(), frame->hotspot_hit_targets.end(),
-                     [&](const auto& target) { return target.ref == ref; });
+                     [&](const auto& target) {
+                         return target.ref == ref &&
+                                (!owner_identity || target.stable_identity == *owner_identity);
+                     });
     return found == frame->hotspot_hit_targets.end() ? nullptr : &*found;
 }
 
-bool WorldHotspotController::contains(const core::compiled::HotspotRef& ref, Vec2 point) const
+bool WorldHotspotController::contains(const core::compiled::HotspotRef& ref,
+                                      const std::string& owner_identity, Vec2 point) const
 {
     const auto* frame = m_backend.frame();
-    const auto* target = hit_target(ref);
+    const auto* target = hit_target(ref, owner_identity);
     if (frame == nullptr || target == nullptr)
         return false;
     if (frame->camera)
@@ -1250,7 +1321,14 @@ void WorldHotspotController::set_visual_state(std::optional<core::compiled::Hots
                                               std::optional<core::compiled::HotspotRef> pressed)
 {
     m_hovered = hovered;
-    (void)m_backend.update_hotspot_visual_state({std::move(hovered), std::move(pressed)});
+    const auto* hovered_target =
+        hovered && m_last_mouse_valid ? hit_target_at(m_last_mouse_reference) : nullptr;
+    m_hovered_owner_identity =
+        hovered_target ? std::optional{hovered_target->stable_identity} : std::nullopt;
+    auto owner_identity =
+        pressed && m_capture ? std::optional{m_capture->owner_identity} : m_hovered_owner_identity;
+    (void)m_backend.update_hotspot_visual_state(
+        {std::move(hovered), std::move(pressed), std::move(owner_identity)});
 }
 
 void WorldHotspotController::synchronize_generation()
@@ -1261,15 +1339,26 @@ void WorldHotspotController::synchronize_generation()
     // A committed replacement invalidates the gesture even when the same logical target survives.
     m_capture.reset();
     m_hovered.reset();
-    set_visual_state(m_last_mouse_valid ? hit_test(m_last_mouse_reference) : std::nullopt,
+    set_visual_state(m_last_mouse_valid && m_last_mouse_admitted ? hit_test(m_last_mouse_reference)
+                                                                 : std::nullopt,
                      std::nullopt);
 }
 
 void WorldHotspotController::presentation_changed() { synchronize_generation(); }
 
+void WorldHotspotController::realization_changed()
+{
+    synchronize_generation();
+    if (!m_capture)
+        set_visual_state(m_last_mouse_valid && m_last_mouse_admitted
+                             ? hit_test(m_last_mouse_reference)
+                             : std::nullopt,
+                         std::nullopt);
+}
+
 const WorldHotspotHitTarget* WorldHotspotController::hovered_target() const
 {
-    return m_hovered ? hit_target(*m_hovered) : nullptr;
+    return m_hovered ? hit_target(*m_hovered, m_hovered_owner_identity) : nullptr;
 }
 
 WorldHotspotDebugObservation WorldHotspotController::debug_observation() const
@@ -1291,7 +1380,8 @@ WorldHotspotDebugObservation WorldHotspotController::debug_observation() const
 void WorldHotspotController::target_completed()
 {
     synchronize_generation();
-    set_visual_state(m_last_mouse_valid ? hit_test(m_last_mouse_reference) : std::nullopt,
+    set_visual_state(m_last_mouse_valid && m_last_mouse_admitted ? hit_test(m_last_mouse_reference)
+                                                                 : std::nullopt,
                      std::nullopt);
 }
 
@@ -1325,6 +1415,7 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
     if (!touch) {
         m_last_mouse_reference = event.reference_position;
         m_last_mouse_valid = true;
+        m_last_mouse_admitted = event.admitted;
     }
     if (!event.admitted) {
         if (m_capture)
@@ -1364,7 +1455,9 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
         result.hit = target;
         if (!target)
             return finish();
+        const auto* selected = hit_target_at(event.reference_position);
         m_capture = Capture{*target,
+                            selected->stable_identity,
                             event.host_position,
                             event.reference_position,
                             event.pointer_id,
@@ -1383,12 +1476,15 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
     bool select_target = false;
     if (!m_capture->target_canceled) {
         result.hit_test_performed = true;
-        select_target = contains(captured, event.reference_position);
+        select_target = contains(captured, m_capture->owner_identity, event.reference_position);
     }
     if (select_target)
         result.hit = captured;
-    const auto* semantic_target = select_target ? hit_target(captured) : nullptr;
+    const auto* semantic_target =
+        select_target ? hit_target(captured, m_capture->owner_identity) : nullptr;
     const auto target = semantic_target ? std::optional{semantic_target->target} : std::nullopt;
+    const auto source_rect =
+        semantic_target ? std::optional{semantic_target->owner_rect} : std::nullopt;
     const bool primary_activation = m_capture->primary;
     m_capture.reset();
     set_visual_state(std::nullopt, std::nullopt);
@@ -1400,12 +1496,10 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
             core::TriggerContext trigger;
             trigger.pointer = core::TriggerPoint{event.reference_position.x / viewport.width,
                                                  event.reference_position.y / viewport.height};
-            if (semantic_target) {
-                trigger.source_bounds =
-                    core::TriggerRect{semantic_target->owner_rect.x / viewport.width,
-                                      semantic_target->owner_rect.y / viewport.height,
-                                      semantic_target->owner_rect.width / viewport.width,
-                                      semantic_target->owner_rect.height / viewport.height};
+            if (source_rect) {
+                trigger.source_bounds = core::TriggerRect{
+                    source_rect->x / viewport.width, source_rect->y / viewport.height,
+                    source_rect->width / viewport.width, source_rect->height / viewport.height};
             }
             result.trigger_context = trigger;
         }
@@ -1424,7 +1518,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
     frame.base_world_composition_batch.clear();
     frame.base_world_overlay_batches.clear();
     frame.base_game_ui_underlay_batch.clear();
-    for (const auto& draw : frame.draws) {
+    for (auto& draw : frame.draws) {
         QuadCommand command = draw.command;
         if (clock && !draw.raster_animation_frames.empty()) {
             const auto domain = draw.environment_clock.value_or(core::LayoutClockDomain::Gameplay);
@@ -1450,9 +1544,31 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                     if (phase_ms < animation_frame.duration_ms) {
                         command.texture = animation_frame.texture;
                         command.texture_sampler = animation_frame.sampler;
+                        draw.texture_lease = animation_frame.texture_lease;
                         break;
                     }
                     phase_ms -= animation_frame.duration_ms;
+                }
+            }
+        }
+        if (!draw.raster_animation_frames.empty()) {
+            for (auto& target : frame.hotspot_hit_targets) {
+                if (target.family == draw.family &&
+                    target.stable_identity == draw.stable_identity &&
+                    target.base_sublayer == draw.sublayer)
+                    target.source_texture_lease = draw.texture_lease;
+            }
+            for (auto& surface : frame.hotspot_surfaces) {
+                if (surface.overlay.family == draw.family &&
+                    surface.overlay.stable_identity == draw.stable_identity &&
+                    surface.overlay.sublayer == draw.sublayer + 1) {
+                    surface.overlay.command.texture = command.texture;
+                    surface.overlay.command.texture_sampler = command.texture_sampler;
+                    surface.overlay.texture_lease = draw.texture_lease;
+                    if (draw.texture_lease)
+                        surface.overlay.command.hotspot_image_dimensions = {
+                            static_cast<float>((*draw.texture_lease)->width),
+                            static_cast<float>((*draw.texture_lease)->height)};
                 }
             }
         }
@@ -1700,8 +1816,12 @@ void WorldPresentationBackend::rebuild_hotspot_overlays(WorldPresentationFrame& 
                                                        : m_hotspot_visual_state.hovered;
     if (!active)
         return;
-    const auto found = std::find_if(frame.hotspot_surfaces.begin(), frame.hotspot_surfaces.end(),
-                                    [&](const auto& surface) { return surface.ref == *active; });
+    const auto found = std::find_if(
+        frame.hotspot_surfaces.begin(), frame.hotspot_surfaces.end(), [&](const auto& surface) {
+            return surface.ref == *active &&
+                   (!m_hotspot_visual_state.owner_identity ||
+                    surface.overlay.stable_identity == *m_hotspot_visual_state.owner_identity);
+        });
     if (found == frame.hotspot_surfaces.end())
         return;
     QuadCommand command = found->overlay.command;
@@ -1720,7 +1840,8 @@ void WorldPresentationBackend::rebuild_hotspot_overlays(WorldPresentationFrame& 
 bool WorldPresentationBackend::update_hotspot_visual_state(HotspotInteractionVisualState state)
 {
     if (state.hovered == m_hotspot_visual_state.hovered &&
-        state.pressed == m_hotspot_visual_state.pressed)
+        state.pressed == m_hotspot_visual_state.pressed &&
+        state.owner_identity == m_hotspot_visual_state.owner_identity)
         return false;
     const auto valid = [&](const auto& ref) {
         return !ref ||

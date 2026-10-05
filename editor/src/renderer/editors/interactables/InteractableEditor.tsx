@@ -1,3 +1,7 @@
+import {
+  animationDataSchema,
+  visualImageAssetId,
+} from '../../../shared/project-schema/authoring-animations';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import {
@@ -23,7 +27,13 @@ import { useHotspotFocusStore } from '@/components/hotspots/hotspot-focus-store'
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { Switch } from '@/components/ui/switch';
 import { useCommandStore } from '@/commands/command-store';
 import { useCurrentAuthoringDependencyGraphSnapshot } from '@/project/authoring-dependency-graph-runtime';
@@ -121,17 +131,31 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
     defaultInteractableData(record?.label ?? interactableId ?? 'Interactable');
   const selectorItems = useMemo(() => buildCommandPaletteItems(project, t), [project, t]);
   const imageAssetItems = useMemo(
-    () =>
-      filterSelectorItems(selectorItems, {
+    () => [
+      ...filterSelectorItems(selectorItems, {
         collections: ['assets'],
         assetKinds: ['image'],
         includeActions: false,
       }),
+      ...filterSelectorItems(selectorItems, { collections: ['animations'], includeActions: false }),
+    ],
     [selectorItems],
   );
   const selectedSpriteItem = imageAssetItems.find(
-    (item) => item.entityId === data.presentation.sprite?.$ref.id,
+    (item) =>
+      item.entityId ===
+        (data.presentation.visual?.kind === 'image'
+          ? data.presentation.visual.image.$ref.id
+          : data.presentation.visual?.animation.$ref.id) &&
+      item.collection ===
+        (data.presentation.visual?.kind === 'animation' ? 'animations' : 'assets'),
   );
+  const selectedAnimation =
+    data.presentation.visual?.kind === 'animation'
+      ? animationDataSchema.safeParse(
+          project?.animations[data.presentation.visual.animation.$ref.id]?.data,
+        )
+      : null;
   const materialProperties = useMemo(
     () =>
       project && interactableId
@@ -153,7 +177,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
     () =>
       data.presentation.hotspots.kind === 'none'
         ? []
-        : data.presentation.hotspots.kind === 'sprite-alpha'
+        : data.presentation.hotspots.kind === 'visual-alpha'
           ? [data.presentation.hotspots.hotspot.id]
           : data.presentation.hotspots.hotspots.map((item) => item.id),
     [data.presentation.hotspots],
@@ -172,7 +196,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
     () =>
       hotspotMode.kind === 'none'
         ? []
-        : hotspotMode.kind === 'sprite-alpha'
+        : hotspotMode.kind === 'visual-alpha'
           ? [hotspotMode.hotspot]
           : hotspotMode.hotspots,
     [hotspotMode],
@@ -183,12 +207,12 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       tabId: tab.id,
       ownerKind: 'interactable',
       ownerId: interactableId,
-      assetId: data.presentation.sprite?.$ref.id ?? null,
-      mode: hotspotMode.kind === 'custom' ? 'rectangles' : 'sprite-alpha',
+      assetId: visualImageAssetId(project, data.presentation.visual),
+      mode: hotspotMode.kind === 'custom' ? 'rectangles' : 'visual-alpha',
       items: hotspotItems,
     });
   }, [
-    data.presentation.sprite?.$ref.id,
+    data.presentation.visual,
     hotspotFocusSession,
     hotspotItems,
     hotspotMode.kind,
@@ -262,7 +286,17 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
     commit(
       {
         ...data,
-        presentation: { ...data.presentation, sprite: interactableAssetRef(item.entityId) },
+        presentation: {
+          ...data.presentation,
+          visual:
+            item.collection === 'animations'
+              ? {
+                  kind: 'animation',
+                  animation: { $ref: { collection: 'animations', id: item.entityId } },
+                  motionId: null,
+                }
+              : { kind: 'image', image: interactableAssetRef(item.entityId) },
+        },
       },
       'Update interactable sprite',
     );
@@ -396,8 +430,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             reported as validation errors.
           </p>
         </div>
-        <div data-workbench-anchor="interactable.sprite">
-          <Label>Sprite</Label>
+        <div data-workbench-anchor="interactable.visual">
+          <Label>{t('interactable.visual.label')}</Label>
           <div className="flex overflow-hidden rounded-md border bg-background">
             <Button
               type="button"
@@ -407,22 +441,22 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             >
               <span className="min-w-0">
                 <span className="block truncate text-sm font-medium">
-                  {selectedSpriteItem?.title ?? 'Choose sprite'}
+                  {selectedSpriteItem?.title ?? t('interactable.visual.choose')}
                 </span>
                 <span className="block truncate text-xs text-muted-foreground">
                   {selectedSpriteItem?.entityId ??
-                    `${imageAssetItems.length} image assets available`}
+                    t('interactable.visual.available', { count: imageAssetItems.length })}
                 </span>
               </span>
             </Button>
-            {data.presentation.sprite ? (
+            {data.presentation.visual ? (
               <Button
                 type="button"
                 variant="ghost"
                 className="h-auto rounded-none border-l px-3"
                 onClick={() =>
                   commit(
-                    { ...data, presentation: { ...data.presentation, sprite: null } },
+                    { ...data, presentation: { ...data.presentation, visual: null } },
                     'Clear interactable sprite',
                   )
                 }
@@ -432,6 +466,51 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             ) : null}
           </div>
         </div>
+        {data.presentation.visual?.kind === 'animation' && selectedAnimation?.success ? (
+          <div>
+            <Label>{t('interactable.visual.motion')}</Label>
+            <Select
+              items={[
+                { value: '__default__', label: t('interactable.visual.defaultMotion') },
+                ...selectedAnimation.data.motions.map((motion) => ({
+                  value: motion.id,
+                  label: motion.id,
+                })),
+              ]}
+              value={data.presentation.visual.motionId ?? '__default__'}
+              onValueChange={(value) => {
+                if (data.presentation.visual?.kind !== 'animation' || !value) return;
+                commit(
+                  {
+                    ...data,
+                    presentation: {
+                      ...data.presentation,
+                      visual: {
+                        ...data.presentation.visual,
+                        motionId: value === '__default__' ? null : value,
+                      },
+                    },
+                  },
+                  'Update Interactable Visual motion',
+                );
+              }}
+            >
+              <SelectTrigger aria-label={t('interactable.visual.motion')}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="__default__">
+                  {t('interactable.visual.defaultMotion')}
+                </SelectItem>
+                {selectedAnimation.data.motions.map((motion) => (
+                  <SelectItem key={motion.id} value={motion.id}>
+                    {motion.id}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        ) : null}
         <div data-workbench-anchor="interactable.material">
           <Label>Material</Label>
           <MaterialApplicationEditor
@@ -778,10 +857,10 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
           </Button>
           <Button
             size="sm"
-            variant={hotspotMode.kind === 'sprite-alpha' ? 'default' : 'outline'}
+            variant={hotspotMode.kind === 'visual-alpha' ? 'default' : 'outline'}
             onClick={() =>
               executeHotspot('interactable.setHotspotMode', 'Use sprite alpha hotspot', {
-                kind: 'sprite-alpha',
+                kind: 'visual-alpha',
               })
             }
           >
@@ -808,18 +887,18 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
               project={project}
               projectFilePath={projectFilePath}
               title={
-                hotspotMode.kind === 'sprite-alpha'
+                hotspotMode.kind === 'visual-alpha'
                   ? t('hotspots.mode.alphaTitle')
                   : t('hotspots.mode.customTitle')
               }
-              assetId={data.presentation.sprite?.$ref.id ?? null}
+              assetId={visualImageAssetId(project, data.presentation.visual)}
               hotspots={hotspotItems}
               selectedView={hotspotView}
               ownerKind="interactable"
               ownerId={interactableId}
               materialProperties={materialProperties}
               localFeatures={data.features}
-              alphaMode={hotspotMode.kind === 'sprite-alpha'}
+              alphaMode={hotspotMode.kind === 'visual-alpha'}
               onViewChange={setHotspotView}
               onDelete={(hotspotId) =>
                 executeHotspot('interactable.deleteHotspot', 'Delete interactable hotspot', {
@@ -843,8 +922,8 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                   tabId: tab.id,
                   ownerKind: 'interactable',
                   ownerId: interactableId,
-                  assetId: data.presentation.sprite?.$ref.id ?? null,
-                  mode: hotspotMode.kind === 'custom' ? 'rectangles' : 'sprite-alpha',
+                  assetId: visualImageAssetId(project, data.presentation.visual),
+                  mode: hotspotMode.kind === 'custom' ? 'rectangles' : 'visual-alpha',
                   items: hotspotItems,
                   selectedHotspotId,
                 })
@@ -855,9 +934,9 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
       </div>
       <SearchSelectorDialog
         open={spriteSelectorOpen}
-        title="Choose Interactable sprite"
-        placeholder="Search image assets..."
-        emptyMessage="No image assets match your search."
+        title={t('workspace:interactable.visual.choose')}
+        placeholder={t('workspace:interactable.visual.search')}
+        emptyMessage={t('workspace:interactable.visual.empty')}
         items={imageAssetItems}
         selectedId={selectedSpriteItem?.id ?? null}
         leadingMediaSize={{ width: 80, height: 48 }}

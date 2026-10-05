@@ -760,13 +760,13 @@ export function validateRoomData(
           `Interactable Instance '${entry.interactable.$ref.id}' has no valid definition.`,
         ),
       );
-    else if (entry.visible && interactable && !interactable.presentation.sprite)
+    else if (entry.visible && interactable && !interactable.presentation.visual)
       diagnostics.push(
         diagnostic(
           `${path}/interactable/$ref`,
-          `Visible Interactable '${entry.interactable.$ref.id}' has no sprite and will not render.`,
+          `Visible Interactable '${entry.interactable.$ref.id}' has no Visual and will not render.`,
           'warning',
-          'room.interactable.sprite-missing',
+          'room.interactable.visual-missing',
         ),
       );
     if (!placements.has(entry.placementId))

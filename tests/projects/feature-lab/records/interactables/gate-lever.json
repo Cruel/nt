@@ -11,7 +11,7 @@
     "stackable": false,
     "stackLimit": null,
     "presentation": {
-      "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+      "visual": { "kind": "image", "image": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } } },
       "materialApplication": {
         "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
         "parameters": {
@@ -20,7 +20,7 @@
         "textures": {}
       },
       "hotspots": {
-        "kind": "sprite-alpha",
+        "kind": "visual-alpha",
         "hotspot": {
           "id": "button",
           "label": "Wall Button",

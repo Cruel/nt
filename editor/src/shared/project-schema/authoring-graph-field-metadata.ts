@@ -520,6 +520,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/animations\/\*\/id$/, SYMBOL],
   [/^\/animations\/\*\/(?:label|description)$/, OWNER],
   [/^\/rooms\/\*\/data\/environments\/\*\/visual(?:\/|$)/, OWNER],
+  [/^\/interactables\/\*\/data\/presentation\/visual(?:\/|$)/, OWNER],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -831,6 +832,9 @@ const legacySchemaLeafPaths = [
         roomLifecycleGameplayCommandEffect(path) === undefined,
     )
     .map(preservedReviewedPath),
+  // Preserve the two replaced sprite leaves only for historical review-code alignment.
+  '/interactables/*/data/presentation/sprite/$ref/collection' as JsonPointer,
+  '/interactables/*/data/presentation/sprite/$ref/id' as JsonPointer,
   // #294 removes authored Shader records entirely. Preserve the retired Shader leaf paths only for
   // alignment with the reviewed pre-cutover graph-effect sequence; source-backed shader files are
   // physical project sources and no longer contribute semantic Shader-record graph nodes.
@@ -1152,7 +1156,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',
     interactableInstances: '991618e4',
-    interactables: '48e20c2e',
+    interactables: '32c2eba4',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: 'b9fb12f6',

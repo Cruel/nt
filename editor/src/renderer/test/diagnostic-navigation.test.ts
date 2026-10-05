@@ -156,9 +156,9 @@ describe('diagnostic navigation', () => {
         ?.target,
     ).toMatchObject({ id: 'interactable.hotspot-mode', focus: true, flash: true });
     expect(
-      resolveProjectDiagnosticTarget(project, '/interactables/door/data/presentation/sprite')
+      resolveProjectDiagnosticTarget(project, '/interactables/door/data/presentation/visual/image')
         ?.target?.id,
-    ).toBe('interactable.sprite');
+    ).toBe('interactable.visual');
     expect(
       resolveProjectDiagnosticTarget(project, '/interactables/door/data/presentation/material')
         ?.target?.id,

@@ -1428,6 +1428,10 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
     for (const auto& item : view.inventory.items) {
         if (!item.visible)
             continue;
+        const auto* image =
+            item.presentation.visual
+                ? std::get_if<core::compiled::ImageVisual>(&*item.presentation.visual)
+                : nullptr;
         out.inventory.items.push_back({
             item.interactable.text(),
             item.definition ? item.definition->text() : std::string{},
@@ -1437,8 +1441,8 @@ void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
             item.stackable,
             item.stack_limit.has_value(),
             item.stack_limit.value_or(0),
-            item.presentation.sprite.has_value(),
-            item.presentation.sprite ? item.presentation.sprite->text() : std::string{},
+            image != nullptr,
+            image ? image->image.text() : std::string{},
             item.presentation.material.has_value(),
             item.presentation.material ? item.presentation.material->text() : std::string{},
             item.enabled,

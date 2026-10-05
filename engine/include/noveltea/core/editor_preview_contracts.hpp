@@ -322,7 +322,7 @@ struct TypedFocusedRoomWorldDefinition {
         std::string interactable_id;
         TypedFocusedCondition condition;
         std::string placement_id;
-        std::optional<std::string> sprite_asset_id;
+        std::optional<Visual> visual;
         std::optional<std::string> material_id;
         std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
         std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
@@ -372,6 +372,7 @@ struct TypedFocusedRoomWorldDefinition {
     };
     struct Hotspot {
         std::string owner_kind;
+        std::optional<std::string> occurrence_id;
         std::string owner_id;
         std::string hotspot_id;
         std::string label;

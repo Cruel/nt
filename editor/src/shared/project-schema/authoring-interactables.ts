@@ -4,6 +4,7 @@ import instanceExample from './examples/interactable-instance.json';
 import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
 import { entityIdSchema } from './authoring-common';
 import { parseAssetData } from './authoring-assets';
+import { visualSchema, validateVisualData } from './authoring-animations';
 import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
@@ -27,7 +28,7 @@ export const interactableHotspotBehaviorSchema = strict({
 export const interactableHotspotsSchema = withSchemaDocumentation(
   z.discriminatedUnion('kind', [
     strict({ kind: z.literal('none') }),
-    strict({ kind: z.literal('sprite-alpha'), hotspot: interactableHotspotBehaviorSchema }),
+    strict({ kind: z.literal('visual-alpha'), hotspot: interactableHotspotBehaviorSchema }),
     strict({
       kind: z.literal('custom'),
       hotspots: z.array(
@@ -42,10 +43,10 @@ export const interactableHotspotsSchema = withSchemaDocumentation(
   ]),
   {
     notes: [
-      'sprite-alpha uses the complete sprite image alpha as the hit area. custom rectangular Hotspot bounds are normalized to the complete sprite image in image/UV space.',
+      'visual-alpha samples the current Visual frame CPU alpha coverage. Custom rectangular Hotspot bounds are normalized to the complete Visual canvas.',
     ],
     constraints: [
-      'sprite-alpha requires an image sprite. Non-empty custom Hotspots also require an image sprite.',
+      'visual-alpha and non-empty custom Hotspots require an image or raster Animation Visual.',
     ],
   },
 );
@@ -144,7 +145,7 @@ export const interactableDataSchema = strict({
     },
   ),
   presentation: strict({
-    sprite: interactableAssetRefSchema.nullable(),
+    visual: visualSchema.nullable(),
     materialApplication: materialApplicationSchema.nullable(),
     cursor: cursorTargetSchema.nullable().optional(),
     hotspots: interactableHotspotsSchema,
@@ -187,7 +188,7 @@ export function defaultInteractableData(label = 'Interactable'): InteractableDat
     stackable: false,
     stackLimit: null,
     presentation: {
-      sprite: null,
+      visual: null,
       materialApplication: null,
       cursor: null,
       hotspots: { kind: 'none' },
@@ -233,24 +234,10 @@ export function validateInteractableData(
     );
   const data = parsed.data;
   const diagnostics: InteractableSchemaDiagnostic[] = [];
-  if (data.presentation.sprite) {
-    const asset = project.assets[data.presentation.sprite.$ref.id];
-    if (!asset)
-      diagnostics.push(
-        diagnostic(
-          `${base}/presentation/sprite/$ref`,
-          `Missing sprite asset '${data.presentation.sprite.$ref.id}'.`,
-        ),
-      );
-    else if (parseAssetData(asset.data)?.kind !== 'image')
-      diagnostics.push(
-        diagnostic(
-          `${base}/presentation/sprite/$ref`,
-          'Interactable sprite must be an image.',
-          'warning',
-        ),
-      );
-  }
+  if (data.presentation.visual)
+    diagnostics.push(
+      ...validateVisualData(project, data.presentation.visual, `${base}/presentation/visual`),
+    );
   if (data.presentation.materialApplication) {
     const materialId = data.presentation.materialApplication.material.$ref.id;
     if (!project.materials[materialId])

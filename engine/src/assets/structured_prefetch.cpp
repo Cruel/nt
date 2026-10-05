@@ -381,11 +381,12 @@ struct StructuredAssetDependencyIndex::Impl {
     }
 
     void append_visual(DescriptorAccumulator& output, const core::compiled::Visual& visual,
-                       core::Diagnostics& collection_diagnostics, std::string_view context) const
+                       core::Diagnostics& collection_diagnostics, std::string_view context,
+                       bool retain_alpha_coverage = false) const
     {
         if (const auto* image = std::get_if<core::compiled::ImageVisual>(&visual)) {
             append_asset(output, image->image, core::compiled::AssetKind::Image,
-                         collection_diagnostics, context);
+                         collection_diagnostics, context, retain_alpha_coverage);
             return;
         }
         const auto& selected = std::get<core::compiled::AnimationVisual>(visual);
@@ -409,7 +410,7 @@ struct StructuredAssetDependencyIndex::Impl {
         }
         for (const auto& frame : motion->frames)
             append_asset(output, frame.image, core::compiled::AssetKind::Image,
-                         collection_diagnostics, context);
+                         collection_diagnostics, context, retain_alpha_coverage);
     }
 
     void append_material(DescriptorAccumulator& output, const core::MaterialId& id,
@@ -507,7 +508,7 @@ struct StructuredAssetDependencyIndex::Impl {
     {
         const auto* custom = std::get_if<core::compiled::CustomInteractableHotspots>(
             &interactable.presentation.hotspots);
-        if (!custom || custom->hotspots.empty() || !interactable.presentation.sprite)
+        if (!custom || custom->hotspots.empty() || !interactable.presentation.visual)
             return;
         bool requires_mask = false;
         HotspotMaskAssetRequest request{
@@ -522,15 +523,30 @@ struct StructuredAssetDependencyIndex::Impl {
         }
         if (!requires_mask)
             return;
-        const auto* image = find_asset(*interactable.presentation.sprite);
-        if (!image || !image->width || !image->height || *image->width > UINT16_MAX ||
-            *image->height > UINT16_MAX) {
+        std::uint32_t width = 0;
+        std::uint32_t height = 0;
+        if (const auto* still =
+                std::get_if<core::compiled::ImageVisual>(&*interactable.presentation.visual)) {
+            if (const auto* image = find_asset(still->image)) {
+                width = image->width.value_or(0);
+                height = image->height.value_or(0);
+            }
+        } else {
+            const auto selected =
+                std::get<core::compiled::AnimationVisual>(*interactable.presentation.visual);
+            if (const auto animation = animations.find(selected.animation);
+                animation != animations.end()) {
+                width = animation->second->canvas.width;
+                height = animation->second->canvas.height;
+            }
+        }
+        if (width == 0 || height == 0 || width > UINT16_MAX || height > UINT16_MAX) {
             add_diagnostic(collection_diagnostics, "assets.hotspot_mask.invalid_dimensions",
                            "Interactable hotspot mask source image has invalid dimensions");
             return;
         }
-        request.width = static_cast<std::uint16_t>(*image->width);
-        request.height = static_cast<std::uint16_t>(*image->height);
+        request.width = static_cast<std::uint16_t>(width);
+        request.height = static_cast<std::uint16_t>(height);
         output.add(hotspot_mask_descriptor(std::move(request), source_generation));
     }
 
@@ -726,13 +742,13 @@ struct StructuredAssetDependencyIndex::Impl {
             initial != initial_interactables_by_room.end()) {
             for (const auto& placed : initial->second) {
                 const auto* interactable = placed.definition;
-                if (interactable->presentation.sprite) {
+                if (interactable->presentation.visual) {
                     const bool retain_alpha_coverage =
-                        std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
+                        std::holds_alternative<core::compiled::VisualAlphaHotspots>(
                             interactable->presentation.hotspots);
-                    append_asset(output, *interactable->presentation.sprite,
-                                 core::compiled::AssetKind::Image, collection_diagnostics,
-                                 "Room initial interactable", retain_alpha_coverage);
+                    append_visual(output, *interactable->presentation.visual,
+                                  collection_diagnostics, "Room initial interactable",
+                                  retain_alpha_coverage);
                 }
                 const auto effective_material = placed.declaration->material_override
                                                     ? placed.declaration->material_override
@@ -974,12 +990,11 @@ MandatoryAssetDependencyCollector::collect(const MandatoryAssetDependencyContext
             const auto definition = m_index.m_impl->interactables.find(interactable.interactable);
             const bool retain_alpha_coverage =
                 definition != m_index.m_impl->interactables.end() &&
-                std::holds_alternative<core::compiled::SpriteAlphaHotspots>(
+                std::holds_alternative<core::compiled::VisualAlphaHotspots>(
                     definition->second->presentation.hotspots);
-            if (interactable.sprite)
-                m_index.m_impl->append_asset(current, *interactable.sprite,
-                                             core::compiled::AssetKind::Image, current_diagnostics,
-                                             "current interactable", retain_alpha_coverage);
+            if (interactable.visual)
+                m_index.m_impl->append_visual(current, *interactable.visual, current_diagnostics,
+                                              "current interactable", retain_alpha_coverage);
             if (interactable.material)
                 m_index.m_impl->append_material(current, *interactable.material,
                                                 current_diagnostics, "current interactable");

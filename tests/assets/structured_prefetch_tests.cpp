@@ -489,7 +489,7 @@ core::LoadedCompiledPackage collector_package()
     use_verb["bindingOrder"] = nlohmann::json::array({"target"});
     use_verb["offers"] = nlohmann::json::array();
     document["definitions"]["verbs"].push_back(std::move(use_verb));
-    const auto alpha_hotspot = nlohmann::json{{"kind", "sprite-alpha"},
+    const auto alpha_hotspot = nlohmann::json{{"kind", "visual-alpha"},
                                               {"hotspot",
                                                {{"target", {{"kind", "owner"}}},
                                                 {"condition", {{"kind", "always"}}},
@@ -573,6 +573,20 @@ core::LoadedCompiledPackage animation_collector_package()
           {"scrollPerSecond", {{"x", 0.0}, {"y", 0.0}}},
           {"opacity", 1.0},
           {"visible", true}}});
+    auto* key = test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+    REQUIRE(key != nullptr);
+    (*key)["presentation"]["visual"] = {{"kind", "animation"},
+                                        {"animation", {{"kind", "animation"}, {"id", "rain-loop"}}},
+                                        {"motionId", nullptr}};
+    (*key)["presentation"]["hotspots"] = {{"kind", "visual-alpha"},
+                                          {"hotspot",
+                                           {{"id", "alpha"},
+                                            {"label", "Key"},
+                                            {"condition", {{"kind", "always"}}},
+                                            {"inputOrder", 0},
+                                            {"highlight", {{"kind", "none"}}},
+                                            {"target", {{"kind", "owner"}}},
+                                            {"cursor", nullptr}}}};
     return package_from_document(std::move(document), "structured-prefetch-animation-project.json");
 }
 
@@ -737,15 +751,23 @@ public:
     {
         requests.push_back(request);
         m_recorder.calls.push_back("texture:" + request.path);
+        assets::TextureAsset texture{.handle = static_cast<std::uint16_t>(
+                                         request.path.ends_with("animation-frame-b.png") ? 2 : 1),
+                                     .path = request.path,
+                                     .width = static_cast<std::uint16_t>(
+                                         request.path.ends_with("animation-frame-b.png") ? 48 : 24),
+                                     .height = 32,
+                                     .sampler = request.sampler};
+        if (request.retain_alpha_coverage) {
+            const auto stride = (texture.width + 7) / 8;
+            texture.alpha_coverage = assets::TextureAlphaCoverage{
+                .width = texture.width,
+                .height = texture.height,
+                .row_stride_bytes = static_cast<std::uint32_t>(stride),
+                .occupancy_bits = std::vector<std::uint8_t>(stride * texture.height, 255)};
+        }
         return std::make_unique<ImmediatePreparationTask<assets::TextureAsset>>(
-            assets::TextureAsset{.handle = static_cast<std::uint16_t>(
-                                     request.path.ends_with("animation-frame-b.png") ? 2 : 1),
-                                 .path = request.path,
-                                 .width = static_cast<std::uint16_t>(
-                                     request.path.ends_with("animation-frame-b.png") ? 48 : 24),
-                                 .height = 32,
-                                 .sampler = request.sampler},
-            &m_recorder.preparation_steps);
+            std::move(texture), &m_recorder.preparation_steps);
     }
 
     std::vector<assets::TextureAssetRequest> requests;
@@ -981,16 +1003,30 @@ TEST_CASE("mandatory collector retains every frame of a selected raster Animatio
         .opacity = 1.0,
         .visible = true,
     });
+    snapshot.interactables.push_back(
+        {id<core::InteractableInstanceId>("key"),
+         {room, id<core::RoomPlacementId>("key-placement")},
+         {0, 0, 1, 1},
+         core::compiled::AnimationVisual{id<core::AnimationId>("rain-loop"), std::nullopt},
+         id<core::MaterialId>("sprite-material")});
+    snapshot.hotspots.push_back(
+        {core::compiled::InteractableHotspotRef{id<core::InteractableInstanceId>("key"),
+                                                id<core::HotspotId>("alpha")},
+         "Key", true, true,
+         core::compiled::InteractableInteractionSubject{id<core::InteractableInstanceId>("key")},
+         core::AlphaHotspotShape{}, 0, core::compiled::NoHotspotHighlight{}, std::nullopt, 64, 32});
     assets::MandatoryAssetDependencyContext context;
     context.current_presentation = &snapshot;
 
     const auto collected = assets::MandatoryAssetDependencyCollector(index).collect(context);
 
     REQUIRE(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
-        return request.path == "project:/assets/images/animation-frame-a.png";
+        return request.path == "project:/assets/images/animation-frame-a.png" &&
+               request.retain_alpha_coverage;
     }));
     REQUIRE(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
-        return request.path == "project:/assets/images/animation-frame-b.png";
+        return request.path == "project:/assets/images/animation-frame-b.png" &&
+               request.retain_alpha_coverage;
     }));
 
     assets::MandatoryAssetGate gate(fixture.manager);
@@ -1007,12 +1043,14 @@ TEST_CASE("mandatory collector retains every frame of a selected raster Animatio
     resources.bind_project(package.project());
     WorldPresentationBackend world(resources);
     REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
-    REQUIRE(world.frame()->draws.size() == 1);
-    const auto& draw = world.frame()->draws.front();
+    REQUIRE(world.frame()->draws.size() == 2);
+    const auto& draw = world.frame()->draws.back();
     REQUIRE(draw.raster_animation_frames.size() == 2);
     CHECK(draw.material_lease.has_value());
     CHECK(draw.raster_animation_frames[0].texture_lease.has_value());
     CHECK(draw.raster_animation_frames[1].texture_lease.has_value());
+    CHECK((*draw.raster_animation_frames[0].texture_lease)->alpha_coverage.has_value());
+    CHECK((*draw.raster_animation_frames[1].texture_lease)->alpha_coverage.has_value());
     core::RuntimeClockUpdate clock;
     world.realize(clock);
     CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 1);
@@ -1069,7 +1107,7 @@ TEST_CASE("structured texture dependencies carry alpha coverage into mandatory a
          .placement = {.room = id<core::RoomId>("start"),
                        .placement_id = id<core::RoomPlacementId>("key-placement")},
          .bounds = {.x = 0.0, .y = 0.0, .width = 1.0, .height = 1.0},
-         .sprite = id<core::AssetId>("image-main"),
+         .visual = core::compiled::ImageVisual{id<core::AssetId>("image-main")},
          .material = std::nullopt});
     assets::MandatoryAssetDependencyContext mandatory_context;
     mandatory_context.current_presentation = &snapshot;
@@ -4893,7 +4931,7 @@ TEST_CASE("mandatory gate deepens ordinary Room exits through Warm-budget-aware 
             if (hotspots.value("kind", "") == "custom") {
                 for (auto& hotspot : hotspots["hotspots"])
                     hotspot["highlight"] = {{"kind", "none"}};
-            } else if (hotspots.value("kind", "") == "sprite-alpha") {
+            } else if (hotspots.value("kind", "") == "visual-alpha") {
                 hotspots["hotspot"]["highlight"] = {{"kind", "none"}};
             }
         }
@@ -5059,7 +5097,7 @@ TEST_CASE("rapid Room actions rank against multi-hop presentation on execution d
         if (hotspots.value("kind", "") == "custom") {
             for (auto& hotspot : hotspots["hotspots"])
                 hotspot["highlight"] = {{"kind", "none"}};
-        } else if (hotspots.value("kind", "") == "sprite-alpha") {
+        } else if (hotspots.value("kind", "") == "visual-alpha") {
             hotspots["hotspot"]["highlight"] = {{"kind", "none"}};
         }
     }

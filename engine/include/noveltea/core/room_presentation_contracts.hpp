@@ -230,6 +230,7 @@ struct ResolvedPresentationHotspot {
     PresentationPlane owner_plane = PresentationPlane::WorldBackground;
     std::int32_t owner_order = 0;
     std::optional<compiled::CursorTarget> cursor;
+    std::optional<ResolvedRoomInteractableOccurrenceId> interactable_occurrence = std::nullopt;
 };
 
 struct RoomPresentationDraft {
