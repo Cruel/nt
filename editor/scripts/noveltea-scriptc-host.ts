@@ -1,5 +1,5 @@
 /* oxlint-disable typescript/no-explicit-any -- ScriptC static lowering requires erased native JSON boundary shapes here; unknown/union forms force this fast path into the dynamic island. */
-import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { existsSync, mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -2214,18 +2214,17 @@ async function runHiddenDaemonDisposable(
       const gatePath = payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_GATE_PATH;
       if (gatePath) {
         const deadline = Date.now() + 120_000;
-        while (true) {
-          const gate = JSON.parse(invokeHost('path-metadata', JSON.stringify({ path: gatePath })));
-          if (gate.ok !== true) throw new Error('Failed to inspect disposable certification gate.');
-          if (gate.kind === 'missing') break;
+        while (existsSync(gatePath)) {
           if (Date.now() >= deadline)
             throw new Error('Disposable certification gate was not released within 120 seconds.');
           // Stay assigned until the observer releases the gate; cancellation still exercises the
-          // broker's forced-retirement grace period rather than a machine-dependent delay.
+          // broker's forced-retirement grace period rather than a machine-dependent delay. Keep the
+          // certification-only probe sparse so a held gate cannot starve control-plane traffic.
           hiddenDaemonPayloadNativeRequest('disposable-cancelled', invocation, {
             disposableWorkerId: invocation.disposableWorkerId,
             token,
           });
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
       }
       const delayText = payload.environment.NOVELTEA_CLI_CERTIFICATION_DISPOSABLE_DELAY_MS;
