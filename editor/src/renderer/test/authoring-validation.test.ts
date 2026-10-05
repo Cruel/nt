@@ -399,15 +399,15 @@ describe('authoring validation', () => {
     );
 
     data.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: defaultHotspotBehavior('Key'),
     };
     expect(validateHotspotAuthoringSemantics(project)).toContainEqual(
       expect.objectContaining({
         code: 'hotspot.authoring.source-image-required',
         severity: 'error',
-        path: '/interactables/key/data/presentation/hotspots/kind',
-        message: expect.stringContaining('Alpha hotspot mode requires a sprite image'),
+        path: '/interactables/key/data/presentation/visual',
+        message: expect.stringContaining('Alpha hotspot mode requires a Visual'),
       }),
     );
 
@@ -428,8 +428,8 @@ describe('authoring validation', () => {
       expect.objectContaining({
         code: 'hotspot.authoring.source-image-required',
         severity: 'error',
-        path: '/interactables/key/data/presentation/hotspots/kind',
-        message: expect.stringContaining('Custom hotspots require a sprite image'),
+        path: '/interactables/key/data/presentation/visual',
+        message: expect.stringContaining('Custom hotspots require a Visual'),
       }),
     );
   });
@@ -464,16 +464,16 @@ describe('authoring validation', () => {
 
     expect(validateAuthoringProject(project)).toContainEqual(
       expect.objectContaining({
-        code: 'room.interactable.sprite-missing',
+        code: 'room.interactable.visual-missing',
         severity: 'warning',
         path: '/rooms/start/data/interactables/0/interactable/$ref',
-        message: expect.stringContaining("Visible Interactable 'key-instance' has no sprite"),
+        message: expect.stringContaining("Visible Interactable 'key-instance' has no Visual"),
       }),
     );
 
     room.interactables[0]!.visible = false;
     expect(validateAuthoringProject(project)).not.toContainEqual(
-      expect.objectContaining({ code: 'room.interactable.sprite-missing' }),
+      expect.objectContaining({ code: 'room.interactable.visual-missing' }),
     );
 
     room.interactables[0]!.visible = true;
@@ -496,7 +496,10 @@ describe('authoring validation', () => {
       data: {
         ...defaultArchetypeData('interactable'),
         overrides: {
-          '/data/presentation/sprite': { $ref: { collection: 'assets', id: 'sprite' } },
+          '/data/presentation/visual': {
+            kind: 'image',
+            image: { $ref: { collection: 'assets', id: 'sprite' } },
+          },
         },
       },
     };
@@ -505,7 +508,7 @@ describe('authoring validation', () => {
     };
     project.interactables.key!.archetypeOverrides = {};
     expect(validateAuthoringProject(project)).not.toContainEqual(
-      expect.objectContaining({ code: 'room.interactable.sprite-missing' }),
+      expect.objectContaining({ code: 'room.interactable.visual-missing' }),
     );
   });
 

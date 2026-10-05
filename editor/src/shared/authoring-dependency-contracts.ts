@@ -70,7 +70,7 @@ export const AUTHORING_DEPENDENCY_ROLES = [
   'room-compose-script',
   'room-script-hook',
   'room-exit-target',
-  'interactable-sprite',
+  'interactable-visual',
   'interactable-material',
   'feature-ref',
   'hotspot-target',

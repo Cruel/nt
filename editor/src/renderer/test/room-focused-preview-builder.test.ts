@@ -14,6 +14,7 @@ import {
 } from '../../shared/project-schema/authoring-interactables';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-hotspots';
 import { emptyMaterialApplication } from '../../shared/project-schema/authoring-material-applications';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
@@ -142,6 +143,17 @@ describe('graph-driven Room builder', () => {
       label: 'Rain',
       data: defaultMaterialData('Rain', 'engine-2d'),
     };
+    const animatedKey = defaultInteractableData('Key');
+    animatedKey.presentation.visual = {
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'rain' } },
+      motionId: null,
+    };
+    animatedKey.presentation.hotspots = {
+      kind: 'visual-alpha',
+      hotspot: defaultHotspotBehavior('Key'),
+    };
+    project.interactables.key!.data = animatedKey;
     project.rooms.bedroom!.data.environments = [
       {
         id: 'rain',
@@ -182,6 +194,21 @@ describe('graph-driven Room builder', () => {
         ],
       },
     ]);
+    expect(result.data.world.interactables[0]?.visual).toEqual({
+      kind: 'animation',
+      animationId: 'rain',
+      motionId: null,
+    });
+    expect(result.data.world.hotspots).toContainEqual(
+      expect.objectContaining({
+        ownerKind: 'interactable',
+        occurrenceId: 'key',
+        shape: { kind: 'alpha' },
+        sourceAssetId: null,
+        sourceWidth: 64,
+        sourceHeight: 32,
+      }),
+    );
     expect(result.data.world.environments[0]?.visual).toEqual({
       kind: 'animation',
       animationId: 'rain',
@@ -189,8 +216,16 @@ describe('graph-driven Room builder', () => {
     });
     expect(result.resources).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ resourceId: 'asset:rain-a', kind: 'image' }),
-        expect.objectContaining({ resourceId: 'asset:rain-b', kind: 'image' }),
+        expect.objectContaining({
+          resourceId: 'asset:rain-a',
+          kind: 'image',
+          retainAlphaCoverage: true,
+        }),
+        expect.objectContaining({
+          resourceId: 'asset:rain-b',
+          kind: 'image',
+          retainAlphaCoverage: true,
+        }),
       ]),
     );
   });
@@ -269,9 +304,12 @@ describe('graph-driven Room builder', () => {
       },
     };
     const masha = defaultInteractableData('Masha');
-    masha.presentation.sprite = { $ref: { collection: 'assets', id: 'masha' } };
+    masha.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'masha' } },
+    };
     masha.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: {
         id: 'primary',
         label: 'Masha',
@@ -468,10 +506,13 @@ describe('graph-driven Room builder', () => {
     ];
 
     const key = project.interactables.key!.data;
-    key.presentation.sprite = { $ref: { collection: 'assets', id: 'pointer' } };
+    key.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'pointer' } },
+    };
     key.presentation.cursor = { kind: 'system', cursor: 'crosshair' };
     key.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: {
         id: 'key-alpha',
         label: 'Key',
@@ -483,7 +524,10 @@ describe('graph-driven Room builder', () => {
     };
 
     const coin = defaultInteractableData('Coin');
-    coin.presentation.sprite = { $ref: { collection: 'assets', id: 'pointer' } };
+    coin.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'pointer' } },
+    };
     coin.presentation.cursor = { kind: 'system', cursor: 'pointer' };
     coin.presentation.hotspots = {
       kind: 'custom',

@@ -225,7 +225,7 @@ The native runtime `AssetManager` supports:
 - resource-alias resolution into typed requests.
 
 Image preparation can retain one-bit source-alpha occupancy beside the shared texture lease when a
-sprite-alpha hotspot requires it. The exact CPU charge is `ceil(width / 8) * height`; it is prepared
+visual-alpha hotspot requires it, including every selected sprite Animation frame. The exact CPU charge is `ceil(width / 8) * height`; it is prepared
 once per source texture generation, shared by every owner using that texture, and evicted with the
 texture residency.
 

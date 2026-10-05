@@ -23,7 +23,7 @@ function roomHotspot(id = 'hotspot') {
 function spriteAlphaInteractable(label = 'Lamp') {
   const data = defaultInteractableData(label);
   data.presentation.hotspots = {
-    kind: 'sprite-alpha',
+    kind: 'visual-alpha',
     hotspot: defaultHotspotBehavior(label),
   };
   return data;
@@ -113,7 +113,7 @@ describe('hotspot commands', () => {
     });
   });
 
-  it('rejects stale Room and sprite-alpha hotspot rename commands without patches', () => {
+  it('rejects stale Room and visual-alpha hotspot rename commands without patches', () => {
     const project = createAuthoringProject();
     const room = defaultRoomData('Foyer');
     room.features.push({
@@ -159,8 +159,8 @@ describe('hotspot commands', () => {
       defaultProperties: [],
       inventories: [],
     });
-    if (interactable.presentation.hotspots.kind !== 'sprite-alpha')
-      throw new Error('Expected explicitly configured sprite-alpha hotspot mode.');
+    if (interactable.presentation.hotspots.kind !== 'visual-alpha')
+      throw new Error('Expected explicitly configured visual-alpha hotspot mode.');
     interactable.presentation.hotspots.hotspot.target = {
       kind: 'owner-feature',
       featureId: 'switch',

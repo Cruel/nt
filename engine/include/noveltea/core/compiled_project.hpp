@@ -851,14 +851,14 @@ struct InteractableCustomHotspot : InteractableHotspotBehavior {
     RectHotspotShape shape;
 };
 struct NoInteractableHotspots {};
-struct SpriteAlphaHotspots {
+struct VisualAlphaHotspots {
     InteractableHotspotBehavior hotspot;
 };
 struct CustomInteractableHotspots {
     std::vector<InteractableCustomHotspot> hotspots;
 };
 using InteractableHotspots =
-    std::variant<NoInteractableHotspots, SpriteAlphaHotspots, CustomInteractableHotspots>;
+    std::variant<NoInteractableHotspots, VisualAlphaHotspots, CustomInteractableHotspots>;
 struct RoomPlacementPresentation {
     std::optional<TextContent> label;
     std::optional<LayoutId> layout;
@@ -1036,7 +1036,7 @@ struct InteractablePresentation {
     std::optional<MaterialId> material;
     std::vector<MaterialApplicationParameterOverride> material_parameters;
     std::vector<MaterialApplicationTextureOverride> material_textures;
-    std::optional<AssetId> sprite;
+    std::optional<Visual> visual;
     InteractableHotspots hotspots;
     std::optional<CursorTarget> cursor;
 };

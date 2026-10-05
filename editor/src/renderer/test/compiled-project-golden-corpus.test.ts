@@ -494,7 +494,7 @@ describe('compiled project cross-language golden corpus', () => {
     );
     const key = interaction.definitions.interactables.find((candidate) => candidate.id === 'key')!;
     expect(key.presentation.hotspots).toMatchObject({
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: { id: 'key-alpha', highlight: { kind: 'default' } },
     });
     const coin = interaction.definitions.interactables.find(

@@ -13,11 +13,11 @@
     "stackable": true,
     "stackLimit": 5,
     "presentation": {
-      "sprite": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } },
+      "visual": { "kind": "image", "image": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } } },
       "materialApplication": null,
       "cursor": null,
       "hotspots": {
-        "kind": "sprite-alpha",
+        "kind": "visual-alpha",
         "hotspot": {
           "id": "supply",
           "label": "Supply stack",

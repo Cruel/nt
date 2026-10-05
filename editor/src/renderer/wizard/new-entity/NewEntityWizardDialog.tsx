@@ -207,7 +207,7 @@ export function NewEntityWizardDialog({
           ? inheritedData.presentation
           : {
               ...inheritedData.presentation,
-              sprite: createdData.presentation.sprite,
+              visual: createdData.presentation.visual,
             },
       };
     }

@@ -543,7 +543,7 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
                 using Hotspots = std::decay_t<decltype(hotspots)>;
                 if constexpr (std::is_same_v<Hotspots, compiled::NoInteractableHotspots>) {
                     return true;
-                } else if constexpr (std::is_same_v<Hotspots, compiled::SpriteAlphaHotspots>) {
+                } else if constexpr (std::is_same_v<Hotspots, compiled::VisualAlphaHotspots>) {
                     return valid_hotspot_cursor(hotspots.hotspot.cursor);
                 } else {
                     return std::ranges::all_of(hotspots.hotspots, [&](const auto& hotspot) {

@@ -217,9 +217,12 @@
             "id": "sprite-material",
             "kind": "material"
           },
-          "sprite": {
-            "id": "image-main",
-            "kind": "asset"
+          "visual": {
+            "image": {
+              "id": "image-main",
+              "kind": "asset"
+            },
+            "kind": "image"
           }
         },
         "properties": [],
@@ -248,9 +251,12 @@
             "id": "sprite-material",
             "kind": "material"
           },
-          "sprite": {
-            "id": "image-main",
-            "kind": "asset"
+          "visual": {
+            "image": {
+              "id": "image-main",
+              "kind": "asset"
+            },
+            "kind": "image"
           }
         },
         "properties": [],
@@ -279,7 +285,7 @@
             "kind": "custom"
           },
           "material": null,
-          "sprite": null
+          "visual": null
         },
         "properties": [],
         "propertyAssignments": [],
@@ -313,9 +319,12 @@
             "id": "sprite-material",
             "kind": "material"
           },
-          "sprite": {
-            "id": "image-main",
-            "kind": "asset"
+          "visual": {
+            "image": {
+              "id": "image-main",
+              "kind": "asset"
+            },
+            "kind": "image"
           }
         },
         "properties": [
@@ -2142,14 +2151,58 @@
         "nativeName": "English",
         "numberFormat": {
           "decimalSeparator": ".",
-          "digits": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+          "digits": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
           "groupSeparator": ",",
           "primaryGroupSize": 3,
           "secondaryGroupSize": 3
         },
         "parentLocale": null,
-        "pluralCategories": ["one", "other"],
-        "pluralRules": [{"category":"one","alternatives":[[{"operand":"i","modulo":null,"negated":false,"ranges":[{"minimum":1,"maximum":1}]},{"operand":"v","modulo":null,"negated":false,"ranges":[{"minimum":0,"maximum":0}]}]]}],
+        "pluralCategories": [
+          "one",
+          "other"
+        ],
+        "pluralRules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "modulo": null,
+                  "negated": false,
+                  "operand": "i",
+                  "ranges": [
+                    {
+                      "maximum": 1,
+                      "minimum": 1
+                    }
+                  ]
+                },
+                {
+                  "modulo": null,
+                  "negated": false,
+                  "operand": "v",
+                  "ranges": [
+                    {
+                      "maximum": 0,
+                      "minimum": 0
+                    }
+                  ]
+                }
+              ]
+            ],
+            "category": "one"
+          }
+        ],
         "rightToLeft": false,
         "supported": true
       },
@@ -2160,14 +2213,112 @@
         "nativeName": "español",
         "numberFormat": {
           "decimalSeparator": ",",
-          "digits": ["0", "1", "2", "3", "4", "5", "6", "7", "8", "9"],
+          "digits": [
+            "0",
+            "1",
+            "2",
+            "3",
+            "4",
+            "5",
+            "6",
+            "7",
+            "8",
+            "9"
+          ],
           "groupSeparator": ".",
           "primaryGroupSize": 3,
           "secondaryGroupSize": 3
         },
         "parentLocale": null,
-        "pluralCategories": ["one", "many", "other"],
-        "pluralRules": [{"category":"one","alternatives":[[{"operand":"n","modulo":null,"negated":false,"ranges":[{"minimum":1,"maximum":1}]}]]},{"category":"many","alternatives":[[{"operand":"e","modulo":null,"negated":false,"ranges":[{"minimum":0,"maximum":0}]},{"operand":"i","modulo":null,"negated":true,"ranges":[{"minimum":0,"maximum":0}]},{"operand":"i","modulo":1000000,"negated":false,"ranges":[{"minimum":0,"maximum":0}]},{"operand":"v","modulo":null,"negated":false,"ranges":[{"minimum":0,"maximum":0}]}],[{"operand":"e","modulo":null,"negated":true,"ranges":[{"minimum":0,"maximum":5}]}]]}],
+        "pluralCategories": [
+          "one",
+          "many",
+          "other"
+        ],
+        "pluralRules": [
+          {
+            "alternatives": [
+              [
+                {
+                  "modulo": null,
+                  "negated": false,
+                  "operand": "n",
+                  "ranges": [
+                    {
+                      "maximum": 1,
+                      "minimum": 1
+                    }
+                  ]
+                }
+              ]
+            ],
+            "category": "one"
+          },
+          {
+            "alternatives": [
+              [
+                {
+                  "modulo": null,
+                  "negated": false,
+                  "operand": "e",
+                  "ranges": [
+                    {
+                      "maximum": 0,
+                      "minimum": 0
+                    }
+                  ]
+                },
+                {
+                  "modulo": null,
+                  "negated": true,
+                  "operand": "i",
+                  "ranges": [
+                    {
+                      "maximum": 0,
+                      "minimum": 0
+                    }
+                  ]
+                },
+                {
+                  "modulo": 1000000,
+                  "negated": false,
+                  "operand": "i",
+                  "ranges": [
+                    {
+                      "maximum": 0,
+                      "minimum": 0
+                    }
+                  ]
+                },
+                {
+                  "modulo": null,
+                  "negated": false,
+                  "operand": "v",
+                  "ranges": [
+                    {
+                      "maximum": 0,
+                      "minimum": 0
+                    }
+                  ]
+                }
+              ],
+              [
+                {
+                  "modulo": null,
+                  "negated": true,
+                  "operand": "e",
+                  "ranges": [
+                    {
+                      "maximum": 5,
+                      "minimum": 0
+                    }
+                  ]
+                }
+              ]
+            ],
+            "category": "many"
+          }
+        ],
         "rightToLeft": false,
         "supported": true
       }
@@ -2390,6 +2541,7 @@
     }
   ],
   "resources": {
+    "animations": [],
     "assets": [
       {
         "aliases": [],
@@ -2444,6 +2596,7 @@
     "layouts": [
       {
         "dependencies": {
+          "data": [],
           "fonts": [
             {
               "id": "font-main",
@@ -2472,8 +2625,7 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ],
-          "data": []
+          ]
         },
         "id": "hud-assets",
         "kind": "fragment",
@@ -2511,6 +2663,7 @@
       },
       {
         "dependencies": {
+          "data": [],
           "fonts": [
             {
               "id": "font-main",
@@ -2539,8 +2692,7 @@
               "id": "text-rcss",
               "kind": "asset"
             }
-          ],
-          "data": []
+          ]
         },
         "id": "hud-inline",
         "kind": "document",
@@ -2608,12 +2760,12 @@
           }
         },
         "dependencies": {
+          "data": [],
           "fonts": [],
           "images": [],
           "materials": [],
           "scripts": [],
-          "stylesheets": [],
-          "data": []
+          "stylesheets": []
         },
         "id": "stateful-overlay",
         "kind": "document",
@@ -2680,7 +2832,7 @@
       }
     ]
   },
-  "saveContract": "sc1:5283582958d7fc67b2e6a459dbda0403",
+  "saveContract": "sc1:715ef28bb01bc2490c78bb5bfb0fb03d",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {
@@ -2695,23 +2847,6 @@
         "maximum": 2,
         "minimum": 1
       }
-    },
-    "cursors": {
-      "defaults": {
-        "default": {
-          "kind": "system",
-          "cursor": "default"
-        },
-        "pointer": {
-          "kind": "system",
-          "cursor": "pointer"
-        },
-        "hotspot": {
-          "kind": "inherit",
-          "semantic": "pointer"
-        }
-      },
-      "named": []
     },
     "audio": {
       "purposes": {
@@ -2741,6 +2876,23 @@
         "enabled": false,
         "musicGain": 0.5
       }
+    },
+    "cursors": {
+      "defaults": {
+        "default": {
+          "cursor": "default",
+          "kind": "system"
+        },
+        "hotspot": {
+          "kind": "inherit",
+          "semantic": "pointer"
+        },
+        "pointer": {
+          "cursor": "pointer",
+          "kind": "system"
+        }
+      },
+      "named": []
     },
     "display": {
       "barColor": "#000000",

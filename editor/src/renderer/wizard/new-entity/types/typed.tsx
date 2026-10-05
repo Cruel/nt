@@ -269,9 +269,9 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const spriteId =
         draft.options.spriteId === '__inherit__' ? null : selected(draft.options.spriteId);
       if (spriteId) {
-        data.presentation.sprite = ref('assets', spriteId);
+        data.presentation.visual = { kind: 'image', image: ref('assets', spriteId) };
         data.presentation.hotspots = {
-          kind: 'sprite-alpha',
+          kind: 'visual-alpha',
           hotspot: defaultHotspotBehavior(draft.basics.label),
         };
       }

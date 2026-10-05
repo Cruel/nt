@@ -398,7 +398,7 @@ describe('Hotspot Focus session', () => {
       target: { kind: 'owner' as const },
       shape: { kind: 'rect' as const, bounds: originalBounds },
     };
-    data.presentation.sprite = interactableAssetRef('background');
+    data.presentation.visual = { kind: 'image', image: interactableAssetRef('background') };
     data.presentation.hotspots = { kind: 'custom', hotspots: [interactableHotspot] };
     project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
     useProjectStore.getState().loadUnsavedProjectDocument(project);
@@ -440,7 +440,7 @@ describe('Hotspot Focus session', () => {
         ownerKind: 'interactable',
         ownerId: 'door',
         assetId: 'background',
-        mode: 'sprite-alpha',
+        mode: 'visual-alpha',
         items: [],
       }),
     ).toBe(true);
@@ -685,7 +685,7 @@ describe('Hotspot Focus session', () => {
       target: { kind: 'owner' as const },
       shape: { kind: 'rect' as const, bounds: originalBounds },
     };
-    data.presentation.sprite = interactableAssetRef('background');
+    data.presentation.visual = { kind: 'image', image: interactableAssetRef('background') };
     data.presentation.hotspots = {
       kind: 'custom',
       hotspots: [interactableHotspot],
@@ -709,7 +709,7 @@ describe('Hotspot Focus session', () => {
       payload: [
         {
           op: 'replace',
-          path: '/interactables/door/data/presentation/sprite',
+          path: '/interactables/door/data/presentation/visual/image',
           value: interactableAssetRef('replacement'),
         },
       ],

@@ -31,9 +31,9 @@ function codes(project: ReturnType<typeof createAuthoringProject>) {
 }
 
 function primaryHotspot(item: ReturnType<typeof defaultInteractableData>) {
-  if (item.presentation.hotspots.kind !== 'sprite-alpha')
+  if (item.presentation.hotspots.kind !== 'visual-alpha')
     item.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: defaultHotspotBehavior(item.displayName),
     };
   return item.presentation.hotspots.hotspot;
@@ -74,7 +74,10 @@ describe('hotspot semantic validation', () => {
     project.rooms.room = { id: 'room', label: 'Room', data: room };
 
     const item = defaultInteractableData('Item');
-    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    item.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'image' } },
+    };
     item.features.push({
       id: 'handle',
       label: 'Handle',
@@ -113,7 +116,10 @@ describe('hotspot semantic validation', () => {
     project.rooms.room = { id: 'room', label: 'Room', data: room };
 
     const item = defaultInteractableData('Item');
-    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    item.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'image' } },
+    };
     primaryHotspot(item).target = { kind: 'none' };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
 
@@ -136,7 +142,10 @@ describe('hotspot semantic validation', () => {
     const project = createAuthoringProject();
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset({ orientation: 6 }) };
     const item = defaultInteractableData('Coin');
-    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    item.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'image' } },
+    };
     item.features.push({
       id: 'face',
       label: 'Coin Face',
@@ -229,7 +238,10 @@ describe('hotspot semantic validation', () => {
       data: defaultMaterialData('Hotspot', 'hotspot-overlay-custom'),
     };
     const item = defaultInteractableData('Item');
-    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    item.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'image' } },
+    };
     primaryHotspot(item).highlight = {
       kind: 'material',
       materialApplication: emptyMaterialApplication('hotspot'),

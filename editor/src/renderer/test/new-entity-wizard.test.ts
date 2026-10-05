@@ -160,7 +160,7 @@ describe('new entity wizard registry', () => {
     ).toMatchObject({
       data: {
         kind: 'interactable',
-        presentation: { sprite: null, hotspots: { kind: 'none' } },
+        presentation: { visual: null, hotspots: { kind: 'none' } },
       },
     });
     project.assets.key = {
@@ -184,8 +184,8 @@ describe('new entity wizard registry', () => {
     ).toMatchObject({
       data: {
         presentation: {
-          sprite: { $ref: { collection: 'assets', id: 'key' } },
-          hotspots: { kind: 'sprite-alpha' },
+          visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'key' } } },
+          hotspots: { kind: 'visual-alpha' },
         },
       },
     });

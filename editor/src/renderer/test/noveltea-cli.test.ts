@@ -3278,7 +3278,7 @@ describe('NovelTea headless CLI', () => {
       'beforeEnter/beforeLeave run before the Room switch commits and therefore admit only immediate commands.',
     );
     expect(first.files['reference/records/interactables.md']).toContain(
-      'custom rectangular Hotspot bounds are normalized to the complete sprite image',
+      'Custom rectangular Hotspot bounds are normalized to the complete Visual canvas',
     );
     for (const heading of [
       '## Discovery is not execution authority',

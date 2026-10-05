@@ -113,7 +113,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
     useEffect(() => {
       let cancelled = false;
       setAlphaCoverage(null);
-      if (session?.mode !== 'sprite-alpha' || !imageUrl || !imageSize) return undefined;
+      if (session?.mode !== 'visual-alpha' || !imageUrl || !imageSize) return undefined;
       const image = new Image();
       image.onload = () => {
         if (cancelled) return;
@@ -387,7 +387,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
               selectedHotspotId={session.selectedHotspotId}
               tool={session.tool}
               camera={session.camera}
-              alphaVisualization={session.mode === 'sprite-alpha'}
+              alphaVisualization={session.mode === 'visual-alpha'}
               alphaCoverage={alphaCoverage}
               snapToImagePixels={session.snapToPixels}
               onViewportChange={setViewport}

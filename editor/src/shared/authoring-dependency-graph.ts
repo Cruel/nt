@@ -988,8 +988,8 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/presentation\/sprite\/\$ref$/,
-      'interactable-sprite',
+      /\/data\/presentation\/visual\/(?:image|animation)\/\$ref$/,
+      'interactable-visual',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
@@ -1089,7 +1089,7 @@ function semanticEdgeOptions(
       'room-environment-asset',
       'character-pose-sprite',
       'character-expression-sprite',
-      'interactable-sprite',
+      'interactable-visual',
       'material-texture',
       'layout-rml-source',
       'layout-rcss-source',
@@ -1723,16 +1723,16 @@ function nestedInteractableNodesAndEdges(
   if (!isRecord(record.data.presentation) || !isRecord(record.data.presentation.hotspots))
     return { nodes, edges };
   const definition = record.data.presentation.hotspots;
-  const sprite = record.data.presentation.sprite;
-  const spriteId =
-    isRecord(sprite) &&
-    isRecord(sprite.$ref) &&
-    sprite.$ref.collection === 'assets' &&
-    typeof sprite.$ref.id === 'string'
-      ? sprite.$ref.id
+  const visual = record.data.presentation.visual;
+  const visualField = isRecord(visual) && visual.kind === 'animation' ? 'animation' : 'image';
+  const visualCollection = visualField === 'animation' ? 'animations' : 'assets';
+  const resource = isRecord(visual) ? visual[visualField] : null;
+  const resourceId =
+    isRecord(resource) && isRecord(resource.$ref) && typeof resource.$ref.id === 'string'
+      ? resource.$ref.id
       : null;
   const hotspots =
-    definition.kind === 'sprite-alpha' && isRecord(definition.hotspot)
+    definition.kind === 'visual-alpha' && isRecord(definition.hotspot)
       ? [definition.hotspot]
       : definition.kind === 'custom' && Array.isArray(definition.hotspots)
         ? definition.hotspots.filter(isRecord)
@@ -1741,7 +1741,7 @@ function nestedInteractableNodesAndEdges(
     if (typeof hotspot.id !== 'string') return;
     const key = nestedNodeKey('interactables', id, 'interactable-hotspot', hotspot.id);
     const path = (
-      definition.kind === 'sprite-alpha'
+      definition.kind === 'visual-alpha'
         ? `${owningPath}/data/presentation/hotspots/hotspot`
         : `${owningPath}/data/presentation/hotspots/hotspots/${index}`
     ) as JsonPointer;
@@ -1758,20 +1758,20 @@ function nestedInteractableNodesAndEdges(
         repair: { kind: 'blocked', reason: 'Interactable hotspot is owned by its Interactable.' },
       }),
     );
-    if (spriteId) {
+    if (resourceId) {
       edges.push(
         structuralEdge(
           key,
-          recordNodeKey('assets', spriteId),
-          `${owningPath}/data/presentation/sprite/$ref`,
-          `/assets/${escapeJsonPointerSegment(spriteId)}`,
+          recordNodeKey(visualCollection, resourceId),
+          `${owningPath}/data/presentation/visual/${visualField}/$ref`,
+          `/${visualCollection}/${escapeJsonPointerSegment(resourceId)}`,
           {
             role: 'hotspot-source-image',
             facets: ['reference-integrity', 'tooling-reference', 'runtime-only', 'preview-visual'],
             repair: {
               kind: 'replacement-required',
-              path: `${owningPath}/data/presentation/sprite` as JsonPointer,
-              collection: 'assets',
+              path: `${owningPath}/data/presentation/visual/${visualField}` as JsonPointer,
+              collection: visualCollection,
             },
           },
         ),

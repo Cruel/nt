@@ -138,9 +138,31 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
           {"opacity", 1.0},
           {"visible", true}}});
 
+    document["world"]["placements"] =
+        nlohmann::json::array({{{"id", "place"},
+                                {"bounds", {{"x", 0}, {"y", 0}, {"width", 1}, {"height", 1}}},
+                                {"layoutOrder", nullptr},
+                                {"label", nullptr},
+                                {"layoutId", nullptr}}});
+    document["world"]["interactables"] = nlohmann::json::array(
+        {{{"occurrenceId", "animated-key"},
+          {"interactableId", "key"},
+          {"condition", {{"kind", "always"}}},
+          {"placementId", "place"},
+          {"visual", {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}},
+          {"materialId", nullptr},
+          {"materialParameters", nlohmann::json::array()},
+          {"materialTextures", nlohmann::json::array()},
+          {"enabled", true},
+          {"visible", true},
+          {"occurrenceVisible", true},
+          {"order", 0}}});
     auto result = decode_editor_room_preview_document_text(document.dump());
 
     REQUIRE(result);
+    REQUIRE(result.value().world.interactables.size() == 1);
+    REQUIRE(result.value().world.interactables.front().visual);
+    CHECK(result.value().world.interactables.front().visual->resource_id == "rain");
     REQUIRE(result.value().world.animations.size() == 1);
     const auto& animation = result.value().world.animations.front();
     CHECK(animation.id == "rain");
@@ -189,6 +211,15 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
                                                             document["world"]["animations"][0]}));
         rejects("/world/environments/0/visual/animationId", "missing");
         rejects("/world/environments/0/visual/motionId", "missing");
+        rejects("/world/interactables/0/visual/animationId", "missing");
+        rejects("/world/interactables/0/visual/motionId", "missing");
+        auto replaced = document;
+        replaced["world"]["interactables"][0].erase("visual");
+        replaced["world"]["interactables"][0]["spriteAssetId"] = "rain-a";
+        CHECK_FALSE(decode_editor_room_preview_document_text(replaced.dump()));
+        auto missing_motion = document;
+        missing_motion["world"]["interactables"][0]["visual"].erase("motionId");
+        CHECK_FALSE(decode_editor_room_preview_document_text(missing_motion.dump()));
     }
 }
 
@@ -226,7 +257,7 @@ TEST_CASE("focused Room decoder preserves Interactable Material Application over
           {"interactableId", "key"},
           {"condition", {{"kind", "always"}}},
           {"placementId", "key-placement"},
-          {"spriteAssetId", nullptr},
+          {"visual", nullptr},
           {"materialId", "specialized"},
           {"materialParameters",
            nlohmann::json::array(
@@ -290,6 +321,7 @@ TEST_CASE("focused Room decoder carries cursor settings and projected Hotspots")
                                 {"hotspotY", 3}}});
     document["world"]["hotspots"] = nlohmann::json::array(
         {{{"ownerKind", "room"},
+          {"occurrenceId", nullptr},
           {"ownerId", "foyer"},
           {"hotspotId", "desk"},
           {"label", "Desk"},
@@ -327,6 +359,7 @@ TEST_CASE("focused Room decoder admits inert Hotspot targets")
     auto document = focused_room_document();
     document["world"]["hotspots"] = nlohmann::json::array(
         {{{"ownerKind", "room"},
+          {"occurrenceId", nullptr},
           {"ownerId", "foyer"},
           {"hotspotId", "draft"},
           {"label", "Draft"},

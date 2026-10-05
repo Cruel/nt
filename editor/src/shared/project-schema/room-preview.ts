@@ -324,7 +324,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       interactableId: z.string().min(1),
       condition: focusedConditionSchema,
       placementId: z.string().min(1),
-      spriteAssetId: z.string().min(1).nullable(),
+      visual: focusedVisualSchema.nullable(),
       materialId: z.string().min(1).nullable(),
       materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema),
       materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema),
@@ -377,6 +377,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
   hotspots: z.array(
     strict({
       ownerKind: z.enum(['room', 'interactable']),
+      occurrenceId: z.string().min(1).nullable(),
       ownerId: z.string().min(1),
       hotspotId: z.string().min(1),
       label: z.string().min(1),
@@ -385,7 +386,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
       shape: focusedHotspotShapeSchema,
       target: focusedHotspotTargetSchema,
       cursor: z.string().min(1),
-      sourceAssetId: z.string().min(1),
+      sourceAssetId: z.string().min(1).nullable(),
       sourceWidth: z.number().int().positive().max(65535),
       sourceHeight: z.number().int().positive().max(65535),
       placementId: z.string().min(1).nullable(),
@@ -752,6 +753,26 @@ export const roomPreviewDocumentSchema = strict({
       issue(
         ['world', 'interactables', index, 'placementId'],
         'Referenced Room placement does not exist.',
+      );
+  });
+  document.world.hotspots.forEach((hotspot, index) => {
+    if (hotspot.ownerKind === 'room') {
+      if (hotspot.occurrenceId !== null)
+        issue(
+          ['world', 'hotspots', index, 'occurrenceId'],
+          'Room Hotspot occurrenceId must be null.',
+        );
+    } else if (
+      !document.world.interactables.some(
+        (occurrence) =>
+          occurrence.occurrenceId === hotspot.occurrenceId &&
+          occurrence.interactableId === hotspot.ownerId &&
+          occurrence.placementId === hotspot.placementId,
+      )
+    )
+      issue(
+        ['world', 'hotspots', index, 'occurrenceId'],
+        'Hotspot requires its owning Interactable occurrence.',
       );
   });
   document.world.props.forEach((value, index) => {

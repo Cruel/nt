@@ -37,12 +37,17 @@ runtime identity.
 
 Definition presentation may select an Engine2D Material through a shared Material Application. The application contains the Material selection plus sparse typed parameter sources and sparse author-owned texture sources. Parameters may use literals, compatible Interactable Property bindings, or supported scalar standard facets; renderer-owned inputs remain read-only. Changing the selected Material does not delete incompatible saved entries: they remain dormant until a compatible Material is selected again. Every concrete Instance inherits this application and may author a more-specific sparse specialization: an optional Material-selection replacement plus parameter and author-owned texture deltas. Instance names override matching Definition names; absent Instance entries continue to inherit the Definition application, and Reset removes only the Instance delta. Dormant incompatible Instance entries are retained across Material switching and can reactivate when their compatible Material is selected again.
 
-Presentation chooses one of three explicit Hotspot modes: `none`, `sprite-alpha`, or `custom`.
-`none` performs no pointer hit testing and does not require a sprite. `sprite-alpha` provides one
-Hotspot whose hit area comes from the sprite alpha mask and therefore requires a valid image sprite.
-`custom` contains authored normalized rectangular Hotspots and requires a valid image sprite whenever
-the list is non-empty. Interactable presentation may also define one Definition-level cursor fallback;
-its implicit `sprite-alpha` Hotspot uses that cursor, while each custom Hotspot may override it. Cursor
+Presentation selects a canonical image or raster Animation `visual`, or explicit null. Animation
+selection may name a motion or use its resource default; occurrences loop on the gameplay clock.
+Hotspot modes are `none`, `visual-alpha`, or `custom`; the replaced `sprite` field and `sprite-alpha`
+discriminator are rejected, not aliased. `none` performs no pointer hit testing and needs no Visual.
+`visual-alpha` provides one Hotspot whose hit area follows the currently realized frame's retained
+CPU alpha coverage. Every selected frame must support coverage; missing coverage fails publication
+explicitly, without GPU readback or rectangle fallback. `custom` contains analytic normalized
+rectangles relative to the complete Visual canvas and requires a Visual when non-empty. Hit geometry
+and highlight-source capabilities are independent: analytic geometry does not depend on alpha
+coverage or on overlay support. Interactable presentation may define one Definition-level cursor
+fallback; its implicit `visual-alpha` Hotspot uses that cursor, while custom Hotspots may override it. Cursor
 targets accept system semantic cursors, Project named cursors, or `none`, but not direct cursor images.
 If neither the custom Hotspot nor presentation supplies a cursor, resolution falls through the Project
 Hotspot default and then its Pointer/native fallback. Each Hotspot has stable owner-local identity,
@@ -142,20 +147,19 @@ Interactable editor, and Room workflows that either create-and-place a new Insta
 existing Instance atomically. The Interactable editor and Room composition surface expose the same
 compact exact-Instance Property editor; both mutate the registry entry rather than a Room occurrence
 or placement. The creation wizard accepts Definition identity, an optional
-same-kind Archetype, and an optional sprite. Without an Archetype, creation uses `none` when no sprite
-is selected and `sprite-alpha` when an image sprite is selected. With an Archetype, the sprite choice
-defaults to the Archetype's sprite; choosing a specific sprite or `No sprite` creates an explicit
-presentation override while the Archetype's Hotspot mode and behavior remain inherited.
+same-kind Archetype, and an optional image Visual. Without an Archetype, creation uses `none` when no
+image is selected and `visual-alpha` when an image is selected. With an Archetype, the image choice
+can inherit its Visual or author an explicit replacement/null while Hotspot behavior remains inherited.
+The Definition editor's Visual picker admits images and Animations, with a default/named motion selector.
 Custom Interactable Hotspot geometry is edited through the same full-tab Hotspot Focus workflow used
 by Rooms. The normal Interactable editor retains semantic fields, while Focus owns only source-image
 geometry, local undo/redo, Fit/native zoom, and transactional Done/Cancel behavior. Rectangle mode
 stays active for batch creation and new custom rectangles default to the owning Interactable.
-`sprite-alpha` mode can open the same focused source-image surface for inspection but does not expose
-rectangle drawing.
-Alpha or non-empty custom Hotspots without a sprite are authoring errors because that configuration
-cannot compile into a loadable runtime project. A
-visible Room occurrence whose Interactable has no sprite is allowed but produces an authoring warning
-because it will not render. `CompiledProject` decodes immutable Definitions and separate declared
+`visual-alpha` mode can open the same focused source-image surface for inspection but does not expose
+rectangle drawing. Animation geometry inspection uses the selected motion's first source frame; the
+focused Room preview stages and plays the full Animation through production resource realization.
+Alpha or non-empty custom Hotspots without a Visual are authoring errors. A visible Room occurrence
+whose Interactable has no Visual is allowed but produces an authoring warning because it will not render. `CompiledProject` decodes immutable Definitions and separate declared
 Instances; `SessionState` initializes one live state per Instance, and typed mutations reject missing
 Rooms/Inventories and containment cycles atomically. Authored concrete Instances with unresolved
 required Property contracts are compile errors, and runtime Instance creation validates the same
@@ -169,7 +173,13 @@ Add Quantity, consume, and aggregate Definition quantity/consume helpers. These 
 `InteractableInstanceId` identities. The retired `noveltea.item_stacks` surface is absent rather than
 aliased or normalized onto Interactable quantity semantics.
 
-At runtime, multiple placed Interactables that reference one sprite share its source texture and alpha
-occupancy. Custom mode derives a distinct owner-union binary `R8` mask through the ordinary
-prefetch/jobs/residency pipeline; masks are neither authoring assets nor package entries. Hit testing
-uses analytic authored rectangles, while highlighting samples the owner mask.
+At runtime, occurrences share immutable source textures and alpha coverage, but retain independent
+Room-qualified authored/dynamic/fallback occurrence identities and playback epochs. Reconciliation
+preserves compatible occurrences rather than collapsing all placements of an Instance into one draw.
+Capture, highlight routing, and Trigger source bounds retain the selected occurrence while semantic
+dispatch still carries only the exact Instance/Feature subject. Snapshots keep Visual selection and
+logical canvas metadata unchanged as frames advance; hit testing and overlays consume the same
+selected texture lease. Custom mode derives an owner-union binary `R8` mask through the ordinary
+prefetch/jobs/residency pipeline; Animation masks use logical canvas dimensions. Masks are neither
+authoring Assets nor package entries. Inventory rows currently expose image Visuals as static icons;
+animated Inventory icon realization is not part of this world-presentation cutover.

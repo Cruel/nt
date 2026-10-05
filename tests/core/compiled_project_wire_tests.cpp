@@ -144,7 +144,7 @@ TEST_CASE("compiled project shared decoder retains representative declarations a
     REQUIRE(result);
     const auto& project = result.value();
     CHECK(project.identity.name == "Golden Comprehensive");
-    CHECK(project.save_contract == "sc1:e76ec085f43f213fcb159ed588731d0b");
+    CHECK(project.save_contract == "sc1:0386961dd632471720e61c8df8e939ab");
     CHECK(project.properties.size() == 14);
     CHECK(project.assets.size() == 7);
     CHECK(project.layouts.size() == 2);
@@ -1523,7 +1523,7 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         auto* key =
             test_support::json_object_by_id(interactable["definitions"]["interactables"], "key");
         REQUIRE(key != nullptr);
-        auto* sprite = path_member(*key, {"presentation", "sprite"});
+        auto* sprite = path_member(*key, {"presentation", "visual"});
         REQUIRE(sprite != nullptr);
         *sprite = nullptr;
         auto interactable_result = noveltea::core::decode_compiled_project(
@@ -1539,21 +1539,41 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         auto* key =
             test_support::json_object_by_id(document["definitions"]["interactables"], "key");
         REQUIRE(key != nullptr);
-        (*key)["presentation"]["sprite"] = nullptr;
+        (*key)["presentation"]["visual"] = nullptr;
         (*key)["presentation"]["hotspots"] = nlohmann::json{{"kind", "none"}};
 
         auto result = noveltea::core::decode_compiled_project(document, "hotspot-none.json");
         REQUIRE(result);
     }
 
-    SECTION("Interactable sprites remain image-only when hotspot mode is none")
+    SECTION("replaced Interactable sprite and sprite-alpha shapes are rejected")
+    {
+        auto document = fixture("interaction-program");
+        auto* key =
+            test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+        REQUIRE(key != nullptr);
+        SECTION("old sprite field")
+        {
+            (*key)["presentation"].erase("visual");
+            (*key)["presentation"]["sprite"] = {{"kind", "asset"}, {"id", "image-main"}};
+        }
+        SECTION("old alpha discriminator")
+        {
+            (*key)["presentation"]["hotspots"]["kind"] = "sprite-alpha";
+        }
+        CHECK_FALSE(
+            noveltea::core::decode_compiled_project(document, "replaced-interactable-shape.json"));
+    }
+
+    SECTION("Interactable image Visuals remain image-only when hotspot mode is none")
     {
         auto document = fixture("interaction-program");
         auto* key =
             test_support::json_object_by_id(document["definitions"]["interactables"], "key");
         REQUIRE(key != nullptr);
         (*key)["presentation"]["hotspots"] = nlohmann::json{{"kind", "none"}};
-        (*key)["presentation"]["sprite"] = nlohmann::json{{"id", "audio-voice"}, {"kind", "asset"}};
+        (*key)["presentation"]["visual"] = nlohmann::json{
+            {"kind", "image"}, {"image", {{"id", "audio-voice"}, {"kind", "asset"}}}};
 
         auto result = noveltea::core::decode_compiled_project(
             document, "interactable-none-audio-sprite.json");

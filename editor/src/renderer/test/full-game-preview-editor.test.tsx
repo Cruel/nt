@@ -796,7 +796,7 @@ describe('FullGamePreviewEditor', () => {
     const blocked = cloneProject(project);
     const interactable = defaultInteractableData('New Interactable');
     interactable.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: defaultHotspotBehavior('New Interactable'),
     };
     blocked.interactables['new-interactable'] = {
@@ -810,12 +810,12 @@ describe('FullGamePreviewEditor', () => {
 
     expect(await screen.findByLabelText('Play blockers')).toBeInTheDocument();
     const alphaBlockers = screen.getAllByRole('button', {
-      name: /Play blocker \d+: Alpha hotspot mode requires a sprite image\./,
+      name: /Play blocker \d+: Alpha hotspot mode requires a Visual\./,
     });
     expect(alphaBlockers).toHaveLength(1);
     expect(alphaBlockers[0]).toHaveAttribute(
       'aria-label',
-      expect.stringContaining('Add a sprite or switch hotspot mode.'),
+      expect.stringContaining('Add a Visual or switch hotspot mode.'),
     );
   });
 

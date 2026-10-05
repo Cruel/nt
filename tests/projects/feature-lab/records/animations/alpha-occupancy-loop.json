@@ -1,0 +1,19 @@
+{
+  "id": "alpha-occupancy-loop",
+  "label": "Animated alpha occupancy",
+  "data": {
+    "kind": "animation",
+    "canvas": { "width": 192, "height": 128 },
+    "defaultMotionId": "alternate",
+    "motions": [
+      {
+        "id": "alternate",
+        "kind": "sprite-sequence",
+        "frames": [
+          { "image": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "durationMs": 1500 },
+          { "image": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } }, "durationMs": 1500 }
+        ]
+      }
+    ]
+  }
+}

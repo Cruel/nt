@@ -68,7 +68,7 @@ test('Feature Lab HUD preserves world input and presents active Dialogue text', 
   assert.equal(workshop.data.hotspots.some((hotspot) => hotspot.id === 'gate-lever-hotspot'), false);
   const doorHotspot = workshop.data.hotspots.find((hotspot) => hotspot.id === 'east-gate-control-hotspot');
   assert.deepEqual(doorHotspot?.target, { kind: 'exit', exitId: 'east-gate' });
-  assert.equal(gateLever.data.presentation.hotspots.kind, 'sprite-alpha');
+  assert.equal(gateLever.data.presentation.hotspots.kind, 'visual-alpha');
   assert.deepEqual(gateLever.data.presentation.hotspots.hotspot.target, { kind: 'owner' });
 });
 

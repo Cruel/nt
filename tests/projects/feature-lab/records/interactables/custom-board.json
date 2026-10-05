@@ -11,12 +11,12 @@
     "stackable": false,
     "stackLimit": null,
     "presentation": {
-      "sprite": {
+      "visual": { "kind": "image", "image": {
         "$ref": {
           "collection": "assets",
           "id": "ui-pattern"
         }
-      },
+      } },
       "materialApplication": null,
       "hotspots": {
         "kind": "custom",

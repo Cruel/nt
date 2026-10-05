@@ -1439,12 +1439,12 @@ const interactableDefinitionSchema = strict({
     material: materialReferenceSchema.nullable(),
     materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
     materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
-    sprite: assetReferenceSchema.nullable(),
+    visual: compiledVisualSchema.nullable(),
     cursor: cursorTargetSchema.nullable().default(null),
     hotspots: z.discriminatedUnion('kind', [
       strict({ kind: z.literal('none') }),
       strict({
-        kind: z.literal('sprite-alpha'),
+        kind: z.literal('visual-alpha'),
         hotspot: strict({ ...hotspotCommonShape, target: interactableHotspotTargetSchema }),
       }),
       strict({

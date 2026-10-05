@@ -311,7 +311,7 @@ describe('HotspotImageStage', () => {
     }
   });
 
-  it('keeps geometry-less sprite-alpha entries selectable in the item list without inventing rectangles', () => {
+  it('keeps geometry-less visual-alpha entries selectable in the item list without inventing rectangles', () => {
     const onSelectionChange = vi.fn();
     render(
       <HotspotImageStage

@@ -2801,7 +2801,7 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
     if (presentation_value &&
         decoder.object(*presentation_value, pointer_child(pointer, "presentation"),
                        {"cursor", "hotspots", "material", "materialParameters", "materialTextures",
-                        "sprite"})) {
+                        "visual"})) {
         const auto presentation_pointer = pointer_child(pointer, "presentation");
         const auto* material_value =
             decoder.member(*presentation_value, "material", presentation_pointer);
@@ -2813,8 +2813,8 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
         const auto* material_textures_value = material_textures_entry != presentation_value->end()
                                                   ? &*material_textures_entry
                                                   : nullptr;
-        const auto* sprite_value =
-            decoder.member(*presentation_value, "sprite", presentation_pointer);
+        const auto* visual_value =
+            decoder.member(*presentation_value, "visual", presentation_pointer);
         const auto cursor_entry = presentation_value->find("cursor");
         const auto* cursor_value =
             cursor_entry != presentation_value->end() ? &*cursor_entry : nullptr;
@@ -2846,12 +2846,12 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                           presentation_pointer);
             material_application_ok = false;
         }
-        std::optional<AssetId> sprite;
-        bool sprite_ok = sprite_value != nullptr;
-        if (sprite_value && !sprite_value->is_null()) {
-            sprite = decode_reference<AssetId>(
-                decoder, *sprite_value, pointer_child(presentation_pointer, "sprite"), "asset");
-            sprite_ok = sprite.has_value();
+        std::optional<Visual> visual;
+        bool visual_ok = visual_value != nullptr;
+        if (visual_value && !visual_value->is_null()) {
+            visual = decode_visual(decoder, *visual_value,
+                                   pointer_child(presentation_pointer, "visual"));
+            visual_ok = visual.has_value();
         }
         std::optional<CursorTarget> cursor;
         bool cursor_ok = true;
@@ -2891,7 +2891,7 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
             if (kind && *kind == "none" &&
                 decoder.object(*hotspots_value, hotspots_pointer, {"kind"})) {
                 hotspots = NoInteractableHotspots{};
-            } else if (kind && *kind == "sprite-alpha" &&
+            } else if (kind && *kind == "visual-alpha" &&
                        decoder.object(*hotspots_value, hotspots_pointer, {"hotspot", "kind"})) {
                 const auto* hotspot_value =
                     decoder.member(*hotspots_value, "hotspot", hotspots_pointer);
@@ -2900,7 +2900,7 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                                                      pointer_child(hotspots_pointer, "hotspot"))
                                    : std::nullopt;
                 if (hotspot)
-                    hotspots = SpriteAlphaHotspots{std::move(*hotspot)};
+                    hotspots = VisualAlphaHotspots{std::move(*hotspot)};
             } else if (kind && *kind == "custom" &&
                        decoder.object(*hotspots_value, hotspots_pointer, {"hotspots", "kind"})) {
                 const auto* items_value =
@@ -2951,10 +2951,10 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                 }
             }
         }
-        if (material_application_ok && sprite_ok && cursor_ok && hotspots)
+        if (material_application_ok && visual_ok && cursor_ok && hotspots)
             presentation = InteractablePresentation{
                 std::move(material), std::move(material_parameters), std::move(material_textures),
-                std::move(sprite),   std::move(*hotspots),           std::move(cursor)};
+                std::move(visual),   std::move(*hotspots),           std::move(cursor)};
     }
     if (features)
         decoder.duplicate_ids(*features, pointer_child(pointer, "features"),

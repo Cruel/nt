@@ -274,8 +274,10 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
         }
     }
     for (std::size_t index = 0; index < document.world.interactables.size(); ++index) {
-        require_asset(document.world.interactables[index].sprite_asset_id,
-                      "/world/interactables/" + std::to_string(index) + "/spriteAssetId");
+        const auto& visual = document.world.interactables[index].visual;
+        if (visual && visual->kind == "image")
+            require_asset(visual->resource_id,
+                          "/world/interactables/" + std::to_string(index) + "/visual/assetId");
         require_material_textures(document.world.interactables[index].material_textures,
                                   "/world/interactables/" + std::to_string(index) +
                                       "/materialTextures");
@@ -586,6 +588,17 @@ template<class Id> Id decoded_id(const std::string& value)
     auto decoded = Id::create(value);
     assert(decoded);
     return *decoded.value_if();
+}
+
+core::compiled::Visual
+focused_visual(const core::editor::TypedFocusedRoomWorldDefinition::Visual& value)
+{
+    if (value.kind == "image")
+        return core::compiled::ImageVisual{decoded_id<core::AssetId>(value.resource_id)};
+    return core::compiled::AnimationVisual{
+        decoded_id<core::AnimationId>(value.resource_id),
+        value.motion_id ? std::optional{decoded_id<core::AnimationMotionId>(*value.motion_id)}
+                        : std::nullopt};
 }
 
 core::Result<bool, core::Diagnostics>
@@ -966,16 +979,6 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
              prop.material_id ? std::optional{decoded_id<core::MaterialId>(*prop.material_id)}
                               : std::nullopt,
              prop.material_parameters, prop.material_textures, prop.visible, prop.order});
-    const auto focused_visual =
-        [](const core::editor::TypedFocusedRoomWorldDefinition::Visual& value)
-        -> core::compiled::Visual {
-        if (value.kind == "image")
-            return core::compiled::ImageVisual{decoded_id<core::AssetId>(value.resource_id)};
-        return core::compiled::AnimationVisual{
-            decoded_id<core::AnimationId>(value.resource_id),
-            value.motion_id ? std::optional{decoded_id<core::AnimationMotionId>(*value.motion_id)}
-                            : std::nullopt};
-    };
     for (const auto& environment : document.world.environments)
         definition.environments.push_back(
             {decoded_id<core::RoomEnvironmentId>(environment.environment_id),
@@ -1173,6 +1176,7 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         std::optional<core::compiled::RoomPlacementRef> placement;
         std::optional<core::compiled::NormalizedRect> placement_bounds;
         std::int32_t owner_order = 0;
+        std::optional<core::ResolvedRoomInteractableOccurrenceId> interactable_occurrence;
         if (hotspot.placement_id) {
             const auto found =
                 std::ranges::find_if(document.world.placements, [&](const auto& value) {
@@ -1188,10 +1192,14 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
                     const auto occurrence =
                         std::ranges::find_if(document.world.interactables, [&](const auto& value) {
                             return value.interactable_id == hotspot.owner_id &&
-                                   value.placement_id == *hotspot.placement_id;
+                                   value.placement_id == *hotspot.placement_id &&
+                                   hotspot.occurrence_id == value.occurrence_id;
                         });
-                    if (occurrence != document.world.interactables.end())
+                    if (occurrence != document.world.interactables.end()) {
                         owner_order = occurrence->order;
+                        interactable_occurrence =
+                            decoded_id<core::RoomInteractableEntryId>(occurrence->occurrence_id);
+                    }
                 }
             }
         }
@@ -1221,7 +1229,8 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
              .owner_plane = hotspot.owner_kind == "room" ? core::PresentationPlane::WorldBackground
                                                          : core::PresentationPlane::WorldContent,
              .owner_order = owner_order,
-             .cursor = cursor_target(hotspot.cursor)});
+             .cursor = cursor_target(hotspot.cursor),
+             .interactable_occurrence = interactable_occurrence});
     }
 
     std::set<std::string> mounted_layout_ids;
@@ -1318,17 +1327,14 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
     for (const auto& interactable : document.world.interactables)
         result.interactables.push_back(
             {decoded_id<core::InteractableInstanceId>(interactable.interactable_id),
-             interactable.sprite_asset_id
-                 ? std::optional{decoded_id<core::AssetId>(*interactable.sprite_asset_id)}
-                 : std::nullopt,
+             interactable.visual ? std::optional{focused_visual(*interactable.visual)}
+                                 : std::nullopt,
              interactable.material_id
                  ? std::optional{core::compiled::MaterialApplication{
                        decoded_id<core::MaterialId>(*interactable.material_id),
                        interactable.material_parameters, interactable.material_textures}}
                  : std::nullopt});
     for (const auto& hotspot : document.world.hotspots) {
-        if (!hotspot.source_asset)
-            continue;
         const core::compiled::HotspotRef ref =
             hotspot.owner_kind == "room"
                 ? core::compiled::HotspotRef{core::compiled::RoomHotspotRef{
@@ -1338,7 +1344,7 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
                       decoded_id<core::InteractableInstanceId>(hotspot.owner_id),
                       decoded_id<core::HotspotId>(hotspot.hotspot_id)}};
         result.hotspots.push_back(
-            {ref, *hotspot.source_asset, hotspot.source_width, hotspot.source_height});
+            {ref, hotspot.source_asset, hotspot.source_width, hotspot.source_height});
     }
     return result;
 }

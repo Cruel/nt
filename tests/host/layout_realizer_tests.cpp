@@ -1589,6 +1589,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"hotspots",
            nlohmann::json::array(
                {{{"ownerKind", "room"},
+                 {"occurrenceId", nullptr},
                  {"ownerId", "foyer"},
                  {"hotspotId", "draft"},
                  {"label", "Draft"},
@@ -1738,7 +1739,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                                 {"interactableId", "key"},
                                 {"condition", {{"kind", "always"}}},
                                 {"placementId", "table"},
-                                {"spriteAssetId", nullptr},
+                                {"visual", nullptr},
                                 {"materialId", nullptr},
                                 {"enabled", true},
                                 {"visible", true},
@@ -2016,6 +2017,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"scrollPerSecond", {{"x", 0.0}, {"y", 0.0}}},
           {"opacity", 1.0},
           {"visible", true}}});
+    animated_room["world"]["placements"] = composition_room["world"]["placements"];
+    animated_room["world"]["interactables"] = composition_room["world"]["interactables"];
+    animated_room["world"]["interactables"][0]["visual"] = {
+        {"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}};
+    animated_room["world"]["interactables"][0]["materialId"] = "panel";
     auto animation_request = make_request(core::editor::FocusedEditorDocumentKind::Room,
                                           "room-animation", animated_room, 20);
     animation_request.resources = {
@@ -2047,8 +2053,9 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     publish();
     REQUIRE(completions.back() == std::pair<std::string, std::string>{"room-animation", "applied"});
     REQUIRE(world_backend.frame());
-    REQUIRE(world_backend.frame()->draws.size() == 1);
+    REQUIRE(world_backend.frame()->draws.size() == 2);
     REQUIRE(world_backend.frame()->draws.front().raster_animation_frames[1].texture_lease);
+    CHECK(world_backend.frame()->draws.front().family == WorldDrawFamily::Interactable);
     CHECK_FALSE(assets.has_published_leases_on_owner());
     CHECK(assets.has_focused_published_leases_on_owner());
     core::RuntimeClockUpdate clock;
@@ -2056,6 +2063,12 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
           1);
     clock.unscaled_presentation_time = std::chrono::milliseconds{75};
+    world_backend.realize(clock);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands().back().texture.handle ==
+          2);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          1);
+    clock.gameplay_time = std::chrono::milliseconds{75};
     world_backend.realize(clock);
     CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
           2);

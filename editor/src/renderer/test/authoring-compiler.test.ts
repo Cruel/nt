@@ -162,7 +162,10 @@ describe('authoring compiler framework', () => {
     ];
 
     const key = defaultInteractableData('Key');
-    key.presentation.sprite = { $ref: { collection: 'assets', id: 'pointer' } };
+    key.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'pointer' } },
+    };
     key.presentation.cursor = { kind: 'system', cursor: 'crosshair' };
     key.presentation.hotspots = {
       kind: 'custom',
@@ -226,9 +229,12 @@ describe('authoring compiler framework', () => {
       },
     ];
     const item = defaultInteractableData('Item');
-    item.presentation.sprite = { $ref: { collection: 'assets', id: 'image' } };
+    item.presentation.visual = {
+      kind: 'image',
+      image: { $ref: { collection: 'assets', id: 'image' } },
+    };
     item.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: { ...defaultHotspotBehavior('Item'), target: { kind: 'none' } },
     };
     project.interactables.item = { id: 'item', label: 'Item', data: item };
@@ -243,7 +249,7 @@ describe('authoring compiler framework', () => {
     expect(
       result.project.definitions.interactables.find((entry) => entry.id === 'item')?.presentation
         .hotspots,
-    ).toMatchObject({ kind: 'sprite-alpha', hotspot: { target: { kind: 'none' } } });
+    ).toMatchObject({ kind: 'visual-alpha', hotspot: { target: { kind: 'none' } } });
   });
 
   it('rejects dangling named Hotspot cursor references', () => {
@@ -2081,7 +2087,7 @@ describe('authoring compiler framework', () => {
         ...defaultArchetypeData('interactable'),
         overrides: {
           '/data/presentation/hotspots': {
-            kind: 'sprite-alpha',
+            kind: 'visual-alpha',
             hotspot: defaultHotspotBehavior('Invalid Interactable'),
           },
         },
@@ -2118,13 +2124,13 @@ describe('authoring compiler framework', () => {
           severity: 'error',
           code: 'AUTHORING_HOTSPOT_AUTHORING_SOURCE_IMAGE_REQUIRED',
           jsonPointer:
-            '/archetypes/invalid-interactable/data/effectiveConfiguration/data/presentation/hotspots/kind',
+            '/archetypes/invalid-interactable/data/effectiveConfiguration/data/presentation/visual',
         }),
         expect.objectContaining({
           severity: 'error',
           code: 'AUTHORING_HOTSPOT_AUTHORING_SOURCE_IMAGE_REQUIRED',
           jsonPointer:
-            '/archetypes/invalid-custom-interactable/data/effectiveConfiguration/data/presentation/hotspots/kind',
+            '/archetypes/invalid-custom-interactable/data/effectiveConfiguration/data/presentation/visual',
         }),
       ]),
     );
@@ -3248,7 +3254,7 @@ describe('authoring compiler framework', () => {
     );
     if (!result.ok) return;
     expect(result.project.definitions.interactables[0]?.presentation).toMatchObject({
-      sprite: null,
+      visual: null,
       material: null,
       hotspots: { kind: 'none' },
     });
@@ -3514,6 +3520,17 @@ describe('authoring compiler framework', () => {
         ],
       },
     };
+    const interactable = defaultInteractableData('Animated rain');
+    Object.assign(interactable.presentation, {
+      visual: {
+        kind: 'animation',
+        animation: { $ref: { collection: 'animations', id: 'rain' } },
+        motionId: null,
+      },
+      hotspots: { kind: 'visual-alpha', hotspot: defaultHotspotBehavior('Rain') },
+    });
+    delete (interactable.presentation as Record<string, unknown>).sprite;
+    project.interactables.rain = { id: 'rain', label: 'Rain', data: interactable };
     const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;
     room.environments.push({
       id: 'rain',
@@ -3564,6 +3581,12 @@ describe('authoring compiler framework', () => {
     const environment = result.project.definitions.rooms.find(
       (candidate) => candidate.id === 'foyer',
     )!.environments![0]!;
+    expect(
+      result.project.definitions.interactables.find((item) => item.id === 'rain')?.presentation,
+    ).toMatchObject({
+      visual: { kind: 'animation', animation: { kind: 'animation', id: 'rain' }, motionId: null },
+      hotspots: { kind: 'visual-alpha' },
+    });
     expect(environment).toMatchObject({
       asset: null,
       visual: {
@@ -3727,7 +3750,7 @@ describe('authoring compiler framework', () => {
     const project = validProject();
     const data = defaultInteractableData('Key');
     data.presentation.hotspots = {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: defaultHotspotBehavior('Key'),
     };
     project.interactables.key = { id: 'key', label: 'Key', data };
@@ -3739,7 +3762,7 @@ describe('authoring compiler framework', () => {
       expect.objectContaining({
         code: 'AUTHORING_HOTSPOT_AUTHORING_SOURCE_IMAGE_REQUIRED',
         severity: 'error',
-        jsonPointer: '/interactables/key/data/presentation/hotspots/kind',
+        jsonPointer: '/interactables/key/data/presentation/visual',
       }),
     );
   });
@@ -3801,7 +3824,7 @@ describe('authoring compiler framework', () => {
         stackLimit: null,
         features: [],
         inventories: [],
-        presentation: { sprite: null, material: null, cursor: null, hotspots: { kind: 'none' } },
+        presentation: { visual: null, material: null, cursor: null, hotspots: { kind: 'none' } },
         traits: [],
         propertyAssignments: [],
         properties: [

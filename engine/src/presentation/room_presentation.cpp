@@ -402,7 +402,7 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
     }
     for (const auto& interactable : presentation.interactables) {
         const auto* definition = world.resolved_configuration(interactable.interactable);
-        if (definition == nullptr || !definition->presentation.sprite)
+        if (definition == nullptr || !definition->presentation.visual)
             continue;
         const auto placement = std::find_if(
             room->placements.begin(), room->placements.end(),
@@ -451,11 +451,12 @@ Result<RoomPresentationResolution, Diagnostics> RoomPresentationResolver::resolv
                  .interactable_bounds = placement->bounds,
                  .owner_plane = PresentationPlane::WorldContent,
                  .owner_order = interactable.order,
-                 .cursor = hotspot.cursor ? hotspot.cursor : definition->presentation.cursor});
+                 .cursor = hotspot.cursor ? hotspot.cursor : definition->presentation.cursor,
+                 .interactable_occurrence = interactable.occurrence});
             return Result<void, Diagnostics>::success();
         };
         if (const auto* alpha =
-                std::get_if<compiled::SpriteAlphaHotspots>(&definition->presentation.hotspots)) {
+                std::get_if<compiled::VisualAlphaHotspots>(&definition->presentation.hotspots)) {
             auto added = append(alpha->hotspot, std::monostate{});
             if (!added)
                 return Result<RoomPresentationResolution, Diagnostics>::failure(added.error());

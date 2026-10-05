@@ -581,7 +581,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
 
   const credits = defaultInteractableData('Credits');
   credits.presentation = {
-    sprite: interactableAssetRef('image-main'),
+    visual: { kind: 'image', image: interactableAssetRef('image-main') },
     materialApplication: {
       material: interactableMaterialRef('sprite-material'),
       parameters: {},
@@ -640,7 +640,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   const key = defaultInteractableData('Key');
   key.presentation.hotspots = { kind: 'custom', hotspots: [] };
   key.presentation = {
-    sprite: interactableAssetRef('image-main'),
+    visual: { kind: 'image', image: interactableAssetRef('image-main') },
     materialApplication: {
       material: interactableMaterialRef('sprite-material'),
       parameters: {},
@@ -670,7 +670,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   coin.inventories = [{ id: 'pouch', label: 'Coin Pouch' }];
   coin.presentation.hotspots = { kind: 'custom', hotspots: [] };
   coin.presentation = {
-    sprite: interactableAssetRef('image-main'),
+    visual: { kind: 'image', image: interactableAssetRef('image-main') },
     materialApplication: {
       material: interactableMaterialRef('sprite-material'),
       parameters: {},
@@ -1789,7 +1789,7 @@ export function interactionProgramGoldenProject(): AuthoringProject {
     },
   ];
   key.presentation.hotspots = {
-    kind: 'sprite-alpha',
+    kind: 'visual-alpha',
     hotspot: {
       id: 'key-alpha',
       label: 'Key',

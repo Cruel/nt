@@ -1,3 +1,4 @@
+import { visualImageAssetId } from '../../../shared/project-schema/authoring-animations';
 import type { MaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import type {
   RoomCameraView,
@@ -474,7 +475,7 @@ export function resolveRoomEditProjection({
           normalizedBounds: placement.normalizedBounds,
           plane: 'world-content',
           order: occurrence.order,
-          spriteAssetId: definition.presentation.sprite?.$ref.id ?? null,
+          spriteAssetId: visualImageAssetId(project, definition.presentation.visual),
           materialApplication: effectiveMaterialApplication(
             definition.presentation.materialApplication,
             instance.materialApplication,

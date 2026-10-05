@@ -1,4 +1,15 @@
 {
+  "interactable": {
+    "visual": {
+      "label": "Visual",
+      "available": "{{count}} visuais disponíveis",
+      "motion": "Movimento da animação",
+      "defaultMotion": "Movimento padrão",
+      "choose": "Escolher visual do interagível",
+      "search": "Buscar imagens e animações…",
+      "empty": "Nenhum visual corresponde à busca."
+    }
+  },
   "rmluiDebugger": { "title": "Depurador RmlUi", "context": "Contexto inspecionado" },
   "debugReport": {
     "export": "Exportar relatório de depuração",

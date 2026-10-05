@@ -139,6 +139,17 @@ function assetRef(ref: { $ref: { id: string } } | null | undefined) {
   return ref ? { kind: 'asset' as const, id: ref.$ref.id } : null;
 }
 
+function compileVisual(visual: import('./project-schema/authoring-animations').Visual | null) {
+  if (!visual) return null;
+  return visual.kind === 'image'
+    ? { kind: 'image' as const, image: { kind: 'asset' as const, id: visual.image.$ref.id } }
+    : {
+        kind: 'animation' as const,
+        animation: { kind: 'animation' as const, id: visual.animation.$ref.id },
+        motionId: visual.motionId,
+      };
+}
+
 function compileHighlight(
   highlight:
     | { kind: 'default' | 'none' }
@@ -231,9 +242,9 @@ function compileInteractableHotspots(
   definition: InteractableData['presentation']['hotspots'],
 ): SharedInteractableDefinition['presentation']['hotspots'] {
   if (definition.kind === 'none') return { kind: 'none' };
-  if (definition.kind === 'sprite-alpha')
+  if (definition.kind === 'visual-alpha')
     return {
-      kind: 'sprite-alpha',
+      kind: 'visual-alpha',
       hotspot: {
         ...definition.hotspot,
         cursor: null,
@@ -1112,7 +1123,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       features: data.features.map((feature) => compileFeature(project, feature, 'default')),
       inventories: compileInventories(data.inventories),
       presentation: {
-        sprite: assetRef(data.presentation.sprite),
+        visual: compileVisual(data.presentation.visual),
         ...compileMaterialApplication(data.presentation.materialApplication),
         cursor: data.presentation.cursor ?? null,
         hotspots: compileInteractableHotspots(data.presentation.hotspots),
@@ -1658,7 +1669,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           features: data.features.map((feature) => compileFeature(project, feature, 'default')),
           inventories: compileInventories(data.inventories),
           presentation: {
-            sprite: assetRef(data.presentation.sprite),
+            visual: compileVisual(data.presentation.visual),
             ...compileMaterialApplication(data.presentation.materialApplication),
             cursor: data.presentation.cursor ?? null,
             hotspots: compileInteractableHotspots(data.presentation.hotspots),

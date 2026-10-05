@@ -1,4 +1,5 @@
 import { parseAssetData } from './authoring-assets';
+import { animationDataSchema } from './authoring-animations';
 import { parseInteractableData, type InteractableData } from './authoring-interactables';
 import { resolveMaterialData } from './authoring-materials';
 import { materialContractRegistry } from './material-contract-registry.generated';
@@ -105,7 +106,7 @@ function validateHighlight(
   project: AuthoringProject,
   category: HotspotAuthoringDiagnostic['category'],
   highlight: HotspotHighlight,
-  mode: 'sprite-alpha' | 'custom',
+  mode: 'visual-alpha' | 'custom',
   path: string,
 ): HotspotAuthoringDiagnostic[] {
   if (highlight.kind !== 'material') return [];
@@ -160,13 +161,13 @@ function validateHighlight(
   const maskState = preset?.capabilities.samplers.s_hotspotMask;
   const samplerCompatible =
     imageState === 'required' &&
-    (mode === 'sprite-alpha' ? maskState === 'disabled' : maskState === 'required');
+    (mode === 'visual-alpha' ? maskState === 'disabled' : maskState === 'required');
   if (!samplerCompatible)
     diagnostics.push(
       diagnostic(
         category,
         `${path}/materialApplication/material/$ref`,
-        mode === 'sprite-alpha'
+        mode === 'visual-alpha'
           ? 'Default-alpha hotspot highlights require the alpha hotspot Material contract.'
           : 'Custom hotspot highlights require the custom-mask hotspot Material contract.',
         'hotspot.authoring.highlight.sampler-interface',
@@ -189,8 +190,8 @@ function validateSourceImage(
         path,
         category === 'Interactables'
           ? alphaMode
-            ? 'Alpha hotspot mode requires a sprite image. Add a sprite or switch hotspot mode.'
-            : 'Custom hotspots require a sprite image. Add a sprite or remove the custom hotspots.'
+            ? 'Alpha hotspot mode requires a Visual. Add a Visual or switch hotspot mode.'
+            : 'Custom hotspots require a Visual. Add a Visual or remove the custom hotspots.'
           : 'Clickable hotspots require an image source.',
         'hotspot.authoring.source-image-required',
         'error',
@@ -250,13 +251,13 @@ export function validateInteractableHotspotAuthoringSemantics(
   const hotspots =
     definition.kind === 'none'
       ? []
-      : definition.kind === 'sprite-alpha'
+      : definition.kind === 'visual-alpha'
         ? [definition.hotspot]
         : definition.hotspots;
   const seen = new Set<string>();
   hotspots.forEach((hotspot, index) => {
     const path =
-      definition.kind === 'sprite-alpha'
+      definition.kind === 'visual-alpha'
         ? `${base}/hotspots/hotspot`
         : `${base}/hotspots/hotspots/${index}`;
     if (seen.has(hotspot.id))
@@ -305,24 +306,56 @@ export function validateInteractableHotspotAuthoringSemantics(
         project,
         'Interactables',
         hotspot.highlight,
-        definition.kind === 'sprite-alpha' ? 'sprite-alpha' : 'custom',
+        definition.kind === 'visual-alpha' ? 'visual-alpha' : 'custom',
         `${path}/highlight`,
       ),
     );
   });
-  const requiresSprite =
-    definition.kind === 'sprite-alpha' ||
+  const requiresVisual =
+    definition.kind === 'visual-alpha' ||
     (definition.kind === 'custom' && definition.hotspots.length > 0);
-  if (requiresSprite)
-    diagnostics.push(
-      ...validateSourceImage(
-        project,
-        'Interactables',
-        interactable.presentation.sprite?.$ref.id ?? null,
-        interactable.presentation.sprite ? `${base}/sprite` : `${base}/hotspots/kind`,
-        definition.kind === 'sprite-alpha',
-      ),
-    );
+  if (requiresVisual) {
+    const visual = interactable.presentation.visual;
+    if (visual?.kind === 'animation') {
+      const parsed = animationDataSchema.safeParse(
+        project.animations[visual.animation.$ref.id]?.data,
+      );
+      const motion = parsed.success
+        ? parsed.data.motions.find(
+            (motion) => motion.id === (visual.motionId ?? parsed.data.defaultMotionId),
+          )
+        : null;
+      if (!motion)
+        diagnostics.push(
+          diagnostic(
+            'Interactables',
+            `${base}/visual`,
+            'Hotspots require a valid raster Animation motion.',
+            'hotspot.authoring.visual-invalid',
+          ),
+        );
+      else
+        for (const frame of motion.frames)
+          diagnostics.push(
+            ...validateSourceImage(
+              project,
+              'Interactables',
+              frame.image.$ref.id,
+              `${base}/visual`,
+              definition.kind === 'visual-alpha',
+            ),
+          );
+    } else
+      diagnostics.push(
+        ...validateSourceImage(
+          project,
+          'Interactables',
+          visual?.image.$ref.id ?? null,
+          `${base}/visual`,
+          definition.kind === 'visual-alpha',
+        ),
+      );
+  }
   return diagnostics;
 }
 

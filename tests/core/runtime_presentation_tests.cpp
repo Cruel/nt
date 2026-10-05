@@ -1,3 +1,4 @@
+#include "../support/json_test_utils.hpp"
 #include <noveltea/core/compiled_project_codec.hpp>
 #include <noveltea/core/flow_executor.hpp>
 #include <noveltea/core/layout_policies.hpp>
@@ -115,6 +116,21 @@ CompiledProject animation_room_fixture()
     environment["opacity"] = 0.8;
     environment["visible"] = true;
     (*start)["environments"] = nlohmann::json::array({std::move(environment)});
+    auto* key =
+        noveltea::test_support::json_object_by_id(document["definitions"]["interactables"], "key");
+    REQUIRE(key != nullptr);
+    (*key)["presentation"]["visual"] = {{"kind", "animation"},
+                                        {"animation", {{"kind", "animation"}, {"id", "rain"}}},
+                                        {"motionId", nullptr}};
+    (*key)["presentation"]["hotspots"] = {{"kind", "visual-alpha"},
+                                          {"hotspot",
+                                           {{"id", "alpha"},
+                                            {"label", "Key"},
+                                            {"condition", {{"kind", "always"}}},
+                                            {"inputOrder", 0},
+                                            {"highlight", {{"kind", "none"}}},
+                                            {"target", {{"kind", "owner"}}},
+                                            {"cursor", nullptr}}}};
     auto decoded = decode_compiled_project(document, "animation-room.json");
     REQUIRE(decoded);
     return std::move(decoded).value();
@@ -391,7 +407,9 @@ RoomPresentationVisualCatalog visual_catalog(const CompiledProject& project, Ses
                 return value.interactable == ref.interactable;
             });
             if (visual != catalog.interactables.end())
-                source = visual->sprite;
+                if (visual->visual &&
+                    std::holds_alternative<compiled::ImageVisual>(*visual->visual))
+                    source = std::get<compiled::ImageVisual>(*visual->visual).image;
         }
         const auto* asset = source ? project.find_asset(*source) : nullptr;
         if (source && asset && asset->width && asset->height && *asset->width <= UINT16_MAX &&
@@ -693,7 +711,9 @@ TEST_CASE("presentation projector assembles the complete effective target")
     CHECK(snapshot.interactables.front().interactable == id<InteractableInstanceId>("key"));
     CHECK(snapshot.interactables.front().placement.placement_id ==
           id<RoomPlacementId>("key-placement"));
-    CHECK(snapshot.interactables.front().sprite == id<AssetId>("image-main"));
+    REQUIRE(snapshot.interactables.front().visual);
+    CHECK(std::get<compiled::ImageVisual>(*snapshot.interactables.front().visual).image ==
+          id<AssetId>("image-main"));
     CHECK(snapshot.props.size() == 1);
     CHECK(snapshot.environments.size() == 1);
     CHECK(snapshot.environments.front().stop_key == id<PresentationEnvironmentStopKey>("weather"));
@@ -829,6 +849,18 @@ TEST_CASE("Room runtime presentation preserves raster Animation Visual selection
     CHECK_FALSE(animation->motion);
     CHECK(environment.clock == LayoutClockDomain::UnscaledPresentation);
     CHECK(environment.opacity == 0.8);
+    REQUIRE(projected.value().interactables.size() == 1);
+    const auto& interactable = projected.value().interactables.front();
+    REQUIRE(interactable.visual);
+    CHECK(std::get<compiled::AnimationVisual>(*interactable.visual).animation ==
+          id<AnimationId>("rain"));
+    REQUIRE(interactable.occurrence);
+    REQUIRE(projected.value().hotspots.size() == 1);
+    const auto& hotspot = projected.value().hotspots.front();
+    CHECK_FALSE(hotspot.source_image);
+    CHECK(hotspot.source_width == 64);
+    CHECK(hotspot.source_height == 32);
+    CHECK(hotspot.interactable_occurrence == interactable.occurrence);
 }
 
 TEST_CASE("Room and Character authored Material Applications project parameters and textures")

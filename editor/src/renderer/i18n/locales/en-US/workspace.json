@@ -1,4 +1,15 @@
 {
+  "interactable": {
+    "visual": {
+      "label": "Visual",
+      "available": "{{count}} Visuals available",
+      "motion": "Animation motion",
+      "defaultMotion": "Default motion",
+      "choose": "Choose Interactable Visual",
+      "search": "Search images and Animations…",
+      "empty": "No Visuals match your search."
+    }
+  },
   "rmluiDebugger": { "title": "RmlUi Debugger", "context": "Inspected context" },
   "debugReport": { "export": "Export Debug Report", "exporting": "Exporting Debug Report…" },
   "devtoolsInspector": {
@@ -1425,7 +1436,7 @@
     "focus": {
       "title": "Hotspot Focus",
       "rectangleHelp": "Edit hotspot rectangles against the source image. Rectangle mode stays active for batch creation.",
-      "alphaHelp": "Inspect the sprite-alpha hotspot against the source image.",
+      "alphaHelp": "Inspect the visual-alpha hotspot against the source image.",
       "draftLabel": "Hotspot geometry",
       "roomCommandLabel": "Edit Room hotspot geometry",
       "interactableCommandLabel": "Edit Interactable hotspot geometry",

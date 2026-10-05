@@ -140,7 +140,7 @@ export function renameHotspot(
     const items =
       data.presentation.hotspots.kind === 'none'
         ? []
-        : data.presentation.hotspots.kind === 'sprite-alpha'
+        : data.presentation.hotspots.kind === 'visual-alpha'
           ? [data.presentation.hotspots.hotspot]
           : data.presentation.hotspots.hotspots;
     if (!items.some((item) => item.id === hotspotId))
@@ -150,9 +150,9 @@ export function renameHotspot(
     if (data.presentation.hotspots.kind === 'none')
       return { patches: [], diagnostics: [error('Hotspot does not exist.')] };
     const hotspots =
-      data.presentation.hotspots.kind === 'sprite-alpha'
+      data.presentation.hotspots.kind === 'visual-alpha'
         ? {
-            kind: 'sprite-alpha' as const,
+            kind: 'visual-alpha' as const,
             hotspot: { ...data.presentation.hotspots.hotspot, id: nextId },
           }
         : {
@@ -174,7 +174,7 @@ export function renameHotspot(
 export function setInteractableHotspotMode(
   document: unknown,
   interactableId: string,
-  kind: 'none' | 'sprite-alpha' | 'custom',
+  kind: 'none' | 'visual-alpha' | 'custom',
 ): EntityOperationResult {
   if (!isAuthoringProject(document))
     return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
@@ -186,7 +186,7 @@ export function setInteractableHotspotMode(
       ? { kind: 'none' as const }
       : kind === 'custom'
         ? { kind: 'custom' as const, hotspots: [] }
-        : { kind: 'sprite-alpha' as const, hotspot: defaultHotspotBehavior(data.displayName) };
+        : { kind: 'visual-alpha' as const, hotspot: defaultHotspotBehavior(data.displayName) };
   return replaceInteractableDataPatches(document, {
     interactableId,
     data: {

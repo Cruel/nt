@@ -3984,6 +3984,60 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                      .order = json_access::member_as<int>(value, "order").value_or(0),
                      .visual = visual(value["visual"], path + "/visual")});
             }
+        const auto decode_world_visual =
+            [&](const nlohmann::json& value,
+                const std::string& path) -> std::optional<TypedFocusedRoomWorldDefinition::Visual> {
+            if (value.is_null())
+                return std::nullopt;
+            if (!value.is_object()) {
+                diagnostics.push_back(
+                    error("editor_preview.wrong_type", "Visual must be an object or null.", path));
+                return std::nullopt;
+            }
+            const auto kind = required_string(value, "kind", path);
+            if (kind == "image") {
+                exact_fields(value, {"kind", "assetId"}, diagnostics, path);
+                const auto asset = required_string(value, "assetId", path);
+                (void)focused_id.operator()<AssetId>(asset, path + "/assetId");
+                return TypedFocusedRoomWorldDefinition::Visual{kind, asset, std::nullopt};
+            }
+            if (kind != "animation") {
+                diagnostics.push_back(error("editor_preview.invalid_value",
+                                            "Visual kind must be image or animation.", path));
+                return std::nullopt;
+            }
+            exact_fields(value, {"kind", "animationId", "motionId"}, diagnostics, path);
+            if (!value.contains("motionId")) {
+                diagnostics.push_back(error("editor_preview.missing_field",
+                                            "Animation Visual requires nullable motionId.",
+                                            path + "/motionId"));
+                return std::nullopt;
+            }
+            TypedFocusedRoomWorldDefinition::Visual result_visual{
+                kind, required_string(value, "animationId", path),
+                optional_string(value, "motionId", path)};
+            (void)focused_id.operator()<AnimationId>(result_visual.resource_id,
+                                                     path + "/animationId");
+            if (result_visual.motion_id)
+                (void)focused_id.operator()<AnimationMotionId>(*result_visual.motion_id,
+                                                               path + "/motionId");
+            const auto animation =
+                std::ranges::find_if(result.world.animations, [&](const auto& candidate) {
+                    return candidate.id == result_visual.resource_id;
+                });
+            if (animation == result.world.animations.end())
+                diagnostics.push_back(error("editor_preview.invalid_value",
+                                            "Visual references a missing Animation.",
+                                            path + "/animationId"));
+            else if (result_visual.motion_id &&
+                     std::ranges::none_of(animation->motions, [&](const auto& motion) {
+                         return motion.id == *result_visual.motion_id;
+                     }))
+                diagnostics.push_back(error("editor_preview.invalid_value",
+                                            "Visual references a missing motion.",
+                                            path + "/motionId"));
+            return result_visual;
+        };
         if (const auto* interactables = array("interactables"))
             for (std::size_t index = 0; index < interactables->size(); ++index) {
                 const auto& value = (*interactables)[index];
@@ -3995,16 +4049,21 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                 }
                 exact_fields(value,
                              {"occurrenceId", "interactableId", "condition", "placementId",
-                              "spriteAssetId", "materialId", "materialParameters",
-                              "materialTextures", "enabled", "visible", "occurrenceVisible",
-                              "order"},
+                              "visual", "materialId", "materialParameters", "materialTextures",
+                              "enabled", "visible", "occurrenceVisible", "order"},
                              diagnostics, path);
+                if (!value.contains("visual")) {
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "Interactable requires nullable Visual.",
+                                                path + "/visual"));
+                    continue;
+                }
                 TypedFocusedRoomWorldDefinition::Interactable typed{
                     .occurrence_id = required_string(value, "occurrenceId", path),
                     .interactable_id = required_string(value, "interactableId", path),
                     .condition = condition(value["condition"], path + "/condition"),
                     .placement_id = required_string(value, "placementId", path),
-                    .sprite_asset_id = optional_string(value, "spriteAssetId", path),
+                    .visual = decode_world_visual(value["visual"], path + "/visual"),
                     .material_id = optional_string(value, "materialId", path),
                     .material_parameters = {},
                     .material_textures = {},
@@ -4092,55 +4151,8 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                         vector2(value["scrollPerSecond"], path + "/scrollPerSecond"),
                     .opacity = json_access::member_as<double>(value, "opacity").value_or(1.0),
                     .visible = required_bool(value, "visible", path)};
-                if (const auto visual = value.find("visual");
-                    visual != value.end() && !visual->is_null()) {
-                    if (!visual->is_object()) {
-                        diagnostics.push_back(error("editor_preview.wrong_type",
-                                                    "Environment Visual must be an object or null.",
-                                                    path + "/visual"));
-                    } else {
-                        const auto kind = required_string(*visual, "kind", path + "/visual");
-                        if (kind == "image") {
-                            exact_fields(*visual, {"kind", "assetId"}, diagnostics,
-                                         path + "/visual");
-                            typed.visual = TypedFocusedRoomWorldDefinition::Visual{
-                                .kind = kind,
-                                .resource_id =
-                                    required_string(*visual, "assetId", path + "/visual"),
-                                .motion_id = std::nullopt};
-                        } else if (kind == "animation") {
-                            exact_fields(*visual, {"kind", "animationId", "motionId"}, diagnostics,
-                                         path + "/visual");
-                            typed.visual = TypedFocusedRoomWorldDefinition::Visual{
-                                .kind = kind,
-                                .resource_id =
-                                    required_string(*visual, "animationId", path + "/visual"),
-                                .motion_id =
-                                    optional_string(*visual, "motionId", path + "/visual")};
-                        } else {
-                            diagnostics.push_back(error("editor_preview.invalid_value",
-                                                        "Visual kind must be image or animation.",
-                                                        path + "/visual/kind"));
-                        }
-                    }
-                }
-                if (typed.visual && typed.visual->kind == "animation") {
-                    const auto animation =
-                        std::ranges::find_if(result.world.animations, [&](const auto& candidate) {
-                            return candidate.id == typed.visual->resource_id;
-                        });
-                    if (animation == result.world.animations.end())
-                        diagnostics.push_back(error("editor_preview.invalid_value",
-                                                    "Environment references a missing Animation.",
-                                                    path + "/visual/animationId"));
-                    else if (typed.visual->motion_id &&
-                             std::ranges::none_of(animation->motions, [&](const auto& motion) {
-                                 return motion.id == *typed.visual->motion_id;
-                             }))
-                        diagnostics.push_back(error("editor_preview.invalid_value",
-                                                    "Environment references a missing motion.",
-                                                    path + "/visual/motionId"));
-                }
+                if (const auto visual = value.find("visual"); visual != value.end())
+                    typed.visual = decode_world_visual(*visual, path + "/visual");
                 if (const auto parameters = value.find("materialParameters");
                     parameters != value.end())
                     typed.material_parameters =
@@ -4178,12 +4190,19 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     continue;
                 }
                 exact_fields(value,
-                             {"ownerKind", "ownerId", "hotspotId", "label", "condition",
-                              "inputOrder", "shape", "target", "cursor", "sourceAssetId",
-                              "sourceWidth", "sourceHeight", "placementId"},
+                             {"ownerKind", "occurrenceId", "ownerId", "hotspotId", "label",
+                              "condition", "inputOrder", "shape", "target", "cursor",
+                              "sourceAssetId", "sourceWidth", "sourceHeight", "placementId"},
                              diagnostics, path);
+                if (!value.contains("occurrenceId") || !value.contains("sourceAssetId")) {
+                    diagnostics.push_back(
+                        error("editor_preview.missing_field",
+                              "Hotspot requires nullable occurrenceId and sourceAssetId.", path));
+                    continue;
+                }
                 TypedFocusedRoomWorldDefinition::Hotspot typed{
                     .owner_kind = required_string(value, "ownerKind", path),
+                    .occurrence_id = optional_string(value, "occurrenceId", path),
                     .owner_id = required_string(value, "ownerId", path),
                     .hotspot_id = required_string(value, "hotspotId", path),
                     .label = required_string(value, "label", path),
@@ -4197,13 +4216,30 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     .source_width = 0,
                     .source_height = 0,
                     .placement_id = optional_string(value, "placementId", path)};
-                const auto source_asset_text = required_string(value, "sourceAssetId", path);
-                if (auto source_asset = AssetId::create(source_asset_text))
-                    typed.source_asset = std::move(source_asset).value();
-                else
-                    diagnostics.push_back(error("editor_preview.invalid_id",
-                                                "Hotspot sourceAssetId is invalid.",
-                                                path + "/sourceAssetId"));
+                if (const auto source_asset_text = optional_string(value, "sourceAssetId", path)) {
+                    if (auto source_asset = AssetId::create(*source_asset_text))
+                        typed.source_asset = std::move(source_asset).value();
+                    else
+                        diagnostics.push_back(error("editor_preview.invalid_id",
+                                                    "Hotspot sourceAssetId is invalid.",
+                                                    path + "/sourceAssetId"));
+                }
+                if (typed.owner_kind == "interactable") {
+                    if (!typed.occurrence_id ||
+                        std::ranges::none_of(
+                            result.world.interactables, [&](const auto& occurrence) {
+                                return occurrence.occurrence_id == *typed.occurrence_id &&
+                                       occurrence.interactable_id == typed.owner_id &&
+                                       occurrence.placement_id == typed.placement_id;
+                            }))
+                        diagnostics.push_back(
+                            error("editor_preview.invalid_value",
+                                  "Hotspot requires its owning Interactable occurrence.",
+                                  path + "/occurrenceId"));
+                } else if (typed.occurrence_id)
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Room Hotspot occurrenceId must be null.",
+                                                path + "/occurrenceId"));
                 const auto source_width =
                     json_access::member_as<std::uint32_t>(value, "sourceWidth");
                 const auto source_height =
