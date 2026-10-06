@@ -14,7 +14,8 @@ concurrency:
 env:
   VCPKG_ROOT: ${{ github.workspace }}/.cache/vcpkg
   VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}/.cache/vcpkg-binary,readwrite
-  RELEASE_REF: ${{ github.ref }}
+  # Every release job must build the exact commit that triggered the workflow; branch refs can advance between jobs.
+  RELEASE_REF: ${{ github.sha }}
   EMSDK_VERSION: 6.0.0
   CCACHE_DIR: ${{ github.workspace }}/.cache/ccache
   CCACHE_MAXSIZE: 500M
