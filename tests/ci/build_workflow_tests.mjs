@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { readFileSync } from 'node:fs';
+import { readFileSync, readdirSync } from 'node:fs';
 import { test } from 'node:test';
 
 const workflow = readFileSync(new URL('../../.github/workflows/build.yml', import.meta.url), 'utf8');
@@ -21,6 +21,14 @@ const cliBuildScript = readFileSync(
   'utf8',
 );
 
+function releaseJob(name) {
+  const match = releaseWorkflow.match(
+    new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'),
+  );
+  assert.ok(match, `Missing release job ${name}`);
+  return match[0];
+}
+
 function job(name) {
   const match = workflow.match(new RegExp(`^  ${name}:\\n[\\s\\S]*?(?=^  [\\w-]+:|$(?![\\s\\S]))`, 'm'));
   assert.ok(match, `Missing job ${name}`);
@@ -39,6 +47,50 @@ function field(source, name) {
   assert.ok(match, `Missing field ${name}`);
   return match[1];
 }
+
+test('release Windows CLI build and certification are separate same-run artifact stages', () => {
+  const producer = releaseJob('windows-cli-build');
+  const consumer = releaseJob('windows-cli');
+  const cliUpload = step(producer, 'Upload Windows CLI build');
+  const headersUpload = step(producer, 'Upload Windows CLI certification shader headers');
+  const cliDownload = step(consumer, 'Download Windows CLI build');
+  const headersDownload = step(consumer, 'Download Windows CLI certification shader headers');
+  const bundleBuild = step(consumer, 'Build Node reference bundle');
+  const certification = step(consumer, 'Certify Windows CLI');
+
+  assert.match(producer, /pnpm -C editor run noveltea:build/);
+  assert.doesNotMatch(consumer, /pnpm -C editor run noveltea:build/);
+  assert.match(consumer, /needs: \[release-metadata, windows-cli-build\]/);
+  assert.equal(field(cliUpload, 'path'), 'build/cli/windows');
+  assert.equal(field(cliDownload, 'path'), 'build/cli/windows');
+  assert.equal(
+    field(headersUpload, 'path'),
+    'build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src',
+  );
+  assert.equal(
+    field(headersDownload, 'path'),
+    'build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src',
+  );
+  assert.equal(field(cliUpload, 'retention-days'), '1');
+  assert.equal(field(headersUpload, 'retention-days'), '1');
+  assert.match(bundleBuild, /pnpm -C editor exec vp pack/);
+  assert.ok(consumer.indexOf(cliDownload) < consumer.indexOf(certification));
+  assert.ok(consumer.indexOf(headersDownload) < consumer.indexOf(certification));
+  assert.ok(consumer.indexOf(bundleBuild) < consumer.indexOf(certification));
+  assert.doesNotMatch(consumer, /Cache vcpkg SDK and binaries|Set up Zig for ScriptC Windows target/);
+});
+
+test('workflows do not spend Actions cache quota on package-manager or downloadable SDK caches', () => {
+  const workflowRoot = new URL('../../.github/workflows/', import.meta.url);
+  const sources = readdirSync(workflowRoot)
+    .filter((name) => name.endsWith('.yml') || name.endsWith('.yaml'))
+    .map((name) => readFileSync(new URL(name, workflowRoot), 'utf8'))
+    .join('\n');
+  assert.doesNotMatch(sources, /cache: pnpm/);
+  assert.doesNotMatch(sources, /cache: gradle/);
+  assert.doesNotMatch(sources, /name: Cache Emscripten SDK/);
+  assert.doesNotMatch(sources, /name: Cache SDL3 Android AAR/);
+});
 
 test('CLI certification receives same-run shader headers without depending on caches', () => {
   const producer = job('linux-cli');
