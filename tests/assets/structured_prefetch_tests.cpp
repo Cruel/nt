@@ -533,7 +533,7 @@ core::LoadedCompiledPackage collector_package()
 core::LoadedCompiledPackage animation_collector_package()
 {
     auto document = read_comprehensive_project();
-    for (const auto& id : {"animation-frame-a", "animation-frame-b"})
+    for (const auto& id : {"animation-frame-a", "animation-frame-b", "animation-frame-c"})
         document["resources"]["assets"].push_back(
             {{"aliases", nlohmann::json::array()},
              {"id", id},
@@ -555,6 +555,12 @@ core::LoadedCompiledPackage animation_collector_package()
                                 {{{"image", {{"kind", "asset"}, {"id", "animation-frame-a"}}},
                                   {"durationMs", 50}},
                                  {{"image", {{"kind", "asset"}, {"id", "animation-frame-b"}}},
+                                  {"durationMs", 100}}})}},
+                {{"id", "inspect"},
+                 {"kind", "sprite-sequence"},
+                 {"markers", nlohmann::json::array()},
+                 {"frames", nlohmann::json::array(
+                                {{{"image", {{"kind", "asset"}, {"id", "animation-frame-c"}}},
                                   {"durationMs", 100}}})}}})}}});
     document["definitions"]["rooms"][0]["environments"] = nlohmann::json::array(
         {{{"id", "rain"},
@@ -5697,5 +5703,84 @@ TEST_CASE("mandatory gate includes transient audio in publication leases",
     REQUIRE(fixture.manager.leased_audio_on_owner(request));
     REQUIRE(transaction->commit_on_owner(false));
     REQUIRE(fixture.manager.has_published_leases_on_owner());
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE("mandatory gate prepares finite motion frames before operation delivery",
+          "[assets][mandatory-assets][animation][presentation-operation]")
+{
+    PlannerFixture fixture;
+    MaterialDefinition material;
+    material.role = ShaderRole::Engine2D;
+    fixture.materials.definition = &material;
+    auto package = animation_collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
+
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(9);
+    snapshot.interactables.push_back(
+        {id<core::InteractableInstanceId>("key"),
+         {id<core::RoomId>("hall"), id<core::RoomPlacementId>("key-placement")},
+         {0.0, 0.0, 1.0, 1.0},
+         core::compiled::AnimationVisual{id<core::AnimationId>("rain-loop"),
+                                         id<core::AnimationMotionId>("fall"), std::nullopt},
+         id<core::MaterialId>("sprite-material")});
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto initial = gate.take_ready_transaction_on_owner();
+    REQUIRE(initial);
+    REQUIRE(initial->commit_on_owner(false));
+
+    const assets::TextureAssetRequest extra{.path = "project:/assets/images/animation-frame-c.png",
+                                            .sampler = MaterialTextureSampler::ClampLinear};
+    CHECK(fixture.manager.leased_texture_on_owner(extra) == nullptr);
+
+    auto target_snapshot = snapshot;
+    target_snapshot.revision = core::PresentationSnapshotRevision::from_number(10);
+    REQUIRE(gate.begin_on_owner(target_snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+
+    const core::MotionPlaybackPolicy playback{.repeat = core::MotionRepeat::Once,
+                                              .rate = 1.0,
+                                              .clock = core::LayoutClockDomain::Gameplay,
+                                              .initial_marker = std::nullopt,
+                                              .loop_range = std::nullopt};
+    const core::PresentationOperation operation{core::PlayMotionOperation{
+        {.id = core::PresentationOperationId::from_number(17),
+         .duration = std::chrono::milliseconds{100},
+         .skippable = true,
+         .clock = core::LayoutClockDomain::Gameplay,
+         .revisions = {snapshot.revision, core::PresentationSnapshotRevision::from_number(10)},
+         .easing = core::PresentationEasing::Linear},
+        core::InteractableMotionOperationTarget{
+            id<core::InteractableInstanceId>("key"),
+            {id<core::RoomId>("hall"), id<core::RoomPlacementId>("key-placement")}},
+        id<core::AnimationMotionId>("inspect"),
+        playback,
+        std::nullopt}};
+    auto missing = operation;
+    std::get<core::PlayMotionOperation>(missing).motion =
+        id<core::AnimationMotionId>("missing-motion");
+    const auto rejected = gate.include_presentation_operation_on_owner(missing);
+    REQUIRE_FALSE(rejected);
+    REQUIRE_FALSE(rejected.error().empty());
+    CHECK(rejected.error().front().code == "assets.prefetch_missing_animation_motion");
+    CHECK(gate.active_on_owner());
+
+    REQUIRE(gate.include_presentation_operation_on_owner(operation));
+    REQUIRE(gate.active_on_owner());
+    CHECK(fixture.manager.leased_texture_on_owner(extra) == nullptr);
+
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto prepared = gate.take_ready_transaction_on_owner();
+    REQUIRE(prepared);
+    REQUIRE(fixture.manager.leased_texture_on_owner(extra) != nullptr);
+    REQUIRE(prepared->commit_on_owner(false));
+    REQUIRE(fixture.manager.leased_texture_on_owner(extra) != nullptr);
     gate.clear_package_on_owner();
 }

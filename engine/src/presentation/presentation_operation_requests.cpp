@@ -40,6 +40,9 @@ FinitePresentationOperationTarget operation_target(const FinitePresentationOpera
                 return value.target;
             else if constexpr (std::is_same_v<T, BackgroundPresentationOperation>)
                 return BackgroundOperationTarget{};
+            else if constexpr (std::is_same_v<T, PlayMotionOperation> ||
+                               std::is_same_v<T, TransitionMotionOperation>)
+                return value.target;
             else
                 return value.target;
         },
@@ -49,6 +52,87 @@ FinitePresentationOperationTarget operation_target(const FinitePresentationOpera
 bool operation_skippable(const FinitePresentationOperation& operation) noexcept
 {
     return std::visit([](const auto& value) { return value.common.skippable; }, operation);
+}
+
+bool motion_target_occurrence_matches(
+    const std::optional<ResolvedRoomInteractableOccurrenceId>& occurrence,
+    const std::optional<InteractableMotionOperationOccurrence>& target) noexcept
+{
+    if (!occurrence || !target)
+        return occurrence.has_value() == target.has_value();
+    return std::visit(
+        [](const auto& resolved, const auto& requested) {
+            using Resolved = std::decay_t<decltype(resolved)>;
+            using Requested = std::decay_t<decltype(requested)>;
+            if constexpr (std::is_same_v<Resolved, RoomInteractableEntryId> &&
+                          std::is_same_v<Requested, RoomInteractableEntryId>)
+                return resolved == requested;
+            else if constexpr (std::is_same_v<Resolved, DynamicRoomInteractableOccurrenceId> &&
+                               std::is_same_v<Requested, DynamicInteractableMotionOccurrence>)
+                return resolved.interactable == requested.interactable;
+            else if constexpr (std::is_same_v<Resolved, FallbackRoomInteractableOccurrenceId> &&
+                               std::is_same_v<Requested, FallbackInteractableMotionOccurrence>)
+                return resolved.interactable == requested.interactable;
+            else
+                return false;
+        },
+        *occurrence, *target);
+}
+
+namespace {
+template<class Snapshot>
+auto motion_target_visual_impl(Snapshot& snapshot, const MotionOperationTarget& target) noexcept
+    -> std::conditional_t<std::is_const_v<Snapshot>, const compiled::Visual*, compiled::Visual*>
+{
+    return std::visit(
+        [&](const auto& value) -> std::conditional_t<std::is_const_v<Snapshot>,
+                                                     const compiled::Visual*, compiled::Visual*> {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, EnvironmentMotionOperationTarget>) {
+                const auto found =
+                    std::ranges::find_if(snapshot.environments, [&](const auto& candidate) {
+                        return candidate.instance == value.environment &&
+                               candidate.owner == value.owner;
+                    });
+                return found == snapshot.environments.end() || !found->visual ? nullptr
+                                                                              : &*found->visual;
+            } else if constexpr (std::is_same_v<T, InteractableMotionOperationTarget>) {
+                const auto found =
+                    std::ranges::find_if(snapshot.interactables, [&](const auto& candidate) {
+                        return candidate.interactable == value.interactable &&
+                               candidate.placement == value.placement &&
+                               motion_target_occurrence_matches(candidate.occurrence,
+                                                                value.occurrence);
+                    });
+                return found == snapshot.interactables.end() || !found->visual ? nullptr
+                                                                               : &*found->visual;
+            } else {
+                const auto actor =
+                    std::ranges::find_if(snapshot.actors, [&](const auto& candidate) {
+                        return candidate.key == value.actor;
+                    });
+                if (actor == snapshot.actors.end())
+                    return nullptr;
+                const auto layer = std::ranges::find_if(actor->layers, [&](const auto& candidate) {
+                    return candidate.id == value.layer;
+                });
+                return layer == actor->layers.end() || !layer->visual ? nullptr : &*layer->visual;
+            }
+        },
+        target);
+}
+} // namespace
+
+const compiled::Visual* motion_target_visual(const RuntimePresentationSnapshot& snapshot,
+                                             const MotionOperationTarget& target) noexcept
+{
+    return motion_target_visual_impl(snapshot, target);
+}
+
+compiled::Visual* motion_target_visual(RuntimePresentationSnapshot& snapshot,
+                                       const MotionOperationTarget& target) noexcept
+{
+    return motion_target_visual_impl(snapshot, target);
 }
 
 Result<CameraFocusCapture, Diagnostics>

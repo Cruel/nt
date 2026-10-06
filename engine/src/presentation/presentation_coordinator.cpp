@@ -22,16 +22,19 @@ bool terminal(const PresentationOperationState& state)
 Result<void, Diagnostics>
 validate_finite_common(PresentationOperationId id, std::chrono::milliseconds duration,
                        LayoutClockDomain clock, const PresentationRevisionBinding& revisions,
-                       PresentationEasing easing = PresentationEasing::Linear)
+                       PresentationEasing easing = PresentationEasing::Linear,
+                       bool allow_unscaled = false)
 {
-    if (id.number() == 0 || duration.count() <= 0 || clock != LayoutClockDomain::Gameplay ||
+    const bool valid_clock = clock == LayoutClockDomain::Gameplay ||
+                             (allow_unscaled && clock == LayoutClockDomain::UnscaledPresentation);
+    if (id.number() == 0 || duration.count() <= 0 || !valid_clock ||
         revisions.source.number() == 0 || revisions.target.number() == 0 ||
         revisions.target.number() <= revisions.source.number() ||
         easing > PresentationEasing::EaseInOut)
         return Result<void, Diagnostics>::failure({diagnostic(
             "presentation.invalid_finite_operation",
             "Finite presentation operations require a nonzero identity, positive duration, "
-            "gameplay clock, increasing source/target revisions, and valid easing")});
+            "an admitted clock, increasing source/target revisions, and valid easing")});
     return Result<void, Diagnostics>::success();
 }
 
@@ -244,6 +247,43 @@ normalize(const CharacterGestureOperation& operation)
          .completion = completion_target(operation.completion)});
 }
 
+template<class Operation>
+Result<PresentationOperationMetadata, Diagnostics> normalize_motion(const Operation& operation)
+{
+    auto valid = validate_finite_common(operation.common.id, operation.common.duration,
+                                        operation.common.clock, operation.common.revisions,
+                                        operation.common.easing, true);
+    if (!valid)
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(valid.error());
+    if (!std::isfinite(operation.playback.rate) || operation.playback.rate <= 0.0 ||
+        operation.playback.repeat != MotionRepeat::Once || operation.playback.loop_range ||
+        operation.playback.clock != operation.common.clock ||
+        operation.common.easing != PresentationEasing::Linear) {
+        return Result<PresentationOperationMetadata, Diagnostics>::failure(
+            {diagnostic("presentation.invalid_motion_operation",
+                        "Finite motion operations require once playback, positive finite rate, "
+                        "no loop range, the operation clock, and linear timeline sampling")});
+    }
+    return Result<PresentationOperationMetadata, Diagnostics>::success(
+        {.operation = operation.common.id,
+         .sequence = PresentationOperationSequence::from_number(1),
+         .owner = PresentationOperationOwner::GameplayRuntime,
+         .checkpoint_class =
+             operation.completion ? CheckpointClass::CausalBarrier : CheckpointClass::Disposable,
+         .completion = completion_target(operation.completion)});
+}
+
+Result<PresentationOperationMetadata, Diagnostics> normalize(const PlayMotionOperation& operation)
+{
+    return normalize_motion(operation);
+}
+
+Result<PresentationOperationMetadata, Diagnostics>
+normalize(const TransitionMotionOperation& operation)
+{
+    return normalize_motion(operation);
+}
+
 Result<PresentationOperationMetadata, Diagnostics>
 normalize(const LayoutFinitePresentationOperation& operation)
 {
@@ -324,6 +364,8 @@ finite_target(const CoordinatedPresentationOperation& operation)
                           std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
                           std::is_same_v<T, CharacterGestureOperation> ||
+                          std::is_same_v<T, PlayMotionOperation> ||
+                          std::is_same_v<T, TransitionMotionOperation> ||
                           std::is_same_v<T, LayoutFinitePresentationOperation> ||
                           std::is_same_v<T, MaterialParameterTransitionOperation>)
                 return operation_target(FinitePresentationOperation{value});
@@ -350,6 +392,8 @@ std::optional<bool> finite_skippable(const CoordinatedPresentationOperation& ope
                           std::is_same_v<T, CameraFlashOperation> ||
                           std::is_same_v<T, ActorPresentationOperation> ||
                           std::is_same_v<T, CharacterGestureOperation> ||
+                          std::is_same_v<T, PlayMotionOperation> ||
+                          std::is_same_v<T, TransitionMotionOperation> ||
                           std::is_same_v<T, LayoutFinitePresentationOperation> ||
                           std::is_same_v<T, MaterialParameterTransitionOperation>)
                 return operation_skippable(FinitePresentationOperation{value});

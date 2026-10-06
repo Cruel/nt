@@ -29,9 +29,9 @@ using CoordinatedPresentationOperation =
                  BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
                  CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
                  CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
-                 CharacterGestureOperation, LayoutFinitePresentationOperation,
-                 MaterialParameterTransitionOperation, AudioOperation,
-                 ActiveTextPresentationOperation>;
+                 CharacterGestureOperation, PlayMotionOperation, TransitionMotionOperation,
+                 LayoutFinitePresentationOperation, MaterialParameterTransitionOperation,
+                 AudioOperation, ActiveTextPresentationOperation>;
 
 struct CoordinatedOperationDelivery {
     PresentationOperationMetadata metadata;

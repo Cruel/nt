@@ -261,6 +261,42 @@ validate_targeted(const WorldPresentationBackend& world,
                         failure("presentation.character_gesture_clip_missing",
                                 "Character Gesture clip is unavailable on the selected Profile"));
                 }
+            } else if constexpr (std::is_same_v<T, core::PlayMotionOperation>) {
+                const auto* source_visual =
+                    core::motion_target_visual(*source_snapshot, value.target);
+                const auto* target_visual =
+                    core::motion_target_visual(*target_snapshot, value.target);
+                if (source_visual == nullptr || target_visual == nullptr ||
+                    *source_visual != *target_visual) {
+                    return core::Result<void, core::Diagnostic>::failure(
+                        failure("presentation.play_motion_desired_state_changed",
+                                "Play Motion requires unchanged underlying desired presentation"));
+                }
+                if (!std::holds_alternative<core::compiled::AnimationVisual>(*target_visual)) {
+                    return core::Result<void, core::Diagnostic>::failure(
+                        failure("presentation.motion_target_not_animated",
+                                "Play Motion requires an Animation Visual target"));
+                }
+            } else if constexpr (std::is_same_v<T, core::TransitionMotionOperation>) {
+                const auto* source_visual =
+                    core::motion_target_visual(*source_snapshot, value.target);
+                const auto* target_visual =
+                    core::motion_target_visual(*target_snapshot, value.target);
+                const auto* source_animation =
+                    source_visual ? std::get_if<core::compiled::AnimationVisual>(source_visual)
+                                  : nullptr;
+                const auto* target_animation =
+                    target_visual ? std::get_if<core::compiled::AnimationVisual>(target_visual)
+                                  : nullptr;
+                if (source_animation == nullptr || target_animation == nullptr ||
+                    source_animation->animation != target_animation->animation ||
+                    target_animation->motion !=
+                        std::optional<core::AnimationMotionId>{value.target_motion}) {
+                    return core::Result<void, core::Diagnostic>::failure(
+                        failure("presentation.transition_motion_target_mismatch",
+                                "Transition Motion requires the durable target motion to be "
+                                "committed in its exact target revision first"));
+                }
             } else {
                 if (value.kind != core::LayoutOperationKind::Fade) {
                     return core::Result<void, core::Diagnostic>::failure(
@@ -465,6 +501,8 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
                           std::is_same_v<T, core::CameraFlashOperation> ||
                           std::is_same_v<T, core::ActorPresentationOperation> ||
                           std::is_same_v<T, core::CharacterGestureOperation> ||
+                          std::is_same_v<T, core::PlayMotionOperation> ||
+                          std::is_same_v<T, core::TransitionMotionOperation> ||
                           std::is_same_v<T, core::LayoutFinitePresentationOperation>)
                 return TargetedPresentationOperation{value};
             return std::nullopt;
@@ -492,6 +530,34 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
     }
 
     const auto target = targeted_target(*targeted);
+    std::optional<WorldPreparedMotionOverride> motion_override;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::PlayMotionOperation> ||
+                          std::is_same_v<T, core::TransitionMotionOperation>) {
+                auto prepared = m_world.prepare_motion_override(
+                    value.common.revisions.target, value.target, value.motion, value.playback);
+                if (!prepared) {
+                    publish_failure(delivery, std::move(prepared).error().front());
+                    return;
+                }
+                if (prepared.value_if()->duration != value.common.duration) {
+                    publish_failure(
+                        delivery,
+                        failure("presentation.motion_duration_mismatch",
+                                "Finite motion duration must equal the selected authored motion "
+                                "endpoint at its operation-local rate"));
+                    return;
+                }
+                motion_override = std::move(*prepared.value_if());
+            }
+        },
+        *targeted);
+    if ((std::holds_alternative<core::PlayMotionOperation>(*targeted) ||
+         std::holds_alternative<core::TransitionMotionOperation>(*targeted)) &&
+        !motion_override)
+        return core::Result<void, core::Diagnostics>::success();
     auto started = start_tween(targeted_common(*targeted));
     if (!started) {
         publish_failure(delivery, std::move(started).error());
@@ -502,10 +568,15 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
             ++it;
             continue;
         }
+        if (it->motion_override)
+            m_world.end_finite_motion(it->motion_override->occurrence);
         cancel_tween(targeted_common(it->request), it->tween);
         it = m_targeted.erase(it);
     }
-    m_targeted.push_back({delivery.metadata, *targeted, *started.value_if(), {}});
+    m_targeted.push_back(
+        {delivery.metadata, *targeted, *started.value_if(), {}, std::move(motion_override)});
+    if (m_targeted.back().motion_override)
+        m_world.begin_finite_motion(m_targeted.back().motion_override->occurrence);
     if (const auto* gesture = std::get_if<core::CharacterGestureOperation>(&*targeted)) {
         auto& active = m_targeted.back();
         for (const auto& cue : gesture->cues) {
@@ -547,6 +618,8 @@ void WorldTransitionBackend::advance(const core::RuntimeClockUpdate& clocks)
         const auto sample = tween_sample(common, it->tween);
         if (!sample) {
             const auto metadata = it->metadata;
+            if (it->motion_override)
+                m_world.end_finite_motion(it->motion_override->occurrence);
             it = m_targeted.erase(it);
             m_acknowledgements.push_back(
                 {metadata.operation, metadata.sequence, metadata.owner,
@@ -574,7 +647,13 @@ void WorldTransitionBackend::advance(const core::RuntimeClockUpdate& clocks)
                 }
             }
             if (sample->completed) {
+                if (it->motion_override && !it->motion_endpoint_realized) {
+                    ++it;
+                    continue;
+                }
                 const auto metadata = it->metadata;
+                if (it->motion_override)
+                    m_world.end_finite_motion(it->motion_override->occurrence);
                 release_tween(common, it->tween);
                 it = m_targeted.erase(it);
                 publish_completed(metadata);
@@ -597,6 +676,8 @@ void WorldTransitionBackend::snap_to_target(core::PresentationOperationRef opera
             ++it;
             continue;
         }
+        if (it->motion_override)
+            m_world.end_finite_motion(it->motion_override->occurrence);
         cancel_tween(targeted_common(it->request), it->tween);
         it = m_targeted.erase(it);
     }
@@ -629,6 +710,8 @@ void WorldTransitionBackend::fail_operation(core::PresentationOperationRef opera
     if (found == m_targeted.end())
         return;
     const auto metadata = found->metadata;
+    if (found->motion_override)
+        m_world.end_finite_motion(found->motion_override->occurrence);
     cancel_tween(targeted_common(found->request), found->tween);
     m_targeted.erase(found);
     m_acknowledgements.push_back(
@@ -641,6 +724,9 @@ void WorldTransitionBackend::reset(core::PresentationCancellationReason reason)
 {
     (void)reason;
     m_active.reset();
+    for (const auto& active : m_targeted)
+        if (active.motion_override)
+            m_world.end_finite_motion(active.motion_override->occurrence);
     m_targeted.clear();
     m_render_state.reset();
     m_acknowledgements.clear();
@@ -847,6 +933,44 @@ WorldTransitionBackend::compose_targeted_world_batch() const
             return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
                 {failure("presentation.targeted_revision_unavailable",
                          "Targeted finite realization lost an exact retained revision")});
+        }
+
+        if (active.motion_override) {
+            const auto& override = *active.motion_override;
+            auto draw = std::ranges::find_if(draws, [&](const auto& candidate) {
+                return candidate.draw.family == override.occurrence.family &&
+                       candidate.draw.stable_identity == override.occurrence.stable_identity &&
+                       candidate.draw.sublayer == override.occurrence.sublayer;
+            });
+            if (draw == draws.end()) {
+                return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
+                    {failure("presentation.motion_target_not_drawn",
+                             "Finite motion target disappeared during realization")});
+            }
+            if (override.draw.raster_animation_frames.empty()) {
+                return core::Result<TargetedWorldComposition, core::Diagnostics>::failure(
+                    {failure("presentation.motion_frames_unavailable",
+                             "Finite motion has no prepared raster samples")});
+            }
+            const auto policy = override.draw.motion_policy.value_or(core::MotionPlaybackPolicy{});
+            long double phase = static_cast<long double>(override.draw.motion_initial_ms) +
+                                static_cast<long double>(common.duration.count()) *
+                                    static_cast<long double>(progress) *
+                                    static_cast<long double>(policy.rate);
+            std::size_t frame_index = 0;
+            for (; frame_index + 1 < override.draw.raster_animation_frames.size(); ++frame_index) {
+                const auto duration =
+                    override.draw.raster_animation_frames[frame_index].duration_ms;
+                if (phase < static_cast<long double>(duration))
+                    break;
+                phase -= static_cast<long double>(duration);
+            }
+            const auto& frame = override.draw.raster_animation_frames[frame_index];
+            draw->draw.command.texture = frame.texture;
+            draw->draw.command.texture_sampler = frame.sampler;
+            if (sample && sample->completed)
+                active.motion_endpoint_realized = true;
+            continue;
         }
 
         if (std::get_if<core::BackgroundPresentationOperation>(&active.request)) {

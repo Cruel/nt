@@ -86,6 +86,14 @@ interpolation, and transition composite progress. The backend advances each trac
 declared gameplay or unscaled-presentation clock and reports completion through the existing typed
 presentation acknowledgement path.
 
+Finite named-motion operations use the same coordinator/tween lifetime. Their scalar is a semantic
+playhead over a prepared named motion rather than an opacity/geometry interpolation. `PlayMotion`
+overrides only the realized sample for one exact occurrence; `TransitionMotion` samples a temporary
+motion over an already-committed target revision. The authored endpoint plus one successful final
+composition is the completion condition. Operation-local samples never replace the immutable
+snapshot or the occurrence's long-lived epoch, and transient occurrence controls are blocked while a
+finite motion owns that occurrence.
+
 ## Raster Animation realization
 
 The first [Animation resource](../engine/ANIMATION.md) tracer selects static image or sprite-sequence
@@ -111,6 +119,12 @@ including valid one-frame motions; once playback clamps to the last sample. A ma
 plays its intro once and wraps at the exclusive loop endpoint, without changing frame durations. Policy details and
 admitted Character choreography boundaries are owned by [Animation](../engine/ANIMATION.md). This tracer introduces no second renderer, clock, cache, or
 finite-operation lifecycle.
+
+Finite named-motion startup extends mandatory publication rather than resolving Asset data on demand
+inside rendering. The exact committed target revision supplies occurrence identity and underlying
+desired state; the selected temporary motion contributes its frame closure to the same mandatory
+lease transaction before backend delivery. Missing motions or failed realization terminate the
+coordinated operation through typed failure, while the durable target snapshot remains authoritative.
 
 ## Persistence and diagnostics
 

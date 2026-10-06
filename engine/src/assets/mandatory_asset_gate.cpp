@@ -3,6 +3,7 @@
 
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/presentation/presentation_operation_requests.hpp"
 
 #include <algorithm>
 #include <atomic>
@@ -1696,6 +1697,89 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_audio_operatio
                                    .show_overlay_immediately = true,
                                    .presentation_revision = m_impl->snapshot_revision},
         now);
+    return core::Result<void, core::Diagnostics>::success();
+}
+
+core::Result<void, core::Diagnostics> MandatoryAssetGate::include_presentation_operation_on_owner(
+    const core::PresentationOperation& operation,
+    MandatoryAssetRequestGroup::Clock::time_point now) noexcept
+{
+    const core::MotionOperationTarget* target = nullptr;
+    const core::AnimationMotionId* motion = nullptr;
+    const core::MotionPlaybackPolicy* playback = nullptr;
+    const core::FinitePresentationOperationCommon* common = nullptr;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::PlayMotionOperation> ||
+                          std::is_same_v<T, core::TransitionMotionOperation>) {
+                target = &value.target;
+                motion = &value.motion;
+                playback = &value.playback;
+                common = &value.common;
+            }
+        },
+        operation);
+    if (target == nullptr)
+        return core::Result<void, core::Diagnostics>::success();
+    if (m_impl->package == nullptr || !m_impl->collector || !m_impl->latest_snapshot) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {group_diagnostic("assets.mandatory_motion_context_unavailable",
+                              "Finite motion preparation requires a bound package and current "
+                              "presentation snapshot")});
+    }
+    if (common == nullptr || m_impl->latest_snapshot->revision != common->revisions.target) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {group_diagnostic("assets.mandatory_motion_revision_mismatch",
+                              "Finite motion preparation requires the exact committed target "
+                              "presentation revision")});
+    }
+
+    auto operation_snapshot = *m_impl->latest_snapshot;
+    auto* visual = core::motion_target_visual(operation_snapshot, *target);
+    auto* animation = visual ? std::get_if<core::compiled::AnimationVisual>(visual) : nullptr;
+    if (animation == nullptr) {
+        return core::Result<void, core::Diagnostics>::failure(
+            {group_diagnostic("assets.mandatory_motion_target_invalid",
+                              "Finite motion target does not resolve to an Animation Visual")});
+    }
+    animation->motion = *motion;
+    animation->playback = *playback;
+
+    auto operation_dependencies =
+        m_impl->collector->collect(m_impl->context_for(operation_snapshot));
+    if (!operation_dependencies.diagnostics.empty())
+        return core::Result<void, core::Diagnostics>::failure(
+            std::move(operation_dependencies.diagnostics));
+
+    if (!m_impl->group) {
+        m_impl->dependencies =
+            m_impl->collector->collect(m_impl->context_for(*m_impl->latest_snapshot));
+        if (!m_impl->dependencies.diagnostics.empty())
+            return core::Result<void, core::Diagnostics>::failure(m_impl->dependencies.diagnostics);
+        m_impl->snapshot_revision = m_impl->latest_snapshot->revision;
+        m_impl->pending_snapshot = *m_impl->latest_snapshot;
+    }
+    for (auto& descriptor : operation_dependencies.requests) {
+        const auto duplicate =
+            std::ranges::find_if(m_impl->dependencies.requests, [&](const auto& current) {
+                return current.cache_key == descriptor.cache_key;
+            });
+        if (duplicate == m_impl->dependencies.requests.end())
+            m_impl->dependencies.requests.push_back(std::move(descriptor));
+    }
+
+    if (m_impl->group)
+        m_impl->group->cancel_on_owner();
+    m_impl->group.emplace(
+        m_impl->assets, m_impl->dependencies.requests,
+        MandatoryAssetGroupOptions{.phase = core::LoadingPhase::LoadingRuntimeDemand,
+                                   .reason = AssetRequestReason::Demand,
+                                   .overlay_grace = std::chrono::milliseconds{100},
+                                   .show_overlay_immediately = true,
+                                   .presentation_revision = m_impl->snapshot_revision},
+        now);
+    m_impl->group->poll_on_owner(now);
     return core::Result<void, core::Diagnostics>::success();
 }
 

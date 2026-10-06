@@ -236,8 +236,8 @@ using PresentationOperation =
                  BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
                  CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
                  CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
-                 CharacterGestureOperation, LayoutFinitePresentationOperation,
-                 MaterialParameterTransitionOperation>;
+                 CharacterGestureOperation, PlayMotionOperation, TransitionMotionOperation,
+                 LayoutFinitePresentationOperation, MaterialParameterTransitionOperation>;
 
 struct NewAudioPlaybackTarget {
     auto operator<=>(const NewAudioPlaybackTarget&) const = default;

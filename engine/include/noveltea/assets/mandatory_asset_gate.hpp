@@ -240,6 +240,10 @@ public:
     include_audio_operation_on_owner(const core::AudioOperation& operation,
                                      MandatoryAssetRequestGroup::Clock::time_point now =
                                          MandatoryAssetRequestGroup::Clock::now()) noexcept;
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    include_presentation_operation_on_owner(const core::PresentationOperation& operation,
+                                            MandatoryAssetRequestGroup::Clock::time_point now =
+                                                MandatoryAssetRequestGroup::Clock::now()) noexcept;
     [[nodiscard]] core::Diagnostics update_active_scene_prediction_on_owner(
         const runtime::ActiveScenePredictionRoot* root,
         const runtime::FlowPredictionContext& context = {}) noexcept;

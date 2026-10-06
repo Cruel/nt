@@ -344,6 +344,12 @@ struct WorldVisualOccurrence {
     WorldDrawFamily family;
     std::string stable_identity;
     std::uint8_t sublayer = 0;
+    bool operator==(const WorldVisualOccurrence&) const = default;
+};
+struct WorldPreparedMotionOverride {
+    WorldVisualOccurrence occurrence;
+    WorldPresentationDraw draw;
+    std::chrono::milliseconds duration{0};
 };
 struct PauseMotion {};
 struct ResumeMotion {};
@@ -359,7 +365,8 @@ using MotionControl =
 enum class MotionControlError {
     MissingOccurrence,
     Unsupported,
-    InvalidPosition
+    InvalidPosition,
+    FiniteOperationActive
 };
 struct MotionPosition {
     double time_ms = 0;
@@ -387,6 +394,11 @@ public:
     [[nodiscard]] core::Result<bool, MotionControlError>
     control_motion(const WorldVisualOccurrence& occurrence, const MotionControl& control,
                    const core::RuntimeClockUpdate& clock);
+    [[nodiscard]] core::Result<WorldPreparedMotionOverride, core::Diagnostics>
+    prepare_motion_override(core::PresentationSnapshotRevision revision,
+                            const core::MotionOperationTarget& target,
+                            const core::AnimationMotionId& motion,
+                            const core::MotionPlaybackPolicy& playback);
     [[nodiscard]] bool update_hotspot_visual_state(HotspotInteractionVisualState state);
 
     [[nodiscard]] const WorldPresentationFrame* frame() const noexcept;
@@ -403,6 +415,8 @@ public:
     [[nodiscard]] std::uint64_t generation() const noexcept { return m_generation; }
 
 private:
+    friend class WorldTransitionBackend;
+
     struct LoopEpoch {
         core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
         std::chrono::microseconds started_at{0};
@@ -415,6 +429,9 @@ private:
                          const core::RuntimeClockUpdate* clock = nullptr);
     void rebuild_hotspot_overlays(WorldPresentationFrame& frame);
     void prune_loop_epochs();
+    void begin_finite_motion(const WorldVisualOccurrence& occurrence);
+    void end_finite_motion(const WorldVisualOccurrence& occurrence) noexcept;
+    [[nodiscard]] bool finite_motion_active(const WorldVisualOccurrence& occurrence) const noexcept;
 
     WorldPresentationResourceResolver& m_resources;
     std::optional<core::RuntimePresentationSnapshot> m_snapshot;
@@ -423,6 +440,7 @@ private:
     std::unordered_map<std::uint64_t, core::RuntimePresentationSnapshot> m_snapshots;
     std::unordered_map<std::uint64_t, WorldPresentationFrame> m_frames;
     std::unordered_map<std::string, LoopEpoch> m_loop_epochs;
+    std::vector<WorldVisualOccurrence> m_finite_motion_occurrences;
     std::uint64_t m_animation_epoch_generation = 0;
     std::uint64_t m_generation = 0;
     HotspotInteractionVisualState m_hotspot_visual_state;

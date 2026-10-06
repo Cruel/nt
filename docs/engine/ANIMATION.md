@@ -76,6 +76,22 @@ Explicit reusable playback policy is admitted on ordinary Environment, Interacta
 Character-layer Visuals, not Character clip-frame Visual overrides: those retain choreography timing
 and require null playback until an explicit coordination contract is implemented.
 
+Finite named motion is coordinated through the ordinary Presentation Operation lifecycle. `PlayMotion`
+temporarily replaces one exact Environment, Interactable-placement, or Character-layer occurrence
+with a named motion and leaves the underlying desired Visual/motion/policy untouched.
+`TransitionMotion` requires its durable target motion to already be present in the exact target
+snapshot revision, then realizes an operation-local transition motion over that committed target.
+Finite motion is once-only, uses gameplay or unscaled-presentation time, admits a positive rate and
+optional initial marker, and derives its deterministic duration from the selected motion endpoint.
+Loop ranges are not finite-operation semantics.
+
+The coordinator remains authoritative for replacement, skip/cancel, checkpoint barriers, and
+terminal acknowledgement. The world backend owns only prepared temporary samples and progress.
+Required finite-motion frames join the existing mandatory publication gate before delivery, so a
+causal operation cannot begin with an unprepared motion. The final authored sample must be realized
+successfully before completion is acknowledged. While a finite motion owns an occurrence, transient
+pause/restart/seek controls are rejected rather than mutating the underlying playback anchor.
+
 `WorldPresentationBackend::control_motion` targets one live `WorldVisualOccurrence` with typed
 pause, resume, restart, seek-time, or seek-frame commands; `motion_position` exposes sprite frame
 index/count and motion time. Static Visuals fail with `Unsupported`, absent occurrences with
@@ -83,11 +99,10 @@ index/count and motion time. Static Visuals fail with `Unsupported`, absent occu
 mutating prior realization. Restart uses the authored initial marker and preserves pause status.
 Compatible publication/prepared swaps retain control anchors; selection replacement, disposal,
 reset/load/reconstruction discard them. These are host/backend controls, not new durable Lua
-commands or Presentation Operations. No generic finite Animation operation is admitted yet; future
-causal motion controls must route through the coordinator rather than overriding its operation.
+commands. Finite named-motion operations are separate coordinator-owned requests and transient
+controls cannot override them.
 
-Video, finite motion operations, animated Inventory icons, and broader sprite-field cutover remain
-later work. Interactable world Hotspots can
+Video, animated Inventory icons, and broader sprite-field cutover remain later work. Interactable world Hotspots can
 already sample a selected raster Animation frame's CPU coverage.
 
 ## Verification
@@ -110,6 +125,12 @@ claim of completed save/load or player interaction certification.
   and missing-manifest rejection through the real resolver/backend.
 - `tests/render/world_presentation_tests.cpp` covers independent occurrences, retained incompatible
   revisions, prepared publication, clocks, and reconstruction.
+- `tests/render/world_transition_tests.cpp` covers finite play/transition realization, endpoint
+  completion, desired-state restoration, backend failure, reset, and transient-control exclusion.
+- `tests/core/presentation_coordinator_tests.cpp` covers finite-motion target replacement,
+  placement identity, skip/cancel, barrier classification, and clock/policy validation.
+- `tests/assets/structured_prefetch_tests.cpp` covers exact-target-revision mandatory preparation,
+  missing motion rejection, and asynchronous readiness before finite delivery.
 
 The tracer was verified with Linux CTest, Linux/Web C++ policy and formatting checks, Web structural
 smoke, editor check/build/tests, and scoped ASan/UBSan decoder/presenter/resource/renderer tests.
