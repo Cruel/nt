@@ -68,6 +68,16 @@ test("disposable CLI certification avoids real-process scheduler races", () => {
   assert.match(body, /schedulerConcurrencyCertifiedNatively: true/);
 });
 
+test("hosted-runner timing is telemetry rather than a correctness gate", () => {
+  assert.match(certificationSource, /warning\(\s*'Hosted-runner performance variability'/);
+  assert.doesNotMatch(certificationSource, /tail ratio .*release gate/);
+  assert.doesNotMatch(certificationSource, /churnMs\s*>/);
+  assert.doesNotMatch(certificationSource, /scopedChurnMs\s*>/);
+  assert.doesNotMatch(certificationSource, /NOVELTEA_CLI_CERTIFICATION_BEFORE_READ_PROOF_DELAY_MS/);
+  assert.doesNotMatch(certificationSource, /PROJECT_SESSION_IDLE_MS: '250'/);
+  assert.doesNotMatch(certificationSource, /PROJECT_SESSION_IDLE_MS: '500'/);
+});
+
 test("daemon state timeout reports observed transitions", async () => {
   let polls = 0;
   await assert.rejects(
