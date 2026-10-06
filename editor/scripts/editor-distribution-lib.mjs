@@ -450,14 +450,17 @@ async function copyResources(resourcesRoot) {
   }
 
   const privateToolsSource = path.join(nativeSourceRoot, 'tools', 'ffmpeg');
+  const stagedPrivateToolsRoot = path.join(resourcesRoot, 'tools', 'ffmpeg');
   if (await pathExists(privateToolsSource)) {
     await verifyPrivateMediaTools(privateToolsSource);
-    await cp(privateToolsSource, path.join(resourcesRoot, 'tools', 'ffmpeg'), { recursive: true });
+    await cp(privateToolsSource, stagedPrivateToolsRoot, { recursive: true });
   } else {
     await stagePrivateMediaTools(resourcesRoot, {
       archivePath: process.env.NOVELTEA_FFMPEG_ARCHIVE,
     });
   }
+  if (process.platform !== 'win32')
+    await chmod(path.join(stagedPrivateToolsRoot, 'bin', 'ffmpeg'), 0o755);
 
   const destinationBin = path.join(resourcesRoot, 'bin');
   const destinationCli = path.join(destinationBin, expectedNovelTeaCliName());

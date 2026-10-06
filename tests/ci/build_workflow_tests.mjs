@@ -254,6 +254,14 @@ test('native build and release jobs verify the linked devtools capability matrix
   );
 });
 
+test('release editor consumers restore bundled FFmpeg executable permissions', () => {
+  const marker = '- name: Make NovelTea host tools executable';
+  const start = releaseWorkflow.indexOf(marker);
+  assert.notEqual(start, -1);
+  const block = releaseWorkflow.slice(start, releaseWorkflow.indexOf('- name: ', start + marker.length));
+  assert.match(block, /tools\/ffmpeg\/bin\/ffmpeg/);
+});
+
 test('artifact consumers do not wait for unrelated test and cooperative build jobs', () => {
   assert.equal(field(job('editor'), 'needs'), '[linux-cli, web-preview]');
   assert.equal(field(job('android'), 'needs'), '[shader-assets, linux-cli]');
