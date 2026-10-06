@@ -29,6 +29,25 @@ function job(name) {
   return next === -1 ? rest : rest.slice(0, next);
 }
 
+test("release workflow pins source checkouts to the triggering commit", () => {
+  assert.match(releaseWorkflow, /RELEASE_REF: \$\{\{ github\.sha \}\}/);
+  assert.doesNotMatch(releaseWorkflow, /RELEASE_REF: \$\{\{ github\.ref \}\}/);
+  for (const name of [
+    "release-metadata",
+    "shader-assets",
+    "windows-cli",
+    "desktop-hosts",
+    "web",
+    "release-examples",
+    "android",
+    "desktop-editor",
+    "release-inventory",
+    "publish",
+  ]) {
+    assert.match(job(name), /ref: \$\{\{ env\.RELEASE_REF \}\}/);
+  }
+});
+
 test("release examples use exact release CLI, player, and tagged examples pin", () => {
   const value = job("release-examples");
   assert.match(value, /needs: \[release-metadata, shader-assets, web\]/);
