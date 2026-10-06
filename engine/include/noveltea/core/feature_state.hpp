@@ -225,6 +225,24 @@ struct DesiredMaterialSelection {
     bool operator==(const DesiredMaterialSelection&) const = default;
 };
 
+struct InteractableDefinitionMotionTarget {
+    InteractableDefinitionId definition;
+    auto operator<=>(const InteractableDefinitionMotionTarget&) const = default;
+};
+struct InteractableMotionTarget {
+    InteractableInstanceId interactable;
+    auto operator<=>(const InteractableMotionTarget&) const = default;
+};
+using MotionSelectionTarget =
+    std::variant<InteractableDefinitionMotionTarget, InteractableMotionTarget>;
+struct DesiredMotionSelection {
+    PresentationOwner owner;
+    MotionSelectionTarget target;
+    AnimationMotionId motion;
+    MotionPlaybackPolicy policy;
+    bool operator==(const DesiredMotionSelection&) const = default;
+};
+
 inline constexpr std::size_t max_postprocess_effects_per_scope = 4;
 struct DesiredPostprocessEffect {
     PostprocessEffectInstanceId instance;

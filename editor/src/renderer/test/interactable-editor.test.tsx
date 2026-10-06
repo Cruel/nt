@@ -311,6 +311,7 @@ describe('InteractableEditor', () => {
           {
             id: 'idle',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [{ image: { $ref: { collection: 'assets', id: 'sprite' } }, durationMs: 100 }],
           },
         ],
@@ -334,6 +335,7 @@ describe('InteractableEditor', () => {
       kind: 'animation',
       animation: { $ref: { collection: 'animations', id: 'loop' } },
       motionId: null,
+      playback: null,
     });
     expect(screen.getByRole('combobox', { name: 'Animation motion' })).toBeInTheDocument();
   });

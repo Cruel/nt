@@ -546,6 +546,29 @@ parse_actor_material_layer(const std::string& value)
     return parse_id<core::CharacterPresentationLayerId>(value);
 }
 
+core::Result<core::MotionSelectionTarget, core::Diagnostics>
+parse_motion_selection_target(const sol::table& target)
+{
+    using Result = core::Result<core::MotionSelectionTarget, core::Diagnostics>;
+    const auto kind = table_option<std::string>(target, "kind");
+    const auto name = table_option<std::string>(target, "id");
+    if (!kind || !name)
+        return Result::failure(
+            invalid("runtime.invalid_motion_target", "Motion target requires kind and id"));
+    if (*kind == "interactable-definition") {
+        auto id = parse_id<core::InteractableDefinitionId>(*name);
+        return id ? Result::success(core::InteractableDefinitionMotionTarget{*id.value_if()})
+                  : Result::failure(id.error());
+    }
+    if (*kind == "interactable") {
+        auto id = parse_id<core::InteractableInstanceId>(*name);
+        return id ? Result::success(core::InteractableMotionTarget{*id.value_if()})
+                  : Result::failure(id.error());
+    }
+    return Result::failure(invalid("runtime.invalid_motion_target",
+                                   "Mutable motion selection supports only Interactable targets"));
+}
+
 core::Result<MaterialOccurrenceCommand, core::Diagnostics>
 parse_material_occurrence(const sol::table& target)
 {
@@ -2118,6 +2141,79 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             return mutation(view,
                             api->stop_environments(std::move(*stop_key_value), owner_value->scope,
                                                    std::move(owner_value->room)));
+        });
+    presentation.set_function(
+        "set_motion_selection",
+        [api](sol::table target, std::string motion_name, sol::table policy,
+              sol::optional<sol::table> options, sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto parsed_target = parse_motion_selection_target(target);
+            auto motion = parse_id<core::AnimationMotionId>(std::move(motion_name));
+            auto owner = parse_presentation_owner_options(options);
+            if (!parsed_target)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_target.error()));
+            if (!motion)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(motion.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            for (const auto& [key, ignored] : policy) {
+                if (key.get_type() != sol::type::string)
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                              invalid("runtime.invalid_motion_policy",
+                                                      "Motion policy fields must be named")));
+                const auto name = key.as<std::string>();
+                if (name != "repeat" && name != "rate" && name != "clock" &&
+                    name != "initial_marker")
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                              invalid("runtime.invalid_motion_policy",
+                                                      "Unknown motion policy field: " + name)));
+            }
+            const auto repeat = table_option<std::string>(policy, "repeat");
+            const auto rate = table_option<double>(policy, "rate");
+            const auto clock_name = table_option<std::string>(policy, "clock");
+            const auto marker = table_option<std::string>(policy, "initial_marker");
+            const sol::object marker_value = policy["initial_marker"];
+            if (!repeat || (*repeat != "once" && *repeat != "loop") || !rate || !clock_name ||
+                (marker_value.valid() && marker_value.get_type() != sol::type::nil && !marker))
+                return mutation(view, core::Result<void, core::Diagnostics>::failure(invalid(
+                                          "runtime.invalid_motion_policy",
+                                          "Motion policy requires once/loop repeat, positive rate, "
+                                          "clock, and optional initial_marker")));
+            auto clock = parse_presentation_clock(*clock_name);
+            if (!clock)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(clock.error()));
+            core::MotionPlaybackPolicy value{
+                *repeat == "once" ? core::MotionRepeat::Once : core::MotionRepeat::Loop, *rate,
+                *clock.value_if(), marker ? std::optional<std::string>{*marker} : std::nullopt};
+            if (!core::valid_motion_policy(value))
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(
+                              invalid("runtime.invalid_motion_policy", "Invalid motion policy")));
+            return mutation(view, api->set_motion_selection(
+                                      std::move(*parsed_target.value_if()),
+                                      std::move(*motion.value_if()), std::move(value),
+                                      owner.value_if()->scope, std::move(owner.value_if()->room)));
+        });
+    presentation.set_function(
+        "clear_motion_selection",
+        [api](sol::table target, sol::optional<sol::table> options,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto parsed_target = parse_motion_selection_target(target);
+            auto owner = parse_presentation_owner_options(options);
+            if (!parsed_target)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(parsed_target.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            return mutation(view, api->clear_motion_selection(std::move(*parsed_target.value_if()),
+                                                              owner.value_if()->scope,
+                                                              std::move(owner.value_if()->room)));
         });
     presentation.set_function(
         "set_material_selection",

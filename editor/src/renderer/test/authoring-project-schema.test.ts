@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { visualSchema, validateVisualData } from '../../shared/project-schema/authoring-animations';
 import { authoringCollectionKeys } from '../../shared/project-schema/authoring-collections';
 import { isValidLayoutContractId } from '../../shared/project-schema/authoring-common';
 import {
@@ -69,6 +70,7 @@ describe('authoring project schema', () => {
           {
             id: 'idle',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
           },
         ],
@@ -79,6 +81,55 @@ describe('authoring project schema', () => {
     expect(
       validateAuthoringProject(project).filter((diagnostic) => diagnostic.severity === 'error'),
     ).toEqual([]);
+
+    project.animations.pulse!.data.motions[0]!.markers = [{ id: 'settled', timeMs: 50 }];
+    const visual = visualSchema.parse({
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'pulse' } },
+      motionId: null,
+      playback: {
+        repeat: 'once',
+        rate: 2,
+        clock: 'unscaled-presentation',
+        initialMarker: 'settled',
+      },
+    });
+    if (visual.kind !== 'animation') throw new Error('Expected Animation Visual');
+    expect(validateVisualData(project, visual, '/visual')).toEqual([]);
+    expect(
+      validateVisualData(
+        project,
+        { ...visual, playback: { ...visual.playback!, initialMarker: 'missing' } },
+        '/visual',
+      ),
+    ).not.toEqual([]);
+    expect(
+      validateVisualData(
+        project,
+        visual,
+        '/characters/hero/profiles/0/animationClips/0/frames/0/visual',
+      ),
+    ).not.toEqual([]);
+    expect(
+      visualSchema.safeParse({ ...visual, playback: { ...visual.playback!, rate: 0 } }).success,
+    ).toBe(false);
+    const oldVisual = { ...visual } as Record<string, unknown>;
+    delete oldVisual.playback;
+    expect(visualSchema.safeParse(oldVisual).success).toBe(false);
+    for (const markers of [
+      [{ id: 'start', timeMs: 0 }],
+      [{ id: 'late', timeMs: 101 }],
+      [
+        { id: 'same', timeMs: 1 },
+        { id: 'same', timeMs: 2 },
+      ],
+    ]) {
+      const invalid = structuredClone(project);
+      invalid.animations.pulse!.data.motions[0]!.markers = markers;
+      expect(validateAuthoringProject(invalid).some((entry) => entry.severity === 'error')).toBe(
+        true,
+      );
+    }
 
     const invalidDuration = structuredClone(project);
     invalidDuration.animations.pulse!.data.motions[0]!.frames[0]!.durationMs = 0;

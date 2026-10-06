@@ -215,16 +215,18 @@ std::optional<std::uint64_t> background_precedence(const SessionState& state,
         owner);
 }
 
-const DesiredMaterialSelection*
-active_material_selection(const SessionState& state, const MaterialSelectionTarget& target) noexcept
+template<class Selection, class Target>
+const Selection* active_desired_selection(const SessionState& state,
+                                          const std::vector<Selection>& records,
+                                          const Target& target) noexcept
 {
-    const DesiredMaterialSelection* selected = nullptr;
+    const Selection* selected = nullptr;
     std::uint64_t selected_precedence = 0;
-    for (const auto& desired : state.material_selections()) {
+    for (const auto& desired : records) {
         if (desired.target != target)
             continue;
         const auto precedence = background_precedence(state, desired.owner);
-        if (!precedence || (selected != nullptr && *precedence <= selected_precedence))
+        if (!precedence || (selected && *precedence <= selected_precedence))
             continue;
         selected = &desired;
         selected_precedence = *precedence;
@@ -1745,10 +1747,35 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
     };
 
     for (auto& interactable : result.interactables) {
-        if (!interactable.material_owner)
-            continue;
         const auto* effective = world.resolved_configuration(interactable.interactable);
         if (effective == nullptr)
+            continue;
+        const auto* selected_motion = active_desired_selection(
+            state, state.motion_selections(),
+            MotionSelectionTarget{InteractableMotionTarget{interactable.interactable}});
+        if (!selected_motion)
+            selected_motion = active_desired_selection(
+                state, state.motion_selections(),
+                MotionSelectionTarget{InteractableDefinitionMotionTarget{effective->identity.id}});
+        if (selected_motion) {
+            auto* visual = interactable.visual
+                               ? std::get_if<compiled::AnimationVisual>(&*interactable.visual)
+                               : nullptr;
+            const auto* animation = visual ? project.find_animation(visual->animation) : nullptr;
+            if (animation == nullptr ||
+                std::ranges::none_of(animation->motions, [&](const auto& motion) {
+                    return motion.id == selected_motion->motion &&
+                           compiled::motion_initial_time(motion, selected_motion->policy)
+                               .has_value();
+                }))
+                diagnostics.push_back(
+                    unresolved("desired Interactable motion", selected_motion->motion.text()));
+            else {
+                visual->motion = selected_motion->motion;
+                visual->playback = selected_motion->policy;
+            }
+        }
+        if (!interactable.material_owner)
             continue;
         const auto* instance = project.find_interactable_instance(interactable.interactable);
         const auto* definition = project.find_interactable_definition(effective->identity.id);
@@ -1757,11 +1784,13 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
         const MaterialSelectionTarget definition_selection =
             InteractableDefinitionMaterialOccurrence{effective->identity.id};
         std::optional<MaterialId> selected_material;
-        if (const auto* selected = active_material_selection(state, instance_selection))
+        if (const auto* selected =
+                active_desired_selection(state, state.material_selections(), instance_selection))
             selected_material = selected->material;
         else if (instance != nullptr && instance->material_override)
             selected_material = instance->material_override;
-        else if (const auto* selected = active_material_selection(state, definition_selection))
+        else if (const auto* selected = active_desired_selection(state, state.material_selections(),
+                                                                 definition_selection))
             selected_material = selected->material;
         else
             selected_material = effective->presentation.material;

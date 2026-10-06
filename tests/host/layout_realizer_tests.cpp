@@ -2002,6 +2002,7 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"motions", nlohmann::json::array(
                           {{{"id", "fall"},
                             {"kind", "sprite-sequence"},
+                            {"markers", nlohmann::json::array()},
                             {"frames", nlohmann::json::array(
                                            {{{"assetId", "frame-a"}, {"durationMs", 50}},
                                             {{"assetId", "frame-b"}, {"durationMs", 100}}})}}})}}});
@@ -2009,7 +2010,11 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         {{{"environmentId", "rain"},
           {"condition", {{"kind", "always"}}},
           {"assetId", nullptr},
-          {"visual", {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}},
+          {"visual",
+           {{"kind", "animation"},
+            {"animationId", "rain"},
+            {"motionId", nullptr},
+            {"playback", nullptr}}},
           {"materialId", "panel"},
           {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
           {"plane", "world-overlay"},
@@ -2020,8 +2025,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"visible", true}}});
     animated_room["world"]["placements"] = composition_room["world"]["placements"];
     animated_room["world"]["interactables"] = composition_room["world"]["interactables"];
-    animated_room["world"]["interactables"][0]["visual"] = {
-        {"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}};
+    animated_room["world"]["interactables"][0]["visual"] = {{"kind", "animation"},
+                                                            {"animationId", "rain"},
+                                                            {"motionId", nullptr},
+                                                            {"playback", nullptr}};
     animated_room["world"]["interactables"][0]["materialId"] = "panel";
     const auto character_layer = [](const char* name, nlohmann::json visual) {
         return nlohmann::json{{"id", name},
@@ -2049,9 +2056,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
             {"idle", nullptr},
             {"layers",
              nlohmann::json::array(
-                 {character_layer(
-                      "body",
-                      {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}),
+                 {character_layer("body", {{"kind", "animation"},
+                                           {"animationId", "rain"},
+                                           {"motionId", nullptr},
+                                           {"playback", nullptr}}),
                   character_layer("face", {{"kind", "image"}, {"assetId", "frame-a"}})})}}}}});
     auto animation_request = make_request(core::editor::FocusedEditorDocumentKind::Room,
                                           "room-animation", animated_room, 20);
@@ -2141,8 +2149,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     obsolete_layer.erase("spriteAssetId");
     CHECK_FALSE(core::editor::decode_editor_preview_document_text("room-preview",
                                                                   obsolete_character.dump()));
-    obsolete_layer["visual"] = {
-        {"kind", "animation"}, {"animationId", "rain"}, {"motionId", "missing"}};
+    obsolete_layer["visual"] = {{"kind", "animation"},
+                                {"animationId", "rain"},
+                                {"motionId", "missing"},
+                                {"playback", nullptr}};
     CHECK_FALSE(core::editor::decode_editor_preview_document_text("room-preview",
                                                                   obsolete_character.dump()));
 

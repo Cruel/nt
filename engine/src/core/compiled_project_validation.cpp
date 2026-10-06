@@ -361,14 +361,25 @@ private:
                         error("compiled_project.invalid_asset_kind",
                               "Image Visual must reference an image Asset.", path + "/image");
                 } else {
+                    if (value.playback && path.find("/animationClips/") != std::string::npos)
+                        error("compiled_project.unsupported_motion_policy",
+                              "Character clip Visuals use choreography timing; explicit playback "
+                              "policy is not admitted.",
+                              path + "/playback");
                     require(m_animations, value.animation, "animation", path + "/animation");
                     const auto* resource = animation(value.animation);
                     if (!resource)
                         return;
                     const auto motion = value.motion.value_or(resource->default_motion);
-                    if (std::ranges::none_of(resource->motions, [&](const auto& candidate) {
+                    const auto selected =
+                        std::ranges::find_if(resource->motions, [&](const auto& candidate) {
                             return candidate.id == motion;
-                        }))
+                        });
+                    if (selected != resource->motions.end() && value.playback &&
+                        !motion_initial_time(*selected, *value.playback))
+                        error("compiled_project.invalid_motion_policy",
+                              "Invalid playback policy or initial marker.", path + "/playback");
+                    if (selected == resource->motions.end())
                         error("compiled_project.unresolved_animation_motion",
                               "Animation Visual selects unknown motion '" + motion.text() + "'.",
                               path + "/motionId");
@@ -2019,6 +2030,22 @@ private:
                     error("compiled_project.duplicate_animation_motion",
                           "Animation motion IDs must be unique.", motion_path + "/id");
                 default_found = default_found || motion.id == resource.default_motion;
+                std::uint64_t duration = 0;
+                for (const auto& frame : motion.frames) {
+                    if (frame.duration_ms > std::numeric_limits<std::uint64_t>::max() - duration) {
+                        error("compiled_project.invalid_animation_duration",
+                              "Animation duration overflows.", motion_path);
+                        break;
+                    }
+                    duration += frame.duration_ms;
+                }
+                std::unordered_set<std::string> markers{"start", "end"};
+                for (const auto& marker : motion.markers)
+                    if (!valid_strong_id(marker.id, StrongIdSyntax::KebabCase) ||
+                        !markers.insert(marker.id).second || marker.time_ms > duration)
+                        error("compiled_project.invalid_animation_marker",
+                              "Markers must be unique, non-reserved, and within the motion.",
+                              motion_path + "/markers");
                 if (motion.frames.empty())
                     error("compiled_project.empty_animation_motion",
                           "Animation motion must contain at least one sprite frame.",

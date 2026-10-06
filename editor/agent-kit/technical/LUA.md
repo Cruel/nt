@@ -553,6 +553,25 @@ visible: boolean
 
 `stop_environments` removes all matching desired environments for the selected owner. `environment()` returns `material`, optional `asset`, `stop_key`, `order`, `visible`, and `opacity`.
 
+### Interactable motion selection
+
+```text
+noveltea.presentation.set_motion_selection(target, motion_id, policy, options?) -> ok, error
+noveltea.presentation.clear_motion_selection(target, options?) -> ok, error
+```
+
+Targets are `{kind='interactable-definition', id='definition-id'}` or
+`{kind='interactable', id='instance-id'}`. Use the normal Presentation owner options. Exact Instance
+intent takes precedence over Definition intent; clearing reveals the underlying authored selection.
+The target must resolve to an Animation Visual containing the named motion.
+
+Policy requires `['repeat']='once'|'loop'`, positive finite `rate`, and
+`clock='gameplay'|'unscaled-presentation'`; optional `initial_marker` names `start`, `end`, or an
+authored motion-local marker. Lua's `repeat` keyword requires bracket notation in a table literal.
+These commands persist desired motion/policy, not elapsed playback, frame, pause, seek, or decoder
+state. Reconstruction starts at semantic start/marker. Character semantic state remains authoritative;
+Character and static-image targets are not admitted here.
+
 ### Interactable Material selection
 
 ```text

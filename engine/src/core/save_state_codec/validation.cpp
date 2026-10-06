@@ -2325,6 +2325,44 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
                   "Presentation environment has an invalid owner or policy.");
     }
 
+    std::unordered_set<std::string> motion_selection_keys;
+    for (const auto& selection : save.motion_selections) {
+        const auto target_key = std::visit(
+            [](const auto& target) {
+                if constexpr (requires { target.definition; })
+                    return std::string{"definition/"} + target.definition.text();
+                else
+                    return std::string{"instance/"} + target.interactable.text();
+            },
+            selection.target);
+        if (!motion_selection_keys.insert(saved_owner_key(selection.owner) + "|" + target_key)
+                 .second)
+            error("save_codec.duplicate_presentation_record",
+                  "Motion selection identity appears more than once.");
+        const auto definition = std::visit(
+            [&](const auto& target) -> std::optional<compiled::InteractableDefinition> {
+                if constexpr (requires { target.definition; }) {
+                    const auto* found = project.find_interactable_definition(target.definition);
+                    return found ? std::optional{*found} : std::nullopt;
+                } else
+                    return resolved_interactable(project, save, target.interactable);
+            },
+            selection.target);
+        const auto* visual =
+            definition && definition->presentation.visual
+                ? std::get_if<compiled::AnimationVisual>(&*definition->presentation.visual)
+                : nullptr;
+        const auto* animation = visual ? project.find_animation(visual->animation) : nullptr;
+        bool valid = false;
+        if (animation)
+            for (const auto& motion : animation->motions)
+                if (motion.id == selection.motion)
+                    valid = compiled::motion_initial_time(motion, selection.policy).has_value();
+        if (!valid_saved_owner(project, save, selection.owner) || !valid)
+            error("save_codec.invalid_presentation_record",
+                  "Motion selection has an invalid owner, target, motion, or playback policy.");
+    }
+
     std::unordered_set<std::string> material_selection_keys;
     for (const auto& selection : save.material_selections) {
         const auto key = saved_owner_key(selection.owner) + "|" +

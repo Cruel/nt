@@ -4426,6 +4426,51 @@ TEST_CASE("runtime Lua Material Parameters and postprocess effects stay semantic
     CHECK(fixture.session->presentation_state().postprocess_effects().empty());
 }
 
+TEST_CASE("runtime Lua motion selection settles into owner-scoped semantic desired presentation")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        document["resources"]["animations"] = nlohmann::json::parse(
+            R"([{"id":"key-motion","canvas":{"width":64,"height":32},"defaultMotionId":"idle","motions":[{"id":"idle","kind":"sprite-sequence","markers":[{"id":"open","timeMs":50}],"frames":[{"image":{"kind":"asset","id":"image-main"},"durationMs":100}]}]}])");
+        auto key = std::ranges::find_if(document["definitions"]["interactables"],
+                                        [](const auto& value) { return value["id"] == "key"; });
+        REQUIRE(key != document["definitions"]["interactables"].end());
+        (*key)["presentation"]["visual"] = nlohmann::json::parse(
+            R"({"kind":"animation","animation":{"kind":"animation","id":"key-motion"},"motionId":null,"playback":null})");
+    });
+    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local policy = {['repeat']='once', rate=0.5, clock='unscaled-presentation', "
+        "initial_marker='open'}\n"
+        "local ok, err = noveltea.presentation.set_motion_selection({kind='interactable', "
+        "id='key'}, 'idle', policy, {owner='session'}); assert(ok and err == nil)\n"
+        "ok, err = noveltea.presentation.set_motion_selection({kind='actor', id='key'}, 'idle', "
+        "policy, {owner='session'}); assert(not ok and err ~= nil)\n"
+        "policy.elapsedMs = 10; ok, err = "
+        "noveltea.presentation.set_motion_selection({kind='interactable', id='key'}, 'idle', "
+        "policy, {owner='session'}); assert(not ok and err ~= nil); policy.elapsedMs = nil\n"
+        "policy.rate = 0; ok, err = "
+        "noveltea.presentation.set_motion_selection({kind='interactable', id='key'}, 'idle', "
+        "policy, {owner='session'}); assert(not ok and err ~= nil)",
+        "typed-motion-selection-set"));
+    auto flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    REQUIRE(fixture.session->presentation_state().motion_selections().size() == 1);
+    CHECK(fixture.session->presentation_state().motion_selections().front().policy.initial_marker ==
+          "open");
+    REQUIRE(execute_session_lua(
+        fixture,
+        "local ok, err = noveltea.presentation.clear_motion_selection({kind='interactable', "
+        "id='key'}, {owner='session'}); assert(ok and err == nil)",
+        "typed-motion-selection-clear"));
+    flushed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(flushed.diagnostics.empty());
+    CHECK(fixture.session->presentation_state().motion_selections().empty());
+}
+
 TEST_CASE("runtime Lua Material Parameters support Material Definition and Interactable scopes")
 {
     Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {

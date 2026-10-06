@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "../motion_policy_codec.hpp"
 
 namespace noveltea::core::save_state_codec {
 namespace {
@@ -962,12 +963,11 @@ decode_material_binding(Decoder& d, const nlohmann::json& value, std::string_vie
     return std::nullopt;
 }
 
-nlohmann::json encode_material_selection_target(const MaterialSelectionTarget& target)
+template<class Target> nlohmann::json encode_selection_target(const Target& target)
 {
     return std::visit(
         [](const auto& value) -> nlohmann::json {
-            using T = std::decay_t<decltype(value)>;
-            if constexpr (std::is_same_v<T, InteractableDefinitionMaterialOccurrence>)
+            if constexpr (requires { value.definition; })
                 return {{"kind", "interactable-definition"}, {"id", value.definition.text()}};
             else
                 return {{"kind", "interactable"}, {"id", value.interactable.text()}};
@@ -975,11 +975,12 @@ nlohmann::json encode_material_selection_target(const MaterialSelectionTarget& t
         target);
 }
 
-std::optional<MaterialSelectionTarget>
-decode_material_selection_target(Decoder& d, const nlohmann::json& value, std::string_view pointer)
+template<class SelectionTarget, class DefinitionTarget, class InstanceTarget>
+std::optional<SelectionTarget> decode_selection_target(Decoder& d, const nlohmann::json& value,
+                                                       std::string_view pointer)
 {
     if (!value.is_object()) {
-        d.error(k_type, "Expected a Material selection target object.", std::string(pointer));
+        d.error(k_type, "Expected a presentation selection target object.", std::string(pointer));
         return std::nullopt;
     }
     const auto* kind_value = d.member(value, "kind", pointer);
@@ -992,9 +993,7 @@ decode_material_selection_target(Decoder& d, const nlohmann::json& value, std::s
         const auto* id_value = d.member(value, "id", pointer);
         auto id = id_value ? d.id<InteractableDefinitionId>(*id_value, child(pointer, "id"))
                            : std::nullopt;
-        return id ? std::optional<MaterialSelectionTarget>{InteractableDefinitionMaterialOccurrence{
-                        std::move(*id)}}
-                  : std::nullopt;
+        return id ? std::optional<SelectionTarget>{DefinitionTarget{std::move(*id)}} : std::nullopt;
     }
     if (*kind == "interactable") {
         if (!d.object(value, pointer, {"id", "kind"}))
@@ -1002,11 +1001,9 @@ decode_material_selection_target(Decoder& d, const nlohmann::json& value, std::s
         const auto* id_value = d.member(value, "id", pointer);
         auto id =
             id_value ? d.id<InteractableInstanceId>(*id_value, child(pointer, "id")) : std::nullopt;
-        return id ? std::optional<MaterialSelectionTarget>{InteractableMaterialOccurrence{
-                        std::move(*id)}}
-                  : std::nullopt;
+        return id ? std::optional<SelectionTarget>{InstanceTarget{std::move(*id)}} : std::nullopt;
     }
-    d.error(k_variant, "Unknown Material selection target kind '" + *kind + "'.",
+    d.error(k_variant, "Unknown presentation selection target kind '" + *kind + "'.",
             child(pointer, "kind"));
     return std::nullopt;
 }
@@ -1623,10 +1620,16 @@ nlohmann::json encode_presentation_records(const CompiledProject& project, const
              {"opacity", value.opacity},
              {"visible", value.visible}});
 
+    nlohmann::json motion_selections = nlohmann::json::array();
+    for (const auto& value : save.motion_selections)
+        motion_selections.push_back({{"owner", encode_presentation_owner(value.owner)},
+                                     {"target", encode_selection_target(value.target)},
+                                     {"motion", value.motion.text()},
+                                     {"policy", encode_motion_policy(value.policy)}});
     nlohmann::json material_selections = nlohmann::json::array();
     for (const auto& value : save.material_selections)
         material_selections.push_back({{"owner", encode_presentation_owner(value.owner)},
-                                       {"target", encode_material_selection_target(value.target)},
+                                       {"target", encode_selection_target(value.target)},
                                        {"material", value.material.text()}});
 
     nlohmann::json material_parameters = nlohmann::json::array();
@@ -1707,6 +1710,7 @@ nlohmann::json encode_presentation_records(const CompiledProject& project, const
             {"actors", std::move(actors)},
             {"props", std::move(props)},
             {"environments", std::move(environments)},
+            {"motionSelections", std::move(motion_selections)},
             {"materialSelections", std::move(material_selections)},
             {"materialParameters", std::move(material_parameters)},
             {"postprocessEffects", std::move(postprocess_effects)},
@@ -1722,15 +1726,16 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
 {
     if (!d.object(value, pointer,
                   {"backgroundOverrides", "cameraViews", "actors", "props", "environments",
-                   "materialSelections", "materialParameters", "postprocessEffects",
-                   "mountedLayouts", "layoutStateSlots", "desiredAudio", "presentedText",
-                   "activeChoice"}))
+                   "motionSelections", "materialSelections", "materialParameters",
+                   "postprocessEffects", "mountedLayouts", "layoutStateSlots", "desiredAudio",
+                   "presentedText", "activeChoice"}))
         return std::nullopt;
     const auto* backgrounds_value = d.member(value, "backgroundOverrides", pointer);
     const auto* camera_views_value = d.member(value, "cameraViews", pointer);
     const auto* actors_value = d.member(value, "actors", pointer);
     const auto* props_value = d.member(value, "props", pointer);
     const auto* environments_value = d.member(value, "environments", pointer);
+    const auto* motion_selections_value = d.member(value, "motionSelections", pointer);
     const auto* material_selections_value = d.member(value, "materialSelections", pointer);
     const auto* material_parameters_value = d.member(value, "materialParameters", pointer);
     const auto* postprocess_effects_value = d.member(value, "postprocessEffects", pointer);
@@ -2050,6 +2055,39 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                   })
             : std::nullopt;
 
+    auto motion_selections =
+        motion_selections_value
+            ? decode_required_array<SavedMotionSelection>(
+                  d, *motion_selections_value, child(pointer, "motionSelections"),
+                  [&d](const nlohmann::json& entry,
+                       const std::string& path) -> std::optional<SavedMotionSelection> {
+                      if (!d.object(entry, path, {"owner", "target", "motion", "policy"}))
+                          return std::nullopt;
+                      const auto* owner_value = d.member(entry, "owner", path);
+                      const auto* target_value = d.member(entry, "target", path);
+                      const auto* motion_value = d.member(entry, "motion", path);
+                      const auto* policy_value = d.member(entry, "policy", path);
+                      auto owner = owner_value ? decode_presentation_owner(d, *owner_value,
+                                                                           child(path, "owner"))
+                                               : std::nullopt;
+                      auto target =
+                          target_value ? decode_selection_target<MotionSelectionTarget,
+                                                                 InteractableDefinitionMotionTarget,
+                                                                 InteractableMotionTarget>(
+                                             d, *target_value, child(path, "target"))
+                                       : std::nullopt;
+                      auto motion = motion_value ? d.id<AnimationMotionId>(*motion_value,
+                                                                           child(path, "motion"))
+                                                 : std::nullopt;
+                      auto policy = policy_value ? decode_motion_policy(d, *policy_value,
+                                                                        child(path, "policy"))
+                                                 : std::nullopt;
+                      if (!owner || !target || !motion || !policy)
+                          return std::nullopt;
+                      return SavedMotionSelection{std::move(*owner), std::move(*target),
+                                                  std::move(*motion), std::move(*policy)};
+                  })
+            : std::nullopt;
     auto material_selections =
         material_selections_value
             ? decode_required_array<SavedMaterialSelection>(
@@ -2064,10 +2102,13 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                       auto owner = owner_value ? decode_presentation_owner(
                                                      d, *owner_value, child(entry_pointer, "owner"))
                                                : std::nullopt;
-                      auto target = target_value
-                                        ? decode_material_selection_target(
-                                              d, *target_value, child(entry_pointer, "target"))
-                                        : std::nullopt;
+                      auto target =
+                          target_value
+                              ? decode_selection_target<MaterialSelectionTarget,
+                                                        InteractableDefinitionMaterialOccurrence,
+                                                        InteractableMaterialOccurrence>(
+                                    d, *target_value, child(entry_pointer, "target"))
+                              : std::nullopt;
                       auto material =
                           material_value
                               ? d.id<MaterialId>(*material_value, child(entry_pointer, "material"))
@@ -2484,7 +2525,7 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                              ? decode_choice(d, *choice_value, child(pointer, "activeChoice"))
                              : std::nullopt;
 
-    if (!backgrounds || !camera_views || !actors || !props || !environments ||
+    if (!backgrounds || !camera_views || !actors || !props || !environments || !motion_selections ||
         !material_selections || !material_parameters || !postprocess_effects || !layouts ||
         !layout_state_slots || !desired_audio || !presented_text || !active_choice)
         return std::nullopt;
@@ -2493,6 +2534,7 @@ decode_presentation_records(Decoder& d, const nlohmann::json& value, std::string
                                     std::move(*actors),
                                     std::move(*props),
                                     std::move(*environments),
+                                    std::move(*motion_selections),
                                     std::move(*material_selections),
                                     std::move(*material_parameters),
                                     std::move(*postprocess_effects),

@@ -128,6 +128,7 @@ describe('CharacterEditor', () => {
           {
             id: 'idle',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
           },
         ],
@@ -188,6 +189,7 @@ describe('CharacterEditor', () => {
                             kind: 'animation',
                             animation: { $ref: { collection: 'animations', id: 'portrait' } },
                             motionId: 'idle',
+                            playback: null,
                           },
                         },
                       ],

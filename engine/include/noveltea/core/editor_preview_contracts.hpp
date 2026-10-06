@@ -228,6 +228,7 @@ struct TypedFocusedVisual {
     std::string kind;
     std::string resource_id;
     std::optional<std::string> motion_id;
+    std::optional<MotionPlaybackPolicy> playback = std::nullopt;
 };
 
 struct TypedFocusedCharacterVisual {
@@ -269,6 +270,7 @@ struct TypedFocusedRoomWorldDefinition {
         struct Motion {
             std::string id;
             std::vector<Frame> frames;
+            std::vector<compiled::AnimationMarker> markers = {};
         };
         std::string id;
         compiled::ReferenceResolution canvas{};

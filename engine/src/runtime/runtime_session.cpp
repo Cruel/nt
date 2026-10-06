@@ -1459,6 +1459,15 @@ core::Diagnostics RuntimeSession::execute_deferred_command(const DeferredRuntime
                                                                                   payload.owner);
                 if (!changed)
                     diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::UpsertMotionSelectionCommand>) {
+                auto changed = m_kernel->state().upsert_motion_selection(m_project, payload.value);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
+            } else if constexpr (std::is_same_v<T, runtime::RemoveMotionSelectionCommand>) {
+                auto changed =
+                    m_kernel->state().remove_motion_selection(payload.target, payload.owner);
+                if (!changed)
+                    diagnostics = std::move(changed).error();
             } else if constexpr (std::is_same_v<T, runtime::UpsertMaterialSelectionCommand>) {
                 auto changed =
                     m_kernel->state().upsert_material_selection(m_project, payload.value);

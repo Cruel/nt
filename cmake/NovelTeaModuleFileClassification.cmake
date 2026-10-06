@@ -30,6 +30,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_domain
     engine/include/noveltea/core/layout_scale_policy.hpp
     engine/include/noveltea/core/loading_progress.hpp
     engine/include/noveltea/core/message_realization.hpp
+    engine/include/noveltea/core/motion_policy.hpp
     engine/include/noveltea/core/presentation_contracts.hpp
     engine/include/noveltea/core/presentation_operation_contracts.hpp
     engine/include/noveltea/core/property.hpp
@@ -102,6 +103,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_content
     engine/src/core/compiled_project_codec/shared_values.cpp
     engine/src/core/compiled_project_wire.hpp
     engine/src/core/json_decoder.hpp
+    engine/src/core/motion_policy_codec.hpp
     engine/src/core/editor_protocol.cpp
     engine/src/core/package_export.cpp
     engine/src/core/player_bootstrap.cpp

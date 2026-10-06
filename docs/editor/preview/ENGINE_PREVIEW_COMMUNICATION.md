@@ -640,7 +640,9 @@ focused Game HUD resolves from the canonical packaged path
 `system:/ui/runtime/runtime_game.rml`.
 Focused Room `world.animations` carries bounded immutable Animation resources referenced by
 Environment, Interactable, and resolved Character-layer `visual` selections (image or Animation, with
-nullable selected motion). Interactable entries and Character layers carry required nullable `visual`;
+nullable selected motion and required nullable `playback` policy). Each motion carries required
+`markers` (unique non-reserved IDs and absolute motion milliseconds). Missing policy/marker fields,
+invalid policies, and unresolved initial markers reject the candidate. Interactable entries and Character layers carry required nullable `visual`;
 replaced `spriteAssetId` fields are rejected.
 Hotspot entries carry nullable `occurrenceId` (Room Hotspots use null) and nullable `sourceAssetId`;
 Animation Hotspots use logical canvas dimensions and no fixed source Asset. The builder includes frame
@@ -652,7 +654,7 @@ included Animation frame; missing entries fail before candidate publication.
 The focused presenter uses the production resource resolver and raster world backend under focused
 mandatory leases. Successful prepared publication preserves compatible live Animation occurrence
 epochs; unrelated edits therefore do not restart playback. Replacement or backend reconstruction
-starts fresh. No playback phase is transported in the focused document. See
+starts at semantic start/initial marker. No playback phase is transported in the focused document. See
 [Animation realization](../../rendering/ANIMATION_AND_TWEENING.md#raster-animation-realization).
 
 Focused Room Hotspot documents preserve authored `target: { kind: 'none' }` so the editor can keep

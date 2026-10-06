@@ -328,6 +328,7 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
         .actors = {},
         .presentation_props = {},
         .presentation_environments = {},
+        .motion_selections = {},
         .material_selections = {},
         .material_parameters = {},
         .postprocess_effects = {},
@@ -436,6 +437,14 @@ Result<SaveState, Diagnostics> make_save_state(const CompiledProject& project,
                 environment.material, environment.bounds, environment.plane, environment.order,
                 environment.clock, environment.scroll_per_second, environment.opacity,
                 environment.visible});
+    }
+    for (const auto& selection : session.m_motion_selections) {
+        auto owner = save_presentation_owner(session, frame_ids, selection.owner);
+        if (!owner)
+            return Result<SaveState, Diagnostics>::failure(owner.error());
+        if (*owner.value_if())
+            save.motion_selections.push_back(
+                {**owner.value_if(), selection.target, selection.motion, selection.policy});
     }
     for (const auto& selection : session.m_material_selections) {
         auto owner = save_presentation_owner(session, frame_ids, selection.owner);

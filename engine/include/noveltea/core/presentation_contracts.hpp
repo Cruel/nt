@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/core/diagnostic.hpp"
+#include "noveltea/core/motion_policy.hpp"
 #include "noveltea/core/layout_scale_policy.hpp"
 #include "noveltea/core/session_operation_id.hpp"
 
@@ -35,10 +36,6 @@ enum class PresentationPlane : std::uint8_t {
     Modal,
     Transition,
     Debug,
-};
-enum class LayoutClockDomain : std::uint8_t {
-    Gameplay,
-    UnscaledPresentation,
 };
 enum class LayoutInputMode : std::uint8_t {
     None,

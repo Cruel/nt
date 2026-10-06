@@ -752,6 +752,7 @@ describe('authoring structural dependency graph and queries', () => {
           {
             id: 'idle',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
           },
         ],
@@ -771,6 +772,7 @@ describe('authoring structural dependency graph and queries', () => {
         kind: 'animation',
         animation: { $ref: { collection: 'animations', id: 'pulse' } },
         motionId: null,
+        playback: null,
       },
       materialApplication: {
         material: { $ref: { collection: 'materials', id: 'panel' } },

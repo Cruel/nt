@@ -147,6 +147,7 @@ function compileVisual(visual: import('./project-schema/authoring-animations').V
         kind: 'animation' as const,
         animation: { kind: 'animation' as const, id: visual.animation.$ref.id },
         motionId: visual.motionId,
+        playback: visual.playback,
       };
 }
 
@@ -647,6 +648,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
       motions: record.data.motions.map((motion) => ({
         id: motion.id,
         kind: motion.kind,
+        markers: motion.markers.map((marker) => ({ ...marker })),
         frames: motion.frames.map((frame) => ({
           image: { kind: 'asset' as const, id: frame.image.$ref.id },
           durationMs: frame.durationMs,
@@ -1034,6 +1036,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                               id: entry.visual.animation.$ref.id,
                             },
                             motionId: entry.visual.motionId,
+                            playback: entry.visual.playback,
                           },
                   }
                 : entry.asset

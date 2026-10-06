@@ -278,7 +278,9 @@ or own Flow/session/save state.
 Authored Room Environment [Animation Visuals](../engine/ANIMATION.md) project semantic resource and
 motion selection into the same immutable presentation snapshot. Their mandatory closure includes
 all selected sprite frames. Sampling/phase remains backend-local on existing presentation clocks;
-compatible republishes retain phase and reset/load reconstructs from the first sample. No Animation
+compatible republishes retain phase and reset/load reconstructs from semantic start/initial marker.
+Owner-scoped Interactable desired-motion records save only target, motion, and reconstructible policy;
+Character semantic state remains unchanged. See [Animation](../engine/ANIMATION.md). No Animation
 frame cursor or epoch is added to SessionState, SaveState, or snapshot output.
 
 Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only compiled audio Asset

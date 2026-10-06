@@ -1545,7 +1545,9 @@ RuntimeWorld::destroy(const core::GameplayInstanceRef& instance)
                 const auto presentation_owner_uses_room = [&](const auto& value) {
                     return presentation_owner_references(value.owner, id);
                 };
-                if (std::any_of(m_state.m_background_overrides.begin(),
+                if (std::any_of(m_state.m_motion_selections.begin(),
+                                m_state.m_motion_selections.end(), presentation_owner_uses_room) ||
+                    std::any_of(m_state.m_background_overrides.begin(),
                                 m_state.m_background_overrides.end(),
                                 presentation_owner_uses_room) ||
                     std::any_of(m_state.m_actors.begin(), m_state.m_actors.end(),
@@ -1680,6 +1682,10 @@ RuntimeWorld::destroy(const core::GameplayInstanceRef& instance)
                                    [&](const auto& value) { return value.character == id; }),
                     m_state.m_character_world.end());
             } else {
+                std::erase_if(m_state.m_motion_selections, [&](const auto& value) {
+                    const auto* target = std::get_if<core::InteractableMotionTarget>(&value.target);
+                    return target && target->interactable == id;
+                });
                 m_state.m_runtime_interactables.erase(
                     std::remove_if(m_state.m_runtime_interactables.begin(),
                                    m_state.m_runtime_interactables.end(),

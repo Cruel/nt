@@ -14,7 +14,8 @@
       "visual": {
         "kind": "animation",
         "animation": { "$ref": { "collection": "animations", "id": "alpha-occupancy-loop" } },
-        "motionId": null
+        "motionId": null,
+        "playback": null
       },
       "materialApplication": null,
       "hotspots": {

@@ -1158,6 +1158,8 @@ SessionState::validate_presentation_owner(const CompiledProject& project,
 
 void SessionState::remove_presentation_owned_by(const PresentationOwner& owner) noexcept
 {
+    std::erase_if(m_motion_selections,
+                  [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_background_overrides,
                   [&owner](const auto& value) { return value.owner == owner; });
     std::erase_if(m_camera_views, [&owner](const auto& value) { return value.owner == owner; });
@@ -1468,6 +1470,65 @@ SessionState::remove_presentation_environments(const PresentationEnvironmentStop
                   [&stop_key, &owner](const DesiredPresentationEnvironment& value) {
                       return value.stop_key == stop_key && value.owner == owner;
                   });
+    return Result<void, Diagnostics>::success();
+}
+
+const DesiredMotionSelection*
+SessionState::motion_selection(const MotionSelectionTarget& target,
+                               const PresentationOwner& owner) const noexcept
+{
+    const auto found = std::ranges::find_if(m_motion_selections, [&](const auto& value) {
+        return value.target == target && value.owner == owner;
+    });
+    return found == m_motion_selections.end() ? nullptr : &*found;
+}
+
+Result<void, Diagnostics> SessionState::upsert_motion_selection(const CompiledProject& project,
+                                                                DesiredMotionSelection value)
+{
+    auto owner = validate_presentation_owner(project, value.owner);
+    if (!owner)
+        return owner;
+    const auto* definition = std::visit(
+        [&](const auto& target) -> const compiled::InteractableDefinition* {
+            using T = std::decay_t<decltype(target)>;
+            if constexpr (std::is_same_v<T, InteractableDefinitionMotionTarget>)
+                return project.find_interactable_definition(target.definition);
+            else
+                return runtime_interactable(*this, target.interactable);
+        },
+        value.target);
+    const auto* visual =
+        definition && definition->presentation.visual
+            ? std::get_if<compiled::AnimationVisual>(&*definition->presentation.visual)
+            : nullptr;
+    const auto* animation = visual ? project.find_animation(visual->animation) : nullptr;
+    if (!animation)
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.motion_selection_invalid_target",
+                          "Motion selection requires an animated Interactable target"));
+    const auto motion = std::ranges::find_if(
+        animation->motions, [&](const auto& candidate) { return candidate.id == value.motion; });
+    if (motion == animation->motions.end() || !compiled::motion_initial_time(*motion, value.policy))
+        return Result<void, Diagnostics>::failure(
+            feature_error("runtime.motion_selection_invalid_policy",
+                          "Motion, playback policy, or initial marker is invalid"));
+    const auto found = std::ranges::find_if(m_motion_selections, [&](const auto& current) {
+        return current.target == value.target && current.owner == value.owner;
+    });
+    if (found == m_motion_selections.end())
+        m_motion_selections.push_back(std::move(value));
+    else
+        *found = std::move(value);
+    return Result<void, Diagnostics>::success();
+}
+
+Result<void, Diagnostics> SessionState::remove_motion_selection(const MotionSelectionTarget& target,
+                                                                const PresentationOwner& owner)
+{
+    std::erase_if(m_motion_selections, [&](const auto& value) {
+        return value.target == target && value.owner == owner;
+    });
     return Result<void, Diagnostics>::success();
 }
 

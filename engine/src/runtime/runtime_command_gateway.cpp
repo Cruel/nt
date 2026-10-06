@@ -986,6 +986,21 @@ RuntimeCommandGateway::presentation_environment(
 }
 
 core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::upsert_motion_selection(core::DesiredMotionSelection value)
+{
+    auto owner = require_gameplay_owner(m_project, m_state, value.owner);
+    return owner ? enqueue(UpsertMotionSelectionCommand{std::move(value)}) : owner;
+}
+core::Result<void, core::Diagnostics>
+RuntimeCommandGateway::remove_motion_selection(core::MotionSelectionTarget target,
+                                               core::PresentationOwner owner)
+{
+    auto valid = require_gameplay_owner(m_project, m_state, owner);
+    return valid ? enqueue(RemoveMotionSelectionCommand{std::move(target), std::move(owner)})
+                 : valid;
+}
+
+core::Result<void, core::Diagnostics>
 RuntimeCommandGateway::upsert_material_selection(core::DesiredMaterialSelection value)
 {
     auto owner = require_gameplay_owner(m_project, m_state, value.owner);

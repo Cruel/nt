@@ -1,6 +1,7 @@
 import { z } from 'zod';
 import { entityIdSchema, layoutContractIdSchema } from './authoring-common';
 import { imageSamplingValues } from './authoring-assets';
+import { motionPlaybackPolicySchema, animationMarkerSchema } from './authoring-animations';
 import { MAX_REFERENCE_RESOLUTION_DIMENSION } from './project-display-contract';
 
 /**
@@ -49,6 +50,7 @@ export const compiledVisualSchema = z.discriminatedUnion('kind', [
     kind: z.literal('animation'),
     animation: animationReferenceSchema,
     motionId: id.nullable(),
+    playback: motionPlaybackPolicySchema.nullable(),
   }),
 ]);
 const compiledMaterialRoleSchema = z.enum([
@@ -2281,6 +2283,7 @@ const animationResourceSchema = strict({
     strict({
       id,
       kind: z.literal('sprite-sequence'),
+      markers: z.array(animationMarkerSchema),
       frames: z
         .array(
           strict({
@@ -2847,6 +2850,18 @@ export function computeCompiledProjectSaveContract(project: CompiledProjectWire)
     interactableInstances: project.interactableInstances as CanonicalJson,
     properties: project.properties as CanonicalJson,
     resources: {
+      ...(project.resources.animations.length > 0
+        ? {
+            animations: project.resources.animations.map((animation) => ({
+              id: animation.id,
+              defaultMotionId: animation.defaultMotionId,
+              motions: animation.motions.map((motion) => ({
+                id: motion.id,
+                markers: motion.markers.map((marker) => marker.id),
+              })),
+            })),
+          }
+        : {}),
       assets: project.resources.assets.map((asset) => asset.id),
       layouts: project.resources.layouts.map((layout) =>
         layout.contract?.state

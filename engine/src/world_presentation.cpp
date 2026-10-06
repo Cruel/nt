@@ -192,6 +192,8 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
                      {}});
     auto& draw = draws.back();
     draw.raster_animation_key = visual.animation_key;
+    draw.motion_policy = visual.motion_policy;
+    draw.motion_initial_ms = visual.motion_initial_ms;
     draw.raster_animation_frames.reserve(visual.animation_frames.size());
     for (const auto& frame : visual.animation_frames)
         draw.raster_animation_frames.push_back({frame.duration_ms, Texture{frame.texture.handle},
@@ -359,6 +361,23 @@ std::string interactable_draw_identity(
 std::string raster_animation_identity(const WorldPresentationDraw& draw)
 {
     return loop_key(draw) + (draw.actor_layer_id ? ":layer:" + draw.actor_layer_id->text() : "");
+}
+
+core::LayoutClockDomain raster_animation_clock(const WorldPresentationDraw& draw)
+{
+    return draw.motion_policy ? draw.motion_policy->clock
+                              : draw.environment_clock.value_or(core::LayoutClockDomain::Gameplay);
+}
+
+bool compatible_raster_animation(const WorldPresentationDraw& left,
+                                 const WorldPresentationDraw& right)
+{
+    return !left.raster_animation_frames.empty() &&
+           raster_animation_identity(left) == raster_animation_identity(right) &&
+           left.raster_animation_key == right.raster_animation_key &&
+           left.motion_policy == right.motion_policy &&
+           left.motion_initial_ms == right.motion_initial_ms &&
+           raster_animation_clock(left) == raster_animation_clock(right);
 }
 
 std::string raster_animation_loop_key(const WorldPresentationDraw& draw)
@@ -576,6 +595,12 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
             "World presentation Animation motion is unavailable: " + motion_id.text(), context)});
     }
 
+    const auto initial = core::compiled::motion_initial_time(
+        *motion, selection.playback.value_or(core::MotionPlaybackPolicy{}));
+    if (!initial)
+        return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+            {diagnostic("presentation.world_animation_policy_invalid",
+                        "Invalid motion playback policy or initial marker", context)});
     auto material_result = resolve(std::nullopt, material, context);
     if (!material_result)
         return material_result;
@@ -587,6 +612,8 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
                            std::to_string(motion_id.text().size()) + ":" + motion_id.text() + ":" +
                            std::to_string(resource->second.canvas.width) + "x" +
                            std::to_string(resource->second.canvas.height);
+    result.motion_policy = selection.playback;
+    result.motion_initial_ms = *initial;
     result.animation_frames.reserve(motion->frames.size());
     for (std::size_t index = 0; index < motion->frames.size(); ++index) {
         const auto& frame = motion->frames[index];
@@ -1246,9 +1273,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             continue;
         if (m_frame) {
             const auto previous = std::ranges::find_if(m_frame->draws, [&](const auto& value) {
-                return raster_animation_identity(value) == raster_animation_identity(draw) &&
-                       value.raster_animation_key == draw.raster_animation_key &&
-                       value.environment_clock == draw.environment_clock;
+                return compatible_raster_animation(value, draw);
             });
             if (previous != m_frame->draws.end())
                 draw.raster_animation_epoch = previous->raster_animation_epoch;
@@ -1566,26 +1591,45 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
     frame.base_game_ui_underlay_batch.clear();
     for (auto& draw : frame.draws) {
         QuadCommand command = draw.command;
-        if (clock && !draw.raster_animation_frames.empty()) {
-            const auto domain = draw.environment_clock.value_or(core::LayoutClockDomain::Gameplay);
+        if (!draw.raster_animation_frames.empty()) {
+            const auto policy = draw.motion_policy.value_or(core::MotionPlaybackPolicy{});
+            const auto domain = raster_animation_clock(draw);
             std::uint64_t total_duration_ms = 0;
             for (const auto& animation_frame : draw.raster_animation_frames)
                 total_duration_ms += animation_frame.duration_ms;
             if (total_duration_ms > 0) {
-                const auto now = clock_time(*clock, domain);
+                const auto now = clock ? clock_time(*clock, domain) : std::chrono::microseconds{0};
                 const auto key = raster_animation_loop_key(draw);
-                auto [epoch, inserted] = m_loop_epochs.try_emplace(
-                    key, LoopEpoch{domain, now, draw.raster_animation_key});
-                if (!inserted && (epoch->second.clock != domain ||
-                                  epoch->second.compatibility != draw.raster_animation_key))
-                    epoch->second = LoopEpoch{domain, now, draw.raster_animation_key};
-                const auto elapsed = now >= epoch->second.started_at
-                                         ? now - epoch->second.started_at
-                                         : std::chrono::microseconds{0};
-                auto phase_ms =
-                    static_cast<std::uint64_t>(
-                        std::chrono::duration_cast<std::chrono::milliseconds>(elapsed).count()) %
-                    total_duration_ms;
+                std::chrono::microseconds elapsed{0};
+                if (clock) {
+                    auto [epoch, inserted] = m_loop_epochs.try_emplace(
+                        key, LoopEpoch{domain, now, draw.raster_animation_key});
+                    if (!inserted && (epoch->second.clock != domain ||
+                                      epoch->second.compatibility != draw.raster_animation_key))
+                        epoch->second = LoopEpoch{domain, now, draw.raster_animation_key};
+                    if (now >= epoch->second.started_at)
+                        elapsed = now - epoch->second.started_at;
+                }
+                const auto duration = static_cast<long double>(total_duration_ms);
+                const auto initial = static_cast<long double>(draw.motion_initial_ms);
+                const auto microseconds = static_cast<long double>(elapsed.count());
+                const auto rate = static_cast<long double>(policy.rate) / 1000.0L;
+                long double phase;
+                if (policy.repeat == core::MotionRepeat::Loop) {
+                    // Reduce before multiplication: Web long double cannot hold elapsed * DBL_MAX.
+                    phase = std::fmod(
+                        initial + std::fmod(std::fmod(rate, duration) * microseconds, duration),
+                        duration);
+                } else {
+                    const auto endpoint = duration - 1.0L;
+                    const auto remaining = std::max(0.0L, endpoint - initial);
+                    phase = microseconds > 0.0L && rate >= remaining / microseconds
+                                ? endpoint
+                                : std::min(initial + rate * microseconds, endpoint);
+                }
+                auto phase_ms = phase >= static_cast<long double>(total_duration_ms - 1)
+                                    ? total_duration_ms - 1
+                                    : static_cast<std::uint64_t>(phase);
                 for (const auto& animation_frame : draw.raster_animation_frames) {
                     if (phase_ms < animation_frame.duration_ms) {
                         command.texture = animation_frame.texture;
@@ -2057,10 +2101,7 @@ void WorldPresentationBackend::preserve_animation_epochs_from(
             continue;
         const auto previous_draw =
             std::ranges::find_if(previous.m_frame->draws, [&](const auto& value) {
-                return !value.raster_animation_frames.empty() &&
-                       raster_animation_identity(value) == raster_animation_identity(draw) &&
-                       value.raster_animation_key == draw.raster_animation_key &&
-                       value.environment_clock == draw.environment_clock;
+                return compatible_raster_animation(value, draw);
             });
         if (previous_draw == previous.m_frame->draws.end()) {
             draw.raster_animation_epoch = ++m_animation_epoch_generation;

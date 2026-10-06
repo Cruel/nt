@@ -602,7 +602,8 @@ focused_visual(const core::editor::TypedFocusedRoomWorldDefinition::Visual& valu
     return core::compiled::AnimationVisual{
         decoded_id<core::AnimationId>(value.resource_id),
         value.motion_id ? std::optional{decoded_id<core::AnimationMotionId>(*value.motion_id)}
-                        : std::nullopt};
+                        : std::nullopt,
+        value.playback};
 }
 
 core::Result<bool, core::Diagnostics>
@@ -1564,7 +1565,7 @@ FocusedPreviewPresenter::prepare_room_state(
         resource.motions.reserve(animation.motions.size());
         for (const auto& motion : animation.motions) {
             core::compiled::SpriteAnimationMotion compiled_motion{
-                decoded_id<core::AnimationMotionId>(motion.id), {}};
+                decoded_id<core::AnimationMotionId>(motion.id), {}, motion.markers};
             compiled_motion.frames.reserve(motion.frames.size());
             for (const auto& frame : motion.frames)
                 compiled_motion.frames.push_back(

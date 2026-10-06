@@ -244,7 +244,7 @@
       ]
     },
     "technical/LUA.md": {
-      "reviewed": "2026-10-04",
+      "reviewed": "2026-10-05",
       "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, Script Module helper/Bootstrap lifecycle, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
       "sources": [
         {

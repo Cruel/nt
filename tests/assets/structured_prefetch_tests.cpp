@@ -550,6 +550,7 @@ core::LoadedCompiledPackage animation_collector_package()
            nlohmann::json::array(
                {{{"id", "fall"},
                  {"kind", "sprite-sequence"},
+                 {"markers", nlohmann::json::array({{{"id", "quarter"}, {"timeMs", 25}}})},
                  {"frames", nlohmann::json::array(
                                 {{{"image", {{"kind", "asset"}, {"id", "animation-frame-a"}}},
                                   {"durationMs", 50}},
@@ -562,7 +563,8 @@ core::LoadedCompiledPackage animation_collector_package()
           {"visual",
            {{"kind", "animation"},
             {"animation", {{"kind", "animation"}, {"id", "rain-loop"}}},
-            {"motionId", nullptr}}},
+            {"motionId", nullptr},
+            {"playback", nullptr}}},
           {"material", {{"kind", "material"}, {"id", "sprite-material"}}},
           {"materialParameters", nlohmann::json::array()},
           {"materialTextures", nlohmann::json::array()},
@@ -577,7 +579,8 @@ core::LoadedCompiledPackage animation_collector_package()
     REQUIRE(key != nullptr);
     (*key)["presentation"]["visual"] = {{"kind", "animation"},
                                         {"animation", {{"kind", "animation"}, {"id", "rain-loop"}}},
-                                        {"motionId", nullptr}};
+                                        {"motionId", nullptr},
+                                        {"playback", nullptr}};
     (*key)["presentation"]["hotspots"] = {{"kind", "visual-alpha"},
                                           {"hotspot",
                                            {{"id", "alpha"},
@@ -1094,6 +1097,26 @@ TEST_CASE("mandatory collector retains every frame of a selected raster Animatio
     clock.gameplay_time = std::chrono::milliseconds{75};
     world.realize(clock);
     CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 2);
+    std::get<core::compiled::AnimationVisual>(*snapshot.interactables.front().visual).playback =
+        core::MotionPlaybackPolicy{core::MotionRepeat::Once, 2.0,
+                                   core::LayoutClockDomain::UnscaledPresentation, "quarter"};
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(2);
+    REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 1);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{13};
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 2);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{200};
+    world.realize(clock);
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(3);
+    REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 2);
+    world.reset();
+    REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 1);
     gate.clear_package_on_owner();
 }
 

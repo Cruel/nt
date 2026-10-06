@@ -32,6 +32,8 @@ struct WorldPreparedVisual {
     std::optional<Size> logical_size;
     std::string animation_key;
     std::vector<AnimationFrame> animation_frames;
+    std::optional<core::MotionPlaybackPolicy> motion_policy;
+    std::uint64_t motion_initial_ms = 0;
 };
 
 struct WorldPreparedHotspotResources {
@@ -192,6 +194,8 @@ struct WorldPresentationDraw {
     std::optional<core::CharacterPresentationLayerId> actor_layer_id = std::nullopt;
     std::optional<Texture> sampled_visual_texture = std::nullopt;
     MaterialTextureSampler sampled_visual_sampler = MaterialTextureSampler::ClampLinear;
+    std::optional<core::MotionPlaybackPolicy> motion_policy = std::nullopt;
+    std::uint64_t motion_initial_ms = 0;
 };
 
 struct WorldPreparedHotspotSurface {

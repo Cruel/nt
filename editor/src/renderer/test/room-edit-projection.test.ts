@@ -439,6 +439,7 @@ describe('Room Edit spatial projection', () => {
           {
             id: 'idle',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [
               { image: { $ref: { collection: 'assets', id: 'hero-image' } }, durationMs: 100 },
             ],
@@ -450,6 +451,7 @@ describe('Room Edit spatial projection', () => {
       kind: 'animation',
       animation: { $ref: { collection: 'animations', id: 'portrait' } },
       motionId: null,
+      playback: null,
     };
     const animatedProjection = resolveRoomEditProjection({
       project,

@@ -26,10 +26,22 @@ export const spriteAnimationFrameSchema = strict({
   durationMs: z.number().int().positive(),
 });
 
+export const motionPlaybackPolicySchema = strict({
+  repeat: z.enum(['once', 'loop']),
+  rate: z.number().finite().positive(),
+  clock: z.enum(['gameplay', 'unscaled-presentation']),
+  initialMarker: entityIdSchema.nullable(),
+});
+export const animationMarkerSchema = strict({
+  id: entityIdSchema,
+  timeMs: z.number().int().nonnegative(),
+});
+
 export const spriteAnimationMotionSchema = strict({
   id: entityIdSchema,
   kind: z.literal('sprite-sequence'),
   frames: z.array(spriteAnimationFrameSchema).min(1),
+  markers: z.array(animationMarkerSchema),
 });
 
 export const animationDataSchema = withSchemaDocumentation(
@@ -55,6 +67,7 @@ export const visualSchema = withSchemaDocumentation(
       kind: z.literal('animation'),
       animation: animationRefSchema,
       motionId: entityIdSchema.nullable().default(null),
+      playback: motionPlaybackPolicySchema.nullable(),
     }),
   ]),
   {
@@ -83,6 +96,18 @@ export function validateAnimationData(
         code: 'animation.motion.duplicate-id',
       });
     motionIds.add(motion.id);
+    const duration = motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+    const markers = new Set(['start', 'end']);
+    motion.markers.forEach((marker, index) => {
+      if (markers.has(marker.id) || marker.timeMs > duration)
+        diagnostics.push({
+          severity: 'error',
+          path: `${base}/motions/${motionIndex}/markers/${index}`,
+          message: 'Animation marker must be unique, non-reserved, and within the motion.',
+          category: 'Animations',
+        });
+      markers.add(marker.id);
+    });
     motion.frames.forEach((frame, frameIndex) => {
       const assetId = frame.image.$ref.id;
       const asset = project.assets[assetId];
@@ -139,6 +164,16 @@ export function validateVisualData(
   visual: Visual,
   path: string,
 ): (ProjectValidationDiagnosticLike & { path: string })[] {
+  if (visual.kind === 'animation' && visual.playback && path.includes('/animationClips/'))
+    return [
+      {
+        severity: 'error',
+        path: `${path}/playback`,
+        category: 'Animations',
+        message:
+          'Character clip Visuals use choreography timing; explicit reusable playback policy is not admitted here.',
+      },
+    ];
   if (visual.kind === 'image') {
     const asset = project.assets[visual.image.$ref.id];
     return asset && parseAssetData(asset.data)?.kind === 'image'
@@ -163,7 +198,24 @@ export function validateVisualData(
       },
     ];
   const motionId = visual.motionId ?? parsed.data.defaultMotionId;
-  return parsed.data.motions.some((motion) => motion.id === motionId)
+  const motion = parsed.data.motions.find((motion) => motion.id === motionId);
+  const marker = visual.playback?.initialMarker;
+  if (
+    motion &&
+    marker &&
+    marker !== 'start' &&
+    marker !== 'end' &&
+    !motion.markers.some((entry) => entry.id === marker)
+  )
+    return [
+      {
+        severity: 'error',
+        path: `${path}/playback/initialMarker`,
+        category: 'Animations',
+        message: `Unknown Animation marker '${marker}'.`,
+      },
+    ];
+  return motion
     ? []
     : [
         {

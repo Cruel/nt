@@ -1,4 +1,5 @@
 #include "internal.hpp"
+#include "../motion_policy_codec.hpp"
 
 namespace noveltea::core::compiled::wire::detail {
 namespace {
@@ -1685,7 +1686,7 @@ std::optional<Visual> decode_visual(Decoder& decoder, const nlohmann::json& valu
         return Visual{ImageVisual{std::move(*image)}};
     }
     if (*kind == "animation") {
-        if (!decoder.object(value, pointer, {"animation", "kind", "motionId"}))
+        if (!decoder.object(value, pointer, {"animation", "kind", "motionId", "playback"}))
             return std::nullopt;
         const auto* animation_value = decoder.member(value, "animation", pointer);
         const auto* motion_value = decoder.member(value, "motionId", pointer);
@@ -1701,9 +1702,18 @@ std::optional<Visual> decode_visual(Decoder& decoder, const nlohmann::json& valu
                 decoder.id<AnimationMotionId>(*motion_value, pointer_child(pointer, "motionId"));
             motion_ok = motion.has_value();
         }
-        if (!animation || !motion_ok)
+        const auto* playback_value = decoder.member(value, "playback", pointer);
+        std::optional<MotionPlaybackPolicy> playback;
+        if (playback_value && !playback_value->is_null()) {
+            playback =
+                decode_motion_policy(decoder, *playback_value, pointer_child(pointer, "playback"));
+            if (!playback)
+                return std::nullopt;
+        }
+        if (!animation || !motion_ok || !playback_value)
             return std::nullopt;
-        return Visual{AnimationVisual{std::move(*animation), std::move(motion)}};
+        return Visual{
+            AnimationVisual{std::move(*animation), std::move(motion), std::move(playback)}};
     }
     decoder.error(k_code_enum, "Visual kind must be 'image' or 'animation'.",
                   pointer_child(pointer, "kind"));
@@ -1751,7 +1761,8 @@ std::optional<AnimationResource> decode_animation(Decoder& decoder, const nlohma
                   *motions_value, pointer_child(pointer, "motions"),
                   [&](const nlohmann::json& motion_value,
                       const std::string& motion_pointer) -> std::optional<SpriteAnimationMotion> {
-                      if (!decoder.object(motion_value, motion_pointer, {"frames", "id", "kind"}))
+                      if (!decoder.object(motion_value, motion_pointer,
+                                          {"frames", "id", "kind", "markers"}))
                           return std::nullopt;
                       const auto* motion_id_value =
                           decoder.member(motion_value, "id", motion_pointer);
@@ -1817,9 +1828,43 @@ std::optional<AnimationResource> decode_animation(Decoder& decoder, const nlohma
                                         pointer_child(motion_pointer, "frames"));
                           frames.reset();
                       }
-                      if (!motion_id || !kind || !frames)
+                      const auto* markers_value =
+                          decoder.member(motion_value, "markers", motion_pointer);
+                      auto markers =
+                          markers_value
+                              ? decoder.array<AnimationMarker>(
+                                    *markers_value, pointer_child(motion_pointer, "markers"),
+                                    [&](const nlohmann::json& marker,
+                                        const std::string& marker_pointer)
+                                        -> std::optional<AnimationMarker> {
+                                        if (!decoder.object(marker, marker_pointer,
+                                                            {"id", "timeMs"}))
+                                            return std::nullopt;
+                                        const auto* id_value =
+                                            decoder.member(marker, "id", marker_pointer);
+                                        const auto* time_value =
+                                            decoder.member(marker, "timeMs", marker_pointer);
+                                        auto id =
+                                            id_value
+                                                ? decoder.string(
+                                                      *id_value,
+                                                      pointer_child(marker_pointer, "id"), true)
+                                                : std::nullopt;
+                                        auto time =
+                                            time_value
+                                                ? decoder.unsigned_integer<std::uint64_t>(
+                                                      *time_value,
+                                                      pointer_child(marker_pointer, "timeMs"))
+                                                : std::nullopt;
+                                        if (!id || !time)
+                                            return std::nullopt;
+                                        return AnimationMarker{std::move(*id), *time};
+                                    })
+                              : std::nullopt;
+                      if (!motion_id || !kind || !frames || !markers)
                           return std::nullopt;
-                      return SpriteAnimationMotion{std::move(*motion_id), std::move(*frames)};
+                      return SpriteAnimationMotion{std::move(*motion_id), std::move(*frames),
+                                                   std::move(*markers)};
                   })
             : std::nullopt;
     if (!id || !canvas || !default_motion || !motions || motions->empty())
