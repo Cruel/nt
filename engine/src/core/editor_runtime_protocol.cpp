@@ -1,4 +1,5 @@
 #include "noveltea/core/editor_runtime_protocol.hpp"
+#include "motion_policy_codec.hpp"
 
 #include "noveltea/core/json_access.hpp"
 #include "noveltea/render/material_codec.hpp"
@@ -3210,7 +3211,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                                         "Visual kind must be image or animation.", path));
             return std::nullopt;
         }
-        exact_fields(value, {"kind", "animationId", "motionId"}, diagnostics, path);
+        exact_fields(value, {"kind", "animationId", "motionId", "playback"}, diagnostics, path);
         if (!value.contains("motionId")) {
             diagnostics.push_back(error("editor_preview.missing_field",
                                         "Animation Visual requires nullable motionId.",
@@ -3220,6 +3221,17 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         TypedFocusedRoomWorldDefinition::Visual result_visual{
             kind, required_string(value, "animationId", path),
             optional_string(value, "motionId", path)};
+        JsonDecoder playback_decoder(
+            "", {"editor_preview.missing_field", "editor_preview.wrong_type",
+                 "editor_preview.unknown_field", "editor_preview.invalid_value",
+                 "editor_preview.invalid_value", "editor_preview.invalid_value"});
+        const auto* playback_value = playback_decoder.member(value, "playback", path);
+        if (playback_value && !playback_value->is_null())
+            result_visual.playback =
+                decode_motion_policy(playback_decoder, *playback_value, path + "/playback");
+        auto playback_errors = playback_decoder.take();
+        diagnostics.insert(diagnostics.end(), std::make_move_iterator(playback_errors.begin()),
+                           std::make_move_iterator(playback_errors.end()));
         (void)focused_id.operator()<AnimationId>(result_visual.resource_id, path + "/animationId");
         if (result_visual.motion_id)
             (void)focused_id.operator()<AnimationMotionId>(*result_visual.motion_id,
@@ -3238,6 +3250,20 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                  }))
             diagnostics.push_back(error("editor_preview.invalid_value",
                                         "Visual references a missing motion.", path + "/motionId"));
+        if (animation != result.world.animations.end() && result_visual.playback) {
+            const auto selected_id = result_visual.motion_id.value_or(animation->default_motion_id);
+            const auto selected = std::ranges::find_if(
+                animation->motions, [&](const auto& motion) { return motion.id == selected_id; });
+            if (selected != animation->motions.end()) {
+                const auto& marker = result_visual.playback->initial_marker;
+                if (marker && *marker != "start" && *marker != "end" &&
+                    std::ranges::none_of(selected->markers,
+                                         [&](const auto& entry) { return entry.id == *marker; }))
+                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                "Visual references a missing initial marker.",
+                                                path + "/playback/initialMarker"));
+            }
+        }
         return result_visual;
     };
     std::function<TypedFocusedCharacterVisual(const nlohmann::json&, std::string_view)> visual;
@@ -3741,7 +3767,7 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                                                         motion_path));
                             continue;
                         }
-                        exact_fields(motion_value, {"id", "kind", "frames"}, diagnostics,
+                        exact_fields(motion_value, {"id", "kind", "frames", "markers"}, diagnostics,
                                      motion_path);
                         if (required_string(motion_value, "kind", motion_path) != "sprite-sequence")
                             diagnostics.push_back(
@@ -3776,6 +3802,43 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                             diagnostics.push_back(error("editor_preview.wrong_type",
                                                         "Animation frames must be an array.",
                                                         motion_path + "/frames"));
+                        }
+                        const auto markers = motion_value.find("markers");
+                        if (markers == motion_value.end() || !markers->is_array())
+                            diagnostics.push_back(error("editor_preview.wrong_type",
+                                                        "Animation markers must be an array.",
+                                                        motion_path + "/markers"));
+                        else {
+                            std::set<std::string> ids{"start", "end"};
+                            std::uint64_t duration = 0;
+                            for (const auto& frame : motion.frames) {
+                                if (frame.duration_ms >
+                                    std::numeric_limits<std::uint64_t>::max() - duration) {
+                                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                                "Animation duration overflows.",
+                                                                motion_path));
+                                    break;
+                                }
+                                duration += frame.duration_ms;
+                            }
+                            for (std::size_t index = 0; index < markers->size(); ++index) {
+                                const auto& entry = (*markers)[index];
+                                const auto marker_path =
+                                    motion_path + "/markers/" + std::to_string(index);
+                                exact_fields(entry, {"id", "timeMs"}, diagnostics, marker_path);
+                                const auto id = required_string(entry, "id", marker_path);
+                                const auto time =
+                                    json_access::member_as<std::uint64_t>(entry, "timeMs");
+                                if (!time || *time > duration ||
+                                    !valid_strong_id(id, StrongIdSyntax::KebabCase) ||
+                                    !ids.insert(id).second)
+                                    diagnostics.push_back(error("editor_preview.invalid_value",
+                                                                "Animation marker is duplicate, "
+                                                                "reserved, or outside the motion.",
+                                                                marker_path));
+                                else
+                                    motion.markers.push_back({id, *time});
+                            }
                         }
                         animation.motions.push_back(std::move(motion));
                     }

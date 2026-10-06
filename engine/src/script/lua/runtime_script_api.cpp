@@ -956,6 +956,47 @@ RuntimeScriptApi::environment(core::PresentationEnvironmentInstanceId instance,
     return gateway->presentation_environment(instance, *owner.value_if());
 }
 
+core::Result<void, core::Diagnostics> RuntimeScriptApi::set_motion_selection(
+    core::MotionSelectionTarget target, core::AnimationMotionId motion,
+    core::MotionPlaybackPolicy policy, runtime::RuntimePresentationOwnerScope owner_scope,
+    std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (!gateway)
+        return core::Result<void, core::Diagnostics>::failure(denied("motion selection mutation"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(owner.error());
+    return gateway->upsert_motion_selection(
+        {std::move(*owner.value_if()), std::move(target), std::move(motion), std::move(policy)});
+}
+
+core::Result<void, core::Diagnostics>
+RuntimeScriptApi::clear_motion_selection(core::MotionSelectionTarget target,
+                                         runtime::RuntimePresentationOwnerScope owner_scope,
+                                         std::optional<core::RoomId> room)
+{
+    std::scoped_lock lock(m_state->mutex);
+    if (!m_state->capabilities)
+        return core::Result<void, core::Diagnostics>::failure(unavailable());
+    auto* gateway =
+        m_state->capabilities->command_gateway(runtime::RuntimeCapabilityGroup::Presentation);
+    if (!gateway)
+        return core::Result<void, core::Diagnostics>::failure(denied("motion selection clearing"));
+    if (!gateway->active(m_state->capabilities->generation()))
+        return core::Result<void, core::Diagnostics>::failure(stale());
+    auto owner = gateway->presentation_owner(owner_scope, std::move(room));
+    if (!owner)
+        return core::Result<void, core::Diagnostics>::failure(owner.error());
+    return gateway->remove_motion_selection(std::move(target), std::move(*owner.value_if()));
+}
+
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_material_selection(
     MaterialOccurrenceCommand target, core::MaterialId material,
     runtime::RuntimePresentationOwnerScope owner_scope, std::optional<core::RoomId> room)

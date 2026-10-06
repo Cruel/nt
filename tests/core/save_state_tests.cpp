@@ -6,6 +6,7 @@
 #include <noveltea/presentation/room_presentation.hpp>
 #include <noveltea/core/save_state.hpp>
 #include <noveltea/core/save_state_codec.hpp>
+#include <noveltea/runtime/runtime_world.hpp>
 #include "runtime_test_services.hpp"
 
 #include <catch2/catch_approx.hpp>
@@ -1604,6 +1605,73 @@ TEST_CASE("typed restore supports completed Room and nested Scene to Dialogue fl
         CHECK(std::holds_alternative<ResumeRoomDestination>(
             flow_return_destination(restored.value().flow_stack().front())));
     }
+}
+
+TEST_CASE("motion save records contain reconstructible intent and reject disposable playback state")
+{
+    const auto project = load_fixture("scene-program.json", [](nlohmann::json& document) {
+        nlohmann::json motion = {{"id", "idle"}, {"kind", "sprite-sequence"}};
+        motion["markers"] = nlohmann::json::array({{{"id", "open"}, {"timeMs", 50}}});
+        motion["frames"] = nlohmann::json::array(
+            {{{"image", {{"kind", "asset"}, {"id", "image-main"}}}, {"durationMs", 100}}});
+        document["resources"]["animations"] =
+            nlohmann::json::array({{{"id", "key-motion"},
+                                    {"canvas", {{"width", 64}, {"height", 32}}},
+                                    {"defaultMotionId", "idle"},
+                                    {"motions", nlohmann::json::array({motion})}}});
+        auto key = std::ranges::find_if(document["definitions"]["interactables"],
+                                        [](const auto& value) { return value["id"] == "key"; });
+        REQUIRE(key != document["definitions"]["interactables"].end());
+        (*key)["presentation"]["visual"] = {
+            {"kind", "animation"},
+            {"animation", {{"kind", "animation"}, {"id", "key-motion"}}},
+            {"motionId", nullptr},
+            {"playback", nullptr}};
+    });
+    auto state = make_state(project);
+    const PresentationOwner owner{state.session_presentation_owner()};
+    const MotionSelectionTarget target =
+        InteractableMotionTarget{id<InteractableInstanceId>("key")};
+    const MotionPlaybackPolicy policy{MotionRepeat::Once, 0.5,
+                                      LayoutClockDomain::UnscaledPresentation, "open"};
+    REQUIRE(state.upsert_motion_selection(project,
+                                          {owner, target, id<AnimationMotionId>("idle"), policy}));
+    auto save = make_save_state(project, state);
+    REQUIRE(save);
+    REQUIRE(save.value().motion_selections.size() == 1);
+    auto encoded = encode_save_state(project, save.value());
+    REQUIRE(encoded);
+    auto decoded = decode_save_state(project, encoded.value(), "motion-save.json");
+    REQUIRE(decoded);
+    auto restored = test_support::restore_session(project, decoded.value());
+    REQUIRE(restored);
+    REQUIRE(restored.value().motion_selections().size() == 1);
+    CHECK(restored.value().motion_selections().front().policy == policy);
+    auto document = encoded.value();
+    REQUIRE(document["presentation"]["motionSelections"].size() == 1);
+    for (const auto* field : {"elapsedMs", "frame", "paused", "seekTime", "decoder"}) {
+        auto invalid = document;
+        invalid["presentation"]["motionSelections"][0][field] = 1;
+        CHECK_FALSE(decode_save_state_wire(invalid, "motion-save.json"));
+    }
+    auto missing = document;
+    missing["presentation"].erase("motionSelections");
+    CHECK_FALSE(decode_save_state_wire(missing, "motion-save.json"));
+    for (const auto* marker : {"missing", ""}) {
+        auto invalid = document;
+        invalid["presentation"]["motionSelections"][0]["policy"]["initialMarker"] = marker;
+        CHECK_FALSE(decode_save_state(project, invalid, "motion-save.json"));
+    }
+    auto duplicate = document;
+    duplicate["presentation"]["motionSelections"].push_back(
+        duplicate["presentation"]["motionSelections"][0]);
+    CHECK_FALSE(decode_save_state(project, duplicate, "motion-save.json"));
+    noveltea::runtime::RuntimeWorld world(project, state);
+    REQUIRE(world.destroy(GameplayInstanceRef{id<InteractableInstanceId>("key")}));
+    auto after_destroy = make_save_state(project, state);
+    REQUIRE(after_destroy);
+    CHECK(after_destroy.value().motion_selections.empty());
+    CHECK(encode_save_state(project, after_destroy.value()));
 }
 
 TEST_CASE("Material Parameter and postprocess Desired State round-trips through save restore")

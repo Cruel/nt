@@ -92,21 +92,22 @@ The first [Animation resource](../engine/ANIMATION.md) tracer selects static ima
 Visuals on Room Environments, Interactables, and Character layers. It reuses mandatory Asset publication, `AssetWorldPresentationResourceResolver`,
 retained texture/Material leases, and the raster quad/Engine2D Material path.
 
-`WorldPresentationBackend` owns occurrence-local loop epochs on the Environment's existing gameplay
-or unscaled-presentation clock; Interactables and underlying Character layers use gameplay time.
+`WorldPresentationBackend` owns occurrence-local epochs. A Visual's explicit playback policy selects
+its clock/rate/repetition/initial marker; otherwise the Environment's clock or gameplay time applies.
 Character raster identity includes the actor occurrence and stable layer ID, unlike actor-wide idle
 and automatic-clip epochs. Explicit clip Visual overrides sample at frame-local choreography time;
 omitted Visual overrides retain the underlying animated sample. Compatibility includes selected Animation/motion, logical canvas,
-and ordered semantic frame IDs/durations. Compatible unchanged occurrences retain phase across
+ordered semantic frame IDs/durations, playback policy, and resolved initial-marker time. Compatible unchanged occurrences retain phase across
 snapshot republishes and focused prepared-publication swaps. Incompatible selections in retained
 predecessor/current revisions have separate anchors so realizing one cannot restart the other.
-Replacement starts at the first sample; reset/load/backend reconstruction discards epochs. Phase,
+Replacement starts at semantic start/initial marker; reset/load/backend reconstruction discards epochs. Phase,
 frame index, and elapsed time never enter the immutable snapshot or Session/Save state.
 
 Focused candidate preparation copies only compatible epochs of currently live occurrences; a failed
 candidate cannot mutate the published backend. Other realization state is not transferred by this
 Animation seam. Frames are sampled at millisecond boundaries and loop over explicit durations,
-including valid one-frame motions. This tracer introduces no second renderer, clock, cache, or
+including valid one-frame motions; once playback clamps to the last sample. Policy details and
+admitted Character choreography boundaries are owned by [Animation](../engine/ANIMATION.md). This tracer introduces no second renderer, clock, cache, or
 finite-operation lifecycle.
 
 ## Persistence and diagnostics

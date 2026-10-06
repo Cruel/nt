@@ -124,6 +124,7 @@ describe('graph-driven Room builder', () => {
           {
             id: 'idle',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
           },
         ],
@@ -133,6 +134,7 @@ describe('graph-driven Room builder', () => {
       kind: 'animation',
       animation: { $ref: { collection: 'animations', id: 'portrait' } },
       motionId: null,
+      playback: null,
     };
     project.rooms.bedroom!.data.cast = [
       {
@@ -152,6 +154,7 @@ describe('graph-driven Room builder', () => {
       kind: 'animation',
       animationId: 'portrait',
       motionId: null,
+      playback: null,
     });
     expect(result.data.world.animations.map((item) => item.id)).toEqual(['portrait']);
     expect(result.resources).toContainEqual(
@@ -187,6 +190,7 @@ describe('graph-driven Room builder', () => {
           {
             id: 'fall',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [
               { image: { $ref: { collection: 'assets', id: 'rain-a' } }, durationMs: 75 },
               { image: { $ref: { collection: 'assets', id: 'rain-b' } }, durationMs: 125 },
@@ -205,6 +209,7 @@ describe('graph-driven Room builder', () => {
       kind: 'animation',
       animation: { $ref: { collection: 'animations', id: 'rain' } },
       motionId: null,
+      playback: null,
     };
     animatedKey.presentation.hotspots = {
       kind: 'visual-alpha',
@@ -220,6 +225,7 @@ describe('graph-driven Room builder', () => {
           kind: 'animation',
           animation: { $ref: { collection: 'animations', id: 'rain' } },
           motionId: null,
+          playback: null,
         },
         materialApplication: emptyMaterialApplication('rain'),
         bounds: { x: 0, y: 0, width: 1, height: 1 },
@@ -243,6 +249,7 @@ describe('graph-driven Room builder', () => {
           {
             id: 'fall',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [
               { assetId: 'rain-a', durationMs: 75 },
               { assetId: 'rain-b', durationMs: 125 },
@@ -255,6 +262,7 @@ describe('graph-driven Room builder', () => {
       kind: 'animation',
       animationId: 'rain',
       motionId: null,
+      playback: null,
     });
     expect(result.data.world.hotspots).toContainEqual(
       expect.objectContaining({
@@ -270,6 +278,7 @@ describe('graph-driven Room builder', () => {
       kind: 'animation',
       animationId: 'rain',
       motionId: null,
+      playback: null,
     });
     expect(result.resources).toEqual(
       expect.arrayContaining([

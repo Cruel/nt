@@ -1,5 +1,7 @@
 #pragma once
 
+#include "noveltea/core/motion_policy.hpp"
+
 #include "noveltea/core/execution_primitives.hpp"
 #include "noveltea/core/gameplay_references.hpp"
 #include "noveltea/core/layout_contracts.hpp"
@@ -383,6 +385,7 @@ struct ImageVisual {
 struct AnimationVisual {
     AnimationId animation;
     std::optional<AnimationMotionId> motion;
+    std::optional<MotionPlaybackPolicy> playback = std::nullopt;
     bool operator==(const AnimationVisual&) const = default;
 };
 using Visual = std::variant<ImageVisual, AnimationVisual>;
@@ -391,9 +394,15 @@ struct SpriteAnimationFrame {
     std::uint64_t duration_ms = 0;
     bool operator==(const SpriteAnimationFrame&) const = default;
 };
+struct AnimationMarker {
+    std::string id;
+    std::uint64_t time_ms = 0;
+    bool operator==(const AnimationMarker&) const = default;
+};
 struct SpriteAnimationMotion {
     AnimationMotionId id;
     std::vector<SpriteAnimationFrame> frames;
+    std::vector<AnimationMarker> markers = {};
     bool operator==(const SpriteAnimationMotion&) const = default;
 };
 struct AnimationResource {
@@ -403,6 +412,26 @@ struct AnimationResource {
     std::vector<SpriteAnimationMotion> motions;
     bool operator==(const AnimationResource&) const = default;
 };
+[[nodiscard]] inline std::optional<std::uint64_t>
+motion_initial_time(const SpriteAnimationMotion& motion,
+                    const MotionPlaybackPolicy& policy) noexcept
+{
+    if (!valid_motion_policy(policy))
+        return std::nullopt;
+    if (!policy.initial_marker || *policy.initial_marker == "start")
+        return 0;
+    if (*policy.initial_marker == "end") {
+        std::uint64_t duration = 0;
+        for (const auto& frame : motion.frames)
+            duration += frame.duration_ms;
+        return duration;
+    }
+    for (const auto& marker : motion.markers)
+        if (marker.id == *policy.initial_marker)
+            return marker.time_ms;
+    return std::nullopt;
+}
+
 enum class DisplayOrientation : std::uint8_t {
     Landscape,
     Portrait

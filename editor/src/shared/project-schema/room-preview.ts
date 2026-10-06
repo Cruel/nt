@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { motionPlaybackPolicySchema, animationMarkerSchema } from './authoring-animations';
 import { shaderMaterialProjectWireSchema } from './shader-material-project';
 import {
   compiledMaterialApplicationParameterOverrideSchema,
@@ -188,6 +189,7 @@ const focusedVisualSchema = z.discriminatedUnion('kind', [
     kind: z.literal('animation'),
     animationId: z.string().min(1),
     motionId: z.string().min(1).nullable(),
+    playback: motionPlaybackPolicySchema.nullable(),
   }),
 ]);
 const focusedCharacterVisualSchema = strict({
@@ -262,6 +264,7 @@ const focusedAnimationResourceSchema = strict({
     strict({
       id: z.string().min(1),
       kind: z.literal('sprite-sequence'),
+      markers: z.array(animationMarkerSchema),
       frames: z
         .array(strict({ assetId: z.string().min(1), durationMs: z.number().int().positive() }))
         .min(1),

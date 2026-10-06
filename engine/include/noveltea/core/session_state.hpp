@@ -170,6 +170,7 @@ protected:
     std::vector<DesiredActorPresentation> m_actors;
     std::vector<DesiredPresentationProp> m_presentation_props;
     std::vector<DesiredPresentationEnvironment> m_presentation_environments;
+    std::vector<DesiredMotionSelection> m_motion_selections;
     std::vector<DesiredMaterialSelection> m_material_selections;
     std::vector<DesiredMaterialParameter> m_material_parameters;
     std::vector<DesiredPostprocessEffect> m_postprocess_effects;
@@ -347,6 +348,18 @@ public:
     [[nodiscard]] Result<void, Diagnostics>
     remove_presentation_environments(const PresentationEnvironmentStopKey& stop_key,
                                      const PresentationOwner& owner);
+    [[nodiscard]] const std::vector<DesiredMotionSelection>& motion_selections() const noexcept
+    {
+        return m_motion_selections;
+    }
+    [[nodiscard]] const DesiredMotionSelection*
+    motion_selection(const MotionSelectionTarget& target,
+                     const PresentationOwner& owner) const noexcept;
+    [[nodiscard]] Result<void, Diagnostics> upsert_motion_selection(const CompiledProject& project,
+                                                                    DesiredMotionSelection value);
+    [[nodiscard]] Result<void, Diagnostics>
+    remove_motion_selection(const MotionSelectionTarget& target, const PresentationOwner& owner);
+
     [[nodiscard]] const std::vector<DesiredMaterialSelection>& material_selections() const noexcept
     {
         return m_material_selections;

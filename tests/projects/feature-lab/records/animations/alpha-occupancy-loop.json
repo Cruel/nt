@@ -9,6 +9,7 @@
       {
         "id": "alternate",
         "kind": "sprite-sequence",
+        "markers": [{ "id": "second", "timeMs": 1500 }],
         "frames": [
           { "image": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "durationMs": 1500 },
           { "image": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } }, "durationMs": 1500 }

@@ -114,8 +114,10 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
     const nlohmann::json frames =
         nlohmann::json::array({{{"assetId", "rain-a"}, {"durationMs", 75}},
                                {{"assetId", "rain-b"}, {"durationMs", 125}}});
-    const nlohmann::json motions =
-        nlohmann::json::array({{{"id", "fall"}, {"kind", "sprite-sequence"}, {"frames", frames}}});
+    const nlohmann::json motions = nlohmann::json::array({{{"id", "fall"},
+                                                           {"kind", "sprite-sequence"},
+                                                           {"markers", nlohmann::json::array()},
+                                                           {"frames", frames}}});
     document["world"]["animations"] = nlohmann::json::array({
         {{"id", "rain"},
          {"canvas", {{"width", 64}, {"height", 32}}},
@@ -126,7 +128,11 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
         {{{"environmentId", "rain"},
           {"condition", {{"kind", "always"}}},
           {"assetId", nullptr},
-          {"visual", {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}},
+          {"visual",
+           {{"kind", "animation"},
+            {"animationId", "rain"},
+            {"motionId", nullptr},
+            {"playback", nullptr}}},
           {"materialId", "rain-material"},
           {"materialParameters", nlohmann::json::array()},
           {"materialTextures", nlohmann::json::array()},
@@ -144,19 +150,23 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
                                 {"layoutOrder", nullptr},
                                 {"label", nullptr},
                                 {"layoutId", nullptr}}});
-    document["world"]["interactables"] = nlohmann::json::array(
-        {{{"occurrenceId", "animated-key"},
-          {"interactableId", "key"},
-          {"condition", {{"kind", "always"}}},
-          {"placementId", "place"},
-          {"visual", {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}},
-          {"materialId", nullptr},
-          {"materialParameters", nlohmann::json::array()},
-          {"materialTextures", nlohmann::json::array()},
-          {"enabled", true},
-          {"visible", true},
-          {"occurrenceVisible", true},
-          {"order", 0}}});
+    document["world"]["interactables"] =
+        nlohmann::json::array({{{"occurrenceId", "animated-key"},
+                                {"interactableId", "key"},
+                                {"condition", {{"kind", "always"}}},
+                                {"placementId", "place"},
+                                {"visual",
+                                 {{"kind", "animation"},
+                                  {"animationId", "rain"},
+                                  {"motionId", nullptr},
+                                  {"playback", nullptr}}},
+                                {"materialId", nullptr},
+                                {"materialParameters", nlohmann::json::array()},
+                                {"materialTextures", nlohmann::json::array()},
+                                {"enabled", true},
+                                {"visible", true},
+                                {"occurrenceVisible", true},
+                                {"order", 0}}});
     auto result = decode_editor_room_preview_document_text(document.dump());
 
     REQUIRE(result);
@@ -184,6 +194,33 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
     CHECK_FALSE(environment.visual->motion_id);
     CHECK(environment.clock == "unscaled-presentation");
 
+    SECTION("semantic playback policy and markers are strict reconstructible inputs")
+    {
+        document["world"]["animations"][0]["motions"][0]["markers"] =
+            nlohmann::json::array({{{"id", "settled"}, {"timeMs", 75}}});
+        auto& policy = document["world"]["environments"][0]["visual"]["playback"];
+        policy = {
+            {"repeat", "once"}, {"rate", 2.0}, {"clock", "gameplay"}, {"initialMarker", "settled"}};
+        auto selected = decode_editor_room_preview_document_text(document.dump());
+        REQUIRE(selected);
+        REQUIRE(selected.value().world.environments.front().visual->playback);
+        CHECK(selected.value().world.environments.front().visual->playback->initial_marker ==
+              "settled");
+        policy["initialMarker"] = "missing";
+        CHECK_FALSE(decode_editor_room_preview_document_text(document.dump()));
+        policy["initialMarker"] = "start";
+        policy["rate"] = 0;
+        CHECK_FALSE(decode_editor_room_preview_document_text(document.dump()));
+        policy["rate"] = 1;
+        policy["elapsedMs"] = 3;
+        CHECK_FALSE(decode_editor_room_preview_document_text(document.dump()));
+        policy.erase("elapsedMs");
+        document["world"]["environments"][0]["visual"].erase("playback");
+        CHECK_FALSE(decode_editor_room_preview_document_text(document.dump()));
+        document["world"]["environments"][0]["visual"]["playback"] = nullptr;
+        document["world"]["animations"][0]["motions"][0].erase("markers");
+        CHECK_FALSE(decode_editor_room_preview_document_text(document.dump()));
+    }
     SECTION("one-frame motions are valid")
     {
         document["world"]["animations"][0]["motions"][0]["frames"].erase(1);

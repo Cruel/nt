@@ -29,6 +29,7 @@ describe('authoring characters schema', () => {
           {
             id: 'idle',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [{ image: characterAssetRef('iris'), durationMs: 100 }],
           },
         ],
@@ -39,6 +40,7 @@ describe('authoring characters schema', () => {
       kind: 'animation' as const,
       animation: { $ref: { collection: 'animations' as const, id: 'portrait' } },
       motionId: null,
+      playback: null,
     };
     const layer = data.profiles[0]!.poses[0]!.layers[0]!;
     layer.visual = visual;

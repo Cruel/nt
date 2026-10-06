@@ -149,6 +149,7 @@ function selectedVisual(value: string): Visual {
         kind: 'animation',
         animation: { $ref: { collection: 'animations', id: id! } },
         motionId: motion || null,
+        playback: null,
       };
 }
 

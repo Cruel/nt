@@ -43,7 +43,7 @@
             "layers": [
               {
                 "layerId": "body",
-                "visual": { "kind": "animation", "animation": { "$ref": { "collection": "animations", "id": "guide-expression-loop" } }, "motionId": null },
+                "visual": { "kind": "animation", "animation": { "$ref": { "collection": "animations", "id": "guide-expression-loop" } }, "motionId": null, "playback": null },
                 "materialApplication": null,
                 "offset": {
                   "x": 0,

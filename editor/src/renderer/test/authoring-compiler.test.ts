@@ -3509,6 +3509,7 @@ describe('authoring compiler framework', () => {
           {
             id: 'fall',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [
               {
                 image: { $ref: { collection: 'assets', id: 'rain-a' } },
@@ -3529,6 +3530,7 @@ describe('authoring compiler framework', () => {
         kind: 'animation',
         animation: { $ref: { collection: 'animations', id: 'rain' } },
         motionId: null,
+        playback: null,
       },
       hotspots: { kind: 'visual-alpha', hotspot: defaultHotspotBehavior('Rain') },
     });
@@ -3543,6 +3545,7 @@ describe('authoring compiler framework', () => {
         kind: 'animation',
         animation: { $ref: { collection: 'animations', id: 'rain' } },
         motionId: null,
+        playback: null,
       },
       materialApplication: {
         material: { $ref: { collection: 'materials', id: 'panel' } },
@@ -3563,6 +3566,7 @@ describe('authoring compiler framework', () => {
       kind: 'animation' as const,
       animation: { $ref: { collection: 'animations' as const, id: 'rain' } },
       motionId: 'fall',
+      playback: null,
     };
     character.profiles[0]!.poses[0]!.layers[0]!.visual = animatedVisual;
     character.profiles[0]!.animationClips = [
@@ -3586,6 +3590,7 @@ describe('authoring compiler framework', () => {
       kind: 'animation',
       animation: { kind: 'animation', id: 'rain' },
       motionId: 'fall',
+      playback: null,
     });
     expect(profile.animationClips![0]!.frames[0]!.layers[0]!.visual).toEqual(
       profile.poses[0]!.layers[0]!.visual,
@@ -3599,6 +3604,7 @@ describe('authoring compiler framework', () => {
           {
             id: 'fall',
             kind: 'sprite-sequence',
+            markers: [],
             frames: [
               { image: { kind: 'asset', id: 'rain-a' }, durationMs: 75 },
               { image: { kind: 'asset', id: 'rain-b' }, durationMs: 125 },
@@ -3613,7 +3619,12 @@ describe('authoring compiler framework', () => {
     expect(
       result.project.definitions.interactables.find((item) => item.id === 'rain')?.presentation,
     ).toMatchObject({
-      visual: { kind: 'animation', animation: { kind: 'animation', id: 'rain' }, motionId: null },
+      visual: {
+        kind: 'animation',
+        animation: { kind: 'animation', id: 'rain' },
+        motionId: null,
+        playback: null,
+      },
       hotspots: { kind: 'visual-alpha' },
     });
     expect(environment).toMatchObject({
@@ -3622,6 +3633,38 @@ describe('authoring compiler framework', () => {
         kind: 'animation',
         animation: { kind: 'animation', id: 'rain' },
         motionId: null,
+        playback: null,
+      },
+    });
+    project.animations.rain.data.motions[0]!.markers.push({ id: 'settled', timeMs: 75 });
+    const markerAdded = compileAuthoringProject(project);
+    expect(markerAdded.ok).toBe(true);
+    if (!markerAdded.ok) return;
+    expect(markerAdded.project.saveContract).not.toBe(result.project.saveContract);
+    project.animations.rain.data.motions[0]!.markers[0]!.timeMs = 100;
+    const timingChanged = compileAuthoringProject(project);
+    expect(timingChanged.ok).toBe(true);
+    if (!timingChanged.ok) return;
+    expect(timingChanged.project.saveContract).toBe(markerAdded.project.saveContract);
+    if (room.environments[0]!.visual?.kind !== 'animation') throw new Error('Expected Animation');
+    room.environments[0]!.visual.playback = {
+      repeat: 'once',
+      rate: 0.5,
+      clock: 'unscaled-presentation',
+      initialMarker: 'settled',
+    };
+    const selected = compileAuthoringProject(project);
+    expect(selected.ok).toBe(true);
+    if (!selected.ok) return;
+    expect(
+      selected.project.definitions.rooms.find((value) => value.id === 'foyer')!.environments![0]!
+        .visual,
+    ).toMatchObject({
+      playback: {
+        repeat: 'once',
+        rate: 0.5,
+        clock: 'unscaled-presentation',
+        initialMarker: 'settled',
       },
     });
   });

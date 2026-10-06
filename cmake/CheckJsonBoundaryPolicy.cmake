@@ -23,6 +23,7 @@ list(APPEND approved_header_paths
     "engine/src/core/compiled_project_codec/internal.hpp"
     "engine/src/core/compiled_project_wire.hpp"
     "engine/src/core/json_decoder.hpp"
+    "engine/src/core/motion_policy_codec.hpp"
     "engine/src/core/save_state_codec/internal.hpp")
 set(approved_source_paths
     "apps/editor_preview/editor_preview_app.cpp"

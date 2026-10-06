@@ -107,6 +107,12 @@ The current capability surface includes:
 - `noveltea.presentation.set_prop`, `clear_prop`, and `prop`;
 - `noveltea.presentation.set_environment`, `clear_environment`, `stop_environments`, and
   `environment` for scoped, reconstructible long-lived visual modes;
+- `noveltea.presentation.set_motion_selection(target, motion, policy, options)` and
+  `clear_motion_selection(target, options)` address `{kind='interactable', id=...}` or
+  `{kind='interactable-definition', id=...}` with normal Presentation owner options. Policy requires
+  `['repeat']='once'|'loop'`, positive finite `rate`, `clock='gameplay'|'unscaled-presentation'`, and
+  optional `initial_marker`. These are reconstructible desired intent, not pause/seek controls.
+  Character targets and static images are not admitted for mutable motion selection.
 - `noveltea.presentation.set_material_selection`, `clear_material_selection`, and
   `material_selection` for temporary runtime Interactable Material-selection overrides. Selection
   targets are `{kind='interactable-definition', id='...'}` or `{kind='interactable', id='...'}`;

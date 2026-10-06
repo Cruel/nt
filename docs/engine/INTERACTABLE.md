@@ -38,7 +38,10 @@ runtime identity.
 Definition presentation may select an Engine2D Material through a shared Material Application. The application contains the Material selection plus sparse typed parameter sources and sparse author-owned texture sources. Parameters may use literals, compatible Interactable Property bindings, or supported scalar standard facets; renderer-owned inputs remain read-only. Changing the selected Material does not delete incompatible saved entries: they remain dormant until a compatible Material is selected again. Every concrete Instance inherits this application and may author a more-specific sparse specialization: an optional Material-selection replacement plus parameter and author-owned texture deltas. Instance names override matching Definition names; absent Instance entries continue to inherit the Definition application, and Reset removes only the Instance delta. Dormant incompatible Instance entries are retained across Material switching and can reactivate when their compatible Material is selected again.
 
 Presentation selects a canonical image or raster Animation `visual`, or explicit null. Animation
-selection may name a motion or use its resource default; occurrences loop on the gameplay clock.
+selection may name a motion or use its resource default. Nullable Visual `playback` uses the default
+gameplay-clock loop; explicit policy supports once/loop, rate, clock, and semantic initial marker.
+Owner-scoped desired motion targets Definition or exact Instance, following Material-selection
+precedence without adding playback state to `InteractableState`. See [Animation](ANIMATION.md).
 Hotspot modes are `none`, `visual-alpha`, or `custom`; the replaced `sprite` field and `sprite-alpha`
 discriminator are rejected, not aliased. `none` performs no pointer hit testing and needs no Visual.
 `visual-alpha` provides one Hotspot whose hit area follows the currently realized frame's retained

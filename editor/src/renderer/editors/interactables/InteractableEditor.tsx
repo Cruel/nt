@@ -294,6 +294,7 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
                   kind: 'animation',
                   animation: { $ref: { collection: 'animations', id: item.entityId } },
                   motionId: null,
+                  playback: null,
                 }
               : { kind: 'image', image: interactableAssetRef(item.entityId) },
         },

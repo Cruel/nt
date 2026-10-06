@@ -414,6 +414,7 @@ function characterVisual(
                 kind: 'animation' as const,
                 animationId: layer.visual.animation.$ref.id,
                 motionId: layer.visual.motionId,
+                playback: layer.visual.playback,
               }
             : null,
       materialId: layer.materialApplication?.material.$ref.id ?? null,
@@ -1101,6 +1102,7 @@ export async function buildFocusedRoomPreview(
                   kind: 'animation' as const,
                   animationId: definition.presentation.visual.animation.$ref.id,
                   motionId: definition.presentation.visual.motionId,
+                  playback: definition.presentation.visual.playback,
                 }
             : null,
           materialId: materialApplication?.material.$ref.id ?? null,
@@ -1364,6 +1366,7 @@ export async function buildFocusedRoomPreview(
                   canvas: { ...animation.canvas },
                   defaultMotionId: animation.defaultMotionId,
                   motions: animation.motions.map((motion) => ({
+                    markers: motion.markers,
                     id: motion.id,
                     kind: motion.kind,
                     frames: motion.frames.map((frame) => ({
@@ -1430,6 +1433,7 @@ export async function buildFocusedRoomPreview(
                 kind: 'animation' as const,
                 animationId: item.visual.animation.$ref.id,
                 motionId: item.visual.motionId,
+                playback: item.visual.playback,
               }
           : item.asset
             ? { kind: 'image' as const, assetId: item.asset.$ref.id }

@@ -147,6 +147,7 @@ public:
                   .message = "missing animation frame",
                   .source_path = std::string(context)}});
         result.logical_size = Size{64.0f, 32.0f};
+        result.motion_policy = animation.playback;
         result.animation_key = animation.animation.text() + ":" +
                                (animation.motion ? animation.motion->text() : "fall");
         auto first_prepared = resolve(id<AssetId>("rain-a"), std::nullopt, context);
@@ -721,6 +722,69 @@ TEST_CASE("Engine2D Material Applications reach background prop environment and 
     check_uniform(prop_material, 0.2f);
     check_uniform(environment_material, 0.3f);
     check_uniform(actor_material, 0.4f);
+}
+
+TEST_CASE("desired playback policy selects rate and clock and reconstructs without phase")
+{
+    FakeWorldResources resources;
+    resources.add_texture("rain-a", 21, 24, 32);
+    resources.add_texture("rain-b", 22, 48, 32);
+    WorldPresentationBackend backend(resources);
+    auto snapshot = base_snapshot(1);
+    snapshot.environments.push_back(PresentationEnvironment{
+        .instance = id<PresentationEnvironmentInstanceId>("rain"),
+        .owner = RoomPresentationOwner{id<RoomId>("atrium")},
+        .material_property_owner = PropertyOwnerRef{id<RoomId>("atrium")},
+        .stop_key = id<PresentationEnvironmentStopKey>("rain-stop"),
+        .asset = std::nullopt,
+        .visual =
+            compiled::AnimationVisual{id<AnimationId>("rain-animation"), std::nullopt,
+                                      MotionPlaybackPolicy{MotionRepeat::Once, 2.0,
+                                                           LayoutClockDomain::UnscaledPresentation,
+                                                           std::nullopt}},
+        .material = id<core::MaterialId>("environment-material"),
+        .clock = LayoutClockDomain::Gameplay,
+    });
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    RuntimeClockUpdate clock;
+    backend.realize(clock);
+    const auto texture = [&] {
+        return backend.frame()->base_world_composition_batch.commands().front().texture.handle;
+    };
+    CHECK(texture() == 21);
+    clock.gameplay_time += std::chrono::milliseconds{300};
+    backend.realize(clock);
+    CHECK(texture() == 21);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{30};
+    backend.realize(clock);
+    CHECK(texture() == 22);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{300};
+    backend.realize(clock);
+    CHECK(texture() == 22);
+    snapshot.environments.front().clock = LayoutClockDomain::UnscaledPresentation;
+    snapshot.revision = PresentationSnapshotRevision::from_number(2);
+    WorldPresentationBackend prepared(resources);
+    REQUIRE(prepared.reconcile(snapshot, {640.0f, 360.0f}));
+    prepared.preserve_animation_epochs_from(backend);
+    backend.swap_prepared(prepared);
+    backend.realize(clock);
+    CHECK(texture() == 22);
+    snapshot.revision = PresentationSnapshotRevision::from_number(3);
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    backend.realize(clock);
+    CHECK(texture() == 22);
+    backend.reset();
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    backend.realize(clock);
+    CHECK(texture() == 21);
+    auto& selected = std::get<compiled::AnimationVisual>(*snapshot.environments.front().visual);
+    selected.playback->repeat = MotionRepeat::Loop;
+    snapshot.revision = PresentationSnapshotRevision::from_number(4);
+    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+    backend.realize(clock);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{75};
+    backend.realize(clock);
+    CHECK(texture() == 21);
 }
 
 TEST_CASE("raster Animation playback is occurrence-local and survives unrelated republishes")

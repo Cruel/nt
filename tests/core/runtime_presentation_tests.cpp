@@ -89,10 +89,16 @@ CompiledProject animation_room_fixture()
     nlohmann::json motion;
     motion["id"] = "fall";
     motion["kind"] = "sprite-sequence";
+    motion["markers"] = nlohmann::json::array({{{"id", "settled"}, {"timeMs", 75}}});
     motion["frames"] = nlohmann::json::array(
         {{{"image", {{"kind", "asset"}, {"id", "image-main"}}}, {"durationMs", 75}},
          {{"image", {{"kind", "asset"}, {"id", "image-main"}}}, {"durationMs", 125}}});
-    animation["motions"] = nlohmann::json::array({std::move(motion)});
+    auto still = motion;
+    still["id"] = "still";
+    still["markers"] = nlohmann::json::array();
+    still["frames"] = nlohmann::json::array(
+        {{{"image", {{"kind", "asset"}, {"id", "image-main"}}}, {"durationMs", 100}}});
+    animation["motions"] = nlohmann::json::array({std::move(motion), std::move(still)});
     document["resources"]["animations"] = nlohmann::json::array({std::move(animation)});
     auto& rooms = document["definitions"]["rooms"];
     auto start = std::find_if(rooms.begin(), rooms.end(),
@@ -105,6 +111,7 @@ CompiledProject animation_room_fixture()
     environment["visual"] = {{"kind", "animation"},
                              {"animation", {{"kind", "animation"}, {"id", "rain"}}},
                              {"motionId", nullptr}};
+    environment["visual"]["playback"] = nullptr;
     environment["material"] = {{"kind", "material"}, {"id", "sprite-material"}};
     environment["materialParameters"] = nlohmann::json::array();
     environment["materialTextures"] = nlohmann::json::array();
@@ -122,6 +129,7 @@ CompiledProject animation_room_fixture()
     (*key)["presentation"]["visual"] = {{"kind", "animation"},
                                         {"animation", {{"kind", "animation"}, {"id", "rain"}}},
                                         {"motionId", nullptr}};
+    (*key)["presentation"]["visual"]["playback"] = nullptr;
     (*key)["presentation"]["hotspots"] = {{"kind", "visual-alpha"},
                                           {"hotspot",
                                            {{"id", "alpha"},
@@ -817,6 +825,76 @@ TEST_CASE("shared Room snapshot projector matches the runtime Room baseline")
     CHECK(focused_baseline.value().interactables == runtime.value().interactables);
     CHECK(focused_baseline.value().props == runtime.value().props);
     CHECK(focused_baseline.value().environments == runtime.value().environments);
+}
+
+TEST_CASE("desired motion validates atomically and projects owner-scoped reconstructible policy")
+{
+    const auto project = animation_room_fixture();
+    auto created = SessionState::create(project);
+    REQUIRE(created);
+    auto state = std::move(created).value();
+    REQUIRE(state.commit_room_entry(project, id<RoomId>("start"), std::nullopt));
+    const PresentationOwner owner{state.session_presentation_owner()};
+    const MotionSelectionTarget target =
+        InteractableMotionTarget{id<InteractableInstanceId>("key")};
+    const MotionPlaybackPolicy policy{MotionRepeat::Once, 2.0,
+                                      LayoutClockDomain::UnscaledPresentation, "end"};
+    REQUIRE(state.upsert_motion_selection(project,
+                                          {owner, target, id<AnimationMotionId>("still"), policy}));
+    auto room = resolve_room(project, state);
+    auto projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    REQUIRE_FALSE(projected.value().interactables.empty());
+    CHECK(std::get<compiled::AnimationVisual>(*projected.value().interactables.front().visual)
+              .playback == policy);
+    CHECK(std::get<compiled::AnimationVisual>(*projected.value().interactables.front().visual)
+              .motion == id<AnimationMotionId>("still"));
+    CHECK_FALSE(state.upsert_motion_selection(
+        project, {owner, target, id<AnimationMotionId>("missing"), policy}));
+    auto invalid = policy;
+    invalid.rate = 0.0;
+    CHECK_FALSE(state.upsert_motion_selection(
+        project, {owner, target, id<AnimationMotionId>("fall"), invalid}));
+    CHECK(state.motion_selection(target, owner)->policy == policy);
+    const MotionSelectionTarget definition_target =
+        InteractableDefinitionMotionTarget{id<InteractableDefinitionId>("key")};
+    const MotionPlaybackPolicy inherited{MotionRepeat::Loop, 0.5, LayoutClockDomain::Gameplay,
+                                         "settled"};
+    REQUIRE(state.upsert_motion_selection(
+        project, {owner, definition_target, id<AnimationMotionId>("fall"), inherited}));
+    const PresentationOwner current_owner{*state.current_room_presentation_owner()};
+    REQUIRE(state.upsert_motion_selection(
+        project, {current_owner, target, id<AnimationMotionId>("fall"), inherited}));
+    projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    CHECK(std::get<compiled::AnimationVisual>(*projected.value().interactables.front().visual)
+              .playback == inherited);
+    REQUIRE(state.remove_motion_selection(target, current_owner));
+    REQUIRE(state.remove_motion_selection(target, owner));
+    projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    CHECK(std::get<compiled::AnimationVisual>(*projected.value().interactables.front().visual)
+              .playback == inherited);
+    REQUIRE(state.remove_motion_selection(definition_target, owner));
+    projected = project_snapshot(project, state, &room);
+    REQUIRE(projected);
+    CHECK_FALSE(std::get<compiled::AnimationVisual>(*projected.value().interactables.front().visual)
+                    .playback);
+    REQUIRE(state.upsert_motion_selection(
+        project, {current_owner, target, id<AnimationMotionId>("fall"), inherited}));
+    state.remove_presentation_owned_by(current_owner);
+    CHECK(state.motion_selections().empty());
+    invalid.initial_marker = "missing";
+    invalid.rate = 1.0;
+    CHECK_FALSE(state.upsert_motion_selection(
+        project, {owner, target, id<AnimationMotionId>("fall"), invalid}));
+    const auto static_project = fixture();
+    auto static_state = SessionState::create(static_project);
+    REQUIRE(static_state);
+    CHECK_FALSE(static_state.value().upsert_motion_selection(
+        static_project, {PresentationOwner{static_state.value().session_presentation_owner()},
+                         target, id<AnimationMotionId>("fall"), policy}));
+    CHECK(static_state.value().motion_selections().empty());
 }
 
 TEST_CASE("Room runtime presentation preserves raster Animation Visual selection")

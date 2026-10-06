@@ -3902,7 +3902,7 @@ describe('NovelTea headless CLI', () => {
       [capabilityBindings, 'random', 'noveltea.random', 3],
       [capabilityBindings, 'map', 'noveltea.map', 1],
       [capabilityBindings, 'layouts', 'noveltea.layouts', 6],
-      [capabilityBindings, 'presentation', 'noveltea.presentation', 23],
+      [capabilityBindings, 'presentation', 'noveltea.presentation', 25],
       [capabilityBindings, 'text_log', 'noveltea.text_log', 2],
       [capabilityBindings, 'game', 'Game', 4],
       [gameplayUiBindings, 'ui', 'Game.ui', 18],

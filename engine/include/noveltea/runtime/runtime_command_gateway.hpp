@@ -210,6 +210,10 @@ public:
     [[nodiscard]] core::Result<void, core::Diagnostics>
     upsert_material_selection(core::DesiredMaterialSelection value);
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    upsert_motion_selection(core::DesiredMotionSelection value);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    remove_motion_selection(core::MotionSelectionTarget target, core::PresentationOwner owner);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     remove_material_selection(core::MaterialSelectionTarget target, core::PresentationOwner owner);
     [[nodiscard]] core::Result<std::optional<core::DesiredMaterialSelection>, core::Diagnostics>
     material_selection(const core::MaterialSelectionTarget& target,

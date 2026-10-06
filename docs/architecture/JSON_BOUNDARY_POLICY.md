@@ -33,7 +33,10 @@ must be admitted explicitly (or represented by a fully documented temporary allo
 JSON decoding mechanics are concentrated in the content-owned `engine/src/core/json_decoder.hpp`.
 That module owns checked member lookup, scalar conversion, object/array validation, JSON-pointer
 construction, and diagnostic accumulation on top of `json_access`. Artifact codecs retain their own
-schema/version/linking rules and typed result interfaces; the shared decoder is deliberately not a
+schema/version/linking rules and typed result interfaces. The private content-owned
+`engine/src/core/motion_policy_codec.hpp` shares strict reconstructible Motion policy field encoding
+between compiled, save, and focused-preview codecs; runtime receives only `MotionPlaybackPolicy`.
+The shared decoder is deliberately not a
 generic serialization abstraction. `RunningGameLoadInput` contains only an already-decoded
 `LoadedCompiledPackage`, so runtime construction cannot fall back to raw JSON.
 
