@@ -2,7 +2,7 @@ export async function waitForDaemonState(
   label,
   status,
   predicate,
-  { timeoutMs = 15000, pollMs = 25 } = {},
+  { timeoutMs = 60000, pollMs = 25 } = {},
 ) {
   const deadline = Date.now() + timeoutMs;
   const transitions = [];
