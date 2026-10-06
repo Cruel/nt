@@ -3255,6 +3255,28 @@ decode_editor_room_preview_document_text(std::string_view data_text,
             const auto selected = std::ranges::find_if(
                 animation->motions, [&](const auto& motion) { return motion.id == selected_id; });
             if (selected != animation->motions.end()) {
+                if (const auto& range = result_visual.playback->loop_range) {
+                    const auto marker_time =
+                        [&](const std::string& id) -> std::optional<std::uint64_t> {
+                        if (id == "start")
+                            return 0;
+                        if (id == "end") {
+                            std::uint64_t duration = 0;
+                            for (const auto& frame : selected->frames)
+                                duration += frame.duration_ms;
+                            return duration;
+                        }
+                        for (const auto& entry : selected->markers)
+                            if (entry.id == id)
+                                return entry.time_ms;
+                        return std::nullopt;
+                    };
+                    const auto start = marker_time(range->start), end = marker_time(range->end);
+                    if (!start || !end || *start >= *end)
+                        diagnostics.push_back(error("editor_preview.invalid_value",
+                                                    "Invalid Animation loop marker range.",
+                                                    path + "/playback/loopRange"));
+                }
                 const auto& marker = result_visual.playback->initial_marker;
                 if (marker && *marker != "start" && *marker != "end" &&
                     std::ranges::none_of(selected->markers,

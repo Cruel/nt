@@ -1,3 +1,4 @@
+import { MotionPlaybackEditor } from '../animations/MotionPlaybackEditor';
 import {
   animationDataSchema,
   visualImageAssetId,
@@ -512,6 +513,29 @@ export function InteractableEditor({ tab }: WorkbenchEditorProps) {
             </Select>
           </div>
         ) : null}
+        {data.presentation.visual?.kind === 'animation' && selectedAnimation?.success
+          ? (() => {
+              const visual = data.presentation.visual;
+              const motion = selectedAnimation.data.motions.find(
+                (entry) => entry.id === (visual.motionId ?? selectedAnimation.data.defaultMotionId),
+              );
+              return motion ? (
+                <MotionPlaybackEditor
+                  motion={motion}
+                  value={visual.playback}
+                  onChange={(playback) =>
+                    commit(
+                      {
+                        ...data,
+                        presentation: { ...data.presentation, visual: { ...visual, playback } },
+                      },
+                      'Update Interactable motion playback',
+                    )
+                  }
+                />
+              ) : null;
+            })()
+          : null}
         <div data-workbench-anchor="interactable.material">
           <Label>Material</Label>
           <MaterialApplicationEditor

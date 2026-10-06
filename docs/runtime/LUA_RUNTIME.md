@@ -111,7 +111,9 @@ The current capability surface includes:
   `clear_motion_selection(target, options)` address `{kind='interactable', id=...}` or
   `{kind='interactable-definition', id=...}` with normal Presentation owner options. Policy requires
   `['repeat']='once'|'loop'`, positive finite `rate`, `clock='gameplay'|'unscaled-presentation'`, and
-  optional `initial_marker`. These are reconstructible desired intent, not pause/seek controls.
+  optional `initial_marker` and `loop_range={start='marker', ['end']='marker'}`. A range requires loop
+  repetition and a positive forward marker interval. These are reconstructible desired intent, not
+  pause/seek controls.
   Character targets and static images are not admitted for mutable motion selection.
 - `noveltea.presentation.set_material_selection`, `clear_material_selection`, and
   `material_selection` for temporary runtime Interactable Material-selection overrides. Selection

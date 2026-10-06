@@ -1,0 +1,112 @@
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
+import { beforeEach, expect, it } from 'vite-plus/test';
+import { AnimationEditor } from '@/editors/animations/AnimationEditor';
+import { useProjectStore } from '@/project/project-store';
+import { useCommandStore } from '@/commands/command-store';
+import {
+  createAuthoringProject,
+  isAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
+
+beforeEach(() => {
+  useProjectStore.getState().clearProject();
+  useCommandStore.getState().resetCommandHistory();
+  const project = createAuthoringProject();
+  project.animations.pulse = {
+    id: 'pulse',
+    label: 'Pulse',
+    data: {
+      kind: 'animation',
+      canvas: { width: 16, height: 16 },
+      defaultMotionId: 'idle',
+      motions: [
+        {
+          id: 'idle',
+          kind: 'sprite-sequence',
+          markers: [{ id: 'middle', timeMs: 50 }],
+          frames: [
+            { image: { $ref: { collection: 'assets', id: 'a' } }, durationMs: 50 },
+            { image: { $ref: { collection: 'assets', id: 'b' } }, durationMs: 100 },
+          ],
+        },
+      ],
+    },
+  };
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/project.json',
+  });
+});
+
+it('scrubs, steps and restarts without editing durable Animation content, and edits markers with undo', async () => {
+  const user = userEvent.setup();
+  render(
+    <AnimationEditor
+      tab={{
+        id: 'pulse',
+        title: 'Pulse',
+        editorType: 'animation-detail',
+        resource: {
+          kind: 'record',
+          stableId: 'record:animations:pulse',
+          collection: 'animations',
+          entityId: 'pulse',
+        },
+      }}
+    />,
+  );
+  const before = JSON.stringify(useProjectStore.getState().document);
+  await user.click(screen.getByRole('button', { name: 'Next frame' }));
+  expect(screen.getByLabelText('Frame index')).toHaveTextContent('1 / 2');
+  fireEvent.change(screen.getByLabelText('Motion time (ms)'), { target: { value: '25' } });
+  expect(screen.getByLabelText('Frame index')).toHaveTextContent('0 / 2');
+  await user.click(screen.getByRole('button', { name: 'Play' }));
+  await user.click(screen.getByRole('button', { name: 'Pause' }));
+  await user.click(screen.getByRole('button', { name: 'Restart' }));
+  expect(screen.getByLabelText('Frame index')).toHaveTextContent('0 / 2');
+  expect(JSON.stringify(useProjectStore.getState().document)).toBe(before);
+  await user.click(screen.getByRole('button', { name: 'Add marker' }));
+  const document = useProjectStore.getState().document;
+  if (!isAuthoringProject(document)) throw new Error('Expected Project');
+  expect(document.animations.pulse!.data.motions[0]!.markers).toContainEqual({
+    id: 'marker',
+    timeMs: 0,
+  });
+  act(() => {
+    useCommandStore.getState().undo();
+  });
+  expect(JSON.stringify(useProjectStore.getState().document)).toBe(before);
+});
+
+it('commits frame timing only after an integer duration is entered', async () => {
+  const user = userEvent.setup();
+  render(
+    <AnimationEditor
+      tab={{
+        id: 'pulse',
+        title: 'Pulse',
+        editorType: 'animation-detail',
+        resource: {
+          kind: 'record',
+          stableId: 'record:animations:pulse',
+          collection: 'animations',
+          entityId: 'pulse',
+        },
+      }}
+    />,
+  );
+  await user.click(screen.getByRole('button', { name: 'Next frame' }));
+  const duration = screen.getByLabelText('Frame duration (ms)');
+  await user.clear(duration);
+  await user.type(duration, '80');
+  await user.tab();
+  const document = useProjectStore.getState().document;
+  if (!isAuthoringProject(document)) throw new Error('Expected Project');
+  expect(document.animations.pulse!.data.motions[0]!.frames[1]!.durationMs).toBe(80);
+  void act(() => useCommandStore.getState().undo());
+  const restored = useProjectStore.getState().document;
+  if (!isAuthoringProject(restored)) throw new Error('Expected Project');
+  expect(restored.animations.pulse!.data.motions[0]!.frames[1]!.durationMs).toBe(100);
+});

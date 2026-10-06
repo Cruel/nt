@@ -7,18 +7,23 @@ namespace noveltea::core {
 
 inline nlohmann::json encode_motion_policy(const MotionPlaybackPolicy& policy)
 {
-    return {{"repeat", policy.repeat == MotionRepeat::Once ? "once" : "loop"},
-            {"rate", policy.rate},
-            {"clock",
-             policy.clock == LayoutClockDomain::Gameplay ? "gameplay" : "unscaled-presentation"},
-            {"initialMarker", policy.initial_marker ? nlohmann::json(*policy.initial_marker)
-                                                    : nlohmann::json(nullptr)}};
+    nlohmann::json result = {
+        {"repeat", policy.repeat == MotionRepeat::Once ? "once" : "loop"},
+        {"rate", policy.rate},
+        {"clock",
+         policy.clock == LayoutClockDomain::Gameplay ? "gameplay" : "unscaled-presentation"},
+        {"initialMarker",
+         policy.initial_marker ? nlohmann::json(*policy.initial_marker) : nlohmann::json(nullptr)}};
+    if (policy.loop_range)
+        result["loopRange"] = {{"start", policy.loop_range->start},
+                               {"end", policy.loop_range->end}};
+    return result;
 }
 
 inline std::optional<MotionPlaybackPolicy>
 decode_motion_policy(JsonDecoder& decoder, const nlohmann::json& value, std::string_view pointer)
 {
-    if (!decoder.object(value, pointer, {"repeat", "rate", "clock", "initialMarker"}))
+    if (!decoder.object(value, pointer, {"repeat", "rate", "clock", "initialMarker", "loopRange"}))
         return std::nullopt;
     const auto child = [&](std::string_view key) {
         return std::string(pointer) + "/" + std::string(key);
@@ -45,10 +50,26 @@ decode_motion_policy(JsonDecoder& decoder, const nlohmann::json& value, std::str
                       std::string(pointer));
         return std::nullopt;
     }
+    std::optional<MotionLoopRange> range;
+    if (const auto* value_range = json_access::member(value, "loopRange")) {
+        const auto path = child("loopRange");
+        if (*repeat != "loop" || !decoder.object(*value_range, path, {"start", "end"})) {
+            decoder.error("motion.invalid_policy", "A loop range requires loop playback.", path);
+            return std::nullopt;
+        }
+        const auto* start_value = decoder.member(*value_range, "start", path);
+        const auto* end_value = decoder.member(*value_range, "end", path);
+        auto start =
+            start_value ? decoder.string(*start_value, path + "/start", true) : std::nullopt;
+        auto end = end_value ? decoder.string(*end_value, path + "/end", true) : std::nullopt;
+        if (!start || !end)
+            return std::nullopt;
+        range = MotionLoopRange{*start, *end};
+    }
     return MotionPlaybackPolicy{*repeat == "once" ? MotionRepeat::Once : MotionRepeat::Loop, *rate,
                                 *clock == "gameplay" ? LayoutClockDomain::Gameplay
                                                      : LayoutClockDomain::UnscaledPresentation,
-                                std::move(marker)};
+                                std::move(marker), std::move(range)};
 }
 
 } // namespace noveltea::core

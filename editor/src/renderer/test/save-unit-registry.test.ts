@@ -24,6 +24,7 @@ const representativeResources: Record<string, WorkbenchResource> = {
   'full-game-preview': { kind: 'preview', stableId: 'preview:full-game' },
   'asset-library': { kind: 'project', stableId: 'assets' },
   'asset-detail': recordResource('assets', 'logo'),
+  'animation-detail': recordResource('animations', 'pulse'),
   'image-generation': { kind: 'tool', stableId: 'utility:image-generation' },
   'comfyui-workflows': { kind: 'tool', stableId: 'utility:comfyui-workflows' },
   'material-library': { kind: 'project', stableId: 'materials', collection: 'materials' },

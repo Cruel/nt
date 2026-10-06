@@ -96,6 +96,33 @@ describe('authoring project schema', () => {
     });
     if (visual.kind !== 'animation') throw new Error('Expected Animation Visual');
     expect(validateVisualData(project, visual, '/visual')).toEqual([]);
+    const ranged = visualSchema.parse({
+      ...visual,
+      playback: {
+        ...visual.playback!,
+        repeat: 'loop',
+        loopRange: { start: 'settled', end: 'end' },
+      },
+    });
+    if (ranged.kind !== 'animation') throw new Error('Expected Animation Visual');
+    expect(validateVisualData(project, ranged, '/visual')).toEqual([]);
+    for (const loopRange of [
+      { start: 'missing', end: 'end' },
+      { start: 'end', end: 'settled' },
+      { start: 'settled', end: 'settled' },
+    ]) {
+      const invalid = visualSchema.parse({
+        ...ranged,
+        playback: { ...ranged.playback!, loopRange },
+      });
+      expect(validateVisualData(project, invalid, '/visual')).not.toEqual([]);
+    }
+    expect(
+      visualSchema.safeParse({
+        ...visual,
+        playback: { ...visual.playback!, loopRange: { start: 'start', end: 'end' } },
+      }).success,
+    ).toBe(false);
     expect(
       validateVisualData(
         project,

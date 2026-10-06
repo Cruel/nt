@@ -2166,7 +2166,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                                       "Motion policy fields must be named")));
                 const auto name = key.as<std::string>();
                 if (name != "repeat" && name != "rate" && name != "clock" &&
-                    name != "initial_marker")
+                    name != "initial_marker" && name != "loop_range")
                     return mutation(view, core::Result<void, core::Diagnostics>::failure(
                                               invalid("runtime.invalid_motion_policy",
                                                       "Unknown motion policy field: " + name)));
@@ -2189,6 +2189,28 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             core::MotionPlaybackPolicy value{
                 *repeat == "once" ? core::MotionRepeat::Once : core::MotionRepeat::Loop, *rate,
                 *clock.value_if(), marker ? std::optional<std::string>{*marker} : std::nullopt};
+            const sol::object range = policy["loop_range"];
+            if (range.valid() && range.get_type() != sol::type::nil) {
+                if (range.get_type() != sol::type::table)
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(invalid(
+                                              "runtime.invalid_motion_policy",
+                                              "loop_range must be a start/end marker table")));
+                const auto table = range.as<sol::table>();
+                for (const auto& [key, ignored] : table) {
+                    if (key.get_type() != sol::type::string ||
+                        (key.as<std::string>() != "start" && key.as<std::string>() != "end"))
+                        return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                                  invalid("runtime.invalid_motion_policy",
+                                                          "Unknown loop_range field")));
+                }
+                const auto start = table_option<std::string>(table, "start");
+                const auto end = table_option<std::string>(table, "end");
+                if (!start || !end)
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(invalid(
+                                              "runtime.invalid_motion_policy",
+                                              "loop_range requires start and end markers")));
+                value.loop_range = core::MotionLoopRange{*start, *end};
+            }
             if (!core::valid_motion_policy(value))
                 return mutation(
                     view, core::Result<void, core::Diagnostics>::failure(

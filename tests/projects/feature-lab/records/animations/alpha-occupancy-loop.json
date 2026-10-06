@@ -9,7 +9,7 @@
       {
         "id": "alternate",
         "kind": "sprite-sequence",
-        "markers": [{ "id": "second", "timeMs": 1500 }],
+        "markers": [{ "id": "second", "timeMs": 1500 }, { "id": "loop-in", "timeMs": 750 }, { "id": "loop-out", "timeMs": 2250 }],
         "frames": [
           { "image": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "durationMs": 1500 },
           { "image": { "$ref": { "collection": "assets", "id": "pilot-button-sprite" } }, "durationMs": 1500 }

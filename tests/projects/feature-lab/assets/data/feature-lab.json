@@ -1899,7 +1899,7 @@
           "id": "desired-motion",
           "title": "Reconstructible owner-scoped motion and playback policy",
           "action": "Activate the left alpha board to open its contextual Inventory. Choose once at 2×, dismiss, and wait. Reopen and choose the unscaled marker loop. Pause/resume, leave/re-enter, and save/load at a checkpoint. Finally restore authored motion.",
-          "expected": "Once stops on the button frame. The unscaled half-rate loop begins at the second marker and continues during gameplay pause. Unrelated composition keeps phase; re-entry/load starts at the selected semantic marker rather than saved elapsed/frame/pause state. Clearing returns to the authored gameplay-clock loop. Alpha picking follows each realized sample.",
+          "expected": "Once stops on the button frame. The unscaled half-rate loop begins at loop-in (750 ms), wraps at loop-out (2250 ms), and continues during gameplay pause; both frames remain visible for 1.5 seconds each, with the excluded half-frame segments never sampled. Unrelated composition keeps phase; re-entry/load starts at the selected semantic marker rather than saved elapsed/frame/pause state. Clearing returns to the authored gameplay-clock loop. Alpha picking follows each realized sample.",
           "status": "ready",
           "verification": "visual",
           "created": "2026-10-05T22:12:21Z",

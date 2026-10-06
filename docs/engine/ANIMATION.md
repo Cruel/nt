@@ -27,7 +27,10 @@ an image or Animation Visual; a null motion selection uses the resource default.
 Material remains a use-site concern. Animation Visuals carry required nullable `playback`: null
 uses the use site's default loop, rate 1, semantic start, and clock (Environment clock or gameplay).
 Explicit policy selects once/loop, positive finite rate, gameplay/unscaled-presentation clock, and
-nullable semantic `initialMarker`. Once holds the final sample; looping wraps the whole motion.
+nullable semantic `initialMarker`, and optional `loopRange: { start, end }` naming markers.
+A range is valid only with loop repetition and strictly increasing resolved marker times. Without a
+range, looping wraps the whole motion. With a range, playback traverses any initial intro before the
+exclusive range endpoint once, then wraps to its start. Once holds the final sample.
 Motion-local `markers` are required arrays of unique non-reserved IDs and absolute integer `timeMs`
 within the motion; `start` and `end` are implicit markers. Markers never invoke gameplay.
 
@@ -44,8 +47,15 @@ for focused publication (the focused-document section describes the owning trans
 
 ## Editor behavior and known gaps
 
-Animation records currently use Project source/record editing; there is no Animation wizard or
-specialized timeline editor in this tracer. Focused Room preview stages the referenced Environment, Interactable, and Character-layer Animations
+Animation records open a specialized timeline editor with motion selection, absolute-time markers,
+frame-duration editing, scrub/play/pause/restart, and sprite frame stepping. Reserved start/end
+markers are shown but cannot be edited. Preview-only loop ranges use the same canonical sampling
+rules as runtime through `editor/src/shared/animation-timeline.ts`. This lightweight source-image
+preview is explicitly labeled, not certified runtime rendering. Interactable Visual editing also
+exposes durable playback policy, initial marker, rate/clock, and marker-bounded loop selection;
+loop policy is never stored on the reusable Animation resource. Project edits use the normal command
+bus, undo/redo, and manual-save record unit. Tab restoration keeps authoring view position but never
+a running playback anchor. Focused Room preview stages the referenced Environment, Interactable, and Character-layer Animations
 and their frame Assets through production focused resource preparation, not a browser animation
 interpreter. Temporary Environment `asset` input remains for the explicitly scoped expand-contract
 slice; Visual takes precedence during realization.
@@ -66,8 +76,18 @@ Explicit reusable playback policy is admitted on ordinary Environment, Interacta
 Character-layer Visuals, not Character clip-frame Visual overrides: those retain choreography timing
 and require null playback until an explicit coordination contract is implemented.
 
-Video, finite motion operations, transient playback controls, animated
-Inventory icons, and broader sprite-field cutover remain later work. Interactable world Hotspots can
+`WorldPresentationBackend::control_motion` targets one live `WorldVisualOccurrence` with typed
+pause, resume, restart, seek-time, or seek-frame commands; `motion_position` exposes sprite frame
+index/count and motion time. Static Visuals fail with `Unsupported`, absent occurrences with
+`MissingOccurrence`, and non-finite/out-of-bounds addressing with `InvalidPosition`, without
+mutating prior realization. Restart uses the authored initial marker and preserves pause status.
+Compatible publication/prepared swaps retain control anchors; selection replacement, disposal,
+reset/load/reconstruction discard them. These are host/backend controls, not new durable Lua
+commands or Presentation Operations. No generic finite Animation operation is admitted yet; future
+causal motion controls must route through the coordinator rather than overriding its operation.
+
+Video, finite motion operations, animated Inventory icons, and broader sprite-field cutover remain
+later work. Interactable world Hotspots can
 already sample a selected raster Animation frame's CPU coverage.
 
 ## Verification
@@ -78,7 +98,8 @@ is a one-frame source example. The catalog carries the manual procedure; added c
 that every interactive check has been performed.
 
 Feature Lab's Hotspots & Cursors contextual Inventory exposes once/rate/clock/initial-marker
-selection and clearing for the alpha board (`desired-motion`). This is a manual procedure, not a
+selection and clearing for the alpha board (`desired-motion`), including an authored marker-bounded
+range that excludes the first/last half-frame segments. This is a manual procedure, not a
 claim of completed save/load or player interaction certification.
 
 - Editor schema/compiler/dependency/Room-preview tests cover authoring and focused staging.

@@ -31,6 +31,7 @@ import { LocalizationEditor } from '@/editors/localization/LocalizationEditor';
 import { MaterialEditor } from '@/editors/materials/MaterialEditor';
 import { MaterialsLibraryEditor } from '@/editors/materials/MaterialsLibraryEditor';
 import { PlaceholderEntityEditor } from '@/editors/placeholder/PlaceholderEntityEditor';
+import { AnimationEditor } from '@/editors/animations/AnimationEditor';
 import { InteractionEditor } from '@/editors/interactions/InteractionEditor';
 import { MapEditor } from '@/editors/maps/MapEditor';
 import { ScriptModuleEditor } from '@/editors/scripts/ScriptModuleEditor';
@@ -168,6 +169,12 @@ export const defaultEditorRegistrations: WorkbenchEditorRegistration[] = [
     label: 'Test Detail',
     icon: ListChecks,
     component: TestsEditor,
+  },
+  {
+    type: 'animation-detail',
+    label: 'Animation Detail',
+    icon: Clapperboard,
+    component: AnimationEditor,
   },
   {
     type: 'placeholder-entity',

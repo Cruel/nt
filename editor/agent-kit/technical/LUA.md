@@ -567,7 +567,10 @@ The target must resolve to an Animation Visual containing the named motion.
 
 Policy requires `['repeat']='once'|'loop'`, positive finite `rate`, and
 `clock='gameplay'|'unscaled-presentation'`; optional `initial_marker` names `start`, `end`, or an
-authored motion-local marker. Lua's `repeat` keyword requires bracket notation in a table literal.
+authored motion-local marker. Optional `loop_range={start='marker', ['end']='marker'}` requires loop
+repetition and existing markers with strictly increasing absolute motion times. Playback traverses
+any initial intro once, then wraps at the exclusive range end. Omitting the range loops the whole
+motion. Lua's `repeat` keyword requires bracket notation in a table literal.
 These commands persist desired motion/policy, not elapsed playback, frame, pause, seek, or decoder
 state. Reconstruction starts at semantic start/marker. Character semantic state remains authoritative;
 Character and static-image targets are not admitted here.

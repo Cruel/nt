@@ -34,6 +34,7 @@ struct WorldPreparedVisual {
     std::vector<AnimationFrame> animation_frames;
     std::optional<core::MotionPlaybackPolicy> motion_policy;
     std::uint64_t motion_initial_ms = 0;
+    std::optional<std::pair<std::uint64_t, std::uint64_t>> motion_loop_ms;
 };
 
 struct WorldPreparedHotspotResources {
@@ -196,6 +197,7 @@ struct WorldPresentationDraw {
     MaterialTextureSampler sampled_visual_sampler = MaterialTextureSampler::ClampLinear;
     std::optional<core::MotionPlaybackPolicy> motion_policy = std::nullopt;
     std::uint64_t motion_initial_ms = 0;
+    std::optional<std::pair<std::uint64_t, std::uint64_t>> motion_loop_ms = std::nullopt;
 };
 
 struct WorldPreparedHotspotSurface {
@@ -338,6 +340,34 @@ private:
 [[nodiscard]] std::string world_actor_identity(const core::ActorPresentationKey& key);
 [[nodiscard]] std::string world_hotspot_identity(const core::compiled::HotspotRef& ref);
 
+struct WorldVisualOccurrence {
+    WorldDrawFamily family;
+    std::string stable_identity;
+    std::uint8_t sublayer = 0;
+};
+struct PauseMotion {};
+struct ResumeMotion {};
+struct RestartMotion {};
+struct SeekMotionTime {
+    double time_ms;
+};
+struct SeekMotionFrame {
+    std::size_t frame_index;
+};
+using MotionControl =
+    std::variant<PauseMotion, ResumeMotion, RestartMotion, SeekMotionTime, SeekMotionFrame>;
+enum class MotionControlError {
+    MissingOccurrence,
+    Unsupported,
+    InvalidPosition
+};
+struct MotionPosition {
+    double time_ms = 0;
+    std::size_t frame_index = 0;
+    std::size_t frame_count = 0;
+    bool paused = false;
+};
+
 class WorldPresentationBackend {
 public:
     explicit WorldPresentationBackend(WorldPresentationResourceResolver& resources)
@@ -351,6 +381,12 @@ public:
     void realize(const core::RuntimeClockUpdate& clock);
     [[nodiscard]] core::Result<bool, core::Diagnostics> resize(Size viewport);
     void reset();
+    [[nodiscard]] core::Result<MotionPosition, MotionControlError>
+    motion_position(const WorldVisualOccurrence& occurrence,
+                    const core::RuntimeClockUpdate& clock) const;
+    [[nodiscard]] core::Result<bool, MotionControlError>
+    control_motion(const WorldVisualOccurrence& occurrence, const MotionControl& control,
+                   const core::RuntimeClockUpdate& clock);
     [[nodiscard]] bool update_hotspot_visual_state(HotspotInteractionVisualState state);
 
     [[nodiscard]] const WorldPresentationFrame* frame() const noexcept;
@@ -371,6 +407,8 @@ private:
         core::LayoutClockDomain clock = core::LayoutClockDomain::Gameplay;
         std::chrono::microseconds started_at{0};
         std::string compatibility;
+        std::optional<long double> motion_anchor_ms = std::nullopt;
+        bool paused = false;
     };
 
     void rebuild_batches(WorldPresentationFrame& frame,

@@ -4439,27 +4439,38 @@ TEST_CASE("runtime Lua motion selection settles into owner-scoped semantic desir
     });
     REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
                 .diagnostics.empty());
-    REQUIRE(execute_session_lua(
+    const auto motion_script = execute_session_lua(
         fixture,
-        "local policy = {['repeat']='once', rate=0.5, clock='unscaled-presentation', "
-        "initial_marker='open'}\n"
+        "local policy = {['repeat']='loop', rate=0.5, clock='unscaled-presentation', "
+        "initial_marker='open', loop_range={start='open', ['end']='end'}}\n"
         "local ok, err = noveltea.presentation.set_motion_selection({kind='interactable', "
-        "id='key'}, 'idle', policy, {owner='session'}); assert(ok and err == nil)\n"
+        "id='key'}, 'idle', policy, {owner='session'}); assert(ok, tostring(err))\n"
         "ok, err = noveltea.presentation.set_motion_selection({kind='actor', id='key'}, 'idle', "
         "policy, {owner='session'}); assert(not ok and err ~= nil)\n"
+        "policy['repeat'] = 'once'; ok, err = "
+        "noveltea.presentation.set_motion_selection({kind='interactable', id='key'}, 'idle', "
+        "policy, {owner='session'}); assert(not ok and err ~= nil); policy['repeat'] = 'loop'\n"
         "policy.elapsedMs = 10; ok, err = "
         "noveltea.presentation.set_motion_selection({kind='interactable', id='key'}, 'idle', "
         "policy, {owner='session'}); assert(not ok and err ~= nil); policy.elapsedMs = nil\n"
         "policy.rate = 0; ok, err = "
         "noveltea.presentation.set_motion_selection({kind='interactable', id='key'}, 'idle', "
         "policy, {owner='session'}); assert(not ok and err ~= nil)",
-        "typed-motion-selection-set"));
+        "typed-motion-selection-set");
+    if (!motion_script)
+        FAIL_CHECK(motion_script.error().message);
+    REQUIRE(motion_script);
     auto flushed = fixture.session->dispatch(
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(flushed.diagnostics.empty());
     REQUIRE(fixture.session->presentation_state().motion_selections().size() == 1);
     CHECK(fixture.session->presentation_state().motion_selections().front().policy.initial_marker ==
           "open");
+    REQUIRE(fixture.session->presentation_state().motion_selections().front().policy.loop_range);
+    CHECK(fixture.session->presentation_state()
+              .motion_selections()
+              .front()
+              .policy.loop_range->start == "open");
     REQUIRE(execute_session_lua(
         fixture,
         "local ok, err = noveltea.presentation.clear_motion_selection({kind='interactable', "
