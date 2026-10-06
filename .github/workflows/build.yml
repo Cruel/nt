@@ -489,7 +489,7 @@ jobs:
           path: build/cli/linux
 
       - name: Make NovelTea host CLI executables executable
-        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
 
       - name: Build Node reference bundle for differential-only shard
         if: matrix.sections == 'differential'
@@ -1095,7 +1095,7 @@ jobs:
           path: build/cli/linux
 
       - name: Make NovelTea host CLI executables executable
-        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
@@ -1389,7 +1389,7 @@ jobs:
           path: build/cli/linux
 
       - name: Make NovelTea host CLI executables executable
-        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner build/cli/linux/tools/ffmpeg/bin/ffmpeg
 
       - name: Install pnpm
         uses: pnpm/action-setup@v6
