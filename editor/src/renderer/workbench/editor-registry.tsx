@@ -456,6 +456,18 @@ export function buildDefaultRecordTab(node: AssetNode): WorkbenchTab | null {
   if (node.collection === 'materials' && !node.entityId) return buildMaterialsEditorTab();
   if (node.collection === 'tests' && !node.entityId) return buildTestsEditorTab();
   const title = node.label || node.entityId;
+  if (node.collection === 'animations' && node.entityId)
+    return {
+      id: `tab:animation-detail:animations:${node.entityId}`,
+      title: title ?? node.entityId,
+      editorType: 'animation-detail',
+      resource: {
+        kind: 'record',
+        stableId: `record:animations:${node.entityId}`,
+        collection: 'animations',
+        entityId: node.entityId,
+      },
+    };
   if (node.collection === 'assets' && node.entityId)
     return buildAssetDetailTabForRecord(node.entityId, title);
   if (node.collection === 'materials' && node.entityId)
@@ -621,6 +633,7 @@ export function editorIconForType(editorType: string): ComponentType<{ className
   if (editorType === 'interactable-detail') return Puzzle;
   if (editorType === 'dialogue-detail') return MessageSquareText;
   if (editorType === 'scene-detail') return Clapperboard;
+  if (editorType === 'animation-detail') return Clapperboard;
   if (editorType === 'placeholder-entity') return Puzzle;
   if (editorType === 'test-detail' || editorType === 'test-suite') return ListChecks;
   if (editorType === 'variables') return SlidersHorizontal;

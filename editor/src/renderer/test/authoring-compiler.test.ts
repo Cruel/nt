@@ -3667,6 +3667,18 @@ describe('authoring compiler framework', () => {
         initialMarker: 'settled',
       },
     });
+    room.environments[0]!.visual.playback = {
+      ...room.environments[0]!.visual.playback!,
+      repeat: 'loop',
+      loopRange: { start: 'settled', end: 'end' },
+    };
+    const looped = compileAuthoringProject(project);
+    expect(looped.ok).toBe(true);
+    if (!looped.ok) return;
+    expect(
+      looped.project.definitions.rooms.find((value) => value.id === 'foyer')!.environments![0]!
+        .visual,
+    ).toMatchObject({ playback: { repeat: 'loop', loopRange: { start: 'settled', end: 'end' } } });
   });
 
   it('lowers sparse Interactable Definition Material Applications without discarding dormant entries', () => {

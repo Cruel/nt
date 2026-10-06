@@ -413,23 +413,38 @@ struct AnimationResource {
     bool operator==(const AnimationResource&) const = default;
 };
 [[nodiscard]] inline std::optional<std::uint64_t>
-motion_initial_time(const SpriteAnimationMotion& motion,
-                    const MotionPlaybackPolicy& policy) noexcept
+motion_marker_time(const SpriteAnimationMotion& motion, std::string_view id) noexcept
 {
-    if (!valid_motion_policy(policy))
-        return std::nullopt;
-    if (!policy.initial_marker || *policy.initial_marker == "start")
+    if (id == "start")
         return 0;
-    if (*policy.initial_marker == "end") {
+    if (id == "end") {
         std::uint64_t duration = 0;
         for (const auto& frame : motion.frames)
             duration += frame.duration_ms;
         return duration;
     }
     for (const auto& marker : motion.markers)
-        if (marker.id == *policy.initial_marker)
+        if (marker.id == id)
             return marker.time_ms;
     return std::nullopt;
+}
+[[nodiscard]] inline std::optional<std::pair<std::uint64_t, std::uint64_t>>
+motion_loop_times(const SpriteAnimationMotion& motion, const MotionPlaybackPolicy& policy) noexcept
+{
+    const auto start =
+        motion_marker_time(motion, policy.loop_range ? policy.loop_range->start : "start");
+    const auto end = motion_marker_time(motion, policy.loop_range ? policy.loop_range->end : "end");
+    if (!start || !end || *start >= *end)
+        return std::nullopt;
+    return std::pair{*start, *end};
+}
+[[nodiscard]] inline std::optional<std::uint64_t>
+motion_initial_time(const SpriteAnimationMotion& motion,
+                    const MotionPlaybackPolicy& policy) noexcept
+{
+    if (!valid_motion_policy(policy) || !motion_loop_times(motion, policy))
+        return std::nullopt;
+    return motion_marker_time(motion, policy.initial_marker.value_or("start"));
 }
 
 enum class DisplayOrientation : std::uint8_t {

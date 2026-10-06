@@ -862,52 +862,107 @@ TEST_CASE("raster Animation playback is occurrence-local and survives unrelated 
         backend.realize(clock);
         CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
               22);
-        return;
     }
     SECTION("prepared publication preserves compatible Animation epochs")
     {
         WorldPresentationBackend prepared(resources);
         snapshot.revision = PresentationSnapshotRevision::from_number(2);
         REQUIRE(prepared.reconcile(snapshot, {640.0f, 360.0f}));
+        const auto& draw = backend.frame()->draws.front();
+        const WorldVisualOccurrence occurrence{draw.family, draw.stable_identity, draw.sublayer};
+        REQUIRE(backend.control_motion(occurrence, PauseMotion{}, clock));
         prepared.preserve_animation_epochs_from(backend);
         backend.swap_prepared(prepared);
+        CHECK(backend.motion_position(occurrence, clock).value().paused);
         clock.unscaled_presentation_time += std::chrono::milliseconds{25};
         backend.realize(clock);
         CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
               22);
-        return;
     }
-    SECTION("ordinary republication and reconstruction") {}
+    SECTION("transient controls survive compatible publications but not reconstruction")
+    {
+        const auto& draw = backend.frame()->draws.front();
+        const WorldVisualOccurrence occurrence{draw.family, draw.stable_identity, draw.sublayer};
+        const auto semantic_visual =
+            backend.snapshot(snapshot.revision)->environments.front().visual;
+        REQUIRE(backend.control_motion(occurrence, PauseMotion{}, clock));
+        clock.unscaled_presentation_time += std::chrono::milliseconds{300};
+        backend.realize(clock);
+        CHECK(backend.motion_position(occurrence, clock).value().frame_index == 1);
+        snapshot.revision = PresentationSnapshotRevision::from_number(2);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        CHECK(backend.motion_position(occurrence, clock).value().paused);
+        REQUIRE(backend.control_motion(occurrence, SeekMotionTime{20}, clock));
+        CHECK(backend.motion_position(occurrence, clock).value().time_ms == Catch::Approx(20));
+        CHECK(backend.snapshot(snapshot.revision)->environments.front().visual == semantic_visual);
+        REQUIRE(backend.control_motion(occurrence, SeekMotionFrame{0}, clock));
+        backend.realize(clock);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              21);
+        REQUIRE_FALSE(backend.control_motion(occurrence, SeekMotionFrame{2}, clock));
+        CHECK(backend.motion_position(occurrence, clock).value().frame_index == 0);
+        REQUIRE_FALSE(backend.control_motion(occurrence, SeekMotionTime{-1}, clock));
+        REQUIRE(backend.control_motion(occurrence, ResumeMotion{}, clock));
+        clock.unscaled_presentation_time += std::chrono::milliseconds{75};
+        backend.realize(clock);
+        CHECK(backend.motion_position(occurrence, clock).value().frame_index == 1);
+        REQUIRE(backend.control_motion(occurrence, RestartMotion{}, clock));
+        CHECK(backend.motion_position(occurrence, clock).value().frame_index == 0);
+        REQUIRE(backend.control_motion(occurrence, PauseMotion{}, clock));
+        backend.reset();
+        snapshot.revision = PresentationSnapshotRevision::from_number(3);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        backend.realize(clock);
+        CHECK_FALSE(backend.motion_position(occurrence, clock).value().paused);
+        CHECK(backend.motion_position(occurrence, clock).value().frame_index == 0);
+        REQUIRE_FALSE(
+            backend.control_motion({occurrence.family, "missing", 0}, PauseMotion{}, clock));
+    }
+    SECTION("static Visual controls fail explicitly")
+    {
+        const auto& draw = backend.frame()->draws.front();
+        const WorldVisualOccurrence occurrence{draw.family, draw.stable_identity, draw.sublayer};
+        snapshot.environments.front().visual = compiled::ImageVisual{id<AssetId>("rain-a")};
+        snapshot.revision = PresentationSnapshotRevision::from_number(2);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        const auto result = backend.control_motion(occurrence, SeekMotionFrame{0}, clock);
+        REQUIRE_FALSE(result);
+        CHECK(result.error() == MotionControlError::Unsupported);
+    }
+    SECTION("ordinary republication and reconstruction")
+    {
+        // An unrelated snapshot publication keeps the stable occurrence epoch and therefore its
+        // phase.
+        snapshot.revision = PresentationSnapshotRevision::from_number(2);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+        backend.realize(clock);
+        CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
+              22);
 
-    // An unrelated snapshot publication keeps the stable occurrence epoch and therefore its phase.
-    snapshot.revision = PresentationSnapshotRevision::from_number(2);
-    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
-    clock.unscaled_presentation_time += std::chrono::milliseconds{25};
-    backend.realize(clock);
-    CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle == 22);
+        // A second occurrence sharing the same Animation starts from its own local epoch.
+        auto second = snapshot.environments.front();
+        second.instance = id<PresentationEnvironmentInstanceId>("rain-second");
+        second.stop_key = id<PresentationEnvironmentStopKey>("rain-second-stop");
+        second.order = 1;
+        snapshot.environments.push_back(std::move(second));
+        snapshot.revision = PresentationSnapshotRevision::from_number(3);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+        backend.realize(clock);
+        REQUIRE(backend.frame()->base_world_composition_batch.commands().size() == 2);
+        CHECK(backend.frame()->base_world_composition_batch.commands()[0].texture.handle == 22);
+        CHECK(backend.frame()->base_world_composition_batch.commands()[1].texture.handle == 21);
 
-    // A second occurrence sharing the same Animation starts from its own local epoch.
-    auto second = snapshot.environments.front();
-    second.instance = id<PresentationEnvironmentInstanceId>("rain-second");
-    second.stop_key = id<PresentationEnvironmentStopKey>("rain-second-stop");
-    second.order = 1;
-    snapshot.environments.push_back(std::move(second));
-    snapshot.revision = PresentationSnapshotRevision::from_number(3);
-    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
-    clock.unscaled_presentation_time += std::chrono::milliseconds{25};
-    backend.realize(clock);
-    REQUIRE(backend.frame()->base_world_composition_batch.commands().size() == 2);
-    CHECK(backend.frame()->base_world_composition_batch.commands()[0].texture.handle == 22);
-    CHECK(backend.frame()->base_world_composition_batch.commands()[1].texture.handle == 21);
-
-    // Reconstruction is intentionally a fresh playback realization.
-    backend.reset();
-    snapshot.revision = PresentationSnapshotRevision::from_number(4);
-    REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
-    backend.realize(clock);
-    REQUIRE(backend.frame()->base_world_composition_batch.commands().size() == 2);
-    CHECK(backend.frame()->base_world_composition_batch.commands()[0].texture.handle == 21);
-    CHECK(backend.frame()->base_world_composition_batch.commands()[1].texture.handle == 21);
+        // Reconstruction is intentionally a fresh playback realization.
+        backend.reset();
+        snapshot.revision = PresentationSnapshotRevision::from_number(4);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        backend.realize(clock);
+        REQUIRE(backend.frame()->base_world_composition_batch.commands().size() == 2);
+        CHECK(backend.frame()->base_world_composition_batch.commands()[0].texture.handle == 21);
+        CHECK(backend.frame()->base_world_composition_batch.commands()[1].texture.handle == 21);
+    }
 }
 
 TEST_CASE("world reconciliation is failure atomic and identical snapshots do no work")

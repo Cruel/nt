@@ -1632,8 +1632,9 @@ TEST_CASE("motion save records contain reconstructible intent and reject disposa
     const PresentationOwner owner{state.session_presentation_owner()};
     const MotionSelectionTarget target =
         InteractableMotionTarget{id<InteractableInstanceId>("key")};
-    const MotionPlaybackPolicy policy{MotionRepeat::Once, 0.5,
-                                      LayoutClockDomain::UnscaledPresentation, "open"};
+    const MotionPlaybackPolicy policy{MotionRepeat::Loop, 0.5,
+                                      LayoutClockDomain::UnscaledPresentation, "open",
+                                      MotionLoopRange{"open", "end"}};
     REQUIRE(state.upsert_motion_selection(project,
                                           {owner, target, id<AnimationMotionId>("idle"), policy}));
     auto save = make_save_state(project, state);
@@ -1658,6 +1659,10 @@ TEST_CASE("motion save records contain reconstructible intent and reject disposa
     missing["presentation"].erase("motionSelections");
     CHECK_FALSE(decode_save_state_wire(missing, "motion-save.json"));
     for (const auto* marker : {"missing", ""}) {
+        auto invalid_range = document;
+        invalid_range["presentation"]["motionSelections"][0]["policy"]["loopRange"]["start"] =
+            marker;
+        CHECK_FALSE(decode_save_state(project, invalid_range, "motion-save.json"));
         auto invalid = document;
         invalid["presentation"]["motionSelections"][0]["policy"]["initialMarker"] = marker;
         CHECK_FALSE(decode_save_state(project, invalid, "motion-save.json"));

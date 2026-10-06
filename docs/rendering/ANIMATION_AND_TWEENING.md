@@ -97,16 +97,18 @@ its clock/rate/repetition/initial marker; otherwise the Environment's clock or g
 Character raster identity includes the actor occurrence and stable layer ID, unlike actor-wide idle
 and automatic-clip epochs. Explicit clip Visual overrides sample at frame-local choreography time;
 omitted Visual overrides retain the underlying animated sample. Compatibility includes selected Animation/motion, logical canvas,
-ordered semantic frame IDs/durations, playback policy, and resolved initial-marker time. Compatible unchanged occurrences retain phase across
+ordered semantic frame IDs/durations, playback policy, and resolved initial-marker/loop-boundary times. Compatible unchanged occurrences retain phase across
 snapshot republishes and focused prepared-publication swaps. Incompatible selections in retained
 predecessor/current revisions have separate anchors so realizing one cannot restart the other.
 Replacement starts at semantic start/initial marker; reset/load/backend reconstruction discards epochs. Phase,
 frame index, and elapsed time never enter the immutable snapshot or Session/Save state.
 
 Focused candidate preparation copies only compatible epochs of currently live occurrences; a failed
-candidate cannot mutate the published backend. Other realization state is not transferred by this
-Animation seam. Frames are sampled at millisecond boundaries and loop over explicit durations,
-including valid one-frame motions; once playback clamps to the last sample. Policy details and
+candidate cannot mutate the published backend. Transient pause/seek anchors are part of compatible raster occurrence epochs and transfer with them;
+reset/reconstruction discards them. Typed backend occurrence controls and frame introspection never
+mutate snapshots. Frame boundaries use explicit millisecond durations (the playhead may be fractional),
+including valid one-frame motions; once playback clamps to the last sample. A marker-bounded loop
+plays its intro once and wraps at the exclusive loop endpoint, without changing frame durations. Policy details and
 admitted Character choreography boundaries are owned by [Animation](../engine/ANIMATION.md). This tracer introduces no second renderer, clock, cache, or
 finite-operation lifecycle.
 

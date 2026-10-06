@@ -5,7 +5,7 @@
 <button id="trigger-child" onclick="assert(Game.mount_context():present_child('trigger-child', 'geometry-child'))">Contextual child</button>
 <button id="trigger-inventory" onclick="assert(Game.mount_context():present_child_inventory())">Child Inventory</button>
 <button id="trigger-motion-once" onclick="assert(noveltea.presentation.set_motion_selection({kind='interactable', id='alpha-board'}, 'alternate', {['repeat']='once', rate=2, clock='gameplay'}, {owner='session'}))">Alpha motion: once at 2×</button>
-<button id="trigger-motion-loop" onclick="assert(noveltea.presentation.set_motion_selection({kind='interactable', id='alpha-board'}, 'alternate', {['repeat']='loop', rate=0.5, clock='unscaled-presentation', initial_marker='second'}, {owner='session'}))">Alpha motion: unscaled marker loop</button>
+<button id="trigger-motion-loop" onclick="assert(noveltea.presentation.set_motion_selection({kind='interactable', id='alpha-board'}, 'alternate', {['repeat']='loop', rate=0.5, clock='unscaled-presentation', initial_marker='loop-in', loop_range={start='loop-in', ['end']='loop-out'}}, {owner='session'}))">Alpha motion: unscaled marker-bounded loop</button>
 <button id="trigger-motion-clear" onclick="assert(noveltea.presentation.clear_motion_selection({kind='interactable', id='alpha-board'}, {owner='session'}))">Restore authored alpha motion</button>
 <button id="trigger-remove-source" onclick="assert(noveltea.interactables.set_location('alpha-board', {kind='unplaced'}))">Remove alpha source</button>
 <button id="trigger-remove-custom" onclick="assert(noveltea.interactables.set_location('custom-board', {kind='unplaced'}))">Remove custom source</button>

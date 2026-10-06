@@ -1117,6 +1117,27 @@ TEST_CASE("mandatory collector retains every frame of a selected raster Animatio
     REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
     world.realize(clock);
     CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 1);
+    auto& visual =
+        std::get<core::compiled::AnimationVisual>(*snapshot.interactables.front().visual);
+    visual.playback = core::MotionPlaybackPolicy{
+        core::MotionRepeat::Loop, 1.0, core::LayoutClockDomain::UnscaledPresentation, std::nullopt,
+        core::MotionLoopRange{"quarter", "end"}};
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(4);
+    REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+    world.realize(clock);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{150};
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 1);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 2);
+    clock.unscaled_presentation_time += std::chrono::milliseconds{100};
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().back().texture.handle == 1);
+    visual.playback->loop_range = core::MotionLoopRange{"end", "quarter"};
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(5);
+    REQUIRE_FALSE(world.reconcile(snapshot, {640.0f, 360.0f}));
+    CHECK(world.frame()->revision.number() == 4);
     gate.clear_package_on_owner();
 }
 

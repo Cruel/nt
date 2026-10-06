@@ -31,6 +31,10 @@ export const motionPlaybackPolicySchema = strict({
   rate: z.number().finite().positive(),
   clock: z.enum(['gameplay', 'unscaled-presentation']),
   initialMarker: entityIdSchema.nullable(),
+  loopRange: strict({ start: entityIdSchema, end: entityIdSchema }).optional(),
+}).refine((policy) => !policy.loopRange || policy.repeat === 'loop', {
+  message: 'A loop range requires loop playback.',
+  path: ['loopRange'],
 });
 export const animationMarkerSchema = strict({
   id: entityIdSchema,
@@ -142,6 +146,15 @@ export function validateAnimationData(
   return diagnostics;
 }
 
+export function animationMarkerTime(
+  motion: z.infer<typeof spriteAnimationMotionSchema>,
+  id: string,
+): number | null {
+  if (id === 'start') return 0;
+  if (id === 'end') return motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+  return motion.markers.find((marker) => marker.id === id)?.timeMs ?? null;
+}
+
 export type AnimationData = z.infer<typeof animationDataSchema>;
 export type Visual = z.infer<typeof visualSchema>;
 
@@ -199,6 +212,20 @@ export function validateVisualData(
     ];
   const motionId = visual.motionId ?? parsed.data.defaultMotionId;
   const motion = parsed.data.motions.find((motion) => motion.id === motionId);
+  const range = visual.playback?.loopRange;
+  if (motion && range) {
+    const start = animationMarkerTime(motion, range.start);
+    const end = animationMarkerTime(motion, range.end);
+    if (start === null || end === null || start >= end)
+      return [
+        {
+          severity: 'error',
+          path: `${path}/playback/loopRange`,
+          category: 'Animations',
+          message: 'Loop markers must exist and delimit a positive forward range.',
+        },
+      ];
+  }
   const marker = visual.playback?.initialMarker;
   if (
     motion &&

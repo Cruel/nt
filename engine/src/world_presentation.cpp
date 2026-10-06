@@ -194,6 +194,7 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
     draw.raster_animation_key = visual.animation_key;
     draw.motion_policy = visual.motion_policy;
     draw.motion_initial_ms = visual.motion_initial_ms;
+    draw.motion_loop_ms = visual.motion_loop_ms;
     draw.raster_animation_frames.reserve(visual.animation_frames.size());
     for (const auto& frame : visual.animation_frames)
         draw.raster_animation_frames.push_back({frame.duration_ms, Texture{frame.texture.handle},
@@ -377,6 +378,7 @@ bool compatible_raster_animation(const WorldPresentationDraw& left,
            left.raster_animation_key == right.raster_animation_key &&
            left.motion_policy == right.motion_policy &&
            left.motion_initial_ms == right.motion_initial_ms &&
+           left.motion_loop_ms == right.motion_loop_ms &&
            raster_animation_clock(left) == raster_animation_clock(right);
 }
 
@@ -384,6 +386,62 @@ std::string raster_animation_loop_key(const WorldPresentationDraw& draw)
 {
     return raster_animation_identity(draw) +
            ":visual-animation:" + std::to_string(draw.raster_animation_epoch);
+}
+
+std::uint64_t raster_duration(const WorldPresentationDraw& draw)
+{
+    std::uint64_t duration = 0;
+    for (const auto& frame : draw.raster_animation_frames)
+        duration += frame.duration_ms;
+    return duration;
+}
+
+long double raster_phase(const WorldPresentationDraw& draw, long double anchor,
+                         std::chrono::microseconds elapsed)
+{
+    const auto policy = draw.motion_policy.value_or(core::MotionPlaybackPolicy{});
+    const auto duration = raster_duration(draw);
+    const long double milliseconds =
+        static_cast<long double>(std::max<std::int64_t>(0, elapsed.count())) / 1000.0L;
+    const long double rate = policy.rate;
+    if (policy.repeat == core::MotionRepeat::Once) {
+        const auto remaining = std::max(0.0L, static_cast<long double>(duration) - anchor);
+        return milliseconds > 0 && rate >= remaining / milliseconds
+                   ? duration
+                   : std::min(anchor + rate * milliseconds, static_cast<long double>(duration));
+    }
+    const auto [start_ms, end_ms] =
+        draw.motion_loop_ms.value_or(std::pair<std::uint64_t, std::uint64_t>{0, duration});
+    const long double start = start_ms, end = end_ms, length = end - start;
+    if (length <= 0)
+        return 0;
+    // Preserve the intro before the loop, and reduce before multiplying extreme rates on Web.
+    if (anchor < end && (milliseconds == 0 || rate < (end - anchor) / milliseconds))
+        return anchor + rate * milliseconds;
+    const auto whole_ms = std::floor(milliseconds);
+    const auto fraction_ms = milliseconds - whole_ms;
+    const auto advance = std::fmod(std::fmod(rate, length) * whole_ms, length) +
+                         std::fmod(rate * fraction_ms, length);
+    auto offset = std::fmod(anchor - start + advance, length);
+    if (offset < 0)
+        offset += length;
+    return start + offset;
+}
+
+std::size_t raster_frame_index(const WorldPresentationDraw& draw, long double time_ms)
+{
+    for (std::size_t index = 0; index < draw.raster_animation_frames.size(); ++index) {
+        if (time_ms < draw.raster_animation_frames[index].duration_ms)
+            return index;
+        time_ms -= draw.raster_animation_frames[index].duration_ms;
+    }
+    return draw.raster_animation_frames.size() - 1;
+}
+
+bool matches_occurrence(const WorldPresentationDraw& draw, const WorldVisualOccurrence& occurrence)
+{
+    return draw.family == occurrence.family && draw.stable_identity == occurrence.stable_identity &&
+           draw.sublayer == occurrence.sublayer;
 }
 
 bool same_hotspot_owner(const core::compiled::HotspotRef& left,
@@ -614,6 +672,8 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
                            std::to_string(resource->second.canvas.height);
     result.motion_policy = selection.playback;
     result.motion_initial_ms = *initial;
+    result.motion_loop_ms = core::compiled::motion_loop_times(
+        *motion, selection.playback.value_or(core::MotionPlaybackPolicy{}));
     result.animation_frames.reserve(motion->frames.size());
     for (std::size_t index = 0; index < motion->frames.size(); ++index) {
         const auto& frame = motion->frames[index];
@@ -1582,6 +1642,79 @@ WorldPointerEventResult WorldHotspotController::handle(const WorldPointerEvent& 
     return finish();
 }
 
+core::Result<MotionPosition, MotionControlError>
+WorldPresentationBackend::motion_position(const WorldVisualOccurrence& occurrence,
+                                          const core::RuntimeClockUpdate& clock) const
+{
+    using Result = core::Result<MotionPosition, MotionControlError>;
+    if (!m_frame)
+        return Result::failure(MotionControlError::MissingOccurrence);
+    const auto draw = std::ranges::find_if(
+        m_frame->draws, [&](const auto& value) { return matches_occurrence(value, occurrence); });
+    if (draw == m_frame->draws.end())
+        return Result::failure(MotionControlError::MissingOccurrence);
+    if (draw->raster_animation_frames.empty())
+        return Result::failure(MotionControlError::Unsupported);
+    const auto epoch = m_loop_epochs.find(raster_animation_loop_key(*draw));
+    long double anchor = draw->motion_initial_ms;
+    std::chrono::microseconds elapsed{0};
+    bool paused = false;
+    if (epoch != m_loop_epochs.end()) {
+        anchor = epoch->second.motion_anchor_ms.value_or(draw->motion_initial_ms);
+        paused = epoch->second.paused;
+        const auto now = clock_time(clock, raster_animation_clock(*draw));
+        if (!paused && now >= epoch->second.started_at)
+            elapsed = now - epoch->second.started_at;
+    }
+    const auto phase = raster_phase(*draw, anchor, elapsed);
+    return Result::success({static_cast<double>(phase), raster_frame_index(*draw, phase),
+                            draw->raster_animation_frames.size(), paused});
+}
+
+core::Result<bool, MotionControlError>
+WorldPresentationBackend::control_motion(const WorldVisualOccurrence& occurrence,
+                                         const MotionControl& control,
+                                         const core::RuntimeClockUpdate& clock)
+{
+    using Result = core::Result<bool, MotionControlError>;
+    const auto position = motion_position(occurrence, clock);
+    if (!position)
+        return Result::failure(position.error());
+    const auto draw = std::ranges::find_if(
+        m_frame->draws, [&](const auto& value) { return matches_occurrence(value, occurrence); });
+    long double anchor = position.value().time_ms;
+    bool paused = position.value().paused;
+    if (std::holds_alternative<PauseMotion>(control))
+        paused = true;
+    else if (std::holds_alternative<ResumeMotion>(control))
+        paused = false;
+    else if (std::holds_alternative<RestartMotion>(control))
+        anchor = draw->motion_initial_ms;
+    else if (const auto* seek = std::get_if<SeekMotionTime>(&control)) {
+        if (!std::isfinite(seek->time_ms) || seek->time_ms < 0 ||
+            seek->time_ms > raster_duration(*draw))
+            return Result::failure(MotionControlError::InvalidPosition);
+        anchor = seek->time_ms;
+    } else if (const auto* seek = std::get_if<SeekMotionFrame>(&control)) {
+        if (seek->frame_index >= draw->raster_animation_frames.size())
+            return Result::failure(MotionControlError::InvalidPosition);
+        anchor = 0;
+        for (std::size_t index = 0; index < seek->frame_index; ++index)
+            anchor += draw->raster_animation_frames[index].duration_ms;
+    }
+    const auto domain = raster_animation_clock(*draw);
+    auto& epoch =
+        m_loop_epochs
+            .try_emplace(raster_animation_loop_key(*draw),
+                         LoopEpoch{domain, clock_time(clock, domain), draw->raster_animation_key})
+            .first->second;
+    epoch.motion_anchor_ms = anchor;
+    epoch.started_at = clock_time(clock, domain);
+    epoch.paused = paused;
+    realize(clock);
+    return Result::success(true);
+}
+
 void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                                                const core::RuntimeClockUpdate* clock)
 {
@@ -1592,7 +1725,6 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
     for (auto& draw : frame.draws) {
         QuadCommand command = draw.command;
         if (!draw.raster_animation_frames.empty()) {
-            const auto policy = draw.motion_policy.value_or(core::MotionPlaybackPolicy{});
             const auto domain = raster_animation_clock(draw);
             std::uint64_t total_duration_ms = 0;
             for (const auto& animation_frame : draw.raster_animation_frames)
@@ -1601,44 +1733,23 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                 const auto now = clock ? clock_time(*clock, domain) : std::chrono::microseconds{0};
                 const auto key = raster_animation_loop_key(draw);
                 std::chrono::microseconds elapsed{0};
+                long double anchor = draw.motion_initial_ms;
                 if (clock) {
                     auto [epoch, inserted] = m_loop_epochs.try_emplace(
                         key, LoopEpoch{domain, now, draw.raster_animation_key});
                     if (!inserted && (epoch->second.clock != domain ||
                                       epoch->second.compatibility != draw.raster_animation_key))
                         epoch->second = LoopEpoch{domain, now, draw.raster_animation_key};
-                    if (now >= epoch->second.started_at)
+                    anchor = epoch->second.motion_anchor_ms.value_or(draw.motion_initial_ms);
+                    if (!epoch->second.paused && now >= epoch->second.started_at)
                         elapsed = now - epoch->second.started_at;
                 }
-                const auto duration = static_cast<long double>(total_duration_ms);
-                const auto initial = static_cast<long double>(draw.motion_initial_ms);
-                const auto microseconds = static_cast<long double>(elapsed.count());
-                const auto rate = static_cast<long double>(policy.rate) / 1000.0L;
-                long double phase;
-                if (policy.repeat == core::MotionRepeat::Loop) {
-                    // Reduce before multiplication: Web long double cannot hold elapsed * DBL_MAX.
-                    phase = std::fmod(
-                        initial + std::fmod(std::fmod(rate, duration) * microseconds, duration),
-                        duration);
-                } else {
-                    const auto endpoint = duration - 1.0L;
-                    const auto remaining = std::max(0.0L, endpoint - initial);
-                    phase = microseconds > 0.0L && rate >= remaining / microseconds
-                                ? endpoint
-                                : std::min(initial + rate * microseconds, endpoint);
-                }
-                auto phase_ms = phase >= static_cast<long double>(total_duration_ms - 1)
-                                    ? total_duration_ms - 1
-                                    : static_cast<std::uint64_t>(phase);
-                for (const auto& animation_frame : draw.raster_animation_frames) {
-                    if (phase_ms < animation_frame.duration_ms) {
-                        command.texture = animation_frame.texture;
-                        command.texture_sampler = animation_frame.sampler;
-                        draw.texture_lease = animation_frame.texture_lease;
-                        break;
-                    }
-                    phase_ms -= animation_frame.duration_ms;
-                }
+                const auto phase = raster_phase(draw, anchor, elapsed);
+                const auto& animation_frame =
+                    draw.raster_animation_frames[raster_frame_index(draw, phase)];
+                command.texture = animation_frame.texture;
+                command.texture_sampler = animation_frame.sampler;
+                draw.texture_lease = animation_frame.texture_lease;
             }
         }
         draw.sampled_visual_texture = command.texture;
