@@ -1285,7 +1285,11 @@ jobs:
 
       - name: Make NovelTea host tools executable
         if: runner.os != 'Windows'
-        run: chmod +x "${{ matrix.cli_path }}/noveltea" "${{ matrix.cli_path }}/noveltea-ui-test-runner"
+        run: |
+          chmod +x \
+            "${{ matrix.cli_path }}/noveltea" \
+            "${{ matrix.cli_path }}/noveltea-ui-test-runner" \
+            "${{ matrix.cli_path }}/tools/ffmpeg/bin/ffmpeg"
 
       - name: Build and verify native editor artifacts
         shell: pwsh
