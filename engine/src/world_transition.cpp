@@ -898,10 +898,17 @@ WorldTransitionBackend::compose_targeted_world_batch() const
                     }
                     frame_phase -= frame.duration_ms;
                 }
-                if (selected && selected->command) {
-                    LayeredDraw animated{*target_draw, 1};
-                    animated.draw.command = *selected->command;
-                    draws.push_back(std::move(animated));
+                if (selected) {
+                    auto underlying = target_draw->command;
+                    if (target_draw->sampled_visual_texture) {
+                        underlying.texture = *target_draw->sampled_visual_texture;
+                        underlying.texture_sampler = target_draw->sampled_visual_sampler;
+                    }
+                    if (auto sampled = selected->sample(frame_phase, underlying)) {
+                        LayeredDraw animated{*target_draw, 1};
+                        animated.draw.command = std::move(*sampled);
+                        draws.push_back(std::move(animated));
+                    }
                 }
             }
             continue;

@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { parseAssetData } from './authoring-assets';
+import { visualSchema, validateVisualData, type Visual } from './authoring-animations';
 import { resolveMaterialData } from './authoring-materials';
 import { materialApplicationSchema } from './authoring-material-applications';
 import { entityIdSchema } from './authoring-common';
@@ -48,7 +49,7 @@ export const characterPresentationLayerDataSchema = z
 export const characterLayerCompositionDataSchema = z
   .object({
     layerId: entityIdSchema,
-    sprite: characterAssetRefSchema.nullable().default(null),
+    visual: visualSchema.nullable().default(null),
     materialApplication: materialApplicationSchema.nullable().default(null),
     offset: characterVector2Schema.default({ x: 0, y: 0 }),
     scale: z.number().finite().positive().default(1),
@@ -90,7 +91,7 @@ export const characterPresentationProfileDataSchema = withSchemaDocumentation(
                           z
                             .object({
                               layerId: entityIdSchema,
-                              sprite: characterAssetRefSchema.nullable().optional(),
+                              visual: visualSchema.nullable().optional(),
                               materialApplication: materialApplicationSchema.nullable().optional(),
                               offset: characterVector2Schema.optional(),
                               scale: z.number().finite().positive().optional(),
@@ -178,7 +179,7 @@ export const characterGestureDataSchema = z
 export const characterLayerOverrideDataSchema = z
   .object({
     layerId: entityIdSchema,
-    sprite: characterAssetRefSchema.nullable().optional(),
+    visual: visualSchema.nullable().optional(),
     materialApplication: materialApplicationSchema.nullable().optional(),
     visible: z.boolean().optional(),
   })
@@ -351,7 +352,7 @@ export function defaultCharacterData(label = 'Character'): CharacterData {
             layers: [
               {
                 layerId: 'body',
-                sprite: null,
+                visual: null,
                 materialApplication: null,
                 offset: { x: 0, y: 0 },
                 scale: 1,
@@ -402,27 +403,18 @@ function validateUniqueIds(
   });
 }
 
-function validateSpriteRef(
+function validateVisual(
   project: AuthoringProject,
-  ref: CharacterAssetRef | null,
+  visual: Visual | null,
   path: string,
   diagnostics: CharacterSchemaDiagnostic[],
 ) {
-  const id = refId(ref);
-  if (!id) return;
-  const asset = project.assets[id];
-  if (!asset) {
-    diagnostics.push(diagnostic(`${path}/$ref`, `Missing sprite asset '${id}'.`));
-    return;
-  }
-  const data = parseAssetData(asset.data);
-  if (!data)
+  if (visual)
     diagnostics.push(
-      diagnostic(`${path}/$ref`, `Asset '${id}' has invalid asset data.`, 'warning'),
-    );
-  else if (data.kind !== 'image')
-    diagnostics.push(
-      diagnostic(`${path}/$ref`, `Sprite asset '${id}' is ${data.kind}, not image.`, 'warning'),
+      ...validateVisualData(project, visual, path).map((item) => ({
+        ...item,
+        category: 'Characters',
+      })),
     );
 }
 
@@ -590,8 +582,8 @@ export function validateCharacterData(
           const path = `${base}/${collection}/${entryIndex}/profiles/${profileIndex}/layers/${layerIndex}`;
           if (!layerIds.has(layer.layerId))
             diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
-          if (layer.sprite !== undefined)
-            validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
+          if (layer.visual !== undefined)
+            validateVisual(project, layer.visual, `${path}/visual`, diagnostics);
           if (layer.materialApplication !== undefined)
             validateMaterialApplication(
               project,
@@ -643,7 +635,7 @@ export function validateCharacterData(
         const path = `${posePath}/layers/${layerIndex}`;
         if (!layerIds.has(layer.layerId))
           diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
-        validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
+        validateVisual(project, layer.visual, `${path}/visual`, diagnostics);
         validateMaterialApplication(
           project,
           layer.materialApplication,
@@ -666,8 +658,8 @@ export function validateCharacterData(
           const path = `${framePath}/layers/${layerIndex}`;
           if (!layerIds.has(layer.layerId))
             diagnostics.push(diagnostic(`${path}/layerId`, `Missing layer '${layer.layerId}'.`));
-          if (layer.sprite !== undefined)
-            validateSpriteRef(project, layer.sprite, `${path}/sprite`, diagnostics);
+          if (layer.visual !== undefined)
+            validateVisual(project, layer.visual, `${path}/visual`, diagnostics);
           if (layer.materialApplication !== undefined)
             validateMaterialApplication(
               project,
@@ -749,10 +741,10 @@ export function validateCharacterData(
   const selectedPose = selectedProfile?.poses.find(
     (pose) => pose.id === selectedProfile.defaultPoseId,
   );
-  const hasSprite = selectedPose?.layers.some((layer) => layer.sprite) ?? false;
-  if (selectedProfile && selectedPose && !hasSprite) {
+  const hasVisual = selectedPose?.layers.some((layer) => layer.visual) ?? false;
+  if (selectedProfile && selectedPose && !hasVisual) {
     diagnostics.push(
-      diagnostic(`${base}/preview`, 'Selected profile pose has no sprite asset yet.', 'warning'),
+      diagnostic(`${base}/preview`, 'Selected profile pose has no visual asset yet.', 'warning'),
     );
   }
   const location = data.initialWorldState.location;

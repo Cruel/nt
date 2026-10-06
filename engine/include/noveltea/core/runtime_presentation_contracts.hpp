@@ -52,7 +52,7 @@ struct PresentationCamera {
 struct PresentationActorLayer {
     CharacterPresentationLayerId id;
     std::optional<std::string> role;
-    std::optional<AssetId> sprite;
+    std::optional<compiled::Visual> visual;
     std::optional<MaterialId> material;
     std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
     std::vector<PresentationMaterialTextureOverride> material_texture_overrides;

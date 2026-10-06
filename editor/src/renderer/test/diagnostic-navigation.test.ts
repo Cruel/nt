@@ -97,7 +97,7 @@ describe('diagnostic navigation', () => {
     expect(
       resolveProjectDiagnosticTarget(
         project,
-        '/characters/dfs/data/profiles/0/poses/1/layers/0/sprite/$ref',
+        '/characters/dfs/data/profiles/0/poses/1/layers/0/visual/animation/$ref',
       )?.target?.id,
     ).toBe('character.profile.stage.pose.wave');
     expect(

@@ -406,7 +406,16 @@ function characterVisual(
     ).map((layer) => ({
       id: layer.id,
       role: layer.role,
-      spriteAssetId: layer.sprite?.$ref.id ?? null,
+      visual:
+        layer.visual?.kind === 'image'
+          ? { kind: 'image' as const, assetId: layer.visual.image.$ref.id }
+          : layer.visual?.kind === 'animation'
+            ? {
+                kind: 'animation' as const,
+                animationId: layer.visual.animation.$ref.id,
+                motionId: layer.visual.motionId,
+              }
+            : null,
       materialId: layer.materialApplication?.material.$ref.id ?? null,
       ...focusedMaterialApplication(layer.materialApplication),
       offset: layer.offset,
@@ -859,7 +868,7 @@ function collectVisualIds(data: RoomPreviewDocument) {
   addApplicationTextures(data.world.background.materialTextures);
   for (const item of [...data.world.persistentCharacters, ...data.world.cast]) {
     for (const layer of item.visual.layers) {
-      addAsset(layer.spriteAssetId);
+      if (layer.visual?.kind === 'image') addAsset(layer.visual.assetId);
       addMaterial(layer.materialId);
       addApplicationTextures(layer.materialTextures);
     }
@@ -1224,6 +1233,47 @@ export async function buildFocusedRoomPreview(
     options.inputs.displayPreference,
     project.settings.display,
   );
+  const cast = room.cast.flatMap((entry) => {
+    const character = parseCharacterData(
+      recordForOwner(project, 'character', entry.character.$ref.id)?.data,
+    );
+    if (!character) {
+      diagnostics.push(
+        diagnostic(
+          `/rooms/${roomId}/data/cast/${entry.id}`,
+          `Character '${entry.character.$ref.id}' is invalid.`,
+        ),
+      );
+      return [];
+    }
+    if (
+      character.initialWorldState.location.kind !== 'room' ||
+      character.initialWorldState.location.room.$ref.id !== roomId
+    )
+      return [];
+    return [
+      {
+        entryId: entry.id,
+        characterId: entry.character.$ref.id,
+        condition: focusedCondition(entry.condition),
+        placementId: entry.placementId,
+        enabled: character.initialWorldState.enabled,
+        visible: character.initialWorldState.visible,
+        occurrenceVisible: entry.visible,
+        order: entry.order,
+        visual: characterVisual(
+          character,
+          entry.profileId,
+          entry.poseId,
+          entry.expressionId,
+          entry.appearanceId,
+          entry.idleId,
+          `/rooms/${roomId}/data/cast/${entry.id}`,
+          diagnostics,
+        ),
+      },
+    ];
+  });
   const data: RoomPreviewDocument = {
     schema: 'noveltea.room-preview',
     environment: {
@@ -1291,6 +1341,11 @@ export async function buildFocusedRoomPreview(
     world: {
       animations: [
         ...new Set([
+          ...[...persistentCharacters, ...cast].flatMap((item) =>
+            item.visual.layers.flatMap((layer) =>
+              layer.visual?.kind === 'animation' ? [layer.visual.animationId] : [],
+            ),
+          ),
           ...room.environments.flatMap((item) =>
             item.visual?.kind === 'animation' ? [item.visual.animation.$ref.id] : [],
           ),
@@ -1352,47 +1407,7 @@ export async function buildFocusedRoomPreview(
         layoutId: placement.presentation.layout?.$ref.id ?? null,
       })),
       persistentCharacters,
-      cast: room.cast.flatMap((entry) => {
-        const character = parseCharacterData(
-          recordForOwner(project, 'character', entry.character.$ref.id)?.data,
-        );
-        if (!character) {
-          diagnostics.push(
-            diagnostic(
-              `/rooms/${roomId}/data/cast/${entry.id}`,
-              `Character '${entry.character.$ref.id}' is invalid.`,
-            ),
-          );
-          return [];
-        }
-        if (
-          character.initialWorldState.location.kind !== 'room' ||
-          character.initialWorldState.location.room.$ref.id !== roomId
-        )
-          return [];
-        return [
-          {
-            entryId: entry.id,
-            characterId: entry.character.$ref.id,
-            condition: focusedCondition(entry.condition),
-            placementId: entry.placementId,
-            enabled: character.initialWorldState.enabled,
-            visible: character.initialWorldState.visible,
-            occurrenceVisible: entry.visible,
-            order: entry.order,
-            visual: characterVisual(
-              character,
-              entry.profileId,
-              entry.poseId,
-              entry.expressionId,
-              entry.appearanceId,
-              entry.idleId,
-              `/rooms/${roomId}/data/cast/${entry.id}`,
-              diagnostics,
-            ),
-          },
-        ];
-      }),
+      cast,
       interactables,
       props: room.props.map((item) => ({
         propId: item.id,

@@ -215,7 +215,7 @@ PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
                              {},
                              {{id<CharacterPresentationLayerId>("body"),
                                std::string{"body"},
-                               id<AssetId>("pose"),
+                               compiled::ImageVisual{id<AssetId>("pose")},
                                id<core::MaterialId>("pose-material"),
                                {},
                                {},
@@ -225,7 +225,7 @@ PresentationActor actor(ActorPresentationKey key, std::int32_t order = 0)
                                true},
                               {id<CharacterPresentationLayerId>("face"),
                                std::string{"face"},
-                               id<AssetId>("expression"),
+                               compiled::ImageVisual{id<AssetId>("expression")},
                                id<core::MaterialId>("expression-material"),
                                {},
                                {},
@@ -980,6 +980,60 @@ TEST_CASE("reconstructible environment loops restart from phase zero after backe
     REQUIRE(backend.frame());
     CHECK(backend.frame()->batch.commands().front().uv.x == Catch::Approx(0.0f));
     CHECK(*backend.frame()->batch.commands().front().time_seconds == Catch::Approx(0.0f));
+}
+
+TEST_CASE("Character Visual layers retain independent phase while choreography overrides content")
+{
+    FakeWorldResources resources;
+    resources.add_texture("pose", 1, 640, 960);
+    resources.add_texture("expression", 2, 640, 960);
+    resources.add_texture("rain-a", 21, 16, 16);
+    resources.add_texture("rain-b", 22, 32, 32);
+    WorldPresentationBackend backend(resources);
+    auto snapshot = base_snapshot(1);
+    auto value = actor(ActorPresentationKey{CharacterActorKey{id<CharacterId>("hero")}});
+    const compiled::Visual animated =
+        compiled::AnimationVisual{id<AnimationId>("rain-animation"), std::nullopt};
+    value.layers[0].visual = animated;
+    snapshot.actors.push_back(value);
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    RuntimeClockUpdate clock;
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[0].texture.handle == 21);
+    const auto original_bounds = backend.frame()->batch.commands()[0].rect;
+    clock.gameplay_time = std::chrono::milliseconds{60};
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[0].texture.handle == 22);
+    CHECK(backend.frame()->batch.commands()[1].texture.handle == 2);
+    snapshot.revision = PresentationSnapshotRevision::from_number(2);
+    snapshot.actors[0].layers[1].visual = animated;
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[0].texture.handle == 22);
+    CHECK(backend.frame()->batch.commands()[1].texture.handle == 21);
+    CHECK(backend.frame()->batch.commands()[0].rect.width == original_bounds.width);
+    CHECK(backend.frame()->batch.commands()[0].rect.height == original_bounds.height);
+
+    compiled::CharacterAnimationLayerFrame patch{
+        .layer_id = id<CharacterPresentationLayerId>("body"), .visual = {true, animated}};
+    snapshot.actors[0].animation_clips = {
+        {id<CharacterAnimationClipId>("speaking"), LayoutClockDomain::Gameplay, {{200, {patch}}}}};
+    snapshot.actors[0].automatic_animations.speaking =
+        compiled::CharacterAutomaticSpeaking{id<CharacterAnimationClipId>("speaking"), "body"};
+    snapshot.actors[0].speaking = true;
+    snapshot.revision = PresentationSnapshotRevision::from_number(3);
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[0].texture.handle == 21);
+    clock.gameplay_time += std::chrono::milliseconds{60};
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[0].texture.handle == 22);
+    CHECK(backend.frame()->batch.commands()[1].texture.handle == 22);
+    backend.reset();
+    REQUIRE(backend.reconcile(snapshot, {1000.0f, 500.0f}));
+    backend.realize(clock);
+    CHECK(backend.frame()->batch.commands()[0].texture.handle == 21);
+    CHECK(backend.frame()->batch.commands()[1].texture.handle == 21);
 }
 
 TEST_CASE("automatic speaking and blink animation phase is disposable and reconstructible")

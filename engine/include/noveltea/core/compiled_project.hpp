@@ -577,7 +577,7 @@ struct CharacterPresentationLayer {
 };
 struct CharacterLayerComposition {
     CharacterPresentationLayerId layer_id;
-    std::optional<AssetId> sprite;
+    std::optional<Visual> visual;
     std::optional<MaterialId> material;
     std::vector<MaterialApplicationParameterOverride> material_parameters;
     std::vector<MaterialApplicationTextureOverride> material_textures;
@@ -599,7 +599,7 @@ template<typename T> struct CharacterOptionalOverride {
 };
 struct CharacterAnimationLayerFrame {
     CharacterPresentationLayerId layer_id;
-    CharacterOptionalOverride<AssetId> sprite;
+    CharacterOptionalOverride<Visual> visual;
     CharacterOptionalOverride<MaterialId> material;
     std::vector<MaterialApplicationParameterOverride> material_parameters;
     std::vector<MaterialApplicationTextureOverride> material_textures;
@@ -647,7 +647,7 @@ struct CharacterPresentationProfile {
 };
 struct CharacterLayerOverride {
     CharacterPresentationLayerId layer_id;
-    CharacterOptionalOverride<AssetId> sprite;
+    CharacterOptionalOverride<Visual> visual;
     CharacterOptionalOverride<MaterialId> material;
     std::vector<MaterialApplicationParameterOverride> material_parameters;
     std::vector<MaterialApplicationTextureOverride> material_textures;

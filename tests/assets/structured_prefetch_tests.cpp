@@ -970,6 +970,43 @@ TEST_CASE("mandatory collector builds typed publication closure without speculat
     }
 }
 
+TEST_CASE("mandatory Character choreography prepares Animation overrides before activation",
+          "[assets][structured-prefetch][animation]")
+{
+    const auto package = animation_collector_package();
+    const auto index = assets::StructuredAssetDependencyIndex::build(package, "glsl-330", {42});
+    core::RuntimePresentationSnapshot snapshot;
+    snapshot.actors.push_back({
+        .key = core::CharacterActorKey{id<core::CharacterId>("hero")},
+        .character = id<core::CharacterId>("hero"),
+        .profile = id<core::CharacterPresentationProfileId>("stage"),
+        .pose = id<core::CharacterPoseId>("standing"),
+        .expression = id<core::CharacterExpressionId>("neutral"),
+        .animation_clips =
+            {{id<core::CharacterAnimationClipId>("blink"),
+              core::LayoutClockDomain::Gameplay,
+              {{100,
+                {{.layer_id = id<core::CharacterPresentationLayerId>("body"),
+                  .visual = {true,
+                             core::compiled::AnimationVisual{id<core::AnimationId>("rain-loop"),
+                                                             std::nullopt}}}}}}}},
+        .layers = {{.id = id<core::CharacterPresentationLayerId>("body"),
+                    .visual = core::compiled::ImageVisual{id<core::AssetId>("image-main")},
+                    .anchor = {0.5, 1.0}}},
+        .visible = true,
+    });
+    assets::MandatoryAssetDependencyContext context;
+    context.current_presentation = &snapshot;
+    const auto collected = assets::MandatoryAssetDependencyCollector(index).collect(context);
+    CHECK(collected.diagnostics.empty());
+    CHECK(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == "project:/assets/images/animation-frame-a.png";
+    }));
+    CHECK(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == "project:/assets/images/animation-frame-b.png";
+    }));
+}
+
 TEST_CASE("mandatory collector retains every frame of a selected raster Animation motion",
           "[assets][structured-prefetch][animation]")
 {

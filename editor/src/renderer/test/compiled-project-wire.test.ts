@@ -225,7 +225,7 @@ function representativeWireFixture() {
                   layers: [
                     {
                       layerId: 'body',
-                      sprite: null,
+                      visual: null,
                       material: null,
                       offset: { x: 0, y: 0 },
                       scale: 1,

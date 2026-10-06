@@ -2117,7 +2117,7 @@ describe('RoomEditor', () => {
     };
     character.profiles[0]!.poses[0]!.layers[0] = {
       ...character.profiles[0]!.poses[0]!.layers[0]!,
-      sprite: { $ref: { collection: 'assets', id: 'hero' } },
+      visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'hero' } } },
     };
     character.profiles.push({
       ...structuredClone(character.profiles[0]!),

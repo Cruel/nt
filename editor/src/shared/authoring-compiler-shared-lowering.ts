@@ -787,7 +787,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           id: pose.id,
           layers: pose.layers.map((layer) => ({
             layerId: layer.layerId,
-            sprite: assetRef(layer.sprite),
+            visual: compileVisual(layer.visual),
             ...compileMaterialApplication(layer.materialApplication),
             offset: { ...layer.offset },
             scale: layer.scale,
@@ -804,7 +804,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                   durationMs: frame.durationMs,
                   layers: frame.layers.map((layer) => ({
                     layerId: layer.layerId,
-                    ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                    ...(layer.visual !== undefined ? { visual: compileVisual(layer.visual) } : {}),
                     ...(layer.materialApplication !== undefined
                       ? compileMaterialApplication(layer.materialApplication)
                       : {}),
@@ -836,7 +836,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           profileId: profile.profileId,
           layers: profile.layers.map((layer) => ({
             layerId: layer.layerId,
-            ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+            ...(layer.visual !== undefined ? { visual: compileVisual(layer.visual) } : {}),
             ...(layer.materialApplication !== undefined
               ? compileMaterialApplication(layer.materialApplication)
               : {}),
@@ -850,7 +850,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           profileId: profile.profileId,
           layers: profile.layers.map((layer) => ({
             layerId: layer.layerId,
-            ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+            ...(layer.visual !== undefined ? { visual: compileVisual(layer.visual) } : {}),
             ...(layer.materialApplication !== undefined
               ? compileMaterialApplication(layer.materialApplication)
               : {}),
@@ -1535,7 +1535,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               id: pose.id,
               layers: pose.layers.map((layer) => ({
                 layerId: layer.layerId,
-                sprite: assetRef(layer.sprite),
+                visual: compileVisual(layer.visual),
                 ...compileMaterialApplication(layer.materialApplication),
                 offset: { ...layer.offset },
                 scale: layer.scale,
@@ -1552,7 +1552,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
                       durationMs: frame.durationMs,
                       layers: frame.layers.map((layer) => ({
                         layerId: layer.layerId,
-                        ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                        ...(layer.visual !== undefined
+                          ? { visual: compileVisual(layer.visual) }
+                          : {}),
                         ...(layer.materialApplication !== undefined
                           ? compileMaterialApplication(layer.materialApplication)
                           : {}),
@@ -1584,7 +1586,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               profileId: profile.profileId,
               layers: profile.layers.map((layer) => ({
                 layerId: layer.layerId,
-                ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                ...(layer.visual !== undefined ? { visual: compileVisual(layer.visual) } : {}),
                 ...(layer.materialApplication !== undefined
                   ? compileMaterialApplication(layer.materialApplication)
                   : {}),
@@ -1598,7 +1600,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
               profileId: profile.profileId,
               layers: profile.layers.map((layer) => ({
                 layerId: layer.layerId,
-                ...(layer.sprite !== undefined ? { sprite: assetRef(layer.sprite) } : {}),
+                ...(layer.visual !== undefined ? { visual: compileVisual(layer.visual) } : {}),
                 ...(layer.materialApplication !== undefined
                   ? compileMaterialApplication(layer.materialApplication)
                   : {}),

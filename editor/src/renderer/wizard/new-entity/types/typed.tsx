@@ -447,7 +447,7 @@ export const typedWizardDefinitions: NewEntityWizardTypeDefinition[] = [
       const spriteId = selected(draft.options.spriteId);
       const materialId = selected(draft.options.materialId);
       const layer = data.profiles[0]?.poses[0]?.layers[0];
-      if (layer && spriteId) layer.sprite = ref('assets', spriteId);
+      if (layer && spriteId) layer.visual = { kind: 'image', image: ref('assets', spriteId) };
       if (layer && materialId) layer.materialApplication = emptyMaterialApplication(materialId);
       return { data };
     },

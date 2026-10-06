@@ -497,10 +497,10 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             const std::string& layer_pointer) -> std::optional<CharacterLayerComposition> {
         if (!decoder.object(layer, layer_pointer,
                             {"anchor", "layerId", "material", "materialParameters",
-                             "materialTextures", "offset", "scale", "sprite", "visible"}))
+                             "materialTextures", "offset", "scale", "visual", "visible"}))
             return std::nullopt;
         const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
-        const auto* sprite_value = decoder.member(layer, "sprite", layer_pointer);
+        const auto* visual_value = decoder.member(layer, "visual", layer_pointer);
         const auto* material_value = decoder.member(layer, "material", layer_pointer);
         const auto* offset_value = decoder.member(layer, "offset", layer_pointer);
         const auto* scale_value = decoder.member(layer, "scale", layer_pointer);
@@ -510,12 +510,11 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                             ? decoder.id<CharacterPresentationLayerId>(
                                   *layer_id_value, pointer_child(layer_pointer, "layerId"))
                             : std::nullopt;
-        std::optional<AssetId> sprite;
-        bool sprite_ok = sprite_value != nullptr;
-        if (sprite_value && !sprite_value->is_null()) {
-            sprite = decode_reference<AssetId>(decoder, *sprite_value,
-                                               pointer_child(layer_pointer, "sprite"), "asset");
-            sprite_ok = sprite.has_value();
+        std::optional<Visual> visual;
+        bool visual_ok = visual_value != nullptr;
+        if (visual_value && !visual_value->is_null()) {
+            visual = decode_visual(decoder, *visual_value, pointer_child(layer_pointer, "visual"));
+            visual_ok = visual.has_value();
         }
         std::optional<MaterialId> material;
         std::vector<MaterialApplicationParameterOverride> material_parameters;
@@ -556,10 +555,10 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         auto visible =
             visible_value ? decoder.boolean(*visible_value, pointer_child(layer_pointer, "visible"))
                           : std::nullopt;
-        if (!layer_id || !sprite_ok || !material_ok || !offset || !scale || !anchor || !visible)
+        if (!layer_id || !visual_ok || !material_ok || !offset || !scale || !anchor || !visible)
             return std::nullopt;
         return CharacterLayerComposition{std::move(*layer_id),
-                                         std::move(sprite),
+                                         std::move(visual),
                                          std::move(material),
                                          std::move(material_parameters),
                                          std::move(material_textures),
@@ -573,20 +572,20 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
             const std::string& layer_pointer) -> std::optional<CharacterAnimationLayerFrame> {
         if (!decoder.object(layer, layer_pointer,
                             {"anchor", "layerId", "material", "materialParameters",
-                             "materialTextures", "offset", "scale", "sprite", "visible"}))
+                             "materialTextures", "offset", "scale", "visual", "visible"}))
             return std::nullopt;
         const auto* layer_id_value = decoder.member(layer, "layerId", layer_pointer);
         auto layer_id = layer_id_value
                             ? decoder.id<CharacterPresentationLayerId>(
                                   *layer_id_value, pointer_child(layer_pointer, "layerId"))
                             : std::nullopt;
-        CharacterOptionalOverride<AssetId> sprite;
-        if (const auto* sprite_value = json_access::member(layer, "sprite")) {
-            sprite.specified = true;
-            if (!sprite_value->is_null()) {
-                sprite.value = decode_reference<AssetId>(
-                    decoder, *sprite_value, pointer_child(layer_pointer, "sprite"), "asset");
-                if (!sprite.value)
+        CharacterOptionalOverride<Visual> visual;
+        if (const auto* visual_value = json_access::member(layer, "visual")) {
+            visual.specified = true;
+            if (!visual_value->is_null()) {
+                visual.value =
+                    decode_visual(decoder, *visual_value, pointer_child(layer_pointer, "visual"));
+                if (!visual.value)
                     return std::nullopt;
             }
         }
@@ -642,7 +641,7 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
         if (!layer_id)
             return std::nullopt;
         return CharacterAnimationLayerFrame{std::move(*layer_id),
-                                            std::move(sprite),
+                                            std::move(visual),
                                             std::move(material),
                                             std::move(material_parameters),
                                             std::move(material_textures),
@@ -1016,7 +1015,7 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                           -> std::optional<CharacterLayerOverride> {
                           if (!decoder.object(layer, layer_pointer,
                                               {"layerId", "material", "materialParameters",
-                                               "materialTextures", "sprite", "visible"}))
+                                               "materialTextures", "visual", "visible"}))
                               return std::nullopt;
                           const auto* layer_id_value =
                               decoder.member(layer, "layerId", layer_pointer);
@@ -1025,14 +1024,14 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                                   ? decoder.id<CharacterPresentationLayerId>(
                                         *layer_id_value, pointer_child(layer_pointer, "layerId"))
                                   : std::nullopt;
-                          CharacterOptionalOverride<AssetId> sprite;
-                          if (const auto* sprite_value = json_access::member(layer, "sprite")) {
-                              sprite.specified = true;
-                              if (!sprite_value->is_null()) {
-                                  sprite.value = decode_reference<AssetId>(
-                                      decoder, *sprite_value,
-                                      pointer_child(layer_pointer, "sprite"), "asset");
-                                  if (!sprite.value)
+                          CharacterOptionalOverride<Visual> visual;
+                          if (const auto* visual_value = json_access::member(layer, "visual")) {
+                              visual.specified = true;
+                              if (!visual_value->is_null()) {
+                                  visual.value =
+                                      decode_visual(decoder, *visual_value,
+                                                    pointer_child(layer_pointer, "visual"));
+                                  if (!visual.value)
                                       return std::nullopt;
                               }
                           }
@@ -1068,7 +1067,7 @@ std::optional<CharacterDefinition> decode_character(Decoder& decoder, const nloh
                           if (!layer_id)
                               return std::nullopt;
                           return CharacterLayerOverride{
-                              std::move(*layer_id),         std::move(sprite),
+                              std::move(*layer_id),         std::move(visual),
                               std::move(material),          std::move(material_parameters),
                               std::move(material_textures), visible};
                       })

@@ -610,7 +610,10 @@ export function comprehensiveGoldenProject(): AuthoringProject {
   });
 
   const hero = defaultCharacterData('Hero');
-  hero.profiles[0]!.poses[0]!.layers[0]!.sprite = characterAssetRef('image-main');
+  hero.profiles[0]!.poses[0]!.layers[0]!.visual = {
+    kind: 'image',
+    image: characterAssetRef('image-main'),
+  };
   hero.profiles[0]!.poses[0]!.layers[0]!.materialApplication =
     emptyMaterialApplication('sprite-material');
   hero.expressions[0]!.profiles = [
@@ -619,7 +622,7 @@ export function comprehensiveGoldenProject(): AuthoringProject {
       layers: [
         {
           layerId: 'body',
-          sprite: characterAssetRef('image-main'),
+          visual: { kind: 'image', image: characterAssetRef('image-main') },
           materialApplication: emptyMaterialApplication('sprite-material'),
         },
       ],

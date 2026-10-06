@@ -337,6 +337,7 @@ function actorLayerRect(
   placement: RoomEditRect,
   layer: {
     spriteAssetId: string | null;
+    logicalSize: RoomEditSize | null;
     offset: { x: number; y: number };
     scale: number;
     anchor: { x: number; y: number };
@@ -344,10 +345,11 @@ function actorLayerRect(
   project: AuthoringProject,
   viewport: RoomEditSize,
 ): RoomEditRect {
-  const size = imageSize(project, layer.spriteAssetId) ?? {
-    width: viewport.width * 0.32,
-    height: viewport.height * 0.78,
-  };
+  const size = layer.logicalSize ??
+    imageSize(project, layer.spriteAssetId) ?? {
+      width: viewport.width * 0.32,
+      height: viewport.height * 0.78,
+    };
   const width = size.width * layer.scale;
   const height = size.height * layer.scale;
   const anchorX = placement.x + placement.width * 0.5 + layer.offset.x * layer.scale;
@@ -590,11 +592,15 @@ export function resolveRoomEditProjection({
       occurrence.appearanceId ?? character.defaults.appearanceId,
     ).flatMap((layer): RoomEditCastLayerProjection[] => {
       if (!layer.visible) return [];
-      const spriteAssetId = layer.sprite?.$ref.id ?? null;
+      const spriteAssetId = visualImageAssetId(project, layer.visual);
       const rawRect = actorLayerRect(
         normalizedRect(placement.normalizedBounds, viewport),
         {
           spriteAssetId,
+          logicalSize:
+            layer.visual?.kind === 'animation'
+              ? (project.animations[layer.visual.animation.$ref.id]?.data.canvas ?? null)
+              : null,
           offset: layer.offset,
           scale: layer.scale,
           anchor: layer.anchor,

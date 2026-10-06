@@ -1151,7 +1151,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',
-    characters: 'aa17bdc4',
+    characters: '588dc8b6',
     dialogues: '81f2a616',
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',

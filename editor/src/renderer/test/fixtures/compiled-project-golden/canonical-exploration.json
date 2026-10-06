@@ -54,8 +54,8 @@
                       "y": 0
                     },
                     "scale": 1,
-                    "sprite": null,
-                    "visible": true
+                    "visible": true,
+                    "visual": null
                   }
                 ]
               }
@@ -208,9 +208,12 @@
                       "id": "sprite-material",
                       "kind": "material"
                     },
-                    "sprite": {
-                      "id": "image-main",
-                      "kind": "asset"
+                    "visual": {
+                      "image": {
+                        "id": "image-main",
+                        "kind": "asset"
+                      },
+                      "kind": "image"
                     }
                   }
                 ],
@@ -308,11 +311,14 @@
                       "y": 0
                     },
                     "scale": 1,
-                    "sprite": {
-                      "id": "image-main",
-                      "kind": "asset"
-                    },
-                    "visible": true
+                    "visible": true,
+                    "visual": {
+                      "image": {
+                        "id": "image-main",
+                        "kind": "asset"
+                      },
+                      "kind": "image"
+                    }
                   }
                 ]
               }
@@ -4742,7 +4748,7 @@
       }
     ]
   },
-  "saveContract": "sc1:f1c172bf875dae9d5156a08fe6654271",
+  "saveContract": "sc1:58e042b27c3e8e50500f25e2237d194c",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

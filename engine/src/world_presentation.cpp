@@ -356,9 +356,15 @@ std::string interactable_draw_identity(
                *occurrence);
 }
 
+std::string raster_animation_identity(const WorldPresentationDraw& draw)
+{
+    return loop_key(draw) + (draw.actor_layer_id ? ":layer:" + draw.actor_layer_id->text() : "");
+}
+
 std::string raster_animation_loop_key(const WorldPresentationDraw& draw)
 {
-    return loop_key(draw) + ":visual-animation:" + std::to_string(draw.raster_animation_epoch);
+    return raster_animation_identity(draw) +
+           ":visual-animation:" + std::to_string(draw.raster_animation_epoch);
 }
 
 bool same_hotspot_owner(const core::compiled::HotspotRef& left,
@@ -418,6 +424,36 @@ std::string world_actor_identity(const core::ActorPresentationKey& key)
 std::string world_hotspot_identity(const core::compiled::HotspotRef& ref)
 {
     return hotspot_identity(ref);
+}
+
+std::optional<QuadCommand>
+WorldPresentationDraw::ActorAnimationFrame::sample(std::uint64_t elapsed_ms,
+                                                   const QuadCommand& underlying) const
+{
+    if (!command)
+        return std::nullopt;
+    auto result = *command;
+    // Choreography that omits Visual selection must not restart the underlying layer.
+    if (!overrides_visual) {
+        result.texture = underlying.texture;
+        result.texture_sampler = underlying.texture_sampler;
+        return result;
+    }
+    std::uint64_t duration_ms = 0;
+    for (const auto& frame : visual_frames)
+        duration_ms += frame.duration_ms;
+    if (duration_ms == 0)
+        return result;
+    auto phase = elapsed_ms % duration_ms;
+    for (const auto& frame : visual_frames) {
+        if (phase < frame.duration_ms) {
+            result.texture = Texture{frame.texture.handle};
+            result.texture_sampler = frame.texture.sampler;
+            break;
+        }
+        phase -= frame.duration_ms;
+    }
+    return result;
 }
 
 void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledProject& project,
@@ -946,8 +982,10 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             const auto& layer = actor.layers[layer_index];
             if (!layer.visible)
                 continue;
-            auto resolved = m_resources.resolve(layer.sprite, layer.material,
-                                                "actor/" + identity + "/layer/" + layer.id.text());
+            const auto context = "actor/" + identity + "/layer/" + layer.id.text();
+            auto resolved = layer.visual
+                                ? m_resources.resolve_visual(*layer.visual, layer.material, context)
+                                : m_resources.resolve(std::nullopt, layer.material, context);
             if (!resolved) {
                 append_resource_diagnostics(diagnostics, resolved);
                 continue;
@@ -972,6 +1010,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             for (const auto& texture : layer.material_texture_overrides)
                 draw.command.material_texture_overrides.push_back(
                     MaterialTextureOverride{texture.name, texture.source});
+            draw.actor_layer_id = layer.id;
             draw.actor_automatic_animations = actor.automatic_animations;
             draw.actor_speaking = actor.speaking;
             draw.actor_animation_clips.reserve(actor.animation_clips.size());
@@ -985,8 +1024,8 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                             return candidate.layer_id == layer.id;
                         });
                     if (patch != frame.layers.end()) {
-                        if (patch->sprite.specified)
-                            animated.sprite = patch->sprite.value;
+                        if (patch->visual.specified)
+                            animated.visual = patch->visual.value;
                         if (patch->material.specified) {
                             animated.material = patch->material.value;
                             animated.material_parameters = patch->material_parameters;
@@ -1003,11 +1042,17 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                     }
                     WorldPresentationDraw::ActorAnimationFrame prepared_frame;
                     prepared_frame.duration_ms = frame.duration_ms;
+                    prepared_frame.overrides_visual =
+                        patch != frame.layers.end() && patch->visual.specified;
                     if (animated.visible) {
+                        const auto frame_context = "actor/" + identity + "/animation/" +
+                                                   clip.id.text() + "/layer/" + layer.id.text();
                         auto frame_visual =
-                            m_resources.resolve(animated.sprite, animated.material,
-                                                "actor/" + identity + "/animation/" +
-                                                    clip.id.text() + "/layer/" + layer.id.text());
+                            animated.visual
+                                ? m_resources.resolve_visual(*animated.visual, animated.material,
+                                                             frame_context)
+                                : m_resources.resolve(std::nullopt, animated.material,
+                                                      frame_context);
                         if (!frame_visual) {
                             append_resource_diagnostics(diagnostics, frame_visual);
                         } else if (const auto* resolved_frame = frame_visual.value_if();
@@ -1023,6 +1068,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                                         MaterialTextureOverride{texture.name, texture.source});
                             prepared_frame.texture_lease = resolved_frame->texture_lease;
                             prepared_frame.material_lease = resolved_frame->material_lease;
+                            prepared_frame.visual_frames = resolved_frame->animation_frames;
                         }
                     }
                     prepared.frames.push_back(std::move(prepared_frame));
@@ -1200,7 +1246,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             continue;
         if (m_frame) {
             const auto previous = std::ranges::find_if(m_frame->draws, [&](const auto& value) {
-                return loop_key(value) == loop_key(draw) &&
+                return raster_animation_identity(value) == raster_animation_identity(draw) &&
                        value.raster_animation_key == draw.raster_animation_key &&
                        value.environment_clock == draw.environment_clock;
             });
@@ -1551,6 +1597,8 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                 }
             }
         }
+        draw.sampled_visual_texture = command.texture;
+        draw.sampled_visual_sampler = command.texture_sampler;
         if (!draw.raster_animation_frames.empty()) {
             for (auto& target : frame.hotspot_hit_targets) {
                 if (target.family == draw.family &&
@@ -1617,8 +1665,8 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                         std::uint64_t frame_phase = phase_ms - lead_in_ms;
                         for (const auto& frame : active_clip->frames) {
                             if (frame_phase < frame.duration_ms) {
-                                if (frame.command)
-                                    command = *frame.command;
+                                if (auto sampled = frame.sample(frame_phase, command))
+                                    command = std::move(*sampled);
                                 else
                                     command.color.a = 0.0f;
                                 break;
@@ -2010,7 +2058,7 @@ void WorldPresentationBackend::preserve_animation_epochs_from(
         const auto previous_draw =
             std::ranges::find_if(previous.m_frame->draws, [&](const auto& value) {
                 return !value.raster_animation_frames.empty() &&
-                       loop_key(value) == loop_key(draw) &&
+                       raster_animation_identity(value) == raster_animation_identity(draw) &&
                        value.raster_animation_key == draw.raster_animation_key &&
                        value.environment_clock == draw.environment_clock;
             });

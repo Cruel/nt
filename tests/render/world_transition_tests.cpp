@@ -27,6 +27,22 @@ public:
         return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
 
+    Result<WorldPreparedVisual, Diagnostics>
+    resolve_visual(const compiled::Visual& visual, std::optional<core::MaterialId> material,
+                   std::string_view context) override
+    {
+        if (std::holds_alternative<compiled::ImageVisual>(visual))
+            return WorldPresentationResourceResolver::resolve_visual(visual, material, context);
+        auto result = resolve(std::nullopt, material, context);
+        auto& prepared = *result.value_if();
+        prepared.animation_key = "gesture-animation";
+        prepared.logical_size = Size{64.0f, 32.0f};
+        prepared.animation_frames = {{40, {.handle = 21, .width = 64, .height = 32}, std::nullopt},
+                                     {60, {.handle = 22, .width = 64, .height = 32}, std::nullopt}};
+        prepared.texture = prepared.animation_frames[0].texture;
+        return result;
+    }
+
     Result<WorldPreparedHotspotResources, Diagnostics>
     resolve_hotspot(const PresentationHotspot&, std::span<const PresentationHotspot>,
                     std::string_view) override
@@ -449,6 +465,51 @@ TEST_CASE("Character Gesture animates admitted layers and emits each cue exactly
     CHECK(std::holds_alternative<compiled::CharacterAudioGestureCue>(cues.front().payload));
     CHECK(transitions.take_gesture_cues().empty());
     CHECK(transitions.targeted_render_states().empty());
+}
+
+TEST_CASE("Character Gesture preserves underlying Animation phase or coordinates a Visual override")
+{
+    bool override_visual = false;
+    SECTION("omitted Visual retains independent underlying playback") {}
+    SECTION("explicit Visual starts at choreography frame time") { override_visual = true; }
+    EmptyWorldResources resources;
+    WorldPresentationBackend world(resources);
+    const auto key = ActorPresentationKey{CharacterActorKey{id<CharacterId>("hero")}};
+    const compiled::Visual animated =
+        compiled::AnimationVisual{id<AnimationId>("gesture-animation"), std::nullopt};
+    auto value = gesture_actor(key, compiled::ActorPosition::Center);
+    value.layers[0].visual = animated;
+    if (override_visual)
+        value.animation_clips[0].frames[0].layers[0].visual = {true, animated};
+    auto source = snapshot(1);
+    source.actors.push_back(value);
+    auto target = snapshot(2);
+    target.actors.push_back(value);
+    REQUIRE(world.reconcile(source, {1280.0f, 720.0f}));
+    REQUIRE(world.reconcile(target, {1280.0f, 720.0f}));
+    RuntimeClockUpdate clock;
+    world.realize(clock);
+    clock.gameplay_time = std::chrono::milliseconds{75};
+    world.realize(clock);
+    WorldTransitionBackend transitions(world);
+    REQUIRE(transitions.realize(targeted_delivery(60, gesture_operation(60, key, {}))));
+    (void)transitions.take_acknowledgements();
+    clock.gameplay_delta = std::chrono::milliseconds{25};
+    transitions.advance(clock);
+    auto batch = transitions.compose_targeted_world_batch();
+    REQUIRE(batch);
+    CHECK(batch.value().world_composition_batch.commands()[0].texture.handle ==
+          (override_visual ? 21 : 22));
+    transitions.advance(clock);
+    batch = transitions.compose_targeted_world_batch();
+    REQUIRE(batch);
+    CHECK(batch.value().world_composition_batch.commands()[0].texture.handle == 22);
+    clock.gameplay_delta = std::chrono::milliseconds{50};
+    transitions.advance(clock);
+    CHECK(transitions.targeted_render_states().empty());
+    const auto facts = transitions.take_acknowledgements();
+    REQUIRE(facts.size() == 1);
+    CHECK(std::holds_alternative<BackendOperationCompleted>(facts[0].fact));
 }
 
 TEST_CASE("Character Gesture cancellation and replacement suppress pending cues")
