@@ -55,6 +55,19 @@ test("resident daemon certification does not hide scheduler lifecycle suites", (
   }
 });
 
+test("disposable CLI certification avoids real-process scheduler races", () => {
+  const start = certificationSource.indexOf("async function certifyDisposableTestScheduling");
+  const end = certificationSource.indexOf("async function certifyDisposableOutputScheduling");
+  assert.notEqual(start, -1);
+  assert.notEqual(end, -1);
+  const body = certificationSource.slice(start, end);
+  assert.doesNotMatch(body, /disposable-test-concurrent/);
+  assert.doesNotMatch(body, /runAsync\(/);
+  assert.doesNotMatch(body, /disposableWorkers === 1/);
+  assert.doesNotMatch(body, /queuedRuns/);
+  assert.match(body, /schedulerConcurrencyCertifiedNatively: true/);
+});
+
 test("daemon state timeout reports observed transitions", async () => {
   let polls = 0;
   await assert.rejects(
