@@ -35,12 +35,12 @@
             "layers": [
               {
                 "layerId": "body",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-character-neutral"
                   }
-                },
+                } },
                 "materialApplication": null,
                 "offset": {
                   "x": 0,
@@ -78,12 +78,12 @@
             "layers": [
               {
                 "layerId": "body",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-character-smile"
                   }
-                }
+                } }
               }
             ]
           }

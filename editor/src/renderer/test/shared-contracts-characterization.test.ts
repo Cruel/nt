@@ -413,7 +413,7 @@ describe('shared contracts characterization', () => {
       interactableId: 'key-instance',
       condition: { kind: 'always' as const },
       placementId: 'key-placement',
-      spriteAssetId: null,
+      visual: null,
       materialId: null,
       materialParameters: [],
       materialTextures: [],

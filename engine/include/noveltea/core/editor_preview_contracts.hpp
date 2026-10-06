@@ -224,11 +224,17 @@ struct TypedFocusedNormalizedRect {
     double height = 0.0;
 };
 
+struct TypedFocusedVisual {
+    std::string kind;
+    std::string resource_id;
+    std::optional<std::string> motion_id;
+};
+
 struct TypedFocusedCharacterVisual {
     struct Layer {
         std::string id;
         std::optional<std::string> role;
-        std::optional<std::string> sprite_asset_id;
+        std::optional<TypedFocusedVisual> visual;
         std::optional<std::string> material_id;
         std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
         std::vector<compiled::MaterialApplicationTextureOverride> material_textures;
@@ -254,11 +260,7 @@ struct TypedFocusedCharacterVisual {
 };
 
 struct TypedFocusedRoomWorldDefinition {
-    struct Visual {
-        std::string kind;
-        std::string resource_id;
-        std::optional<std::string> motion_id;
-    };
+    using Visual = TypedFocusedVisual;
     struct Animation {
         struct Frame {
             std::string asset_id;

@@ -43,12 +43,7 @@
             "layers": [
               {
                 "layerId": "body",
-                "sprite": {
-                  "$ref": {
-                    "collection": "assets",
-                    "id": "pilot-character-neutral"
-                  }
-                },
+                "visual": { "kind": "animation", "animation": { "$ref": { "collection": "animations", "id": "guide-expression-loop" } }, "motionId": null },
                 "materialApplication": null,
                 "offset": {
                   "x": 0,
@@ -63,12 +58,12 @@
               },
               {
                 "layerId": "badge",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-button-sprite"
                   }
-                },
+                } },
                 "materialApplication": null,
                 "offset": {
                   "x": 0,
@@ -89,12 +84,12 @@
             "layers": [
               {
                 "layerId": "body",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-character-neutral"
                   }
-                },
+                } },
                 "materialApplication": null,
                 "offset": {
                   "x": 90,
@@ -109,12 +104,12 @@
               },
               {
                 "layerId": "badge",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-button-sprite"
                   }
-                },
+                } },
                 "materialApplication": null,
                 "offset": {
                   "x": 0,
@@ -260,12 +255,12 @@
             "layers": [
               {
                 "layerId": "body",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-character-neutral"
                   }
-                },
+                } },
                 "materialApplication": null,
                 "offset": {
                   "x": 0,
@@ -280,12 +275,12 @@
               },
               {
                 "layerId": "badge",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-button-sprite"
                   }
-                },
+                } },
                 "materialApplication": null,
                 "offset": {
                   "x": 0,
@@ -419,12 +414,12 @@
             "layers": [
               {
                 "layerId": "body",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-character-smile"
                   }
-                }
+                } }
               }
             ]
           }
@@ -439,12 +434,12 @@
             "layers": [
               {
                 "layerId": "body",
-                "sprite": {
+                "visual": { "kind": "image", "image": {
                   "$ref": {
                     "collection": "assets",
                     "id": "pilot-character-smile"
                   }
-                }
+                } }
               }
             ]
           }

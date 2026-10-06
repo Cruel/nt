@@ -633,7 +633,7 @@ struct StructuredAssetDependencyIndex::Impl {
                 });
             if (layer == pose->layers.end())
                 continue;
-            auto sprite = layer->sprite;
+            auto visual = layer->visual;
             auto material = layer->material;
             bool visible = layer->visible;
             const auto apply =
@@ -647,8 +647,8 @@ struct StructuredAssetDependencyIndex::Impl {
                                      });
                     if (patch == overrides->layers.end())
                         return;
-                    if (patch->sprite.specified)
-                        sprite = patch->sprite.value;
+                    if (patch->visual.specified)
+                        visual = patch->visual.value;
                     if (patch->material.specified)
                         material = patch->material.value;
                     if (patch->visible)
@@ -658,18 +658,16 @@ struct StructuredAssetDependencyIndex::Impl {
             apply(appearance_overrides);
             if (!visible)
                 continue;
-            if (sprite)
-                append_asset(output, *sprite, core::compiled::AssetKind::Image,
-                             collection_diagnostics, context);
+            if (visual)
+                append_visual(output, *visual, collection_diagnostics, context);
             if (material)
                 append_material(output, *material, collection_diagnostics, context);
         }
         for (const auto& clip : profile->animation_clips) {
             for (const auto& frame : clip.frames) {
                 for (const auto& layer : frame.layers) {
-                    if (layer.sprite.specified && layer.sprite.value)
-                        append_asset(output, *layer.sprite.value, core::compiled::AssetKind::Image,
-                                     collection_diagnostics, context);
+                    if (layer.visual.specified && layer.visual.value)
+                        append_visual(output, *layer.visual.value, collection_diagnostics, context);
                     if (layer.material.specified && layer.material.value)
                         append_material(output, *layer.material.value, collection_diagnostics,
                                         context);
@@ -975,14 +973,30 @@ MandatoryAssetDependencyCollector::collect(const MandatoryAssetDependencyContext
             for (const auto& layer : actor.layers) {
                 if (!layer.visible)
                     continue;
-                if (layer.sprite)
-                    m_index.m_impl->append_asset(current, *layer.sprite,
-                                                 core::compiled::AssetKind::Image,
-                                                 current_diagnostics, "current actor layer");
+                if (layer.visual)
+                    m_index.m_impl->append_visual(current, *layer.visual, current_diagnostics,
+                                                  "current actor layer");
                 if (layer.material)
                     m_index.m_impl->append_material(current, *layer.material, current_diagnostics,
                                                     "current actor layer");
             }
+            // Clip resources must be pinned before automatic behavior or a Gesture can select them.
+            for (const auto& clip : actor.animation_clips)
+                for (const auto& frame : clip.frames)
+                    for (const auto& layer : frame.layers) {
+                        if (layer.visual.value)
+                            m_index.m_impl->append_visual(current, *layer.visual.value,
+                                                          current_diagnostics,
+                                                          "current actor choreography");
+                        if (layer.material.value)
+                            m_index.m_impl->append_material(current, *layer.material.value,
+                                                            current_diagnostics,
+                                                            "current actor choreography");
+                        for (const auto& texture : layer.material_textures)
+                            m_index.m_impl->append_asset(
+                                current, texture.source, core::compiled::AssetKind::Image,
+                                current_diagnostics, "current actor choreography texture");
+                    }
         }
         for (const auto& interactable : snapshot->interactables) {
             if (!interactable.enabled || !interactable.visible)

@@ -1,9 +1,9 @@
 import { parseAssetData } from './authoring-assets';
+import { animationDataSchema, type Visual } from './authoring-animations';
 import { resolveGameplayInstanceRecord } from './authoring-archetypes';
 import {
   parseCharacterData,
   validateCharacterData,
-  type CharacterAssetRef,
   type CharacterData,
   type CharacterExpressionData,
   type CharacterLayerCompositionData,
@@ -30,24 +30,6 @@ function diagnostic(
   severity: 'error' | 'warning' | 'info' = 'error',
 ): CharacterProjectDiagnostic {
   return { severity, path, message, category: 'character-project' };
-}
-
-function assetMetadata(
-  project: AuthoringProject,
-  ref: CharacterAssetRef | null,
-): Record<string, unknown> | null {
-  if (!ref) return null;
-  const id = ref.$ref.id;
-  const record = project.assets[id];
-  const data = parseAssetData(record?.data);
-  return {
-    id,
-    label: record?.label ?? id,
-    kind: data?.kind ?? 'missing',
-    path: data?.source.path ?? null,
-    extension: data?.extension ?? null,
-    contentHash: data?.contentHash ?? null,
-  };
 }
 
 function materialMetadata(
@@ -135,7 +117,7 @@ function applyOverrides(
   if (!patch) return layer;
   return {
     ...layer,
-    ...(patch.sprite !== undefined ? { sprite: patch.sprite } : {}),
+    ...(patch.visual !== undefined ? { visual: patch.visual } : {}),
     ...(patch.materialApplication !== undefined
       ? { materialApplication: patch.materialApplication }
       : {}),
@@ -152,7 +134,7 @@ export function resolveCharacterPresentationLayers(
 ): Array<{
   id: string;
   role: string | null;
-  sprite: CharacterAssetRef | null;
+  visual: Visual | null;
   materialApplication: MaterialApplication | null;
   offset: { x: number; y: number };
   scale: number;
@@ -188,7 +170,7 @@ export function resolveCharacterPresentationLayers(
       {
         id: resolved.layerId,
         role: definition.role,
-        sprite: resolved.sprite,
+        visual: resolved.visual,
         materialApplication: resolved.materialApplication,
         offset: resolved.offset,
         scale: resolved.scale,
@@ -201,11 +183,24 @@ export function resolveCharacterPresentationLayers(
 
 function dependencyRevision(project: AuthoringProject, data: CharacterData): string[] {
   const assetIds = new Set<string>();
+  const animationIds = new Set<string>();
+  const addVisual = (visual: Visual | null | undefined) => {
+    if (!visual) return;
+    if (visual.kind === 'image') assetIds.add(visual.image.$ref.id);
+    else {
+      const id = visual.animation.$ref.id;
+      animationIds.add(id);
+      const animation = animationDataSchema.safeParse(project.animations[id]?.data);
+      if (animation.success)
+        for (const motion of animation.data.motions)
+          for (const frame of motion.frames) assetIds.add(frame.image.$ref.id);
+    }
+  };
   const materialIds = new Set<string>();
   for (const profile of data.profiles) {
     for (const pose of profile.poses) {
       for (const layer of pose.layers) {
-        if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
+        addVisual(layer.visual);
         if (layer.materialApplication) {
           materialIds.add(layer.materialApplication.material.$ref.id);
           for (const texture of Object.values(layer.materialApplication.textures))
@@ -216,7 +211,7 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
     for (const clip of profile.animationClips) {
       for (const frame of clip.frames) {
         for (const layer of frame.layers) {
-          if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
+          addVisual(layer.visual);
           if (layer.materialApplication) {
             materialIds.add(layer.materialApplication.material.$ref.id);
             for (const texture of Object.values(layer.materialApplication.textures))
@@ -229,7 +224,7 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
   for (const entry of [...data.expressions, ...data.appearances]) {
     for (const profile of entry.profiles) {
       for (const layer of profile.layers) {
-        if (layer.sprite) assetIds.add(layer.sprite.$ref.id);
+        addVisual(layer.visual);
         if (layer.materialApplication) {
           materialIds.add(layer.materialApplication.material.$ref.id);
           for (const texture of Object.values(layer.materialApplication.textures))
@@ -249,7 +244,10 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
   const materials = [...materialIds]
     .sort()
     .map((id) => `${id}:${JSON.stringify(project.materials[id]?.data ?? null)}`);
-  return [...assets, ...materials];
+  const animations = [...animationIds]
+    .sort()
+    .map((id) => `${id}:${JSON.stringify(project.animations[id]?.data ?? null)}`);
+  return [...assets, ...materials, ...animations];
 }
 
 export function characterPreviewRevision(project: AuthoringProject, characterId: string): string {
@@ -291,7 +289,7 @@ export function buildCharacterPreviewDocumentData(
   const resolvedLayers = resolveCharacterPresentationLayers(data).map((layer) => ({
     id: layer.id,
     role: layer.role,
-    sprite: assetMetadata(project, layer.sprite),
+    visual: layer.visual,
     material: materialMetadata(project, layer.materialApplication),
     offset: layer.offset,
     scale: layer.scale,

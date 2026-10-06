@@ -934,7 +934,7 @@
       "description": "Two independent Character occurrences expose layered Profile/Pose/Expression/Appearance selection, automatic animation, mapped Gestures and idle clocks.",
       "status": "ready",
       "created": "2026-10-02T08:35:44Z",
-      "modified": "2026-10-02T08:35:44Z",
+      "modified": "2026-10-06T00:48:42Z",
       "launch": {
         "entry": "character-studio"
       },
@@ -991,6 +991,18 @@
               "id": "character-studio-flow"
             }
           ]
+        },
+        {
+          "id": "character-visual-layers",
+          "title": "Character Animation Visual composes with static layers and choreography",
+          "action": "Watch the stage/standing Studio Guide, then inspect the same Pose in Character focused preview.",
+          "expected": "The body uses guide-expression-loop while the badge remains a static Visual with independent blink/speaking/Gesture choreography. Profile/Pose/Expression/Appearance composition still works. Re-entry reconstructs artwork without saved playback phase.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-06T00:48:42Z",
+          "modified": "2026-10-06T00:48:42Z",
+          "assetRequirements": ["pilot-character-neutral", "pilot-character-smile", "pilot-button-sprite"],
+          "automation": []
         },
         {
           "id": "automatic-animation",

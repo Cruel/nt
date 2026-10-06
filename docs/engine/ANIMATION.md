@@ -5,8 +5,9 @@
 Animation is immutable reusable raster content, separate from source Assets and gameplay identities.
 The first tracer (#394) supports named sprite-sequence motions and closed image/Animation Visual
 references on Room Environments. Interactable presentation also selects canonical image/Animation
-Visuals (#395), including current-frame `visual-alpha` hit testing. Character clips and other
-image-bearing fields are not cut over by these slices.
+Visuals (#395), including current-frame `visual-alpha` hit testing. Character Pose layers and sparse
+Expression/Appearance/CharacterAnimationClip overrides also select Visuals (#396); Character semantic
+composition and choreography remain separate from reusable Animation content.
 
 ## Authoring and validation
 
@@ -40,7 +41,7 @@ for focused publication (the focused-document section describes the owning trans
 ## Editor behavior and known gaps
 
 Animation records currently use Project source/record editing; there is no Animation wizard or
-specialized timeline editor in this tracer. Focused Room preview stages the referenced Animations
+specialized timeline editor in this tracer. Focused Room preview stages the referenced Environment, Interactable, and Character-layer Animations
 and their frame Assets through production focused resource preparation, not a browser animation
 interpreter. Temporary Environment `asset` input remains for the explicitly scoped expand-contract
 slice; Visual takes precedence during realization.

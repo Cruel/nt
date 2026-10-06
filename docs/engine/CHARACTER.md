@@ -23,13 +23,32 @@ A declared Character authoring record may attach one same-kind Archetype. Archet
 
 Actor cues change desired actor-occurrence state; they do not mutate `CharacterDefinition` or Character gameplay state. An omitted Profile, Pose, Expression, or Appearance selection preserves the current compatible desired value for an existing occurrence; changing Profile falls back to that Profile's default Pose when no Pose is supplied. An explicit Appearance action may clear Appearance. New occurrences start from Character defaults.
 
-Each Presentation Profile declares an ordered list of named layers and an optional semantic role for each layer. A Pose supplies the Profile's base composition for those layers: sprite/material, transform, anchor, scale, and visibility. An Expression supplies sparse per-Profile layer overrides. If the selected Expression has no override set for the active Profile, resolution deliberately falls back to the Character's default Expression for that Profile. Appearance is an independent optional axis whose sparse per-Profile layer overrides are applied after Expression overrides; omitted layer fields leave the previously resolved layer field unchanged. The renderer consumes the resulting ordered layer vector directly, so trivial one-layer and arbitrary multi-layer Profiles use the same path. Material occurrence addressing uses stable layer IDs rather than hard-coded pose/expression sublayers.
+Each Presentation Profile declares an ordered list of named layers and an optional semantic role for each layer. A Pose supplies the Profile's base composition for those layers: Visual/Material, transform, anchor, scale, and visibility. An Expression supplies sparse per-Profile layer overrides. If the selected Expression has no override set for the active Profile, resolution deliberately falls back to the Character's default Expression for that Profile. Appearance is an independent optional axis whose sparse per-Profile layer overrides are applied after Expression overrides; omitted layer fields leave the previously resolved layer field unchanged. The renderer consumes the resulting ordered layer vector directly, so trivial one-layer and arbitrary multi-layer Profiles use the same path. Material occurrence addressing uses stable layer IDs rather than hard-coded pose/expression sublayers.
 
 Presentation projection resolves the selected Profile/Pose/Expression/Appearance composition and selected idle definition into the immutable runtime snapshot. The world backend realizes `bob`, `sway`, and `pulse` loops against the selected gameplay or unscaled-presentation clock. Save state stores only admitted logical desired state: Profile, Pose, Expression, optional Appearance, optional idle, logical placement, visibility, and occurrence identity/ownership. Layer resources are reconstructed from immutable Character content after load. Loop epoch, phase, resolved renderer resources, transitions, and tween internals are excluded, so a fresh backend restarts reconstructible loops at phase zero.
 
+### Visual layers
+
+Pose layers and sparse Expression, Appearance, and CharacterAnimationClip overrides select a nullable
+canonical `visual`: an Image Asset or an Animation reference with optional named motion selection.
+Omitting a sparse override inherits the underlying Visual; explicit null clears it. Replaced `sprite`
+fields are rejected. Animation uses its logical canvas for placement, regardless of frame dimensions.
+The editor's Visual selector offers images, Animation defaults, and named motions.
+
+Underlying animated layers loop on the gameplay clock with independent backend-local epochs keyed by
+actor occurrence and stable layer ID. Unrelated publications and focused prepared-publication swaps
+retain compatible phase; replacement/reset/load starts fresh. Profile/Pose/Expression/Appearance remain
+the semantic selectors: no durable generic Character motion/phase is added.
+
+CharacterAnimationClip remains finite multi-layer choreography. A frame that explicitly selects a
+Visual samples that content from frame-local choreography time; a frame that omits Visual selection
+keeps the independently advancing underlying layer. Automatic blink/speaking and coordinator-owned
+Gestures retain their existing timing, cues, completion, and checkpoint contracts. Mandatory readiness
+includes all selected layer frames and clip overrides before publication.
+
 ### Animation clips and automatic behavior
 
-Animation clips are Profile-local, named finite frame sequences. A frame has a positive duration and sparse layer overrides for sprite, material, offset, scale, anchor, and visibility. A clip may affect one layer or several layers; it does not introduce an animation graph, state machine, skeletal rig, or renderer-owned semantic state. Any layer/field omitted by a frame continues to use the underlying resolved Pose/Expression/Appearance composition.
+Animation clips are Profile-local, named finite frame sequences. A frame has a positive duration and sparse layer overrides for Visual, Material, offset, scale, anchor, and visibility. A clip may affect one layer or several layers; it does not introduce an animation graph, state machine, skeletal rig, or renderer-owned semantic state. Any layer/field omitted by a frame continues to use the underlying resolved Pose/Expression/Appearance composition.
 
 Profiles may configure automatic `blink` and `speaking` behavior. Each automatic behavior names an animation clip and a semantic layer role. Blink additionally declares the interval before the finite blink clip is replayed. Speaking is activated by the actor occurrence's semantic `speaking` flag and loops the configured finite clip while that flag is true. Speaking takes precedence over blinking for the same occurrence. These clocks and phases are backend-local presentation state: reset/load/reconstruction starts a fresh phase from the immutable Profile configuration rather than persisting a frame index or elapsed loop time.
 
@@ -125,12 +144,12 @@ Current validation checks:
 - valid Expression and Appearance Profile/layer override references;
 - valid sparse animation-frame layer/resource overrides and automatic behavior clip/semantic-role references;
 - valid Gesture Profile/clip mappings, cue timestamps, and audio cue asset types;
-- valid asset/material references and image-asset suitability;
+- valid Visual/Animation/motion and Material references, including Image Asset suitability;
 - whether the selected preview composition resolves useful visible layers.
 
 The Character editor exposes dialogue display styling, default and preview selectors, Profile and
 layer management, profile-local Poses and animation clips, automatic blink/speaking behavior,
-Expression overrides, Appearance overrides, Gesture mappings/cues, idle-loop lists, sprite/material
+Expression overrides, Appearance overrides, Gesture mappings/cues, idle-loop lists, Visual/Material
 references, idle kind/amplitude/period/clock, per-layer transform data, preview
 background, and validation diagnostics. Destructive edits repair affected defaults and strip stale
 Profile/layer overrides rather than leaving dangling presentation references.
@@ -146,7 +165,7 @@ record data validated through the shared Trait/Property contract.
 selected Profile/Pose/Expression/Appearance, Profile animation/automatic configuration, Gestures, and
 its ordered resolved layer array, dialogue style, preview settings, and diagnostics. Its revision
 includes every referenced Pose/Expression/Appearance/animation/Gesture-cue asset hash/path and
-Material value so dependency changes invalidate preview output. Focused Room
+Material value plus referenced Animation content and frame Asset revisions so dependency changes invalidate preview output. Focused Room
 preview transports the same resolved layered composition instead of rebuilding a legacy two-layer
 pose/expression approximation on the native side.
 

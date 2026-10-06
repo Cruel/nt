@@ -1110,7 +1110,7 @@ const characterLayerCompositionSchema = strict({
   materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
   offset: vector2Schema,
   scale: finiteNumber.positive(),
-  sprite: assetReferenceSchema.nullable(),
+  visual: compiledVisualSchema.nullable(),
   anchor: vector2Schema,
   visible: z.boolean(),
 });
@@ -1123,7 +1123,7 @@ const characterAnimationLayerFrameSchema = strict({
   material: materialReferenceSchema.nullable().optional(),
   materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
   materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
-  sprite: assetReferenceSchema.nullable().optional(),
+  visual: compiledVisualSchema.nullable().optional(),
   offset: vector2Schema.optional(),
   scale: finiteNumber.positive().optional(),
   anchor: vector2Schema.optional(),
@@ -1161,7 +1161,7 @@ const characterLayerOverrideSchema = strict({
   material: materialReferenceSchema.nullable().optional(),
   materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
   materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),
-  sprite: assetReferenceSchema.nullable().optional(),
+  visual: compiledVisualSchema.nullable().optional(),
   visible: z.boolean().optional(),
 });
 const characterProfileLayerOverridesSchema = strict({

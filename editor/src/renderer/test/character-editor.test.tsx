@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
+import userEvent from '@testing-library/user-event';
 import { CharacterEditor } from '@/editors/characters/CharacterEditor';
 import { useCommandStore } from '@/commands/command-store';
 import { useProjectStore } from '@/project/project-store';
@@ -90,6 +91,136 @@ describe('CharacterEditor', () => {
         },
       });
     });
+    expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('character.replaceData');
+  });
+
+  it('selects a named Animation Visual while Gesture audio remains an Asset reference', async () => {
+    const project = createAuthoringProject();
+    project.assets.frame = {
+      id: 'frame',
+      label: 'Frame',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'images/frame.png' },
+        aliases: [],
+        imageMetadata: { width: 64, height: 96, hasAlpha: true, orientation: 1 },
+      },
+    };
+    for (const id of ['first', 'second'])
+      project.assets[id] = {
+        id,
+        label: id === 'first' ? 'First' : 'Second',
+        data: {
+          kind: 'audio',
+          source: { type: 'project-file', path: `audio/${id}.ogg` },
+          aliases: [],
+          imageMetadata: null,
+        },
+      };
+    project.animations.portrait = {
+      id: 'portrait',
+      label: 'Portrait',
+      data: {
+        kind: 'animation',
+        canvas: { width: 64, height: 96 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
+          },
+        ],
+      },
+    };
+    const data = defaultCharacterData('Iris');
+    data.profiles[0]!.animationClips = [
+      { id: 'wave', label: 'Wave', clock: 'gameplay', frames: [{ durationMs: 100, layers: [] }] },
+    ];
+    data.gestures = [
+      {
+        id: 'wave',
+        label: 'Wave',
+        profiles: [
+          {
+            profileId: 'stage',
+            clipId: 'wave',
+            cues: [
+              {
+                kind: 'audio',
+                id: 'sound',
+                atMs: 0,
+                asset: { $ref: { collection: 'assets', id: 'first' } },
+                gain: 1,
+                pan: 0,
+              },
+            ],
+          },
+        ],
+      },
+    ];
+    project.characters.iris = { id: 'iris', label: 'Iris', data };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+    });
+    render(<CharacterEditor tab={tab} />);
+    const user = userEvent.setup();
+    await user.click(
+      screen.getByRole('combobox', { name: 'Character pose default layer body Visual' }),
+    );
+    await user.click(
+      screen.getByRole('option', { name: 'Portrait · idle (animation:portrait:idle)' }),
+    );
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        characters: {
+          iris: {
+            data: {
+              profiles: [
+                {
+                  poses: [
+                    {
+                      layers: [
+                        {
+                          visual: {
+                            kind: 'animation',
+                            animation: { $ref: { collection: 'animations', id: 'portrait' } },
+                            motionId: 'idle',
+                          },
+                        },
+                      ],
+                    },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
+    await user.click(
+      screen.getByRole('combobox', { name: 'Character Gesture wave cue sound audio Asset' }),
+    );
+    await user.keyboard('{ArrowDown}{ArrowDown}{Enter}');
+    await waitFor(() =>
+      expect(useProjectStore.getState().document).toMatchObject({
+        characters: {
+          iris: {
+            data: {
+              gestures: [
+                {
+                  profiles: [
+                    { cues: [{ asset: { $ref: { collection: 'assets', id: 'second' } } }] },
+                  ],
+                },
+              ],
+            },
+          },
+        },
+      }),
+    );
     expect(useCommandStore.getState().history.entries.at(-1)?.type).toBe('character.replaceData');
   });
 

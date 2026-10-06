@@ -699,7 +699,8 @@ TEST_CASE("presentation projector assembles the complete effective target")
     REQUIRE(world_actor->room_bounds);
     CHECK(world_actor->room_placement->placement_id == id<RoomPlacementId>("key-placement"));
     REQUIRE_FALSE(world_actor->layers.empty());
-    CHECK(world_actor->layers.front().sprite == id<AssetId>("image-main"));
+    CHECK(world_actor->layers.front().visual ==
+          compiled::Visual{compiled::ImageVisual{id<AssetId>("image-main")}});
     const auto scene_actor =
         std::find_if(snapshot.actors.begin(), snapshot.actors.end(), [](const auto& actor) {
             return std::holds_alternative<SceneActorKey>(actor.key);

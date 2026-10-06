@@ -78,7 +78,7 @@ describe('Room Edit spatial projection', () => {
     };
     character.profiles[0]!.poses[0]!.layers[0] = {
       ...character.profiles[0]!.poses[0]!.layers[0]!,
-      sprite: { $ref: { collection: 'assets', id: 'hero' } },
+      visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'hero' } } },
     };
     character.idles = [
       {
@@ -320,7 +320,7 @@ describe('Room Edit spatial projection', () => {
     };
     character.profiles[0]!.poses[0]!.layers[0] = {
       ...character.profiles[0]!.poses[0]!.layers[0]!,
-      sprite: { $ref: { collection: 'assets', id: 'hero-image' } },
+      visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'hero-image' } } },
       materialApplication: emptyMaterialApplication('world-material'),
       offset: { x: 10, y: -20 },
       scale: 0.5,
@@ -428,6 +428,42 @@ describe('Room Edit spatial projection', () => {
       'interactable:terminal',
       'prop:desk',
     ]);
+    project.animations.portrait = {
+      id: 'portrait',
+      label: 'Portrait',
+      data: {
+        kind: 'animation',
+        canvas: { width: 400, height: 600 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            frames: [
+              { image: { $ref: { collection: 'assets', id: 'hero-image' } }, durationMs: 100 },
+            ],
+          },
+        ],
+      },
+    };
+    project.characters.hero!.data.profiles[0]!.poses[0]!.layers[0]!.visual = {
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'portrait' } },
+      motionId: null,
+    };
+    const animatedProjection = resolveRoomEditProjection({
+      project,
+      roomId: 'room',
+      room,
+      viewport: { width: 1000, height: 500 },
+      backgroundImageSize: null,
+    });
+    expect(animatedProjection.cast[0]!.layers[0]!.rect).toEqual({
+      x: 155,
+      y: -10,
+      width: 200,
+      height: 300,
+    });
   });
 
   it('projects placements and Interactable occurrences through the authored camera with independent stack order', () => {

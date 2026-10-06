@@ -968,8 +968,8 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/poses\/[^/]+\/sprite\/\$ref$/,
-      'character-pose-sprite',
+      /\/data\/profiles\/[^/]+\/poses\/[^/]+\/layers\/[^/]+\/visual\/(?:image|animation)\/\$ref$/,
+      'character-pose-visual',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
@@ -978,8 +978,8 @@ function semanticEdgeOptions(
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
-      /\/data\/expressions\/[^/]+\/sprite\/\$ref$/,
-      'character-expression-sprite',
+      /\/data\/expressions\/[^/]+\/profiles\/[^/]+\/layers\/[^/]+\/visual\/(?:image|animation)\/\$ref$/,
+      'character-expression-visual',
       ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
     ],
     [
@@ -1087,8 +1087,8 @@ function semanticEdgeOptions(
       'room-background',
       'room-prop-asset',
       'room-environment-asset',
-      'character-pose-sprite',
-      'character-expression-sprite',
+      'character-pose-visual',
+      'character-expression-visual',
       'interactable-visual',
       'material-texture',
       'layout-rml-source',

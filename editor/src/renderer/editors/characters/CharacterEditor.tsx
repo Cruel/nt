@@ -5,7 +5,13 @@ import { DiagnosticList } from '@/diagnostics/DiagnosticList';
 import { resolveProjectDiagnosticTarget } from '@/diagnostics/diagnostic-navigation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Select, SelectItem } from '@/components/ui/select';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { InventoryDeclarationsEditor } from '@/components/inventories/InventoryControls';
 import { MaterialApplicationEditor } from '@/components/materials/MaterialApplicationEditor';
 import { useCommandStore } from '@/commands/command-store';
@@ -24,6 +30,7 @@ import { DerivedPreviewPane } from '@/preview/DerivedPreviewPane';
 import { useProjectStore } from '@/project/project-store';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import type { Visual } from '../../../shared/project-schema/authoring-animations';
 import {
   resolveArchetypeConfiguration,
   resolveGameplayInstanceRecord,
@@ -127,6 +134,24 @@ function refValue(ref: { $ref: { id: string } } | null | undefined) {
   return ref?.$ref.id ?? '__none__';
 }
 
+function visualValue(visual: Visual | null | undefined) {
+  if (!visual) return '__none__';
+  return visual.kind === 'image'
+    ? `image:${visual.image.$ref.id}`
+    : `animation:${visual.animation.$ref.id}:${visual.motionId ?? ''}`;
+}
+
+function selectedVisual(value: string): Visual {
+  const [kind, id, motion] = value.split(':');
+  return kind === 'image'
+    ? { kind: 'image', image: characterAssetRef(id!) }
+    : {
+        kind: 'animation',
+        animation: { $ref: { collection: 'animations', id: id! } },
+        motionId: motion || null,
+      };
+}
+
 function profileForPreview(data: CharacterData) {
   return (
     data.profiles.find((profile) => profile.id === data.defaults.profileId) ??
@@ -187,6 +212,16 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
         .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'image')
         .map(([id, asset]) => ({ id, label: asset.label }))
     : [];
+  const visualOptions = [
+    ...imageAssets.map((asset) => ({ id: `image:${asset.id}`, label: asset.label })),
+    ...Object.entries(project?.animations ?? {}).flatMap(([id, animation]) => [
+      { id: `animation:${id}:`, label: `${animation.label} (default motion)` },
+      ...animation.data.motions.map((motion) => ({
+        id: `animation:${id}:${motion.id}`,
+        label: `${animation.label} · ${motion.id}`,
+      })),
+    ]),
+  ];
   const audioAssets = project
     ? Object.entries(project.assets)
         .filter(([, asset]) => parseAssetData(asset.data)?.kind === 'audio')
@@ -679,7 +714,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                 layers: [
                   {
                     layerId: 'body',
-                    sprite: null,
+                    visual: null,
                     materialApplication: null,
                     offset: { x: 0, y: 0 },
                     scale: 1,
@@ -737,7 +772,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           ...pose.layers,
           {
             layerId: id,
-            sprite: null,
+            visual: null,
             materialApplication: null,
             offset: { x: 0, y: 0 },
             scale: 1,
@@ -822,7 +857,7 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
           label: 'Pose',
           layers: profile.layers.map((layer) => ({
             layerId: layer.id,
-            sprite: null,
+            visual: null,
             materialApplication: null,
             offset: { x: 0, y: 0 },
             scale: 1,
@@ -1400,22 +1435,36 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                             <Input value={layer.layerId} readOnly />
                           </div>
                           <div className="space-y-1">
-                            <Label>Sprite</Label>
+                            <Label>Visual</Label>
                             <Select
-                              value={refValue(layer.sprite)}
+                              items={[
+                                { value: '__none__', label: 'No visual' },
+                                ...visualOptions.map((option) => ({
+                                  value: option.id,
+                                  label: `${option.label} (${option.id})`,
+                                })),
+                              ]}
+                              value={visualValue(layer.visual)}
                               onValueChange={(value) =>
                                 replacePoseLayer(profile.id, pose.id, layer.layerId, {
-                                  sprite:
-                                    value === '__none__' ? null : characterAssetRef(String(value)),
+                                  visual:
+                                    value === '__none__' ? null : selectedVisual(String(value)),
                                 })
                               }
                             >
-                              <SelectItem value="__none__">No sprite</SelectItem>
-                              {imageAssets.map((asset) => (
-                                <SelectItem key={asset.id} value={asset.id}>
-                                  {asset.label} ({asset.id})
-                                </SelectItem>
-                              ))}
+                              <SelectTrigger
+                                aria-label={`Character pose ${pose.id} layer ${layer.layerId} Visual`}
+                              >
+                                <SelectValue />
+                              </SelectTrigger>
+                              <SelectContent>
+                                <SelectItem value="__none__">No visual</SelectItem>
+                                {visualOptions.map((asset) => (
+                                  <SelectItem key={asset.id} value={asset.id}>
+                                    {asset.label} ({asset.id})
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
                             </Select>
                           </div>
                           <div className="space-y-1 @3xl:col-span-2 @7xl:col-span-3">
@@ -1601,10 +1650,14 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                     {layerDefinition.label}
                                   </label>
                                   <div className="space-y-1">
-                                    <Label>Sprite override</Label>
+                                    <Label>Visual override</Label>
                                     <Select
                                       disabled={!override}
-                                      value={refValue(override?.sprite)}
+                                      value={
+                                        override?.visual === undefined
+                                          ? '__inherit__'
+                                          : visualValue(override.visual)
+                                      }
                                       onValueChange={(value) =>
                                         replaceAnimationFrameLayer(
                                           profile.id,
@@ -1612,16 +1665,19 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                           frameIndex,
                                           layerDefinition.id,
                                           {
-                                            sprite:
-                                              value === '__none__'
-                                                ? null
-                                                : characterAssetRef(String(value)),
+                                            visual:
+                                              value === '__inherit__'
+                                                ? undefined
+                                                : value === '__none__'
+                                                  ? null
+                                                  : selectedVisual(String(value)),
                                           },
                                         )
                                       }
                                     >
-                                      <SelectItem value="__none__">Keep / clear sprite</SelectItem>
-                                      {imageAssets.map((asset) => (
+                                      <SelectItem value="__inherit__">Inherit Visual</SelectItem>
+                                      <SelectItem value="__none__">No Visual</SelectItem>
+                                      {visualOptions.map((asset) => (
                                         <SelectItem key={asset.id} value={asset.id}>
                                           {asset.label} ({asset.id})
                                         </SelectItem>
@@ -1890,12 +1946,12 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                           >
                             <div className="self-end pb-2 text-xs">{layer.label}</div>
                             <div className="space-y-1">
-                              <Label>Sprite</Label>
+                              <Label>Visual</Label>
                               <Select
                                 value={
-                                  override?.sprite === undefined
+                                  override?.visual === undefined
                                     ? '__inherit__'
-                                    : refValue(override.sprite)
+                                    : visualValue(override.visual)
                                 }
                                 onValueChange={(value) =>
                                   replaceSemanticOverride(
@@ -1904,19 +1960,19 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                     profile.id,
                                     layer.id,
                                     {
-                                      sprite:
+                                      visual:
                                         value === '__inherit__'
                                           ? undefined
                                           : value === '__none__'
                                             ? null
-                                            : characterAssetRef(String(value)),
+                                            : selectedVisual(String(value)),
                                     },
                                   )
                                 }
                               >
                                 <SelectItem value="__inherit__">Inherit</SelectItem>
-                                <SelectItem value="__none__">Hide sprite</SelectItem>
-                                {imageAssets.map((asset) => (
+                                <SelectItem value="__none__">Hide visual</SelectItem>
+                                {visualOptions.map((asset) => (
                                   <SelectItem key={asset.id} value={asset.id}>
                                     {asset.label} ({asset.id})
                                   </SelectItem>
@@ -2061,9 +2117,9 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                             <div className="self-end pb-2 text-xs">{layer.label}</div>
                             <Select
                               value={
-                                override?.sprite === undefined
+                                override?.visual === undefined
                                   ? '__inherit__'
-                                  : refValue(override.sprite)
+                                  : visualValue(override.visual)
                               }
                               onValueChange={(value) =>
                                 replaceSemanticOverride(
@@ -2072,19 +2128,19 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                   profile.id,
                                   layer.id,
                                   {
-                                    sprite:
+                                    visual:
                                       value === '__inherit__'
                                         ? undefined
                                         : value === '__none__'
                                           ? null
-                                          : characterAssetRef(String(value)),
+                                          : selectedVisual(String(value)),
                                   },
                                 )
                               }
                             >
-                              <SelectItem value="__inherit__">Inherit sprite</SelectItem>
-                              <SelectItem value="__none__">No sprite</SelectItem>
-                              {imageAssets.map((asset) => (
+                              <SelectItem value="__inherit__">Inherit visual</SelectItem>
+                              <SelectItem value="__none__">No visual</SelectItem>
+                              {visualOptions.map((asset) => (
                                 <SelectItem key={asset.id} value={asset.id}>
                                   {asset.label} ({asset.id})
                                 </SelectItem>
@@ -2313,6 +2369,10 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                   <div className="space-y-1">
                                     <Label>Audio asset</Label>
                                     <Select
+                                      items={audioAssets.map((asset) => ({
+                                        value: asset.id,
+                                        label: `${asset.label} (${asset.id})`,
+                                      }))}
                                       value={refValue(cue.asset)}
                                       onValueChange={(value) =>
                                         replaceGestureCue(gesture.id, profile.id, cue.id, {
@@ -2320,11 +2380,18 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
                                         })
                                       }
                                     >
-                                      {audioAssets.map((asset) => (
-                                        <SelectItem key={asset.id} value={asset.id}>
-                                          {asset.label} ({asset.id})
-                                        </SelectItem>
-                                      ))}
+                                      <SelectTrigger
+                                        aria-label={`Character Gesture ${gesture.id} cue ${cue.id} audio Asset`}
+                                      >
+                                        <SelectValue />
+                                      </SelectTrigger>
+                                      <SelectContent>
+                                        {audioAssets.map((asset) => (
+                                          <SelectItem key={asset.id} value={asset.id}>
+                                            {asset.label} ({asset.id})
+                                          </SelectItem>
+                                        ))}
+                                      </SelectContent>
                                     </Select>
                                   </div>
                                   <div className="space-y-1">
@@ -2508,7 +2575,11 @@ export function CharacterEditor({ tab }: WorkbenchEditorProps) {
             {previewLayers.map((layer) => (
               <div key={layer.id}>
                 <span className="font-medium text-foreground">{layer.id}:</span>{' '}
-                {layer.visible ? (layer.sprite?.$ref.id ?? 'No sprite') : 'Hidden'}
+                {layer.visible
+                  ? layer.visual
+                    ? visualValue(layer.visual)
+                    : 'No visual'
+                  : 'Hidden'}
               </div>
             ))}
           </div>

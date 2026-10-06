@@ -3188,6 +3188,58 @@ decode_editor_room_preview_document_text(std::string_view data_text,
         }
         return result_values;
     };
+    const auto decode_world_visual =
+        [&](const nlohmann::json& value,
+            const std::string& path) -> std::optional<TypedFocusedRoomWorldDefinition::Visual> {
+        if (value.is_null())
+            return std::nullopt;
+        if (!value.is_object()) {
+            diagnostics.push_back(
+                error("editor_preview.wrong_type", "Visual must be an object or null.", path));
+            return std::nullopt;
+        }
+        const auto kind = required_string(value, "kind", path);
+        if (kind == "image") {
+            exact_fields(value, {"kind", "assetId"}, diagnostics, path);
+            const auto asset = required_string(value, "assetId", path);
+            (void)focused_id.operator()<AssetId>(asset, path + "/assetId");
+            return TypedFocusedRoomWorldDefinition::Visual{kind, asset, std::nullopt};
+        }
+        if (kind != "animation") {
+            diagnostics.push_back(error("editor_preview.invalid_value",
+                                        "Visual kind must be image or animation.", path));
+            return std::nullopt;
+        }
+        exact_fields(value, {"kind", "animationId", "motionId"}, diagnostics, path);
+        if (!value.contains("motionId")) {
+            diagnostics.push_back(error("editor_preview.missing_field",
+                                        "Animation Visual requires nullable motionId.",
+                                        path + "/motionId"));
+            return std::nullopt;
+        }
+        TypedFocusedRoomWorldDefinition::Visual result_visual{
+            kind, required_string(value, "animationId", path),
+            optional_string(value, "motionId", path)};
+        (void)focused_id.operator()<AnimationId>(result_visual.resource_id, path + "/animationId");
+        if (result_visual.motion_id)
+            (void)focused_id.operator()<AnimationMotionId>(*result_visual.motion_id,
+                                                           path + "/motionId");
+        const auto animation =
+            std::ranges::find_if(result.world.animations, [&](const auto& candidate) {
+                return candidate.id == result_visual.resource_id;
+            });
+        if (animation == result.world.animations.end())
+            diagnostics.push_back(error("editor_preview.invalid_value",
+                                        "Visual references a missing Animation.",
+                                        path + "/animationId"));
+        else if (result_visual.motion_id &&
+                 std::ranges::none_of(animation->motions, [&](const auto& motion) {
+                     return motion.id == *result_visual.motion_id;
+                 }))
+            diagnostics.push_back(error("editor_preview.invalid_value",
+                                        "Visual references a missing motion.", path + "/motionId"));
+        return result_visual;
+    };
     std::function<TypedFocusedCharacterVisual(const nlohmann::json&, std::string_view)> visual;
     visual = [&](const nlohmann::json& value, std::string_view path) {
         TypedFocusedCharacterVisual result_value;
@@ -3216,13 +3268,18 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     continue;
                 }
                 exact_fields(layer,
-                             {"id", "role", "spriteAssetId", "materialId", "materialParameters",
+                             {"id", "role", "visual", "materialId", "materialParameters",
                               "materialTextures", "offset", "scale", "anchor", "visible"},
                              diagnostics, layer_path);
                 TypedFocusedCharacterVisual::Layer typed;
                 typed.id = required_string(layer, "id", layer_path);
                 typed.role = optional_string(layer, "role", layer_path);
-                typed.sprite_asset_id = optional_string(layer, "spriteAssetId", layer_path);
+                if (const auto visual_value = layer.find("visual"); visual_value != layer.end())
+                    typed.visual = decode_world_visual(*visual_value, layer_path + "/visual");
+                else
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "Character layer requires nullable Visual.",
+                                                layer_path + "/visual"));
                 typed.material_id = optional_string(layer, "materialId", layer_path);
                 if (const auto parameters = layer.find("materialParameters");
                     parameters != layer.end())
@@ -3984,60 +4041,6 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                      .order = json_access::member_as<int>(value, "order").value_or(0),
                      .visual = visual(value["visual"], path + "/visual")});
             }
-        const auto decode_world_visual =
-            [&](const nlohmann::json& value,
-                const std::string& path) -> std::optional<TypedFocusedRoomWorldDefinition::Visual> {
-            if (value.is_null())
-                return std::nullopt;
-            if (!value.is_object()) {
-                diagnostics.push_back(
-                    error("editor_preview.wrong_type", "Visual must be an object or null.", path));
-                return std::nullopt;
-            }
-            const auto kind = required_string(value, "kind", path);
-            if (kind == "image") {
-                exact_fields(value, {"kind", "assetId"}, diagnostics, path);
-                const auto asset = required_string(value, "assetId", path);
-                (void)focused_id.operator()<AssetId>(asset, path + "/assetId");
-                return TypedFocusedRoomWorldDefinition::Visual{kind, asset, std::nullopt};
-            }
-            if (kind != "animation") {
-                diagnostics.push_back(error("editor_preview.invalid_value",
-                                            "Visual kind must be image or animation.", path));
-                return std::nullopt;
-            }
-            exact_fields(value, {"kind", "animationId", "motionId"}, diagnostics, path);
-            if (!value.contains("motionId")) {
-                diagnostics.push_back(error("editor_preview.missing_field",
-                                            "Animation Visual requires nullable motionId.",
-                                            path + "/motionId"));
-                return std::nullopt;
-            }
-            TypedFocusedRoomWorldDefinition::Visual result_visual{
-                kind, required_string(value, "animationId", path),
-                optional_string(value, "motionId", path)};
-            (void)focused_id.operator()<AnimationId>(result_visual.resource_id,
-                                                     path + "/animationId");
-            if (result_visual.motion_id)
-                (void)focused_id.operator()<AnimationMotionId>(*result_visual.motion_id,
-                                                               path + "/motionId");
-            const auto animation =
-                std::ranges::find_if(result.world.animations, [&](const auto& candidate) {
-                    return candidate.id == result_visual.resource_id;
-                });
-            if (animation == result.world.animations.end())
-                diagnostics.push_back(error("editor_preview.invalid_value",
-                                            "Visual references a missing Animation.",
-                                            path + "/animationId"));
-            else if (result_visual.motion_id &&
-                     std::ranges::none_of(animation->motions, [&](const auto& motion) {
-                         return motion.id == *result_visual.motion_id;
-                     }))
-                diagnostics.push_back(error("editor_preview.invalid_value",
-                                            "Visual references a missing motion.",
-                                            path + "/motionId"));
-            return result_visual;
-        };
         if (const auto* interactables = array("interactables"))
             for (std::size_t index = 0; index < interactables->size(); ++index) {
                 const auto& value = (*interactables)[index];

@@ -64,7 +64,7 @@ describe('Room Edit semantic selection', () => {
     const pose = character.profiles[0]!.poses[0]!;
     pose.layers[0] = {
       ...pose.layers[0]!,
-      sprite: { $ref: { collection: 'assets', id: 'hero' } },
+      visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'hero' } } },
       scale: 0.5,
     };
     character.profiles[0]!.layers.push({
@@ -74,7 +74,7 @@ describe('Room Edit semantic selection', () => {
     });
     pose.layers.push({
       layerId: 'empty-far-away',
-      sprite: null,
+      visual: null,
       materialApplication: null,
       visible: true,
       offset: { x: 5000, y: 5000 },

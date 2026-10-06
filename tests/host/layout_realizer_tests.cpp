@@ -4,6 +4,7 @@
 #include "script/lua/script_runtime_internal.hpp"
 
 #include "noveltea/core/compiled_project_codec.hpp"
+#include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
 #include "fake_script_source.hpp"
 
@@ -2022,6 +2023,36 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     animated_room["world"]["interactables"][0]["visual"] = {
         {"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}};
     animated_room["world"]["interactables"][0]["materialId"] = "panel";
+    const auto character_layer = [](const char* name, nlohmann::json visual) {
+        return nlohmann::json{{"id", name},
+                              {"role", nullptr},
+                              {"visual", std::move(visual)},
+                              {"materialId", nullptr},
+                              {"offset", {{"x", 0.0}, {"y", 0.0}}},
+                              {"scale", 1.0},
+                              {"anchor", {{"x", 0.5}, {"y", 1.0}}},
+                              {"visible", true}};
+    };
+    animated_room["world"]["persistentCharacters"] = nlohmann::json::array(
+        {{{"characterId", "guide"},
+          {"placementId", animated_room["world"]["placements"][0]["id"]},
+          {"enabled", true},
+          {"visible", true},
+          {"order", 1},
+          {"visual",
+           {{"profileId", "stage"},
+            {"requestedPoseId", "default"},
+            {"resolvedPoseId", "default"},
+            {"expressionId", "neutral"},
+            {"appearanceId", nullptr},
+            {"idleId", nullptr},
+            {"idle", nullptr},
+            {"layers",
+             nlohmann::json::array(
+                 {character_layer(
+                      "body",
+                      {{"kind", "animation"}, {"animationId", "rain"}, {"motionId", nullptr}}),
+                  character_layer("face", {{"kind", "image"}, {"assetId", "frame-a"}})})}}}}});
     auto animation_request = make_request(core::editor::FocusedEditorDocumentKind::Room,
                                           "room-animation", animated_room, 20);
     animation_request.resources = {
@@ -2053,7 +2084,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     publish();
     REQUIRE(completions.back() == std::pair<std::string, std::string>{"room-animation", "applied"});
     REQUIRE(world_backend.frame());
-    REQUIRE(world_backend.frame()->draws.size() == 2);
+    REQUIRE(world_backend.frame()->draws.size() == 4);
+    CHECK(world_backend.frame()->draws[1].family == WorldDrawFamily::Actor);
+    CHECK(world_backend.frame()->draws[1].raster_animation_frames.size() == 2);
+    CHECK(world_backend.frame()->draws[2].raster_animation_frames.empty());
     REQUIRE(world_backend.frame()->draws.front().raster_animation_frames[1].texture_lease);
     CHECK(world_backend.frame()->draws.front().family == WorldDrawFamily::Interactable);
     CHECK_FALSE(assets.has_published_leases_on_owner());
@@ -2072,6 +2106,8 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     world_backend.realize(clock);
     CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
           2);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands()[1].texture.handle == 2);
+    CHECK(world_backend.frame()->base_world_composition_batch.commands()[2].texture.handle == 1);
 
     animation_request.request_id = "room-animation-republish";
     animation_request.apply_sequence = 21;
@@ -2094,6 +2130,21 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     CHECK(last_diagnostic.find("editor_preview.manifest_asset_missing") != std::string::npos);
     CHECK(world_backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
           2);
+
+    auto obsolete_character = animated_room;
+    auto& obsolete_layer =
+        obsolete_character["world"]["persistentCharacters"][0]["visual"]["layers"][0];
+    obsolete_layer.erase("visual");
+    obsolete_layer["spriteAssetId"] = "frame-a";
+    CHECK_FALSE(core::editor::decode_editor_preview_document_text("room-preview",
+                                                                  obsolete_character.dump()));
+    obsolete_layer.erase("spriteAssetId");
+    CHECK_FALSE(core::editor::decode_editor_preview_document_text("room-preview",
+                                                                  obsolete_character.dump()));
+    obsolete_layer["visual"] = {
+        {"kind", "animation"}, {"animationId", "rain"}, {"motionId", "missing"}};
+    CHECK_FALSE(core::editor::decode_editor_preview_document_text("room-preview",
+                                                                  obsolete_character.dump()));
 
     const auto changes_before_clear = world_presentation_changes;
     presenter.clear();

@@ -16,6 +16,60 @@ import {
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 
 describe('authoring characters schema', () => {
+  it('accepts Animation Visuals in poses and choreography and rejects obsolete sprite inputs', () => {
+    const project = createAuthoringProject();
+    project.animations.portrait = {
+      id: 'portrait',
+      label: 'Portrait',
+      data: {
+        kind: 'animation',
+        canvas: { width: 640, height: 960 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            frames: [{ image: characterAssetRef('iris'), durationMs: 100 }],
+          },
+        ],
+      },
+    };
+    const data = defaultCharacterData('Iris');
+    const visual = {
+      kind: 'animation' as const,
+      animation: { $ref: { collection: 'animations' as const, id: 'portrait' } },
+      motionId: null,
+    };
+    const layer = data.profiles[0]!.poses[0]!.layers[0]!;
+    layer.visual = visual;
+    data.profiles[0]!.animationClips = [
+      {
+        id: 'blink',
+        label: 'Blink',
+        clock: 'gameplay',
+        frames: [{ durationMs: 200, layers: [{ layerId: 'body', visual }] }],
+      },
+    ];
+    const record = { id: 'iris', label: 'Iris', data };
+    expect(
+      validateCharacterData(project, 'iris', record).filter((item) => item.severity === 'error'),
+    ).toEqual([]);
+    expect(resolveCharacterPresentationLayers(data)[0]).toMatchObject({ visual });
+    const invalidMotion = { ...visual, motionId: 'missing' };
+    layer.visual = invalidMotion;
+    expect(validateCharacterData(project, 'iris', record)).toContainEqual(
+      expect.objectContaining({
+        severity: 'error',
+        category: 'Characters',
+        path: '/characters/iris/data/profiles/0/poses/0/layers/0/visual/motionId',
+      }),
+    );
+    layer.visual = visual;
+    Object.assign(layer, { sprite: characterAssetRef('iris') });
+    expect(
+      validateCharacterData(project, 'iris', record).some((item) => item.severity === 'error'),
+    ).toBe(true);
+  });
   it('provides a trivial one-layer default presentation profile', () => {
     expect(defaultCharacterData('Iris')).toMatchObject({
       kind: 'character',
@@ -60,7 +114,9 @@ describe('authoring characters schema', () => {
     data.expressions[0]!.profiles = [
       {
         profileId: 'stage',
-        layers: [{ layerId: 'body', sprite: characterAssetRef('neutral') }],
+        layers: [
+          { layerId: 'body', visual: { kind: 'image', image: characterAssetRef('neutral') } },
+        ],
       },
     ];
     data.expressions.push({ id: 'happy', label: 'Happy', profiles: [] });
@@ -71,7 +127,7 @@ describe('authoring characters schema', () => {
       {
         id: 'body',
         role: 'body',
-        sprite: characterAssetRef('neutral'),
+        visual: { kind: 'image', image: characterAssetRef('neutral') },
       },
     ]);
   });
@@ -82,7 +138,7 @@ describe('authoring characters schema', () => {
     profile.layers.push({ id: 'face', label: 'Face', role: 'face' });
     profile.poses[0]!.layers.push({
       layerId: 'face',
-      sprite: null,
+      visual: null,
       materialApplication: null,
       offset: { x: 0, y: 0 },
       scale: 1,
@@ -197,7 +253,7 @@ describe('authoring characters schema', () => {
                 layers: [
                   {
                     ...defaultCharacterData('Iris').profiles[0]!.poses[0]!.layers[0]!,
-                    sprite: characterAssetRef('theme'),
+                    visual: { kind: 'image', image: characterAssetRef('theme') },
                     materialApplication: emptyMaterialApplication('glow'),
                   },
                 ],
@@ -212,8 +268,8 @@ describe('authoring characters schema', () => {
     expect(diagnostics).toEqual(
       expect.arrayContaining([
         expect.objectContaining({
-          severity: 'warning',
-          path: '/characters/iris/data/profiles/0/poses/0/layers/0/sprite/$ref',
+          severity: 'error',
+          path: '/characters/iris/data/profiles/0/poses/0/layers/0/visual/image/$ref',
         }),
       ]),
     );
@@ -237,16 +293,17 @@ describe('authoring characters schema', () => {
       }),
     };
     const data = defaultCharacterData('Iris');
-    data.profiles[0]!.poses[0]!.layers[0]!.sprite = characterAssetRef('iris');
+    data.profiles[0]!.poses[0]!.layers[0]!.visual = {
+      kind: 'image',
+      image: characterAssetRef('iris'),
+    };
     project.characters.iris = { id: 'iris', label: 'Iris', data };
 
     expect(characterPreviewRevision(project, 'iris')).toContain('hash-image');
     expect(buildCharacterPreviewDocumentData(project, 'iris')).toMatchObject({
       schema: 'noveltea.character-preview',
       characterId: 'iris',
-      resolvedLayers: [
-        { id: 'body', sprite: { id: 'iris', kind: 'image', contentHash: 'hash-image' } },
-      ],
+      resolvedLayers: [{ id: 'body', visual: { kind: 'image', image: characterAssetRef('iris') } }],
     });
   });
 
@@ -287,7 +344,7 @@ describe('authoring characters schema', () => {
     profile.layers.push({ id: 'face', label: 'Face', role: 'face' });
     profile.poses[0]!.layers.push({
       layerId: 'face',
-      sprite: null,
+      visual: null,
       materialApplication: null,
       offset: { x: 0, y: 0 },
       scale: 1,
@@ -301,7 +358,9 @@ describe('authoring characters schema', () => {
       frames: [
         {
           durationMs: 80,
-          layers: [{ layerId: 'face', sprite: characterAssetRef('blink') }],
+          layers: [
+            { layerId: 'face', visual: { kind: 'image', image: characterAssetRef('blink') } },
+          ],
         },
         { durationMs: 80, layers: [] },
       ],

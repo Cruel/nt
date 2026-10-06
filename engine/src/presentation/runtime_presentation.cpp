@@ -446,7 +446,7 @@ resolve_actor_layers(const CompiledProject* project, const compiled::CharacterDe
             base->material, base->material_parameters, base->material_textures);
         PresentationActorLayer layer{definition.id,
                                      definition.role,
-                                     base->sprite,
+                                     base->visual,
                                      base->material,
                                      base->material_parameters,
                                      project != nullptr
@@ -464,8 +464,8 @@ resolve_actor_layers(const CompiledProject* project, const compiled::CharacterDe
             });
             if (patch == overrides->layers.end())
                 return;
-            if (patch->sprite.specified)
-                layer.sprite = patch->sprite.value;
+            if (patch->visual.specified)
+                layer.visual = patch->visual.value;
             if (patch->material.specified) {
                 layer.material = patch->material.value;
                 layer.material_parameters = patch->material_parameters;
@@ -481,8 +481,8 @@ resolve_actor_layers(const CompiledProject* project, const compiled::CharacterDe
         apply(expression_overrides);
         apply(appearance_overrides);
         if (project != nullptr)
-            validate_asset(*project, layer.sprite, compiled::AssetKind::Image,
-                           "Character presentation layer sprite", diagnostics);
+            validate_visual(*project, layer.visual, "Character presentation layer Visual",
+                            diagnostics);
         layers.push_back(std::move(layer));
     }
     return layers;

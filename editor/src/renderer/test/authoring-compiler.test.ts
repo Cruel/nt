@@ -2310,8 +2310,11 @@ describe('authoring compiler framework', () => {
       traits: ['tense-room'],
     };
     const character = defaultCharacterData('Hero');
-    character.profiles[0]!.poses[0]!.layers[0]!.sprite = {
-      $ref: { collection: 'assets', id: 'hero' },
+    character.profiles[0]!.poses[0]!.layers[0]!.visual = {
+      kind: 'image',
+      image: {
+        $ref: { collection: 'assets', id: 'hero' },
+      },
     };
     project.characters.hero = {
       id: 'hero',
@@ -2367,9 +2370,9 @@ describe('authoring compiler framework', () => {
       traits: ['tense-room'],
       propertyAssignments: [],
     });
-    expect(draft.definitions.characters[0]?.profiles[0]?.poses[0]?.layers[0]?.sprite).toEqual({
-      kind: 'asset',
-      id: 'hero',
+    expect(draft.definitions.characters[0]?.profiles[0]?.poses[0]?.layers[0]?.visual).toEqual({
+      kind: 'image',
+      image: { kind: 'asset', id: 'hero' },
     });
     expect(draft.properties).toEqual([
       expect.objectContaining({
@@ -3555,12 +3558,38 @@ describe('authoring compiler framework', () => {
       visible: true,
     });
 
+    const character = defaultCharacterData('Animated');
+    const animatedVisual = {
+      kind: 'animation' as const,
+      animation: { $ref: { collection: 'animations' as const, id: 'rain' } },
+      motionId: 'fall',
+    };
+    character.profiles[0]!.poses[0]!.layers[0]!.visual = animatedVisual;
+    character.profiles[0]!.animationClips = [
+      {
+        id: 'gesture',
+        label: 'Gesture',
+        clock: 'gameplay',
+        frames: [{ durationMs: 200, layers: [{ layerId: 'body', visual: animatedVisual }] }],
+      },
+    ];
+    project.characters.animated = { id: 'animated', label: 'Animated', data: character };
     const result = compileAuthoringProject(project);
 
     expect(result.ok, result.ok ? undefined : JSON.stringify(result.diagnostics, null, 2)).toBe(
       true,
     );
     if (!result.ok) return;
+    const profile = result.project.definitions.characters.find((item) => item.id === 'animated')!
+      .profiles[0]!;
+    expect(profile.poses[0]!.layers[0]!.visual).toEqual({
+      kind: 'animation',
+      animation: { kind: 'animation', id: 'rain' },
+      motionId: 'fall',
+    });
+    expect(profile.animationClips![0]!.frames[0]!.layers[0]!.visual).toEqual(
+      profile.poses[0]!.layers[0]!.visual,
+    );
     expect(result.project.resources.animations).toEqual([
       {
         id: 'rain',

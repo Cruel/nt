@@ -38,9 +38,12 @@
                       "id": "sprite-material",
                       "kind": "material"
                     },
-                    "sprite": {
-                      "id": "image-main",
-                      "kind": "asset"
+                    "visual": {
+                      "image": {
+                        "id": "image-main",
+                        "kind": "asset"
+                      },
+                      "kind": "image"
                     }
                   }
                 ],
@@ -96,11 +99,14 @@
                       "y": 0
                     },
                     "scale": 1,
-                    "sprite": {
-                      "id": "image-main",
-                      "kind": "asset"
-                    },
-                    "visible": true
+                    "visible": true,
+                    "visual": {
+                      "image": {
+                        "id": "image-main",
+                        "kind": "asset"
+                      },
+                      "kind": "image"
+                    }
                   }
                 ]
               }
@@ -2507,7 +2513,7 @@
       }
     ]
   },
-  "saveContract": "sc1:0386961dd632471720e61c8df8e939ab",
+  "saveContract": "sc1:ef6ecb1dbe74341782e191cdf03103bb",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

@@ -89,11 +89,14 @@ presentation acknowledgement path.
 ## Raster Animation realization
 
 The first [Animation resource](../engine/ANIMATION.md) tracer selects static image or sprite-sequence
-Visuals on Room Environments. It reuses mandatory Asset publication, `AssetWorldPresentationResourceResolver`,
+Visuals on Room Environments, Interactables, and Character layers. It reuses mandatory Asset publication, `AssetWorldPresentationResourceResolver`,
 retained texture/Material leases, and the raster quad/Engine2D Material path.
 
 `WorldPresentationBackend` owns occurrence-local loop epochs on the Environment's existing gameplay
-or unscaled-presentation clock. Compatibility includes selected Animation/motion, logical canvas,
+or unscaled-presentation clock; Interactables and underlying Character layers use gameplay time.
+Character raster identity includes the actor occurrence and stable layer ID, unlike actor-wide idle
+and automatic-clip epochs. Explicit clip Visual overrides sample at frame-local choreography time;
+omitted Visual overrides retain the underlying animated sample. Compatibility includes selected Animation/motion, logical canvas,
 and ordered semantic frame IDs/durations. Compatible unchanged occurrences retain phase across
 snapshot republishes and focused prepared-publication swaps. Incompatible selections in retained
 predecessor/current revisions have separate anchors so realizing one cannot restart the other.

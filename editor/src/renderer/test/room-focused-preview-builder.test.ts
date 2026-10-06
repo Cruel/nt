@@ -101,6 +101,63 @@ function fixtureWithRoomMaterial() {
 }
 
 describe('graph-driven Room builder', () => {
+  it('stages Character Animation layers without an Environment or Interactable reference', async () => {
+    const project = fixture();
+    project.assets.frame = {
+      id: 'frame',
+      label: 'Frame',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'images/frame.png' },
+        aliases: [],
+        imageMetadata: { width: 32, height: 32, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.animations.portrait = {
+      id: 'portrait',
+      label: 'Portrait',
+      data: {
+        kind: 'animation',
+        canvas: { width: 64, height: 96 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            frames: [{ image: { $ref: { collection: 'assets', id: 'frame' } }, durationMs: 100 }],
+          },
+        ],
+      },
+    };
+    project.characters.alice!.data.profiles[0]!.poses[0]!.layers[0]!.visual = {
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'portrait' } },
+      motionId: null,
+    };
+    project.rooms.bedroom!.data.cast = [
+      {
+        id: 'alice',
+        character: { $ref: { collection: 'characters', id: 'alice' } },
+        condition: { kind: 'always' },
+        placementId: 'door',
+        poseId: null,
+        expressionId: null,
+        idleId: null,
+        visible: true,
+        order: 1,
+      },
+    ];
+    const result = await build(project);
+    expect(result.data.world.cast[0]?.visual.layers[0]?.visual).toEqual({
+      kind: 'animation',
+      animationId: 'portrait',
+      motionId: null,
+    });
+    expect(result.data.world.animations.map((item) => item.id)).toEqual(['portrait']);
+    expect(result.resources).toContainEqual(
+      expect.objectContaining({ resourceId: 'asset:frame', kind: 'image' }),
+    );
+  });
   it('carries raster Animation resources and frame Assets through focused Room preview', async () => {
     const project = fixture();
     for (const [id, path] of [

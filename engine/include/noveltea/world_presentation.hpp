@@ -165,6 +165,11 @@ struct WorldPresentationDraw {
         std::optional<QuadCommand> command;
         std::optional<assets::AssetLease<assets::TextureAsset>> texture_lease;
         std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
+        std::vector<WorldPreparedVisual::AnimationFrame> visual_frames;
+        bool overrides_visual = false;
+
+        [[nodiscard]] std::optional<QuadCommand> sample(std::uint64_t elapsed_ms,
+                                                        const QuadCommand& underlying) const;
     };
     struct ActorAnimationClip {
         core::CharacterAnimationClipId id;
@@ -184,6 +189,9 @@ struct WorldPresentationDraw {
     std::string raster_animation_key;
     std::vector<RasterAnimationFrame> raster_animation_frames;
     std::uint64_t raster_animation_epoch = 0;
+    std::optional<core::CharacterPresentationLayerId> actor_layer_id = std::nullopt;
+    std::optional<Texture> sampled_visual_texture = std::nullopt;
+    MaterialTextureSampler sampled_visual_sampler = MaterialTextureSampler::ClampLinear;
 };
 
 struct WorldPreparedHotspotSurface {

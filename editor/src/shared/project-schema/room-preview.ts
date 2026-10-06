@@ -182,6 +182,14 @@ export const focusedTextSchema = strict({
   ]),
 });
 
+const focusedVisualSchema = z.discriminatedUnion('kind', [
+  strict({ kind: z.literal('image'), assetId: z.string().min(1) }),
+  strict({
+    kind: z.literal('animation'),
+    animationId: z.string().min(1),
+    motionId: z.string().min(1).nullable(),
+  }),
+]);
 const focusedCharacterVisualSchema = strict({
   profileId: z.string().min(1),
   requestedPoseId: z.string().min(1),
@@ -193,7 +201,7 @@ const focusedCharacterVisualSchema = strict({
     strict({
       id: z.string().min(1),
       role: z.string().min(1).nullable(),
-      spriteAssetId: z.string().min(1).nullable(),
+      visual: focusedVisualSchema.nullable(),
       materialId: z.string().min(1).nullable(),
       materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
       materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),
@@ -245,14 +253,6 @@ const focusedHotspotTargetSchema = z.discriminatedUnion('kind', [
 const focusedHotspotShapeSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('alpha') }),
   strict({ kind: z.literal('rect'), bounds: normalizedRect }),
-]);
-const focusedVisualSchema = z.discriminatedUnion('kind', [
-  strict({ kind: z.literal('image'), assetId: z.string().min(1) }),
-  strict({
-    kind: z.literal('animation'),
-    animationId: z.string().min(1),
-    motionId: z.string().min(1).nullable(),
-  }),
 ]);
 const focusedAnimationResourceSchema = strict({
   id: z.string().min(1),

@@ -639,8 +639,9 @@ and accessibility scale policies through native decoding and environment prepara
 focused Game HUD resolves from the canonical packaged path
 `system:/ui/runtime/runtime_game.rml`.
 Focused Room `world.animations` carries bounded immutable Animation resources referenced by
-Environment and Interactable `visual` selections (image or Animation, with nullable selected motion).
-Interactable entries replace `spriteAssetId` with required nullable `visual`; old fields are rejected.
+Environment, Interactable, and resolved Character-layer `visual` selections (image or Animation, with
+nullable selected motion). Interactable entries and Character layers carry required nullable `visual`;
+replaced `spriteAssetId` fields are rejected.
 Hotspot entries carry nullable `occurrenceId` (Room Hotspots use null) and nullable `sourceAssetId`;
 Animation Hotspots use logical canvas dimensions and no fixed source Asset. The builder includes frame
 Assets in the normal manifest, requesting retained CPU coverage for every selected `visual-alpha` frame. Native decoding rejects invalid canvas

@@ -786,8 +786,14 @@ describe('authoring structural dependency graph and queries', () => {
       visible: true,
     });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: room };
+    const character = defaultCharacterData('Iris');
+    character.profiles[0]!.poses[0]!.layers[0]!.visual = room.environments[0]!.visual!;
+    project.characters.iris = { id: 'iris', label: 'Iris', data: character };
 
     const graph = buildAuthoringStructuralDependencyGraph(project);
+    expect(
+      outgoingAuthoringDependencies(graph, recordNodeKey('characters', 'iris')),
+    ).toContainEqual(expect.objectContaining({ target: recordNodeKey('animations', 'pulse') }));
 
     expect(
       outgoingAuthoringDependencies(graph, recordNodeKey('animations', 'pulse')),

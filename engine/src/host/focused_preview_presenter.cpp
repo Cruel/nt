@@ -253,9 +253,11 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
     for (std::size_t index = 0; index < document.world.persistent_characters.size(); ++index) {
         const auto& value = document.world.persistent_characters[index];
         for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer) {
-            require_asset(value.visual.layers[layer].sprite_asset_id,
-                          "/world/persistentCharacters/" + std::to_string(index) +
-                              "/visual/layers/" + std::to_string(layer) + "/spriteAssetId");
+            if (const auto& visual = value.visual.layers[layer].visual;
+                visual && visual->kind == "image")
+                require_asset(visual->resource_id, "/world/persistentCharacters/" +
+                                                       std::to_string(index) + "/visual/layers/" +
+                                                       std::to_string(layer) + "/visual/assetId");
             require_material_textures(value.visual.layers[layer].material_textures,
                                       "/world/persistentCharacters/" + std::to_string(index) +
                                           "/visual/layers/" + std::to_string(layer) +
@@ -265,9 +267,11 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
     for (std::size_t index = 0; index < document.world.cast.size(); ++index) {
         const auto& value = document.world.cast[index];
         for (std::size_t layer = 0; layer < value.visual.layers.size(); ++layer) {
-            require_asset(value.visual.layers[layer].sprite_asset_id,
-                          "/world/cast/" + std::to_string(index) + "/visual/layers/" +
-                              std::to_string(layer) + "/spriteAssetId");
+            if (const auto& visual = value.visual.layers[layer].visual;
+                visual && visual->kind == "image")
+                require_asset(visual->resource_id, "/world/cast/" + std::to_string(index) +
+                                                       "/visual/layers/" + std::to_string(layer) +
+                                                       "/visual/assetId");
             require_material_textures(value.visual.layers[layer].material_textures,
                                       "/world/cast/" + std::to_string(index) + "/visual/layers/" +
                                           std::to_string(layer) + "/materialTextures");
@@ -1294,20 +1298,18 @@ focused_visual_catalog(const core::editor::TypedEditorRoomPreviewDocument& docum
         std::vector<core::PresentationActorLayer> layers;
         layers.reserve(visual.layers.size());
         for (const auto& layer : visual.layers)
-            layers.push_back({decoded_id<core::CharacterPresentationLayerId>(layer.id),
-                              layer.role,
-                              layer.sprite_asset_id
-                                  ? std::optional{decoded_id<core::AssetId>(*layer.sprite_asset_id)}
-                                  : std::nullopt,
-                              layer.material_id
-                                  ? std::optional{decoded_id<core::MaterialId>(*layer.material_id)}
-                                  : std::nullopt,
-                              layer.material_parameters,
-                              focused_material_textures(layer.material_textures, resources),
-                              {layer.anchor.x, layer.anchor.y},
-                              {layer.offset.x, layer.offset.y},
-                              layer.scale,
-                              layer.visible});
+            layers.push_back(
+                {decoded_id<core::CharacterPresentationLayerId>(layer.id),
+                 layer.role,
+                 layer.visual ? std::optional{focused_visual(*layer.visual)} : std::nullopt,
+                 layer.material_id ? std::optional{decoded_id<core::MaterialId>(*layer.material_id)}
+                                   : std::nullopt,
+                 layer.material_parameters,
+                 focused_material_textures(layer.material_textures, resources),
+                 {layer.anchor.x, layer.anchor.y},
+                 {layer.offset.x, layer.offset.y},
+                 layer.scale,
+                 layer.visible});
         result.characters.push_back(
             {decoded_id<core::CharacterId>(character_id),
              decoded_id<core::CharacterPresentationProfileId>(visual.profile_id),

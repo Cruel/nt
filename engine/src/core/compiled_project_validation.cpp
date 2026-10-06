@@ -2281,8 +2281,8 @@ private:
                             error("compiled_project.unresolved_nested_reference",
                                   "Character pose references a missing presentation layer.",
                                   layer_path + "/layerId");
-                        if (layer.sprite)
-                            require(m_assets, *layer.sprite, "asset", layer_path + "/sprite");
+                        if (layer.visual)
+                            validate_visual(*layer.visual, layer_path + "/visual");
                         if (layer.material)
                             require(m_material_interfaces, *layer.material, "material",
                                     layer_path + "/material");
@@ -2328,9 +2328,8 @@ private:
                                 error("compiled_project.unresolved_nested_reference",
                                       "Character animation frame references a missing layer.",
                                       layer_path + "/layerId");
-                            if (layer.sprite.specified && layer.sprite.value)
-                                require(m_assets, *layer.sprite.value, "asset",
-                                        layer_path + "/sprite");
+                            if (layer.visual.specified && layer.visual.value)
+                                validate_visual(*layer.visual.value, layer_path + "/visual");
                             if (layer.material.specified && layer.material.value)
                                 require(m_material_interfaces, *layer.material.value, "material",
                                         layer_path + "/material");
@@ -2397,8 +2396,8 @@ private:
                             error("compiled_project.unresolved_nested_reference",
                                   "Character semantic override references a missing layer.",
                                   layer_path + "/layerId");
-                        if (layer.sprite.specified && layer.sprite.value)
-                            require(m_assets, *layer.sprite.value, "asset", layer_path + "/sprite");
+                        if (layer.visual.specified && layer.visual.value)
+                            validate_visual(*layer.visual.value, layer_path + "/visual");
                         if (layer.material.specified && layer.material.value)
                             require(m_material_interfaces, *layer.material.value, "material",
                                     layer_path + "/material");
