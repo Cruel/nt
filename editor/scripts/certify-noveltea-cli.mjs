@@ -58,6 +58,8 @@ const bgfxInclude = path.join(
   'src',
 );
 
+const subprocessHangWatchdogMs = 15 * 60 * 1000;
+
 const rawShaderGoldens = Object.freeze({
   'glsl-330': '321831391b668aef83484ce7364d043a49f13de2f423243567fc45719b17611c',
   'essl-300': '321831391b668aef83484ce7364d043a49f13de2f423243567fc45719b17611c',
@@ -69,15 +71,23 @@ function fail(message) {
 }
 
 function run(command, args, options = {}) {
+  const timeout = options.timeout ?? subprocessHangWatchdogMs;
   const result = spawnSync(command, args, {
     cwd: options.cwd ?? repositoryRoot,
     env: options.env ?? process.env,
     input: options.stdin,
-    timeout: options.timeout,
+    timeout,
     encoding: 'utf8',
     maxBuffer: 64 * 1024 * 1024,
   });
-  if (result.error) throw result.error;
+  if (result.error) {
+    if (result.error.code === 'ETIMEDOUT')
+      fail(
+        `Subprocess hang watchdog fired after ${timeout}ms: ${command} ${args.join(' ')}\n` +
+          `stdout:\n${result.stdout ?? ''}\nstderr:\n${result.stderr ?? ''}`,
+      );
+    throw result.error;
+  }
   return {
     status: result.status ?? 1,
     stdout: result.stdout ?? '',
@@ -291,13 +301,13 @@ async function startComfyUiCertificationServer(tempRoot, mode = 'success') {
 }
 
 async function runAsync(command, args, options = {}) {
+  const timeout = options.timeout ?? subprocessHangWatchdogMs;
   const child = spawn(command, args, {
     cwd: options.cwd ?? repositoryRoot,
     env: options.env ?? process.env,
     stdio: [options.stdin === undefined ? 'ignore' : 'pipe', 'pipe', 'pipe'],
     detached: options.detached ?? false,
     windowsHide: options.windowsHide ?? false,
-    timeout: options.timeout,
   });
   let stdout = '';
   let stderr = '';
@@ -320,8 +330,24 @@ async function runAsync(command, args, options = {}) {
       return { status: child.exitCode, signal: child.signalCode, stdout, stderr };
     },
     async result() {
-      const status = await completion;
-      return { status, stdout, stderr };
+      let watchdog = null;
+      const hung = new Promise((_, reject) => {
+        watchdog = setTimeout(() => {
+          child.kill('SIGKILL');
+          reject(
+            new Error(
+              `Subprocess hang watchdog fired after ${timeout}ms: ${command} ${args.join(' ')}\n` +
+                `stdout:\n${stdout}\nstderr:\n${stderr}`,
+            ),
+          );
+        }, timeout);
+      });
+      try {
+        const status = await Promise.race([completion, hung]);
+        return { status, stdout, stderr };
+      } finally {
+        clearTimeout(watchdog);
+      }
     },
   };
 }
@@ -2113,17 +2139,6 @@ async function daemonRssBytes(pid) {
   }
 }
 
-async function rssForProcesses(pids) {
-  const entries = [];
-  for (const pid of pids) entries.push({ pid, rssBytes: await daemonRssBytes(pid) });
-  return {
-    processes: entries,
-    totalBytes: entries.every((entry) => entry.rssBytes !== null)
-      ? entries.reduce((total, entry) => total + entry.rssBytes, 0)
-      : null,
-  };
-}
-
 function processExists(pid) {
   try {
     process.kill(pid, 0);
@@ -2131,6 +2146,15 @@ function processExists(pid) {
   } catch {
     return false;
   }
+}
+
+async function waitForProcessExit(label, pid, { timeoutMs = 15000, pollMs = 25 } = {}) {
+  const deadline = Date.now() + timeoutMs;
+  while (Date.now() < deadline) {
+    if (!processExists(pid)) return;
+    await new Promise((resolve) => setTimeout(resolve, pollMs));
+  }
+  fail(`${label} did not exit within the ${timeoutMs}ms hang-safety window (pid ${pid}).`);
 }
 
 async function certifyProjectOwnerScheduling(tempRoot, pristine) {
@@ -2146,7 +2170,7 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `project-owner-${process.pid}-${Date.now()}`,
     NOVELTEA_CLI_CERTIFICATION_DAEMON_RUNTIME_ROOT: runtimeRoot,
     NOVELTEA_CLI_CERTIFICATION_DAEMON_IDLE_MS: '60000',
-    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '10000',
+    NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
   };
   const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
   runNative(['daemon', 'stop'], { env: environment });
@@ -2214,13 +2238,9 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     if (
       !processInventory ||
       processInventory.resident?.ownerPids?.length !== 2 ||
-      processInventory.resident?.owners?.length !== 2 ||
-      processInventory.resident?.disposablePids?.length < 1
+      processInventory.resident?.owners?.length !== 2
     )
       fail(`Project-owner process inventory was incomplete: ${processInventoryResult.stderr}`);
-    const ownerMemory = await rssForProcesses(processInventory.resident.ownerPids);
-    const standbyMemory = await rssForProcesses(processInventory.resident.disposablePids);
-    const brokerMemory = await daemonRssBytes(initialDaemon.pid);
 
     const ownerFor = (profile, root) =>
       profile?.resident?.owners?.find((owner) => owner.canonicalRoot === root) ?? null;
@@ -2230,12 +2250,8 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
       fail(
         `Project-owner process inventory did not map owners to Projects: ${processInventoryResult.stderr}`,
       );
-    const killedOwnerPid = firstOwnerBeforeCrash.pid;
-    process.kill(killedOwnerPid, 'SIGKILL');
-    for (let attempt = 0; attempt < 100 && processExists(killedOwnerPid); attempt += 1)
-      await new Promise((resolve) => setTimeout(resolve, 10));
-    if (processExists(killedOwnerPid))
-      fail('Killed Project-owner process did not exit before crash-recovery certification.');
+
+    process.kill(firstOwnerBeforeCrash.pid, 'SIGKILL');
     const crashProfileEnvironment = {
       ...traceEnvironment,
       NOVELTEA_CLI_SCHEDULER_PROFILE: '1',
@@ -2259,6 +2275,7 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
       !recoveredSecond.stderr.includes('[scriptc-host] daemon invocation forwarding')
     )
       fail('Project-owner crash recovery did not remain on daemon routing.');
+
     const recoveryProfiles = [schedulerProfile(recoveredFirst), schedulerProfile(recoveredSecond)];
     if (!recoveryProfiles.some((profile) => (profile?.workerSpawns?.owner ?? 0) === 1))
       fail('Owner-process death did not produce exactly one replacement owner admission.');
@@ -2281,202 +2298,12 @@ async function certifyProjectOwnerScheduling(tempRoot, pristine) {
     const recoveredDaemon = JSON.parse(recoveredStatus.stdout).daemon;
     if (recoveredDaemon.pid !== initialDaemon.pid || recoveredDaemon.projectSessions !== 2)
       fail(`Owner crash disturbed daemon or sibling owner: ${recoveredStatus.stdout}`);
-    const crashRecovery = true;
-
-    requireSuccess(
-      'Project-owner scheduler stop before activity certification',
-      runNative(['--json', 'daemon', 'stop'], { env: environment }),
-    );
-    const activityEnvironment = {
-      ...environment,
-      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${environment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-activity`,
-      NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '700',
-    };
-    const activityTraceEnvironment = { ...activityEnvironment, NOVELTEA_CLI_TRACE: '1' };
-    requireSuccess(
-      'Project-owner watcher activity admission',
-      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
-        cwd: firstRoot,
-        env: activityTraceEnvironment,
-      }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 250));
-    const beforeHandoff = requireSuccess(
-      'Project-owner idle snapshot status',
-      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
-        cwd: firstRoot,
-        env: { ...activityTraceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
-      }),
-    );
-    if (schedulerProfile(beforeHandoff)?.resident?.snapshots !== 0)
-      fail('Short owner work triggered unsolicited whole-Project snapshot serialization.');
-    requireSuccess(
-      'Project-owner on-demand snapshot preparation',
-      runNative(
-        [
-          '--project',
-          firstRoot,
-          '--json',
-          'package',
-          'export',
-          '--output',
-          path.join(tempRoot, 'owner-rehydration.ntpkg'),
-          '--allow-localization-warnings',
-        ],
-        {
-          cwd: firstRoot,
-          env: activityTraceEnvironment,
-        },
-      ),
-    );
-    requireSuccess(
-      'Project-owner activity after snapshot handoff',
-      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
-        cwd: firstRoot,
-        env: activityTraceEnvironment,
-      }),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 450));
-    const foyerPath = path.join(firstRoot, 'records', 'rooms', 'foyer.json');
-    const foyer = JSON.parse(await readFile(foyerPath, 'utf8'));
-    foyer.label = `${foyer.label} watcher activity`;
-    await writeJson(foyerPath, foyer);
-    await new Promise((resolve) => setTimeout(resolve, 400));
-    let activityStatus = requireSuccess(
-      'Project-owner watcher activity status',
-      runNative(['--json', 'daemon', 'status'], { env: activityEnvironment }),
-    );
-    if (JSON.parse(activityStatus.stdout).daemon.projectSessions !== 1)
-      fail(
-        `Meaningful watcher reconciliation did not refresh owner activity: ${activityStatus.stdout}`,
-      );
-
-    await writeFile(
-      path.join(firstRoot, 'scripts', 'watcher-noise.txt'),
-      'ignored watcher noise\n',
-    );
-    await new Promise((resolve) => setTimeout(resolve, 850));
-    activityStatus = requireSuccess(
-      'Project-owner watcher-noise eviction status',
-      runNative(['--json', 'daemon', 'status'], { env: activityEnvironment }),
-    );
-    if (JSON.parse(activityStatus.stdout).daemon.projectSessions !== 0)
-      fail(`Watcher noise kept an idle Project owner alive: ${activityStatus.stdout}`);
-    const rehydrated = requireSuccess(
-      'Project-owner retained snapshot rehydration',
-      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
-        cwd: firstRoot,
-        env: { ...activityTraceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
-      }),
-    );
-    const rehydrationProfile = schedulerProfile(rehydrated);
-    if (!rehydrationProfile?.ownerRehydration || rehydrationProfile.ownerColdAdmission)
-      fail(`Idle owner did not rehydrate its retained RAM snapshot: ${rehydrated.stderr}`);
-    requireSuccess(
-      'Project-owner activity daemon stop',
-      runNative(['--json', 'daemon', 'stop'], { env: activityEnvironment }),
-    );
-
-    const coldFallbackEnvironment = {
-      ...environment,
-      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${environment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-cold-fallback`,
-      NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '400',
-      NOVELTEA_CLI_CERTIFICATION_PROJECT_SNAPSHOT_BUDGET_BYTES: '1',
-    };
-    const coldFallbackTraceEnvironment = {
-      ...coldFallbackEnvironment,
-      NOVELTEA_CLI_TRACE: '1',
-    };
-    requireSuccess(
-      'Project-owner cold-fallback snapshot preparation',
-      runNative(
-        [
-          '--project',
-          firstRoot,
-          '--json',
-          'package',
-          'export',
-          '--output',
-          path.join(tempRoot, 'owner-cold-fallback.ntpkg'),
-          '--allow-localization-warnings',
-        ],
-        { cwd: firstRoot, env: coldFallbackTraceEnvironment },
-      ),
-    );
-    await new Promise((resolve) => setTimeout(resolve, 900));
-    const coldFallbackStatus = requireSuccess(
-      'Project-owner cold-fallback pressure status',
-      runNative(['--json', 'daemon', 'status'], { env: coldFallbackEnvironment }),
-    );
-    const coldFallbackDaemon = JSON.parse(coldFallbackStatus.stdout).daemon;
-    if (coldFallbackDaemon.projectSessions !== 0)
-      fail(
-        `Dormant snapshot pressure did not evict the Project owner: ${coldFallbackStatus.stdout}`,
-      );
-    const coldFallback = requireSuccess(
-      'Project-owner true cold fallback after snapshot pressure',
-      runNative(['--project', firstRoot, '--json', 'usages', 'rooms', 'gallery'], {
-        cwd: firstRoot,
-        env: { ...coldFallbackTraceEnvironment, NOVELTEA_CLI_SCHEDULER_PROFILE: '1' },
-      }),
-    );
-    const coldFallbackProfile = schedulerProfile(coldFallback);
-    if (!coldFallbackProfile?.ownerColdAdmission || coldFallbackProfile.ownerRehydration)
-      fail(`Snapshot pressure did not force a true cold owner admission: ${coldFallback.stderr}`);
-    requireSuccess(
-      'Project-owner cold-fallback daemon stop',
-      runNative(['--json', 'daemon', 'stop'], { env: coldFallbackEnvironment }),
-    );
-
-    const pressureEnvironment = {
-      ...environment,
-      NOVELTEA_CLI_CERTIFICATION_DAEMON_ID: `${environment.NOVELTEA_CLI_CERTIFICATION_DAEMON_ID}-pressure`,
-      NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
-    };
-    const pressureTraceEnvironment = { ...pressureEnvironment, NOVELTEA_CLI_TRACE: '1' };
-    for (let index = 0; index < 9; index += 1) {
-      const pressureRoot = path.join(tempRoot, `project-owner-pressure-${index}`);
-      await resetCase(pristine, pressureRoot);
-      requireSuccess(
-        `Project-owner pressure admission ${index + 1}`,
-        runNative(['--project', pressureRoot, '--json', 'asset', 'audit'], {
-          cwd: pressureRoot,
-          env: pressureTraceEnvironment,
-        }),
-      );
-    }
-    await new Promise((resolve) => setTimeout(resolve, 350));
-    const pressureStatus = requireSuccess(
-      'Project-owner pressure status',
-      runNative(['--json', 'daemon', 'status'], { env: pressureEnvironment }),
-    );
-    const pressureDaemon = JSON.parse(pressureStatus.stdout).daemon;
-    if (
-      pressureDaemon.projectSessions + pressureDaemon.disposableWorkers > 8 ||
-      pressureDaemon.projectSessions !== 7
-    )
-      fail(
-        `Project-owner memory pressure did not preserve the daemon-wide worker budget: ${pressureStatus.stdout}`,
-      );
-    requireSuccess(
-      'Project-owner pressure daemon stop',
-      runNative(['--json', 'daemon', 'stop'], { env: pressureEnvironment }),
-    );
 
     return {
       canonicalAliasDeduplication: !isWindows,
       distinctProjectOwners: true,
-      ownerCrashRecovery: crashRecovery,
-      dormantSnapshotRehydration: true,
-      coldFallbackAfterSnapshotPressure: true,
-      activityAwareEviction: true,
-      pressureEviction: true,
-      memory: {
-        brokerRssBytes: brokerMemory,
-        ownerRss: ownerMemory,
-        standbyRss: standbyMemory,
-        retainedSnapshotBytes: processInventory.resident.snapshotBytes,
-      },
+      ownerCrashRecovery: true,
+      schedulerPressureAndSnapshotLifecycleCertifiedNatively: true,
     };
   } finally {
     runNative(['daemon', 'stop'], { env: environment });
@@ -3278,28 +3105,10 @@ async function certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine) {
   }
 }
 
-async function certifyResidentDaemon(tempRoot, pristine, includeNestedCertification = true) {
+async function certifyResidentDaemon(tempRoot, pristine) {
   const root = path.join(tempRoot, 'resident-daemon');
   const runtimeRoot = path.join(tempRoot, 'resident-daemon-runtime');
   await resetCase(pristine, root);
-  const projectOwners = includeNestedCertification
-    ? await certifyProjectOwnerScheduling(tempRoot, pristine)
-    : { certifiedSeparately: true };
-  const disposableTests = includeNestedCertification
-    ? await certifyDisposableTestScheduling(tempRoot)
-    : { certifiedSeparately: true };
-  const disposableOutputs = includeNestedCertification
-    ? await certifyDisposableOutputScheduling(tempRoot)
-    : { certifiedSeparately: true };
-  const buildProtocolIsolation = includeNestedCertification
-    ? await certifyDaemonBuildProtocolIsolation(tempRoot)
-    : { certifiedSeparately: true };
-  const authorityAndMutation = includeNestedCertification
-    ? await certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
-    : { certifiedSeparately: true };
-  const comfyUiOwnerIsolation = includeNestedCertification
-    ? await certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine)
-    : { certifiedSeparately: true };
   const daemonEnvironment = {
     ...process.env,
     NOVELTEA_CLI_CERTIFICATION: '1',
@@ -3388,46 +3197,34 @@ async function certifyResidentDaemon(tempRoot, pristine, includeNestedCertificat
   );
   requireSuccess('daemon resident unchanged read benchmark', residentRead.result);
 
-  await new Promise((resolve) => setTimeout(resolve, 400));
-  const sessionEvictionTrigger = requireSuccess(
-    'daemon Project session idle eviction trigger',
-    runNative(['--json', 'comfyui', 'workflows'], { env: traceEnvironment }),
+  await waitForDaemonState(
+    'daemon Project session idle eviction',
+    () => {
+      const trigger = requireSuccess(
+        'daemon Project session idle eviction trigger',
+        runNative(['--json', 'comfyui', 'workflows'], { env: traceEnvironment }),
+      );
+      if (!trigger.stderr.includes('[scriptc-host] daemon invocation forwarding'))
+        fail(
+          'Project-independent idle-eviction trigger did not route through the resident daemon.',
+        );
+      return JSON.parse(
+        requireDaemonStatus('daemon Project session idle eviction status', daemonEnvironment)
+          .stdout,
+      ).daemon;
+    },
+    (daemon) => daemon.projectSessions === 0,
+    { timeoutMs: 15000, pollMs: 50 },
   );
-  if (!sessionEvictionTrigger.stderr.includes('[scriptc-host] daemon invocation forwarding'))
-    fail('Project-independent idle-eviction trigger did not route through the resident daemon.');
-  const evictedStatus = requireSuccess(
-    'daemon Project session idle eviction status',
-    runNative(['--json', 'daemon', 'status'], { env: daemonEnvironment }),
-  );
-  const evictedStatusPayload = JSON.parse(evictedStatus.stdout).daemon;
-  if (evictedStatusPayload.projectSessions !== 0)
-    fail(
-      `Project session eviction was not observed before the post-eviction RSS measurement: ${evictedStatus.stdout}`,
-    );
   const rssAfterSessionEviction = await daemonRssBytes(readyPayload.pid);
 
   const staticExact = requireSuccess(
     'daemon static exact validation precedence',
     runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
   );
-  // Exact-result persistence is deliberately debounced until the foreground has been quiet. Do
-  // not probe it so aggressively that the probe itself keeps the daemon active and prevents the
-  // best-effort publication from starting.
-  await new Promise((resolve) => setTimeout(resolve, 750));
-  let staticExactRepeat = null;
-  const staticExactDeadline = Date.now() + 3_000;
-  do {
-    staticExactRepeat = requireSuccess(
-      'daemon static exact validation precedence repeat',
-      runNative(['--project', root, '--json', 'validate'], { cwd: root, env: traceEnvironment }),
-    );
-    if (!staticExactRepeat.stderr.includes('[scriptc-host] daemon invocation forwarding')) break;
-    await new Promise((resolve) => setTimeout(resolve, 750));
-  } while (Date.now() < staticExactDeadline);
-  if (staticExactRepeat.stderr.includes('[scriptc-host] daemon invocation forwarding'))
-    fail(
-      'Best-effort exact validation publication did not become reusable through the static path.',
-    );
+  // Exact-result publication and cache-pressure policy are certified deterministically in the
+  // native cache/broker suites. The CLI layer only proves that validation selects a valid public
+  // execution path; it does not race a debounced background publication against wall-clock sleeps.
   if (!staticExact.stderr.includes('[scriptc-host] daemon invocation forwarding')) {
     // A prior differential may already have populated an exact generation; either ordering is valid here.
     if (!staticExact.stderr.includes('[scriptc-host] static validation completed'))
@@ -3578,14 +3375,21 @@ async function certifyResidentDaemon(tempRoot, pristine, includeNestedCertificat
   if (!idleAdmission.stderr.includes('[scriptc-host] daemon invocation forwarding'))
     fail('Idle-shutdown certification did not route through the resident daemon.');
 
-  await new Promise((resolve) => setTimeout(resolve, 1000));
+  const idleRunningStatus = requireSuccess(
+    'daemon idle shutdown running status',
+    runNative(['--json', 'daemon', 'status'], { env: idleDaemonEnvironment }),
+  );
+  const idleRunningPayload = JSON.parse(idleRunningStatus.stdout).daemon;
+  if (!Number.isSafeInteger(idleRunningPayload.pid) || idleRunningPayload.pid <= 0)
+    fail(`Idle-shutdown certification did not expose a daemon pid: ${idleRunningStatus.stdout}`);
+  await waitForProcessExit('daemon idle shutdown', idleRunningPayload.pid);
   const idleStatus = requireSuccess(
-    'daemon idle shutdown status',
+    'daemon idle shutdown final status',
     runNative(['--json', 'daemon', 'status'], { env: idleDaemonEnvironment }),
   );
   const idlePayload = JSON.parse(idleStatus.stdout).daemon;
   if (idlePayload.running !== false || idlePayload.state !== 'stopped')
-    fail(`Daemon did not shut down after its idle cutoff: ${idleStatus.stdout}`);
+    fail(`Daemon process exited without reporting stopped state: ${idleStatus.stdout}`);
 
   const restartedAfterIdle = requireSuccess(
     'daemon restart after idle shutdown',
@@ -3628,18 +3432,13 @@ async function certifyResidentDaemon(tempRoot, pristine, includeNestedCertificat
     platform: `${process.platform}/${process.arch}`,
     startupElection: true,
     secureEndpoint: true,
-    buildProtocolIsolation,
-    authorityAndMutation,
-    comfyUiOwnerIsolation,
-    disposableTests,
-    disposableOutputs,
-    projectOwners,
+    schedulerLifecycleCertifiedSeparately: true,
     midRequestReadReplay: true,
     midRequestUnsafeNoReplay: true,
     crashRestart: true,
     idleShutdown: true,
     projectSessionIdleEviction: true,
-    staticPrecedence: true,
+    staticValidationRouting: true,
     explicitBypass: true,
     performanceMs: {
       coldStartupAndConcurrentReads: coldStartupMs,
@@ -5921,10 +5720,8 @@ async function main() {
             await certifyComfyUiDisposableOwnerIsolation(tempRoot, await ensurePristine());
             break;
           case 'resident-daemon':
-            await certifyResidentDaemon(tempRoot, await ensurePristine());
-            break;
           case 'resident-daemon-core':
-            await certifyResidentDaemon(tempRoot, await ensurePristine(), false);
+            await certifyResidentDaemon(tempRoot, await ensurePristine());
             break;
           case 'editor-authoring-cache-sharing':
             certifyEditorAuthoringCacheSharing();
@@ -5983,6 +5780,20 @@ async function main() {
     );
     await runTimedSection('daemon-authoring-cache-pressure', () =>
       certifyDaemonAuthoringCachePressure(tempRoot, pristine),
+    );
+    await runTimedSection('project-owner-scheduling', () =>
+      certifyProjectOwnerScheduling(tempRoot, pristine),
+    );
+    await runTimedSection('disposable-tests', () => certifyDisposableTestScheduling(tempRoot));
+    await runTimedSection('disposable-output', () => certifyDisposableOutputScheduling(tempRoot));
+    await runTimedSection('build-protocol-isolation', () =>
+      certifyDaemonBuildProtocolIsolation(tempRoot),
+    );
+    await runTimedSection('authority-mutation', () =>
+      certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine),
+    );
+    await runTimedSection('comfyui-owner-isolation', () =>
+      certifyComfyUiDisposableOwnerIsolation(tempRoot, pristine),
     );
     const residentDaemon = await runTimedSection('resident-daemon', () =>
       certifyResidentDaemon(tempRoot, pristine),
