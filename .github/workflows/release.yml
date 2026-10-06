@@ -169,17 +169,13 @@ jobs:
           path: build/release-cli/noveltea-${{ env.RELEASE_TAG }}-linux-x64.tar.gz
           if-no-files-found: error
 
-  windows-cli:
-    name: Standalone CLI (windows-x64)
+  windows-cli-build:
+    name: Build standalone CLI (windows-x64)
     runs-on: windows-2025
     needs: release-metadata
-    env:
-      RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
     timeout-minutes: 90
     permissions:
       contents: read
-      id-token: write
-      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@v6
@@ -191,8 +187,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
       - name: Install dependencies
         run: pnpm install --frozen-lockfile
       - name: Cache vcpkg SDK and binaries
@@ -225,6 +219,55 @@ jobs:
           SCRIPTC_CC: zigcc
           SCRIPTC_TARGET: x86_64-windows-gnu
         run: pnpm -C editor run noveltea:build
+      - name: Upload Windows CLI build
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-windows-cli-build
+          path: build/cli/windows
+          if-no-files-found: error
+          retention-days: 1
+      - name: Upload Windows CLI certification shader headers
+        uses: actions/upload-artifact@v7
+        with:
+          name: noveltea-windows-cli-certification-shader-headers
+          path: build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src
+          if-no-files-found: error
+          retention-days: 1
+
+  windows-cli:
+    name: Certify standalone CLI (windows-x64)
+    runs-on: windows-2025
+    needs: [release-metadata, windows-cli-build]
+    env:
+      RELEASE_TAG: ${{ needs.release-metadata.outputs.release_tag }}
+    timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
+      attestations: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ env.RELEASE_REF }}
+      - name: Install pnpm
+        uses: pnpm/action-setup@v6
+      - name: Set up Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: .node-version
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+      - name: Download Windows CLI build
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-windows-cli-build
+          path: build/cli/windows
+      - name: Download Windows CLI certification shader headers
+        uses: actions/download-artifact@v7
+        with:
+          name: noveltea-windows-cli-certification-shader-headers
+          path: build/windows-cli-gnu/_deps/bgfx.cmake-src/bgfx/src
       - name: Set up PE inspection environment
         uses: ilammy/msvc-dev-cmd@v1
         with:
@@ -232,6 +275,8 @@ jobs:
       - name: Verify PE inspection tool
         shell: pwsh
         run: Get-Command dumpbin | Out-Null
+      - name: Build Node reference bundle
+        run: pnpm -C editor exec vp pack
       - name: Certify Windows CLI
         run: pnpm -C editor run noveltea:certify
       - name: Stage standalone Windows CLI
@@ -522,8 +567,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install root workspace dependencies for desktop export smoke
         run: pnpm install --frozen-lockfile
@@ -693,15 +736,7 @@ jobs:
           ccache: "true"
           autotools: "true"
 
-      - name: Cache Emscripten SDK
-        id: cache-emsdk
-        uses: actions/cache@v5
-        with:
-          path: .cache/emsdk
-          key: ${{ runner.os }}-emsdk-${{ env.EMSDK_VERSION }}
-
       - name: Install Emscripten
-        if: steps.cache-emsdk.outputs.cache-hit != 'true'
         run: |
           git clone https://github.com/emscripten-core/emsdk.git "${{ github.workspace }}/.cache/emsdk"
           cd "${{ github.workspace }}/.cache/emsdk"
@@ -760,8 +795,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install root workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -1000,7 +1033,6 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-          cache: gradle
 
       - name: Set up Linux native dependencies
         uses: ./.github/actions/setup-linux-native
@@ -1024,15 +1056,7 @@ jobs:
         run: |
           "$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager" "platform-tools" "platforms;android-${ANDROID_API_LEVEL}" "build-tools;${ANDROID_BUILD_TOOLS_VERSION}" "ndk;${ANDROID_NDK_VERSION}" "cmake;${ANDROID_CMAKE_VERSION}"
 
-      - name: Cache SDL3 Android AAR
-        id: cache-sdl3-aar
-        uses: actions/cache@v5
-        with:
-          path: android/app/libs/SDL3-3.4.10.aar
-          key: ${{ runner.os }}-sdl3-aar-3.4.10
-
       - name: Download SDL3 Android AAR
-        if: steps.cache-sdl3-aar.outputs.cache-hit != 'true'
         run: |
           mkdir -p android/app/libs .cache/sdl3-android
           curl -L -o .cache/sdl3-android/SDL3-devel-3.4.10-android.zip https://github.com/libsdl-org/SDL/releases/download/release-3.4.10/SDL3-devel-3.4.10-android.zip
@@ -1088,8 +1112,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install root workspace dependencies
         run: pnpm install --frozen-lockfile
@@ -1271,8 +1293,6 @@ jobs:
         uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
 
       - name: Install dependencies
         run: pnpm install --frozen-lockfile

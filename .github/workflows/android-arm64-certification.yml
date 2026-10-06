@@ -30,13 +30,10 @@ jobs:
         with:
           distribution: temurin
           java-version: 17
-          cache: gradle
       - uses: pnpm/action-setup@v6
       - uses: actions/setup-node@v6
         with:
           node-version-file: .node-version
-          cache: pnpm
-          cache-dependency-path: pnpm-lock.yaml
       - name: Install host and Android tooling
         run: |
           sudo apt-get update
