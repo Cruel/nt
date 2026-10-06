@@ -1,5 +1,10 @@
 {
   "sources": {
+    "noveltea-motion-policy-397": {
+      "kind": "repository",
+      "repository": "https://github.com/Cruel/nt.git",
+      "revision": "2582bd9e666eb239f378455390be84f63236432f"
+    },
     "lua-5.5-manual": {
       "kind": "web",
       "url": "https://www.lua.org/manual/5.5/manual.html",
@@ -245,7 +250,7 @@
     },
     "technical/LUA.md": {
       "reviewed": "2026-10-05",
-      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, Script Module helper/Bootstrap lifecycle, runtime bindings, capability profiles, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
+      "strategy": "Treat NovelTea's exact Lua 5.5.0 dependency, sandbox initialization, Script Module helper/Bootstrap lifecycle, runtime bindings, capability profiles, owner-scoped desired Material/motion policy, and Runtime UI Lua bindings as the authoring authority; use the Lua 5.5 manual only for upstream language/library semantics and omit ordinary Lua tutorial material.",
       "sources": [
         {
           "source": "lua-5.5-manual",
@@ -290,6 +295,16 @@
             "engine/src/ui/rmlui/runtime_ui_action_gateway.cpp",
             "tests/host/game_host_tests.cpp",
             "tests/ui/runtime_ui_action_gateway_tests.cpp"
+          ]
+        },
+        {
+          "source": "noveltea-motion-policy-397",
+          "areas": [
+            "engine/src/script/lua/bind_runtime_capabilities.cpp",
+            "engine/src/script/lua/runtime_script_api.cpp",
+            "engine/include/noveltea/core/motion_policy.hpp",
+            "docs/runtime/LUA_RUNTIME.md",
+            "docs/engine/ANIMATION.md"
           ]
         }
       ]
