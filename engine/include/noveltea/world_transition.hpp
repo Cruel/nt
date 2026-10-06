@@ -54,7 +54,8 @@ using TargetedPresentationOperation =
                  core::CameraZoomOperation, core::CameraRotationOperation,
                  core::CameraFocusOperation, core::CameraShakeOperation, core::CameraPunchOperation,
                  core::CameraFlashOperation, core::ActorPresentationOperation,
-                 core::CharacterGestureOperation, core::LayoutFinitePresentationOperation>;
+                 core::CharacterGestureOperation, core::PlayMotionOperation,
+                 core::TransitionMotionOperation, core::LayoutFinitePresentationOperation>;
 
 struct CharacterGestureCueCrossing {
     core::PresentationOperationRef operation;
@@ -80,7 +81,7 @@ struct LayoutTransitionRenderState {
 
 class WorldTransitionBackend final : public core::PresentationOperationBackendPort {
 public:
-    explicit WorldTransitionBackend(const WorldPresentationBackend& world) : m_world(world) {}
+    explicit WorldTransitionBackend(WorldPresentationBackend& world) : m_world(world) {}
 
     [[nodiscard]] core::Result<void, core::Diagnostics>
     realize(const core::CoordinatedOperationDelivery& delivery) override;
@@ -117,6 +118,8 @@ private:
         TargetedPresentationOperation request;
         animation::TweenHandle tween;
         std::vector<core::CharacterGestureCueId> emitted_gesture_cues;
+        std::optional<WorldPreparedMotionOverride> motion_override;
+        mutable bool motion_endpoint_realized = false;
     };
 
     [[nodiscard]] animation::TweenService& tween_service(core::LayoutClockDomain clock) noexcept;
@@ -137,7 +140,7 @@ private:
                          core::Diagnostic diagnostic);
     void update_render_state();
 
-    const WorldPresentationBackend& m_world;
+    WorldPresentationBackend& m_world;
     std::optional<ActiveOperation> m_active;
     std::vector<ActiveTargetedOperation> m_targeted;
     std::optional<WorldTransitionRenderState> m_render_state;

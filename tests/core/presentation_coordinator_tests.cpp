@@ -613,6 +613,136 @@ TEST_CASE("finite operation replacement requires the same typed target")
     CHECK(rejected.error().front().code == "presentation.replacement_target_mismatch");
 }
 
+TEST_CASE("finite named motion operations share coordinator lifecycle and target replacement")
+{
+    PresentationCoordinator coordinator;
+    const MotionOperationTarget target = InteractableMotionOperationTarget{
+        id<InteractableInstanceId>("key"),
+        {id<RoomId>("room"), id<RoomPlacementId>("key-placement")}};
+    const auto playback = MotionPlaybackPolicy{
+        .repeat = MotionRepeat::Once,
+        .rate = 1.0,
+        .clock = LayoutClockDomain::Gameplay,
+        .initial_marker = std::nullopt,
+        .loop_range = std::nullopt,
+    };
+    auto common = finite_common(40);
+    const auto owner = std::bit_cast<FlowFrameId>(std::uint64_t{140});
+    const auto blocker = std::bit_cast<PresentationFlowBlockerHandle>(std::uint64_t{240});
+    auto first = coordinator.accept(PresentationOperation{
+        PlayMotionOperation{common, target, id<AnimationMotionId>("inspect"), playback,
+                            PresentationFlowCompletion{owner, blocker}}});
+    REQUIRE(first);
+    CHECK(first.value().metadata.checkpoint_class == CheckpointClass::CausalBarrier);
+    CHECK(coordinator.checkpoint_status().active_barriers.size() == 1);
+
+    common = finite_common(41, 2, 3);
+    auto replacement = coordinator.accept(PresentationOperation{
+        TransitionMotionOperation{common, target, id<AnimationMotionId>("settle"),
+                                  id<AnimationMotionId>("open"), playback, std::nullopt}});
+    REQUIRE(replacement);
+    const auto* replaced =
+        std::get_if<PresentationOperationReplaced>(&coordinator.lifecycles().front().state);
+    REQUIRE(replaced != nullptr);
+    CHECK(replaced->replacement == replacement.value().metadata.operation);
+    CHECK(coordinator.checkpoint_status().active_barriers.empty());
+    REQUIRE(coordinator.skip(replacement.value().metadata.operation));
+    CHECK(std::holds_alternative<PresentationOperationCompleted>(
+        coordinator.lifecycles().back().state));
+}
+
+TEST_CASE("finite named motion rejects looping playback")
+{
+    PresentationCoordinator coordinator;
+    auto playback = MotionPlaybackPolicy{};
+    playback.repeat = MotionRepeat::Loop;
+    const auto accepted = coordinator.accept(PresentationOperation{
+        PlayMotionOperation{finite_common(50),
+                            InteractableMotionOperationTarget{
+                                id<InteractableInstanceId>("key"),
+                                {id<RoomId>("room"), id<RoomPlacementId>("key-placement")}},
+                            id<AnimationMotionId>("inspect"), playback, std::nullopt}});
+    REQUIRE_FALSE(accepted);
+    CHECK(accepted.error().front().code == "presentation.invalid_motion_operation");
+}
+
+TEST_CASE("finite named motion target identity includes Interactable placement")
+{
+    PresentationCoordinator coordinator;
+    const auto playback = MotionPlaybackPolicy{
+        .repeat = MotionRepeat::Once,
+        .rate = 1.0,
+        .clock = LayoutClockDomain::Gameplay,
+    };
+    const auto first = coordinator.accept(PresentationOperation{
+        PlayMotionOperation{finite_common(52),
+                            InteractableMotionOperationTarget{
+                                id<InteractableInstanceId>("key"),
+                                {id<RoomId>("room"), id<RoomPlacementId>("left-placement")}},
+                            id<AnimationMotionId>("inspect"), playback, std::nullopt}});
+    const auto second = coordinator.accept(PresentationOperation{
+        PlayMotionOperation{finite_common(53, 2, 3),
+                            InteractableMotionOperationTarget{
+                                id<InteractableInstanceId>("key"),
+                                {id<RoomId>("room"), id<RoomPlacementId>("right-placement")}},
+                            id<AnimationMotionId>("inspect"), playback, std::nullopt}});
+    REQUIRE(first);
+    REQUIRE(second);
+    CHECK(std::holds_alternative<PresentationOperationAccepted>(
+        coordinator.lifecycles().front().state));
+    REQUIRE(coordinator.cancel(first.value().metadata.operation,
+                               PresentationCancellationReason::ExplicitRequest));
+    CHECK(std::holds_alternative<PresentationOperationCancelled>(
+        coordinator.lifecycles().front().state));
+}
+
+TEST_CASE("finite named motion target identity includes resolved Interactable occurrence")
+{
+    PresentationCoordinator coordinator;
+    const auto playback = MotionPlaybackPolicy{
+        .repeat = MotionRepeat::Once,
+        .rate = 1.0,
+        .clock = LayoutClockDomain::Gameplay,
+    };
+    const auto placement =
+        compiled::RoomPlacementRef{id<RoomId>("room"), id<RoomPlacementId>("key-placement")};
+    const auto first = coordinator.accept(PresentationOperation{PlayMotionOperation{
+        finite_common(54),
+        InteractableMotionOperationTarget{id<InteractableInstanceId>("key"), placement,
+                                          id<RoomInteractableEntryId>("first")},
+        id<AnimationMotionId>("inspect"), playback, std::nullopt}});
+    const auto second = coordinator.accept(PresentationOperation{PlayMotionOperation{
+        finite_common(55, 2, 3),
+        InteractableMotionOperationTarget{id<InteractableInstanceId>("key"), placement,
+                                          id<RoomInteractableEntryId>("second")},
+        id<AnimationMotionId>("inspect"), playback, std::nullopt}});
+    REQUIRE(first);
+    REQUIRE(second);
+    CHECK(std::holds_alternative<PresentationOperationAccepted>(
+        coordinator.lifecycles().front().state));
+    REQUIRE(coordinator.cancel(first.value().metadata.operation,
+                               PresentationCancellationReason::ExplicitRequest));
+    CHECK(std::holds_alternative<PresentationOperationCancelled>(
+        coordinator.lifecycles().front().state));
+}
+
+TEST_CASE("finite named motion admits unscaled presentation clock")
+{
+    PresentationCoordinator coordinator;
+    auto playback = MotionPlaybackPolicy{};
+    playback.repeat = MotionRepeat::Once;
+    playback.clock = LayoutClockDomain::UnscaledPresentation;
+    auto operation_common = finite_common(51);
+    operation_common.clock = LayoutClockDomain::UnscaledPresentation;
+    const auto accepted = coordinator.accept(PresentationOperation{
+        PlayMotionOperation{operation_common,
+                            InteractableMotionOperationTarget{
+                                id<InteractableInstanceId>("key"),
+                                {id<RoomId>("room"), id<RoomPlacementId>("key-placement")}},
+                            id<AnimationMotionId>("inspect"), playback, std::nullopt}});
+    REQUIRE(accepted);
+}
+
 TEST_CASE("TransitionGroup target construction is atomic and rejects excluded planes")
 {
     const PresentationOwner owner = RoomPresentationOwner{id<RoomId>("room")};

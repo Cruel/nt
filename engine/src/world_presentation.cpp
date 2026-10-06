@@ -1,5 +1,7 @@
 #include "noveltea/world_presentation.hpp"
 
+#include "noveltea/presentation/presentation_operation_requests.hpp"
+
 #include <algorithm>
 #include <charconv>
 #include <cmath>
@@ -1677,6 +1679,8 @@ WorldPresentationBackend::control_motion(const WorldVisualOccurrence& occurrence
                                          const core::RuntimeClockUpdate& clock)
 {
     using Result = core::Result<bool, MotionControlError>;
+    if (finite_motion_active(occurrence))
+        return Result::failure(MotionControlError::FiniteOperationActive);
     const auto position = motion_position(occurrence, clock);
     if (!position)
         return Result::failure(position.error());
@@ -1713,6 +1717,165 @@ WorldPresentationBackend::control_motion(const WorldVisualOccurrence& occurrence
     epoch.paused = paused;
     realize(clock);
     return Result::success(true);
+}
+
+void WorldPresentationBackend::begin_finite_motion(const WorldVisualOccurrence& occurrence)
+{
+    if (!finite_motion_active(occurrence))
+        m_finite_motion_occurrences.push_back(occurrence);
+}
+
+void WorldPresentationBackend::end_finite_motion(const WorldVisualOccurrence& occurrence) noexcept
+{
+    std::erase_if(m_finite_motion_occurrences,
+                  [&](const auto& value) { return value == occurrence; });
+}
+
+bool WorldPresentationBackend::finite_motion_active(
+    const WorldVisualOccurrence& occurrence) const noexcept
+{
+    return std::ranges::find(m_finite_motion_occurrences, occurrence) !=
+           m_finite_motion_occurrences.end();
+}
+
+core::Result<WorldPreparedMotionOverride, core::Diagnostics>
+WorldPresentationBackend::prepare_motion_override(core::PresentationSnapshotRevision revision,
+                                                  const core::MotionOperationTarget& target,
+                                                  const core::AnimationMotionId& motion,
+                                                  const core::MotionPlaybackPolicy& playback)
+{
+    const auto* source_snapshot = snapshot(revision);
+    const auto* source_frame = frame(revision);
+    if (source_snapshot == nullptr || source_frame == nullptr) {
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure({diagnostic(
+            "presentation.motion_revision_unavailable",
+            "Finite motion requires its exact retained target revision", "finite-motion")});
+    }
+
+    const core::compiled::Visual* visual = nullptr;
+    std::optional<core::MaterialId> material;
+    std::string context;
+    WorldVisualOccurrence occurrence{WorldDrawFamily::Interactable, {}, 0};
+    bool found = false;
+    std::visit(
+        [&](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            if constexpr (std::is_same_v<T, core::EnvironmentMotionOperationTarget>) {
+                const auto entry =
+                    std::ranges::find_if(source_snapshot->environments, [&](const auto& candidate) {
+                        return candidate.instance == value.environment &&
+                               candidate.owner == value.owner;
+                    });
+                if (entry == source_snapshot->environments.end() || !entry->visual)
+                    return;
+                visual = &*entry->visual;
+                material = entry->material;
+                context = "finite-motion/environment/" + value.environment.text();
+                occurrence = {WorldDrawFamily::Environment, environment_identity(*entry), 0};
+                found = true;
+            } else if constexpr (std::is_same_v<T, core::InteractableMotionOperationTarget>) {
+                const auto entry = std::ranges::find_if(
+                    source_snapshot->interactables, [&](const auto& candidate) {
+                        return candidate.interactable == value.interactable &&
+                               candidate.placement == value.placement &&
+                               core::motion_target_occurrence_matches(candidate.occurrence,
+                                                                      value.occurrence);
+                    });
+                if (entry == source_snapshot->interactables.end() || !entry->visual)
+                    return;
+                visual = &*entry->visual;
+                material = entry->material;
+                context = "finite-motion/interactable/" + value.interactable.text();
+                occurrence = {WorldDrawFamily::Interactable,
+                              interactable_draw_identity(entry->interactable, entry->occurrence,
+                                                         entry->placement),
+                              0};
+                found = true;
+            } else {
+                const auto actor =
+                    std::ranges::find_if(source_snapshot->actors, [&](const auto& candidate) {
+                        return candidate.key == value.actor;
+                    });
+                if (actor == source_snapshot->actors.end())
+                    return;
+                const auto layer = std::ranges::find_if(actor->layers, [&](const auto& candidate) {
+                    return candidate.id == value.layer;
+                });
+                if (layer == actor->layers.end() || !layer->visual)
+                    return;
+                visual = &*layer->visual;
+                material = layer->material;
+                context = "finite-motion/actor/" + world_actor_identity(actor->key) + "/layer/" +
+                          value.layer.text();
+                occurrence = {
+                    WorldDrawFamily::Actor, world_actor_identity(actor->key),
+                    static_cast<std::uint8_t>(std::distance(actor->layers.begin(), layer))};
+                found = true;
+            }
+        },
+        target);
+    if (!found || visual == nullptr) {
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
+            {diagnostic("presentation.motion_target_unavailable",
+                        "Finite motion target has no live Visual occurrence", "finite-motion")});
+    }
+    const auto* animation_visual = std::get_if<core::compiled::AnimationVisual>(visual);
+    if (animation_visual == nullptr) {
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
+            {diagnostic("presentation.motion_target_not_animated",
+                        "Finite motion target must resolve to an Animation Visual", context)});
+    }
+
+    auto selected = *animation_visual;
+    selected.motion = motion;
+    selected.playback = playback;
+    auto prepared = m_resources.resolve_visual(core::compiled::Visual{selected}, material, context);
+    if (!prepared)
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
+            std::move(prepared).error());
+    if (prepared.value_if()->animation_frames.empty()) {
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
+            {diagnostic("presentation.motion_frames_unavailable",
+                        "Finite motion resolved without deterministic raster samples", context)});
+    }
+
+    const auto base = std::ranges::find_if(source_frame->draws, [&](const auto& draw) {
+        return matches_occurrence(draw, occurrence);
+    });
+    if (base == source_frame->draws.end()) {
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
+            {diagnostic("presentation.motion_target_not_drawn",
+                        "Finite motion target has no realized world draw", context)});
+    }
+    auto draw = *base;
+    const auto& replacement = *prepared.value_if();
+    draw.raster_animation_key = replacement.animation_key;
+    draw.raster_animation_frames.clear();
+    draw.raster_animation_frames.reserve(replacement.animation_frames.size());
+    for (const auto& frame : replacement.animation_frames)
+        draw.raster_animation_frames.push_back({frame.duration_ms, Texture{frame.texture.handle},
+                                                frame.texture.sampler, frame.texture_lease});
+    draw.motion_policy = replacement.motion_policy;
+    draw.motion_initial_ms = replacement.motion_initial_ms;
+    draw.motion_loop_ms = replacement.motion_loop_ms;
+    draw.texture_lease = replacement.texture_lease;
+    if (replacement.texture) {
+        draw.command.texture = Texture{replacement.texture->handle};
+        draw.command.texture_sampler = replacement.texture->sampler;
+    }
+    const auto total = raster_duration(draw);
+    const auto remaining = total > draw.motion_initial_ms
+                               ? static_cast<long double>(total - draw.motion_initial_ms)
+                               : 0.0L;
+    const auto duration_ms =
+        static_cast<std::int64_t>(std::ceil(remaining / static_cast<long double>(playback.rate)));
+    if (duration_ms <= 0) {
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
+            {diagnostic("presentation.motion_duration_invalid",
+                        "Finite motion must have a positive endpoint duration", context)});
+    }
+    return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::success(
+        {std::move(occurrence), std::move(draw), std::chrono::milliseconds{duration_ms}});
 }
 
 void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
@@ -2160,6 +2323,7 @@ void WorldPresentationBackend::reset()
     m_snapshots.clear();
     m_frames.clear();
     m_loop_epochs.clear();
+    m_finite_motion_occurrences.clear();
     m_animation_epoch_generation = 0;
     m_generation = 0;
     m_hotspot_visual_state = {};

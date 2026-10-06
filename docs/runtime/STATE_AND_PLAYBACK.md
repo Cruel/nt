@@ -283,6 +283,13 @@ Owner-scoped Interactable desired-motion records save only target, motion, and r
 Character semantic state remains unchanged. See [Animation](../engine/ANIMATION.md). No Animation
 frame cursor or epoch is added to SessionState, SaveState, or snapshot output.
 
+Finite named-motion playback is also transient presentation realization. Play-motion binds exact
+source/target revisions but does not mutate the underlying desired motion; transition-motion requires
+the durable target to have been committed into the target revision before it can start. The
+coordinator owns replacement, skip/cancel, barriers, and acknowledgement, while mandatory resource
+preparation gates operation delivery. Save/load therefore reconstructs only the committed desired
+motion/policy and never replays a completed or in-flight temporary motion.
+
 Typed audio operations are consumed by `RuntimeAudioAdapter`. It resolves only compiled audio Asset
 IDs and realizes semantic Purpose, Owner, Pause Policy, gain, stereo pan, causality, and skip policy
 through `AudioSystem`. Project mix/mute settings and optional Voice ducking are applied independently

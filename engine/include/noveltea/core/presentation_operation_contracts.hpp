@@ -45,10 +45,40 @@ struct MaterialParameterOperationTarget {
     std::string parameter;
     bool operator==(const MaterialParameterOperationTarget&) const = default;
 };
+struct EnvironmentMotionOperationTarget {
+    PresentationEnvironmentInstanceId environment;
+    PresentationOwner owner;
+    bool operator==(const EnvironmentMotionOperationTarget&) const = default;
+};
+struct DynamicInteractableMotionOccurrence {
+    InteractableInstanceId interactable;
+    bool operator==(const DynamicInteractableMotionOccurrence&) const = default;
+};
+struct FallbackInteractableMotionOccurrence {
+    InteractableInstanceId interactable;
+    bool operator==(const FallbackInteractableMotionOccurrence&) const = default;
+};
+using InteractableMotionOperationOccurrence =
+    std::variant<RoomInteractableEntryId, DynamicInteractableMotionOccurrence,
+                 FallbackInteractableMotionOccurrence>;
+struct InteractableMotionOperationTarget {
+    InteractableInstanceId interactable;
+    compiled::RoomPlacementRef placement;
+    std::optional<InteractableMotionOperationOccurrence> occurrence = std::nullopt;
+    bool operator==(const InteractableMotionOperationTarget&) const = default;
+};
+struct ActorLayerMotionOperationTarget {
+    ActorPresentationKey actor;
+    CharacterPresentationLayerId layer;
+    bool operator==(const ActorLayerMotionOperationTarget&) const = default;
+};
+using MotionOperationTarget =
+    std::variant<EnvironmentMotionOperationTarget, InteractableMotionOperationTarget,
+                 ActorLayerMotionOperationTarget>;
 using FinitePresentationOperationTarget =
     std::variant<WorldCompositionOperationTarget, RoomNavigationOperationTarget,
                  BackgroundOperationTarget, CameraOperationTarget, ActorOperationTarget,
-                 LayoutOperationTarget, MaterialParameterOperationTarget>;
+                 LayoutOperationTarget, MaterialParameterOperationTarget, MotionOperationTarget>;
 
 enum class PresentationEasing : std::uint8_t {
     Linear,
@@ -188,6 +218,25 @@ struct CharacterGestureOperation {
     bool operator==(const CharacterGestureOperation&) const = default;
 };
 
+struct PlayMotionOperation {
+    FinitePresentationOperationCommon common;
+    MotionOperationTarget target;
+    AnimationMotionId motion;
+    MotionPlaybackPolicy playback;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const PlayMotionOperation&) const = default;
+};
+
+struct TransitionMotionOperation {
+    FinitePresentationOperationCommon common;
+    MotionOperationTarget target;
+    AnimationMotionId motion;
+    AnimationMotionId target_motion;
+    MotionPlaybackPolicy playback;
+    std::optional<PresentationFlowCompletion> completion;
+    bool operator==(const TransitionMotionOperation&) const = default;
+};
+
 enum class LayoutOperationKind : std::uint8_t {
     Fade,
 };
@@ -213,8 +262,8 @@ using FinitePresentationOperation =
                  BackgroundPresentationOperation, CameraPanOperation, CameraZoomOperation,
                  CameraRotationOperation, CameraFocusOperation, CameraShakeOperation,
                  CameraPunchOperation, CameraFlashOperation, ActorPresentationOperation,
-                 CharacterGestureOperation, LayoutFinitePresentationOperation,
-                 MaterialParameterTransitionOperation>;
+                 CharacterGestureOperation, PlayMotionOperation, TransitionMotionOperation,
+                 LayoutFinitePresentationOperation, MaterialParameterTransitionOperation>;
 
 struct PresentationTargetDraft {
     std::vector<DesiredBackgroundOverride> background_overrides;

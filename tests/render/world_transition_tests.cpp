@@ -51,12 +51,83 @@ public:
     }
 };
 
+class MotionWorldResources final : public WorldPresentationResourceResolver {
+public:
+    Result<WorldPreparedVisual, Diagnostics>
+    resolve(std::optional<AssetId>, std::optional<core::MaterialId>, std::string_view) override
+    {
+        return Result<WorldPreparedVisual, Diagnostics>::success({});
+    }
+
+    Result<WorldPreparedVisual, Diagnostics> resolve_visual(const compiled::Visual& visual,
+                                                            std::optional<core::MaterialId>,
+                                                            std::string_view) override
+    {
+        const auto* animation = std::get_if<compiled::AnimationVisual>(&visual);
+        if (!animation)
+            return Result<WorldPreparedVisual, Diagnostics>::failure(
+                {{.code = "test.not_animation", .message = "expected Animation Visual"}});
+        const auto motion = animation->motion.value_or(id<AnimationMotionId>("idle"));
+        if (motion == id<AnimationMotionId>("missing")) {
+            return Result<WorldPreparedVisual, Diagnostics>::failure(
+                {{.code = "test.motion_missing", .message = "missing motion resource"}});
+        }
+        std::uint16_t first = 11;
+        if (motion == id<AnimationMotionId>("inspect"))
+            first = 31;
+        else if (motion == id<AnimationMotionId>("settle"))
+            first = 41;
+        else if (motion == id<AnimationMotionId>("open"))
+            first = 51;
+        WorldPreparedVisual result;
+        result.animation_key = motion.text();
+        result.logical_size = Size{64.0f, 64.0f};
+        result.animation_frames = {
+            {40, {.handle = first, .width = 64, .height = 64}, std::nullopt},
+            {60,
+             {.handle = static_cast<std::uint16_t>(first + 1), .width = 64, .height = 64},
+             std::nullopt}};
+        result.texture = result.animation_frames.front().texture;
+        result.motion_policy = animation->playback;
+        return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
+    }
+
+    Result<WorldPreparedHotspotResources, Diagnostics>
+    resolve_hotspot(const PresentationHotspot&, std::span<const PresentationHotspot>,
+                    std::string_view) override
+    {
+        return Result<WorldPreparedHotspotResources, Diagnostics>::success({});
+    }
+};
+
 RuntimePresentationSnapshot snapshot(std::uint64_t revision)
 {
     RuntimePresentationSnapshot result;
     result.revision = PresentationSnapshotRevision::from_number(revision);
     result.mode = PresentationRuntimeMode::Room;
     return result;
+}
+
+RuntimePresentationSnapshot motion_snapshot(std::uint64_t revision, const char* motion = "idle")
+{
+    auto result = snapshot(revision);
+    result.interactables.push_back(
+        {id<InteractableInstanceId>("key"),
+         {id<RoomId>("room"), id<RoomPlacementId>("key-placement")},
+         {0.1, 0.1, 0.25, 0.25},
+         compiled::AnimationVisual{id<AnimationId>("key-animation"), id<AnimationMotionId>(motion),
+                                   std::nullopt},
+         std::nullopt});
+    return result;
+}
+
+MotionPlaybackPolicy finite_motion_playback()
+{
+    return {.repeat = MotionRepeat::Once,
+            .rate = 1.0,
+            .clock = LayoutClockDomain::Gameplay,
+            .initial_marker = std::nullopt,
+            .loop_range = std::nullopt};
 }
 
 PresentationCamera camera(compiled::CameraView view)
@@ -888,4 +959,150 @@ TEST_CASE("layout fade uses the shared targeted lifecycle and clears on skip or 
     transitions.reset(PresentationCancellationReason::RuntimeReset);
     CHECK(transitions.targeted_render_states().empty());
     CHECK(transitions.active_revisions().empty());
+}
+
+TEST_CASE("finite play motion temporarily overrides a Visual then restores desired presentation")
+{
+    MotionWorldResources resources;
+    WorldPresentationBackend world(resources);
+    REQUIRE(world.reconcile(motion_snapshot(1), {640.0f, 360.0f}));
+    REQUIRE(world.reconcile(motion_snapshot(2), {640.0f, 360.0f}));
+    WorldTransitionBackend transitions(world);
+    const PlayMotionOperation request{
+        common(70),
+        InteractableMotionOperationTarget{
+            id<InteractableInstanceId>("key"),
+            {id<RoomId>("room"), id<RoomPlacementId>("key-placement")}},
+        id<AnimationMotionId>("inspect"), finite_motion_playback(), std::nullopt};
+    REQUIRE(transitions.realize(targeted_delivery(70, request)));
+    RuntimeClockUpdate clocks;
+    const WorldVisualOccurrence occurrence{WorldDrawFamily::Interactable, "key", 0};
+    const auto blocked = world.control_motion(occurrence, PauseMotion{}, clocks);
+    REQUIRE_FALSE(blocked);
+    CHECK(blocked.error() == MotionControlError::FiniteOperationActive);
+
+    auto composed = transitions.compose_targeted_world_batch();
+    REQUIRE(composed);
+    REQUIRE(composed.value().world_composition_batch.commands().size() == 1);
+    CHECK(composed.value().world_composition_batch.commands().front().texture.handle == 31);
+
+    clocks.gameplay_delta = std::chrono::milliseconds{50};
+    transitions.advance(clocks);
+    composed = transitions.compose_targeted_world_batch();
+    REQUIRE(composed);
+    CHECK(composed.value().world_composition_batch.commands().front().texture.handle == 32);
+
+    clocks.gameplay_delta = std::chrono::milliseconds{50};
+    transitions.advance(clocks);
+    composed = transitions.compose_targeted_world_batch();
+    REQUIRE(composed);
+    CHECK(composed.value().world_composition_batch.commands().front().texture.handle == 32);
+    clocks.gameplay_delta = std::chrono::milliseconds{0};
+    transitions.advance(clocks);
+    const auto acknowledgements = transitions.take_acknowledgements();
+    REQUIRE(acknowledgements.size() == 2);
+    CHECK(std::holds_alternative<BackendOperationCompleted>(acknowledgements.back().fact));
+    REQUIRE(world.frame());
+    REQUIRE(world.frame()->base_world_composition_batch.commands().size() == 1);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 11);
+    REQUIRE(world.control_motion(occurrence, PauseMotion{}, clocks));
+}
+
+TEST_CASE("finite play motion targets the exact resolved Interactable occurrence")
+{
+    MotionWorldResources resources;
+    WorldPresentationBackend world(resources);
+    auto first_snapshot = motion_snapshot(1);
+    first_snapshot.interactables.front().occurrence = id<RoomInteractableEntryId>("first");
+    auto second_occurrence = first_snapshot.interactables.front();
+    second_occurrence.occurrence = id<RoomInteractableEntryId>("second");
+    second_occurrence.bounds.x = 0.5;
+    first_snapshot.interactables.push_back(second_occurrence);
+    auto second_snapshot = first_snapshot;
+    second_snapshot.revision = PresentationSnapshotRevision::from_number(2);
+    REQUIRE(world.reconcile(first_snapshot, {640.0f, 360.0f}));
+    REQUIRE(world.reconcile(second_snapshot, {640.0f, 360.0f}));
+
+    WorldTransitionBackend transitions(world);
+    const PlayMotionOperation request{
+        common(75),
+        InteractableMotionOperationTarget{
+            id<InteractableInstanceId>("key"),
+            {id<RoomId>("room"), id<RoomPlacementId>("key-placement")},
+            id<RoomInteractableEntryId>("second")},
+        id<AnimationMotionId>("inspect"), finite_motion_playback(), std::nullopt};
+    REQUIRE(transitions.realize(targeted_delivery(75, request)));
+    const auto composed = transitions.compose_targeted_world_batch();
+    REQUIRE(composed);
+    REQUIRE(composed.value().world_composition_batch.commands().size() == 2);
+    CHECK(composed.value().world_composition_batch.commands()[0].texture.handle == 11);
+    CHECK(composed.value().world_composition_batch.commands()[1].texture.handle == 31);
+}
+
+TEST_CASE("finite transition motion requires durable target motion before realization")
+{
+    MotionWorldResources resources;
+    WorldPresentationBackend world(resources);
+    REQUIRE(world.reconcile(motion_snapshot(1, "idle"), {640.0f, 360.0f}));
+    REQUIRE(world.reconcile(motion_snapshot(2, "open"), {640.0f, 360.0f}));
+    WorldTransitionBackend transitions(world);
+    const TransitionMotionOperation request{
+        common(71),
+        InteractableMotionOperationTarget{
+            id<InteractableInstanceId>("key"),
+            {id<RoomId>("room"), id<RoomPlacementId>("key-placement")}},
+        id<AnimationMotionId>("settle"),
+        id<AnimationMotionId>("open"),
+        finite_motion_playback(),
+        std::nullopt};
+    REQUIRE(transitions.realize(targeted_delivery(71, request)));
+    auto composed = transitions.compose_targeted_world_batch();
+    REQUIRE(composed);
+    CHECK(composed.value().world_composition_batch.commands().front().texture.handle == 41);
+
+    auto invalid = request;
+    invalid.common = common(72);
+    invalid.target_motion = id<AnimationMotionId>("closed");
+    REQUIRE(transitions.realize(targeted_delivery(72, invalid)));
+    const auto acknowledgements = transitions.take_acknowledgements();
+    REQUIRE_FALSE(acknowledgements.empty());
+    REQUIRE(std::holds_alternative<BackendOperationFailed>(acknowledgements.back().fact));
+    CHECK(std::get<BackendOperationFailed>(acknowledgements.back().fact).diagnostic.code ==
+          "presentation.transition_motion_target_mismatch");
+}
+
+TEST_CASE("finite motion backend failure and reset leave desired realization authoritative")
+{
+    MotionWorldResources resources;
+    WorldPresentationBackend world(resources);
+    REQUIRE(world.reconcile(motion_snapshot(1), {640.0f, 360.0f}));
+    REQUIRE(world.reconcile(motion_snapshot(2), {640.0f, 360.0f}));
+    WorldTransitionBackend transitions(world);
+    const auto target = InteractableMotionOperationTarget{
+        id<InteractableInstanceId>("key"),
+        {id<RoomId>("room"), id<RoomPlacementId>("key-placement")}};
+    const PlayMotionOperation missing{common(73), target, id<AnimationMotionId>("missing"),
+                                      finite_motion_playback(), std::nullopt};
+    REQUIRE(transitions.realize(targeted_delivery(73, missing)));
+    auto acknowledgements = transitions.take_acknowledgements();
+    REQUIRE(acknowledgements.size() == 1);
+    const auto* failed = std::get_if<BackendOperationFailed>(&acknowledgements.front().fact);
+    REQUIRE(failed != nullptr);
+    CHECK(failed->diagnostic.code == "test.motion_missing");
+
+    const PlayMotionOperation running{common(74), target, id<AnimationMotionId>("inspect"),
+                                      finite_motion_playback(), std::nullopt};
+    REQUIRE(transitions.realize(targeted_delivery(74, running)));
+    (void)transitions.take_acknowledgements();
+    RuntimeClockUpdate clocks;
+    const WorldVisualOccurrence occurrence{WorldDrawFamily::Interactable, "key", 0};
+    auto blocked = world.control_motion(occurrence, PauseMotion{}, clocks);
+    REQUIRE_FALSE(blocked);
+    CHECK(blocked.error() == MotionControlError::FiniteOperationActive);
+
+    transitions.reset(PresentationCancellationReason::CheckpointLoad);
+    CHECK(transitions.targeted_render_states().empty());
+    REQUIRE(world.control_motion(occurrence, PauseMotion{}, clocks));
+    REQUIRE(world.frame());
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 11);
 }

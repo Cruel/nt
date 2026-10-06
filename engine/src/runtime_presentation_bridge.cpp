@@ -58,12 +58,35 @@ bool RuntimePresentationBridge::presentation_operation_active(
 core::Result<runtime::PresentationAcceptance, core::Diagnostics>
 RuntimePresentationBridge::accept(const core::PresentationOperation& operation)
 {
-    if (m_pending_mandatory_snapshot && m_mandatory_asset_gate)
-        m_mandatory_asset_gate->show_overlay_immediately_on_owner();
     auto accepted = m_coordinator.accept(operation);
     if (!accepted)
         return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
             std::move(accepted).error());
+    const bool finite_motion = std::visit(
+        [](const auto& value) {
+            using T = std::decay_t<decltype(value)>;
+            return std::is_same_v<T, core::PlayMotionOperation> ||
+                   std::is_same_v<T, core::TransitionMotionOperation>;
+        },
+        operation);
+    if (finite_motion && m_mandatory_asset_gate) {
+        auto included = m_mandatory_asset_gate->include_presentation_operation_on_owner(operation);
+        if (!included) {
+            auto diagnostics = std::move(included).error();
+            auto cancelled =
+                m_coordinator.cancel(accepted.value_if()->metadata.operation,
+                                     core::PresentationCancellationReason::ExplicitRequest);
+            if (!cancelled)
+                core::append_diagnostics(diagnostics, std::move(cancelled).error());
+            return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::failure(
+                std::move(diagnostics));
+        }
+        if (!m_pending_mandatory_snapshot && m_mandatory_asset_gate->active_on_owner() &&
+            m_published_snapshot)
+            m_pending_mandatory_snapshot = *m_published_snapshot;
+    }
+    if (m_pending_mandatory_snapshot && m_mandatory_asset_gate)
+        m_mandatory_asset_gate->show_overlay_immediately_on_owner();
     return core::Result<runtime::PresentationAcceptance, core::Diagnostics>::success(
         runtime::PresentationAcceptance{.accepted = true});
 }
@@ -265,6 +288,8 @@ RuntimePresentationBridge::realize(const core::CoordinatedOperationDelivery& del
         std::holds_alternative<core::CameraFlashOperation>(delivery.operation) ||
         std::holds_alternative<core::ActorPresentationOperation>(delivery.operation) ||
         std::holds_alternative<core::CharacterGestureOperation>(delivery.operation) ||
+        std::holds_alternative<core::PlayMotionOperation>(delivery.operation) ||
+        std::holds_alternative<core::TransitionMotionOperation>(delivery.operation) ||
         std::holds_alternative<core::LayoutFinitePresentationOperation>(delivery.operation)) {
         if (m_world_transition_backend)
             return m_world_transition_backend->realize(delivery);
