@@ -375,10 +375,20 @@ private:
                         std::ranges::find_if(resource->motions, [&](const auto& candidate) {
                             return candidate.id == motion;
                         });
-                    if (selected != resource->motions.end() && value.playback &&
-                        !motion_initial_time(*selected, *value.playback))
-                        error("compiled_project.invalid_motion_policy",
-                              "Invalid playback policy or initial marker.", path + "/playback");
+                    if (selected != resource->motions.end() && value.playback) {
+                        const bool deferred_video_duration =
+                            selected->kind == AnimationMotionKind::Video &&
+                            !motion_duration_ms(*selected).has_value();
+                        if ((!deferred_video_duration &&
+                             !motion_initial_time(*selected, *value.playback)) ||
+                            (deferred_video_duration && !valid_motion_policy(*value.playback)))
+                            error("compiled_project.invalid_motion_policy",
+                                  "Invalid playback policy or initial marker.", path + "/playback");
+                        if (deferred_video_duration && value.playback->initial_marker &&
+                            !motion_marker_time(*selected, *value.playback->initial_marker))
+                            error("compiled_project.invalid_motion_policy",
+                                  "Invalid playback policy or initial marker.", path + "/playback");
+                    }
                     if (selected == resource->motions.end())
                         error("compiled_project.unresolved_animation_motion",
                               "Animation Visual selects unknown motion '" + motion.text() + "'.",
@@ -419,12 +429,10 @@ private:
                       track_path + "/motionId");
                 continue;
             }
-            std::uint64_t duration = 0;
-            for (const auto& frame : motion->frames)
-                duration += frame.duration_ms;
+            const auto duration = motion_duration_ms(*motion);
             for (std::size_t keyframe_index = 0; keyframe_index < track.keyframes.size();
                  ++keyframe_index) {
-                if (track.keyframes[keyframe_index].time_ms > duration)
+                if (duration && track.keyframes[keyframe_index].time_ms > *duration)
                     error("compiled_project.hotspot_motion_keyframe_out_of_range",
                           "Hotspot motion keyframe exceeds its Animation motion duration.",
                           track_path + "/keyframes/" + std::to_string(keyframe_index) + "/timeMs");
@@ -2075,39 +2083,76 @@ private:
                           "Animation motion IDs must be unique.", motion_path + "/id");
                 default_found = default_found || motion.id == resource.default_motion;
                 std::uint64_t duration = 0;
-                for (const auto& frame : motion.frames) {
-                    if (frame.duration_ms > std::numeric_limits<std::uint64_t>::max() - duration) {
-                        error("compiled_project.invalid_animation_duration",
-                              "Animation duration overflows.", motion_path);
-                        break;
+                bool duration_known = motion.kind == AnimationMotionKind::SpriteSequence;
+                if (motion.kind == AnimationMotionKind::SpriteSequence) {
+                    for (const auto& frame : motion.frames) {
+                        if (frame.duration_ms >
+                            std::numeric_limits<std::uint64_t>::max() - duration) {
+                            error("compiled_project.invalid_animation_duration",
+                                  "Animation duration overflows.", motion_path);
+                            duration_known = false;
+                            break;
+                        }
+                        duration += frame.duration_ms;
                     }
-                    duration += frame.duration_ms;
+                } else if (motion.source_range &&
+                           motion.source_range->end_ms > motion.source_range->start_ms) {
+                    duration = motion.source_range->end_ms - motion.source_range->start_ms;
+                    duration_known = true;
                 }
                 std::unordered_set<std::string> markers{"start", "end"};
                 for (const auto& marker : motion.markers)
                     if (!valid_strong_id(marker.id, StrongIdSyntax::KebabCase) ||
-                        !markers.insert(marker.id).second || marker.time_ms > duration)
+                        !markers.insert(marker.id).second ||
+                        (duration_known && marker.time_ms > duration))
                         error("compiled_project.invalid_animation_marker",
                               "Markers must be unique, non-reserved, and within the motion.",
                               motion_path + "/markers");
-                if (motion.frames.empty())
+                if (motion.kind == AnimationMotionKind::SpriteSequence && motion.frames.empty())
                     error("compiled_project.empty_animation_motion",
                           "Animation motion must contain at least one sprite frame.",
                           motion_path + "/frames");
-                for (std::size_t frame_index = 0; frame_index < motion.frames.size();
-                     ++frame_index) {
-                    const auto& frame = motion.frames[frame_index];
-                    const auto frame_path = motion_path + "/frames/" + std::to_string(frame_index);
-                    require(m_assets, frame.image, "asset", frame_path + "/image");
-                    const auto* source = asset(frame.image);
-                    if (source && source->kind != AssetKind::Image)
-                        error("compiled_project.invalid_animation_frame_asset",
-                              "Animation sprite frames must reference image Assets.",
-                              frame_path + "/image");
-                    if (frame.duration_ms == 0)
-                        error("compiled_project.invalid_animation_frame_duration",
-                              "Animation frame duration must be positive.",
-                              frame_path + "/durationMs");
+                if (motion.kind == AnimationMotionKind::SpriteSequence) {
+                    if (motion.video || motion.source_range)
+                        error("compiled_project.invalid_animation_motion_shape",
+                              "Sprite Animation motions do not admit video fields.", motion_path);
+                    for (std::size_t frame_index = 0; frame_index < motion.frames.size();
+                         ++frame_index) {
+                        const auto& frame = motion.frames[frame_index];
+                        const auto frame_path =
+                            motion_path + "/frames/" + std::to_string(frame_index);
+                        require(m_assets, frame.image, "asset", frame_path + "/image");
+                        const auto* source = asset(frame.image);
+                        if (source && source->kind != AssetKind::Image)
+                            error("compiled_project.invalid_animation_frame_asset",
+                                  "Animation sprite frames must reference image Assets.",
+                                  frame_path + "/image");
+                        if (frame.duration_ms == 0)
+                            error("compiled_project.invalid_animation_frame_duration",
+                                  "Animation frame duration must be positive.",
+                                  frame_path + "/durationMs");
+                    }
+                } else {
+                    if (!motion.frames.empty())
+                        error("compiled_project.invalid_animation_motion_shape",
+                              "Video Animation motions do not admit sprite frames.", motion_path);
+                    if (!motion.video) {
+                        error("compiled_project.invalid_animation_video_asset",
+                              "Video Animation motions require a Video Asset.",
+                              motion_path + "/video");
+                    } else {
+                        require(m_assets, *motion.video, "asset", motion_path + "/video");
+                        const auto* source = asset(*motion.video);
+                        if (source && source->kind != AssetKind::Video)
+                            error("compiled_project.invalid_animation_video_asset",
+                                  "Video Animation motions must reference video Assets.",
+                                  motion_path + "/video");
+                    }
+                    if (motion.source_range &&
+                        motion.source_range->end_ms <= motion.source_range->start_ms)
+                        error("compiled_project.invalid_animation_video_range",
+                              "Video Animation source range end must be after its start.",
+                              motion_path + "/sourceRange");
                 }
             }
             if (!default_found)

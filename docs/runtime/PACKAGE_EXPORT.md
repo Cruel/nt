@@ -15,6 +15,12 @@ are separate:
 - `shader-materials.json`: optional shader/material manifest.
 - referenced assets and required compiled shader binaries.
 
+Opaque video-backed Animation may additionally contribute private prepared-media entries beneath
+`assets/.prepared-media/`, including private metadata and the current normalized raster
+representation. These entries are runtime-artifact implementation data, not authored Animation
+semantics or a frozen public package-media schema. Gameplay JSON continues to reference only the
+semantic Video Asset/motion contract.
+
 Gameplay JSON never embeds package inventory or shader/material manifests. The derived `shader-materials.json` uses only the current canonical runtime shape: Material pipeline blend state is taken from the certified role contract, renderer-owned samplers are supplied by the renderer, and retired authored fields/source aliases are rejected rather than preserved for compatibility.
 
 ## Production
@@ -45,6 +51,14 @@ entry inventory and rejects any required-seekable path that is missing or ZIP-co
 paths such as `assets/audio/theme.wav`, FLAC, and M4A remain directly seekable when runtime semantics
 select streaming.
 
+For the current opaque-video tracer, runtime-artifact preparation preserves the creator Video Asset
+while also generating deterministic private opaque raster frames through the pinned authoring FFmpeg.
+Embedded audio is omitted from that representation and yields an authoring warning because generic
+Animation is visual-only. The prepared representation is packaged as ordinary image payloads so
+mandatory readiness and native texture residency remain transactional; this representation is
+intentionally replaceable by later target-specific media encodings without changing authored or
+compiled Animation meaning.
+
 ## Loading and Validation
 
 The engine package loader rejects:
@@ -54,6 +68,7 @@ The engine package loader rejects:
 - mismatched project identity;
 - checksum or declared-size mismatches;
 - malformed shader/material metadata or absent required shader binaries;
+- malformed, missing, duplicate, or semantically mismatched private prepared-video metadata/frames;
 - invalid compiled references/resources;
 - Lua that fails certification.
 

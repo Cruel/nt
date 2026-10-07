@@ -651,20 +651,32 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
   }
 
   const animations: WireResources['animations'] = sortedEntries(project.animations)
-    .filter(([, record]) => record.data.motions.every((motion) => motion.frames.length > 0))
+    .filter(([, record]) =>
+      record.data.motions.every((motion) => motion.kind === 'video' || motion.frames.length > 0),
+    )
     .map(([id, record]) => ({
       id,
       canvas: { ...record.data.canvas },
       defaultMotionId: record.data.defaultMotionId,
-      motions: record.data.motions.map((motion) => ({
-        id: motion.id,
-        kind: motion.kind,
-        markers: motion.markers.map((marker) => ({ ...marker })),
-        frames: motion.frames.map((frame) => ({
-          image: { kind: 'asset' as const, id: frame.image.$ref.id },
-          durationMs: frame.durationMs,
-        })),
-      })),
+      motions: record.data.motions.map((motion) =>
+        motion.kind === 'sprite-sequence'
+          ? {
+              id: motion.id,
+              kind: motion.kind,
+              markers: motion.markers.map((marker) => ({ ...marker })),
+              frames: motion.frames.map((frame) => ({
+                image: { kind: 'asset' as const, id: frame.image.$ref.id },
+                durationMs: frame.durationMs,
+              })),
+            }
+          : {
+              id: motion.id,
+              kind: motion.kind,
+              markers: motion.markers.map((marker) => ({ ...marker })),
+              video: { kind: 'asset' as const, id: motion.video.$ref.id },
+              ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
+            },
+      ),
     }));
 
   const layouts: WireResources['layouts'] = [];

@@ -161,6 +161,10 @@ interface NovelTeaElectronApiContract {
     shaderProject: unknown,
     options?: Pick<ShaderCompileOptions, 'forceRebuild' | 'shaderVariants' | 'sourceOverlays'>,
   ): Promise<ShaderCompileResponse>;
+  prepareOpaqueVideo(
+    projectSessionId: string,
+    request: import('./prepared-media').OpaqueVideoPreparationRequest,
+  ): Promise<import('./prepared-media').OpaqueVideoPreparationResult>;
   saveProjectContent(
     projectSessionId: string,
     request: import('./editor-tooling').ProjectContentSaveRequest,

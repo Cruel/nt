@@ -192,8 +192,10 @@ function dependencyRevision(project: AuthoringProject, data: CharacterData): str
       animationIds.add(id);
       const animation = animationDataSchema.safeParse(project.animations[id]?.data);
       if (animation.success)
-        for (const motion of animation.data.motions)
-          for (const frame of motion.frames) assetIds.add(frame.image.$ref.id);
+        for (const motion of animation.data.motions) {
+          if (motion.kind === 'video') assetIds.add(motion.video.$ref.id);
+          else for (const frame of motion.frames) assetIds.add(frame.image.$ref.id);
+        }
     }
   };
   const materialIds = new Set<string>();

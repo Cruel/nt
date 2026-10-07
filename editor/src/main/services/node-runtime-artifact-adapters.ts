@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { prepareOpaqueVideoMotion } from './media-preparation-service';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import type {
   RuntimeArtifactPathAdapter,
@@ -13,6 +14,10 @@ export const nodeRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
   },
   shaderAssetRoot(projectRoot) {
     return projectRoot ? path.join(projectRoot, '.noveltea', 'build') : undefined;
+  },
+  async prepareOpaqueVideo(projectRoot, request) {
+    if (!projectRoot) throw new Error('Video preparation requires a Project root.');
+    return prepareOpaqueVideoMotion(projectRoot, request);
   },
   async readProjectTextSources(projectRoot, entries) {
     return Promise.all(

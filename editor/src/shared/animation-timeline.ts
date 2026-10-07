@@ -1,20 +1,23 @@
 import type { z } from 'zod';
 import {
+  animationMotionDurationMs,
   animationMarkerTime,
+  type animationMotionSchema,
   type motionPlaybackPolicySchema,
   type spriteAnimationMotionSchema,
 } from './project-schema/authoring-animations';
 
 export type SpriteMotion = z.infer<typeof spriteAnimationMotionSchema>;
+export type AnimationMotion = z.infer<typeof animationMotionSchema>;
 export type MotionPolicy = z.infer<typeof motionPlaybackPolicySchema>;
 
-export function animationDuration(motion: SpriteMotion): number {
-  return motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+export function animationDuration(motion: AnimationMotion): number {
+  return animationMotionDurationMs(motion) ?? 0;
 }
 
 // This is the authoring manipulation counterpart of WorldPresentationBackend's raster_phase.
 export function advanceAnimationTime(
-  motion: SpriteMotion,
+  motion: AnimationMotion,
   policy: MotionPolicy,
   anchorMs: number,
   elapsedMs: number,

@@ -71,6 +71,7 @@ import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-
 import { importDesktopProject } from './main/services/desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
+import { prepareOpaqueVideoMotion } from './main/services/media-preparation-service';
 import {
   compileShaders,
   exportPackage,
@@ -187,6 +188,7 @@ import {
   noArgumentsSchema,
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
+  prepareOpaqueVideoArgumentsSchema,
   previewExportedPackageArgumentsSchema,
   prepareEditorRuntimeArgumentsSchema,
   previewSessionArgumentsSchema,
@@ -1396,6 +1398,16 @@ void app.whenReady().then(async () => {
         cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
       });
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.PREPARE_OPAQUE_VIDEO,
+    (arguments_) => prepareOpaqueVideoArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      prepareOpaqueVideoMotion(
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        request,
+      ),
   );
 
   guardedIpc.handle(

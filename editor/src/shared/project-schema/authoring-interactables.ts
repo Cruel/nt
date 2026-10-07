@@ -4,7 +4,12 @@ import instanceExample from './examples/interactable-instance.json';
 import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
 import { entityIdSchema } from './authoring-common';
 import { parseAssetData } from './authoring-assets';
-import { animationDataSchema, visualSchema, validateVisualData } from './authoring-animations';
+import {
+  animationDataSchema,
+  animationMotionDurationMs,
+  visualSchema,
+  validateVisualData,
+} from './authoring-animations';
 import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
 import { hotspotCommonShape, motionTrackedRectHotspotShapeSchema } from './authoring-hotspots';
@@ -326,9 +331,9 @@ export function validateInteractableData(
           );
           return;
         }
-        const duration = motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+        const duration = animationMotionDurationMs(motion);
         track.keyframes.forEach((keyframe, keyframeIndex) => {
-          if (keyframe.timeMs > duration)
+          if (duration !== null && keyframe.timeMs > duration)
             diagnostics.push(
               diagnostic(
                 `${trackPath}/keyframes/${keyframeIndex}/timeMs`,

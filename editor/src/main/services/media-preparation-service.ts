@@ -1,7 +1,14 @@
 import { spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { realpathSync } from 'node:fs';
+import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import pin from '../../shared/media-tool-pin.json';
+import {
+  OPAQUE_VIDEO_FRAME_RATE,
+  type OpaqueVideoPreparationRequest,
+  type OpaqueVideoPreparationResult,
+} from '../../shared/prepared-media';
 
 export interface MediaTool {
   readonly executable: string;
@@ -102,4 +109,94 @@ export function runMediaPreparation(
 ) {
   inspectMediaTool(tool, run);
   return run(tool.executable, ['-nostdin', '-hide_banner', ...args]);
+}
+
+function seconds(milliseconds: number): string {
+  return (milliseconds / 1000).toFixed(6).replace(/0+$/u, '').replace(/\.$/u, '');
+}
+
+function frameDurations(frameCount: number): number[] {
+  const durations: number[] = [];
+  for (let index = 0; index < frameCount; index += 1) {
+    const start = Math.round((index * 1000) / OPAQUE_VIDEO_FRAME_RATE);
+    const end = Math.round(((index + 1) * 1000) / OPAQUE_VIDEO_FRAME_RATE);
+    durations.push(Math.max(1, end - start));
+  }
+  return durations;
+}
+
+/**
+ * Canonical tracer preparation for generic opaque Animation video. The generated frame sequence is
+ * deliberately private runtime-artifact data; authored/compiled Animation semantics never name it.
+ */
+export async function prepareOpaqueVideoMotion(
+  projectRoot: string,
+  request: OpaqueVideoPreparationRequest,
+  tool: MediaTool = installedMediaTool(),
+  run: MediaToolRunner = runMediaToolProcess,
+): Promise<OpaqueVideoPreparationResult> {
+  const source = join(projectRoot, request.sourcePath);
+  const sourceBytes = await readFile(source);
+  const key = createHash('sha256')
+    .update(sourceBytes)
+    .update('\0')
+    .update(
+      JSON.stringify({
+        animationId: request.animationId,
+        motionId: request.motionId,
+        canvas: request.canvas,
+        sourceRange: request.sourceRange ?? null,
+        frameRate: OPAQUE_VIDEO_FRAME_RATE,
+        toolRelease: pin.release,
+      }),
+    )
+    .digest('hex');
+  const directory = join(projectRoot, '.noveltea', 'build', 'prepared-media', key);
+  const pattern = join(directory, 'frame-%06d.png');
+  await rm(directory, { recursive: true, force: true });
+  await mkdir(directory, { recursive: true });
+
+  const args: string[] = ['-y', '-i', source];
+  if (request.sourceRange) {
+    args.push('-ss', seconds(request.sourceRange.startMs));
+    args.push('-t', seconds(request.sourceRange.endMs - request.sourceRange.startMs));
+  }
+  const { width, height } = request.canvas;
+  args.push(
+    '-map',
+    '0:v:0',
+    '-an',
+    '-sn',
+    '-dn',
+    '-vf',
+    `fps=${OPAQUE_VIDEO_FRAME_RATE},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,format=rgb24`,
+    '-start_number',
+    '0',
+    pattern,
+  );
+  const result = runMediaPreparation(tool, args, run);
+  const frameNames = (await readdir(directory))
+    .filter((name) => /^frame-\d{6}\.png$/u.test(name))
+    .sort((left, right) => left.localeCompare(right));
+  if (frameNames.length === 0)
+    throw new Error(`Video preparation produced no frames for Animation '${request.animationId}'.`);
+  const durations = frameDurations(frameNames.length);
+  const frames = await Promise.all(
+    frameNames.map(async (name, index) => {
+      const sourcePath = join(directory, name);
+      const bytes = await readFile(sourcePath);
+      return {
+        sourcePath,
+        projectRelativePath: `.noveltea/build/prepared-media/${key}/${name}`,
+        contentHash: createHash('sha256').update(bytes).digest('hex'),
+        byteSize: bytes.byteLength,
+        durationMs: durations[index]!,
+      };
+    }),
+  );
+  return {
+    contentHash: key,
+    hadAudio: /Stream #\d+:\d+(?:\([^)]*\))?: Audio:/u.test(result.stderr),
+    frames,
+  };
 }

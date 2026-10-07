@@ -176,10 +176,29 @@ const shaderManifestEntrySchema = strict({
     });
 });
 
+const preparedMediaManifestEntrySchema = strict({
+  ...manifestBase,
+  fetchProjectRelativePath: safeProjectRelativePathSchema,
+  logicalPath: projectLogicalPathSchema,
+  resourceId: z.string().regex(/^asset:.+$/),
+  sourceKind: z.literal('prepared-media'),
+  assetId: z.string().min(1),
+  kind: z.literal('image'),
+  sampling: z.enum(imageSamplingValues),
+}).superRefine((entry, context) => {
+  if (entry.resourceId !== `asset:${entry.assetId}`)
+    context.addIssue({
+      code: 'custom',
+      path: ['resourceId'],
+      message: 'Prepared media resourceId must equal asset:<assetId>.',
+    });
+});
+
 export const previewResourceManifestEntrySchema = z.union([
   authoringManifestEntrySchema,
   projectSourceManifestEntrySchema,
   shaderManifestEntrySchema,
+  preparedMediaManifestEntrySchema,
 ]);
 export type PreviewResourceManifestEntry = z.infer<typeof previewResourceManifestEntrySchema>;
 
@@ -275,6 +294,17 @@ export const projectNativeManifest = (
         contentHash: entry.contentHash,
         byteSize: entry.byteSize,
         kind: entry.kind,
+      };
+    if (entry.sourceKind === 'prepared-media')
+      return {
+        resourceId: entry.resourceId,
+        sourceKind: 'authoring-asset' as const,
+        assetId: entry.assetId,
+        logicalPath: entry.logicalPath,
+        contentHash: entry.contentHash,
+        byteSize: entry.byteSize,
+        kind: entry.kind,
+        sampling: entry.sampling,
       };
     return {
       resourceId: entry.resourceId,

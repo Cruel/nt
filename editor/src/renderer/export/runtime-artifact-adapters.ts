@@ -17,6 +17,11 @@ export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
   shaderAssetRoot(projectRoot) {
     return projectRoot ? joinHostPath(projectRoot, '.noveltea', 'build') : undefined;
   },
+  async prepareOpaqueVideo(_projectRoot, request) {
+    const projectSessionId = useProjectStore.getState().projectSessionId;
+    if (!projectSessionId) throw new Error('Video preparation requires an active Project session.');
+    return window.noveltea.prepareOpaqueVideo(projectSessionId, request);
+  },
   async readProjectTextSources(_projectRoot, entries) {
     const projectSessionId = useProjectStore.getState().projectSessionId;
     if (!projectSessionId)

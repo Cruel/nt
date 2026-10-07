@@ -48,18 +48,39 @@ export const spriteAnimationMotionSchema = strict({
   markers: z.array(animationMarkerSchema),
 });
 
+export const videoAnimationSourceRangeSchema = strict({
+  startMs: z.number().int().nonnegative(),
+  endMs: z.number().int().positive(),
+}).refine((range) => range.endMs > range.startMs, {
+  message: 'Video source range end must be after its start.',
+  path: ['endMs'],
+});
+
+export const videoAnimationMotionSchema = strict({
+  id: entityIdSchema,
+  kind: z.literal('video'),
+  video: assetRefSchema,
+  sourceRange: videoAnimationSourceRangeSchema.optional(),
+  markers: z.array(animationMarkerSchema),
+});
+
+export const animationMotionSchema = z.discriminatedUnion('kind', [
+  spriteAnimationMotionSchema,
+  videoAnimationMotionSchema,
+]);
+
 export const animationDataSchema = withSchemaDocumentation(
   strict({
     kind: z.literal('animation'),
     canvas: animationCanvasSchema,
     defaultMotionId: entityIdSchema,
-    motions: z.array(spriteAnimationMotionSchema).min(1),
+    motions: z.array(animationMotionSchema).min(1),
   }),
   {
     name: 'Animation',
     notes: [
       'Animation is immutable reusable raster presentation content. Playback phase belongs to presentation realization, not this resource.',
-      'Motion IDs are scoped to the Animation. Every sprite frame names an Image Asset and has an explicit positive duration.',
+      'Motion IDs are scoped to the Animation. Sprite frames name Image Assets with explicit positive durations; video motions name semantic Video Assets and may select an in/out source range.',
     ],
   },
 );
@@ -88,7 +109,9 @@ export function validateAnimationData(
   data: z.infer<typeof animationDataSchema>,
 ): ProjectValidationDiagnosticLike[] {
   const diagnostics: ProjectValidationDiagnosticLike[] = [];
-  const emptyDraft = data.motions.every((motion) => motion.frames.length === 0);
+  const emptyDraft = data.motions.every(
+    (motion) => motion.kind === 'sprite-sequence' && motion.frames.length === 0,
+  );
   if (emptyDraft)
     diagnostics.push({
       severity: 'warning',
@@ -109,17 +132,17 @@ export function validateAnimationData(
         code: 'animation.motion.duplicate-id',
       });
     motionIds.add(motion.id);
-    if (!emptyDraft && !motion.frames.length)
+    if (!emptyDraft && motion.kind === 'sprite-sequence' && !motion.frames.length)
       diagnostics.push({
         severity: 'error',
         path: `${base}/motions/${motionIndex}/frames`,
         category: 'Animations',
         message: 'Animation motions require at least one frame.',
       });
-    const duration = motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+    const duration = animationMotionDurationMs(motion);
     const markers = new Set(['start', 'end']);
     motion.markers.forEach((marker, index) => {
-      if (markers.has(marker.id) || marker.timeMs > duration)
+      if (markers.has(marker.id) || (duration !== null && marker.timeMs > duration))
         diagnostics.push({
           severity: 'error',
           path: `${base}/motions/${motionIndex}/markers/${index}`,
@@ -128,28 +151,51 @@ export function validateAnimationData(
         });
       markers.add(marker.id);
     });
-    motion.frames.forEach((frame, frameIndex) => {
-      const assetId = frame.image.$ref.id;
+    if (motion.kind === 'sprite-sequence') {
+      motion.frames.forEach((frame, frameIndex) => {
+        const assetId = frame.image.$ref.id;
+        const asset = project.assets[assetId];
+        const assetData = asset ? parseAssetData(asset.data) : null;
+        const path = `${base}/motions/${motionIndex}/frames/${frameIndex}/image/$ref`;
+        if (!asset)
+          diagnostics.push({
+            severity: 'error',
+            path,
+            message: `Missing Animation frame Asset '${assetId}'.`,
+            category: 'Animations',
+            code: 'animation.frame.asset-missing',
+          });
+        else if (assetData?.kind !== 'image')
+          diagnostics.push({
+            severity: 'error',
+            path,
+            message: `Animation frame Asset '${assetId}' must be an image.`,
+            category: 'Animations',
+            code: 'animation.frame.asset-kind',
+          });
+      });
+    } else {
+      const assetId = motion.video.$ref.id;
       const asset = project.assets[assetId];
       const assetData = asset ? parseAssetData(asset.data) : null;
-      const path = `${base}/motions/${motionIndex}/frames/${frameIndex}/image/$ref`;
+      const path = `${base}/motions/${motionIndex}/video/$ref`;
       if (!asset)
         diagnostics.push({
           severity: 'error',
           path,
-          message: `Missing Animation frame Asset '${assetId}'.`,
+          message: `Missing Animation video Asset '${assetId}'.`,
           category: 'Animations',
-          code: 'animation.frame.asset-missing',
+          code: 'animation.video.asset-missing',
         });
-      else if (assetData?.kind !== 'image')
+      else if (assetData?.kind !== 'video')
         diagnostics.push({
           severity: 'error',
           path,
-          message: `Animation frame Asset '${assetId}' must be an image.`,
+          message: `Animation video Asset '${assetId}' must be a video.`,
           category: 'Animations',
-          code: 'animation.frame.asset-kind',
+          code: 'animation.video.asset-kind',
         });
-    });
+    }
   });
   if (!motionIds.has(data.defaultMotionId))
     diagnostics.push({
@@ -163,12 +209,20 @@ export function validateAnimationData(
 }
 
 export function animationMarkerTime(
-  motion: z.infer<typeof spriteAnimationMotionSchema>,
+  motion: z.infer<typeof animationMotionSchema>,
   id: string,
 ): number | null {
   if (id === 'start') return 0;
-  if (id === 'end') return motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+  if (id === 'end') return animationMotionDurationMs(motion);
   return motion.markers.find((marker) => marker.id === id)?.timeMs ?? null;
+}
+
+export function animationMotionDurationMs(
+  motion: z.infer<typeof animationMotionSchema>,
+): number | null {
+  if (motion.kind === 'sprite-sequence')
+    return motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+  return motion.sourceRange ? motion.sourceRange.endMs - motion.sourceRange.startMs : null;
 }
 
 export type AnimationData = z.infer<typeof animationDataSchema>;
@@ -183,9 +237,8 @@ export function visualImageAssetId(
   const parsed = animationDataSchema.safeParse(project.animations[visual.animation.$ref.id]?.data);
   if (!parsed.success) return null;
   const motionId = visual.motionId ?? parsed.data.defaultMotionId;
-  return (
-    parsed.data.motions.find((motion) => motion.id === motionId)?.frames[0]?.image.$ref.id ?? null
-  );
+  const motion = parsed.data.motions.find((motion) => motion.id === motionId);
+  return motion?.kind === 'sprite-sequence' ? (motion.frames[0]?.image.$ref.id ?? null) : null;
 }
 
 export function validateVisualData(
@@ -228,7 +281,7 @@ export function validateVisualData(
     ];
   const motionId = visual.motionId ?? parsed.data.defaultMotionId;
   const motion = parsed.data.motions.find((motion) => motion.id === motionId);
-  if (motion && !motion.frames.length)
+  if (motion?.kind === 'sprite-sequence' && !motion.frames.length)
     return [
       {
         severity: 'error',
@@ -241,7 +294,9 @@ export function validateVisualData(
   if (motion && range) {
     const start = animationMarkerTime(motion, range.start);
     const end = animationMarkerTime(motion, range.end);
-    if (start === null || end === null || start >= end)
+    const unresolvedPreparedEnd =
+      motion.kind === 'video' && !motion.sourceRange && range.end === 'end' && end === null;
+    if (start === null || (!unresolvedPreparedEnd && (end === null || start >= end)))
       return [
         {
           severity: 'error',

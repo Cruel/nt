@@ -133,9 +133,14 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
       return selected ? { animation: animation.data, motion: selected } : null;
     }, [animation, selectedMotionId]);
     const motionDurationMs = motion ? animationDuration(motion.motion) : 0;
-    const motionFrameIndex = motion ? animationFrameAt(motion.motion, motionTimeMs) : 0;
+    const spriteMotion = motion?.motion.kind === 'sprite-sequence' ? motion.motion : null;
+    const motionFrameIndex = spriteMotion ? animationFrameAt(spriteMotion, motionTimeMs) : 0;
     const displayAssetId =
-      motion?.motion.frames[motionFrameIndex]?.image.$ref.id ?? session?.assetId ?? null;
+      (motion?.motion.kind === 'video'
+        ? motion.motion.video.$ref.id
+        : spriteMotion?.frames[motionFrameIndex]?.image.$ref.id) ??
+      session?.assetId ??
+      null;
 
     const assetData = useMemo(() => {
       if (!displayAssetId) return null;
@@ -409,9 +414,10 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={motionFrameIndex === 0}
+                disabled={!spriteMotion || motionFrameIndex === 0}
                 onClick={() =>
-                  setMotionTimeMs(animationFrameTime(motion.motion, motionFrameIndex - 1))
+                  spriteMotion &&
+                  setMotionTimeMs(animationFrameTime(spriteMotion, motionFrameIndex - 1))
                 }
               >
                 {t('hotspots.focus.previousFrame')}
@@ -420,9 +426,10 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
                 type="button"
                 size="sm"
                 variant="outline"
-                disabled={motionFrameIndex >= motion.motion.frames.length - 1}
+                disabled={!spriteMotion || motionFrameIndex >= spriteMotion.frames.length - 1}
                 onClick={() =>
-                  setMotionTimeMs(animationFrameTime(motion.motion, motionFrameIndex + 1))
+                  spriteMotion &&
+                  setMotionTimeMs(animationFrameTime(spriteMotion, motionFrameIndex + 1))
                 }
               >
                 {t('hotspots.focus.nextFrame')}

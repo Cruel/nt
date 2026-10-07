@@ -859,7 +859,7 @@ function structuredConditionVariableIds(room: RoomData): string[] {
 function collectVisualIds(data: RoomPreviewDocument) {
   const assets = new Set<string>();
   const materials = new Set<string>();
-  const addAsset = (id: string | null) => id && assets.add(id);
+  const addAsset = (id: string | null) => id && !id.startsWith('prepared-video-') && assets.add(id);
   const addMaterial = (id: string | null) => id && materials.add(id);
   const addApplicationTextures = (
     textures: readonly RoomPreviewDocument['world']['background']['materialTextures'][number][],
@@ -1275,6 +1275,107 @@ export async function buildFocusedRoomPreview(
       },
     ];
   });
+  const worldAnimationIds = [
+    ...new Set([
+      ...[...persistentCharacters, ...cast].flatMap((item) =>
+        item.visual.layers.flatMap((layer) =>
+          layer.visual?.kind === 'animation' ? [layer.visual.animationId] : [],
+        ),
+      ),
+      ...room.environments.flatMap((item) =>
+        item.visual?.kind === 'animation' ? [item.visual.animation.$ref.id] : [],
+      ),
+      ...interactables.flatMap((item) =>
+        item.visual?.kind === 'animation' ? [item.visual.animationId] : [],
+      ),
+    ]),
+  ].sort((left, right) => left.localeCompare(right));
+  const preparedVideoMotions = new Map<
+    string,
+    Awaited<ReturnType<typeof window.noveltea.prepareOpaqueVideo>>
+  >();
+  const preparedVideoResources: PreviewResourceManifestEntry[] = [];
+  for (const animationId of worldAnimationIds) {
+    const animation = animationDataSchema.safeParse(project.animations[animationId]?.data);
+    if (!animation.success) continue;
+    for (const motion of animation.data.motions) {
+      if (motion.kind !== 'video') continue;
+      const assetId = motion.video.$ref.id;
+      const asset = parseAssetData(project.assets[assetId]?.data);
+      if (asset?.kind !== 'video')
+        throw new Error(
+          `Video Animation '${animationId}/${motion.id}' has an invalid Video Asset.`,
+        );
+      const prepared = await window.noveltea.prepareOpaqueVideo(projectSessionId, {
+        animationId,
+        motionId: motion.id,
+        assetId,
+        sourcePath: asset.source.path,
+        canvas: { ...animation.data.canvas },
+        ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
+      });
+      preparedVideoMotions.set(`${animationId}\n${motion.id}`, prepared);
+      if (prepared.hadAudio)
+        diagnostics.push({
+          severity: 'warning',
+          path: `/animations/${animationId}/data/motions`,
+          message: `Video motion '${motion.id}' contains audio. Generic Animation is visual-only; embedded audio is ignored.`,
+          code: 'focused-room.video-audio-ignored',
+        });
+      prepared.frames.forEach((frame, frameIndex) => {
+        const preparedAssetId = `prepared-video-${prepared.contentHash.slice(0, 16)}-${frameIndex}`;
+        preparedVideoResources.push({
+          resourceId: `asset:${preparedAssetId}`,
+          sourceKind: 'prepared-media',
+          assetId: preparedAssetId,
+          usageRoles: ['room-preview'],
+          fetchProjectRelativePath: frame.projectRelativePath,
+          logicalPath: `project:/${frame.projectRelativePath}`,
+          contentHash: frame.contentHash,
+          byteSize: frame.byteSize,
+          kind: 'image',
+          sampling: 'linear',
+        });
+      });
+    }
+  }
+  const focusedAnimations: RoomPreviewDocument['world']['animations'] = worldAnimationIds.flatMap(
+    (animationId) => {
+      const animation = animationDataSchema.safeParse(project.animations[animationId]?.data);
+      if (!animation.success) return [];
+      return [
+        {
+          id: animationId,
+          canvas: { ...animation.data.canvas },
+          defaultMotionId: animation.data.defaultMotionId,
+          motions: animation.data.motions.map((motion) => {
+            if (motion.kind === 'sprite-sequence')
+              return {
+                markers: motion.markers,
+                id: motion.id,
+                kind: 'sprite-sequence' as const,
+                frames: motion.frames.map((frame) => ({
+                  assetId: frame.image.$ref.id,
+                  durationMs: frame.durationMs,
+                })),
+              };
+            const prepared = preparedVideoMotions.get(`${animationId}\n${motion.id}`);
+            if (!prepared)
+              throw new Error(`Video Animation '${animationId}/${motion.id}' was not prepared.`);
+            return {
+              markers: motion.markers,
+              id: motion.id,
+              kind: 'sprite-sequence' as const,
+              frames: prepared.frames.map((frame, frameIndex) => ({
+                assetId: `prepared-video-${prepared.contentHash.slice(0, 16)}-${frameIndex}`,
+                durationMs: frame.durationMs,
+              })),
+            };
+          }),
+        },
+      ];
+    },
+  );
   const data: RoomPreviewDocument = {
     schema: 'noveltea.room-preview',
     environment: {
@@ -1340,43 +1441,7 @@ export async function buildFocusedRoomPreview(
       }),
     },
     world: {
-      animations: [
-        ...new Set([
-          ...[...persistentCharacters, ...cast].flatMap((item) =>
-            item.visual.layers.flatMap((layer) =>
-              layer.visual?.kind === 'animation' ? [layer.visual.animationId] : [],
-            ),
-          ),
-          ...room.environments.flatMap((item) =>
-            item.visual?.kind === 'animation' ? [item.visual.animation.$ref.id] : [],
-          ),
-          ...interactables.flatMap((item) =>
-            item.visual?.kind === 'animation' ? [item.visual.animationId] : [],
-          ),
-        ]),
-      ]
-        .sort((left, right) => left.localeCompare(right))
-        .flatMap((animationId) => {
-          const animation = project.animations[animationId]?.data;
-          return animation
-            ? [
-                {
-                  id: animationId,
-                  canvas: { ...animation.canvas },
-                  defaultMotionId: animation.defaultMotionId,
-                  motions: animation.motions.map((motion) => ({
-                    markers: motion.markers,
-                    id: motion.id,
-                    kind: motion.kind,
-                    frames: motion.frames.map((frame) => ({
-                      assetId: frame.image.$ref.id,
-                      durationMs: frame.durationMs,
-                    })),
-                  })),
-                },
-              ]
-            : [];
-        }),
+      animations: focusedAnimations,
       presentationSpace: {
         size: { ...room.presentationSpace.size },
         bounds: room.presentationSpace.bounds ? { ...room.presentationSpace.bounds } : null,
@@ -1561,6 +1626,7 @@ export async function buildFocusedRoomPreview(
     activeShaderVariant,
     diagnostics,
   );
+  resources.push(...preparedVideoResources);
   resources.push(
     ...materialCompileOutputs
       .filter((output) => output.variant === activeShaderVariant)

@@ -1761,14 +1761,14 @@ std::optional<AnimationResource> decode_animation(Decoder& decoder, const nlohma
                   *motions_value, pointer_child(pointer, "motions"),
                   [&](const nlohmann::json& motion_value,
                       const std::string& motion_pointer) -> std::optional<SpriteAnimationMotion> {
-                      if (!decoder.object(motion_value, motion_pointer,
-                                          {"frames", "id", "kind", "markers"}))
+                      if (!decoder.object(
+                              motion_value, motion_pointer,
+                              {"frames", "id", "kind", "markers", "sourceRange", "video"}))
                           return std::nullopt;
                       const auto* motion_id_value =
                           decoder.member(motion_value, "id", motion_pointer);
                       const auto* kind_value = decoder.member(motion_value, "kind", motion_pointer);
-                      const auto* frames_value =
-                          decoder.member(motion_value, "frames", motion_pointer);
+                      const auto* frames_value = json_access::member(motion_value, "frames");
                       auto motion_id =
                           motion_id_value
                               ? decoder.id<AnimationMotionId>(*motion_id_value,
@@ -1778,14 +1778,18 @@ std::optional<AnimationResource> decode_animation(Decoder& decoder, const nlohma
                                       ? decoder.string(*kind_value,
                                                        pointer_child(motion_pointer, "kind"), true)
                                       : std::nullopt;
-                      if (kind && *kind != "sprite-sequence") {
-                          decoder.error(k_code_enum,
-                                        "Animation motion kind must be 'sprite-sequence'.",
-                                        pointer_child(motion_pointer, "kind"));
+                      if (kind && *kind != "sprite-sequence" && *kind != "video") {
+                          decoder.error(
+                              k_code_enum,
+                              "Animation motion kind must be 'sprite-sequence' or 'video'.",
+                              pointer_child(motion_pointer, "kind"));
                           kind.reset();
                       }
+                      if (kind && *kind == "sprite-sequence" && !frames_value)
+                          decoder.error(k_code_missing, "Missing required field 'frames'.",
+                                        pointer_child(motion_pointer, "frames"));
                       auto frames =
-                          frames_value
+                          kind && *kind == "sprite-sequence" && frames_value
                               ? decoder.array<SpriteAnimationFrame>(
                                     *frames_value, pointer_child(motion_pointer, "frames"),
                                     [&](const nlohmann::json& frame_value,
@@ -1821,12 +1825,60 @@ std::optional<AnimationResource> decode_animation(Decoder& decoder, const nlohma
                                             return std::nullopt;
                                         return SpriteAnimationFrame{std::move(*image), *duration};
                                     })
-                              : std::nullopt;
-                      if (frames && frames->empty()) {
+                              : std::optional<std::vector<SpriteAnimationFrame>>{};
+                      if (kind && *kind == "sprite-sequence" && frames && frames->empty()) {
                           decoder.error(k_code_missing,
                                         "Animation motion must contain at least one frame.",
                                         pointer_child(motion_pointer, "frames"));
                           frames.reset();
+                      }
+                      std::optional<AssetId> video;
+                      std::optional<VideoAnimationSourceRange> source_range;
+                      if (kind && *kind == "video") {
+                          if (frames_value)
+                              decoder.error(k_code_unknown,
+                                            "Video Animation motions do not admit sprite frames.",
+                                            pointer_child(motion_pointer, "frames"));
+                          const auto* video_value =
+                              decoder.member(motion_value, "video", motion_pointer);
+                          if (video_value)
+                              video = decode_reference<AssetId>(
+                                  decoder, *video_value, pointer_child(motion_pointer, "video"),
+                                  "asset");
+                          const auto* range_value =
+                              json_access::member(motion_value, "sourceRange");
+                          if (range_value &&
+                              decoder.object(*range_value,
+                                             pointer_child(motion_pointer, "sourceRange"),
+                                             {"endMs", "startMs"})) {
+                              const auto range_pointer =
+                                  pointer_child(motion_pointer, "sourceRange");
+                              const auto* start_value =
+                                  decoder.member(*range_value, "startMs", range_pointer);
+                              const auto* end_value =
+                                  decoder.member(*range_value, "endMs", range_pointer);
+                              auto start =
+                                  start_value
+                                      ? decoder.unsigned_integer<std::uint64_t>(
+                                            *start_value, pointer_child(range_pointer, "startMs"))
+                                      : std::nullopt;
+                              auto end =
+                                  end_value ? decoder.unsigned_integer<std::uint64_t>(
+                                                  *end_value, pointer_child(range_pointer, "endMs"))
+                                            : std::nullopt;
+                              if (start && end && *end > *start)
+                                  source_range = VideoAnimationSourceRange{*start, *end};
+                              else if (start && end)
+                                  decoder.error(k_code_number,
+                                                "Video source range end must be after its start.",
+                                                range_pointer);
+                          }
+                      } else if (kind) {
+                          if (json_access::member(motion_value, "video") ||
+                              json_access::member(motion_value, "sourceRange"))
+                              decoder.error(k_code_unknown,
+                                            "Sprite Animation motions do not admit video fields.",
+                                            motion_pointer);
                       }
                       const auto* markers_value =
                           decoder.member(motion_value, "markers", motion_pointer);
@@ -1861,10 +1913,19 @@ std::optional<AnimationResource> decode_animation(Decoder& decoder, const nlohma
                                         return AnimationMarker{std::move(*id), *time};
                                     })
                               : std::nullopt;
-                      if (!motion_id || !kind || !frames || !markers)
+                      if (!motion_id || !kind || !markers ||
+                          (*kind == "sprite-sequence" && !frames) || (*kind == "video" && !video))
                           return std::nullopt;
-                      return SpriteAnimationMotion{std::move(*motion_id), std::move(*frames),
+                      SpriteAnimationMotion motion{std::move(*motion_id),
+                                                   frames ? std::move(*frames)
+                                                          : std::vector<SpriteAnimationFrame>{},
                                                    std::move(*markers)};
+                      if (*kind == "video") {
+                          motion.kind = AnimationMotionKind::Video;
+                          motion.video = std::move(video);
+                          motion.source_range = source_range;
+                      }
+                      return motion;
                   })
             : std::nullopt;
     if (!id || !canvas || !default_motion || !motions || motions->empty())
