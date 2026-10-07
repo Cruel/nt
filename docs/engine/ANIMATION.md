@@ -15,10 +15,39 @@ Records live in the `animations` collection and segmented workspace `records/ani
 The authoritative shape is
 [`authoring-animations.ts`](../../editor/src/shared/project-schema/authoring-animations.ts).
 An Animation owns one stable logical canvas, a default motion, and Animation-local unique motion IDs.
-Every motion contains one or more Image Asset frames with explicit positive integer millisecond
+Usable motions contain one or more Image Asset frames with explicit positive integer millisecond
 durations; a one-frame motion is valid. The default and any use-site selected motion must exist.
 Asset references participate in the ordinary dependency graph, rename/delete safety, validation,
 compilation, and resource closure. Localization remains at the Asset layer.
+Empty manual Animations start with a `default` motion with no frames. They are saveable authoring
+drafts with a warning, omitted from compiled resources, and rejected when selected as a Visual.
+Adding an Image frame in the timeline makes the draft usable; partially empty multi-motion resources
+remain validation errors.
+
+## Raster import
+
+The Animations category context menu offers **Import Animation…** beside ordinary **Create Animation**.
+Select a naturally filename-ordered image sequence (equal oriented dimensions), one GIF, or one APNG
+(`.png` or `.apng`). Sequence frames receive explicit 100 ms durations, editable in the timeline.
+GIF frame delays are retained; APNG rational delays are rounded cumulatively to integer milliseconds,
+with a 1 ms minimum. A zero source delay uses the sequence/fallback duration. Source loop counts do
+not become runtime policy. Other animated containers are not admitted by this workflow.
+
+Main-process import coalesces disposal/blending and normalizes every sample into a full-canvas RGBA
+PNG. Existing Sharp handles still images and composited GIF pages; the bounded APNG adapter rebuilds
+PNG subframes and composites them without a new dependency. Limits live in
+`editor/src/main/services/raster-import-limits.ts`; source input is limited to 128 MiB.
+All generated frames and original bytes are staged by one workspace transaction. The existing
+`asset.importFiles` command inserts Image Assets, preserved binary source Assets, and the Animation
+atomically, using ordinary structural persistence and file trash/restore on Undo/Redo.
+
+The optional record-level `import` field (see `authoring-records.ts`) stores ordered original names,
+project-relative preserved source paths and hashes, import time, format, and fallback duration. These
+paths/bytes plus the canonical editable frame data support provenance and rerunning import; there is
+no automatic source watcher/reimport overwrite. Provenance is not Animation runtime data or playback
+authority. Original source Assets are excluded from default dependency-pruned packages; generated
+Image Assets use ordinary localization, focused staging, dependency safety, and package preparation.
+The timeline shows provenance and allows manual image-frame insertion and logical canvas editing.
 
 ## Runtime and preview
 
@@ -125,6 +154,11 @@ range that excludes the first/last half-frame segments. This is a manual procedu
 claim of completed save/load or player interaction certification.
 
 - Editor schema/compiler/dependency/Room-preview tests cover authoring and focused staging.
+- `raster-animation-import.test.ts` covers sequence ordering, GIF timing, APNG poster/blend/disposal,
+  invalid-input atomicity, source preservation, imported/manual compiled equivalence, focused closure,
+  localized frames, and dependency-pruned package preparation. Editor component/command tests cover
+  import entry points, empty manual creation, frame insertion, and atomic Undo. Existing Feature Lab
+  sprite-motion checks cover the normalized runtime result; import itself is editor-only.
 - Native preview protocol tests reject malformed resources and missing motion selections.
 - `tests/assets/structured_prefetch_tests.cpp` exercises selected-frame mandatory publication,
   production lease resolution, and raster texture sampling.

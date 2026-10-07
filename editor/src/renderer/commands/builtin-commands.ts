@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { importedAnimationSchema } from '../../shared/asset-import';
 import { editorI18n } from '@/i18n';
 import {
   assignAssetAliasPatches,
@@ -695,6 +696,7 @@ const importedAssetMetadataSchema = z.discriminatedUnion('kind', [
 ]);
 
 const assetImportSchema = z.object({
+  animation: importedAnimationSchema.optional(),
   assets: z.array(importedAssetMetadataSchema),
   fileOrigin: z
     .enum(['copied-by-import', 'existing-project-file', 'generated-project-file'])

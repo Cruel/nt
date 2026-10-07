@@ -3,7 +3,20 @@ import { executeCommand, createInitialCommandBusState, undoCommand } from './com
 import { toJsonValue } from '@/project/json-value';
 import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import { parseAssetData } from '../../shared/project-schema/authoring-assets';
+import {
+  validateVisualData,
+  validateAnimationData,
+} from '../../shared/project-schema/authoring-animations';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
+import { lowerSharedAuthoringProject } from '../../shared/authoring-compiler-shared-lowering';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+
+function importProject() {
+  const project = createAuthoringProject();
+  project.rooms.room = { id: 'room', label: 'Room', data: defaultRoomData('Room') };
+  project.entrypoint = { kind: 'room', id: 'room' };
+  return project;
+}
 
 function metadata(name = 'click.mp3'): ImportedAssetMetadata {
   return {
@@ -37,6 +50,117 @@ function projectWithAsset() {
 }
 
 describe('asset operations', () => {
+  it('creates an empty manual Animation without emitting an invalid compiled resource', () => {
+    const state = createInitialCommandBusState(toJsonValue(importProject()));
+    const result = executeCommand(state, {
+      type: 'entity.createRecord',
+      payload: { collection: 'animations', entityId: 'manual', label: 'Manual' },
+    });
+    expect(result.ok).toBe(true);
+    const project = result.state.document as unknown as ReturnType<typeof createAuthoringProject>;
+    expect(project.animations.manual?.data).toMatchObject({
+      kind: 'animation',
+      motions: [{ id: 'default', frames: [] }],
+    });
+    expect(lowerSharedAuthoringProject(project).draft!.resources.animations).toEqual([]);
+    expect(validateAnimationData(project, 'manual', project.animations.manual!.data)).toMatchObject(
+      [{ severity: 'warning', code: 'animation.empty' }],
+    );
+    expect(
+      validateVisualData(
+        project,
+        {
+          kind: 'animation',
+          animation: { $ref: { collection: 'animations', id: 'manual' } },
+          motionId: null,
+          playback: null,
+        },
+        '/visual',
+      ),
+    ).toMatchObject([{ severity: 'error' }]);
+  });
+  it('imports an Animation and its frame Assets atomically with provenance outside runtime data', () => {
+    const image: ImportedAssetMetadata = {
+      ...metadata('pulse-frame.png'),
+      kind: 'image',
+      extension: '.png',
+      projectRelativePath: 'assets/images/pulse-frame.png',
+      imageMetadata: { width: 2, height: 1, hasAlpha: true, orientation: 1 },
+    };
+    const source: ImportedAssetMetadata = {
+      ...metadata('pulse.gif'),
+      kind: 'binary',
+      imageMetadata: null,
+      extension: '.gif',
+      projectRelativePath: 'assets/binary/pulse.gif',
+    };
+    const state = createInitialCommandBusState(toJsonValue(importProject()));
+    const result = executeCommand(state, {
+      type: 'asset.importFiles',
+      payload: {
+        assets: [image, source],
+        fileOrigin: 'copied-by-import',
+        animation: {
+          label: 'Pulse',
+          format: 'gif',
+          canvas: { width: 2, height: 1 },
+          frameDurationMs: 100,
+          frames: [{ assetIndex: 0, durationMs: 40 }],
+          sourceAssetIndices: [1],
+        },
+      },
+    });
+    expect(result.ok).toBe(true);
+    expect(result.state.document).toMatchObject({
+      animations: {
+        pulse: {
+          import: {
+            format: 'gif',
+            sources: [{ path: 'assets/binary/pulse.gif', originalName: 'pulse.gif' }],
+          },
+          data: {
+            kind: 'animation',
+            defaultMotionId: 'default',
+            motions: [
+              {
+                id: 'default',
+                kind: 'sprite-sequence',
+                frames: [
+                  { image: { $ref: { collection: 'assets', id: 'pulse-frame' } }, durationMs: 40 },
+                ],
+                markers: [],
+              },
+            ],
+          },
+        },
+      },
+    });
+    const imported = result.state.document as unknown as ReturnType<typeof createAuthoringProject>;
+    const manual = structuredClone(imported);
+    manual.animations.pulse = {
+      id: 'pulse',
+      label: 'Pulse',
+      data: {
+        kind: 'animation',
+        canvas: { width: 2, height: 1 },
+        defaultMotionId: 'default',
+        motions: [
+          {
+            id: 'default',
+            kind: 'sprite-sequence',
+            markers: [],
+            frames: [
+              { image: { $ref: { collection: 'assets', id: 'pulse-frame' } }, durationMs: 40 },
+            ],
+          },
+        ],
+      },
+    };
+    expect(lowerSharedAuthoringProject(imported).draft!.resources.animations).toEqual(
+      lowerSharedAuthoringProject(manual).draft!.resources.animations,
+    );
+    expect(undoCommand(result.state).state.document).toMatchObject({ assets: {}, animations: {} });
+  });
   it('imports assets as undoable authoring records', () => {
     const state = createInitialCommandBusState(toJsonValue(createAuthoringProject()));
     const result = executeCommand(state, {

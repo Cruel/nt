@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import sharp from 'sharp';
+import { importAnimationFiles } from './animation-import-service';
 import type {
   AssetImportOptions,
   AssetImportResponse,
@@ -173,7 +174,17 @@ export async function importAssets(
     };
   assertAuthority?.();
   const result = await dialog.showOpenDialog(owner, {
-    title: 'Import NovelTea Assets',
+    title: options.animation ? 'Import Animation' : 'Import NovelTea Assets',
+    ...(options.animation
+      ? {
+          filters: [
+            {
+              name: 'Raster images',
+              extensions: ['png', 'apng', 'gif', 'jpg', 'jpeg', 'webp', 'bmp'],
+            },
+          ],
+        }
+      : {}),
     properties: options.allowMultiple === false ? ['openFile'] : ['openFile', 'multiSelections'],
   });
   if (result.canceled || result.filePaths.length === 0) {
@@ -186,6 +197,13 @@ export async function importAssets(
     };
   }
   assertAuthority?.();
+  if (options.animation)
+    return importAnimationFiles(
+      projectRootFromFile(projectFilePath),
+      result.filePaths,
+      options.animation.frameDurationMs,
+      assertAuthority,
+    );
   const assets: ImportedAssetMetadata[] = [];
   const diagnostics: AssetImportResponse['diagnostics'] = [];
   for (const filePath of result.filePaths) {

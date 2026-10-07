@@ -39,6 +39,12 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const record = id ? project?.animations[id] : null;
   const parsed = useMemo(() => animationDataSchema.safeParse(record?.data), [record?.data]);
   const data = parsed.success ? parsed.data : null;
+  const [newFrameAsset, setNewFrameAsset] = useState<string | null>(null);
+  const [newFrameDuration, setNewFrameDuration] = useState(100);
+  const imageIds = project
+    ? Object.keys(project.assets).filter((id) => project.assets[id]?.data.kind === 'image')
+    : [];
+  const newImage = newFrameAsset ?? imageIds[0] ?? '';
   const [selected, setSelected] = useState<string | null>(null);
   const motion =
     data?.motions.find((entry) => entry.id === (selected ?? data.defaultMotionId)) ?? null;
@@ -182,6 +188,41 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   return (
     <div className="h-full space-y-4 overflow-auto p-4">
       <h2 className="font-semibold">{record.label ?? id}</h2>
+      {record.import ? (
+        <p className="text-xs text-muted-foreground">
+          {t('animationEditor.provenance', {
+            format: record.import.format,
+            sources: record.import.sources.map((source) => source.originalName).join(', '),
+          })}
+        </p>
+      ) : null}
+      <div className="flex gap-2">
+        {(['width', 'height'] as const).map((axis) => (
+          <div key={axis}>
+            <Label htmlFor={`canvas-${axis}-${tab.id}`}>
+              {t(`animationEditor.canvas${axis === 'width' ? 'Width' : 'Height'}`)}
+            </Label>
+            <Input
+              id={`canvas-${axis}-${tab.id}`}
+              key={`${axis}:${data.canvas[axis]}`}
+              type="number"
+              min={1}
+              max={10000}
+              defaultValue={data.canvas[axis]}
+              onBlur={(event) => {
+                const value = Number(event.target.value);
+                if (
+                  Number.isInteger(value) &&
+                  value > 0 &&
+                  value <= 10000 &&
+                  value !== data.canvas[axis]
+                )
+                  commit({ ...data, canvas: { ...data.canvas, [axis]: value } });
+              }}
+            />
+          </div>
+        ))}
+      </div>
       {select(
         t('animationEditor.motion'),
         motion.id,
@@ -194,6 +235,47 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
           setRangeEnd('end');
         },
       )}
+      <div className="flex flex-wrap items-end gap-2">
+        {select(t('animationEditor.image'), newImage, imageIds, setNewFrameAsset)}
+        <div>
+          <Label htmlFor={`new-duration-${tab.id}`}>{t('animationEditor.newDuration')}</Label>
+          <Input
+            id={`new-duration-${tab.id}`}
+            type="number"
+            min={1}
+            value={newFrameDuration}
+            onChange={(event) => setNewFrameDuration(Number(event.target.value))}
+          />
+        </div>
+        <Button
+          disabled={
+            !imageIds.includes(newImage) ||
+            !Number.isSafeInteger(newFrameDuration) ||
+            newFrameDuration <= 0
+          }
+          onClick={() =>
+            commit({
+              ...data,
+              motions: data.motions.map((entry) =>
+                entry.id === motion.id
+                  ? {
+                      ...entry,
+                      frames: [
+                        ...entry.frames,
+                        {
+                          image: { $ref: { collection: 'assets', id: newImage } },
+                          durationMs: newFrameDuration,
+                        },
+                      ],
+                    }
+                  : entry,
+              ),
+            })
+          }
+        >
+          {t('animationEditor.addFrame')}
+        </Button>
+      </div>
       <div className="flex h-64 items-center justify-center bg-muted/20">
         {frame && urls[frame.image.$ref.id] ? (
           <img
@@ -208,7 +290,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
       </div>
       <p className="text-xs text-muted-foreground">{t('animationEditor.sourcePreview')}</p>
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => setPlaying(true)} disabled={loop && !validRange}>
+        <Button onClick={() => setPlaying(true)} disabled={!frame || (loop && !validRange)}>
           {t('animationEditor.play')}
         </Button>
         <Button onClick={() => setPlaying(false)}>{t('animationEditor.pause')}</Button>
@@ -227,7 +309,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
           {t('animationEditor.previous')}
         </Button>
         <Button
-          disabled={!supportsFrames || frameIndex === motion.frames.length - 1}
+          disabled={!supportsFrames || !frame || frameIndex === motion.frames.length - 1}
           onClick={() => seek(animationFrameTime(motion, frameIndex + 1))}
         >
           {t('animationEditor.next')}
@@ -250,7 +332,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
         type="number"
         min={1}
         defaultValue={frame?.durationMs ?? 1}
-        disabled={!supportsFrames}
+        disabled={!supportsFrames || !frame}
         onBlur={(event) => {
           const durationMs = Number(event.target.value);
           if (

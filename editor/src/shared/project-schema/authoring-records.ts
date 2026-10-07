@@ -58,7 +58,27 @@ function ownerDefaultPropertyRecordSchema<Data extends z.ZodType>(data: Data) {
 }
 
 export const variableRecordSchema = recordSchema(variableDataSchema);
-export const animationRecordSchema = recordSchema(animationDataSchema);
+export const animationRecordSchema = recordSchema(animationDataSchema).extend({
+  import: z
+    .object({
+      format: z.enum(['image-sequence', 'gif', 'apng']),
+      sources: z
+        .array(
+          z
+            .object({
+              path: z.string().min(1),
+              contentHash: z.string().min(1),
+              originalName: z.string().min(1),
+            })
+            .strict(),
+        )
+        .min(1),
+      frameDurationMs: z.number().int().positive(),
+      importedAt: z.string().min(1),
+    })
+    .strict()
+    .optional(),
+});
 export const materialRecordSchema = recordSchema(materialDataSchema.strict());
 export const layoutRecordSchema = recordSchema(layoutDataSchema.strict());
 export const archetypeRecordSchema = recordSchema(archetypeDataSchema);

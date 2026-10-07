@@ -172,7 +172,9 @@ Component validators perform kind-specific warnings. For example, character spri
 
 Asset-specific commands are command-backed and produce JSON patches:
 
-- `asset.importFiles` adds imported asset records.
+- `asset.importFiles` adds imported asset records. Animation imports may also add one canonical
+  Animation record in the same command; normalized PNG frames are ordinary Image Assets, while
+  byte-preserved originals are binary source Assets. See [Animation raster import](ANIMATION.md#raster-import).
 - `asset.assignAlias` validates and adds an alias to an asset.
 - `asset.removeAlias` refuses removal when alias usages exist.
 - `asset.renameAlias` rewrites the alias owner and known alias usages.

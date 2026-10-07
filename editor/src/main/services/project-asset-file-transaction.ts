@@ -65,6 +65,23 @@ export async function writeProjectAssetFileTransaction(
   });
 }
 
+export async function writeProjectAssetFilesTransaction(
+  projectRoot: string,
+  files: ReadonlyArray<{ path: string; bytes: Uint8Array }>,
+  operationLabel: string,
+): Promise<void> {
+  const fileSystem = new NodeProjectWorkspaceFileSystem();
+  await transactionService(fileSystem).commit(projectRoot, {
+    operationLabel,
+    targets: files.map((file) => ({
+      path: slashPath(file.path),
+      operation: 'write' as const,
+      expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
+      bytes: file.bytes,
+    })),
+  });
+}
+
 export async function moveProjectAssetFileTransaction(
   projectRoot: string,
   sourceRelativePath: string,

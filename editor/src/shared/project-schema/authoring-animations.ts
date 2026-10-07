@@ -44,7 +44,7 @@ export const animationMarkerSchema = strict({
 export const spriteAnimationMotionSchema = strict({
   id: entityIdSchema,
   kind: z.literal('sprite-sequence'),
-  frames: z.array(spriteAnimationFrameSchema).min(1),
+  frames: z.array(spriteAnimationFrameSchema),
   markers: z.array(animationMarkerSchema),
 });
 
@@ -88,6 +88,15 @@ export function validateAnimationData(
   data: z.infer<typeof animationDataSchema>,
 ): ProjectValidationDiagnosticLike[] {
   const diagnostics: ProjectValidationDiagnosticLike[] = [];
+  const emptyDraft = data.motions.every((motion) => motion.frames.length === 0);
+  if (emptyDraft)
+    diagnostics.push({
+      severity: 'warning',
+      path: `/animations/${animationId}/data/motions`,
+      category: 'Animations',
+      code: 'animation.empty',
+      message: 'Add image frames before using this Animation.',
+    });
   const base = `/animations/${animationId}/data`;
   const motionIds = new Set<string>();
   data.motions.forEach((motion, motionIndex) => {
@@ -100,6 +109,13 @@ export function validateAnimationData(
         code: 'animation.motion.duplicate-id',
       });
     motionIds.add(motion.id);
+    if (!emptyDraft && !motion.frames.length)
+      diagnostics.push({
+        severity: 'error',
+        path: `${base}/motions/${motionIndex}/frames`,
+        category: 'Animations',
+        message: 'Animation motions require at least one frame.',
+      });
     const duration = motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
     const markers = new Set(['start', 'end']);
     motion.markers.forEach((marker, index) => {
@@ -212,6 +228,15 @@ export function validateVisualData(
     ];
   const motionId = visual.motionId ?? parsed.data.defaultMotionId;
   const motion = parsed.data.motions.find((motion) => motion.id === motionId);
+  if (motion && !motion.frames.length)
+    return [
+      {
+        severity: 'error',
+        path: `${path}/motionId`,
+        category: 'Animations',
+        message: 'An empty Animation motion cannot be used as a Visual.',
+      },
+    ];
   const range = visual.playback?.loopRange;
   if (motion && range) {
     const start = animationMarkerTime(motion, range.start);
