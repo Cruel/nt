@@ -1281,6 +1281,19 @@ core::Result<void, core::Diagnostics> RuntimeCommandGateway::clear_gameplay_curs
     return m_services->clear_gameplay_cursor();
 }
 
+core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_motion(MotionRequest request)
+{
+    auto available = require_services("Motion command");
+    if (!available)
+        return available;
+    if (request.transition_target) {
+        auto owner = require_gameplay_owner(m_project, m_state, request.transition_target->owner);
+        if (!owner)
+            return owner;
+    }
+    return m_services->request_motion(std::move(request));
+}
+
 core::Result<void, core::Diagnostics> RuntimeCommandGateway::request_audio(
     core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
     std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain, double pan,

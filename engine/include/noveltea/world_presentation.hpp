@@ -236,12 +236,23 @@ struct OrderedWorldOverlayBatch {
     QuadBatch batch;
 };
 
+struct WorldAnimationOccurrence {
+    std::string identity;
+    core::compiled::AnimationVisual visual;
+    core::LayoutClockDomain clock;
+    std::uint64_t epoch = 0;
+    std::string resource_key{};
+    std::uint64_t initial_ms = 0;
+    std::optional<std::pair<std::uint64_t, std::uint64_t>> loop_ms = std::nullopt;
+};
+
 struct WorldPresentationFrame {
     core::PresentationSnapshotRevision revision =
         core::PresentationSnapshotRevision::from_number(0);
     std::optional<core::PresentationCamera> camera;
     std::vector<core::PresentationMaterialParameter> material_parameters;
     std::vector<WorldPresentationDraw> draws;
+    std::vector<WorldAnimationOccurrence> animation_occurrences;
     std::vector<WorldPreparedHotspotSurface> hotspot_surfaces;
     std::vector<WorldHotspotHitTarget> hotspot_hit_targets;
     QuadBatch base_world_composition_batch;
@@ -433,7 +444,8 @@ private:
                          const core::RuntimeClockUpdate* clock = nullptr);
     void rebuild_hotspot_overlays(WorldPresentationFrame& frame);
     void prune_loop_epochs();
-    void begin_finite_motion(const WorldVisualOccurrence& occurrence);
+    void begin_finite_motion(const WorldPreparedMotionOverride& motion);
+    void sample_finite_motion(const WorldVisualOccurrence& occurrence, long double elapsed_ms);
     void end_finite_motion(const WorldVisualOccurrence& occurrence) noexcept;
     [[nodiscard]] bool finite_motion_active(const WorldVisualOccurrence& occurrence) const noexcept;
 
@@ -444,7 +456,12 @@ private:
     std::unordered_map<std::uint64_t, core::RuntimePresentationSnapshot> m_snapshots;
     std::unordered_map<std::uint64_t, WorldPresentationFrame> m_frames;
     std::unordered_map<std::string, LoopEpoch> m_loop_epochs;
-    std::vector<WorldVisualOccurrence> m_finite_motion_occurrences;
+    struct FiniteMotionSample {
+        WorldPreparedMotionOverride motion;
+        long double elapsed_ms = 0;
+    };
+    std::vector<FiniteMotionSample> m_finite_motion_samples;
+    std::optional<core::RuntimeClockUpdate> m_last_clock;
     std::uint64_t m_animation_epoch_generation = 0;
     std::uint64_t m_generation = 0;
     HotspotInteractionVisualState m_hotspot_visual_state;

@@ -358,6 +358,14 @@ public:
                            runtime::RuntimePresentationOwnerScope owner_scope,
                            std::optional<core::RoomId> room = std::nullopt);
     [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_motion(core::InteractableInstanceId interactable, core::AnimationMotionId motion,
+                   core::MotionPlaybackPolicy playback,
+                   std::optional<core::AnimationMotionId> transition_motion,
+                   std::optional<core::MotionPlaybackPolicy> transition_policy,
+                   runtime::RuntimePresentationOwnerScope transition_scope,
+                   std::optional<core::RoomId> transition_room, bool await_completion,
+                   bool skippable = true);
+    [[nodiscard]] core::Result<void, core::Diagnostics>
     set_material_selection(MaterialOccurrenceCommand target, core::MaterialId material,
                            runtime::RuntimePresentationOwnerScope owner_scope,
                            std::optional<core::RoomId> room = std::nullopt);

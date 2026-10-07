@@ -33,6 +33,9 @@ public:
     virtual ~RuntimeCommandGatewayServices() = default;
 
     [[nodiscard]] virtual core::Result<void, core::Diagnostics>
+    request_motion(MotionRequest request) = 0;
+
+    [[nodiscard]] virtual core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain,
                   double pan, bool await_completion, core::compiled::AudioCausality causality,
@@ -56,6 +59,8 @@ public:
 
     RuntimeCommandGateway(const RuntimeCommandGateway&) = delete;
     RuntimeCommandGateway& operator=(const RuntimeCommandGateway&) = delete;
+
+    [[nodiscard]] core::Result<void, core::Diagnostics> request_motion(MotionRequest request);
 
     void bind_services(RuntimeCommandGatewayServices* services) noexcept { m_services = services; }
     void invalidate() noexcept { m_active = false; }

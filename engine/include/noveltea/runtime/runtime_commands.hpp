@@ -140,6 +140,15 @@ struct RemovePresentationEnvironmentsByStopKeyCommand {
     core::PresentationOwner owner;
     bool operator==(const RemovePresentationEnvironmentsByStopKeyCommand&) const = default;
 };
+struct MotionRequest {
+    core::InteractableInstanceId interactable;
+    core::AnimationMotionId motion;
+    core::MotionPlaybackPolicy playback;
+    std::optional<core::DesiredMotionSelection> transition_target;
+    bool await_completion = false;
+    bool skippable = true;
+};
+
 struct UpsertMotionSelectionCommand {
     core::DesiredMotionSelection value;
     bool operator==(const UpsertMotionSelectionCommand&) const = default;

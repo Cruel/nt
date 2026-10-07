@@ -107,7 +107,9 @@ Character raster identity includes the actor occurrence and stable layer ID, unl
 and automatic-clip epochs. Explicit clip Visual overrides sample at frame-local choreography time;
 omitted Visual overrides retain the underlying animated sample. Compatibility includes selected Animation/motion, logical canvas,
 ordered semantic frame IDs/durations, playback policy, and resolved initial-marker/loop-boundary times. Compatible unchanged occurrences retain phase across
-snapshot republishes and focused prepared-publication swaps. Incompatible selections in retained
+snapshot republishes and focused prepared-publication swaps. Viewport-only rebuilds retain each
+revision's own playback epoch and pause/seek anchors; a failed resize leaves all retained revisions
+and control state unchanged. Incompatible selections in retained
 predecessor/current revisions have separate anchors so realizing one cannot restart the other.
 Replacement starts at semantic start/initial marker; reset/load/backend reconstruction discards epochs. Phase,
 frame index, and elapsed time never enter the immutable snapshot or Session/Save state.

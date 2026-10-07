@@ -541,7 +541,10 @@ PresentationCoordinator::accept_normalized(CoordinatedPresentationOperation oper
         return Result<PresentationOperationLifecycle, Diagnostics>::failure({diagnostic(
             "presentation.duplicate_operation", "Operation identity was already accepted")});
     std::vector<std::size_t> replacements;
-    if (const auto target = finite_target(operation)) {
+    // Named motion replacement commits only after mandatory preparation and backend startup.
+    const bool staged_motion = std::holds_alternative<PlayMotionOperation>(operation) ||
+                               std::holds_alternative<TransitionMotionOperation>(operation);
+    if (const auto target = finite_target(operation); target && !staged_motion) {
         for (std::size_t index = 0; index < m_records.size(); ++index) {
             const auto current_target = finite_target(m_records[index].operation);
             if (!terminal(m_records[index].lifecycle.state) && current_target &&
@@ -611,6 +614,21 @@ PresentationCoordinator::acknowledge(const BackendOperationAcknowledgement& ackn
             !record->running_reacknowledgement_allowed)
             return Result<void, Diagnostics>::failure({diagnostic(
                 "presentation.duplicate_acknowledgement", "Operation is already running")});
+        if (std::holds_alternative<PlayMotionOperation>(record->operation) ||
+            std::holds_alternative<TransitionMotionOperation>(record->operation)) {
+            const auto target = finite_target(record->operation);
+            for (auto& previous : m_records) {
+                if (previous.lifecycle.metadata.sequence.number() >=
+                        record->lifecycle.metadata.sequence.number() ||
+                    terminal(previous.lifecycle.state) ||
+                    finite_target(previous.operation) != target)
+                    continue;
+                auto replaced = transition_terminal(
+                    previous, PresentationOperationReplaced{record->lifecycle.metadata.operation});
+                if (!replaced)
+                    return replaced;
+            }
+        }
         record->running_reacknowledgement_allowed = false;
         record->lifecycle.state = PresentationOperationRunning{};
         rebuild_views();
