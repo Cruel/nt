@@ -17,6 +17,10 @@ published as leases; the old synchronous prepared-resource facade is not a compa
 editor authoring asset records are converted into package file entries during export; runtime alias
 metadata is still a separate lower-level system.
 
+Raster Animation is intentionally not another Asset kind. A first-class Animation references ordinary
+Image Assets for its frames, while presentation sites select an Image Asset or Animation through the
+canonical Visual contract. Phase 1 does not retain sprite-shaped presentation aliases around Asset IDs.
+
 ## Collection
 
 Asset records live at:

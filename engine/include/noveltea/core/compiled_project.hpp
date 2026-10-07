@@ -1044,7 +1044,6 @@ struct RoomProp {
 struct RoomEnvironment {
     RoomEnvironmentId id;
     Condition condition;
-    std::optional<AssetId> asset;
     std::optional<Visual> visual;
     MaterialId material;
     std::vector<MaterialApplicationParameterOverride> material_parameters;

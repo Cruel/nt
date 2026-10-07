@@ -1174,7 +1174,7 @@ TEST_CASE("immutable Room loops and Character idles reconstruct after load witho
         (*room)["environments"] = nlohmann::json::array(
             {{{"id", "rain"},
               {"condition", {{"kind", "always"}}},
-              {"asset", {{"id", "image-main"}, {"kind", "asset"}}},
+              {"visual", {{"kind", "image"}, {"image", {{"id", "image-main"}, {"kind", "asset"}}}}},
               {"material", {{"id", "sprite-material"}, {"kind", "material"}}},
               {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
               {"plane", "world-overlay"},

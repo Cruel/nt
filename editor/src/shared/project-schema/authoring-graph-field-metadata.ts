@@ -1071,14 +1071,24 @@ const POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES =
   PRE_TRAIT_REVIEWED_FIELD_EFFECT_CODES.split('')
     .filter((_, index) => index !== 410 && index !== 413)
     .join('');
-if (legacyReviewedPaths.length !== POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES.length) {
+// #402 removes the two temporary Room Environment image-Asset reference leaves instead of
+// retaining them as alignment-only legacy paths. Drop their reviewed slots atomically with the
+// canonical Visual cutover so later field classifications keep their historical alignment.
+const POST_ANIMATION_PHASE1_CUTOVER_REVIEWED_FIELD_EFFECT_CODES =
+  POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES.split('')
+    .filter((_, index) => index !== 502 && index !== 503)
+    .join('');
+if (
+  legacyReviewedPaths.length !== POST_ANIMATION_PHASE1_CUTOVER_REVIEWED_FIELD_EFFECT_CODES.length
+) {
   throw new Error(
-    `Authoring graph Trait contract replacement changed the legacy reviewed leaf set: expected ${POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES.length}, received ${legacyReviewedPaths.length}.`,
+    `Authoring graph Trait contract replacement changed the legacy reviewed leaf set: expected ${POST_ANIMATION_PHASE1_CUTOVER_REVIEWED_FIELD_EFFECT_CODES.length}, received ${legacyReviewedPaths.length}.`,
   );
 }
 const legacyReviewedEffects = new Map(
   legacyReviewedPaths.map(
-    (path, index) => [path, POST_MATERIAL_CUTOVER_REVIEWED_FIELD_EFFECT_CODES[index]!] as const,
+    (path, index) =>
+      [path, POST_ANIMATION_PHASE1_CUTOVER_REVIEWED_FIELD_EFFECT_CODES[index]!] as const,
   ),
 );
 const ACTIVE_REVIEWED_FIELD_EFFECT_CODES = sortedSchemaLeafPaths
@@ -1166,7 +1176,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     materials: '60045c56',
     prefetchHints: 'b985056c',
     project: 'da3be83d',
-    rooms: '4fe32cbc',
+    rooms: '3174ff65',
     scenes: '6650b472',
     schema: '63fb9bb9',
     scripts: '278134b5',

@@ -127,7 +127,6 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
     document["world"]["environments"] = nlohmann::json::array(
         {{{"environmentId", "rain"},
           {"condition", {{"kind", "always"}}},
-          {"assetId", nullptr},
           {"visual",
            {{"kind", "animation"},
             {"animationId", "rain"},
@@ -254,6 +253,9 @@ TEST_CASE("focused Room decoder carries raster Animation Visual resources")
         replaced["world"]["interactables"][0].erase("visual");
         replaced["world"]["interactables"][0]["spriteAssetId"] = "rain-a";
         CHECK_FALSE(decode_editor_room_preview_document_text(replaced.dump()));
+        auto legacy_environment = document;
+        legacy_environment["world"]["environments"][0]["assetId"] = "rain-a";
+        CHECK_FALSE(decode_editor_room_preview_document_text(legacy_environment.dump()));
         auto missing_motion = document;
         missing_motion["world"]["interactables"][0]["visual"].erase("motionId");
         CHECK_FALSE(decode_editor_room_preview_document_text(missing_motion.dump()));

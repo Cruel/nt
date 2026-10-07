@@ -2302,17 +2302,14 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                   [&](const nlohmann::json& item,
                       const std::string& item_pointer) -> std::optional<RoomEnvironment> {
                       if (!decoder.object(item, item_pointer,
-                                          {"asset", "bounds", "clock", "condition", "id",
-                                           "material", "materialParameters", "materialTextures",
-                                           "opacity", "order", "plane", "scrollPerSecond",
-                                           "visible", "visual"}))
+                                          {"bounds", "clock", "condition", "id", "material",
+                                           "materialParameters", "materialTextures", "opacity",
+                                           "order", "plane", "scrollPerSecond", "visible",
+                                           "visual"}))
                           return std::nullopt;
                       const auto* id_value = decoder.member(item, "id", item_pointer);
                       const auto* condition_value = decoder.member(item, "condition", item_pointer);
-                      const auto* asset_value = decoder.member(item, "asset", item_pointer);
-                      const auto* visual_value = item.contains("visual")
-                                                     ? decoder.member(item, "visual", item_pointer)
-                                                     : nullptr;
+                      const auto* visual_value = decoder.member(item, "visual", item_pointer);
                       const auto* material_value = decoder.member(item, "material", item_pointer);
                       const auto* bounds_value = decoder.member(item, "bounds", item_pointer);
                       const auto* plane_value = decoder.member(item, "plane", item_pointer);
@@ -2330,15 +2327,8 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                               ? decode_condition_impl(decoder, *condition_value,
                                                       pointer_child(item_pointer, "condition"))
                               : std::nullopt;
-                      std::optional<AssetId> asset;
-                      bool asset_ok = asset_value != nullptr;
-                      if (asset_value && !asset_value->is_null()) {
-                          asset = decode_reference<AssetId>(
-                              decoder, *asset_value, pointer_child(item_pointer, "asset"), "asset");
-                          asset_ok = asset.has_value();
-                      }
                       std::optional<Visual> visual;
-                      bool visual_ok = true;
+                      bool visual_ok = visual_value != nullptr;
                       if (visual_value && !visual_value->is_null()) {
                           visual = decode_visual(decoder, *visual_value,
                                                  pointer_child(item_pointer, "visual"));
@@ -2393,11 +2383,10 @@ std::optional<RoomDefinition> decode_room(Decoder& decoder, const nlohmann::json
                                          ? decoder.boolean(*visible_value,
                                                            pointer_child(item_pointer, "visible"))
                                          : std::nullopt;
-                      if (id && condition && asset_ok && visual_ok && material_application &&
-                          bounds && plane && order && clock && scroll && opacity && visible)
+                      if (id && condition && visual_ok && material_application && bounds && plane &&
+                          order && clock && scroll && opacity && visible)
                           return RoomEnvironment{std::move(*id),
                                                  std::move(*condition),
-                                                 std::move(asset),
                                                  std::move(visual),
                                                  std::move(material_application->material),
                                                  std::move(material_application->parameters),

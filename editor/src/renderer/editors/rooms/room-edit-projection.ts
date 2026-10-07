@@ -64,7 +64,7 @@ export interface RoomEditInteractableProjection extends RoomEditProjectedRect {
   normalizedBounds: RoomNormalizedRect;
   plane: 'world-content';
   order: number;
-  spriteAssetId: string | null;
+  visualAssetId: string | null;
   materialApplication: MaterialApplication | null;
   propertyValues: Readonly<Record<string, unknown>>;
 }
@@ -93,7 +93,7 @@ export interface RoomEditEnvironmentProjection extends RoomEditProjectedRect {
 
 export interface RoomEditCastLayerProjection extends RoomEditProjectedRect {
   layerId: string;
-  spriteAssetId: string | null;
+  visualAssetId: string | null;
   materialApplication: MaterialApplication | null;
   propertyValues: Readonly<Record<string, unknown>>;
   idle: CharacterIdleData | null;
@@ -336,7 +336,7 @@ function imageSize(project: AuthoringProject, assetId: string | null): RoomEditS
 function actorLayerRect(
   placement: RoomEditRect,
   layer: {
-    spriteAssetId: string | null;
+    visualAssetId: string | null;
     logicalSize: RoomEditSize | null;
     offset: { x: number; y: number };
     scale: number;
@@ -346,7 +346,7 @@ function actorLayerRect(
   viewport: RoomEditSize,
 ): RoomEditRect {
   const size = layer.logicalSize ??
-    imageSize(project, layer.spriteAssetId) ?? {
+    imageSize(project, layer.visualAssetId) ?? {
       width: viewport.width * 0.32,
       height: viewport.height * 0.78,
     };
@@ -477,7 +477,7 @@ export function resolveRoomEditProjection({
           normalizedBounds: placement.normalizedBounds,
           plane: 'world-content',
           order: occurrence.order,
-          spriteAssetId: visualImageAssetId(project, definition.presentation.visual),
+          visualAssetId: visualImageAssetId(project, definition.presentation.visual),
           materialApplication: effectiveMaterialApplication(
             definition.presentation.materialApplication,
             instance.materialApplication,
@@ -549,7 +549,7 @@ export function resolveRoomEditProjection({
         normalizedBounds: occurrence.bounds,
         plane: occurrence.plane,
         order: occurrence.order,
-        assetId: occurrence.asset?.$ref.id ?? null,
+        assetId: visualImageAssetId(project, occurrence.visual),
         materialApplication: occurrence.materialApplication,
         opacity: occurrence.opacity,
         clock: occurrence.clock,
@@ -592,11 +592,11 @@ export function resolveRoomEditProjection({
       occurrence.appearanceId ?? character.defaults.appearanceId,
     ).flatMap((layer): RoomEditCastLayerProjection[] => {
       if (!layer.visible) return [];
-      const spriteAssetId = visualImageAssetId(project, layer.visual);
+      const visualAssetId = visualImageAssetId(project, layer.visual);
       const rawRect = actorLayerRect(
         normalizedRect(placement.normalizedBounds, viewport),
         {
-          spriteAssetId,
+          visualAssetId,
           logicalSize:
             layer.visual?.kind === 'animation'
               ? (project.animations[layer.visual.animation.$ref.id]?.data.canvas ?? null)
@@ -611,7 +611,7 @@ export function resolveRoomEditProjection({
       return [
         {
           layerId: layer.id,
-          spriteAssetId,
+          visualAssetId,
           materialApplication: layer.materialApplication,
           propertyValues,
           idle,
@@ -633,13 +633,13 @@ export function resolveRoomEditProjection({
 
   const renderedPlacementIds = new Set<string>([
     ...interactables.flatMap((item) =>
-      item.spriteAssetId || item.materialApplication ? [item.placementId] : [],
+      item.visualAssetId || item.materialApplication ? [item.placementId] : [],
     ),
     ...props.flatMap((item) =>
       item.assetId || item.materialApplication ? [item.placementId] : [],
     ),
     ...cast.flatMap((item) =>
-      item.layers.some((layer) => layer.spriteAssetId || layer.materialApplication)
+      item.layers.some((layer) => layer.visualAssetId || layer.materialApplication)
         ? [item.placementId]
         : [],
     ),
@@ -671,13 +671,13 @@ export function resolveRoomEditProjection({
       item.assetId || item.materialApplication ? [{ kind: 'prop' as const, ...item }] : [],
     ),
     ...interactables.flatMap((item) =>
-      item.spriteAssetId || item.materialApplication
+      item.visualAssetId || item.materialApplication
         ? [{ kind: 'interactable' as const, ...item }]
         : [],
     ),
     ...cast.flatMap((item) =>
       item.layers.flatMap((layer, sublayer) =>
-        layer.spriteAssetId || layer.materialApplication
+        layer.visualAssetId || layer.materialApplication
           ? [
               {
                 kind: 'cast-layer' as const,

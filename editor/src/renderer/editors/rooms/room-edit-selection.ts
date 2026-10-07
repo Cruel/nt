@@ -307,7 +307,7 @@ export function roomEditSelectionCandidates(
         );
         if (!cast) break;
         const drawableLayers = cast.layers.filter(
-          (layer) => layer.spriteAssetId || layer.materialApplication,
+          (layer) => layer.visualAssetId || layer.materialApplication,
         );
         const rect = unionRects(drawableLayers.map((layer) => layer.rect));
         if (!rect) break;

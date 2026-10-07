@@ -179,8 +179,7 @@ export const roomInteractableDataSchema = withSchemaDocumentation(
 export const roomEnvironmentDataSchema = strict({
   id: entityIdSchema,
   condition: conditionSchema,
-  asset: roomAssetRefSchema.nullable(),
-  visual: visualSchema.nullable().optional(),
+  visual: visualSchema.nullable(),
   materialApplication: materialApplicationSchema,
   bounds: roomNormalizedRectSchema,
   plane: z.enum(roomEnvironmentPlaneValues),
@@ -777,8 +776,6 @@ export function validateRoomData(
   });
   data.environments.forEach((entry, index) => {
     const path = `${base}/environments/${index}`;
-    if (entry.asset && !project.assets[entry.asset.$ref.id])
-      diagnostics.push(diagnostic(`${path}/asset/$ref`, `Missing asset '${entry.asset.$ref.id}'.`));
     if (entry.visual?.kind === 'image') {
       const assetId = entry.visual.image.$ref.id;
       const asset = project.assets[assetId];

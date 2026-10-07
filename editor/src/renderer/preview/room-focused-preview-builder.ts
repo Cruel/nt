@@ -885,7 +885,6 @@ function collectVisualIds(data: RoomPreviewDocument) {
     addApplicationTextures(item.materialTextures);
   }
   for (const item of data.world.environments) {
-    addAsset(item.assetId);
     if (item.visual?.kind === 'image') addAsset(item.visual.assetId);
     addMaterial(item.materialId);
     addApplicationTextures(item.materialTextures);
@@ -1425,7 +1424,6 @@ export async function buildFocusedRoomPreview(
       environments: room.environments.map((item) => ({
         environmentId: item.id,
         condition: focusedCondition(item.condition),
-        assetId: item.asset?.$ref.id ?? null,
         visual: item.visual
           ? item.visual.kind === 'image'
             ? { kind: 'image' as const, assetId: item.visual.image.$ref.id }
@@ -1435,9 +1433,7 @@ export async function buildFocusedRoomPreview(
                 motionId: item.visual.motionId,
                 playback: item.visual.playback,
               }
-          : item.asset
-            ? { kind: 'image' as const, assetId: item.asset.$ref.id }
-            : null,
+          : null,
         materialId: item.materialApplication.material.$ref.id,
         ...focusedMaterialApplication(item.materialApplication),
         bounds: item.bounds,

@@ -643,8 +643,9 @@ Environment, Interactable, and resolved Character-layer `visual` selections (ima
 nullable selected motion and required nullable `playback` policy). Each motion carries required
 `markers` (unique non-reserved IDs and absolute motion milliseconds). Missing policy/marker fields,
 invalid policies, unresolved initial markers, and invalid optional marker-bounded `loopRange`
-(start/end marker IDs with increasing times, loop repetition only) reject the candidate. Interactable entries and Character layers carry required nullable `visual`;
-replaced `spriteAssetId` fields are rejected.
+(start/end marker IDs with increasing times, loop repetition only) reject the candidate. Environment,
+Interactable, and Character-layer entries carry canonical nullable `visual`; replaced Environment
+`assetId` and Interactable/Character `spriteAssetId` fields are rejected rather than translated.
 Hotspot entries carry nullable `occurrenceId` (Room Hotspots use null) and nullable `sourceAssetId`;
 Animation Hotspots use logical canvas dimensions and no fixed source Asset. The builder includes frame
 Assets in the normal manifest, requesting retained CPU coverage for every selected `visual-alpha` frame. Native decoding rejects invalid canvas

@@ -3437,7 +3437,7 @@ describe('authoring compiler framework', () => {
     room.environments.push({
       id: 'rain',
       condition: { kind: 'always' },
-      asset: null,
+      visual: null,
       materialApplication: application,
       bounds: { x: 0, y: 0, width: 1, height: 1 },
       plane: 'world-background',
@@ -3574,7 +3574,6 @@ describe('authoring compiler framework', () => {
     room.environments.push({
       id: 'rain',
       condition: { kind: 'always' },
-      asset: null,
       visual: {
         kind: 'animation',
         animation: { $ref: { collection: 'animations', id: 'rain' } },
@@ -3695,7 +3694,6 @@ describe('authoring compiler framework', () => {
       ],
     });
     expect(environment).toMatchObject({
-      asset: null,
       visual: {
         kind: 'animation',
         animation: { kind: 'animation', id: 'rain' },
@@ -4121,7 +4119,10 @@ describe('authoring compiler framework', () => {
       {
         id: 'rain',
         condition: { kind: 'always' },
-        asset: { $ref: { collection: 'assets', id: 'image-main' } },
+        visual: {
+          kind: 'image',
+          image: { $ref: { collection: 'assets', id: 'image-main' } },
+        },
         materialApplication: emptyMaterialApplication('sprite-material'),
         bounds: { x: 0, y: 0, width: 1, height: 1 },
         plane: 'world-overlay',

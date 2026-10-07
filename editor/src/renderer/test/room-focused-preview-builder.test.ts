@@ -220,7 +220,6 @@ describe('graph-driven Room builder', () => {
       {
         id: 'rain',
         condition: { kind: 'always' },
-        asset: null,
         visual: {
           kind: 'animation',
           animation: { $ref: { collection: 'animations', id: 'rain' } },

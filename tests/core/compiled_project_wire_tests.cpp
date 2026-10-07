@@ -1591,6 +1591,29 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
             noveltea::core::decode_compiled_project(document, "replaced-interactable-shape.json"));
     }
 
+    SECTION("replaced Room Environment asset shape is rejected")
+    {
+        auto document = fixture("interaction-program");
+        auto& room = document["definitions"]["rooms"][0];
+        room["environments"] = nlohmann::json::array(
+            {{{"id", "fog"},
+              {"condition", {{"kind", "always"}}},
+              {"asset", nullptr},
+              {"visual", nullptr},
+              {"material", {{"kind", "material"}, {"id", "sprite-material"}}},
+              {"materialParameters", nlohmann::json::array()},
+              {"materialTextures", nlohmann::json::array()},
+              {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+              {"plane", "world-content"},
+              {"order", 0},
+              {"clock", "gameplay"},
+              {"scrollPerSecond", {{"x", 0.0}, {"y", 0.0}}},
+              {"opacity", 1.0},
+              {"visible", true}}});
+        CHECK_FALSE(
+            noveltea::core::decode_compiled_project(document, "replaced-environment-shape.json"));
+    }
+
     SECTION("Interactable image Visuals remain image-only when hotspot mode is none")
     {
         auto document = fixture("interaction-program");

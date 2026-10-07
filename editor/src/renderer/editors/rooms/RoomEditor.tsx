@@ -2052,11 +2052,12 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
         return (
           data.props.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ?? null
         );
-      case 'environment-asset':
-        return (
-          data.environments.find((item) => item.id === contentEntitySelector.id)?.asset?.$ref.id ??
-          null
-        );
+      case 'environment-asset': {
+        const visual = data.environments.find(
+          (item) => item.id === contentEntitySelector.id,
+        )?.visual;
+        return visual?.kind === 'image' ? visual.image.$ref.id : null;
+      }
     }
   })();
   const contentEntitySelectorTitle =
@@ -2690,7 +2691,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
             },
             {
               label: t('roomEditor.compositionPane.inspectorAsset'),
-              value: occurrence.asset?.$ref.id ?? '—',
+              value: occurrence.visual?.kind === 'image' ? occurrence.visual.image.$ref.id : '—',
             },
           );
           semanticEditor = (
@@ -2708,17 +2709,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                         setContentEntitySelector({ kind: 'environment-asset', id: occurrence.id })
                       }
                     >
-                      {occurrence.asset
-                        ? (project.assets[occurrence.asset.$ref.id]?.label ??
-                          occurrence.asset.$ref.id)
+                      {occurrence.visual?.kind === 'image'
+                        ? (project.assets[occurrence.visual.image.$ref.id]?.label ??
+                          occurrence.visual.image.$ref.id)
                         : t('roomEditor.compositionPane.editor.chooseImage')}
                     </Button>
-                    {occurrence.asset ? (
+                    {occurrence.visual ? (
                       <Button
                         type="button"
                         size="sm"
                         variant="ghost"
-                        onClick={() => replaceEnvironment(occurrence.id, { asset: null })}
+                        onClick={() => replaceEnvironment(occurrence.id, { visual: null })}
                       >
                         {t('roomEditor.compositionPane.editor.clear')}
                       </Button>
@@ -4810,15 +4811,17 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                           setContentEntitySelector({ kind: 'environment-asset', id: entry.id })
                         }
                       >
-                        {assets.find((item) => item.id === entry.asset?.$ref.id)?.label ??
-                          'Choose asset'}
+                        {entry.visual?.kind === 'image'
+                          ? (project.assets[entry.visual.image.$ref.id]?.label ??
+                            entry.visual.image.$ref.id)
+                          : 'Choose asset'}
                       </Button>
-                      {entry.asset ? (
+                      {entry.visual ? (
                         <Button
                           type="button"
                           variant="ghost"
                           className="h-7 rounded-none border-l px-2"
-                          onClick={() => replaceEnvironment(entry.id, { asset: null })}
+                          onClick={() => replaceEnvironment(entry.id, { visual: null })}
                         >
                           Clear
                         </Button>
@@ -5212,7 +5215,7 @@ export function RoomEditor({ tab }: WorkbenchEditorProps) {
                 break;
               case 'environment-asset':
                 replaceEnvironment(contentEntitySelector.id, {
-                  asset: roomAssetRef(item.entityId),
+                  visual: { kind: 'image', image: roomAssetRef(item.entityId) },
                 });
                 break;
             }

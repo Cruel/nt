@@ -354,8 +354,7 @@ export const focusedRoomWorldDefinitionSchema = strict({
     strict({
       environmentId: z.string().min(1),
       condition: focusedConditionSchema,
-      assetId: z.string().min(1).nullable(),
-      visual: focusedVisualSchema.nullable().optional(),
+      visual: focusedVisualSchema.nullable(),
       materialId: z.string().min(1),
       materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).default([]),
       materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).default([]),

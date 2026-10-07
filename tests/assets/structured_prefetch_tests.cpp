@@ -565,7 +565,6 @@ core::LoadedCompiledPackage animation_collector_package()
     document["definitions"]["rooms"][0]["environments"] = nlohmann::json::array(
         {{{"id", "rain"},
           {"condition", {{"kind", "always"}}},
-          {"asset", nullptr},
           {"visual",
            {{"kind", "animation"},
             {"animation", {{"kind", "animation"}, {"id", "rain-loop"}}},
