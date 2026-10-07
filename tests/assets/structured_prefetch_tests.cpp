@@ -501,17 +501,17 @@ core::LoadedCompiledPackage collector_package()
     REQUIRE(coin != nullptr);
     (*coin)["presentation"]["hotspots"] = {
         {"kind", "custom"},
-        {"hotspots",
-         nlohmann::json::array(
-             {{{"target", {{"kind", "owner"}}},
-               {"condition", {{"kind", "always"}}},
-               {"highlight", {{"kind", "none"}}},
-               {"id", "coin-none"},
-               {"inputOrder", 0},
-               {"label", "Coin none"},
-               {"shape",
-                {{"kind", "rect"},
-                 {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}}}}}})}};
+        {"hotspots", nlohmann::json::array(
+                         {{{"target", {{"kind", "owner"}}},
+                           {"condition", {{"kind", "always"}}},
+                           {"highlight", {{"kind", "none"}}},
+                           {"id", "coin-none"},
+                           {"inputOrder", 0},
+                           {"label", "Coin none"},
+                           {"shape",
+                            {{"kind", "rect"},
+                             {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+                             {"motionTracks", nlohmann::json::array()}}}}})}};
     auto* key = test_support::json_object_by_id(document["definitions"]["interactables"], "key");
     REQUIRE(key != nullptr);
     (*key)["presentation"]["hotspots"] = alpha_hotspot;

@@ -1212,7 +1212,8 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         if (!hotspot.alpha_shape && hotspot.bounds) {
             shape = core::compiled::RectHotspotShape{
                 core::compiled::NormalizedRect{hotspot.bounds->x, hotspot.bounds->y,
-                                               hotspot.bounds->width, hotspot.bounds->height}};
+                                               hotspot.bounds->width, hotspot.bounds->height},
+                {}};
         }
         resolved.value_if()->presentation.hotspots.push_back(
             {.ref = hotspot.owner_kind == "room"

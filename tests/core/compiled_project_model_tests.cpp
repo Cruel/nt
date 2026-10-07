@@ -230,6 +230,24 @@ TEST_CASE("compiled project vocabulary exposes every closed wire family")
                                   compiled::DialogueRedirectBlock>);
 }
 
+TEST_CASE("motion-keyed hotspot highlight coverage contains every sampled linear position")
+{
+    const compiled::RectHotspotShape shape{
+        {0.1, 0.2, 0.1, 0.2},
+        {{id<AnimationMotionId>("sweep"),
+          {{0, compiled::RectHotspotShape::Interpolation::Linear, true, {0.1, 0.2, 0.1, 0.2}},
+           {1000, compiled::RectHotspotShape::Interpolation::Hold, true, {0.8, 0.4, 0.1, 0.3}}}}}};
+
+    const auto regions = compiled::hotspot_motion_coverage_regions(shape);
+    REQUIRE(regions.size() == 4);
+    CHECK(regions.front() == shape.bounds);
+    const auto coverage = std::ranges::find_if(regions, [](const auto& region) {
+        return region.x == Approx(0.1) && region.y == Approx(0.2) && region.width == Approx(0.8) &&
+               region.height == Approx(0.5);
+    });
+    CHECK(coverage != regions.end());
+}
+
 TEST_CASE(
     "contextual anchoring resolves immutable normalized activation geometry in receiver space")
 {

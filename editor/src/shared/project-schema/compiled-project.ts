@@ -1027,6 +1027,16 @@ const normalizedRectSchema = strict({
       message: 'Rectangle exceeds image height.',
     });
 });
+const compiledHotspotMotionKeyframeSchema = strict({
+  timeMs: z.number().int().nonnegative(),
+  interpolation: z.enum(['hold', 'linear']),
+  active: z.boolean(),
+  bounds: normalizedRectSchema,
+});
+const compiledHotspotMotionTrackSchema = strict({
+  motionId: id,
+  keyframes: z.array(compiledHotspotMotionKeyframeSchema).min(1),
+});
 const layoutScaleInheritanceSchema = z.enum(['inherit', 'ignore']);
 const layoutScalePolicySchema = strict({
   ui: layoutScaleInheritanceSchema,
@@ -1455,7 +1465,11 @@ const interactableDefinitionSchema = strict({
           strict({
             ...hotspotCommonShape,
             target: interactableHotspotTargetSchema,
-            shape: strict({ kind: z.literal('rect'), bounds: normalizedRectSchema }),
+            shape: strict({
+              kind: z.literal('rect'),
+              bounds: normalizedRectSchema,
+              motionTracks: z.array(compiledHotspotMotionTrackSchema),
+            }),
           }),
         ),
       }),

@@ -1156,7 +1156,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     entrypoint: 'a61673d4',
     export: '0ba5bfbc',
     interactableInstances: '991618e4',
-    interactables: '08937da6',
+    interactables: 'ff0c08cf',
     interactions: '8c02d069',
     inventories: 'a8c38dae',
     layouts: 'b9fb12f6',

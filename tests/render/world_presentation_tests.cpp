@@ -148,6 +148,7 @@ public:
                   .source_path = std::string(context)}});
         result.logical_size = Size{64.0f, 32.0f};
         result.motion_policy = animation.playback;
+        result.animation_motion = animation.motion.value_or(id<AnimationMotionId>("fall"));
         result.animation_key = animation.animation.text() + ":" +
                                (animation.motion ? animation.motion->text() : "fall");
         auto first_prepared = resolve(id<AssetId>("rain-a"), std::nullopt, context);
@@ -184,7 +185,7 @@ public:
                 noveltea::MaterialId(std::holds_alternative<AlphaHotspotShape>(hotspot.shape)
                                          ? std::string(builtin_hotspot_alpha_material_id)
                                          : std::string(builtin_hotspot_custom_material_id));
-        if (std::holds_alternative<compiled::NormalizedRect>(hotspot.shape))
+        if (std::holds_alternative<compiled::RectHotspotShape>(hotspot.shape))
             result.mask =
                 assets::HotspotMaskAsset{.owner = compiled::RoomHotspotOwnerRef{id<RoomId>("room")},
                                          .handle = 91,
@@ -1713,6 +1714,71 @@ TEST_CASE("animated visual-alpha follows the realized frame without a new snapsh
     REQUIRE(second_release.target);
     REQUIRE(second_release.trigger_context);
     CHECK(second_release.trigger_context->source_bounds->width == Catch::Approx(0.2));
+}
+
+TEST_CASE("motion-keyed custom hotspot geometry follows animation time and inactive intervals")
+{
+    FakeWorldResources resources;
+    resources.add_texture("rain-a", 31, 64, 32);
+    resources.add_texture("rain-b", 32, 32, 64);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.interactables.push_back({id<InteractableInstanceId>("rain"),
+                                      {id<RoomId>("room"), id<RoomPlacementId>("place")},
+                                      {0, 0, 1, 1},
+                                      compiled::AnimationVisual{id<AnimationId>("rain-animation"),
+                                                                id<AnimationMotionId>("fall")}});
+    snapshot.interactables.front().occurrence = id<RoomInteractableEntryId>("first");
+    compiled::RectHotspotShape shape{
+        {0.1, 0.0, 0.2, 1.0},
+        {{id<AnimationMotionId>("fall"),
+          {{0, compiled::RectHotspotShape::Interpolation::Linear, true, {0.0, 0.0, 0.2, 1.0}},
+           {50, compiled::RectHotspotShape::Interpolation::Hold, true, {0.8, 0.0, 0.2, 1.0}},
+           {100, compiled::RectHotspotShape::Interpolation::Hold, false, {0.8, 0.0, 0.2, 1.0}}}}}};
+    snapshot.hotspots.push_back({compiled::InteractableHotspotRef{
+                                     id<InteractableInstanceId>("rain"), id<HotspotId>("tracked")},
+                                 "Tracked", true, true, semantic_target("rain"), shape, 0,
+                                 compiled::NoHotspotHighlight{}, std::nullopt, 64, 32});
+    snapshot.hotspots.front().interactable_occurrence = snapshot.interactables.front().occurrence;
+    snapshot.hotspots.front().interactable_placement = snapshot.interactables.front().placement;
+    REQUIRE(backend.reconcile(snapshot, {100, 100}));
+
+    const auto hit = [&](float x) {
+        return controller
+            .handle({WorldPointerEventKind::MouseMove, {x, 50}, {x, 50}, 0, false, true})
+            .hit;
+    };
+    RuntimeClockUpdate clock;
+    backend.realize(clock);
+    CHECK(hit(10));
+    CHECK_FALSE(hit(90));
+
+    clock.gameplay_time = std::chrono::milliseconds{25};
+    backend.realize(clock);
+    controller.realization_changed();
+    CHECK_FALSE(hit(10));
+    CHECK(hit(50));
+
+    clock.gameplay_time = std::chrono::milliseconds{75};
+    backend.realize(clock);
+    controller.realization_changed();
+    CHECK_FALSE(hit(50));
+    CHECK(hit(90));
+
+    clock.gameplay_time = std::chrono::milliseconds{125};
+    backend.realize(clock);
+    controller.realization_changed();
+    CHECK_FALSE(hit(90));
+
+    snapshot.revision = PresentationSnapshotRevision::from_number(2);
+    snapshot.interactables.front().visual =
+        compiled::AnimationVisual{id<AnimationId>("rain-animation"), id<AnimationMotionId>("rest")};
+    REQUIRE(backend.reconcile(snapshot, {100, 100}));
+    backend.realize(clock);
+    controller.realization_changed();
+    CHECK(hit(15));
+    CHECK_FALSE(hit(90));
 }
 
 TEST_CASE(

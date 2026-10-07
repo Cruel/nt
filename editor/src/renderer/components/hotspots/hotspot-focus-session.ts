@@ -1,4 +1,7 @@
-import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
+import type {
+  HotspotMotionTrack,
+  ImageNormalizedRect,
+} from '../../../shared/project-schema/authoring-hotspots';
 import type { EditableHotspot } from './hotspot-types';
 
 export interface HotspotFocusHistory {
@@ -42,7 +45,36 @@ export function setHotspotGeometryBounds(
   )
     return history;
   const next = [...history.present];
-  next[index] = { ...current, shape: { kind: 'rect', bounds } };
+  next[index] = { ...current, shape: { ...current.shape!, bounds } };
+  return pushHistory(history, next);
+}
+
+export function setHotspotMotionKeyframe(
+  history: HotspotFocusHistory,
+  hotspotId: string,
+  motionId: string,
+  timeMs: number,
+  bounds: ImageNormalizedRect,
+  active: boolean,
+  interpolation: HotspotMotionTrack['keyframes'][number]['interpolation'],
+): HotspotFocusHistory {
+  const index = history.present.findIndex((item) => item.id === hotspotId && item.shape);
+  if (index < 0) return history;
+  const current = history.present[index]!;
+  const tracks = [...(current.shape?.motionTracks ?? [])];
+  const trackIndex = tracks.findIndex((track) => track.motionId === motionId);
+  const track = trackIndex >= 0 ? tracks[trackIndex]! : { motionId, keyframes: [] };
+  const keyframes = [...track.keyframes];
+  const keyframeIndex = keyframes.findIndex((keyframe) => keyframe.timeMs === timeMs);
+  const keyframe = { timeMs, bounds, active, interpolation };
+  if (keyframeIndex >= 0) keyframes[keyframeIndex] = keyframe;
+  else keyframes.push(keyframe);
+  keyframes.sort((left, right) => left.timeMs - right.timeMs);
+  const nextTrack = { motionId, keyframes };
+  if (trackIndex >= 0) tracks[trackIndex] = nextTrack;
+  else tracks.push(nextTrack);
+  const next = [...history.present];
+  next[index] = { ...current, shape: { ...current.shape!, motionTracks: tracks } };
   return pushHistory(history, next);
 }
 

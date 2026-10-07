@@ -194,6 +194,7 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
                      {}});
     auto& draw = draws.back();
     draw.raster_animation_key = visual.animation_key;
+    draw.raster_animation_motion = visual.animation_motion;
     draw.motion_policy = visual.motion_policy;
     draw.motion_initial_ms = visual.motion_initial_ms;
     draw.motion_loop_ms = visual.motion_loop_ms;
@@ -440,6 +441,36 @@ std::size_t raster_frame_index(const WorldPresentationDraw& draw, long double ti
     return draw.raster_animation_frames.size() - 1;
 }
 
+std::optional<core::compiled::NormalizedRect>
+sample_hotspot_shape(const core::compiled::RectHotspotShape& shape,
+                     const std::optional<core::AnimationMotionId>& motion, long double time_ms)
+{
+    if (!motion)
+        return shape.bounds;
+    const auto track = std::ranges::find_if(
+        shape.motion_tracks, [&](const auto& candidate) { return candidate.motion_id == *motion; });
+    if (track == shape.motion_tracks.end() || track->keyframes.empty())
+        return shape.bounds;
+    const auto next = std::ranges::find_if(
+        track->keyframes, [&](const auto& keyframe) { return time_ms < keyframe.time_ms; });
+    if (next == track->keyframes.begin())
+        return shape.bounds;
+    const auto& current = *(next - 1);
+    if (!current.active)
+        return std::nullopt;
+    if (current.interpolation != core::compiled::RectHotspotShape::Interpolation::Linear ||
+        next == track->keyframes.end() || !next->active || next->time_ms <= current.time_ms)
+        return current.bounds;
+    const auto amount = std::clamp(
+        static_cast<double>((time_ms - current.time_ms) / (next->time_ms - current.time_ms)), 0.0,
+        1.0);
+    const auto lerp = [amount](double from, double to) { return from + (to - from) * amount; };
+    return core::compiled::NormalizedRect{lerp(current.bounds.x, next->bounds.x),
+                                          lerp(current.bounds.y, next->bounds.y),
+                                          lerp(current.bounds.width, next->bounds.width),
+                                          lerp(current.bounds.height, next->bounds.height)};
+}
+
 bool matches_occurrence(const WorldPresentationDraw& draw, const WorldVisualOccurrence& occurrence)
 {
     return draw.family == occurrence.family && draw.stable_identity == occurrence.stable_identity &&
@@ -672,6 +703,7 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
                            std::to_string(motion_id.text().size()) + ":" + motion_id.text() + ":" +
                            std::to_string(resource->second.canvas.width) + "x" +
                            std::to_string(resource->second.canvas.height);
+    result.animation_motion = motion_id;
     result.motion_policy = selection.playback;
     result.motion_initial_ms = *initial;
     result.motion_loop_ms = core::compiled::motion_loop_times(
@@ -713,7 +745,7 @@ AssetWorldPresentationResourceResolver::resolve_hotspot(
         return core::Result<WorldPreparedHotspotResources, core::Diagnostics>::success(
             std::move(result));
 
-    const bool custom = std::holds_alternative<core::compiled::NormalizedRect>(hotspot.shape);
+    const bool custom = std::holds_alternative<core::compiled::RectHotspotShape>(hotspot.shape);
     if (const auto* authored =
             std::get_if<core::compiled::MaterialHotspotHighlight>(&hotspot.highlight)) {
         const assets::MaterialAssetRequest request{.id = authored->material.text()};
@@ -749,10 +781,13 @@ AssetWorldPresentationResourceResolver::resolve_hotspot(
             .height = hotspot.source_height,
             .regions = {}};
         for (const auto& candidate : owner_hotspots) {
-            if (const auto* bounds = std::get_if<core::compiled::NormalizedRect>(&candidate.shape))
-                request.regions.push_back(
-                    {std::visit([](const auto& ref) { return ref.hotspot_id; }, candidate.ref),
-                     *bounds});
+            if (const auto* shape =
+                    std::get_if<core::compiled::RectHotspotShape>(&candidate.shape)) {
+                const auto hotspot =
+                    std::visit([](const auto& ref) { return ref.hotspot_id; }, candidate.ref);
+                for (const auto& bounds : core::compiled::hotspot_motion_coverage_regions(*shape))
+                    request.regions.push_back({hotspot, bounds});
+            }
         }
         const auto* lease = m_assets.leased_hotspot_mask_on_owner(request, m_lookup_scope);
         if (lease == nullptr) {
@@ -1227,19 +1262,30 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 continue;
             }
         }
-        candidate.hotspot_hit_targets.push_back({.ref = hotspot.ref,
-                                                 .target = hotspot.target,
-                                                 .plane = owner_draw->plane,
-                                                 .family = owner_draw->family,
-                                                 .owner_order = owner_draw->order,
-                                                 .stable_identity = owner_draw->stable_identity,
-                                                 .base_sublayer = owner_draw->sublayer,
-                                                 .input_order = hotspot.input_order,
-                                                 .owner_rect = owner_draw->command.rect,
-                                                 .owner_uv = owner_draw->command.uv,
-                                                 .shape = hotspot.shape,
-                                                 .source_texture_lease = owner_draw->texture_lease,
-                                                 .cursor = hotspot.cursor});
+        candidate.hotspot_hit_targets.push_back(
+            {.ref = hotspot.ref,
+             .target = hotspot.target,
+             .plane = owner_draw->plane,
+             .family = owner_draw->family,
+             .owner_order = owner_draw->order,
+             .stable_identity = owner_draw->stable_identity,
+             .base_sublayer = owner_draw->sublayer,
+             .input_order = hotspot.input_order,
+             .owner_rect = owner_draw->command.rect,
+             .owner_uv = owner_draw->command.uv,
+             .authored_shape = hotspot.shape,
+             .shape = std::visit(
+                 [](const auto& shape)
+                     -> std::variant<core::AlphaHotspotShape, core::compiled::NormalizedRect> {
+                     using T = std::decay_t<decltype(shape)>;
+                     if constexpr (std::is_same_v<T, core::AlphaHotspotShape>)
+                         return shape;
+                     else
+                         return shape.bounds;
+                 },
+                 hotspot.shape),
+             .source_texture_lease = owner_draw->texture_lease,
+             .cursor = hotspot.cursor});
     }
     std::sort(candidate.hotspot_hit_targets.begin(), candidate.hotspot_hit_targets.end(),
               [](const auto& lhs, const auto& rhs) {
@@ -1289,8 +1335,9 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 if constexpr (std::is_same_v<T, core::AlphaHotspotShape>)
                     return {0.0f, 0.0f, 1.0f, 1.0f};
                 else
-                    return {static_cast<float>(shape.x), static_cast<float>(shape.y),
-                            static_cast<float>(shape.width), static_cast<float>(shape.height)};
+                    return {static_cast<float>(shape.bounds.x), static_cast<float>(shape.bounds.y),
+                            static_cast<float>(shape.bounds.width),
+                            static_cast<float>(shape.bounds.height)};
             },
             hotspot.shape);
         overlay.command.hotspot_image_dimensions = {static_cast<float>(hotspot.source_width),
@@ -1378,6 +1425,8 @@ bool normalized_hotspot_contains(const core::compiled::NormalizedRect& rect, flo
 
 bool hotspot_target_contains(const WorldHotspotHitTarget& target, Vec2 point)
 {
+    if (!target.active)
+        return false;
     if (!rect_contains_inclusive(target.owner_rect, point) || target.owner_rect.width <= 0.0f ||
         target.owner_rect.height <= 0.0f)
         return false;
@@ -1887,6 +1936,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
     frame.base_game_ui_underlay_batch.clear();
     for (auto& draw : frame.draws) {
         QuadCommand command = draw.command;
+        std::optional<long double> raster_motion_time;
         if (!draw.raster_animation_frames.empty()) {
             const auto domain = raster_animation_clock(draw);
             std::uint64_t total_duration_ms = 0;
@@ -1908,6 +1958,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                         elapsed = now - epoch->second.started_at;
                 }
                 const auto phase = raster_phase(draw, anchor, elapsed);
+                raster_motion_time = phase;
                 const auto& animation_frame =
                     draw.raster_animation_frames[raster_frame_index(draw, phase)];
                 command.texture = animation_frame.texture;
@@ -1921,8 +1972,18 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
             for (auto& target : frame.hotspot_hit_targets) {
                 if (target.family == draw.family &&
                     target.stable_identity == draw.stable_identity &&
-                    target.base_sublayer == draw.sublayer)
+                    target.base_sublayer == draw.sublayer) {
                     target.source_texture_lease = draw.texture_lease;
+                    if (const auto* shape =
+                            std::get_if<core::compiled::RectHotspotShape>(&target.authored_shape)) {
+                        const auto sampled = sample_hotspot_shape(
+                            *shape, draw.raster_animation_motion,
+                            raster_motion_time.value_or(draw.motion_initial_ms));
+                        target.active = sampled.has_value();
+                        if (sampled)
+                            target.shape = *sampled;
+                    }
+                }
             }
             for (auto& surface : frame.hotspot_surfaces) {
                 if (surface.overlay.family == draw.family &&
@@ -1935,6 +1996,17 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                         surface.overlay.command.hotspot_image_dimensions = {
                             static_cast<float>((*draw.texture_lease)->width),
                             static_cast<float>((*draw.texture_lease)->height)};
+                    const auto target =
+                        std::ranges::find_if(frame.hotspot_hit_targets, [&](const auto& candidate) {
+                            return candidate.ref == surface.ref;
+                        });
+                    if (target != frame.hotspot_hit_targets.end() && target->active)
+                        if (const auto* bounds =
+                                std::get_if<core::compiled::NormalizedRect>(&target->shape))
+                            surface.overlay.command.hotspot_bounds = {
+                                static_cast<float>(bounds->x), static_cast<float>(bounds->y),
+                                static_cast<float>(bounds->width),
+                                static_cast<float>(bounds->height)};
                 }
             }
         }

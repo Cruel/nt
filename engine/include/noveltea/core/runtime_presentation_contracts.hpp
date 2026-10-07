@@ -230,7 +230,7 @@ struct PresentationHotspot {
     bool condition_eligible = false;
     bool target_available = false;
     compiled::ResolvedHotspotTarget target;
-    std::variant<AlphaHotspotShape, compiled::NormalizedRect> shape;
+    std::variant<AlphaHotspotShape, compiled::RectHotspotShape> shape;
     std::int32_t input_order = 0;
     compiled::HotspotHighlight highlight;
     std::optional<AssetId> source_image;

@@ -31,6 +31,7 @@ struct WorldPreparedVisual {
     std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
     std::optional<Size> logical_size;
     std::string animation_key;
+    std::optional<core::AnimationMotionId> animation_motion;
     std::vector<AnimationFrame> animation_frames;
     std::optional<core::MotionPlaybackPolicy> motion_policy;
     std::uint64_t motion_initial_ms = 0;
@@ -191,6 +192,7 @@ struct WorldPresentationDraw {
     };
     std::string raster_animation_key;
     std::vector<RasterAnimationFrame> raster_animation_frames;
+    std::optional<core::AnimationMotionId> raster_animation_motion = std::nullopt;
     std::uint64_t raster_animation_epoch = 0;
     std::optional<core::CharacterPresentationLayerId> actor_layer_id = std::nullopt;
     std::optional<Texture> sampled_visual_texture = std::nullopt;
@@ -216,7 +218,9 @@ struct WorldHotspotHitTarget {
     std::int32_t input_order = 0;
     Rect owner_rect{};
     Rect owner_uv{};
+    std::variant<core::AlphaHotspotShape, core::compiled::RectHotspotShape> authored_shape;
     std::variant<core::AlphaHotspotShape, core::compiled::NormalizedRect> shape;
+    bool active = true;
     std::optional<assets::AssetLease<assets::TextureAsset>> source_texture_lease;
     std::optional<core::compiled::CursorTarget> cursor;
 };
