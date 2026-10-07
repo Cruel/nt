@@ -270,11 +270,12 @@ Windows authoring follows the broader upstream ScriptC Windows 10 contract. Rele
 rejects a missing or unexpected CLI, editor, or player-template platform artifact before a GitHub
 Release can be created.
 
-Pinned private FFmpeg authoring tools and their source/license closure are staged separately under
-`resources/tools/ffmpeg`, never in the PATH-exposed `resources/bin` directory. Host CLI builds download
-and checksum-verify the release pin and qualify its relocated resolver on every admitted desktop host;
-Editor stage/package checks and smoke validate the same bundle. See [Media Tools](MEDIA_TOOLS.md)
-for the shared service, explicit developer/distro override, and offline archive input.
+Pinned private FFmpeg authoring tools are staged separately under `resources/tools/ffmpeg`, never in
+the PATH-exposed `resources/bin` directory. Host CLI builds download and checksum-verify the complete
+`nt-tools` release pin, validate its source/license closure, then retain only the executable, licenses,
+provenance, and source-location notice in the NovelTea installation. Editor stage/package checks and
+smoke validate that trimmed bundle. See [Media Tools](MEDIA_TOOLS.md) for the shared service, explicit
+developer/distro override, and offline archive input.
 
 The editor does not bundle player templates. When the selected export profile has no compatible
 installed template, the Export surface can explicitly download the one matching the running

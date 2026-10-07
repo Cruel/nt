@@ -9,9 +9,11 @@ policy, and runtime playback are not implemented here.
 `editor/src/shared/media-tool-pin.json` is the authoritative release/version/archive-hash pin for
 [the nt-tools release](https://github.com/Cruel/nt-tools/releases/tag/ffmpeg-r1).
 `editor/scripts/private-media-tools.mjs` downloads the host archive, verifies its pinned SHA-256 before
-extraction, validates provenance and file checksums, and stages the **entire** bundle. Corresponding
-sources, build recipe, configuration, provenance, and licenses travel with the executable; do not
-redistribute only its `bin/` directory.
+extraction, and validates the complete upstream provenance, checksums, corresponding sources, build
+recipe, configuration, and licenses. NovelTea then stages only the installed runtime subset: the
+FFmpeg executable, license texts, provenance, and a notice pointing back to the pinned `nt-tools`
+release for exact corresponding sources and build records. Build/source payloads and the upstream
+internal `SHA256SUMS` are intentionally not copied into NovelTea distributions.
 
 The existing release host CLI builds run this staging on Linux x64, Windows x64, and macOS arm64.
 Each build executes the CLI's media-tool check from a relocated installation with spaces in its path.
