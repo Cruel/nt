@@ -1,14 +1,14 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { realpathSync } from 'node:fs';
-import { mkdir, readFile, readdir, rm } from 'node:fs/promises';
+import { realpathSync, rmSync } from 'node:fs';
+import { mkdir, readFile, readdir } from 'node:fs/promises';
 import { basename, dirname, isAbsolute, join } from 'node:path';
 import pin from '../../shared/media-tool-pin.json';
 import {
   OPAQUE_VIDEO_FRAME_RATE,
   type OpaqueVideoPreparationRequest,
   type OpaqueVideoPreparationResult,
-} from '../../shared/prepared-media';
+} from '../../shared/prepared-media-contracts';
 
 export interface MediaTool {
   readonly executable: string;
@@ -153,7 +153,8 @@ export async function prepareOpaqueVideoMotion(
     .digest('hex');
   const directory = join(projectRoot, '.noveltea', 'build', 'prepared-media', key);
   const pattern = join(directory, 'frame-%06d.png');
-  await rm(directory, { recursive: true, force: true });
+  // ScriptC's static host supports recursive removal through rmSync, not async rm options.
+  rmSync(directory, { recursive: true, force: true });
   await mkdir(directory, { recursive: true });
 
   const args: string[] = ['-y', '-i', source];

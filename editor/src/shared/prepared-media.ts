@@ -4,7 +4,11 @@ const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 export const PREPARED_MEDIA_MANIFEST_PATH = 'assets/.prepared-media/manifest.json';
 export const PREPARED_MEDIA_SCHEMA = 'noveltea.private.prepared-media';
-export const OPAQUE_VIDEO_FRAME_RATE = 30;
+export {
+  OPAQUE_VIDEO_FRAME_RATE,
+  type OpaqueVideoPreparationRequest,
+  type OpaqueVideoPreparationResult,
+} from './prepared-media-contracts';
 
 export const opaqueVideoPreparationRequestSchema = strict({
   animationId: z.string().min(1),
@@ -22,7 +26,6 @@ export const opaqueVideoPreparationRequestSchema = strict({
     .refine((range) => range.endMs > range.startMs)
     .optional(),
 });
-export type OpaqueVideoPreparationRequest = z.infer<typeof opaqueVideoPreparationRequestSchema>;
 
 export const opaqueVideoPreparationResultSchema = strict({
   contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
@@ -39,7 +42,6 @@ export const opaqueVideoPreparationResultSchema = strict({
     )
     .min(1),
 });
-export type OpaqueVideoPreparationResult = z.infer<typeof opaqueVideoPreparationResultSchema>;
 
 export const preparedMediaManifestSchema = strict({
   schema: z.literal(PREPARED_MEDIA_SCHEMA),
