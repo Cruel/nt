@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vite-plus/test';
+import { describe, expect, it, vi } from 'vite-plus/test';
 import {
   buildAuthoringStructuralDependencyGraph,
   recordNodeKey,
@@ -292,6 +292,131 @@ describe('graph-driven Room builder', () => {
           retainAlphaCoverage: true,
         }),
       ]),
+    );
+  });
+
+  it('canonically prepares video motions into bounded focused-preview raster resources', async () => {
+    const project = fixture();
+    project.assets.clip = {
+      id: 'clip',
+      label: 'Clip',
+      data: {
+        kind: 'video',
+        source: { type: 'project-file', path: 'assets/video/clip.mov' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    project.animations.clip = {
+      id: 'clip',
+      label: 'Clip',
+      data: {
+        kind: 'animation',
+        canvas: { width: 320, height: 180 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'video',
+            video: { $ref: { collection: 'assets', id: 'clip' } },
+            sourceRange: { startMs: 250, endMs: 1250 },
+            markers: [],
+          },
+        ],
+      },
+    };
+    project.materials.clip = {
+      id: 'clip',
+      label: 'Clip Material',
+      data: defaultMaterialData('Clip Material', 'engine-2d'),
+    };
+    project.rooms.bedroom!.data.environments = [
+      {
+        id: 'clip',
+        condition: { kind: 'always' },
+        visual: {
+          kind: 'animation',
+          animation: { $ref: { collection: 'animations', id: 'clip' } },
+          motionId: null,
+          playback: null,
+        },
+        materialApplication: emptyMaterialApplication('clip'),
+        bounds: { x: 0, y: 0, width: 1, height: 1 },
+        plane: 'world-overlay',
+        order: 2,
+        clock: 'gameplay',
+        scrollPerSecond: { x: 0, y: 0 },
+        opacity: 1,
+        visible: true,
+      },
+    ];
+    vi.mocked(window.noveltea.prepareOpaqueVideo).mockResolvedValueOnce({
+      contentHash: 'a'.repeat(64),
+      hadAudio: true,
+      frames: [
+        {
+          sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000000.png',
+          projectRelativePath: '.noveltea/build/prepared-media/a/frame-000000.png',
+          contentHash: 'b'.repeat(64),
+          byteSize: 11,
+          durationMs: 500,
+        },
+        {
+          sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000001.png',
+          projectRelativePath: '.noveltea/build/prepared-media/a/frame-000001.png',
+          contentHash: 'c'.repeat(64),
+          byteSize: 12,
+          durationMs: 500,
+        },
+      ],
+    });
+
+    const result = await build(project);
+
+    expect(window.noveltea.prepareOpaqueVideo).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      expect.objectContaining({
+        animationId: 'clip',
+        motionId: 'idle',
+        assetId: 'clip',
+        sourcePath: 'assets/video/clip.mov',
+        sourceRange: { startMs: 250, endMs: 1250 },
+      }),
+    );
+    expect(result.data.world.animations).toEqual([
+      {
+        id: 'clip',
+        canvas: { width: 320, height: 180 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'sprite-sequence',
+            markers: [],
+            frames: [
+              { assetId: 'prepared-video-aaaaaaaaaaaaaaaa-0', durationMs: 500 },
+              { assetId: 'prepared-video-aaaaaaaaaaaaaaaa-1', durationMs: 500 },
+            ],
+          },
+        ],
+      },
+    ]);
+    expect(result.resources).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceKind: 'prepared-media',
+          assetId: 'prepared-video-aaaaaaaaaaaaaaaa-0',
+          kind: 'image',
+        }),
+        expect.objectContaining({
+          sourceKind: 'prepared-media',
+          assetId: 'prepared-video-aaaaaaaaaaaaaaaa-1',
+          kind: 'image',
+        }),
+      ]),
+    );
+    expect(result.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'focused-room.video-audio-ignored', severity: 'warning' }),
     );
   });
 

@@ -1158,7 +1158,7 @@ export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string,
 // corresponding fingerprint in the same change. This intentionally has no generated fallback.
 export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
   Object.freeze({
-    animations: 'a2f88f8e',
+    animations: 'e1c9c32e',
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',

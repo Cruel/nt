@@ -256,9 +256,29 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
         shader_materials = std::move(*decoded.value_if());
     }
 
+    core::PreparedMediaCatalog prepared_media;
+    constexpr std::string_view prepared_media_entry = "assets/.prepared-media/manifest.json";
+    if (std::ranges::any_of(*indexed_entries.value,
+                            [](const auto& entry) { return entry.path == prepared_media_entry; })) {
+        auto prepared_blob = read_package_blob(source, prepared_media_entry, logical_path);
+        if (!prepared_blob)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(prepared_blob).error());
+        const auto& prepared_bytes = prepared_blob.value_if()->bytes;
+        const std::string_view prepared_text(reinterpret_cast<const char*>(prepared_bytes.data()),
+                                             prepared_bytes.size());
+        auto decoded = core::decode_prepared_media_catalog_json(
+            prepared_text, package_entry_source(logical_path, prepared_media_entry));
+        if (!decoded)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(decoded).error());
+        prepared_media = std::move(*decoded.value_if());
+    }
+
     return core::assemble_compiled_package(
         std::move(*project.value_if()), std::move(*manifest.value_if()),
-        std::move(shader_materials), package_inventory(*indexed_entries.value));
+        std::move(shader_materials), package_inventory(*indexed_entries.value),
+        std::move(prepared_media));
 }
 
 core::Result<ResolvedRunningGameSource, core::Diagnostics>

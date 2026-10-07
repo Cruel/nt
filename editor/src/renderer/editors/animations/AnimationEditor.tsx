@@ -48,6 +48,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const [selected, setSelected] = useState<string | null>(null);
   const motion =
     data?.motions.find((entry) => entry.id === (selected ?? data.defaultMotionId)) ?? null;
+  const spriteMotion = motion?.kind === 'sprite-sequence' ? motion : null;
   const [time, setTime] = useState(0);
   const timeRef = useRef(time);
   timeRef.current = time;
@@ -71,9 +72,13 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     }),
     [loop, rangeStart, rangeEnd],
   );
-  const frameIndex = motion ? animationFrameAt(motion, time) : 0;
-  const frame = motion?.frames[frameIndex];
-  const assetIds = motion ? [...new Set(motion.frames.map((entry) => entry.image.$ref.id))] : [];
+  const frameIndex = spriteMotion ? animationFrameAt(spriteMotion, time) : 0;
+  const frame = spriteMotion?.frames[frameIndex];
+  const assetIds = motion
+    ? motion.kind === 'video'
+      ? [motion.video.$ref.id]
+      : [...new Set(motion.frames.map((entry) => entry.image.$ref.id))]
+    : [];
   const assetKey = JSON.stringify(assetIds);
 
   useWorkbenchEditorTabState(tab.id, {
@@ -118,19 +123,19 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   }, [session, assetKey]);
 
   useEffect(() => {
-    if (!playing || !motion || (loop && !validRange)) return;
+    if (!playing || !spriteMotion || (loop && !validRange)) return;
     const anchor = timeRef.current;
     const started = performance.now();
     let handle = 0;
     const tick = (now: number) => {
-      const next = advanceAnimationTime(motion, policy, anchor, now - started);
+      const next = advanceAnimationTime(spriteMotion, policy, anchor, now - started);
       setTime(next);
       if (!loop && next >= duration) setPlaying(false);
       else handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(handle);
-  }, [playing, motion, loop, policy, validRange, duration, restart]);
+  }, [playing, spriteMotion, loop, policy, validRange, duration, restart]);
 
   if (!data || !record || !id || !motion)
     return <div className="p-4">{t('animationEditor.unavailable')}</div>;
@@ -185,6 +190,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     setTime(Math.max(0, Math.min(value, duration)));
   };
   const supportsFrames = motion.kind === 'sprite-sequence';
+  const videoUrl = motion.kind === 'video' ? urls[motion.video.$ref.id] : null;
   return (
     <div className="h-full space-y-4 overflow-auto p-4">
       <h2 className="font-semibold">{record.label ?? id}</h2>
@@ -235,49 +241,60 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
           setRangeEnd('end');
         },
       )}
-      <div className="flex flex-wrap items-end gap-2">
-        {select(t('animationEditor.image'), newImage, imageIds, setNewFrameAsset)}
-        <div>
-          <Label htmlFor={`new-duration-${tab.id}`}>{t('animationEditor.newDuration')}</Label>
-          <Input
-            id={`new-duration-${tab.id}`}
-            type="number"
-            min={1}
-            value={newFrameDuration}
-            onChange={(event) => setNewFrameDuration(Number(event.target.value))}
-          />
+      {supportsFrames ? (
+        <div className="flex flex-wrap items-end gap-2">
+          {select(t('animationEditor.image'), newImage, imageIds, setNewFrameAsset)}
+          <div>
+            <Label htmlFor={`new-duration-${tab.id}`}>{t('animationEditor.newDuration')}</Label>
+            <Input
+              id={`new-duration-${tab.id}`}
+              type="number"
+              min={1}
+              value={newFrameDuration}
+              onChange={(event) => setNewFrameDuration(Number(event.target.value))}
+            />
+          </div>
+          <Button
+            disabled={
+              !imageIds.includes(newImage) ||
+              !Number.isSafeInteger(newFrameDuration) ||
+              newFrameDuration <= 0
+            }
+            onClick={() =>
+              commit({
+                ...data,
+                motions: data.motions.map((entry) =>
+                  entry.id === motion.id && entry.kind === 'sprite-sequence'
+                    ? {
+                        ...entry,
+                        frames: [
+                          ...entry.frames,
+                          {
+                            image: { $ref: { collection: 'assets', id: newImage } },
+                            durationMs: newFrameDuration,
+                          },
+                        ],
+                      }
+                    : entry,
+                ),
+              })
+            }
+          >
+            {t('animationEditor.addFrame')}
+          </Button>
         </div>
-        <Button
-          disabled={
-            !imageIds.includes(newImage) ||
-            !Number.isSafeInteger(newFrameDuration) ||
-            newFrameDuration <= 0
-          }
-          onClick={() =>
-            commit({
-              ...data,
-              motions: data.motions.map((entry) =>
-                entry.id === motion.id
-                  ? {
-                      ...entry,
-                      frames: [
-                        ...entry.frames,
-                        {
-                          image: { $ref: { collection: 'assets', id: newImage } },
-                          durationMs: newFrameDuration,
-                        },
-                      ],
-                    }
-                  : entry,
-              ),
-            })
-          }
-        >
-          {t('animationEditor.addFrame')}
-        </Button>
-      </div>
+      ) : null}
       <div className="flex h-64 items-center justify-center bg-muted/20">
-        {frame && urls[frame.image.$ref.id] ? (
+        {videoUrl ? (
+          <video
+            src={videoUrl}
+            controls
+            muted
+            playsInline
+            className="max-h-full max-w-full object-fill"
+            style={{ aspectRatio: `${data.canvas.width} / ${data.canvas.height}` }}
+          />
+        ) : frame && urls[frame.image.$ref.id] ? (
           <img
             src={urls[frame.image.$ref.id]}
             alt={record.label ?? id}
@@ -304,13 +321,13 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
         </Button>
         <Button
           disabled={!supportsFrames || frameIndex === 0}
-          onClick={() => seek(animationFrameTime(motion, frameIndex - 1))}
+          onClick={() => spriteMotion && seek(animationFrameTime(spriteMotion, frameIndex - 1))}
         >
           {t('animationEditor.previous')}
         </Button>
         <Button
-          disabled={!supportsFrames || !frame || frameIndex === motion.frames.length - 1}
-          onClick={() => seek(animationFrameTime(motion, frameIndex + 1))}
+          disabled={!spriteMotion || !frame || frameIndex === spriteMotion.frames.length - 1}
+          onClick={() => spriteMotion && seek(animationFrameTime(spriteMotion, frameIndex + 1))}
         >
           {t('animationEditor.next')}
         </Button>
@@ -344,7 +361,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
           commit({
             ...data,
             motions: data.motions.map((entry) =>
-              entry.id === motion.id
+              entry.id === motion.id && entry.kind === 'sprite-sequence'
                 ? {
                     ...entry,
                     frames: entry.frames.map((value, index) =>
@@ -357,7 +374,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
         }}
       />
       <output aria-label={t('animationEditor.frameIndex')}>
-        {frameIndex} / {motion.frames.length}
+        {supportsFrames ? `${frameIndex} / ${spriteMotion?.frames.length ?? 0}` : 'video'}
       </output>
       <output className="ml-4">
         {Math.floor(time)} / {duration} ms

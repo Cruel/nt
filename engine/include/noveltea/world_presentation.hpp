@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/assets/asset_manager.hpp"
+#include "noveltea/core/compiled_package.hpp"
 #include "noveltea/core/compiled_project.hpp"
 #include "noveltea/presentation/runtime_presentation.hpp"
 #include "noveltea/core/runtime_clock.hpp"
@@ -78,6 +79,7 @@ struct WorldPresentationImageResource {
 struct WorldPresentationResourceCatalog {
     std::vector<WorldPresentationImageResource> images;
     std::vector<core::compiled::AnimationResource> animations;
+    std::vector<core::PreparedVideoMotion> prepared_video_motions;
 };
 
 class AssetWorldPresentationResourceResolver final : public WorldPresentationResourceResolver {
@@ -90,6 +92,8 @@ public:
     }
 
     void bind_project(const core::CompiledProject& project, std::string_view active_locale = {});
+    void bind_package(const core::LoadedCompiledPackage& package,
+                      std::string_view active_locale = {});
     void bind_catalog(WorldPresentationResourceCatalog catalog);
     void clear();
     void set_asset_lease_lookup_scope(assets::AssetLeaseLookupScope scope) noexcept
@@ -113,6 +117,7 @@ private:
     assets::AssetLeaseLookupScope m_lookup_scope = assets::AssetLeaseLookupScope::Runtime;
     std::unordered_map<std::string, WorldPresentationImageResource> m_images;
     std::unordered_map<std::string, core::compiled::AnimationResource> m_animations;
+    std::unordered_map<std::string, core::PreparedVideoMotion> m_prepared_video_motions;
 };
 
 struct WorldFittedRect {

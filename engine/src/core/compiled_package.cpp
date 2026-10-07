@@ -219,9 +219,11 @@ PreparedResourceRegistries::find_asset_by_alias(std::string_view alias) const no
 LoadedCompiledPackage::LoadedCompiledPackage(CompiledProject project,
                                              RuntimePackageManifest manifest,
                                              std::optional<ShaderMaterialProject> shader_materials,
-                                             PreparedResourceRegistries resources)
+                                             PreparedResourceRegistries resources,
+                                             PreparedMediaCatalog prepared_media)
     : m_project(std::move(project)), m_manifest(std::move(manifest)),
-      m_shader_materials(std::move(shader_materials)), m_resources(std::move(resources))
+      m_shader_materials(std::move(shader_materials)), m_resources(std::move(resources)),
+      m_prepared_media(std::move(prepared_media))
 {
     rebind_registries();
 }
@@ -229,7 +231,7 @@ LoadedCompiledPackage::LoadedCompiledPackage(CompiledProject project,
 LoadedCompiledPackage::LoadedCompiledPackage(LoadedCompiledPackage&& other) noexcept
     : m_project(std::move(other.m_project)), m_manifest(std::move(other.m_manifest)),
       m_shader_materials(std::move(other.m_shader_materials)),
-      m_resources(std::move(other.m_resources))
+      m_resources(std::move(other.m_resources)), m_prepared_media(std::move(other.m_prepared_media))
 {
     rebind_registries();
 }
@@ -241,6 +243,7 @@ LoadedCompiledPackage& LoadedCompiledPackage::operator=(LoadedCompiledPackage&& 
         m_manifest = std::move(other.m_manifest);
         m_shader_materials = std::move(other.m_shader_materials);
         m_resources = std::move(other.m_resources);
+        m_prepared_media = std::move(other.m_prepared_media);
         rebind_registries();
     }
     return *this;
@@ -255,7 +258,8 @@ void LoadedCompiledPackage::rebind_registries() noexcept
 Result<LoadedCompiledPackage, Diagnostics>
 assemble_compiled_package(CompiledProject project, RuntimePackageManifest manifest,
                           std::optional<ShaderMaterialProject> shader_materials,
-                          std::vector<RuntimePackageFile> files)
+                          std::vector<RuntimePackageFile> files,
+                          PreparedMediaCatalog prepared_media)
 {
     Diagnostics diagnostics;
     std::unordered_map<std::string, const RuntimePackageEntry*> declared;
@@ -396,6 +400,61 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
         }
     }
 
+    std::unordered_set<std::string> prepared_motion_keys;
+    for (std::size_t index = 0; index < prepared_media.motions.size(); ++index) {
+        const auto& prepared = prepared_media.motions[index];
+        const auto key = prepared.animation.text() + "\n" + prepared.motion.text();
+        if (!prepared_motion_keys.insert(key).second)
+            add_assembly_error(diagnostics, "runtime_package.duplicate_prepared_video_motion",
+                               "Prepared media contains a duplicate Animation motion.",
+                               "/prepared_media/motions/" + std::to_string(index));
+        const auto animation = std::ranges::find_if(project.animations(), [&](const auto& value) {
+            return value.id == prepared.animation;
+        });
+        const compiled::SpriteAnimationMotion* motion = nullptr;
+        if (animation != project.animations().end()) {
+            const auto found = std::ranges::find_if(
+                animation->motions, [&](const auto& value) { return value.id == prepared.motion; });
+            if (found != animation->motions.end())
+                motion = &*found;
+        }
+        if (!motion || motion->kind != compiled::AnimationMotionKind::Video)
+            add_assembly_error(diagnostics, "runtime_package.invalid_prepared_video_motion",
+                               "Prepared media must match a semantic video Animation motion.",
+                               "/prepared_media/motions/" + std::to_string(index));
+        if (prepared.frames.empty())
+            add_assembly_error(diagnostics, "runtime_package.empty_prepared_video_motion",
+                               "Prepared video motion must contain at least one raster frame.",
+                               "/prepared_media/motions/" + std::to_string(index));
+        for (std::size_t frame_index = 0; frame_index < prepared.frames.size(); ++frame_index) {
+            const auto& frame = prepared.frames[frame_index];
+            const auto frame_path = "/prepared_media/motions/" + std::to_string(index) +
+                                    "/frames/" + std::to_string(frame_index);
+            if (!ProjectPackageWriter::is_allowed_package_path(frame.path) ||
+                !frame.path.starts_with("assets/.prepared-media/") ||
+                !declared.contains(frame.path))
+                add_assembly_error(
+                    diagnostics, "runtime_package.invalid_prepared_video_frame",
+                    "Prepared video frame is missing or outside the private media namespace.",
+                    frame_path);
+            if (frame.duration_ms == 0)
+                add_assembly_error(diagnostics,
+                                   "runtime_package.invalid_prepared_video_frame_duration",
+                                   "Prepared video frame duration must be positive.", frame_path);
+        }
+    }
+    for (const auto& animation : project.animations()) {
+        for (const auto& motion : animation.motions) {
+            if (motion.kind != compiled::AnimationMotionKind::Video)
+                continue;
+            const auto key = animation.id.text() + "\n" + motion.id.text();
+            if (!prepared_motion_keys.contains(key))
+                add_assembly_error(diagnostics, "runtime_package.missing_prepared_video_motion",
+                                   "Video Animation motion has no prepared runtime representation.",
+                                   "/resources/animations");
+        }
+    }
+
     if (manifest.shader_materials.has_value() != shader_materials.has_value())
         add_assembly_error(diagnostics, "runtime_package.shader_manifest_mismatch",
                            "Package shader/material declaration and decoded document must both be "
@@ -510,7 +569,7 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
         return Result<LoadedCompiledPackage, Diagnostics>::failure(std::move(diagnostics));
     return Result<LoadedCompiledPackage, Diagnostics>::success(
         LoadedCompiledPackage(std::move(project), std::move(manifest), std::move(shader_materials),
-                              std::move(registries)));
+                              std::move(registries), std::move(prepared_media)));
 }
 
 } // namespace noveltea::core

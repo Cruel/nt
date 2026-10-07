@@ -62,6 +62,7 @@ export const IPC_CHANNELS = {
   LOAD_USER_PREFERENCES: 'noveltea:load-user-preferences',
   SAVE_USER_PREFERENCES: 'noveltea:save-user-preferences',
   COMPILE_SHADERS: 'noveltea:compile-shaders',
+  PREPARE_OPAQUE_VIDEO: 'noveltea:prepare-opaque-video',
   SAVE_PROJECT_CONTENT: 'noveltea:save-project-content',
   SAVE_PROJECT_EDITOR_METADATA: 'noveltea:save-project-editor-metadata',
   SAVE_PROJECT_COPY_AS: 'noveltea:save-project-copy-as',

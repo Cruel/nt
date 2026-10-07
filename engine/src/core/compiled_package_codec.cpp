@@ -28,6 +28,7 @@ namespace {
 
 constexpr std::string_view package_format = "noveltea.runtime-package";
 constexpr std::string_view shader_schema = "noveltea.shader-materials";
+constexpr std::string_view prepared_media_schema = "noveltea.private.prepared-media";
 
 class Decoder final : public JsonDecoder {
 public:
@@ -585,6 +586,101 @@ decode_shader_material_manifest_json(std::string_view text, std::string source_p
 {
     auto document = nlohmann::json::parse(text, nullptr, false);
     return decode_shader_material_manifest(document, std::move(source_path));
+}
+
+Result<PreparedMediaCatalog, Diagnostics>
+decode_prepared_media_catalog_json(std::string_view text, std::string source_path)
+{
+    auto document = nlohmann::json::parse(text, nullptr, false);
+    Decoder decoder(std::move(source_path), "prepared_media");
+    PreparedMediaCatalog output;
+    if (!decoder.object(document, "", {"schema", "motions"}))
+        return Result<PreparedMediaCatalog, Diagnostics>::failure(decoder.take());
+    const auto* schema_value = decoder.required(document, "schema", "");
+    const auto* motions_value = decoder.required(document, "motions", "");
+    auto schema = schema_value ? decoder.string(*schema_value, "/schema", true) : std::nullopt;
+    if (schema && *schema != prepared_media_schema)
+        decoder.error("unsupported_schema", "Unsupported prepared media schema.", "/schema");
+    if (motions_value && motions_value->is_array()) {
+        for (std::size_t index = 0; index < motions_value->size(); ++index) {
+            const auto pointer = "/motions/" + std::to_string(index);
+            const auto* value = json_access::element(*motions_value, index);
+            if (!value || !decoder.object(*value, pointer,
+                                          {"animationId", "motionId", "representation",
+                                           "contentHash", "frames"}))
+                continue;
+            const auto* animation_value = decoder.required(*value, "animationId", pointer);
+            const auto* motion_value = decoder.required(*value, "motionId", pointer);
+            const auto* representation_value = decoder.required(*value, "representation", pointer);
+            const auto* hash_value = decoder.required(*value, "contentHash", pointer);
+            const auto* frames_value = decoder.required(*value, "frames", pointer);
+            auto animation = animation_value ? decoder.id<AnimationId>(*animation_value,
+                                                                       pointer + "/animationId")
+                                             : std::nullopt;
+            auto motion = motion_value
+                              ? decoder.id<AnimationMotionId>(*motion_value, pointer + "/motionId")
+                              : std::nullopt;
+            auto representation =
+                representation_value
+                    ? decoder.string(*representation_value, pointer + "/representation", true)
+                    : std::nullopt;
+            if (representation && *representation != "opaque-raster-frames")
+                decoder.error("unknown_value", "Unsupported prepared media representation.",
+                              pointer + "/representation");
+            auto hash = hash_value ? decoder.string(*hash_value, pointer + "/contentHash", true)
+                                   : std::nullopt;
+            if (hash && (hash->size() != 64 || !std::all_of(hash->begin(), hash->end(), [](char c) {
+                             return std::isdigit(static_cast<unsigned char>(c)) ||
+                                    (c >= 'a' && c <= 'f');
+                         })))
+                decoder.error("invalid_hash",
+                              "Prepared media content hash must be lowercase SHA-256 hex.",
+                              pointer + "/contentHash");
+            std::vector<PreparedRasterMediaFrame> frames;
+            if (!frames_value || !frames_value->is_array()) {
+                if (frames_value)
+                    decoder.error("type", "Expected an array.", pointer + "/frames");
+            } else {
+                for (std::size_t frame_index = 0; frame_index < frames_value->size();
+                     ++frame_index) {
+                    const auto frame_pointer = pointer + "/frames/" + std::to_string(frame_index);
+                    const auto* frame = json_access::element(*frames_value, frame_index);
+                    if (!frame || !decoder.object(*frame, frame_pointer, {"path", "durationMs"}))
+                        continue;
+                    const auto* path_value = decoder.required(*frame, "path", frame_pointer);
+                    const auto* duration_value =
+                        decoder.required(*frame, "durationMs", frame_pointer);
+                    auto path = path_value
+                                    ? decoder.string(*path_value, frame_pointer + "/path", true)
+                                    : std::nullopt;
+                    auto duration = duration_value
+                                        ? decoder.integer<std::uint64_t>(
+                                              *duration_value, frame_pointer + "/durationMs", true)
+                                        : std::nullopt;
+                    if (path && (!ProjectPackageWriter::is_allowed_package_path(*path) ||
+                                 !path->starts_with("assets/.prepared-media/")))
+                        decoder.error(
+                            "invalid_path",
+                            "Prepared media frame path is outside the private media namespace.",
+                            frame_pointer + "/path");
+                    if (path && duration)
+                        frames.push_back({std::move(*path), *duration});
+                }
+            }
+            if (frames.empty())
+                decoder.error("missing_frames",
+                              "Prepared video motion requires at least one frame.",
+                              pointer + "/frames");
+            if (animation && motion && representation && hash && !frames.empty())
+                output.motions.push_back({std::move(*animation), std::move(*motion),
+                                          std::move(*hash), std::move(frames)});
+        }
+    } else if (motions_value) {
+        decoder.error("type", "Expected an array.", "/motions");
+    }
+    if (decoder.failed())
+        return Result<PreparedMediaCatalog, Diagnostics>::failure(decoder.take());
+    return Result<PreparedMediaCatalog, Diagnostics>::success(std::move(output));
 }
 
 } // namespace noveltea::core

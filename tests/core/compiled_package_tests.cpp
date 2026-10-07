@@ -185,6 +185,41 @@ CompiledProject localized_asset_project(bool use_variant)
     return std::move(decoded).value();
 }
 
+CompiledProject video_animation_project()
+{
+    auto document = read_json("minimal");
+    document["resources"]["assets"].push_back({{"id", "video-source"},
+                                               {"kind", "video"},
+                                               {"path", "assets/video/source.mov"},
+                                               {"aliases", nlohmann::json::array()}});
+    document["resources"]["animations"] = nlohmann::json::array({
+        {{"id", "video-animation"},
+         {"canvas", {{"width", 320}, {"height", 180}}},
+         {"defaultMotionId", "idle"},
+         {"motions", nlohmann::json::array({{{"id", "idle"},
+                                             {"kind", "video"},
+                                             {"video", {{"kind", "asset"}, {"id", "video-source"}}},
+                                             {"sourceRange", {{"startMs", 100}, {"endMs", 1100}}},
+                                             {"markers", nlohmann::json::array()}}})}},
+    });
+    auto decoded = decode_compiled_project(document, "video-animation-package-test.json");
+    if (!decoded)
+        for (const auto& diagnostic : decoded.error())
+            WARN(diagnostic.code << ": " << diagnostic.message << " @ " << diagnostic.source_path);
+    REQUIRE(decoded.has_value());
+    return std::move(decoded).value();
+}
+
+PreparedMediaCatalog prepared_video_catalog()
+{
+    return PreparedMediaCatalog{{PreparedVideoMotion{
+        AnimationId::create("video-animation").value(),
+        AnimationMotionId::create("idle").value(),
+        std::string(64, 'a'),
+        {{"assets/.prepared-media/video-animation/idle/a/frame-000000.png", 500},
+         {"assets/.prepared-media/video-animation/idle/a/frame-000001.png", 500}}}}};
+}
+
 void erase_manifest_entry(nlohmann::json& manifest, std::string_view path)
 {
     auto& entries = manifest["entries"];
@@ -235,6 +270,52 @@ TEST_CASE("strict package and shader manifests decode separately")
     const auto rejected_reference = decode_shader_material_manifest(missing_shader);
     REQUIRE_FALSE(rejected_reference.has_value());
     CHECK(has_code(rejected_reference.error(), "shader_material.unknown_shader_ref"));
+}
+
+TEST_CASE("private prepared media decodes strictly and assembles only for matching video motions")
+{
+    const auto prepared_json = R"json({
+      "schema":"noveltea.private.prepared-media",
+      "motions":[{
+        "animationId":"video-animation",
+        "motionId":"idle",
+        "representation":"opaque-raster-frames",
+        "contentHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "frames":[
+          {"path":"assets/.prepared-media/video-animation/idle/a/frame-000000.png","durationMs":500},
+          {"path":"assets/.prepared-media/video-animation/idle/a/frame-000001.png","durationMs":500}
+        ]
+      }]
+    })json";
+    auto decoded = decode_prepared_media_catalog_json(prepared_json, "prepared-media.json");
+    REQUIRE(decoded.has_value());
+    REQUIRE(decoded.value().motions.size() == 1);
+    CHECK(decoded.value().motions.front().frames.size() == 2);
+
+    auto unknown_representation = nlohmann::json::parse(prepared_json);
+    unknown_representation["motions"][0]["representation"] = "future-codec";
+    auto rejected =
+        decode_prepared_media_catalog_json(unknown_representation.dump(), "prepared-media.json");
+    REQUIRE_FALSE(rejected.has_value());
+    CHECK(has_code(rejected.error(), "prepared_media.unknown_value"));
+
+    auto project = video_animation_project();
+    auto manifest_json = package_manifest_for(project, false);
+    const auto prepared = prepared_video_catalog();
+    for (const auto& frame : prepared.motions.front().frames)
+        manifest_json["entries"].push_back({{"path", frame.path}, {"size", 10}});
+    auto manifest = decode_runtime_package_manifest(manifest_json);
+    REQUIRE(manifest.has_value());
+    auto inventory = inventory_for(manifest.value());
+
+    auto missing = assemble_compiled_package(project, manifest.value(), std::nullopt, inventory);
+    REQUIRE_FALSE(missing.has_value());
+    CHECK(has_code(missing.error(), "runtime_package.missing_prepared_video_motion"));
+
+    auto assembled = assemble_compiled_package(std::move(project), std::move(manifest).value(),
+                                               std::nullopt, std::move(inventory), prepared);
+    REQUIRE(assembled.has_value());
+    CHECK(assembled.value().prepared_media().motions.size() == 1);
 }
 
 TEST_CASE("package manifest rejects unsafe paths and malformed checksums")

@@ -10,6 +10,7 @@ import type {
   ShaderCompileResponse,
 } from './editor-tooling';
 import { parseAssetData } from './project-schema/authoring-assets';
+import { animationDataSchema } from './project-schema/authoring-animations';
 import { parseLayoutData } from './project-schema/authoring-layouts';
 import { parseScriptModuleData } from './project-schema/authoring-script-modules';
 import { serializeCompiledProjectWire } from './project-schema/compiled-project';
@@ -43,6 +44,15 @@ import {
   type PreparedRuntimeArtifact,
   type PreparedRuntimePackageOptions,
 } from './project-schema/prepared-runtime-artifact';
+import {
+  PREPARED_MEDIA_MANIFEST_PATH,
+  PREPARED_MEDIA_SCHEMA,
+  preparedMediaManifestSchema,
+  preparedVideoFramePackagePath,
+  type OpaqueVideoPreparationRequest,
+  type OpaqueVideoPreparationResult,
+  type PreparedMediaManifest,
+} from './prepared-media';
 
 export { PREPARED_RUNTIME_ARTIFACT_SCHEMA, preparedRuntimeArtifactSchema };
 export type {
@@ -95,6 +105,10 @@ export interface RuntimeArtifactShaderCompilerAdapter {
 export interface RuntimeArtifactPathAdapter {
   resolveProjectSource(projectRoot: string | null, source: string): string;
   shaderAssetRoot(projectRoot: string | null): string | undefined;
+  prepareOpaqueVideo?(
+    projectRoot: string | null,
+    request: OpaqueVideoPreparationRequest,
+  ): Promise<OpaqueVideoPreparationResult>;
   readProjectTextSources?(
     projectRoot: string | null,
     entries: readonly {
@@ -1084,6 +1098,184 @@ function effectsAllowed(intent: RuntimeArtifactPreparationIntent) {
   );
 }
 
+async function prepareOpaqueVideoRepresentations(
+  project: AuthoringProject,
+  projectRoot: string | null,
+  paths: RuntimeArtifactPathAdapter,
+): Promise<{
+  fileEntries: ExportFileEntry[];
+  textEntries: PreparedRuntimePackageOptions['textEntries'];
+  diagnostics: ProjectValidationDiagnostic[];
+}> {
+  const requests: Array<{
+    animationId: string;
+    motionId: string;
+    request: OpaqueVideoPreparationRequest;
+  }> = [];
+  for (const animationId of Object.keys(project.animations).sort()) {
+    const animation = animationDataSchema.safeParse(project.animations[animationId]?.data);
+    if (!animation.success) continue;
+    for (const motion of animation.data.motions) {
+      if (motion.kind !== 'video') continue;
+      const assetId = motion.video.$ref.id;
+      const asset = parseAssetData(project.assets[assetId]?.data);
+      if (asset?.kind !== 'video') continue;
+      requests.push({
+        animationId,
+        motionId: motion.id,
+        request: {
+          animationId,
+          motionId: motion.id,
+          assetId,
+          sourcePath: asset.source.path,
+          canvas: { ...animation.data.canvas },
+          ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
+        },
+      });
+    }
+  }
+  if (requests.length === 0) return { fileEntries: [], textEntries: [], diagnostics: [] };
+  if (!paths.prepareOpaqueVideo) {
+    return {
+      fileEntries: [],
+      textEntries: [],
+      diagnostics: [
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.video-preparer.unavailable',
+          severity: 'error',
+          path: '/animations',
+          message: 'Video-backed Animations require the canonical media preparation tool.',
+          category: 'Animations',
+          boundaries: ['runtime-package'],
+          ownerPaths: ['/animations'],
+        }),
+      ],
+    };
+  }
+
+  const fileEntries: ExportFileEntry[] = [];
+  const diagnostics: ProjectValidationDiagnostic[] = [];
+  const manifest: PreparedMediaManifest = { schema: PREPARED_MEDIA_SCHEMA, motions: [] };
+  for (const entry of requests) {
+    try {
+      const prepared = await paths.prepareOpaqueVideo(projectRoot, entry.request);
+      const frames = prepared.frames.map((frame, frameIndex) => {
+        const packagePath = preparedVideoFramePackagePath(
+          entry.animationId,
+          entry.motionId,
+          prepared.contentHash,
+          frameIndex,
+        );
+        fileEntries.push({
+          source: frame.sourcePath,
+          packagePath,
+          storage: 'auto',
+          assetId: `prepared-media:${entry.animationId}:${entry.motionId}:${frameIndex}`,
+          kind: 'prepared-media',
+        });
+        return { path: packagePath, durationMs: frame.durationMs };
+      });
+      manifest.motions.push({
+        animationId: entry.animationId,
+        motionId: entry.motionId,
+        representation: 'opaque-raster-frames',
+        contentHash: prepared.contentHash,
+        frames,
+      });
+      if (prepared.hadAudio)
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'animation.video.audio-ignored',
+            severity: 'warning',
+            path: `/animations/${entry.animationId}/data/motions`,
+            message: `Video motion '${entry.motionId}' contains audio. Generic Animation is visual-only; embedded audio is ignored and removed from the prepared runtime representation.`,
+            category: 'Animations',
+            boundaries: ['authoring', 'runtime-package'],
+            ownerPaths: [`/animations/${entry.animationId}`],
+          }),
+        );
+    } catch (error) {
+      diagnostics.push(
+        createProjectValidationDiagnostic({
+          code: 'runtime-artifact.video-preparation.failed',
+          severity: 'error',
+          path: `/animations/${entry.animationId}/data/motions`,
+          message: `Could not prepare video motion '${entry.motionId}': ${error instanceof Error ? error.message : String(error)}`,
+          category: 'Animations',
+          boundaries: ['runtime-package'],
+          ownerPaths: [`/animations/${entry.animationId}`],
+        }),
+      );
+    }
+  }
+  const parsedManifest = preparedMediaManifestSchema.safeParse(manifest);
+  if (!parsedManifest.success || manifest.motions.length !== requests.length)
+    return { fileEntries, textEntries: [], diagnostics };
+  return {
+    fileEntries,
+    textEntries: [
+      {
+        text: JSON.stringify(parsedManifest.data),
+        packagePath: PREPARED_MEDIA_MANIFEST_PATH,
+        storage: 'compressed',
+      },
+    ],
+    diagnostics,
+  };
+}
+
+function withPreparedMedia(
+  assessment: RuntimeArtifactAssessment,
+  prepared: Awaited<ReturnType<typeof prepareOpaqueVideoRepresentations>>,
+): RuntimeArtifactAssessment {
+  if (
+    prepared.fileEntries.length === 0 &&
+    prepared.textEntries.length === 0 &&
+    prepared.diagnostics.length === 0
+  )
+    return assessment;
+  const fileEntries = [...assessment.fileEntries, ...prepared.fileEntries];
+  const textEntries = [...assessment.packageOptions.textEntries, ...prepared.textEntries];
+  const diagnostics = collectProjectValidationDiagnostics(
+    assessment.diagnostics,
+    prepared.diagnostics,
+  );
+  const runtimeDiagnostics = diagnostics.filter((item) =>
+    item.boundaries.includes('runtime-package'),
+  );
+  const runtimeBlockers = runtimeDiagnostics.filter((item) =>
+    projectValidationBlocksBoundary(item, 'runtime-package'),
+  );
+  return {
+    ...assessment,
+    ready: assessment.compiledArtifactAvailable && runtimeBlockers.length === 0,
+    fileEntries,
+    diagnostics,
+    runtimeDiagnostics,
+    runtimeBlockers,
+    manifestPreview: {
+      ...assessment.manifestPreview,
+      entryCount:
+        assessment.manifestPreview.entryCount +
+        prepared.fileEntries.length +
+        prepared.textEntries.length,
+      assetCount: assessment.manifestPreview.assetCount + prepared.fileEntries.length,
+    },
+    packageOptions: {
+      ...assessment.packageOptions,
+      fileEntries: [
+        ...assessment.packageOptions.fileEntries,
+        ...prepared.fileEntries.map(({ source, packagePath, storage }) => ({
+          source,
+          packagePath,
+          storage,
+        })),
+      ],
+      textEntries,
+    },
+  };
+}
+
 export async function prepareRuntimeArtifact(
   options: PrepareRuntimeArtifactOptions,
 ): Promise<PrepareRuntimeArtifactResult> {
@@ -1165,6 +1357,13 @@ export async function prepareRuntimeArtifact(
         });
       }
     }
+  }
+  if (effectsAllowed(options.intent) && assessment.compiledArtifactAvailable) {
+    if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
+    assessment = withPreparedMedia(
+      assessment,
+      await prepareOpaqueVideoRepresentations(options.project, options.projectRoot, options.paths),
+    );
   }
   const diagnostics = collectProjectValidationDiagnostics(
     assessment.diagnostics,
@@ -1546,6 +1745,16 @@ export async function verifyPreparedRuntimeArtifact(
     if (expectedFileEntries.some((entry) => entry.packagePath === actualEntry.packagePath))
       continue;
     if (
+      actualEntry.kind === 'prepared-media' &&
+      actualEntry.packagePath.startsWith('assets/.prepared-media/') &&
+      actualEntry.assetId.startsWith('prepared-media:') &&
+      options.projectRoot !== null &&
+      actualEntry.source.startsWith(
+        normalizedFilesystemPath(`${options.projectRoot}/.noveltea/build/prepared-media/`),
+      )
+    )
+      continue;
+    if (
       options.profile.stripShaderSources ||
       actualEntry.kind !== 'shader-source' ||
       !actualEntry.packagePath.startsWith('shaders/') ||
@@ -1559,6 +1768,86 @@ export async function verifyPreparedRuntimeArtifact(
         'Prepared file inventory contains an unexpected Project source.',
         '/artifact/fileEntries',
       );
+  }
+
+  const compiledVideoMotionKeys = new Set(
+    artifact.compiledProject.resources.animations.flatMap((animation) =>
+      animation.motions
+        .filter((motion) => motion.kind === 'video')
+        .map((motion) => `${animation.id}\n${motion.id}`),
+    ),
+  );
+  const preparedMediaTextEntries = artifact.packageOptions.textEntries.filter(
+    (entry) => entry.packagePath === PREPARED_MEDIA_MANIFEST_PATH,
+  );
+  let preparedMediaTextEntriesForVerification: PreparedRuntimePackageOptions['textEntries'] = [];
+  if (compiledVideoMotionKeys.size > 0) {
+    if (preparedMediaTextEntries.length !== 1)
+      return rejectedEvidence(
+        'Prepared video Animations require exactly one private prepared-media manifest.',
+        '/artifact/packageOptions/textEntries',
+      );
+    let parsedJson: unknown;
+    try {
+      parsedJson = JSON.parse(preparedMediaTextEntries[0]!.text) as unknown;
+    } catch {
+      return rejectedEvidence(
+        'Prepared-media manifest is not valid JSON.',
+        '/artifact/packageOptions/textEntries',
+      );
+    }
+    const parsedPreparedMedia = preparedMediaManifestSchema.safeParse(parsedJson);
+    if (!parsedPreparedMedia.success)
+      return rejectedEvidence(
+        'Prepared-media manifest does not satisfy the private runtime representation contract.',
+        '/artifact/packageOptions/textEntries',
+      );
+    const manifestKeys = new Set(
+      parsedPreparedMedia.data.motions.map((motion) => `${motion.animationId}\n${motion.motionId}`),
+    );
+    if (
+      manifestKeys.size !== parsedPreparedMedia.data.motions.length ||
+      manifestKeys.size !== compiledVideoMotionKeys.size ||
+      [...compiledVideoMotionKeys].some((key) => !manifestKeys.has(key))
+    )
+      return rejectedEvidence(
+        'Prepared-media manifest does not match the semantic video Animation inventory.',
+        '/artifact/packageOptions/textEntries',
+      );
+    const referencedPreparedPaths = new Set<string>();
+    for (const motion of parsedPreparedMedia.data.motions)
+      for (const frame of motion.frames) {
+        if (!referencedPreparedPaths.add(frame.path))
+          return rejectedEvidence(
+            'Prepared-media manifest contains a duplicate frame path.',
+            '/artifact/packageOptions/textEntries',
+          );
+        const entry = actualFileEntriesByPath.get(frame.path);
+        if (!entry || entry.kind !== 'prepared-media')
+          return rejectedEvidence(
+            'Prepared-media manifest references a frame absent from the prepared file inventory.',
+            '/artifact/fileEntries',
+          );
+      }
+    if (
+      actualFileEntries.some(
+        (entry) =>
+          entry.kind === 'prepared-media' && !referencedPreparedPaths.has(entry.packagePath),
+      )
+    )
+      return rejectedEvidence(
+        'Prepared file inventory contains an unreferenced private media frame.',
+        '/artifact/fileEntries',
+      );
+    preparedMediaTextEntriesForVerification = preparedMediaTextEntries;
+  } else if (
+    preparedMediaTextEntries.length > 0 ||
+    actualFileEntries.some((entry) => entry.kind === 'prepared-media')
+  ) {
+    return rejectedEvidence(
+      'Prepared media exists without a semantic video Animation motion.',
+      '/artifact/packageOptions',
+    );
   }
 
   const currentShaderMetadata = (await buildShaderMaterialProject(options.project)).project;
@@ -1641,7 +1930,10 @@ export async function verifyPreparedRuntimeArtifact(
     stableStringify(normalizedPackageFileEntries(artifact.packageOptions.fileEntries)) ===
       stableStringify(normalizedPackageFileEntries(expectedPackageFileEntries)) &&
     stableStringify(artifact.packageOptions.textEntries) ===
-      stableStringify(expectedPartitioned.textEntries) &&
+      stableStringify([
+        ...expectedPartitioned.textEntries,
+        ...preparedMediaTextEntriesForVerification,
+      ]) &&
     stableStringify(artifact.packageOptions.requiredSeekablePaths) ===
       stableStringify(expectedSeekablePaths) &&
     stableStringify(artifact.packageOptions.display) === stableStringify(presentation.display) &&
@@ -1665,7 +1957,7 @@ export async function verifyPreparedRuntimeArtifact(
     entryCount:
       1 +
       artifact.fileEntries.length +
-      expectedPartitioned.textEntries.length +
+      artifact.packageOptions.textEntries.length +
       expectedRequiredShaderBinaryPaths.length +
       (artifact.shaderMaterialMetadata ? 1 : 0),
     assetCount: artifact.fileEntries.length,

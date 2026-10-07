@@ -3,9 +3,11 @@
 ## Purpose and current status
 
 Animation is immutable reusable raster content, separate from source Assets and gameplay identities.
-Phase 1 has one canonical image/Animation Visual contract across Room Environments, Interactable
-presentation, and Character visual layers. Interactables use current-frame `visual-alpha` hit testing,
-while Character semantic composition and choreography remain separate from reusable Animation content.
+Phase 1 established one canonical image/Animation Visual contract across Room Environments,
+Interactable presentation, and Character visual layers. The first Phase-2 opaque-video tracer is now
+implemented on native runtime and focused Room preview. Interactables use current-frame
+`visual-alpha` hit testing for image/sprite realization; dynamic video alpha remains future work.
+Character semantic composition and choreography remain separate from reusable Animation content.
 
 ## Authoring and validation
 
@@ -13,14 +15,20 @@ Records live in the `animations` collection and segmented workspace `records/ani
 The authoritative shape is
 [`authoring-animations.ts`](../../editor/src/shared/project-schema/authoring-animations.ts).
 An Animation owns one stable logical canvas, a default motion, and Animation-local unique motion IDs.
-Usable motions contain one or more Image Asset frames with explicit positive integer millisecond
-durations; a one-frame motion is valid. The default and any use-site selected motion must exist.
-Asset references participate in the ordinary dependency graph, rename/delete safety, validation,
+Each motion is either `sprite-sequence` or `video`. Sprite motions contain one or more Image Asset
+frames with explicit positive integer millisecond durations; a one-frame motion is valid. Video
+motions reference one semantic Video Asset and may specify an optional `{ startMs, endMs }` source
+range with a positive extent. The default and any use-site selected motion must exist. Asset
+references participate in the ordinary dependency graph, rename/delete safety, validation,
 compilation, and resource closure. Localization remains at the Asset layer.
 Empty manual Animations start with a `default` motion with no frames. They are saveable authoring
 drafts with a warning, omitted from compiled resources, and rejected when selected as a Visual.
 Adding an Image frame in the timeline makes the draft usable; partially empty multi-motion resources
 remain validation errors.
+
+Generic video Animation is visual-only. Embedded audio in a referenced video is ignored during
+canonical preparation and produces a warning rather than becoming synchronized Animation audio.
+Movie/cutscene A/V synchronization remains a separate future layer.
 
 ## Raster import
 
@@ -67,6 +75,23 @@ publication pins all selected frames and the Engine2D Material before realizatio
 samples the texture through the existing raster quad/Engine2D Material path. Source frame dimensions
 do not change occurrence placement.
 
+For a video motion, runtime-artifact preparation invokes the pinned private FFmpeg tool while keeping
+the creator Video Asset intact. The current tracer normalizes the selected source/range to the
+Animation logical canvas and emits a deterministic opaque 30 fps PNG sequence plus private
+prepared-media metadata. Package paths, frame transport, and metadata shape are deliberately private;
+Animation authoring/compiled semantics name the Video Asset and range, not a codec or generated file.
+The player does not ship or invoke FFmpeg.
+
+At package load the private metadata is strictly validated against the semantic Animation table and
+archive inventory. `StructuredPrefetch` maps a selected video motion to its prepared raster-frame
+textures, so the normal mandatory gate controls readiness and resource failure. The world resolver
+then presents those frames as the same raster sample stream used by sprite Animation. Logical bounds
+remain the Animation canvas and rendering continues through the existing quad/Engine2D Material path.
+Sampling is driven only by NovelTea gameplay or unscaled-presentation time; no platform media clock
+enters semantic playback. Existing occurrence epochs therefore provide default/loop playback,
+hidden-time catch-up, compatible-publication phase retention, reset/load/reconstruction restart, and
+independent phase for shared Animation occurrences.
+
 See [Animation and Tweening](../rendering/ANIMATION_AND_TWEENING.md#raster-animation-realization)
 for epoch ownership and reconstruction, and
 [preview communication](../editor/preview/ENGINE_PREVIEW_COMMUNICATION.md#editor-managed-authoring-previews)
@@ -75,17 +100,21 @@ for focused publication (the focused-document section describes the owning trans
 ## Editor behavior and known gaps
 
 Animation records open a specialized timeline editor with motion selection, absolute-time markers,
-frame-duration editing, scrub/play/pause/restart, and sprite frame stepping. Reserved start/end
+frame-duration editing, scrub/play/pause/restart, and sprite frame stepping. Video motions use their
+semantic source/range on the shared timeline while frame stepping remains sprite-only in this tracer.
+Reserved start/end
 markers are shown but cannot be edited. Preview-only loop ranges use the same canonical sampling
 rules as runtime through `editor/src/shared/animation-timeline.ts`. This lightweight source-image
 preview is explicitly labeled, not certified runtime rendering. Interactable Visual editing also
 exposes durable playback policy, initial marker, rate/clock, and marker-bounded loop selection;
 loop policy is never stored on the reusable Animation resource. Project edits use the normal command
 bus, undo/redo, and manual-save record unit. Tab restoration keeps authoring view position but never
-a running playback anchor. Focused Room preview stages the referenced Environment, Interactable, and Character-layer Animations
-and their frame Assets through production focused resource preparation, not a browser animation
-interpreter. Room Environments author and compile only nullable `visual`; the temporary image `asset`
-expand-contract field is retired and rejected rather than aliased.
+a running playback anchor. Focused Room preview stages the referenced Environment, Interactable, and
+Character-layer Animations and their resources through production focused resource preparation, not a
+browser animation interpreter. Video motions invoke the same canonical opaque-video preparation job
+and stage its generated frames as bounded focused-preview resources before the native presenter
+receives them. Room Environments author and compile only nullable `visual`; the temporary image
+`asset` expand-contract field is retired and rejected rather than aliased.
 
 Interactable Definition and exact Instance targets admit owner-scoped `DesiredMotionSelection`,
 through the Presentation command gateway and Lua `set_motion_selection` / `clear_motion_selection`.
@@ -136,9 +165,12 @@ backend-local motion phase used for the realized raster frame: missing tracks us
 Focus uses the shared authoring timeline helpers for play/pause/scrub/frame-step/marker inspection and
 can author keys for any motion in the selected Animation.
 
-Video and animated Inventory icons remain later work. The Phase 1 world-presentation sprite-to-Visual
-cutover is complete, and Interactable world Hotspots can already sample a selected raster Animation
-frame's CPU coverage.
+Opaque native video Animation is implemented as the first replaceable prepared-media tracer. Richer
+video seek/frame introspection and finite-operation parity, browser-native Web realization,
+multi-representation target selection, transparent video, dynamic video `visual-alpha`, movies, and
+animated Inventory icons remain follow-up work. The Phase 1 world-presentation sprite-to-Visual
+cutover remains complete, and Interactable world Hotspots can sample sprite Animation frame CPU
+coverage; video alpha coverage is not provided by the opaque tracer.
 
 ## Verification
 
@@ -171,6 +203,13 @@ claim of completed save/load or player interaction certification.
   placement identity, skip/cancel, barrier classification, and clock/policy validation.
 - `tests/assets/structured_prefetch_tests.cpp` covers exact-target-revision mandatory preparation,
   missing motion rejection, and asynchronous readiness before finite delivery.
+- `tests/core/compiled_package_tests.cpp` covers strict private prepared-media decoding, rejection of
+  unknown representation metadata, failure when a semantic video motion lacks prepared media, and
+  successful assembly when the prepared inventory matches.
+- Runtime-artifact preparation tests cover deterministic private video lowering and audio-ignore
+  diagnostics, while focused Room preview tests cover canonical preparation/staging of the video
+  representation. The current private PNG frame transport is test evidence for the tracer, not a
+  permanent codec/package-shape guarantee.
 
 The tracer was verified with Linux CTest, Linux/Web C++ policy and formatting checks, Web structural
 smoke, editor check/build/tests, and scoped ASan/UBSan decoder/presenter/resource/renderer tests.

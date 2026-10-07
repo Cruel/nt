@@ -2293,19 +2293,31 @@ const animationResourceSchema = strict({
   }),
   defaultMotionId: id,
   motions: z.array(
-    strict({
-      id,
-      kind: z.literal('sprite-sequence'),
-      markers: z.array(animationMarkerSchema),
-      frames: z
-        .array(
-          strict({
-            image: assetReferenceSchema,
-            durationMs: z.number().int().positive(),
-          }),
-        )
-        .min(1),
-    }),
+    z.discriminatedUnion('kind', [
+      strict({
+        id,
+        kind: z.literal('sprite-sequence'),
+        markers: z.array(animationMarkerSchema),
+        frames: z
+          .array(
+            strict({
+              image: assetReferenceSchema,
+              durationMs: z.number().int().positive(),
+            }),
+          )
+          .min(1),
+      }),
+      strict({
+        id,
+        kind: z.literal('video'),
+        markers: z.array(animationMarkerSchema),
+        video: assetReferenceSchema,
+        sourceRange: strict({
+          startMs: z.number().int().nonnegative(),
+          endMs: z.number().int().positive(),
+        }).optional(),
+      }),
+    ]),
   ),
 });
 const layoutSourceSchema = z.discriminatedUnion('kind', [

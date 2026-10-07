@@ -204,6 +204,116 @@ describe('Prepared Runtime Artifact module', () => {
     });
   });
 
+  it('prepares video Animation motions into private runtime media while preserving source Assets', async () => {
+    const project = roomProject();
+    project.assets['video-source'] = {
+      id: 'video-source',
+      label: 'Video Source',
+      data: assetDataFromImportMetadata({
+        kind: 'video',
+        projectRelativePath: 'assets/video/source.mov',
+        extension: '.mov',
+        imageMetadata: null,
+      }),
+    };
+    project.animations.portrait = {
+      id: 'portrait',
+      label: 'Portrait',
+      data: {
+        kind: 'animation',
+        canvas: { width: 320, height: 180 },
+        defaultMotionId: 'idle',
+        motions: [
+          {
+            id: 'idle',
+            kind: 'video',
+            video: { $ref: { collection: 'assets', id: 'video-source' } },
+            sourceRange: { startMs: 100, endMs: 1100 },
+            markers: [],
+          },
+        ],
+      },
+    };
+    const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
+    const prepared = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile,
+      shaderOutputs: [],
+      paths: {
+        ...rendererRuntimeArtifactPaths,
+        async prepareOpaqueVideo(_root, request) {
+          expect(request).toMatchObject({
+            animationId: 'portrait',
+            motionId: 'idle',
+            assetId: 'video-source',
+            sourcePath: 'assets/video/source.mov',
+            sourceRange: { startMs: 100, endMs: 1100 },
+          });
+          return {
+            contentHash: 'a'.repeat(64),
+            hadAudio: true,
+            frames: [
+              {
+                sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000000.png',
+                projectRelativePath: '.noveltea/build/prepared-media/a/frame-000000.png',
+                contentHash: 'b'.repeat(64),
+                byteSize: 11,
+                durationMs: 500,
+              },
+              {
+                sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000001.png',
+                projectRelativePath: '.noveltea/build/prepared-media/a/frame-000001.png',
+                contentHash: 'c'.repeat(64),
+                byteSize: 12,
+                durationMs: 500,
+              },
+            ],
+          };
+        },
+      },
+    });
+
+    expect(prepared.status).toBe('prepared');
+    if (prepared.status !== 'prepared') return;
+    expect(prepared.artifact.compiledProject.resources.assets).toContainEqual(
+      expect.objectContaining({
+        id: 'video-source',
+        kind: 'video',
+        path: 'assets/video/source.mov',
+      }),
+    );
+    expect(prepared.artifact.fileEntries).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          kind: 'prepared-media',
+          packagePath: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/frame-000000.png',
+        }),
+        expect.objectContaining({
+          kind: 'prepared-media',
+          packagePath: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/frame-000001.png',
+        }),
+      ]),
+    );
+    const privateManifest = prepared.artifact.packageOptions.textEntries.find(
+      (entry) => entry.packagePath === 'assets/.prepared-media/manifest.json',
+    );
+    expect(privateManifest).toBeDefined();
+    expect(JSON.parse(privateManifest!.text)).toMatchObject({
+      schema: 'noveltea.private.prepared-media',
+      motions: [
+        {
+          animationId: 'portrait',
+          motionId: 'idle',
+          representation: 'opaque-raster-frames',
+          contentHash: 'a'.repeat(64),
+        },
+      ],
+    });
+    expect(prepared.artifact.diagnostics).toContainEqual(
+      expect.objectContaining({ code: 'animation.video.audio-ignored', severity: 'warning' }),
+    );
+  });
+
   it('flattens selected locale inheritance and omits unused source-language catalogs', async () => {
     const project = roomProject();
     project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };

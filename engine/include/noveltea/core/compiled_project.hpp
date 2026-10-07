@@ -399,10 +399,22 @@ struct AnimationMarker {
     std::uint64_t time_ms = 0;
     bool operator==(const AnimationMarker&) const = default;
 };
+enum class AnimationMotionKind : std::uint8_t {
+    SpriteSequence,
+    Video
+};
+struct VideoAnimationSourceRange {
+    std::uint64_t start_ms = 0;
+    std::uint64_t end_ms = 0;
+    bool operator==(const VideoAnimationSourceRange&) const = default;
+};
 struct SpriteAnimationMotion {
     AnimationMotionId id;
     std::vector<SpriteAnimationFrame> frames;
     std::vector<AnimationMarker> markers = {};
+    AnimationMotionKind kind = AnimationMotionKind::SpriteSequence;
+    std::optional<AssetId> video = std::nullopt;
+    std::optional<VideoAnimationSourceRange> source_range = std::nullopt;
     bool operator==(const SpriteAnimationMotion&) const = default;
 };
 struct AnimationResource {
@@ -413,16 +425,29 @@ struct AnimationResource {
     bool operator==(const AnimationResource&) const = default;
 };
 [[nodiscard]] inline std::optional<std::uint64_t>
-motion_marker_time(const SpriteAnimationMotion& motion, std::string_view id) noexcept
+motion_duration_ms(const SpriteAnimationMotion& motion,
+                   std::optional<std::uint64_t> prepared_video_duration = std::nullopt) noexcept
+{
+    if (motion.kind == AnimationMotionKind::Video) {
+        if (prepared_video_duration)
+            return prepared_video_duration;
+        if (!motion.source_range || motion.source_range->end_ms <= motion.source_range->start_ms)
+            return std::nullopt;
+        return motion.source_range->end_ms - motion.source_range->start_ms;
+    }
+    std::uint64_t duration = 0;
+    for (const auto& frame : motion.frames)
+        duration += frame.duration_ms;
+    return duration;
+}
+[[nodiscard]] inline std::optional<std::uint64_t>
+motion_marker_time(const SpriteAnimationMotion& motion, std::string_view id,
+                   std::optional<std::uint64_t> prepared_video_duration = std::nullopt) noexcept
 {
     if (id == "start")
         return 0;
-    if (id == "end") {
-        std::uint64_t duration = 0;
-        for (const auto& frame : motion.frames)
-            duration += frame.duration_ms;
-        return duration;
-    }
+    if (id == "end")
+        return motion_duration_ms(motion, prepared_video_duration);
     for (const auto& marker : motion.markers)
         if (marker.id == id)
             return marker.time_ms;
@@ -438,6 +463,18 @@ motion_loop_times(const SpriteAnimationMotion& motion, const MotionPlaybackPolic
         return std::nullopt;
     return std::pair{*start, *end};
 }
+[[nodiscard]] inline std::optional<std::pair<std::uint64_t, std::uint64_t>>
+motion_loop_times(const SpriteAnimationMotion& motion, const MotionPlaybackPolicy& policy,
+                  std::optional<std::uint64_t> prepared_video_duration) noexcept
+{
+    const auto start = motion_marker_time(
+        motion, policy.loop_range ? policy.loop_range->start : "start", prepared_video_duration);
+    const auto end = motion_marker_time(motion, policy.loop_range ? policy.loop_range->end : "end",
+                                        prepared_video_duration);
+    if (!start || !end || *start >= *end)
+        return std::nullopt;
+    return std::pair{*start, *end};
+}
 [[nodiscard]] inline std::optional<std::uint64_t>
 motion_initial_time(const SpriteAnimationMotion& motion,
                     const MotionPlaybackPolicy& policy) noexcept
@@ -445,6 +482,15 @@ motion_initial_time(const SpriteAnimationMotion& motion,
     if (!valid_motion_policy(policy) || !motion_loop_times(motion, policy))
         return std::nullopt;
     return motion_marker_time(motion, policy.initial_marker.value_or("start"));
+}
+[[nodiscard]] inline std::optional<std::uint64_t>
+motion_initial_time(const SpriteAnimationMotion& motion, const MotionPlaybackPolicy& policy,
+                    std::optional<std::uint64_t> prepared_video_duration) noexcept
+{
+    if (!valid_motion_policy(policy) || !motion_loop_times(motion, policy, prepared_video_duration))
+        return std::nullopt;
+    return motion_marker_time(motion, policy.initial_marker.value_or("start"),
+                              prepared_video_duration);
 }
 
 enum class DisplayOrientation : std::uint8_t {

@@ -23,4 +23,7 @@ decode_shader_material_manifest(const nlohmann::json& value,
 decode_shader_material_manifest_json(std::string_view text,
                                      std::string source_path = "shader-materials.json");
 
+[[nodiscard]] Result<PreparedMediaCatalog, Diagnostics> decode_prepared_media_catalog_json(
+    std::string_view text, std::string source_path = "assets/.prepared-media/manifest.json");
+
 } // namespace noveltea::core

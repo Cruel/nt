@@ -1,8 +1,10 @@
 # Private media-preparation tooling
 
-FFmpeg is a separate-process authoring tool, never a player dependency. This boundary establishes
-installation, diagnosis, and trusted host invocation only: Video import normalization, representation
-policy, and runtime playback are not implemented here.
+FFmpeg is a separate-process authoring tool, never a player dependency. The shared service now also
+owns the first canonical opaque-video Animation preparation tracer. A semantic Video Asset is decoded
+by the pinned tool into private runtime-artifact raster frames; authored Animation data never names
+the generated representation. The exact private representation and future target codec matrix remain
+implementation details rather than stable authoring contracts.
 
 ## Ownership and installation
 
@@ -39,6 +41,16 @@ and Node/Electron tooling. Editor composition uses `checkMediaTools`/`prepareMed
 for trusted tooling jobs; future long-running preparation should execute in disposable workers,
 not directly in the interactive main loop. Do not expose raw arguments from authored data or IPC.
 
+`prepareOpaqueVideoMotion` is the canonical tracer job used by renderer-driven export, focused Room
+preview, and headless runtime-artifact preparation. It hashes the source bytes plus semantic
+preparation inputs and the pinned tool release, selects only the first video stream, disables
+audio/subtitle/data output, fits the image into the Animation logical canvas, and currently emits a
+deterministic 30 fps opaque PNG sequence beneath `.noveltea/build/prepared-media/`. Runtime-package
+assembly stages those frames under the private `assets/.prepared-media/` namespace together with
+private metadata. Embedded source audio is detected only to produce the authoring warning; generic
+Animation remains visual-only. Neither the generated PNG layout nor the private prepared-media
+metadata is an authored/public schema commitment.
+
 ```sh
 noveltea --json media-tool check
 ```
@@ -46,7 +58,8 @@ noveltea --json media-tool check
 This Project-independent, read-only command returns the executable, bundled/external selection,
 version, and bundled release. Missing/unexecutable tools, a wrong bundled version/configuration, or
 missing AV1/VP9 encoders or local-file/pipe protocols return exit code 6 with a `media.tool` diagnostic.
-It does not transcode Project media or add runtime video support.
+The command itself remains a read-only diagnostic. Canonical video preparation is invoked by the
+runtime-artifact/focused-preview pipelines rather than by `media-tool check`.
 
 Set `NOVELTEA_FFMPEG` to an **absolute executable path** for a developer/distro/modified external
 build. External builds must identify as FFmpeg and provide the required encoders/protocols, but need

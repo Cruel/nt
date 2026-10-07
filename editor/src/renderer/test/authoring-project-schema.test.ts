@@ -159,7 +159,10 @@ describe('authoring project schema', () => {
     }
 
     const invalidDuration = structuredClone(project);
-    invalidDuration.animations.pulse!.data.motions[0]!.frames[0]!.durationMs = 0;
+    const invalidDurationMotion = invalidDuration.animations.pulse!.data.motions[0]!;
+    expect(invalidDurationMotion.kind).toBe('sprite-sequence');
+    if (invalidDurationMotion.kind === 'sprite-sequence')
+      invalidDurationMotion.frames[0]!.durationMs = 0;
     expect(authoringProjectSchema.safeParse(invalidDuration).success).toBe(false);
 
     const invalidDefault = structuredClone(project);

@@ -598,6 +598,53 @@ core::LoadedCompiledPackage animation_collector_package()
     return package_from_document(std::move(document), "structured-prefetch-animation-project.json");
 }
 
+core::LoadedCompiledPackage video_animation_collector_package()
+{
+    auto document = read_comprehensive_project();
+    document["resources"]["assets"].push_back({{"aliases", nlohmann::json::array()},
+                                               {"id", "video-source"},
+                                               {"kind", "video"},
+                                               {"path", "assets/video/source.mov"}});
+    nlohmann::json video_motion = {
+        {"id", "idle"},
+        {"kind", "video"},
+        {"video", {{"kind", "asset"}, {"id", "video-source"}}},
+        {"sourceRange", {{"startMs", 0}, {"endMs", 150}}},
+        {"markers", nlohmann::json::array()},
+    };
+    document["resources"]["animations"] = nlohmann::json::array({
+        {{"id", "video-loop"},
+         {"canvas", {{"width", 64}, {"height", 32}}},
+         {"defaultMotionId", "idle"},
+         {"motions", nlohmann::json::array({std::move(video_motion)})}},
+    });
+    auto project =
+        core::decode_compiled_project(document, "structured-prefetch-video-project.json");
+    REQUIRE(project);
+    auto manifest_json = package_manifest_for(project.value());
+    constexpr std::string_view frame_a =
+        "assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000000.png";
+    constexpr std::string_view frame_b =
+        "assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
+    manifest_json["entries"].push_back({{"path", frame_a}, {"size", 10}});
+    manifest_json["entries"].push_back({{"path", frame_b}, {"size", 10}});
+    auto manifest = core::decode_runtime_package_manifest(manifest_json);
+    REQUIRE(manifest);
+    auto shader_materials = core::decode_shader_material_manifest(shader_material_manifest());
+    REQUIRE(shader_materials);
+    core::PreparedMediaCatalog prepared{
+        {core::PreparedVideoMotion{id<core::AnimationId>("video-loop"),
+                                   id<core::AnimationMotionId>("idle"),
+                                   std::string(64, 'a'),
+                                   {{std::string(frame_a), 50}, {std::string(frame_b), 100}}}}};
+    auto inventory = inventory_for(manifest.value());
+    auto package = core::assemble_compiled_package(
+        std::move(project).value(), std::move(manifest).value(),
+        std::move(shader_materials).value(), std::move(inventory), std::move(prepared));
+    REQUIRE(package);
+    return std::move(package).value();
+}
+
 template<class Request, class Predicate>
 std::optional<std::size_t>
 find_request(const std::vector<assets::StructuredAssetRequestDescriptor>& list, Predicate predicate)
@@ -1143,6 +1190,90 @@ TEST_CASE("mandatory collector retains every frame of a selected raster Animatio
     snapshot.revision = core::PresentationSnapshotRevision::from_number(5);
     REQUIRE_FALSE(world.reconcile(snapshot, {640.0f, 360.0f}));
     CHECK(world.frame()->revision.number() == 4);
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE("opaque video Animation uses prepared frames through mandatory world realization",
+          "[assets][structured-prefetch][animation][video]")
+{
+    PlannerFixture fixture;
+    MaterialDefinition material;
+    material.role = ShaderRole::Engine2D;
+    fixture.materials.definition = &material;
+    auto package = video_animation_collector_package();
+    const auto generation = fixture.manager.source_generation_on_owner();
+    const auto index =
+        assets::StructuredAssetDependencyIndex::build(package, "glsl-330", generation);
+    CHECK_FALSE(has_code(index.diagnostics(), "assets.prefetch_missing_prepared_video_motion"));
+
+    core::RuntimePresentationSnapshot snapshot;
+    const auto room = id<core::RoomId>("hall");
+    snapshot.revision = core::PresentationSnapshotRevision::from_number(1);
+    snapshot.current_room = room;
+    snapshot.environments.push_back(core::PresentationEnvironment{
+        .instance = id<core::PresentationEnvironmentInstanceId>("video"),
+        .owner = core::RoomPresentationOwner{room},
+        .material_property_owner = core::PropertyOwnerRef{room},
+        .stop_key = id<core::PresentationEnvironmentStopKey>("video-stop"),
+        .asset = std::nullopt,
+        .visual =
+            core::compiled::AnimationVisual{id<core::AnimationId>("video-loop"), std::nullopt},
+        .material = id<core::MaterialId>("sprite-material"),
+        .bounds = {0.0, 0.0, 1.0, 1.0},
+        .plane = core::PresentationPlane::WorldBackground,
+        .order = 0,
+        .clock = core::LayoutClockDomain::Gameplay,
+        .scroll_per_second = {0.0, 0.0},
+        .opacity = 1.0,
+        .visible = true,
+    });
+    assets::MandatoryAssetDependencyContext context;
+    context.current_presentation = &snapshot;
+    const auto collected = assets::MandatoryAssetDependencyCollector(index).collect(context);
+    constexpr std::string_view frame_a =
+        "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000000.png";
+    constexpr std::string_view frame_b =
+        "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
+    REQUIRE(find_request<assets::TextureAssetRequest>(
+        collected.requests, [](const auto& request) { return request.path == frame_a; }));
+    REQUIRE(find_request<assets::TextureAssetRequest>(
+        collected.requests, [](const auto& request) { return request.path == frame_b; }));
+
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
+    REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto transaction = gate.take_ready_transaction_on_owner();
+    REQUIRE(transaction);
+    REQUIRE(transaction->commit_on_owner(false));
+
+    AssetWorldPresentationResourceResolver resources(fixture.manager);
+    resources.bind_package(package);
+    WorldPresentationBackend world(resources);
+    REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+    REQUIRE(world.frame()->draws.size() == 1);
+    const auto& draw = world.frame()->draws.front();
+    REQUIRE(draw.raster_animation_frames.size() == 2);
+    REQUIRE(draw.raster_animation_frames[0].texture_lease.has_value());
+    REQUIRE(draw.raster_animation_frames[1].texture_lease.has_value());
+    CHECK((*draw.raster_animation_frames[0].texture_lease)->path == frame_a);
+    CHECK((*draw.raster_animation_frames[1].texture_lease)->path == frame_b);
+
+    core::RuntimeClockUpdate clock;
+    world.realize(clock);
+    REQUIRE(world.frame()->base_world_composition_batch.commands().size() == 1);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          draw.raster_animation_frames[0].texture.handle);
+    clock.gameplay_time = std::chrono::milliseconds{75};
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          draw.raster_animation_frames[1].texture.handle);
+    clock.gameplay_time = std::chrono::milliseconds{175};
+    world.realize(clock);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle ==
+          draw.raster_animation_frames[0].texture.handle);
     gate.clear_package_on_owner();
 }
 

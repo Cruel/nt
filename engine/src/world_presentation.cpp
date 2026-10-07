@@ -524,6 +524,12 @@ std::string world_hotspot_identity(const core::compiled::HotspotRef& ref)
     return hotspot_identity(ref);
 }
 
+std::string prepared_video_motion_key(const core::AnimationId& animation,
+                                      const core::AnimationMotionId& motion)
+{
+    return animation.text() + "\n" + motion.text();
+}
+
 std::optional<QuadCommand>
 WorldPresentationDraw::ActorAnimationFrame::sample(std::uint64_t elapsed_ms,
                                                    const QuadCommand& underlying) const
@@ -576,6 +582,15 @@ void AssetWorldPresentationResourceResolver::bind_project(const core::CompiledPr
     bind_catalog(std::move(catalog));
 }
 
+void AssetWorldPresentationResourceResolver::bind_package(
+    const core::LoadedCompiledPackage& package, std::string_view active_locale)
+{
+    bind_project(package.project(), active_locale);
+    for (const auto& prepared : package.prepared_media().motions)
+        m_prepared_video_motions.emplace(
+            prepared_video_motion_key(prepared.animation, prepared.motion), prepared);
+}
+
 void AssetWorldPresentationResourceResolver::bind_catalog(WorldPresentationResourceCatalog catalog)
 {
     m_images.clear();
@@ -584,12 +599,17 @@ void AssetWorldPresentationResourceResolver::bind_catalog(WorldPresentationResou
     m_animations.clear();
     for (auto& animation : catalog.animations)
         m_animations.emplace(animation.id.text(), std::move(animation));
+    m_prepared_video_motions.clear();
+    for (auto& prepared : catalog.prepared_video_motions)
+        m_prepared_video_motions.emplace(
+            prepared_video_motion_key(prepared.animation, prepared.motion), std::move(prepared));
 }
 
 void AssetWorldPresentationResourceResolver::clear()
 {
     m_images.clear();
     m_animations.clear();
+    m_prepared_video_motions.clear();
 }
 
 core::Result<WorldPreparedVisual, core::Diagnostics>
@@ -674,8 +694,31 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
             "World presentation Animation motion is unavailable: " + motion_id.text(), context)});
     }
 
-    const auto initial = core::compiled::motion_initial_time(
-        *motion, selection.playback.value_or(core::MotionPlaybackPolicy{}));
+    const auto policy = selection.playback.value_or(core::MotionPlaybackPolicy{});
+    const core::PreparedVideoMotion* prepared_video = nullptr;
+    std::optional<std::uint64_t> prepared_video_duration;
+    if (motion->kind == core::compiled::AnimationMotionKind::Video) {
+        const auto prepared = m_prepared_video_motions.find(
+            prepared_video_motion_key(selection.animation, motion_id));
+        if (prepared == m_prepared_video_motions.end())
+            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+                "presentation.world_video_representation_unresolved",
+                "World presentation video Animation has no prepared raster representation: " +
+                    selection.animation.text() + "/" + motion_id.text(),
+                context)});
+        prepared_video = &prepared->second;
+        std::uint64_t duration = 0;
+        for (const auto& frame : prepared_video->frames) {
+            if (frame.duration_ms > std::numeric_limits<std::uint64_t>::max() - duration)
+                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+                    {diagnostic("presentation.world_video_duration_invalid",
+                                "Prepared video Animation duration overflows.", context)});
+            duration += frame.duration_ms;
+        }
+        prepared_video_duration = duration;
+    }
+    const auto initial =
+        core::compiled::motion_initial_time(*motion, policy, prepared_video_duration);
     if (!initial)
         return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
             {diagnostic("presentation.world_animation_policy_invalid",
@@ -694,27 +737,49 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
     result.animation_motion = motion_id;
     result.motion_policy = selection.playback;
     result.motion_initial_ms = *initial;
-    result.motion_loop_ms = core::compiled::motion_loop_times(
-        *motion, selection.playback.value_or(core::MotionPlaybackPolicy{}));
-    result.animation_frames.reserve(motion->frames.size());
-    for (std::size_t index = 0; index < motion->frames.size(); ++index) {
-        const auto& frame = motion->frames[index];
-        auto frame_result = resolve(frame.image, std::nullopt,
-                                    std::string(context) + "/frame/" + std::to_string(index));
-        if (!frame_result)
-            return frame_result;
-        auto prepared = std::move(*frame_result.value_if());
-        if (!prepared.texture) {
-            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
-                {diagnostic("presentation.world_animation_frame_unresolved",
-                            "World presentation Animation frame did not resolve to a texture: " +
-                                frame.image.text(),
-                            context)});
+    result.motion_loop_ms =
+        core::compiled::motion_loop_times(*motion, policy, prepared_video_duration);
+    if (prepared_video) {
+        result.animation_key += ":video:" + prepared_video->content_hash;
+        result.animation_frames.reserve(prepared_video->frames.size());
+        for (std::size_t index = 0; index < prepared_video->frames.size(); ++index) {
+            const auto& frame = prepared_video->frames[index];
+            const auto logical_path = "project:/" + frame.path;
+            const assets::TextureAssetRequest request{
+                .path = logical_path, .sampler = MaterialTextureSampler::ClampLinear};
+            const auto* lease = m_assets.leased_texture_on_owner(request, m_lookup_scope);
+            if (lease == nullptr)
+                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+                    "presentation.world_video_frame_lease_missing",
+                    "Prepared video Animation frame is not resident: " + logical_path + " (" +
+                        m_assets.describe_texture_lease_lookup_on_owner(request, m_lookup_scope) +
+                        ")",
+                    std::string(context) + "/frame/" + std::to_string(index))});
+            lease->mark_used_on_owner();
+            result.animation_key += ":" + frame.path + ":" + std::to_string(frame.duration_ms);
+            result.animation_frames.push_back({frame.duration_ms, lease->asset(), *lease});
         }
-        result.animation_key += ":" + std::to_string(frame.image.text().size()) + ":" +
-                                frame.image.text() + ":" + std::to_string(frame.duration_ms);
-        result.animation_frames.push_back(
-            {frame.duration_ms, *prepared.texture, std::move(prepared.texture_lease)});
+    } else {
+        result.animation_frames.reserve(motion->frames.size());
+        for (std::size_t index = 0; index < motion->frames.size(); ++index) {
+            const auto& frame = motion->frames[index];
+            auto frame_result = resolve(frame.image, std::nullopt,
+                                        std::string(context) + "/frame/" + std::to_string(index));
+            if (!frame_result)
+                return frame_result;
+            auto prepared = std::move(*frame_result.value_if());
+            if (!prepared.texture) {
+                return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
+                    "presentation.world_animation_frame_unresolved",
+                    "World presentation Animation frame did not resolve to a texture: " +
+                        frame.image.text(),
+                    context)});
+            }
+            result.animation_key += ":" + std::to_string(frame.image.text().size()) + ":" +
+                                    frame.image.text() + ":" + std::to_string(frame.duration_ms);
+            result.animation_frames.push_back(
+                {frame.duration_ms, *prepared.texture, std::move(prepared.texture_lease)});
+        }
     }
     if (!result.animation_frames.empty()) {
         result.texture = result.animation_frames.front().texture;

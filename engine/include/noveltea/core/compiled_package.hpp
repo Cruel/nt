@@ -91,6 +91,25 @@ struct RuntimePackageFile {
     std::optional<std::string> checksum;
 };
 
+struct PreparedRasterMediaFrame {
+    std::string path;
+    std::uint64_t duration_ms = 0;
+    bool operator==(const PreparedRasterMediaFrame&) const = default;
+};
+
+struct PreparedVideoMotion {
+    AnimationId animation;
+    AnimationMotionId motion;
+    std::string content_hash;
+    std::vector<PreparedRasterMediaFrame> frames;
+    bool operator==(const PreparedVideoMotion&) const = default;
+};
+
+struct PreparedMediaCatalog {
+    std::vector<PreparedVideoMotion> motions;
+    bool operator==(const PreparedMediaCatalog&) const = default;
+};
+
 class LoadedCompiledPackage;
 
 class PreparedResourceRegistries {
@@ -107,7 +126,7 @@ private:
     friend Result<LoadedCompiledPackage, Diagnostics>
         assemble_compiled_package(CompiledProject, RuntimePackageManifest,
                                   std::optional<ShaderMaterialProject>,
-                                  std::vector<RuntimePackageFile>);
+                                  std::vector<RuntimePackageFile>, PreparedMediaCatalog);
     std::unordered_map<AssetId, std::size_t> asset_indexes;
     std::unordered_map<LayoutId, std::size_t> layout_indexes;
     std::unordered_map<ScriptId, std::size_t> script_indexes;
@@ -135,6 +154,10 @@ public:
     {
         return m_resources;
     }
+    [[nodiscard]] const PreparedMediaCatalog& prepared_media() const noexcept
+    {
+        return m_prepared_media;
+    }
     [[nodiscard]] Result<void, Diagnostics>
     install_runtime_localization_catalog(compiled::LocalizationCatalog catalog)
     {
@@ -149,21 +172,24 @@ private:
     friend Result<LoadedCompiledPackage, Diagnostics>
         assemble_compiled_package(CompiledProject, RuntimePackageManifest,
                                   std::optional<ShaderMaterialProject>,
-                                  std::vector<RuntimePackageFile>);
+                                  std::vector<RuntimePackageFile>, PreparedMediaCatalog);
     LoadedCompiledPackage(CompiledProject project, RuntimePackageManifest manifest,
                           std::optional<ShaderMaterialProject> shader_materials,
-                          PreparedResourceRegistries resources);
+                          PreparedResourceRegistries resources,
+                          PreparedMediaCatalog prepared_media);
     void rebind_registries() noexcept;
 
     CompiledProject m_project;
     RuntimePackageManifest m_manifest;
     std::optional<ShaderMaterialProject> m_shader_materials;
     PreparedResourceRegistries m_resources;
+    PreparedMediaCatalog m_prepared_media;
 };
 
 [[nodiscard]] Result<LoadedCompiledPackage, Diagnostics>
 assemble_compiled_package(CompiledProject project, RuntimePackageManifest manifest,
                           std::optional<ShaderMaterialProject> shader_materials,
-                          std::vector<RuntimePackageFile> files);
+                          std::vector<RuntimePackageFile> files,
+                          PreparedMediaCatalog prepared_media = {});
 
 } // namespace noveltea::core

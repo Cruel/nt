@@ -10,14 +10,14 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { animationMarkerTime } from '../../../shared/project-schema/authoring-animations';
-import type { MotionPolicy, SpriteMotion } from '../../../shared/animation-timeline';
+import type { AnimationMotion, MotionPolicy } from '../../../shared/animation-timeline';
 
 export function MotionPlaybackEditor({
   motion,
   value,
   onChange,
 }: {
-  motion: SpriteMotion;
+  motion: AnimationMotion;
   value: MotionPolicy | null;
   onChange: (value: MotionPolicy | null) => void;
 }) {

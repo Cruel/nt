@@ -40,10 +40,16 @@ beforeEach(() => {
   });
 });
 
+function spriteMotion(project: ReturnType<typeof createAuthoringProject>) {
+  const motion = project.animations.pulse!.data.motions[0]!;
+  if (motion.kind !== 'sprite-sequence') throw new Error('Expected sprite motion');
+  return motion;
+}
+
 it('adds a timed image frame to an empty manual Animation through the command bus', async () => {
   const project = structuredClone(useProjectStore.getState().document);
   if (!isAuthoringProject(project)) throw new Error('Expected Project');
-  project.animations.pulse!.data.motions[0]!.frames = [];
+  spriteMotion(project).frames = [];
   project.animations.pulse!.data.motions[0]!.markers = [];
   project.assets.a = {
     id: 'a',
@@ -78,7 +84,7 @@ it('adds a timed image frame to an empty manual Animation through the command bu
   await userEvent.click(screen.getByRole('button', { name: 'Add image frame' }));
   const edited = useProjectStore.getState().document;
   if (!isAuthoringProject(edited)) throw new Error('Expected Project');
-  expect(edited.animations.pulse!.data.motions[0]!.frames).toEqual([
+  expect(spriteMotion(edited).frames).toEqual([
     { image: { $ref: { collection: 'assets', id: 'a' } }, durationMs: 100 },
   ]);
 });
@@ -147,9 +153,9 @@ it('commits frame timing only after an integer duration is entered', async () =>
   await user.tab();
   const document = useProjectStore.getState().document;
   if (!isAuthoringProject(document)) throw new Error('Expected Project');
-  expect(document.animations.pulse!.data.motions[0]!.frames[1]!.durationMs).toBe(80);
+  expect(spriteMotion(document).frames[1]!.durationMs).toBe(80);
   void act(() => useCommandStore.getState().undo());
   const restored = useProjectStore.getState().document;
   if (!isAuthoringProject(restored)) throw new Error('Expected Project');
-  expect(restored.animations.pulse!.data.motions[0]!.frames[1]!.durationMs).toBe(100);
+  expect(spriteMotion(restored).frames[1]!.durationMs).toBe(100);
 });

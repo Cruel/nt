@@ -242,6 +242,7 @@ struct StructuredAssetDependencyIndex::Impl {
 
     std::unordered_map<core::AssetId, const core::compiled::AssetResource*> assets;
     std::unordered_map<core::AnimationId, const core::compiled::AnimationResource*> animations;
+    std::unordered_map<std::string, const core::PreparedVideoMotion*> prepared_video_motions;
     std::unordered_map<core::LayoutId, const core::compiled::LayoutResource*> layouts;
     std::unordered_map<core::CharacterId, const core::compiled::CharacterDefinition*> characters;
     std::unordered_map<core::RoomId, const core::compiled::RoomDefinition*> rooms;
@@ -406,6 +407,21 @@ struct StructuredAssetDependencyIndex::Impl {
                            std::string(context) + " references missing Animation motion '" +
                                motion_id.text() + "' on Animation '" + selected.animation.text() +
                                "'");
+            return;
+        }
+        if (motion->kind == core::compiled::AnimationMotionKind::Video) {
+            const auto key = selected.animation.text() + "\n" + motion_id.text();
+            const auto prepared = prepared_video_motions.find(key);
+            if (prepared == prepared_video_motions.end()) {
+                add_diagnostic(
+                    collection_diagnostics, "assets.prefetch_missing_prepared_video_motion",
+                    std::string(context) + " references a video Animation without prepared media");
+                return;
+            }
+            for (const auto& frame : prepared->second->frames)
+                output.add(texture_descriptor(logical_project_path(frame.path),
+                                              MaterialTextureSampler::ClampLinear,
+                                              source_generation));
             return;
         }
         for (const auto& frame : motion->frames)
@@ -816,6 +832,9 @@ StructuredAssetDependencyIndex StructuredAssetDependencyIndex::build(
     }
     for (const auto& animation : project.animations())
         impl->animations.emplace(animation.id, &animation);
+    for (const auto& prepared : package.prepared_media().motions)
+        impl->prepared_video_motions.emplace(
+            prepared.animation.text() + "\n" + prepared.motion.text(), &prepared);
     for (const auto& layout : project.layouts()) {
         const auto* registered = package.resources().find_layout(layout.id);
         if (registered != nullptr) {

@@ -1216,7 +1216,7 @@ bool Engine::Impl::load_compiled_project(const std::string& logical_path, bool l
         m_layout_realizer.clear_authored_preview();
         m_shader_materials = std::move(prepared.shader_materials);
         m_renderer.set_shader_material_project(&m_shader_materials);
-        m_world_presentation_resources.bind_project(project, game.runtime_locale());
+        m_world_presentation_resources.bind_package(game.package(), game.runtime_locale());
         m_presentation_settings = prepared.presentation_settings;
         auto presentation =
             make_presentation_metrics(m_platform.surface(), m_presentation_settings);
@@ -2307,7 +2307,7 @@ bool Engine::Impl::publish_pending_runtime_locale_resources(
     const std::string& previous_locale, const assets::FontAssetConfig& previous_fonts)
 {
     m_assets.set_font_locale(target);
-    m_world_presentation_resources.bind_project(running_game.package().project(), target);
+    m_world_presentation_resources.bind_package(running_game.package(), target);
     m_world_presentation.invalidate_resources();
     auto published =
         m_game_host.runtime_presentation().commit_prepared_published_snapshot_resources();
@@ -2316,7 +2316,7 @@ bool Engine::Impl::publish_pending_runtime_locale_resources(
 
     (void)m_runtime_ui.activate_font_fallbacks(previous_fonts);
     m_assets.set_font_locale(previous_locale);
-    m_world_presentation_resources.bind_project(running_game.package().project(), previous_locale);
+    m_world_presentation_resources.bind_package(running_game.package(), previous_locale);
     m_world_presentation.invalidate_resources();
     (void)m_game_host.commit_runtime_locale(previous_locale);
     m_game_host.runtime_presentation().cancel_prepared_published_snapshot_resources();

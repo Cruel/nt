@@ -291,6 +291,7 @@ Object.defineProperty(window, 'noveltea', {
     compileShaders: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, diagnostics: [], outputs: [] }),
+    prepareOpaqueVideo: vi.fn().mockRejectedValue(new Error('No prepared-video test fixture.')),
     saveProjectContent: vi.fn().mockResolvedValue({
       ok: true,
       success: true,
