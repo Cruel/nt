@@ -102,6 +102,7 @@ private:
         core::FlowFrameId owner;
         core::PresentationFlowBlockerHandle completion;
         bool room_navigation = false;
+        std::optional<core::ScriptInvocationHandle> script = std::nullopt;
     };
 
     struct SceneEventPresentationOperation {
@@ -210,6 +211,8 @@ private:
     void prune_scene_event_presentation_operations();
     void assert_owner_thread() const noexcept;
 
+    [[nodiscard]] core::Result<void, core::Diagnostics>
+    request_motion(MotionRequest request) override;
     [[nodiscard]] core::Result<void, core::Diagnostics>
     request_audio(core::compiled::AudioAction action, core::compiled::AudioPurpose purpose,
                   std::optional<core::AssetId> asset, std::chrono::milliseconds fade, double gain,

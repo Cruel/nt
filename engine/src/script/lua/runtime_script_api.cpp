@@ -997,6 +997,37 @@ RuntimeScriptApi::clear_motion_selection(core::MotionSelectionTarget target,
     return gateway->remove_motion_selection(std::move(target), std::move(*owner.value_if()));
 }
 
+core::Result<void, core::Diagnostics> RuntimeScriptApi::request_motion(
+    core::InteractableInstanceId interactable, core::AnimationMotionId motion,
+    core::MotionPlaybackPolicy playback, std::optional<core::AnimationMotionId> transition_motion,
+    std::optional<core::MotionPlaybackPolicy> transition_policy,
+    runtime::RuntimePresentationOwnerScope transition_scope,
+    std::optional<core::RoomId> transition_room, bool await_completion, bool skippable)
+{
+    NOVELTEA_WITH_COMMAND(
+        runtime::RuntimeCapabilityGroup::Presentation, "finite motion request",
+        ([&]() -> core::Result<void, core::Diagnostics> {
+            std::optional<core::DesiredMotionSelection> transition_target;
+            if (transition_motion) {
+                if (!transition_policy)
+                    return core::Result<void, core::Diagnostics>::failure(
+                        core::Diagnostics{core::Diagnostic{
+                            .code = "runtime.invalid_motion_request",
+                            .message = "transition_policy is required with transition_motion"}});
+                auto owner =
+                    gateway->presentation_owner(transition_scope, std::move(transition_room));
+                if (!owner)
+                    return core::Result<void, core::Diagnostics>::failure(owner.error());
+                transition_target = core::DesiredMotionSelection{
+                    std::move(*owner.value_if()), core::InteractableMotionTarget{interactable},
+                    std::move(*transition_motion), std::move(*transition_policy)};
+            }
+            return gateway->request_motion(runtime::MotionRequest{
+                std::move(interactable), std::move(motion), std::move(playback),
+                std::move(transition_target), await_completion, skippable});
+        })());
+}
+
 core::Result<void, core::Diagnostics> RuntimeScriptApi::set_material_selection(
     MaterialOccurrenceCommand target, core::MaterialId material,
     runtime::RuntimePresentationOwnerScope owner_scope, std::optional<core::RoomId> room)

@@ -156,7 +156,7 @@ RuntimePresentationDispatchResult RuntimePresentationBridge::flush()
                                        .message = "Mandatory publication backend commit failed"}
                     : diagnostics.front();
             for (const auto& lifecycle : m_coordinator.lifecycles()) {
-                if (!live_lifecycle(lifecycle))
+                if (!std::holds_alternative<core::PresentationOperationAccepted>(lifecycle.state))
                     continue;
                 m_backend_facts.push_back(
                     {lifecycle.metadata.operation, lifecycle.metadata.sequence,

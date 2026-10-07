@@ -569,6 +569,60 @@ parse_motion_selection_target(const sol::table& target)
                                    "Mutable motion selection supports only Interactable targets"));
 }
 
+core::Result<core::MotionPlaybackPolicy, core::Diagnostics>
+parse_motion_policy(const sol::table& policy)
+{
+    using Result = core::Result<core::MotionPlaybackPolicy, core::Diagnostics>;
+    for (const auto& [key, ignored] : policy) {
+        if (key.get_type() != sol::type::string)
+            return Result::failure(
+                invalid("runtime.invalid_motion_policy", "Motion policy fields must be named"));
+        const auto name = key.as<std::string>();
+        if (name != "repeat" && name != "rate" && name != "clock" && name != "initial_marker" &&
+            name != "loop_range")
+            return Result::failure(
+                invalid("runtime.invalid_motion_policy", "Unknown motion policy field: " + name));
+    }
+    const auto repeat = table_option<std::string>(policy, "repeat");
+    const auto rate = table_option<double>(policy, "rate");
+    const auto clock_name = table_option<std::string>(policy, "clock");
+    const auto marker = table_option<std::string>(policy, "initial_marker");
+    const sol::object marker_value = policy["initial_marker"];
+    if (!repeat || (*repeat != "once" && *repeat != "loop") || !rate || !clock_name ||
+        (marker_value.valid() && marker_value.get_type() != sol::type::nil && !marker))
+        return Result::failure(invalid("runtime.invalid_motion_policy",
+                                       "Motion policy requires once/loop repeat, positive rate, "
+                                       "clock, and optional initial_marker"));
+    auto clock = parse_presentation_clock(*clock_name);
+    if (!clock)
+        return Result::failure(clock.error());
+    core::MotionPlaybackPolicy value{
+        *repeat == "once" ? core::MotionRepeat::Once : core::MotionRepeat::Loop, *rate,
+        *clock.value_if(), marker ? std::optional<std::string>{*marker} : std::nullopt};
+    const sol::object range = policy["loop_range"];
+    if (range.valid() && range.get_type() != sol::type::nil) {
+        if (range.get_type() != sol::type::table)
+            return Result::failure(invalid("runtime.invalid_motion_policy",
+                                           "loop_range must be a start/end marker table"));
+        const auto table = range.as<sol::table>();
+        for (const auto& [key, ignored] : table) {
+            if (key.get_type() != sol::type::string ||
+                (key.as<std::string>() != "start" && key.as<std::string>() != "end"))
+                return Result::failure(
+                    invalid("runtime.invalid_motion_policy", "Unknown loop_range field"));
+        }
+        const auto start = table_option<std::string>(table, "start");
+        const auto end = table_option<std::string>(table, "end");
+        if (!start || !end)
+            return Result::failure(invalid("runtime.invalid_motion_policy",
+                                           "loop_range requires start and end markers"));
+        value.loop_range = core::MotionLoopRange{*start, *end};
+    }
+    if (!core::valid_motion_policy(value))
+        return Result::failure(invalid("runtime.invalid_motion_policy", "Invalid motion policy"));
+    return Result::success(std::move(value));
+}
+
 core::Result<MaterialOccurrenceCommand, core::Diagnostics>
 parse_material_occurrence(const sol::table& target)
 {
@@ -2238,6 +2292,75 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                                                               std::move(owner.value_if()->room)));
         });
     presentation.set_function(
+        "_play_motion",
+        [api](std::string interactable_name, std::string motion_name, sol::table policy,
+              sol::optional<sol::table> options, bool await_completion,
+              sol::this_state state) -> MutationResult {
+            sol::state_view view(state);
+            auto interactable =
+                parse_id<core::InteractableInstanceId>(std::move(interactable_name));
+            auto motion = parse_id<core::AnimationMotionId>(std::move(motion_name));
+            auto playback = parse_motion_policy(policy);
+            auto owner = parse_presentation_owner_options(options);
+            if (!interactable)
+                return mutation(
+                    view, core::Result<void, core::Diagnostics>::failure(interactable.error()));
+            if (!motion)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(motion.error()));
+            if (!playback)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(playback.error()));
+            if (!owner)
+                return mutation(view,
+                                core::Result<void, core::Diagnostics>::failure(owner.error()));
+            for (const auto& [key, ignored] : options.value_or(view.create_table())) {
+                if (key.get_type() != sol::type::string)
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(invalid(
+                                              "runtime.invalid_motion_request",
+                                              "Motion request option fields must be named")));
+                const auto name = key.as<std::string>();
+                if (name != "owner" && name != "room" && name != "skippable" &&
+                    name != "transition_motion" && name != "transition_policy")
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                              invalid("runtime.invalid_motion_request",
+                                                      "Unknown motion request field: " + name)));
+            }
+            const bool skippable =
+                options ? table_option<bool>(*options, "skippable").value_or(true) : true;
+            std::optional<core::DesiredMotionSelection> transition_target;
+            const auto transition_name =
+                options ? table_option<std::string>(*options, "transition_motion") : std::nullopt;
+            std::optional<core::AnimationMotionId> transition_motion;
+            std::optional<core::MotionPlaybackPolicy> transition_policy;
+            if (transition_name) {
+                auto parsed = parse_id<core::AnimationMotionId>(*transition_name);
+                if (!parsed)
+                    return mutation(view,
+                                    core::Result<void, core::Diagnostics>::failure(parsed.error()));
+                sol::object transition_policy_value =
+                    options ? sol::object((*options)["transition_policy"]) : sol::lua_nil;
+                if (!transition_policy_value.valid() ||
+                    transition_policy_value.get_type() != sol::type::table)
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                              invalid("runtime.invalid_motion_request",
+                                                      "transition_policy table is required with "
+                                                      "transition_motion")));
+                auto parsed_policy = parse_motion_policy(transition_policy_value.as<sol::table>());
+                if (!parsed_policy)
+                    return mutation(view, core::Result<void, core::Diagnostics>::failure(
+                                              parsed_policy.error()));
+                transition_motion = std::move(*parsed.value_if());
+                transition_policy = std::move(*parsed_policy.value_if());
+            }
+            return mutation(view,
+                            api->request_motion(
+                                std::move(*interactable.value_if()), std::move(*motion.value_if()),
+                                std::move(*playback.value_if()), std::move(transition_motion),
+                                std::move(transition_policy), owner.value_if()->scope,
+                                std::move(owner.value_if()->room), await_completion, skippable));
+        });
+    presentation.set_function(
         "set_material_selection",
         [api](sol::table target, std::string material_name, sol::optional<sol::table> options,
               sol::this_state state) -> MutationResult {
@@ -2527,6 +2650,17 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             return {sol::make_object(view, object), nil(view)};
         });
     noveltea["presentation"] = presentation;
+    const auto presentation_wrappers = lua.safe_script(
+        "noveltea.presentation.play_motion = function(interactable, motion, policy, options) "
+        "return noveltea.presentation._play_motion(interactable, motion, policy, options, false) "
+        "end\n"
+        "noveltea.presentation.play_motion_and_wait = function(interactable, motion, policy, "
+        "options) "
+        "local ok, err = noveltea.presentation._play_motion(interactable, motion, policy, options, "
+        "true); "
+        "if not ok then return false, err end; coroutine.yield(); return true, nil end",
+        sol::script_pass_on_error);
+    (void)presentation_wrappers;
 
     sol::table audio = lua.create_table();
     audio.set_function(

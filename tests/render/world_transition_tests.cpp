@@ -81,6 +81,7 @@ public:
             first = 51;
         WorldPreparedVisual result;
         result.animation_key = motion.text();
+        result.animation_motion = motion;
         result.logical_size = Size{64.0f, 64.0f};
         result.animation_frames = {
             {40, {.handle = first, .width = 64, .height = 64}, std::nullopt},
@@ -965,8 +966,20 @@ TEST_CASE("finite play motion temporarily overrides a Visual then restores desir
 {
     MotionWorldResources resources;
     WorldPresentationBackend world(resources);
-    REQUIRE(world.reconcile(motion_snapshot(1), {640.0f, 360.0f}));
-    REQUIRE(world.reconcile(motion_snapshot(2), {640.0f, 360.0f}));
+    auto desired = motion_snapshot(1);
+    const compiled::RectHotspotShape shape{
+        {0, 0, 0.2, 1},
+        {{id<AnimationMotionId>("inspect"),
+          {{0, compiled::RectHotspotShape::Interpolation::Hold, true, {0.8, 0, 0.2, 1}},
+           {40, compiled::RectHotspotShape::Interpolation::Hold, false, {0.8, 0, 0.2, 1}}}}}};
+    desired.hotspots.push_back({compiled::InteractableHotspotRef{id<InteractableInstanceId>("key"),
+                                                                 id<HotspotId>("track")},
+                                "Track", true, true,
+                                compiled::CharacterInteractionSubject{id<CharacterId>("hero")},
+                                shape, 0, compiled::NoHotspotHighlight{}, std::nullopt, 64, 64});
+    REQUIRE(world.reconcile(desired, {640.0f, 360.0f}));
+    desired.revision = PresentationSnapshotRevision::from_number(2);
+    REQUIRE(world.reconcile(desired, {640.0f, 360.0f}));
     WorldTransitionBackend transitions(world);
     const PlayMotionOperation request{
         common(70),
@@ -985,12 +998,18 @@ TEST_CASE("finite play motion temporarily overrides a Visual then restores desir
     REQUIRE(composed);
     REQUIRE(composed.value().world_composition_batch.commands().size() == 1);
     CHECK(composed.value().world_composition_batch.commands().front().texture.handle == 31);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 31);
+    REQUIRE(world.frame()->hotspot_hit_targets.size() == 1);
+    CHECK(std::get<compiled::NormalizedRect>(world.frame()->hotspot_hit_targets.front().shape).x ==
+          Catch::Approx(0.8));
 
     clocks.gameplay_delta = std::chrono::milliseconds{50};
     transitions.advance(clocks);
     composed = transitions.compose_targeted_world_batch();
     REQUIRE(composed);
     CHECK(composed.value().world_composition_batch.commands().front().texture.handle == 32);
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 32);
+    CHECK_FALSE(world.frame()->hotspot_hit_targets.front().active);
 
     clocks.gameplay_delta = std::chrono::milliseconds{50};
     transitions.advance(clocks);
@@ -1006,6 +1025,9 @@ TEST_CASE("finite play motion temporarily overrides a Visual then restores desir
     REQUIRE(world.frame()->base_world_composition_batch.commands().size() == 1);
     CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 11);
     REQUIRE(world.control_motion(occurrence, PauseMotion{}, clocks));
+    CHECK(world.frame()->hotspot_hit_targets.front().active);
+    CHECK(std::get<compiled::NormalizedRect>(world.frame()->hotspot_hit_targets.front().shape).x ==
+          Catch::Approx(0));
 }
 
 TEST_CASE("finite play motion targets the exact resolved Interactable occurrence")

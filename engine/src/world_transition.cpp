@@ -576,7 +576,7 @@ WorldTransitionBackend::realize(const core::CoordinatedOperationDelivery& delive
     m_targeted.push_back(
         {delivery.metadata, *targeted, *started.value_if(), {}, std::move(motion_override)});
     if (m_targeted.back().motion_override)
-        m_world.begin_finite_motion(m_targeted.back().motion_override->occurrence);
+        m_world.begin_finite_motion(*m_targeted.back().motion_override);
     if (const auto* gesture = std::get_if<core::CharacterGestureOperation>(&*targeted)) {
         auto& active = m_targeted.back();
         for (const auto& cue : gesture->cues) {
@@ -629,6 +629,10 @@ void WorldTransitionBackend::advance(const core::RuntimeClockUpdate& clocks)
                              "Targeted finite realization lost its backend-local interpolation "
                              "track")}});
         } else {
+            if (it->motion_override)
+                m_world.sample_finite_motion(it->motion_override->occurrence,
+                                             static_cast<long double>(common.duration.count()) *
+                                                 sample->value);
             if (const auto* gesture = std::get_if<core::CharacterGestureOperation>(&it->request)) {
                 const auto elapsed_ms =
                     sample->completed
@@ -952,22 +956,9 @@ WorldTransitionBackend::compose_targeted_world_batch() const
                     {failure("presentation.motion_frames_unavailable",
                              "Finite motion has no prepared raster samples")});
             }
-            const auto policy = override.draw.motion_policy.value_or(core::MotionPlaybackPolicy{});
-            long double phase = static_cast<long double>(override.draw.motion_initial_ms) +
-                                static_cast<long double>(common.duration.count()) *
-                                    static_cast<long double>(progress) *
-                                    static_cast<long double>(policy.rate);
-            std::size_t frame_index = 0;
-            for (; frame_index + 1 < override.draw.raster_animation_frames.size(); ++frame_index) {
-                const auto duration =
-                    override.draw.raster_animation_frames[frame_index].duration_ms;
-                if (phase < static_cast<long double>(duration))
-                    break;
-                phase -= static_cast<long double>(duration);
-            }
-            const auto& frame = override.draw.raster_animation_frames[frame_index];
-            draw->draw.command.texture = frame.texture;
-            draw->draw.command.texture_sampler = frame.sampler;
+            // World realization owns the effective sample used by drawing and interaction.
+            draw->draw.command.texture = *draw->draw.sampled_visual_texture;
+            draw->draw.command.texture_sampler = draw->draw.sampled_visual_sampler;
             if (sample && sample->completed)
                 active.motion_endpoint_realized = true;
             continue;

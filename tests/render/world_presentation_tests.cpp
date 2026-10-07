@@ -880,6 +880,48 @@ TEST_CASE("raster Animation playback is occurrence-local and survives unrelated 
         CHECK(backend.frame()->base_world_composition_batch.commands().front().texture.handle ==
               22);
     }
+    SECTION("resize preserves paused playback and independent retained revisions")
+    {
+        const auto draw = backend.frame()->draws.front();
+        const WorldVisualOccurrence occurrence{draw.family, draw.stable_identity, draw.sublayer};
+        REQUIRE(backend.control_motion(occurrence, PauseMotion{}, clock));
+        REQUIRE(backend.control_motion(occurrence, SeekMotionTime{90}, clock));
+        std::get<compiled::AnimationVisual>(*snapshot.environments.front().visual).motion =
+            id<AnimationMotionId>("splash");
+        snapshot.revision = PresentationSnapshotRevision::from_number(2);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        backend.realize(clock);
+        REQUIRE(backend.control_motion(occurrence, PauseMotion{}, clock));
+        REQUIRE(backend.control_motion(occurrence, SeekMotionTime{20}, clock));
+        SECTION("successful rebuild")
+        {
+            REQUIRE(backend.resize({320.0f, 180.0f}));
+            CHECK(backend.viewport().width == Catch::Approx(320));
+        }
+        SECTION("failure after rebuilding a predecessor leaves all revisions intact")
+        {
+            auto failing = snapshot.environments.front();
+            failing.instance = id<PresentationEnvironmentInstanceId>("failing");
+            failing.visual = compiled::ImageVisual{id<AssetId>("rain-a")};
+            snapshot.environments.push_back(std::move(failing));
+            snapshot.revision = PresentationSnapshotRevision::from_number(3);
+            REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+            const auto generation = backend.generation();
+            resources.fail_asset("rain-a");
+            REQUIRE_FALSE(backend.resize({320.0f, 180.0f}));
+            CHECK(backend.generation() == generation);
+            CHECK(backend.viewport().width == Catch::Approx(640));
+            CHECK(backend.frame()->revision == snapshot.revision);
+            REQUIRE(backend.frame(PresentationSnapshotRevision::from_number(2)));
+        }
+        clock.unscaled_presentation_time += std::chrono::milliseconds{300};
+        backend.realize(clock);
+        CHECK(backend.motion_position(occurrence, clock).value().paused);
+        CHECK(backend.motion_position(occurrence, clock).value().time_ms == Catch::Approx(20));
+        REQUIRE(backend.restore_revision(PresentationSnapshotRevision::from_number(1)));
+        CHECK(backend.motion_position(occurrence, clock).value().paused);
+        CHECK(backend.motion_position(occurrence, clock).value().time_ms == Catch::Approx(90));
+    }
     SECTION("transient controls survive compatible publications but not reconstruction")
     {
         const auto& draw = backend.frame()->draws.front();
@@ -918,6 +960,39 @@ TEST_CASE("raster Animation playback is occurrence-local and survives unrelated 
         CHECK(backend.motion_position(occurrence, clock).value().frame_index == 0);
         REQUIRE_FALSE(
             backend.control_motion({occurrence.family, "missing", 0}, PauseMotion{}, clock));
+    }
+    SECTION("visibility does not dispose playback or paused seek anchors")
+    {
+        const auto draw = backend.frame()->draws.front();
+        const WorldVisualOccurrence occurrence{draw.family, draw.stable_identity, draw.sublayer};
+        bool paused = false;
+        SECTION("playing") {}
+        SECTION("paused and sought")
+        {
+            paused = true;
+            REQUIRE(backend.control_motion(occurrence, PauseMotion{}, clock));
+            REQUIRE(backend.control_motion(occurrence, SeekMotionTime{90}, clock));
+        }
+        snapshot.environments.front().visible = false;
+        snapshot.revision = PresentationSnapshotRevision::from_number(2);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        backend.retain_only({});
+        clock.unscaled_presentation_time += std::chrono::milliseconds{25};
+        backend.realize(clock);
+        CHECK(backend.frame()->base_batch.commands().empty());
+        snapshot.revision = PresentationSnapshotRevision::from_number(3);
+        WorldPresentationBackend prepared(resources);
+        REQUIRE(prepared.reconcile(snapshot, {640.0f, 360.0f}));
+        prepared.preserve_animation_epochs_from(backend);
+        backend.swap_prepared(prepared);
+        snapshot.environments.front().visible = true;
+        snapshot.revision = PresentationSnapshotRevision::from_number(4);
+        REQUIRE(backend.reconcile(snapshot, {640.0f, 360.0f}));
+        backend.realize(clock);
+        const auto position = backend.motion_position(occurrence, clock);
+        REQUIRE(position);
+        CHECK(position.value().paused == paused);
+        CHECK(position.value().time_ms == Catch::Approx(paused ? 90 : 100));
     }
     SECTION("static Visual controls fail explicitly")
     {

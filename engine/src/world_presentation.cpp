@@ -373,18 +373,6 @@ core::LayoutClockDomain raster_animation_clock(const WorldPresentationDraw& draw
                               : draw.environment_clock.value_or(core::LayoutClockDomain::Gameplay);
 }
 
-bool compatible_raster_animation(const WorldPresentationDraw& left,
-                                 const WorldPresentationDraw& right)
-{
-    return !left.raster_animation_frames.empty() &&
-           raster_animation_identity(left) == raster_animation_identity(right) &&
-           left.raster_animation_key == right.raster_animation_key &&
-           left.motion_policy == right.motion_policy &&
-           left.motion_initial_ms == right.motion_initial_ms &&
-           left.motion_loop_ms == right.motion_loop_ms &&
-           raster_animation_clock(left) == raster_animation_clock(right);
-}
-
 std::string raster_animation_loop_key(const WorldPresentationDraw& draw)
 {
     return raster_animation_identity(draw) +
@@ -1377,21 +1365,60 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                         lhs.sublayer) < std::tie(rhs.plane, rhs_rank, rhs.order, rhs.family,
                                                  rhs.stable_identity, rhs.sublayer);
     });
-    for (auto& draw : candidate.draws) {
-        if (draw.raster_animation_frames.empty())
-            continue;
-        if (m_frame) {
-            const auto previous = std::ranges::find_if(m_frame->draws, [&](const auto& value) {
-                return compatible_raster_animation(value, draw);
+    const auto remember =
+        [&](const std::optional<core::compiled::Visual>& visual, WorldDrawFamily family,
+            std::string identity, core::LayoutClockDomain fallback_clock,
+            std::optional<core::CharacterPresentationLayerId> layer = std::nullopt) {
+            if (!visual)
+                return;
+            const auto* animation = std::get_if<core::compiled::AnimationVisual>(&*visual);
+            if (!animation)
+                return;
+            identity = std::to_string(static_cast<std::uint8_t>(family)) + ":" + identity +
+                       (layer ? ":layer:" + layer->text() : "");
+            WorldAnimationOccurrence occurrence{identity, *animation,
+                                                animation->playback ? animation->playback->clock
+                                                                    : fallback_clock};
+            if (m_frame) {
+                const auto previous =
+                    std::ranges::find_if(m_frame->animation_occurrences, [&](const auto& value) {
+                        return value.identity == identity && value.visual == *animation &&
+                               value.clock == occurrence.clock;
+                    });
+                if (previous != m_frame->animation_occurrences.end())
+                    occurrence = *previous;
+            }
+            const auto draw = std::ranges::find_if(candidate.draws, [&](const auto& value) {
+                return raster_animation_identity(value) == identity;
             });
-            if (previous != m_frame->draws.end())
-                draw.raster_animation_epoch = previous->raster_animation_epoch;
-        }
-        // Returning to an older selection is a new occurrence anchor, not a retained revision's
-        // phase.
-        if (draw.raster_animation_epoch == 0)
-            draw.raster_animation_epoch = ++m_animation_epoch_generation;
-    }
+            if (draw != candidate.draws.end() && !draw->raster_animation_frames.empty()) {
+                if (!occurrence.resource_key.empty() &&
+                    (occurrence.resource_key != draw->raster_animation_key ||
+                     occurrence.initial_ms != draw->motion_initial_ms ||
+                     occurrence.loop_ms != draw->motion_loop_ms))
+                    occurrence.epoch = 0;
+                occurrence.resource_key = draw->raster_animation_key;
+                occurrence.initial_ms = draw->motion_initial_ms;
+                occurrence.loop_ms = draw->motion_loop_ms;
+            }
+            if (occurrence.epoch == 0)
+                occurrence.epoch = ++m_animation_epoch_generation;
+            if (draw != candidate.draws.end())
+                draw->raster_animation_epoch = occurrence.epoch;
+            candidate.animation_occurrences.push_back(std::move(occurrence));
+        };
+    for (const auto& environment : snapshot.environments)
+        remember(environment.visual, WorldDrawFamily::Environment,
+                 environment_identity(environment), environment.clock);
+    for (const auto& interactable : snapshot.interactables)
+        remember(interactable.visual, WorldDrawFamily::Interactable,
+                 interactable_draw_identity(interactable.interactable, interactable.occurrence,
+                                            interactable.placement),
+                 core::LayoutClockDomain::Gameplay);
+    for (const auto& actor : snapshot.actors)
+        for (const auto& layer : actor.layers)
+            remember(layer.visual, WorldDrawFamily::Actor, world_actor_identity(actor.key),
+                     core::LayoutClockDomain::Gameplay, layer.id);
     rebuild_batches(candidate);
 
     m_snapshot = snapshot;
@@ -1768,23 +1795,37 @@ WorldPresentationBackend::control_motion(const WorldVisualOccurrence& occurrence
     return Result::success(true);
 }
 
-void WorldPresentationBackend::begin_finite_motion(const WorldVisualOccurrence& occurrence)
+void WorldPresentationBackend::begin_finite_motion(const WorldPreparedMotionOverride& motion)
 {
-    if (!finite_motion_active(occurrence))
-        m_finite_motion_occurrences.push_back(occurrence);
+    m_finite_motion_samples.push_back({motion, 0});
+    sample_finite_motion(motion.occurrence, 0);
+}
+
+void WorldPresentationBackend::sample_finite_motion(const WorldVisualOccurrence& occurrence,
+                                                    long double elapsed_ms)
+{
+    for (auto& sample : m_finite_motion_samples)
+        if (sample.motion.occurrence == occurrence)
+            sample.elapsed_ms = elapsed_ms;
+    for (auto& [_, frame] : m_frames)
+        rebuild_batches(frame, m_last_clock ? &*m_last_clock : nullptr);
+    if (m_snapshot)
+        m_frame = m_frames.find(m_snapshot->revision.number())->second;
 }
 
 void WorldPresentationBackend::end_finite_motion(const WorldVisualOccurrence& occurrence) noexcept
 {
-    std::erase_if(m_finite_motion_occurrences,
-                  [&](const auto& value) { return value == occurrence; });
+    std::erase_if(m_finite_motion_samples,
+                  [&](const auto& value) { return value.motion.occurrence == occurrence; });
+    sample_finite_motion(occurrence, 0);
 }
 
 bool WorldPresentationBackend::finite_motion_active(
     const WorldVisualOccurrence& occurrence) const noexcept
 {
-    return std::ranges::find(m_finite_motion_occurrences, occurrence) !=
-           m_finite_motion_occurrences.end();
+    return std::ranges::any_of(m_finite_motion_samples, [&](const auto& value) {
+        return value.motion.occurrence == occurrence;
+    });
 }
 
 core::Result<WorldPreparedMotionOverride, core::Diagnostics>
@@ -1899,6 +1940,7 @@ WorldPresentationBackend::prepare_motion_override(core::PresentationSnapshotRevi
     auto draw = *base;
     const auto& replacement = *prepared.value_if();
     draw.raster_animation_key = replacement.animation_key;
+    draw.raster_animation_motion = replacement.animation_motion;
     draw.raster_animation_frames.clear();
     draw.raster_animation_frames.reserve(replacement.animation_frames.size());
     for (const auto& frame : replacement.animation_frames)
@@ -1934,6 +1976,11 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
     frame.base_world_composition_batch.clear();
     frame.base_world_overlay_batches.clear();
     frame.base_game_ui_underlay_batch.clear();
+    if (clock)
+        for (const auto& occurrence : frame.animation_occurrences)
+            m_loop_epochs.try_emplace(
+                occurrence.identity + ":visual-animation:" + std::to_string(occurrence.epoch),
+                LoopEpoch{occurrence.clock, clock_time(*clock, occurrence.clock), {}});
     for (auto& draw : frame.draws) {
         QuadCommand command = draw.command;
         std::optional<long double> raster_motion_time;
@@ -1950,8 +1997,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                 if (clock) {
                     auto [epoch, inserted] = m_loop_epochs.try_emplace(
                         key, LoopEpoch{domain, now, draw.raster_animation_key});
-                    if (!inserted && (epoch->second.clock != domain ||
-                                      epoch->second.compatibility != draw.raster_animation_key))
+                    if (!inserted && epoch->second.clock != domain)
                         epoch->second = LoopEpoch{domain, now, draw.raster_animation_key};
                     anchor = epoch->second.motion_anchor_ms.value_or(draw.motion_initial_ms);
                     if (!epoch->second.paused && now >= epoch->second.started_at)
@@ -1966,6 +2012,23 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                 draw.texture_lease = animation_frame.texture_lease;
             }
         }
+        auto effective_motion = draw.raster_animation_motion;
+        const auto finite = std::ranges::find_if(m_finite_motion_samples, [&](const auto& value) {
+            return matches_occurrence(draw, value.motion.occurrence);
+        });
+        if (finite != m_finite_motion_samples.end()) {
+            const auto& replacement = finite->motion.draw;
+            const auto phase = raster_phase(
+                replacement, replacement.motion_initial_ms,
+                std::chrono::microseconds{static_cast<std::int64_t>(finite->elapsed_ms * 1000)});
+            const auto& selected =
+                replacement.raster_animation_frames[raster_frame_index(replacement, phase)];
+            command.texture = selected.texture;
+            command.texture_sampler = selected.sampler;
+            draw.texture_lease = selected.texture_lease;
+            effective_motion = replacement.raster_animation_motion;
+            raster_motion_time = phase;
+        }
         draw.sampled_visual_texture = command.texture;
         draw.sampled_visual_sampler = command.texture_sampler;
         if (!draw.raster_animation_frames.empty()) {
@@ -1977,7 +2040,7 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                     if (const auto* shape =
                             std::get_if<core::compiled::RectHotspotShape>(&target.authored_shape)) {
                         const auto sampled = sample_hotspot_shape(
-                            *shape, draw.raster_animation_motion,
+                            *shape, effective_motion,
                             raster_motion_time.value_or(draw.motion_initial_ms));
                         target.active = sampled.has_value();
                         if (sampled)
@@ -2010,7 +2073,8 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                 }
             }
         }
-        if (clock && !draw.actor_animation_clips.empty()) {
+        if (clock && finite == m_finite_motion_samples.end() &&
+            !draw.actor_animation_clips.empty()) {
             const WorldPresentationDraw::ActorAnimationClip* active_clip = nullptr;
             std::uint64_t lead_in_ms = 0;
             if (draw.actor_speaking && draw.actor_automatic_animations.speaking) {
@@ -2304,6 +2368,7 @@ bool WorldPresentationBackend::update_hotspot_visual_state(HotspotInteractionVis
 
 void WorldPresentationBackend::realize(const core::RuntimeClockUpdate& clock)
 {
+    m_last_clock = clock;
     for (auto& [_, frame] : m_frames)
         rebuild_batches(frame, &clock);
     if (m_snapshot) {
@@ -2317,6 +2382,9 @@ void WorldPresentationBackend::prune_loop_epochs()
 {
     std::unordered_set<std::string> active;
     for (const auto& [_, frame] : m_frames) {
+        for (const auto& occurrence : frame.animation_occurrences)
+            active.insert(occurrence.identity +
+                          ":visual-animation:" + std::to_string(occurrence.epoch));
         for (const auto& draw : frame.draws) {
             if (draw.actor_idle || draw.environment_clock)
                 active.insert(loop_key(draw));
@@ -2353,6 +2421,9 @@ core::Result<bool, core::Diagnostics> WorldPresentationBackend::resize(Size view
     const auto previous_snapshots = m_snapshots;
     const auto previous_frames = m_frames;
     const auto previous_generation = m_generation;
+    const auto previous_loop_epochs = m_loop_epochs;
+    const auto previous_animation_epoch_generation = m_animation_epoch_generation;
+    const auto previous_resources_dirty = m_resources_dirty;
     const auto current_revision = previous_snapshot->revision.number();
 
     m_snapshot.reset();
@@ -2373,6 +2444,11 @@ core::Result<bool, core::Diagnostics> WorldPresentationBackend::resize(Size view
         const auto snapshot = previous_snapshots.find(revision);
         if (snapshot == previous_snapshots.end())
             continue;
+        // A geometry rebuild preserves each retained revision's own playback identity.
+        const auto previous = previous_frames.find(revision);
+        m_frame = previous != previous_frames.end()
+                      ? std::optional<WorldPresentationFrame>{previous->second}
+                      : std::nullopt;
         auto rebuilt = reconcile(snapshot->second, viewport);
         if (!rebuilt) {
             m_snapshot = previous_snapshot;
@@ -2381,6 +2457,9 @@ core::Result<bool, core::Diagnostics> WorldPresentationBackend::resize(Size view
             m_snapshots = previous_snapshots;
             m_frames = previous_frames;
             m_generation = previous_generation;
+            m_loop_epochs = previous_loop_epochs;
+            m_animation_epoch_generation = previous_animation_epoch_generation;
+            m_resources_dirty = previous_resources_dirty;
             return rebuilt;
         }
     }
@@ -2395,7 +2474,8 @@ void WorldPresentationBackend::reset()
     m_snapshots.clear();
     m_frames.clear();
     m_loop_epochs.clear();
-    m_finite_motion_occurrences.clear();
+    m_finite_motion_samples.clear();
+    m_last_clock.reset();
     m_animation_epoch_generation = 0;
     m_generation = 0;
     m_hotspot_visual_state = {};
@@ -2437,28 +2517,41 @@ void WorldPresentationBackend::preserve_animation_epochs_from(
 {
     if (!m_snapshot || !previous.m_frame)
         return;
+    m_last_clock = previous.m_last_clock;
     m_animation_epoch_generation =
         std::max(m_animation_epoch_generation, previous.m_animation_epoch_generation);
     const auto found = m_frames.find(m_snapshot->revision.number());
     if (found == m_frames.end())
         return;
     auto& frame = found->second;
-    for (auto& draw : frame.draws) {
-        if (draw.raster_animation_frames.empty())
-            continue;
-        const auto previous_draw =
-            std::ranges::find_if(previous.m_frame->draws, [&](const auto& value) {
-                return compatible_raster_animation(value, draw);
+    for (auto& occurrence : frame.animation_occurrences) {
+        const auto compatible =
+            std::ranges::find_if(previous.m_frame->animation_occurrences, [&](const auto& value) {
+                return value.identity == occurrence.identity && value.visual == occurrence.visual &&
+                       value.clock == occurrence.clock &&
+                       (occurrence.resource_key.empty() || value.resource_key.empty() ||
+                        (occurrence.resource_key == value.resource_key &&
+                         occurrence.initial_ms == value.initial_ms &&
+                         occurrence.loop_ms == value.loop_ms));
             });
-        if (previous_draw == previous.m_frame->draws.end()) {
-            draw.raster_animation_epoch = ++m_animation_epoch_generation;
-            continue;
+        if (compatible == previous.m_frame->animation_occurrences.end()) {
+            occurrence.epoch = ++m_animation_epoch_generation;
+        } else {
+            occurrence.epoch = compatible->epoch;
+            if (occurrence.resource_key.empty()) {
+                occurrence.resource_key = compatible->resource_key;
+                occurrence.initial_ms = compatible->initial_ms;
+                occurrence.loop_ms = compatible->loop_ms;
+            }
+            const auto key =
+                occurrence.identity + ":visual-animation:" + std::to_string(occurrence.epoch);
+            const auto epoch = previous.m_loop_epochs.find(key);
+            if (epoch != previous.m_loop_epochs.end())
+                m_loop_epochs.insert_or_assign(key, epoch->second);
         }
-        draw.raster_animation_epoch = previous_draw->raster_animation_epoch;
-        const auto key = raster_animation_loop_key(draw);
-        const auto epoch = previous.m_loop_epochs.find(key);
-        if (epoch != previous.m_loop_epochs.end())
-            m_loop_epochs.insert_or_assign(key, epoch->second);
+        for (auto& draw : frame.draws)
+            if (raster_animation_identity(draw) == occurrence.identity)
+                draw.raster_animation_epoch = occurrence.epoch;
     }
     m_frame = frame;
 }
@@ -2472,6 +2565,7 @@ void WorldPresentationBackend::swap_prepared(WorldPresentationBackend& prepared)
     swap(m_snapshots, prepared.m_snapshots);
     swap(m_frames, prepared.m_frames);
     swap(m_loop_epochs, prepared.m_loop_epochs);
+    swap(m_last_clock, prepared.m_last_clock);
     swap(m_animation_epoch_generation, prepared.m_animation_epoch_generation);
     swap(m_generation, prepared.m_generation);
     swap(m_hotspot_visual_state, prepared.m_hotspot_visual_state);

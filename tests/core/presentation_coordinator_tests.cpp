@@ -641,6 +641,12 @@ TEST_CASE("finite named motion operations share coordinator lifecycle and target
         TransitionMotionOperation{common, target, id<AnimationMotionId>("settle"),
                                   id<AnimationMotionId>("open"), playback, std::nullopt}});
     REQUIRE(replacement);
+    CHECK(std::holds_alternative<PresentationOperationAccepted>(
+        coordinator.lifecycles().front().state));
+    CHECK(coordinator.checkpoint_status().active_barriers.size() == 1);
+    const auto& metadata = replacement.value().metadata;
+    REQUIRE(coordinator.acknowledge(
+        {metadata.operation, metadata.sequence, metadata.owner, BackendOperationRunning{}}));
     const auto* replaced =
         std::get_if<PresentationOperationReplaced>(&coordinator.lifecycles().front().state);
     REQUIRE(replaced != nullptr);

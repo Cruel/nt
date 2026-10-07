@@ -393,6 +393,15 @@ core::PresentationOperation materialize_operation(const PendingPresentationOpera
                                                                {value.target, value.owner},
                                                                core::LayoutOperationKind::Fade,
                                                                value.completion};
+            } else if constexpr (std::is_same_v<T, PendingMotionOperation>) {
+                auto motion_common = common;
+                motion_common.clock = value.playback.clock;
+                if (value.target_motion)
+                    return core::TransitionMotionOperation{motion_common,  value.target,
+                                                           value.motion,   *value.target_motion,
+                                                           value.playback, value.completion};
+                return core::PlayMotionOperation{motion_common, value.target, value.motion,
+                                                 value.playback, value.completion};
             } else {
                 auto material_common = common;
                 material_common.clock = value.clock == core::MaterialClockPolicy::Gameplay
@@ -675,6 +684,95 @@ core::Result<void, core::Diagnostics> RuntimeSession::clear_gameplay_cursor()
 void RuntimeSession::queue_input(core::RuntimeInputMessage input)
 {
     m_script_inputs.push_back(std::move(input));
+}
+
+core::Result<void, core::Diagnostics> RuntimeSession::request_motion(MotionRequest request)
+{
+    using Result = core::Result<void, core::Diagnostics>;
+    const auto reject = [this](std::string message) {
+        return Result::failure(
+            core::Diagnostics{diagnostic("runtime.motion_request_invalid", std::move(message))});
+    };
+    if (!m_current_publication || m_kernel->pending_presentation_operation() ||
+        m_pending_presentation)
+        return reject("Motion requires a published occurrence and no pending presentation request");
+    const auto& snapshot = m_current_publication->presentation;
+    const core::PresentationInteractable* selected = nullptr;
+    for (const auto& entry : snapshot.interactables) {
+        if (entry.interactable != request.interactable)
+            continue;
+        if (selected)
+            return reject("Motion requires one unambiguous Interactable occurrence");
+        selected = &entry;
+    }
+    if (!selected || !selected->visible || !selected->visual)
+        return reject("Motion requires a visible placed Interactable occurrence");
+    const auto* visual = std::get_if<core::compiled::AnimationVisual>(&*selected->visual);
+    const auto* animation = visual ? m_project.find_animation(visual->animation) : nullptr;
+    if (!animation || request.playback.repeat != core::MotionRepeat::Once ||
+        request.playback.loop_range)
+        return reject("Finite motion requires an Animation and once-only playback");
+    const auto motion = std::ranges::find_if(
+        animation->motions, [&](const auto& candidate) { return candidate.id == request.motion; });
+    if (motion == animation->motions.end())
+        return reject("The requested Animation motion does not exist");
+    const auto initial = core::compiled::motion_initial_time(*motion, request.playback);
+    if (!initial)
+        return reject("Invalid finite motion policy or marker");
+    long double duration = 0;
+    for (const auto& frame : motion->frames)
+        duration += frame.duration_ms;
+    duration = std::ceil((duration - *initial) / request.playback.rate);
+    if (duration <= 0 || duration > std::numeric_limits<std::int64_t>::max())
+        return reject("Finite motion requires a representable positive endpoint duration");
+    const auto* script =
+        request.await_completion ? active_blocker<core::ScriptFlowBlocker>(*m_kernel) : nullptr;
+    if (request.await_completion && !script)
+        return reject("Awaited motion requires an active yield-capable Lua invocation");
+    auto candidate = m_kernel->state();
+    if (request.transition_target) {
+        if (request.transition_target->target !=
+            core::MotionSelectionTarget{core::InteractableMotionTarget{request.interactable}})
+            return reject("Transition target must select the exact requested Interactable");
+        auto changed = candidate.upsert_motion_selection(m_project, *request.transition_target);
+        if (!changed)
+            return changed;
+    }
+    std::optional<core::PresentationFlowCompletion> completion;
+    if (script) {
+        auto handle = m_kernel->flow().allocate_presentation_completion_handle();
+        if (!handle)
+            return Result::failure(handle.error());
+        completion = core::PresentationFlowCompletion{script->owner, *handle.value_if()};
+    }
+    core::InteractableMotionOperationTarget target{request.interactable, selected->placement};
+    if (selected->occurrence)
+        target.occurrence = std::visit(
+            [](const auto& value) -> core::InteractableMotionOperationOccurrence {
+                using T = std::decay_t<decltype(value)>;
+                if constexpr (std::is_same_v<T, core::RoomInteractableEntryId>)
+                    return value;
+                else if constexpr (std::is_same_v<T, core::DynamicRoomInteractableOccurrenceId>)
+                    return core::DynamicInteractableMotionOccurrence{value.interactable};
+                else
+                    return core::FallbackInteractableMotionOccurrence{value.interactable};
+            },
+            *selected->occurrence);
+    const auto source = m_kernel->state();
+    std::optional<core::RoomPresentationResolution> source_room;
+    if (m_kernel->room_presentation())
+        source_room = *m_kernel->room_presentation();
+    m_kernel->state() = std::move(candidate);
+    m_kernel->stage_pending_presentation(
+        PendingMotionOperation{
+            target, request.motion,
+            request.transition_target ? std::optional{request.transition_target->motion}
+                                      : std::nullopt,
+            request.playback, std::chrono::milliseconds{static_cast<std::int64_t>(duration)},
+            request.skippable, completion, script ? std::optional{script->handle} : std::nullopt},
+        source, std::move(source_room));
+    record_structural_mutation();
+    return Result::success();
 }
 
 core::Result<void, core::Diagnostics> RuntimeSession::request_audio(
@@ -1623,6 +1721,24 @@ core::Diagnostics RuntimeSession::complete_presentation(
         m_pending_presentation->owner != owner || m_pending_presentation->completion != completion)
         return {diagnostic("runtime.stale_presentation_completion",
                            "Presentation completion does not match the pending operation")};
+    if (m_pending_presentation->script) {
+        const auto script = *m_pending_presentation->script;
+        m_pending_presentation.reset();
+        core::Diagnostics diagnostics;
+        if (cancel) {
+            auto result = m_kernel->cancel_script(owner, script);
+            if (!result)
+                diagnostics = as_diagnostics(result.error());
+        } else {
+            auto result = m_kernel->resume_script(owner, script);
+            if (!result)
+                diagnostics = as_diagnostics(result.error());
+        }
+        if (!diagnostics.empty())
+            return diagnostics;
+        record_structural_mutation();
+        return {};
+    }
     if (m_dialogue_presentation_wait && m_dialogue_presentation_wait->frame == owner &&
         m_dialogue_presentation_wait->completion == completion) {
         const auto wait = *m_dialogue_presentation_wait;
@@ -2219,7 +2335,8 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
         presentation_changed = !same_snapshot_value(presentation_value, *source_snapshot);
     }
 
-    if (pending && source_snapshot && same_snapshot_value(presentation_value, *source_snapshot)) {
+    if (pending && !std::holds_alternative<PendingMotionOperation>(*pending) && source_snapshot &&
+        same_snapshot_value(presentation_value, *source_snapshot)) {
         const auto completion = pending_completion(*pending);
         if (completion) {
             auto completed = m_kernel->complete(completion->owner,
@@ -2317,6 +2434,8 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
             m_pending_presentation =
                 PendingPresentationCompletion{operation_id, completion->owner, completion->blocker,
                                               pending_is_room_navigation(*pending)};
+            if (const auto* motion = std::get_if<PendingMotionOperation>(&*pending))
+                m_pending_presentation->script = motion->script;
         } else {
             record_scene_event_presentation_operation(operation_id);
         }

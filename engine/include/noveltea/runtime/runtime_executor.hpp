@@ -80,6 +80,17 @@ struct PendingLayoutOperation {
     std::optional<core::PresentationFlowCompletion> completion;
 };
 
+struct PendingMotionOperation {
+    core::MotionOperationTarget target;
+    core::AnimationMotionId motion;
+    std::optional<core::AnimationMotionId> target_motion;
+    core::MotionPlaybackPolicy playback;
+    std::chrono::milliseconds duration{0};
+    bool skippable = true;
+    std::optional<core::PresentationFlowCompletion> completion;
+    std::optional<core::ScriptInvocationHandle> script;
+};
+
 struct PendingMaterialParameterOperation {
     core::MaterialParameterOperationTarget target;
     core::compiled::MaterialParameterValue source_value;
@@ -117,7 +128,7 @@ struct PendingAudioOperation {
 using PendingPresentationOperation =
     std::variant<PendingSceneTransitionGroupOperation, PendingRoomNavigationOperation,
                  PendingBackgroundOperation, PendingActorOperation, PendingLayoutOperation,
-                 PendingMaterialParameterOperation>;
+                 PendingMaterialParameterOperation, PendingMotionOperation>;
 
 // Backend-neutral program executor for Scene, Dialogue, Interaction, and Room-transition frames.
 // External adapters remain outside this type and communicate through typed runtime ports.

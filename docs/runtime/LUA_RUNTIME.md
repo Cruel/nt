@@ -115,6 +115,15 @@ The current capability surface includes:
   repetition and a positive forward marker interval. These are reconstructible desired intent, not
   pause/seek controls.
   Character targets and static images are not admitted for mutable motion selection.
+- `noveltea.presentation.play_motion(interactable, motion, policy, options)` and
+  `play_motion_and_wait(...)` request one finite once-only named motion on a visible placed
+  Interactable occurrence. Policy uses the same once-only shape as motion selection
+  (`repeat='once'`, positive finite `rate`, gameplay/unscaled clock, optional `initial_marker`;
+  `loop_range` is rejected). Options accept `skippable` (default true), normal Presentation
+  owner fields for an optional `transition_motion` plus required `transition_policy` desired
+  target committed before finite realization, and the usual `owner`/`room` selection. The
+  `_and_wait` form suspends the yielding invocation until the exact operation completes; backend
+  failure cancels the invocation with a typed diagnostic.
 - `noveltea.presentation.set_material_selection`, `clear_material_selection`, and
   `material_selection` for temporary runtime Interactable Material-selection overrides. Selection
   targets are `{kind='interactable-definition', id='...'}` or `{kind='interactable', id='...'}`;
