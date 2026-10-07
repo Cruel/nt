@@ -162,6 +162,10 @@ set(NOVELTEA_MODULE_FILES_noveltea_runtime
     engine/src/runtime/runtime_executor_map.cpp
     engine/src/runtime/runtime_executor_room.cpp
     engine/src/runtime/runtime_session.cpp
+    engine/src/runtime/runtime_session_audio.cpp
+    engine/src/runtime/runtime_session_dialogue.cpp
+    engine/src/runtime/runtime_session_lifecycle.cpp
+    engine/src/runtime/runtime_session_presentation.cpp
     engine/src/runtime/runtime_presentation_operation_requests.cpp
     engine/src/runtime/runtime_world.cpp
 )

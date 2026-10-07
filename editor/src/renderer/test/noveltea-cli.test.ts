@@ -3902,7 +3902,7 @@ describe('NovelTea headless CLI', () => {
       [capabilityBindings, 'random', 'noveltea.random', 3],
       [capabilityBindings, 'map', 'noveltea.map', 1],
       [capabilityBindings, 'layouts', 'noveltea.layouts', 6],
-      [capabilityBindings, 'presentation', 'noveltea.presentation', 25],
+      [capabilityBindings, 'presentation', 'noveltea.presentation', 26],
       [capabilityBindings, 'text_log', 'noveltea.text_log', 2],
       [capabilityBindings, 'game', 'Game', 4],
       [gameplayUiBindings, 'ui', 'Game.ui', 18],
@@ -3912,7 +3912,14 @@ describe('NovelTea headless CLI', () => {
     for (const [source, object, prefix, expectedCount] of groups) {
       const functions = setFunctions(source, object);
       expect(functions).toHaveLength(expectedCount);
-      for (const name of functions) expect(guide).toContain(`${prefix}.${name}`);
+      for (const name of functions) {
+        if (prefix === 'noveltea.presentation' && name.startsWith('_')) continue;
+        expect(guide).toContain(`${prefix}.${name}`);
+      }
+    }
+    for (const wrapper of ['play_motion', 'play_motion_and_wait']) {
+      expect(capabilityBindings).toContain(`noveltea.presentation.${wrapper} = function`);
+      expect(guide).toContain(`noveltea.presentation.${wrapper}`);
     }
 
     const projectDefinitionReaders = [

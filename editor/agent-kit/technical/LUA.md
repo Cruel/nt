@@ -575,6 +575,18 @@ These commands persist desired motion/policy, not elapsed playback, frame, pause
 state. Reconstruction starts at semantic start/marker. Character semantic state remains authoritative;
 Character and static-image targets are not admitted here.
 
+For one finite gameplay motion on a visible placed Interactable occurrence, use:
+
+```text
+noveltea.presentation.play_motion(interactable_id, motion_id, policy, options?) -> ok, error
+noveltea.presentation.play_motion_and_wait(interactable_id, motion_id, policy, options?) -> ok, error
+```
+
+These require an Animation Visual, `repeat='once'`, no `loop_range`, and the same finite positive-rate
+motion policy described above. `play_motion_and_wait` is available only from a yield-capable gameplay
+Script invocation and resumes when that exact presentation operation completes. This is an ephemeral
+finite operation; it does not replace the persistent desired motion selection API above.
+
 ### Interactable Material selection
 
 ```text
