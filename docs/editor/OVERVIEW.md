@@ -109,7 +109,8 @@ When changing ComfyUI workflows, update the user-facing import doc when behavior
 ## Export and Packaging
 
 - `docs/editor/MEDIA_TOOLS.md` — pinned private FFmpeg staging, shared Editor/headless resolver,
-  explicit external override, diagnosis, source/license closure, and relocation qualification.
+  explicit external override, diagnosis, full source/license validation with trimmed installation, and
+  relocation qualification.
 
 - `docs/editor/BUILD_AND_DISTRIBUTION.md` — root workspace commands, Vite+ development, production
   staging, electron-builder packaging, package smoke, native artifacts, and signing limitations.

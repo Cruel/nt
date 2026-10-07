@@ -1,6 +1,6 @@
 import { spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { cp, mkdir, mkdtemp, readFile, rename, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, readdir, rename, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -23,7 +23,7 @@ export function verifyMediaArchive(bytes, target) {
     throw new Error(`Pinned FFmpeg archive checksum mismatch: ${target}`);
 }
 
-export async function verifyPrivateMediaTools(root, target = mediaArtifactTarget()) {
+async function verifyCompleteMediaTools(root, target = mediaArtifactTarget()) {
   const provenance = JSON.parse(await readFile(path.join(root, 'PROVENANCE.json'), 'utf8'));
   if (
     provenance.platform !== target ||
@@ -70,6 +70,64 @@ export async function verifyPrivateMediaTools(root, target = mediaArtifactTarget
     throw new Error('Private FFmpeg licenses/build recipe are missing.');
 }
 
+async function listFiles(root, relative = '') {
+  const files = [];
+  for (const entry of await readdir(path.join(root, relative), { withFileTypes: true })) {
+    const child = relative ? `${relative}/${entry.name}` : entry.name;
+    if (entry.isDirectory()) files.push(...(await listFiles(root, child)));
+    else if (entry.isFile()) files.push(child);
+    else throw new Error(`Unexpected private FFmpeg filesystem entry: ${child}`);
+  }
+  return files;
+}
+
+export async function verifyPrivateMediaTools(root, target = mediaArtifactTarget()) {
+  const provenance = JSON.parse(await readFile(path.join(root, 'PROVENANCE.json'), 'utf8'));
+  if (
+    provenance.platform !== target ||
+    provenance.release_tag !== pin.release ||
+    provenance.components?.ffmpeg?.version !== pin.version
+  )
+    throw new Error(
+      `Wrong private FFmpeg provenance: expected ${pin.release}/${target}/${pin.version}`,
+    );
+
+  const executable = target === 'windows-x64' ? 'bin/ffmpeg.exe' : 'bin/ffmpeg';
+  const files = (await listFiles(root)).sort();
+  for (const required of [executable, 'NOTICE.txt', 'PROVENANCE.json'])
+    if (!files.includes(required))
+      throw new Error(`Incomplete private FFmpeg installation: ${required}`);
+  if (!files.some((name) => name.startsWith('licenses/')))
+    throw new Error('Private FFmpeg licenses are missing.');
+  for (const forbidden of ['BUILD.log', 'SHA256SUMS'])
+    if (files.includes(forbidden))
+      throw new Error(`Unexpected private FFmpeg distribution file: ${forbidden}`);
+  if (files.some((name) => name.startsWith('configuration/') || name.startsWith('sources/')))
+    throw new Error('Private FFmpeg installation contains non-runtime build/source payloads.');
+}
+
+async function stageRuntimeMediaTools(sourceRoot, destinationRoot, target) {
+  const executable = target === 'windows-x64' ? 'ffmpeg.exe' : 'ffmpeg';
+  await mkdir(path.join(destinationRoot, 'bin'), { recursive: true });
+  await cp(path.join(sourceRoot, 'bin', executable), path.join(destinationRoot, 'bin', executable));
+  await cp(path.join(sourceRoot, 'licenses'), path.join(destinationRoot, 'licenses'), {
+    recursive: true,
+  });
+  await cp(path.join(sourceRoot, 'PROVENANCE.json'), path.join(destinationRoot, 'PROVENANCE.json'));
+  await writeFile(
+    path.join(destinationRoot, 'NOTICE.txt'),
+    [
+      'NovelTea bundles FFmpeg as a private authoring/export tool, not a game-runtime dependency.',
+      `This FFmpeg build comes from the pinned Cruel/nt-tools ${pin.release} release.`,
+      'License texts are included in licenses/. Exact corresponding sources, build recipe,',
+      `configuration, provenance, and build records are available from the ${pin.release} release at:`,
+      `https://github.com/Cruel/nt-tools/releases/tag/${pin.release}`,
+      '',
+    ].join('\n'),
+  );
+  await verifyPrivateMediaTools(destinationRoot, target);
+}
+
 export async function stagePrivateMediaTools(installationRoot, options = {}) {
   const target = mediaArtifactTarget(options.platform, options.arch);
   const temporary = await mkdtemp(path.join(os.tmpdir(), 'noveltea-ffmpeg-'));
@@ -97,12 +155,12 @@ export async function stagePrivateMediaTools(installationRoot, options = {}) {
       throw new Error(
         `Cannot extract verified FFmpeg archive: ${result.error?.message ?? result.stderr}`,
       );
-    await verifyPrivateMediaTools(extracted, target);
+    await verifyCompleteMediaTools(extracted, target);
     const tools = path.join(installationRoot, 'tools');
     await mkdir(tools, { recursive: true });
     const pending = await mkdtemp(path.join(tools, '.ffmpeg-'));
     try {
-      await cp(extracted, pending, { recursive: true });
+      await stageRuntimeMediaTools(extracted, pending, target);
       await rm(path.join(tools, 'ffmpeg'), { recursive: true, force: true });
       await rename(pending, path.join(tools, 'ffmpeg'));
     } finally {
