@@ -359,6 +359,114 @@ TEST_CASE("loose compiled project strips shader sources before runtime package a
     }
 }
 
+TEST_CASE("loose compiled project infers shader variants only from project binaries")
+{
+    auto gameplay = minimal_gameplay();
+    nlohmann::json shader_materials = {
+        {"schema", "noveltea.shader-materials"},
+        {"shaders",
+         {{"preset",
+           {{"display_name", "Preset"},
+            {"interface_contract", "noveltea.material-preset:engine-2d:1"},
+            {"interface_fingerprint",
+             "sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9"},
+            {"stages",
+             {{"vertex",
+               {{"compiled",
+                 {{"glsl-330", {{"runtimePath", "system:/shaders/bgfx/glsl-330/quad.vs.bin"}}},
+                  {"essl-300", {{"runtimePath", "system:/shaders/bgfx/essl-300/quad.vs.bin"}}},
+                  {"metal", {{"runtimePath", "system:/shaders/bgfx/metal/quad.vs.bin"}}}}}}},
+              {"fragment",
+               {{"compiled",
+                 {{"glsl-330", {{"runtimePath", "system:/shaders/bgfx/glsl-330/quad.fs.bin"}}},
+                  {"essl-300", {{"runtimePath", "system:/shaders/bgfx/essl-300/quad.fs.bin"}}},
+                  {"metal", {{"runtimePath", "system:/shaders/bgfx/metal/quad.fs.bin"}}}}}}}}},
+            {"uniforms", nlohmann::json::object()},
+            {"samplers", nlohmann::json::object()},
+            {"roles", nlohmann::json::array({"engine-2d"})},
+            {"role_bindings", nlohmann::json::object()}}},
+          {"custom",
+           {{"display_name", "Custom"},
+            {"interface_contract", "noveltea.material-preset:engine-2d:1"},
+            {"interface_fingerprint",
+             "sha256:49111ad3e9c928953f510a57100419f761118d42f65bafe1786d56a858ae74b9"},
+            {"stages",
+             {{"vertex",
+               {{"compiled",
+                 {{"essl-300",
+                   {{"runtimePath", "project:/shaders/derived/essl-300/custom.vs.bin"},
+                    {"byteHash",
+                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteSize", 1}}}}}}},
+              {"fragment",
+               {{"compiled",
+                 {{"essl-300",
+                   {{"runtimePath", "project:/shaders/derived/essl-300/custom.fs.bin"},
+                    {"byteHash",
+                     "sha256:0000000000000000000000000000000000000000000000000000000000000000"},
+                    {"byteSize", 1}}}}}}}}},
+            {"uniforms", nlohmann::json::object()},
+            {"samplers", nlohmann::json::object()},
+            {"roles", nlohmann::json::array({"engine-2d"})},
+            {"role_bindings", nlohmann::json::object()}}}}},
+        {"materials",
+         {{"preset",
+           {{"display_name", "Preset"},
+            {"role", "engine-2d"},
+            {"shader", "preset"},
+            {"uniforms", nlohmann::json::object()},
+            {"textures", nlohmann::json::object()}}},
+          {"custom",
+           {{"display_name", "Custom"},
+            {"role", "engine-2d"},
+            {"shader", "custom"},
+            {"uniforms", nlohmann::json::object()},
+            {"textures", nlohmann::json::object()}}}}},
+    };
+
+    shader_materials["shaders"]["custom-copy"] = shader_materials["shaders"]["custom"];
+
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    source->add("project:/game", json_bytes(gameplay));
+    source->add("project:/shader-materials.json", json_bytes(shader_materials));
+    source->add("project:/shaders/derived/essl-300/custom.vs.bin", bytes("v"));
+    source->add("project:/shaders/derived/essl-300/custom.fs.bin", bytes("f"));
+    assets::AssetManager manager;
+    manager.mount("project", source);
+
+    auto resolved = runtime::resolve_running_game_source(manager, "project:/game", "en");
+    if (!resolved.has_value()) {
+        for (const auto& diagnostic : resolved.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message);
+    }
+    REQUIRE(resolved.has_value());
+    CHECK(resolved.value_if()->input.package.manifest().shader_variants ==
+          std::vector<std::string>{"essl-300"});
+}
+
+TEST_CASE("loose compiled project includes locale catalog paths in its synthetic package")
+{
+    auto gameplay = minimal_gameplay();
+    gameplay["localization"]["locales"].front()["catalogPath"] = "localization/en.json";
+
+    auto source = std::make_shared<assets::MemoryAssetSource>();
+    source->add("project:/game", json_bytes(gameplay));
+    source->add("project:/localization/en.json",
+                json_bytes(gameplay["localization"]["catalogs"].front()));
+    assets::AssetManager manager;
+    manager.mount("project", source);
+
+    auto resolved = runtime::resolve_running_game_source(manager, "project:/game", "en");
+    if (!resolved.has_value()) {
+        for (const auto& diagnostic : resolved.error())
+            UNSCOPED_INFO(diagnostic.code << ": " << diagnostic.message);
+    }
+    REQUIRE(resolved.has_value());
+    CHECK(std::ranges::any_of(
+        resolved.value_if()->input.package.manifest().entries,
+        [](const auto& entry) { return entry.path == "localization/en.json"; }));
+}
+
 TEST_CASE("loose compiled project propagates the negotiated startup locale")
 {
     auto gameplay = minimal_gameplay();
