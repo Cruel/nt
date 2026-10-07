@@ -258,8 +258,9 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
 
     core::PreparedMediaCatalog prepared_media;
     constexpr std::string_view prepared_media_entry = "assets/.prepared-media/manifest.json";
-    if (std::ranges::any_of(*indexed_entries.value,
-                            [](const auto& entry) { return entry.path == prepared_media_entry; })) {
+    if (std::ranges::any_of(*indexed_entries.value, [prepared_media_entry](const auto& entry) {
+            return entry.path == prepared_media_entry;
+        })) {
         auto prepared_blob = read_package_blob(source, prepared_media_entry, logical_path);
         if (!prepared_blob)
             return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(

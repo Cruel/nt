@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { mkdtemp, rm, writeFile } from 'node:fs/promises';
-import { writeFileSync } from 'node:fs';
+import { existsSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { describe, expect, it } from 'vite-plus/test';
 import {
@@ -9,6 +9,7 @@ import {
   inspectMediaTool,
   runMediaPreparation,
 } from '../../main/services/media-preparation-service';
+import { opaqueVideoPreparationResultSchema } from '../../shared/prepared-media';
 
 const version = 'ffmpeg version 9.0.1 Copyright FFmpeg';
 const configuration =
@@ -141,6 +142,25 @@ describe('private media preparation tool', () => {
       );
       expect(job?.join(' ')).toContain('fps=30');
       expect(job?.join(' ')).toContain('scale=320:180');
+      expect(opaqueVideoPreparationResultSchema.parse(result)).toEqual(result);
+
+      const staleFrame = path.join(path.dirname(result.frames[0]!.sourcePath), 'frame-999999.png');
+      writeFileSync(staleFrame, Buffer.from('stale frame'));
+      const repeated = await prepareOpaqueVideoMotion(
+        root,
+        {
+          animationId: 'portrait',
+          motionId: 'idle',
+          assetId: 'source',
+          sourcePath: 'source.mov',
+          canvas: { width: 320, height: 180 },
+          sourceRange: { startMs: 250, endMs: 1250 },
+        },
+        { executable: '/install/tools/ffmpeg/bin/ffmpeg', bundled: true },
+        runner,
+      );
+      expect(repeated).toEqual(result);
+      expect(existsSync(staleFrame)).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

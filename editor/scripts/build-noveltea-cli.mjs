@@ -594,10 +594,16 @@ try {
   );
   await writeFile(
     path.join(stageRoot, 'media-preparation-service.ts'),
-    mediaServiceSource.replace(
-      "import pin from '../../shared/media-tool-pin.json';",
-      `const pin = ${mediaPin.trim()};`,
-    ),
+    mediaServiceSource
+      .replace(
+        "import pin from '../../shared/media-tool-pin.json';",
+        `const pin = ${mediaPin.trim()};`,
+      )
+      .replace('../../shared/prepared-media-contracts', './prepared-media-contracts'),
+  );
+  await cp(
+    path.join(editorRoot, 'src', 'shared', 'prepared-media-contracts.ts'),
+    path.join(stageRoot, 'prepared-media-contracts.ts'),
   );
   await cp(hostProcessSource, stagedHostProcess);
   await writeFile(stagedHost, stagedHostSource);

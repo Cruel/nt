@@ -108,6 +108,12 @@ The final executable must not depend on Node, a separate shaderc executable, or 
 
 ## Compatibility boundaries
 
+The static media-preparation service consumes the dependency-free `prepared-media-contracts.ts`
+module, which release staging copies alongside it. Zod admission schemas remain in `prepared-media.ts`
+on the shared authoring side; they must not enter the static host's import closure. Recursive scratch
+cleanup uses `rmSync`: ScriptC 0.1.4's static async `rm` accepts no options and cannot express the
+required recursive/force behavior.
+
 The QuickJS island provides enough Node-compatible filesystem/path/crypto behavior for the current public authoring CLI, but its Node compatibility is not assumed to be exact for operating-system primitives. Process liveness therefore remains in the static host. Similar OS-level capabilities should be added to the host deliberately when needed rather than relying on an unverified island shim.
 
 The self-contained artifact supports the `noveltea platform` command family through shared
