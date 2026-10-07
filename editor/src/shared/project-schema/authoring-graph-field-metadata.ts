@@ -516,6 +516,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   // Visual selection on Room Environments. Animation metadata and frame timing change the owning
   // Animation projection; Visual selection changes the owning Environment projection. Typed `$ref`
   // leaves still contribute their normal dependency edges through the dependency-graph walker.
+  [/^\/animations\/\*\/import(?:\/|$)/, NONE],
   [/^\/animations\/\*\/data(?:\/|$)/, OWNER],
   [/^\/animations\/\*\/id$/, SYMBOL],
   [/^\/animations\/\*\/(?:label|description)$/, OWNER],
@@ -1147,7 +1148,7 @@ export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string,
 // corresponding fingerprint in the same change. This intentionally has no generated fallback.
 export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
   Object.freeze({
-    animations: '827ceeb3',
+    animations: 'a2f88f8e',
     archetypes: 'f71e0c56',
     assets: 'e718127a',
     bootstrapModule: 'd01eb484',

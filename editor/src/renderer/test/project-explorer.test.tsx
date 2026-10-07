@@ -40,6 +40,30 @@ describe('ProjectExplorer', () => {
     useWorkspaceStore.getState().setDiagnostics([]);
   });
 
+  it('offers Animation import alongside empty manual creation and uses the active Project session', async () => {
+    const project = createAuthoringProject();
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+    });
+    useProjectStore.setState({ projectSessionId: '11111111-1111-4111-8111-111111111111' });
+    vi.mocked(window.noveltea.importAssets).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      assets: [],
+      diagnostics: [],
+    });
+    render(<ProjectExplorer nodes={[]} />);
+    fireEvent.contextMenu(screen.getByRole('button', { name: /^animations/i }));
+    expect(screen.getByRole('button', { name: 'Create Animation' })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole('button', { name: 'Import Animation…' }));
+    expect(window.noveltea.importAssets).toHaveBeenCalledWith(
+      '11111111-1111-4111-8111-111111111111',
+      { allowMultiple: true, animation: { frameDurationMs: 100 } },
+    );
+  });
+
   it('shows warning and error counts on collection categories', () => {
     const project = createAuthoringProject();
     project.rooms.bedroom = {

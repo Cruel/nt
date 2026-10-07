@@ -650,8 +650,9 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
     }
   }
 
-  const animations: WireResources['animations'] = sortedEntries(project.animations).map(
-    ([id, record]) => ({
+  const animations: WireResources['animations'] = sortedEntries(project.animations)
+    .filter(([, record]) => record.data.motions.every((motion) => motion.frames.length > 0))
+    .map(([id, record]) => ({
       id,
       canvas: { ...record.data.canvas },
       defaultMotionId: record.data.defaultMotionId,
@@ -664,8 +665,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
           durationMs: frame.durationMs,
         })),
       })),
-    }),
-  );
+    }));
 
   const layouts: WireResources['layouts'] = [];
   for (const [id, record] of sortedEntries(project.layouts)) {

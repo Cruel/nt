@@ -40,6 +40,49 @@ beforeEach(() => {
   });
 });
 
+it('adds a timed image frame to an empty manual Animation through the command bus', async () => {
+  const project = structuredClone(useProjectStore.getState().document);
+  if (!isAuthoringProject(project)) throw new Error('Expected Project');
+  project.animations.pulse!.data.motions[0]!.frames = [];
+  project.animations.pulse!.data.motions[0]!.markers = [];
+  project.assets.a = {
+    id: 'a',
+    label: 'A',
+    data: {
+      kind: 'image',
+      source: { type: 'project-file', path: 'assets/images/a.png' },
+      aliases: [],
+      imageMetadata: { width: 16, height: 16, hasAlpha: true, orientation: 1 },
+    },
+  };
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/project.json',
+  });
+  render(
+    <AnimationEditor
+      tab={{
+        id: 'pulse',
+        title: 'Pulse',
+        editorType: 'animation-detail',
+        resource: {
+          kind: 'record',
+          stableId: 'record:animations:pulse',
+          collection: 'animations',
+          entityId: 'pulse',
+        },
+      }}
+    />,
+  );
+  await userEvent.click(screen.getByRole('button', { name: 'Add image frame' }));
+  const edited = useProjectStore.getState().document;
+  if (!isAuthoringProject(edited)) throw new Error('Expected Project');
+  expect(edited.animations.pulse!.data.motions[0]!.frames).toEqual([
+    { image: { $ref: { collection: 'assets', id: 'a' } }, durationMs: 100 },
+  ]);
+});
+
 it('scrubs, steps and restarts without editing durable Animation content, and edits markers with undo', async () => {
   const user = userEvent.setup();
   render(

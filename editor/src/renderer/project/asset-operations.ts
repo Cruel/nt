@@ -1,6 +1,6 @@
 import { buildJsonPointer } from '@/project/json-pointer';
 import { toJsonValue } from '@/project/json-value';
-import type { ImportedAssetMetadata } from '../../shared/asset-import';
+import type { ImportedAnimation, ImportedAssetMetadata } from '../../shared/asset-import';
 import {
   assetDataFromImportMetadata,
   defaultAssetIdFromFilename,
@@ -33,6 +33,7 @@ export interface AssetOperationResult {
 
 export interface AssetImportPayload {
   assets: ImportedAssetMetadata[];
+  animation?: ImportedAnimation;
   fileOrigin?: 'copied-by-import' | 'existing-project-file' | 'generated-project-file';
 }
 
@@ -106,10 +107,21 @@ export function importAssetRecordsPatches(
   const patches: JsonPatchOperation[] = [];
   const affectedPaths: string[] = [];
   const pendingIds = new Set<string>();
+  const ids: string[] = [];
+  if (
+    payload.animation &&
+    (payload.animation.frames.some((frame) => payload.assets[frame.assetIndex]?.kind !== 'image') ||
+      payload.animation.sourceAssetIndices.some((index) => !payload.assets[index]))
+  )
+    return {
+      patches: [],
+      diagnostics: [error('Animation import references an invalid frame or source.')],
+    };
   for (const metadata of payload.assets) {
     let id = uniqueAssetId(project, metadata.originalName);
     while (pendingIds.has(id)) id = `${id}-copy`;
     pendingIds.add(id);
+    ids.push(id);
     const path = assetPath(id);
     patches.push({
       op: 'add',
@@ -118,6 +130,52 @@ export function importAssetRecordsPatches(
         id,
         label: metadata.originalName.replace(/\.[^.]*$/, ''),
         data: assetDataFromImportMetadata(metadata),
+      }),
+    });
+    affectedPaths.push(path);
+  }
+  if (payload.animation) {
+    const imported = payload.animation;
+    const base = defaultAssetIdFromFilename(imported.label);
+    let id = base;
+    let suffix = 2;
+    while (project.animations[id]) id = `${base}-${suffix++}`;
+    const path = buildJsonPointer(['animations', id]);
+    patches.push({
+      op: 'add',
+      path,
+      value: toJsonValue({
+        id,
+        label: imported.label,
+        import: {
+          format: imported.format,
+          frameDurationMs: imported.frameDurationMs,
+          importedAt: payload.assets[imported.sourceAssetIndices[0]!]!.importedAt,
+          sources: imported.sourceAssetIndices.map((index) => {
+            const source = payload.assets[index]!;
+            return {
+              path: source.projectRelativePath,
+              contentHash: source.contentHash,
+              originalName: source.originalName,
+            };
+          }),
+        },
+        data: {
+          kind: 'animation',
+          canvas: imported.canvas,
+          defaultMotionId: 'default',
+          motions: [
+            {
+              id: 'default',
+              kind: 'sprite-sequence',
+              markers: [],
+              frames: imported.frames.map((frame) => ({
+                image: { $ref: { collection: 'assets', id: ids[frame.assetIndex]! } },
+                durationMs: frame.durationMs,
+              })),
+            },
+          ],
+        },
       }),
     });
     affectedPaths.push(path);

@@ -1,5 +1,12 @@
 {
   "animationEditor": {
+    "import": "Importar animação…",
+    "provenance": "{{format}} importado · {{sources}}",
+    "canvasWidth": "Largura da tela",
+    "canvasHeight": "Altura da tela",
+    "image": "Recurso de imagem",
+    "newDuration": "Duração do novo quadro (ms)",
+    "addFrame": "Adicionar quadro de imagem",
     "unavailable": "Animação indisponível. Corrija o conteúdo inválido no editor de código.",
     "edit": "Editar marcadores da animação",
     "motion": "Movimento",

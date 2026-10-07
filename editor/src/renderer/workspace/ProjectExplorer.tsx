@@ -816,6 +816,7 @@ function ExplorerContextMenu({
   openCreateWizard: (state: NewEntityWizardState) => void;
   showAlert: (alert: ExplorerAlert) => void;
 }) {
+  const { t } = useTranslation('workspace');
   const openTab = useWorkbenchStore((store) => store.openTab);
   const graphSnapshot = useCurrentAuthoringDependencyGraphSnapshot();
   const setSearchAndSourceResults = useEntityUsagesStore(
@@ -901,14 +902,17 @@ function ExplorerContextMenu({
     if (tab) openTab(withExplorerPlacement(tab, node.id));
   }
 
-  async function importAssetsFromFolder() {
+  async function importAssetsFromFolder(animation = false) {
     if (!projectFilePath || !projectSessionId) {
       const message = 'Save the project before importing assets.';
       setStatusMessage(message);
       showAlert({ title: 'Asset import unavailable', message });
       return;
     }
-    const result = await window.noveltea.importAssets(projectSessionId, { allowMultiple: true });
+    const result = await window.noveltea.importAssets(projectSessionId, {
+      allowMultiple: true,
+      ...(animation ? { animation: { frameDurationMs: 100 } } : {}),
+    });
     if (!result.success || result.assets.length === 0) {
       const message = result.error ?? result.diagnostics[0]?.message ?? 'Asset import canceled.';
       setStatusMessage(message);
@@ -919,8 +923,14 @@ function ExplorerContextMenu({
     const applied = run(
       {
         type: 'asset.importFiles',
-        label: `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
-        payload: { assets: result.assets, fileOrigin: 'copied-by-import' },
+        label: animation
+          ? t('animationEditor.import')
+          : `Import ${result.assets.length} asset${result.assets.length === 1 ? '' : 's'}`,
+        payload: {
+          assets: result.assets,
+          animation: result.animation,
+          fileOrigin: 'copied-by-import',
+        },
       },
       {
         ...MUTATION_SURFACE_ATTRIBUTIONS.assetImport,
@@ -1093,6 +1103,17 @@ function ExplorerContextMenu({
               }}
             >
               <FilePlus2 className="h-3.5 w-3.5" /> Import Assets
+            </button>
+          ) : null}
+          {collection === 'animations' ? (
+            <button
+              className={itemClass}
+              onClick={() => {
+                void importAssetsFromFolder(true);
+                onClose();
+              }}
+            >
+              <FilePlus2 className="h-3.5 w-3.5" /> {t('animationEditor.import')}
             </button>
           ) : null}
           {!collective ? (

@@ -412,7 +412,15 @@ const projectRelativePathSchema = z
 
 export const importAssetsArgumentsSchema = z.tuple([
   projectSessionIdSchema,
-  z.object({ allowMultiple: z.boolean().optional() }).strict(),
+  z
+    .object({
+      allowMultiple: z.boolean().optional(),
+      animation: z
+        .object({ frameDurationMs: z.number().int().positive().max(3_600_000) })
+        .strict()
+        .optional(),
+    })
+    .strict(),
 ]);
 
 export const reimportAssetArgumentsSchema = z.tuple([

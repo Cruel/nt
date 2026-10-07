@@ -159,6 +159,13 @@ export function defaultDataForCollection(
   explicitData: unknown,
 ): Record<string, unknown> {
   if (isRecord(explicitData)) return explicitData;
+  if (collection === 'animations')
+    return {
+      kind: 'animation',
+      canvas: { width: 256, height: 256 },
+      defaultMotionId: 'default',
+      motions: [{ id: 'default', kind: 'sprite-sequence', frames: [], markers: [] }],
+    };
   if (collection === 'variables')
     return defaultVariableData() as unknown as Record<string, unknown>;
   if (collection === 'materials')

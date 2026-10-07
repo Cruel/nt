@@ -1,5 +1,12 @@
 {
   "animationEditor": {
+    "import": "⟦Import Animation…⟧",
+    "provenance": "⟦Imported {{format}} · {{sources}}⟧",
+    "canvasWidth": "⟦Canvas width⟧",
+    "canvasHeight": "⟦Canvas height⟧",
+    "image": "⟦Image Asset⟧",
+    "newDuration": "⟦New frame duration (ms)⟧",
+    "addFrame": "⟦Add image frame⟧",
     "unavailable": "⟦Animation record unavailable. Use source editing to repair invalid content.⟧",
     "edit": "⟦Edit Animation markers⟧",
     "motion": "⟦Motion⟧",
