@@ -16,6 +16,7 @@
 #include <sstream>
 #include <string>
 #include <string_view>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -314,6 +315,7 @@ make_loose_project_load_input(core::CompiledProject project,
         strip_loose_runtime_shader_sources(*shader_materials);
     runtime_locale = startup_runtime_locale(project.localization(), runtime_locale);
     std::vector<core::RuntimePackageFile> files{{"game", 0, std::nullopt}};
+    std::unordered_set<std::string> file_paths{"game"};
     core::RuntimePackageManifest manifest{
         .kind = core::RuntimePackageKind::Runtime,
         .created_by = "noveltea-loose-project",
@@ -332,28 +334,34 @@ make_loose_project_load_input(core::CompiledProject project,
         .shader_materials = std::nullopt,
         .entries = {{"game", 0, std::nullopt}},
     };
-    for (const auto& asset : project.assets()) {
-        const auto package_path = loose_runtime_package_path(asset.path);
+    const auto add_file = [&](std::string package_path) {
+        if (!file_paths.insert(package_path).second)
+            return;
         manifest.entries.push_back({package_path, 0, std::nullopt});
-        files.push_back({package_path, 0, std::nullopt});
+        files.push_back({std::move(package_path), 0, std::nullopt});
+    };
+    for (const auto& asset : project.assets())
+        add_file(loose_runtime_package_path(asset.path));
+    for (const auto& locale : project.localization().locales) {
+        if (locale.catalog_path)
+            add_file(loose_runtime_package_path(*locale.catalog_path));
     }
     if (shader_materials) {
         std::vector<std::string> variants;
         for (const auto& shader : shader_materials->shaders) {
             for (const auto& stage : shader.stages) {
                 for (const auto& binary : stage.compiled) {
+                    if (binary.path.starts_with("system:/"))
+                        continue;
                     if (std::find(variants.begin(), variants.end(), binary.variant) ==
                         variants.end()) {
                         variants.push_back(binary.variant);
                     }
-                    const auto package_path = loose_runtime_package_path(binary.path);
-                    manifest.entries.push_back({package_path, 0, std::nullopt});
-                    files.push_back({package_path, 0, std::nullopt});
+                    add_file(loose_runtime_package_path(binary.path));
                 }
             }
         }
-        manifest.entries.push_back({"shader-materials.json", 0, std::nullopt});
-        files.push_back({"shader-materials.json", 0, std::nullopt});
+        add_file("shader-materials.json");
         manifest.shader_variants = std::move(variants);
         manifest.shader_materials =
             core::RuntimePackageShaderMaterials{.entry = "shader-materials.json",
