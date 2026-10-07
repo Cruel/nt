@@ -367,7 +367,7 @@ describe('Room Edit semantic selection', () => {
       {
         id: 'rain',
         condition: { kind: 'always' },
-        asset: null,
+        visual: null,
         materialApplication: emptyMaterialApplication('effect'),
         bounds: { x: 0, y: 0, width: 1, height: 1 },
         plane: 'world-overlay',

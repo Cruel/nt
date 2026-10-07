@@ -2009,7 +2009,6 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
     animated_room["world"]["environments"] = nlohmann::json::array(
         {{{"environmentId", "rain"},
           {"condition", {{"kind", "always"}}},
-          {"assetId", nullptr},
           {"visual",
            {{"kind", "animation"},
             {"animationId", "rain"},

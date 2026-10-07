@@ -725,9 +725,6 @@ struct StructuredAssetDependencyIndex::Impl {
             if (environment.visual)
                 append_visual(output, *environment.visual, collection_diagnostics,
                               "Room environment");
-            else if (environment.asset)
-                append_asset(output, *environment.asset, core::compiled::AssetKind::Image,
-                             collection_diagnostics, "Room environment");
             append_material(output, environment.material, collection_diagnostics,
                             "Room environment");
         }

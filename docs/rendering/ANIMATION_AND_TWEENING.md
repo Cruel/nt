@@ -96,8 +96,9 @@ finite motion owns that occurrence.
 
 ## Raster Animation realization
 
-The first [Animation resource](../engine/ANIMATION.md) tracer selects static image or sprite-sequence
-Visuals on Room Environments, Interactables, and Character layers. It reuses mandatory Asset publication, `AssetWorldPresentationResourceResolver`,
+The [Animation resource](../engine/ANIMATION.md) selects static image or sprite-sequence Visuals on
+Room Environments, Interactables, and Character layers. These are the canonical Phase 1 presentation
+inputs; retired sprite/image compatibility fields are not dual-read. Realization reuses mandatory Asset publication, `AssetWorldPresentationResourceResolver`,
 retained texture/Material leases, and the raster quad/Engine2D Material path.
 
 `WorldPresentationBackend` owns occurrence-local epochs. A Visual's explicit playback policy selects

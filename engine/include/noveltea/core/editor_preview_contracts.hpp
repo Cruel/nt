@@ -349,7 +349,6 @@ struct TypedFocusedRoomWorldDefinition {
     struct Environment {
         std::string environment_id;
         TypedFocusedCondition condition;
-        std::optional<std::string> asset_id;
         std::optional<Visual> visual;
         std::string material_id;
         std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;

@@ -1407,8 +1407,7 @@ const roomDefinitionSchema = strict({
       strict({
         id,
         condition: compiledConditionSchema,
-        asset: assetReferenceSchema.nullable(),
-        visual: compiledVisualSchema.optional(),
+        visual: compiledVisualSchema.nullable(),
         material: materialReferenceSchema,
         materialParameters: z.array(compiledMaterialApplicationParameterOverrideSchema).optional(),
         materialTextures: z.array(compiledMaterialApplicationTextureOverrideSchema).optional(),

@@ -74,7 +74,6 @@ struct RoomPresentationDefinitionView {
     struct Environment {
         RoomEnvironmentId id;
         RoomPresentationConditionToken condition = 0;
-        std::optional<AssetId> asset;
         std::optional<compiled::Visual> visual;
         MaterialId material;
         std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;
@@ -202,7 +201,6 @@ struct ResolvedRoomProp {
 
 struct ResolvedRoomEnvironment {
     RoomEnvironmentId environment;
-    std::optional<AssetId> asset;
     std::optional<compiled::Visual> visual;
     MaterialId material;
     std::vector<compiled::MaterialApplicationParameterOverride> material_parameters;

@@ -1105,7 +1105,7 @@ export function RoomEditSurface({
           preparationProjection.worldDraws.map(async (item) => {
             const assetId =
               item.kind === 'interactable' || item.kind === 'cast-layer'
-                ? item.spriteAssetId
+                ? item.visualAssetId
                 : item.assetId;
             return [
               `${item.kind}:${item.occurrenceId}`,

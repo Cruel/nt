@@ -130,7 +130,6 @@ it('imports APNG into ordinary Assets and matches manual Animation compilation a
       {
         id: 'pulse',
         condition: { kind: 'always' },
-        asset: null,
         visual: {
           kind: 'animation',
           animation: { $ref: { collection: 'animations', id: 'pulse' } },

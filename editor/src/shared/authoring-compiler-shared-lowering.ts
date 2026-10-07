@@ -1030,33 +1030,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
             environments: data.environments.map((entry) => ({
               id: entry.id,
               condition: compileCondition(entry.condition),
-              asset: assetRef(entry.asset),
-              ...(entry.visual
-                ? {
-                    visual:
-                      entry.visual.kind === 'image'
-                        ? {
-                            kind: 'image' as const,
-                            image: { kind: 'asset' as const, id: entry.visual.image.$ref.id },
-                          }
-                        : {
-                            kind: 'animation' as const,
-                            animation: {
-                              kind: 'animation' as const,
-                              id: entry.visual.animation.$ref.id,
-                            },
-                            motionId: entry.visual.motionId,
-                            playback: entry.visual.playback,
-                          },
-                  }
-                : entry.asset
-                  ? {
-                      visual: {
-                        kind: 'image' as const,
-                        image: { kind: 'asset' as const, id: entry.asset.$ref.id },
-                      },
-                    }
-                  : {}),
+              visual: compileVisual(entry.visual),
               ...compileMaterialApplication(entry.materialApplication),
               material: materialRef(entry.materialApplication.material)!,
               bounds: { ...entry.bounds },
@@ -1468,7 +1442,7 @@ export function lowerSharedAuthoringProject(project: AuthoringProject): SharedLo
         environments: data.environments.map((entry) => ({
           id: entry.id,
           condition: compileCondition(entry.condition),
-          asset: assetRef(entry.asset),
+          visual: compileVisual(entry.visual),
           ...compileMaterialApplication(entry.materialApplication),
           material: materialRef(entry.materialApplication.material)!,
           bounds: { ...entry.bounds },

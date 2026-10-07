@@ -655,12 +655,10 @@ append_room_baseline(const CompiledProject& project, const runtime::RuntimeWorld
                                                       : std::move(stop_key.error()));
             continue;
         }
-        validate_asset(project, environment.asset, compiled::AssetKind::Image,
-                       "Room environment asset", diagnostics);
         validate_visual(project, environment.visual, "Room environment Visual", diagnostics);
         result.environments.push_back(PresentationEnvironment{
             std::move(*instance.value_if()), RoomPresentationOwner{room.visit.room},
-            PropertyOwnerRef{room.visit.room}, std::move(*stop_key.value_if()), environment.asset,
+            PropertyOwnerRef{room.visit.room}, std::move(*stop_key.value_if()), std::nullopt,
             environment.visual, environment.material, environment.material_parameters,
             material_application_textures(
                 project, material_application(std::optional<MaterialId>{environment.material},
@@ -903,7 +901,7 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
                                     RoomPresentationOwner{passive.presentation.visit.room},
                                     PropertyOwnerRef{passive.presentation.visit.room},
                                     std::move(*stop_key.value_if()),
-                                    environment.asset,
+                                    std::nullopt,
                                     environment.visual,
                                     environment.material,
                                     environment.material_parameters,
@@ -1103,8 +1101,7 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             std::move(*instance.value_if()),
             RoomPresentationOwner{resolution.presentation.visit.room},
             PropertyOwnerRef{resolution.presentation.visit.room}, std::move(*stop_key.value_if()),
-            environment.asset, environment.visual, environment.material,
-            environment.material_parameters,
+            std::nullopt, environment.visual, environment.material, environment.material_parameters,
             material_application_textures(
                 project, material_application(std::optional<MaterialId>{environment.material},
                                               environment.material_parameters,

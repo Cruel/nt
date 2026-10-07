@@ -146,9 +146,9 @@ stable nested `RoomEnvironmentId`, condition, optional image/Animation Visual, r
 world plane/order, clock domain, UV scroll rate, opacity, and visibility. Room resolution derives
 these records after load; they are not duplicated in save bytes. Runtime-selected environment records
 with explicit presentation owners use the scoped desired-state path and are persisted separately.
-The first [Animation tracer](ANIMATION.md) adds immutable Visual selection to authored Environments;
-its backend-local phase is not persisted. The temporary image `asset` field remains only for this
-expand-contract slice, and Visual takes precedence when present.
+Authored Environments use only the canonical `visual` field; the Phase 1 temporary image `asset`
+field is rejected by authoring, compiled-project, and focused-preview contracts. Animation backend-local
+phase is not persisted.
 
 ## Authoring and validation
 

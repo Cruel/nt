@@ -107,7 +107,6 @@ CompiledProject animation_room_fixture()
     nlohmann::json environment;
     environment["id"] = "rain";
     environment["condition"] = {{"kind", "always"}};
-    environment["asset"] = nullptr;
     environment["visual"] = {{"kind", "animation"},
                              {"animation", {{"kind", "animation"}, {"id", "rain"}}},
                              {"motionId", nullptr}};

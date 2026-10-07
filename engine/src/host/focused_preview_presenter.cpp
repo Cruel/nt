@@ -310,8 +310,6 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
         if (visual && visual->kind == "image")
             require_asset(visual->resource_id,
                           "/world/environments/" + std::to_string(index) + "/visual/assetId");
-        require_asset(document.world.environments[index].asset_id,
-                      "/world/environments/" + std::to_string(index) + "/assetId");
         require_material_textures(document.world.environments[index].material_textures,
                                   "/world/environments/" + std::to_string(index) +
                                       "/materialTextures");
@@ -988,8 +986,6 @@ resolve_focused_room(const core::editor::TypedEditorRoomPreviewDocument& documen
         definition.environments.push_back(
             {decoded_id<core::RoomEnvironmentId>(environment.environment_id),
              condition_token(environment.condition),
-             environment.asset_id ? std::optional{decoded_id<core::AssetId>(*environment.asset_id)}
-                                  : std::nullopt,
              environment.visual ? std::optional{focused_visual(*environment.visual)} : std::nullopt,
              decoded_id<core::MaterialId>(environment.material_id),
              environment.material_parameters,

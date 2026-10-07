@@ -114,7 +114,6 @@
       {
         "id": "animation-gameplay",
         "condition": { "kind": "always" },
-        "asset": null,
         "visual": { "kind": "animation", "animation": { "$ref": { "collection": "animations", "id": "guide-expression-loop" } }, "motionId": null, "playback": null },
         "materialApplication": {
           "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
@@ -132,7 +131,6 @@
       {
         "id": "animation-unscaled",
         "condition": { "kind": "always" },
-        "asset": null,
         "visual": { "kind": "animation", "animation": { "$ref": { "collection": "animations", "id": "guide-expression-loop" } }, "motionId": "expressions", "playback": null },
         "materialApplication": {
           "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
@@ -150,7 +148,7 @@
       {
         "id": "slow-pattern",
         "condition": { "kind": "always" },
-        "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+        "visual": { "kind": "image", "image": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } } },
         "materialApplication": {
           "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
           "parameters": {},
@@ -167,7 +165,7 @@
       {
         "id": "unscaled-pattern",
         "condition": { "kind": "always" },
-        "asset": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } },
+        "visual": { "kind": "image", "image": { "$ref": { "collection": "assets", "id": "pilot-room-backdrop" } } },
         "materialApplication": {
           "material": { "$ref": { "collection": "materials", "id": "engine2d-draw-contract" } },
           "parameters": { "u_strength": { "type": "float", "source": { "kind": "literal", "value": 0.6 } } },

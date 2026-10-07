@@ -4219,14 +4219,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     continue;
                 }
                 exact_fields(value,
-                             {"environmentId", "condition", "assetId", "materialId",
-                              "materialParameters", "materialTextures", "bounds", "plane", "order",
-                              "clock", "scrollPerSecond", "opacity", "visible", "visual"},
+                             {"environmentId", "condition", "materialId", "materialParameters",
+                              "materialTextures", "bounds", "plane", "order", "clock",
+                              "scrollPerSecond", "opacity", "visible", "visual"},
                              diagnostics, path);
                 TypedFocusedRoomWorldDefinition::Environment typed{
                     .environment_id = required_string(value, "environmentId", path),
                     .condition = condition(value["condition"], path + "/condition"),
-                    .asset_id = optional_string(value, "assetId", path),
                     .visual = std::nullopt,
                     .material_id = required_string(value, "materialId", path),
                     .material_parameters = {},
@@ -4240,7 +4239,13 @@ decode_editor_room_preview_document_text(std::string_view data_text,
                     .opacity = json_access::member_as<double>(value, "opacity").value_or(1.0),
                     .visible = required_bool(value, "visible", path)};
                 if (const auto visual = value.find("visual"); visual != value.end())
-                    typed.visual = decode_world_visual(*visual, path + "/visual");
+                    typed.visual = visual->is_null()
+                                       ? std::nullopt
+                                       : decode_world_visual(*visual, path + "/visual");
+                else
+                    diagnostics.push_back(error("editor_preview.missing_field",
+                                                "Environment is missing required field 'visual'.",
+                                                path + "/visual"));
                 if (const auto parameters = value.find("materialParameters");
                     parameters != value.end())
                     typed.material_parameters =

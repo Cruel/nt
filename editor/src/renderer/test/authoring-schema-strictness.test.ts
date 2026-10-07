@@ -58,6 +58,31 @@ describe('authoring schema strictness', () => {
     ).toBe(false);
   });
 
+  it('rejects the retired Room Environment asset compatibility shape', () => {
+    const room = defaultRoomData();
+    expect(
+      roomDataSchema.safeParse({
+        ...room,
+        environments: [
+          {
+            id: 'fog',
+            condition: { kind: 'always' },
+            asset: null,
+            visual: null,
+            materialApplication: room.background.materialApplication,
+            bounds: { x: 0, y: 0, width: 1, height: 1 },
+            plane: 'world-background',
+            order: 0,
+            clock: 'gameplay',
+            scrollPerSecond: { x: 0, y: 0 },
+            opacity: 1,
+            visible: true,
+          },
+        ],
+      }).success,
+    ).toBe(false);
+  });
+
   it('rejects unknown fields at representative nested data in every collection family', () => {
     const character = defaultCharacterData();
     const dialogue = defaultDialogueData();

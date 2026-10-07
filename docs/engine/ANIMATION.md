@@ -3,11 +3,9 @@
 ## Purpose and current status
 
 Animation is immutable reusable raster content, separate from source Assets and gameplay identities.
-The first tracer (#394) supports named sprite-sequence motions and closed image/Animation Visual
-references on Room Environments. Interactable presentation also selects canonical image/Animation
-Visuals (#395), including current-frame `visual-alpha` hit testing. Character Pose layers and sparse
-Expression/Appearance/CharacterAnimationClip overrides also select Visuals (#396); Character semantic
-composition and choreography remain separate from reusable Animation content.
+Phase 1 has one canonical image/Animation Visual contract across Room Environments, Interactable
+presentation, and Character visual layers. Interactables use current-frame `visual-alpha` hit testing,
+while Character semantic composition and choreography remain separate from reusable Animation content.
 
 ## Authoring and validation
 
@@ -86,8 +84,8 @@ loop policy is never stored on the reusable Animation resource. Project edits us
 bus, undo/redo, and manual-save record unit. Tab restoration keeps authoring view position but never
 a running playback anchor. Focused Room preview stages the referenced Environment, Interactable, and Character-layer Animations
 and their frame Assets through production focused resource preparation, not a browser animation
-interpreter. Temporary Environment `asset` input remains for the explicitly scoped expand-contract
-slice; Visual takes precedence during realization.
+interpreter. Room Environments author and compile only nullable `visual`; the temporary image `asset`
+expand-contract field is retired and rejected rather than aliased.
 
 Interactable Definition and exact Instance targets admit owner-scoped `DesiredMotionSelection`,
 through the Presentation command gateway and Lua `set_motion_selection` / `clear_motion_selection`.
@@ -138,8 +136,9 @@ backend-local motion phase used for the realized raster frame: missing tracks us
 Focus uses the shared authoring timeline helpers for play/pause/scrub/frame-step/marker inspection and
 can author keys for any motion in the selected Animation.
 
-Video, animated Inventory icons, and broader sprite-field cutover remain later work. Interactable world Hotspots can
-already sample a selected raster Animation frame's CPU coverage.
+Video and animated Inventory icons remain later work. The Phase 1 world-presentation sprite-to-Visual
+cutover is complete, and Interactable world Hotspots can already sample a selected raster Animation
+frame's CPU coverage.
 
 ## Verification
 

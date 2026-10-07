@@ -1896,6 +1896,18 @@
       },
       "checks": [
         {
+          "id": "phase1-sprite-animation-contract",
+          "title": "Exercise the canonical sprite Animation contract",
+          "action": "Use the alpha board controls to select named once and marker-bounded loop motion, then restore authored motion. Keep the pointer over the changing visual-alpha sample and compare the custom board's motion-tracked probe. Leave/re-enter and save/load while the durable loop is selected.",
+          "expected": "One reusable Animation drives named desired motion, reconstructible loop policy, current-sample alpha interaction, and motion-keyed custom geometry without saved frame/phase state. Re-entry/load reconstruct from semantic start or marker. Phase 1 exposes no authored Feature Lab trigger for finite PlayMotion/TransitionMotion, so those transient operations are certified in the focused native coordinator/world-transition tests against the same Animation resources and occurrence identities.",
+          "status": "ready",
+          "verification": "visual",
+          "created": "2026-10-07T01:55:00Z",
+          "modified": "2026-10-07T01:55:00Z",
+          "assetRequirements": ["ui-pattern", "pilot-button-sprite"],
+          "automation": []
+        },
+        {
           "id": "desired-motion",
           "title": "Reconstructible owner-scoped motion and playback policy",
           "action": "Activate the left alpha board to open its contextual Inventory. Choose once at 2×, dismiss, and wait. Reopen and choose the unscaled marker loop. Pause/resume, leave/re-enter, and save/load at a checkpoint. Finally restore authored motion.",

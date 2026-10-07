@@ -2816,8 +2816,6 @@ private:
                 if (!environment_ids.insert(environment.id).second)
                     error("compiled_project.duplicate_nested_id", "Duplicate Room environment ID.",
                           environment_path + "/id");
-                if (environment.asset)
-                    require(m_assets, *environment.asset, "asset", environment_path + "/asset");
                 if (environment.visual)
                     validate_visual(*environment.visual, environment_path + "/visual");
                 validate_condition(environment.condition, environment_path + "/condition");

@@ -415,7 +415,7 @@ describe('Material lightweight previews', () => {
       {
         id: 'fog',
         condition: { kind: 'always' },
-        asset: null,
+        visual: null,
         materialApplication: {
           ...emptyMaterialApplication('panel'),
           parameters: {

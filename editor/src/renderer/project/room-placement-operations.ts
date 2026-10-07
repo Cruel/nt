@@ -725,8 +725,11 @@ export function addRoomPresentationContentPatches(
         {
           id,
           condition: { kind: 'always' },
-          asset: payload.assetId
-            ? { $ref: { collection: 'assets' as const, id: payload.assetId } }
+          visual: payload.assetId
+            ? {
+                kind: 'image' as const,
+                image: { $ref: { collection: 'assets' as const, id: payload.assetId } },
+              }
             : null,
           materialApplication: emptyMaterialApplication(payload.materialId),
           bounds: centeredBounds(payload.point, 0.5, 0.5),

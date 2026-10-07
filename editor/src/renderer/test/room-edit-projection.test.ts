@@ -243,7 +243,7 @@ describe('Room Edit spatial projection', () => {
       {
         id: 'back-fog',
         condition: { kind: 'always' },
-        asset: { $ref: { collection: 'assets', id: 'fog-image' } },
+        visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'fog-image' } } },
         materialApplication: emptyMaterialApplication('world-material'),
         bounds: { x: 0, y: 0, width: 1, height: 1 },
         plane: 'world-background',
@@ -256,7 +256,7 @@ describe('Room Edit spatial projection', () => {
       {
         id: 'front-fog',
         condition: { kind: 'always' },
-        asset: { $ref: { collection: 'assets', id: 'fog-image' } },
+        visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'fog-image' } } },
         materialApplication: emptyMaterialApplication('world-material'),
         bounds: { x: 0.6, y: 0.1, width: 0.2, height: 0.4 },
         plane: 'world-content',
@@ -372,7 +372,7 @@ describe('Room Edit spatial projection', () => {
         {
           layerId: 'body',
           rect: { x: 230, y: 190, width: 50, height: 100 },
-          spriteAssetId: 'hero-image',
+          visualAssetId: 'hero-image',
           propertyValues: { glow: 0.75 },
         },
       ],
@@ -838,7 +838,7 @@ describe('Room Edit spatial projection', () => {
       {
         id: 'hidden-environment',
         condition: { kind: 'always' },
-        asset: null,
+        visual: null,
         materialApplication: emptyMaterialApplication('hidden-material'),
         bounds: { x: 0, y: 0, width: 1, height: 1 },
         plane: 'world-background',
