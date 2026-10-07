@@ -4,10 +4,10 @@ import instanceExample from './examples/interactable-instance.json';
 import { assetRefSchema, materialRefSchema, roomRefSchema } from './authoring-flow';
 import { entityIdSchema } from './authoring-common';
 import { parseAssetData } from './authoring-assets';
-import { visualSchema, validateVisualData } from './authoring-animations';
+import { animationDataSchema, visualSchema, validateVisualData } from './authoring-animations';
 import { resolveMaterialData } from './authoring-materials';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import { hotspotCommonShape, rectHotspotShapeSchema } from './authoring-hotspots';
+import { hotspotCommonShape, motionTrackedRectHotspotShapeSchema } from './authoring-hotspots';
 import { featureDataSchema, interactableHotspotTargetSchema } from './authoring-features';
 import { inventoryDefinitionSchema, inventoryReferenceSchema } from './authoring-inventories';
 import { authoredPropertyValueSchema, ownerLocalPropertiesSchema } from './authoring-properties';
@@ -36,7 +36,7 @@ export const interactableHotspotsSchema = withSchemaDocumentation(
           ...hotspotCommonShape,
           cursor: cursorTargetSchema.nullable().optional(),
           target: interactableHotspotTargetSchema,
-          shape: rectHotspotShapeSchema,
+          shape: motionTrackedRectHotspotShapeSchema,
         }),
       ),
     }),
@@ -287,8 +287,56 @@ export function validateInteractableData(
   };
   validateCursor(data.presentation.cursor, `${base}/presentation/cursor`);
   if (data.presentation.hotspots.kind === 'custom')
-    data.presentation.hotspots.hotspots.forEach((hotspot, index) =>
-      validateCursor(hotspot.cursor, `${base}/presentation/hotspots/hotspots/${index}/cursor`),
-    );
+    data.presentation.hotspots.hotspots.forEach((hotspot, index) => {
+      validateCursor(hotspot.cursor, `${base}/presentation/hotspots/hotspots/${index}/cursor`);
+      const tracks = hotspot.shape.motionTracks ?? [];
+      if (tracks.length === 0) return;
+      const visual = data.presentation.visual;
+      const animation =
+        visual?.kind === 'animation'
+          ? animationDataSchema.safeParse(project.animations[visual.animation.$ref.id]?.data)
+          : null;
+      if (!animation?.success) {
+        diagnostics.push(
+          diagnostic(
+            `${base}/presentation/hotspots/hotspots/${index}/shape/motionTracks`,
+            'Motion-keyed Hotspot geometry requires an Animation Visual.',
+          ),
+        );
+        return;
+      }
+      const seen = new Set<string>();
+      tracks.forEach((track, trackIndex) => {
+        const trackPath = `${base}/presentation/hotspots/hotspots/${index}/shape/motionTracks/${trackIndex}`;
+        if (seen.has(track.motionId))
+          diagnostics.push(
+            diagnostic(
+              `${trackPath}/motionId`,
+              `Duplicate Hotspot motion track '${track.motionId}'.`,
+            ),
+          );
+        seen.add(track.motionId);
+        const motion = animation.data.motions.find((candidate) => candidate.id === track.motionId);
+        if (!motion) {
+          diagnostics.push(
+            diagnostic(
+              `${trackPath}/motionId`,
+              `Hotspot motion track references missing motion '${track.motionId}'.`,
+            ),
+          );
+          return;
+        }
+        const duration = motion.frames.reduce((sum, frame) => sum + frame.durationMs, 0);
+        track.keyframes.forEach((keyframe, keyframeIndex) => {
+          if (keyframe.timeMs > duration)
+            diagnostics.push(
+              diagnostic(
+                `${trackPath}/keyframes/${keyframeIndex}/timeMs`,
+                `Hotspot motion keyframe exceeds motion duration (${duration} ms).`,
+              ),
+            );
+        });
+      });
+    });
   return diagnostics;
 }

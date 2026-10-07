@@ -3536,6 +3536,40 @@ describe('authoring compiler framework', () => {
     });
     delete (interactable.presentation as Record<string, unknown>).sprite;
     project.interactables.rain = { id: 'rain', label: 'Rain', data: interactable };
+    const tracked = defaultInteractableData('Tracked rain');
+    tracked.presentation.visual = interactable.presentation.visual;
+    tracked.presentation.hotspots = {
+      kind: 'custom',
+      hotspots: [
+        {
+          ...defaultHotspotBehavior('Tracked rain'),
+          shape: {
+            kind: 'rect',
+            bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+            motionTracks: [
+              {
+                motionId: 'fall',
+                keyframes: [
+                  {
+                    timeMs: 50,
+                    interpolation: 'linear',
+                    active: true,
+                    bounds: { x: 0.2, y: 0.2, width: 0.3, height: 0.4 },
+                  },
+                  {
+                    timeMs: 150,
+                    interpolation: 'hold',
+                    active: false,
+                    bounds: { x: 0.4, y: 0.2, width: 0.2, height: 0.4 },
+                  },
+                ],
+              },
+            ],
+          },
+        },
+      ],
+    };
+    project.interactables.tracked = { id: 'tracked', label: 'Tracked rain', data: tracked };
     const room = project.rooms.foyer.data as ReturnType<typeof defaultRoomData>;
     room.environments.push({
       id: 'rain',
@@ -3626,6 +3660,39 @@ describe('authoring compiler framework', () => {
         playback: null,
       },
       hotspots: { kind: 'visual-alpha' },
+    });
+    expect(
+      result.project.definitions.interactables.find((item) => item.id === 'tracked')?.presentation
+        .hotspots,
+    ).toEqual({
+      kind: 'custom',
+      hotspots: [
+        expect.objectContaining({
+          shape: {
+            kind: 'rect',
+            bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+            motionTracks: [
+              {
+                motionId: 'fall',
+                keyframes: [
+                  {
+                    timeMs: 50,
+                    interpolation: 'linear',
+                    active: true,
+                    bounds: { x: 0.2, y: 0.2, width: 0.3, height: 0.4 },
+                  },
+                  {
+                    timeMs: 150,
+                    interpolation: 'hold',
+                    active: false,
+                    bounds: { x: 0.4, y: 0.2, width: 0.2, height: 0.4 },
+                  },
+                ],
+              },
+            ],
+          },
+        }),
+      ],
     });
     expect(environment).toMatchObject({
       asset: null,

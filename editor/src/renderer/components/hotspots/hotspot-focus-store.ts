@@ -37,6 +37,7 @@ import {
   mergeHotspotFocusGeometry,
   redoHotspotGeometry,
   setHotspotGeometryBounds,
+  setHotspotMotionKeyframe,
   undoHotspotGeometry,
   type HotspotFocusHistory,
 } from './hotspot-focus-session';
@@ -111,6 +112,15 @@ interface HotspotFocusStoreState {
   consumeEntryTransition: (tabId: string) => void;
   add: (tabId: string, hotspot: EditableHotspot) => void;
   setBounds: (tabId: string, hotspotId: string, bounds: ImageNormalizedRect) => void;
+  setMotionKeyframe: (
+    tabId: string,
+    hotspotId: string,
+    motionId: string,
+    timeMs: number,
+    bounds: ImageNormalizedRect,
+    active: boolean,
+    interpolation: 'hold' | 'linear',
+  ) => void;
   delete: (tabId: string, hotspotId: string) => void;
   undo: (tabId: string) => void;
   redo: (tabId: string) => void;
@@ -486,6 +496,29 @@ export const useHotspotFocusStore = create<HotspotFocusStoreState>()((set, get) 
         history: setHotspotGeometryBounds(session.history, hotspotId, bounds),
       };
       return { sessionsByTabId: { ...state.sessionsByTabId, [tabId]: next } };
+    });
+    syncDraftEntry(get().sessionsByTabId[tabId]);
+  },
+  setMotionKeyframe: (tabId, hotspotId, motionId, timeMs, bounds, active, interpolation) => {
+    set((state) => {
+      const session = state.sessionsByTabId[tabId];
+      if (!session) return state;
+      const history = setHotspotMotionKeyframe(
+        session.history,
+        hotspotId,
+        motionId,
+        timeMs,
+        bounds,
+        active,
+        interpolation,
+      );
+      if (history === session.history) return state;
+      return {
+        sessionsByTabId: {
+          ...state.sessionsByTabId,
+          [tabId]: { ...session, history },
+        },
+      };
     });
     syncDraftEntry(get().sessionsByTabId[tabId]);
   },

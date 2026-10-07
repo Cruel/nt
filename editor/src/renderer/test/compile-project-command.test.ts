@@ -94,7 +94,7 @@ describe('project compiler workspace command', () => {
       {
         code: 'AUTHORING_HOTSPOT_AUTHORING_TARGET_NONE',
         severity: 'info',
-        jsonPointer: '/interactables/custom-board/data/presentation/hotspots/hotspots/4/target',
+        jsonPointer: '/interactables/custom-board/data/presentation/hotspots/hotspots/5/target',
       },
     ]);
     expect(result.report.bytesWritten).toBeGreaterThan(0);

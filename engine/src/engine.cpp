@@ -3043,7 +3043,13 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
                                        std::distance(frame->hotspot_hit_targets.begin(), prepared))}
                                  : std::nullopt;
                 const auto* rect_shape =
-                    std::get_if<core::compiled::NormalizedRect>(&hotspot.shape);
+                    has_prepared ? std::get_if<core::compiled::NormalizedRect>(&prepared->shape)
+                                 : nullptr;
+                const auto* authored_rect_shape =
+                    std::get_if<core::compiled::RectHotspotShape>(&hotspot.shape);
+                const auto* debug_rect = rect_shape            ? rect_shape
+                                         : authored_rect_shape ? &authored_rect_shape->bounds
+                                                               : nullptr;
                 world.hotspots.push_back({
                     .identity = identity,
                     .label = hotspot.label,
@@ -3063,12 +3069,12 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
                                                      ? "alpha"
                                                      : "rect")
                                               : "none",
-                    .hit_shape_x = rect_shape ? std::optional<double>{rect_shape->x} : std::nullopt,
-                    .hit_shape_y = rect_shape ? std::optional<double>{rect_shape->y} : std::nullopt,
+                    .hit_shape_x = debug_rect ? std::optional<double>{debug_rect->x} : std::nullopt,
+                    .hit_shape_y = debug_rect ? std::optional<double>{debug_rect->y} : std::nullopt,
                     .hit_shape_width =
-                        rect_shape ? std::optional<double>{rect_shape->width} : std::nullopt,
+                        debug_rect ? std::optional<double>{debug_rect->width} : std::nullopt,
                     .hit_shape_height =
-                        rect_shape ? std::optional<double>{rect_shape->height} : std::nullopt,
+                        debug_rect ? std::optional<double>{debug_rect->height} : std::nullopt,
                     .hit_bounds_x =
                         has_prepared ? std::optional<float>{prepared->owner_rect.x} : std::nullopt,
                     .hit_bounds_y =

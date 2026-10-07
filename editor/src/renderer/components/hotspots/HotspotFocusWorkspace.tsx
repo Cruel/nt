@@ -16,7 +16,26 @@ import {
   type StageSize,
 } from '@/components/image-stage/image-stage-transforms';
 import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import { parseAssetData } from '../../../shared/project-schema/authoring-assets';
+import { animationDataSchema } from '../../../shared/project-schema/authoring-animations';
+import {
+  advanceAnimationTime,
+  animationDuration,
+  animationFrameAt,
+  animationFrameTime,
+  type MotionPolicy,
+} from '../../../shared/animation-timeline';
+import { sampleHotspotMotionTrack } from '../../../shared/project-schema/authoring-hotspots';
+import { parseInteractableData } from '../../../shared/project-schema/authoring-interactables';
+import { resolveGameplayInstanceRecord } from '../../../shared/project-schema/authoring-archetypes';
+import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import { useProjectStore } from '@/project/project-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { isTextEntryKeyboardTarget } from '@/components/image-stage/keyboard-target';
@@ -57,6 +76,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
   ) {
     const { t } = useTranslation('workspace');
     const projectSessionId = useProjectStore((state) => state.projectSessionId);
+    const project = useProjectStore((state) => state.document);
     const session = useHotspotFocusStore((state) => state.sessionsByTabId[tabId]);
     const setSelection = useHotspotFocusStore((state) => state.setSelection);
     const setTool = useHotspotFocusStore((state) => state.setTool);
@@ -65,6 +85,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
     const setSnapToPixels = useHotspotFocusStore((state) => state.setSnapToPixels);
     const add = useHotspotFocusStore((state) => state.add);
     const setBounds = useHotspotFocusStore((state) => state.setBounds);
+    const setMotionKeyframe = useHotspotFocusStore((state) => state.setMotionKeyframe);
     const remove = useHotspotFocusStore((state) => state.delete);
     const undo = useHotspotFocusStore((state) => state.undo);
     const redo = useHotspotFocusStore((state) => state.redo);
@@ -77,26 +98,96 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
     const [imageUrl, setImageUrl] = useState<string | null>(null);
     const [alphaCoverage, setAlphaCoverage] = useState<ImageData | null>(null);
     const [imageRect, setImageRect] = useState<StageRect | null>(null);
+    const [motionTimeMs, setMotionTimeMs] = useState(0);
+    const [motionPlaying, setMotionPlaying] = useState(false);
+    const [selectedMotionId, setSelectedMotionId] = useState<string | null>(null);
+    const [motionInterpolation, setMotionInterpolation] = useState<'hold' | 'linear'>('hold');
     const workspaceRef = useRef<HTMLDivElement | null>(null);
 
+    const animation = useMemo(() => {
+      if (!session || session.ownerKind !== 'interactable' || !isAuthoringProject(project))
+        return null;
+      const record = project.interactables[session.ownerId];
+      const interactable = record
+        ? parseInteractableData(
+            resolveGameplayInstanceRecord(project, 'interactable', record)?.data,
+          )
+        : null;
+      const visual = interactable?.presentation.visual;
+      if (visual?.kind !== 'animation') return null;
+      const parsed = animationDataSchema.safeParse(
+        project.animations[visual.animation.$ref.id]?.data,
+      );
+      if (!parsed.success) return null;
+      return {
+        animationId: visual.animation.$ref.id,
+        data: parsed.data,
+        initialMotionId: visual.motionId ?? parsed.data.defaultMotionId,
+      };
+    }, [project, session]);
+    const motion = useMemo(() => {
+      if (!animation) return null;
+      const selected = animation.data.motions.find(
+        (candidate) => candidate.id === (selectedMotionId ?? animation.initialMotionId),
+      );
+      return selected ? { animation: animation.data, motion: selected } : null;
+    }, [animation, selectedMotionId]);
+    const motionDurationMs = motion ? animationDuration(motion.motion) : 0;
+    const motionFrameIndex = motion ? animationFrameAt(motion.motion, motionTimeMs) : 0;
+    const displayAssetId =
+      motion?.motion.frames[motionFrameIndex]?.image.$ref.id ?? session?.assetId ?? null;
+
     const assetData = useMemo(() => {
-      if (!session?.assetId) return null;
-      return parseAssetData(projectAssets[session.assetId]?.data);
-    }, [projectAssets, session?.assetId]);
+      if (!displayAssetId) return null;
+      return parseAssetData(projectAssets[displayAssetId]?.data);
+    }, [displayAssetId, projectAssets]);
     const imageSize = useMemo(
       () =>
-        assetData?.kind === 'image' && assetData.imageMetadata
-          ? { width: assetData.imageMetadata.width, height: assetData.imageMetadata.height }
-          : null,
-      [assetData],
+        motion
+          ? { width: motion.animation.canvas.width, height: motion.animation.canvas.height }
+          : assetData?.kind === 'image' && assetData.imageMetadata
+            ? { width: assetData.imageMetadata.width, height: assetData.imageMetadata.height }
+            : null,
+      [assetData, motion],
     );
+
+    useEffect(() => {
+      setSelectedMotionId(null);
+      setMotionTimeMs(0);
+      setMotionPlaying(false);
+    }, [animation?.animationId, animation?.initialMotionId, session?.ownerId]);
+
+    useEffect(() => {
+      setMotionTimeMs(0);
+      setMotionPlaying(false);
+    }, [motion?.motion.id]);
+
+    useEffect(() => {
+      if (!motionPlaying || !motion || motionDurationMs <= 0) return undefined;
+      const policy: MotionPolicy = {
+        repeat: 'loop',
+        rate: 1,
+        clock: 'unscaled-presentation',
+        initialMarker: null,
+      };
+      let frame = 0;
+      let previous = performance.now();
+      const tick = (now: number) => {
+        const delta = Math.max(0, now - previous);
+        previous = now;
+        setMotionTimeMs((current) => advanceAnimationTime(motion.motion, policy, current, delta));
+        frame = requestAnimationFrame(tick);
+      };
+      frame = requestAnimationFrame(tick);
+      return () => cancelAnimationFrame(frame);
+    }, [motion, motionDurationMs, motionPlaying]);
 
     useEffect(() => {
       let cancelled = false;
       setImageUrl(null);
-      if (!projectSessionId || !session?.assetId || assetData?.kind !== 'image') return undefined;
+      if (!projectSessionId || !displayAssetId || assetData?.kind !== 'image') return undefined;
       void window.noveltea
-        .resolveProjectOriginalAssetUrl(projectSessionId, session.assetId)
+        .resolveProjectOriginalAssetUrl(projectSessionId, displayAssetId)
         .then((result) => {
           if (!cancelled) setImageUrl(result.ok ? result.url : null);
         })
@@ -106,7 +197,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
       return () => {
         cancelled = true;
       };
-    }, [assetData?.kind, assetData?.source.path, projectSessionId, session?.assetId]);
+    }, [assetData?.kind, assetData?.source.path, displayAssetId, projectSessionId]);
 
     useEffect(() => onImageUrlChange?.(imageUrl), [imageUrl, onImageUrlChange]);
 
@@ -226,6 +317,20 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
     if (!session) return null;
     const hotspots = session.history.present;
     const canDraw = session.mode === 'rectangles';
+    const sampledHotspots = hotspots.flatMap((item) => {
+      if (!item.shape) return [{ id: item.id, label: item.label, inputOrder: item.inputOrder }];
+      const bounds = motion
+        ? sampleHotspotMotionTrack(
+            item.shape.bounds,
+            item.shape.motionTracks,
+            motion.motion.id,
+            motionTimeMs,
+          )
+        : item.shape.bounds;
+      return bounds
+        ? [{ id: item.id, label: item.label, inputOrder: item.inputOrder, bounds }]
+        : [];
+    });
     const requestClose = (action: () => boolean) => {
       if (onRequestClose) onRequestClose(action);
       else action();
@@ -269,6 +374,172 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
           >
             {t('hotspots.focus.select')}
           </Button>
+          {motion && canDraw ? (
+            <div className="flex basis-full items-center gap-2 border-t pt-2 text-xs">
+              <Select
+                items={motion.animation.motions.map((candidate) => ({
+                  value: candidate.id,
+                  label: candidate.id,
+                }))}
+                value={motion.motion.id}
+                onValueChange={(value) => {
+                  if (value) setSelectedMotionId(value);
+                }}
+              >
+                <SelectTrigger className="w-36" aria-label={t('hotspots.focus.motion')}>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {motion.animation.motions.map((candidate) => (
+                    <SelectItem key={candidate.id} value={candidate.id}>
+                      {candidate.id}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                onClick={() => setMotionPlaying((value) => !value)}
+              >
+                {motionPlaying ? t('hotspots.focus.pause') : t('hotspots.focus.play')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={motionFrameIndex === 0}
+                onClick={() =>
+                  setMotionTimeMs(animationFrameTime(motion.motion, motionFrameIndex - 1))
+                }
+              >
+                {t('hotspots.focus.previousFrame')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={motionFrameIndex >= motion.motion.frames.length - 1}
+                onClick={() =>
+                  setMotionTimeMs(animationFrameTime(motion.motion, motionFrameIndex + 1))
+                }
+              >
+                {t('hotspots.focus.nextFrame')}
+              </Button>
+              <input
+                className="min-w-24 flex-1"
+                type="range"
+                min={0}
+                max={motionDurationMs}
+                step={1}
+                value={Math.min(motionTimeMs, motionDurationMs)}
+                aria-label={t('hotspots.focus.timeline')}
+                onChange={(event) => {
+                  setMotionPlaying(false);
+                  setMotionTimeMs(Number(event.currentTarget.value));
+                }}
+              />
+              <span className="tabular-nums">
+                {Math.round(motionTimeMs)} / {motionDurationMs} ms
+              </span>
+              <Button
+                type="button"
+                size="sm"
+                variant={motionInterpolation === 'hold' ? 'default' : 'outline'}
+                onClick={() => setMotionInterpolation('hold')}
+              >
+                {t('hotspots.focus.hold')}
+              </Button>
+              <Button
+                type="button"
+                size="sm"
+                variant={motionInterpolation === 'linear' ? 'default' : 'outline'}
+                onClick={() => setMotionInterpolation('linear')}
+              >
+                {t('hotspots.focus.linear')}
+              </Button>
+              {session.selectedHotspotId ? (
+                <>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const selected = hotspots.find(
+                        (item) => item.id === session.selectedHotspotId,
+                      );
+                      if (!selected?.shape) return;
+                      const bounds =
+                        sampleHotspotMotionTrack(
+                          selected.shape.bounds,
+                          selected.shape.motionTracks,
+                          motion.motion.id,
+                          motionTimeMs,
+                        ) ?? selected.shape.bounds;
+                      setMotionKeyframe(
+                        tabId,
+                        selected.id,
+                        motion.motion.id,
+                        Math.round(motionTimeMs),
+                        bounds,
+                        true,
+                        motionInterpolation,
+                      );
+                    }}
+                  >
+                    {t('hotspots.focus.keyGeometry')}
+                  </Button>
+                  <Button
+                    type="button"
+                    size="sm"
+                    variant="outline"
+                    onClick={() => {
+                      const selected = hotspots.find(
+                        (item) => item.id === session.selectedHotspotId,
+                      );
+                      if (!selected?.shape) return;
+                      const bounds =
+                        sampleHotspotMotionTrack(
+                          selected.shape.bounds,
+                          selected.shape.motionTracks,
+                          motion.motion.id,
+                          motionTimeMs,
+                        ) ?? selected.shape.bounds;
+                      setMotionKeyframe(
+                        tabId,
+                        selected.id,
+                        motion.motion.id,
+                        Math.round(motionTimeMs),
+                        bounds,
+                        false,
+                        motionInterpolation,
+                      );
+                    }}
+                  >
+                    {t('hotspots.focus.inactive')}
+                  </Button>
+                </>
+              ) : null}
+              <div className="flex gap-1">
+                {[
+                  { id: 'start', timeMs: 0 },
+                  ...motion.motion.markers,
+                  { id: 'end', timeMs: motionDurationMs },
+                ].map((marker) => (
+                  <Button
+                    key={marker.id}
+                    type="button"
+                    size="sm"
+                    variant="ghost"
+                    onClick={() => setMotionTimeMs(marker.timeMs)}
+                  >
+                    {marker.id}
+                  </Button>
+                ))}
+              </div>
+            </div>
+          ) : null}
           {canDraw ? (
             <Button
               type="button"
@@ -374,16 +645,7 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
               imageUrl={imageUrl}
               imageSize={imageSize}
               zoomBasis="native"
-              hotspots={hotspots.map((item) =>
-                item.shape
-                  ? {
-                      id: item.id,
-                      label: item.label,
-                      inputOrder: item.inputOrder,
-                      bounds: item.shape.bounds,
-                    }
-                  : { id: item.id, label: item.label, inputOrder: item.inputOrder },
-              )}
+              hotspots={sampledHotspots}
               selectedHotspotId={session.selectedHotspotId}
               tool={session.tool}
               camera={session.camera}
@@ -399,7 +661,19 @@ export const HotspotFocusWorkspace = forwardRef<HotspotFocusWorkspaceHandle, Pro
                 add(tabId, createHotspot(nextId(), nextInputOrder(), bounds));
               }}
               onCancelCreate={() => setTool(tabId, 'select')}
-              onCommitBounds={(id, bounds) => setBounds(tabId, id, bounds)}
+              onCommitBounds={(id, bounds) => {
+                if (motion)
+                  setMotionKeyframe(
+                    tabId,
+                    id,
+                    motion.motion.id,
+                    Math.round(motionTimeMs),
+                    bounds,
+                    true,
+                    motionInterpolation,
+                  );
+                else setBounds(tabId, id, bounds);
+              }}
               onDelete={(id) => remove(tabId, id)}
               captureWindowKeyboard={activeFocusTab}
               keyboardDeleteEnabled={canDraw}

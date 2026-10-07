@@ -321,13 +321,21 @@ decode_hotspot_common(Decoder& decoder, const nlohmann::json& value, std::string
                                 *order,         std::move(*highlight), std::move(cursor)};
 }
 
-std::optional<RectHotspotShape>
-decode_rect_hotspot_shape(Decoder& decoder, const nlohmann::json& value, std::string_view pointer)
+std::optional<RectHotspotShape> decode_rect_hotspot_shape(Decoder& decoder,
+                                                          const nlohmann::json& value,
+                                                          std::string_view pointer,
+                                                          bool motion_tracks_required = false)
 {
-    if (!decoder.object(value, pointer, {"bounds", "kind"}))
+    if (motion_tracks_required) {
+        if (!decoder.object(value, pointer, {"bounds", "kind", "motionTracks"}))
+            return std::nullopt;
+    } else if (!decoder.object(value, pointer, {"bounds", "kind"})) {
         return std::nullopt;
+    }
     const auto* kind_value = decoder.member(value, "kind", pointer);
     const auto* bounds_value = decoder.member(value, "bounds", pointer);
+    const auto* tracks_value =
+        motion_tracks_required ? decoder.member(value, "motionTracks", pointer) : nullptr;
     auto kind =
         kind_value ? decoder.string(*kind_value, pointer_child(pointer, "kind")) : std::nullopt;
     auto bounds = bounds_value
@@ -338,8 +346,94 @@ decode_rect_hotspot_shape(Decoder& decoder, const nlohmann::json& value, std::st
                       pointer_child(pointer, "kind"));
         return std::nullopt;
     }
-    return bounds ? std::optional<RectHotspotShape>(RectHotspotShape{std::move(*bounds)})
-                  : std::nullopt;
+    auto tracks =
+        tracks_value
+            ? decoder.array<RectHotspotShape::MotionTrack>(
+                  *tracks_value, pointer_child(pointer, "motionTracks"),
+                  [&](const nlohmann::json& track, const std::string& track_pointer)
+                      -> std::optional<RectHotspotShape::MotionTrack> {
+                      if (!decoder.object(track, track_pointer, {"keyframes", "motionId"}))
+                          return std::nullopt;
+                      const auto* motion_value = decoder.member(track, "motionId", track_pointer);
+                      const auto* keyframes_value =
+                          decoder.member(track, "keyframes", track_pointer);
+                      auto motion = motion_value ? decoder.id<AnimationMotionId>(
+                                                       *motion_value,
+                                                       pointer_child(track_pointer, "motionId"))
+                                                 : std::nullopt;
+                      auto keyframes =
+                          keyframes_value
+                              ? decoder.array<RectHotspotShape::Keyframe>(
+                                    *keyframes_value, pointer_child(track_pointer, "keyframes"),
+                                    [&](const nlohmann::json& keyframe,
+                                        const std::string& keyframe_pointer)
+                                        -> std::optional<RectHotspotShape::Keyframe> {
+                                        if (!decoder.object(
+                                                keyframe, keyframe_pointer,
+                                                {"active", "bounds", "interpolation", "timeMs"}))
+                                            return std::nullopt;
+                                        const auto* time_value =
+                                            decoder.member(keyframe, "timeMs", keyframe_pointer);
+                                        const auto* interpolation_value = decoder.member(
+                                            keyframe, "interpolation", keyframe_pointer);
+                                        const auto* active_value =
+                                            decoder.member(keyframe, "active", keyframe_pointer);
+                                        const auto* key_bounds_value =
+                                            decoder.member(keyframe, "bounds", keyframe_pointer);
+                                        auto time =
+                                            time_value
+                                                ? decoder.unsigned_integer<std::uint64_t>(
+                                                      *time_value,
+                                                      pointer_child(keyframe_pointer, "timeMs"))
+                                                : std::nullopt;
+                                        auto interpolation =
+                                            interpolation_value
+                                                ? decoder.enumeration<
+                                                      RectHotspotShape::Interpolation>(
+                                                      *interpolation_value,
+                                                      pointer_child(keyframe_pointer,
+                                                                    "interpolation"),
+                                                      {{"hold",
+                                                        RectHotspotShape::Interpolation::Hold},
+                                                       {"linear",
+                                                        RectHotspotShape::Interpolation::Linear}})
+                                                : std::nullopt;
+                                        auto active =
+                                            active_value
+                                                ? decoder.boolean(
+                                                      *active_value,
+                                                      pointer_child(keyframe_pointer, "active"))
+                                                : std::nullopt;
+                                        auto key_bounds =
+                                            key_bounds_value
+                                                ? decode_rect(
+                                                      decoder, *key_bounds_value,
+                                                      pointer_child(keyframe_pointer, "bounds"))
+                                                : std::nullopt;
+                                        if (!time || !interpolation || !active || !key_bounds)
+                                            return std::nullopt;
+                                        return RectHotspotShape::Keyframe{
+                                            *time, *interpolation, *active, std::move(*key_bounds)};
+                                    })
+                              : std::nullopt;
+                      if (!motion || !keyframes || keyframes->empty())
+                          return std::nullopt;
+                      for (std::size_t index = 1; index < keyframes->size(); ++index)
+                          if ((*keyframes)[index].time_ms <= (*keyframes)[index - 1].time_ms) {
+                              decoder.error(k_code_variant,
+                                            "Hotspot motion keyframes must be strictly increasing.",
+                                            pointer_child(track_pointer, "keyframes"));
+                              return std::nullopt;
+                          }
+                      return RectHotspotShape::MotionTrack{std::move(*motion),
+                                                           std::move(*keyframes)};
+                  })
+        : motion_tracks_required ? std::nullopt
+                                 : std::optional<std::vector<RectHotspotShape::MotionTrack>>(
+                                       std::vector<RectHotspotShape::MotionTrack>{});
+    if (!bounds || !tracks)
+        return std::nullopt;
+    return RectHotspotShape{std::move(*bounds), std::move(*tracks)};
 }
 std::optional<RoomNavigationTransition> decode_navigation_transition(Decoder& decoder,
                                                                      const nlohmann::json& value,
@@ -2927,7 +3021,7 @@ decode_interactable(Decoder& decoder, const nlohmann::json& value, std::string_v
                                   auto shape = shape_value
                                                    ? decode_rect_hotspot_shape(
                                                          decoder, *shape_value,
-                                                         pointer_child(item_pointer, "shape"))
+                                                         pointer_child(item_pointer, "shape"), true)
                                                    : std::nullopt;
                                   if (!common || !target || !shape)
                                       return std::nullopt;

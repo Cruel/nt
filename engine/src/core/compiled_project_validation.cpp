@@ -388,6 +388,50 @@ private:
             visual);
     }
 
+    void validate_hotspot_motion_tracks(const RectHotspotShape& shape,
+                                        const std::optional<Visual>& visual,
+                                        const std::string& path)
+    {
+        if (shape.motion_tracks.empty())
+            return;
+        const auto* animation_visual = visual ? std::get_if<AnimationVisual>(&*visual) : nullptr;
+        const auto* resource = animation_visual ? animation(animation_visual->animation) : nullptr;
+        if (resource == nullptr) {
+            error("compiled_project.hotspot_motion_track_requires_animation",
+                  "Motion-keyed Hotspot geometry requires an Animation Visual.",
+                  path + "/motionTracks");
+            return;
+        }
+        std::unordered_set<AnimationMotionId> motion_ids;
+        for (std::size_t track_index = 0; track_index < shape.motion_tracks.size(); ++track_index) {
+            const auto& track = shape.motion_tracks[track_index];
+            const auto track_path = path + "/motionTracks/" + std::to_string(track_index);
+            if (!motion_ids.insert(track.motion_id).second)
+                error("compiled_project.duplicate_hotspot_motion_track",
+                      "Hotspot motion tracks must be unique per motion.", track_path + "/motionId");
+            const auto motion = std::ranges::find_if(resource->motions, [&](const auto& candidate) {
+                return candidate.id == track.motion_id;
+            });
+            if (motion == resource->motions.end()) {
+                error("compiled_project.unresolved_hotspot_motion",
+                      "Hotspot motion track references unknown Animation motion '" +
+                          track.motion_id.text() + "'.",
+                      track_path + "/motionId");
+                continue;
+            }
+            std::uint64_t duration = 0;
+            for (const auto& frame : motion->frames)
+                duration += frame.duration_ms;
+            for (std::size_t keyframe_index = 0; keyframe_index < track.keyframes.size();
+                 ++keyframe_index) {
+                if (track.keyframes[keyframe_index].time_ms > duration)
+                    error("compiled_project.hotspot_motion_keyframe_out_of_range",
+                          "Hotspot motion keyframe exceeds its Animation motion duration.",
+                          track_path + "/keyframes/" + std::to_string(keyframe_index) + "/timeMs");
+            }
+        }
+    }
+
     void validate_text(const TextContent& text, const std::string& path)
     {
         const auto* message = std::get_if<MessageRef>(&text.source);
@@ -3018,6 +3062,8 @@ private:
                             validate_hotspot_common(hotspot.condition, hotspot.highlight,
                                                     hotspot_path);
                             validate_target(hotspot, hotspot_path);
+                            validate_hotspot_motion_tracks(hotspot.shape, value.presentation.visual,
+                                                           hotspot_path + "/shape");
                         }
                     }
                 },

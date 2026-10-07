@@ -1445,6 +1445,32 @@ TEST_CASE("compiled project public decoder rejects semantic linking failures")
         CHECK(has_code(result.error(), "compiled_project.invalid_number"));
     }
 
+    SECTION("Room hotspot rectangles reject Interactable motion tracks")
+    {
+        auto document = fixture("interaction-program");
+        auto* shape =
+            path_member(document, {"definitions", "rooms", "1", "hotspots", "0", "shape"});
+        REQUIRE(shape != nullptr);
+        (*shape)["motionTracks"] = nlohmann::json::array();
+        auto result =
+            noveltea::core::decode_compiled_project(document, "room-hotspot-motion-tracks.json");
+        REQUIRE_FALSE(result);
+    }
+
+    SECTION("custom Interactable hotspot rectangles require canonical motion track storage")
+    {
+        auto document = fixture("interaction-program");
+        auto* coin =
+            test_support::json_object_by_id(document["definitions"]["interactables"], "coin");
+        REQUIRE(coin != nullptr);
+        auto* shape = path_member(*coin, {"presentation", "hotspots", "hotspots", "0", "shape"});
+        REQUIRE(shape != nullptr);
+        shape->erase("motionTracks");
+        auto result = noveltea::core::decode_compiled_project(
+            document, "interactable-hotspot-missing-motion-tracks.json");
+        REQUIRE_FALSE(result);
+    }
+
     SECTION("Room hotspot IDs are unique within their owner")
     {
         auto document = fixture("interaction-program");

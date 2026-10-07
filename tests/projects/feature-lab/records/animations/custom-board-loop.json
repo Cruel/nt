@@ -1,0 +1,31 @@
+{
+  "id": "custom-board-loop",
+  "label": "Custom board hotspot motion",
+  "data": {
+    "kind": "animation",
+    "canvas": { "width": 192, "height": 128 },
+    "defaultMotionId": "sweep",
+    "motions": [
+      {
+        "id": "sweep",
+        "kind": "sprite-sequence",
+        "markers": [
+          { "id": "middle", "timeMs": 1000 },
+          { "id": "inactive", "timeMs": 1500 }
+        ],
+        "frames": [
+          { "image": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "durationMs": 1000 },
+          { "image": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "durationMs": 1000 }
+        ]
+      },
+      {
+        "id": "rest",
+        "kind": "sprite-sequence",
+        "markers": [],
+        "frames": [
+          { "image": { "$ref": { "collection": "assets", "id": "ui-pattern" } }, "durationMs": 2000 }
+        ]
+      }
+    ]
+  }
+}

@@ -3,7 +3,10 @@ import type {
   InteractableHotspotTarget,
   RoomHotspotTarget,
 } from '../../../shared/project-schema/authoring-features';
-import type { ImageNormalizedRect } from '../../../shared/project-schema/authoring-hotspots';
+import type {
+  HotspotMotionTrack,
+  ImageNormalizedRect,
+} from '../../../shared/project-schema/authoring-hotspots';
 import type { MaterialApplication } from '../../../shared/project-schema/authoring-material-applications';
 import type { CursorTarget } from '../../../shared/project-schema/authoring-cursor-vocabulary';
 
@@ -19,5 +22,5 @@ export interface EditableHotspot {
     | { kind: 'material'; materialApplication: MaterialApplication };
   cursor?: CursorTarget | null;
   target: EditableHotspotTarget;
-  shape?: { kind: 'rect'; bounds: ImageNormalizedRect };
+  shape?: { kind: 'rect'; bounds: ImageNormalizedRect; motionTracks?: HotspotMotionTrack[] };
 }

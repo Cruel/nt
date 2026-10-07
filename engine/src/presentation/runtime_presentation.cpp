@@ -927,12 +927,12 @@ RoomPresentationSnapshotProjector::project(const RoomPresentationResolution& res
             continue;
         }
         const auto shape = std::visit(
-            [](const auto& value) -> std::variant<AlphaHotspotShape, compiled::NormalizedRect> {
+            [](const auto& value) -> std::variant<AlphaHotspotShape, compiled::RectHotspotShape> {
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, std::monostate>)
                     return AlphaHotspotShape{};
                 else
-                    return value.bounds;
+                    return value;
             },
             hotspot.shape);
         result.hotspots.push_back({hotspot.ref,
@@ -1144,12 +1144,12 @@ RoomPresentationSnapshotProjector::project(const CompiledProject& project,
             continue;
         }
         const auto shape = std::visit(
-            [](const auto& value) -> std::variant<AlphaHotspotShape, compiled::NormalizedRect> {
+            [](const auto& value) -> std::variant<AlphaHotspotShape, compiled::RectHotspotShape> {
                 using T = std::decay_t<decltype(value)>;
                 if constexpr (std::is_same_v<T, std::monostate>)
                     return AlphaHotspotShape{};
                 else
-                    return value.bounds;
+                    return value;
             },
             hotspot.shape);
         result.hotspots.push_back({hotspot.ref,

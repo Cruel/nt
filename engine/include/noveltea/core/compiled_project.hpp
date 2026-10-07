@@ -870,8 +870,32 @@ using InteractableHotspotTarget = std::variant<NoHotspotTarget, HotspotOwnerTarg
 using ResolvedHotspotTarget = std::variant<InteractionSubject, RoomExitRef>;
 struct RectHotspotShape {
     NormalizedRect bounds;
+    enum class Interpolation : std::uint8_t {
+        Hold,
+        Linear
+    };
+    struct Keyframe {
+        std::uint64_t time_ms = 0;
+        Interpolation interpolation = Interpolation::Hold;
+        bool active = true;
+        NormalizedRect bounds;
+        bool operator==(const Keyframe&) const = default;
+    };
+    struct MotionTrack {
+        AnimationMotionId motion_id;
+        std::vector<Keyframe> keyframes;
+        bool operator==(const MotionTrack&) const = default;
+    };
+    std::vector<MotionTrack> motion_tracks;
+    RectHotspotShape(NormalizedRect initial_bounds, std::vector<MotionTrack> tracks = {})
+        : bounds(initial_bounds), motion_tracks(std::move(tracks))
+    {
+    }
     bool operator==(const RectHotspotShape&) const = default;
 };
+
+[[nodiscard]] std::vector<NormalizedRect>
+hotspot_motion_coverage_regions(const RectHotspotShape& shape);
 struct RoomHotspot {
     HotspotId id;
     std::string label;

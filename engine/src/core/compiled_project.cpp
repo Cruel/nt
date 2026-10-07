@@ -2,6 +2,7 @@
 
 #include "compiled_project_validation.hpp"
 
+#include <algorithm>
 #include <array>
 #include <cmath>
 #include <limits>
@@ -11,6 +12,33 @@
 #include <utility>
 
 namespace noveltea::core {
+
+std::vector<compiled::NormalizedRect>
+compiled::hotspot_motion_coverage_regions(const RectHotspotShape& shape)
+{
+    std::vector<NormalizedRect> regions{shape.bounds};
+    for (const auto& track : shape.motion_tracks) {
+        for (std::size_t index = 0; index < track.keyframes.size(); ++index) {
+            const auto& current = track.keyframes[index];
+            regions.push_back(current.bounds);
+            if (current.interpolation != RectHotspotShape::Interpolation::Linear ||
+                index + 1 >= track.keyframes.size())
+                continue;
+            const auto& next = track.keyframes[index + 1];
+            if (!current.active || !next.active)
+                continue;
+            const double left = std::min(current.bounds.x, next.bounds.x);
+            const double top = std::min(current.bounds.y, next.bounds.y);
+            const double right = std::max(current.bounds.x + current.bounds.width,
+                                          next.bounds.x + next.bounds.width);
+            const double bottom = std::max(current.bounds.y + current.bounds.height,
+                                           next.bounds.y + next.bounds.height);
+            regions.push_back({left, top, right - left, bottom - top});
+        }
+    }
+    return regions;
+}
+
 namespace {
 
 Diagnostics duplicate_id(std::string_view collection, std::string_view id)

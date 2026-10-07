@@ -47,7 +47,12 @@ discriminator are rejected, not aliased. `none` performs no pointer hit testing 
 `visual-alpha` provides one Hotspot whose hit area follows the currently realized frame's retained
 CPU alpha coverage. Every selected frame must support coverage; missing coverage fails publication
 explicitly, without GPU readback or rectangle fallback. `custom` contains analytic normalized
-rectangles relative to the complete Visual canvas and requires a Visual when non-empty. Hit geometry
+rectangles relative to the complete Visual canvas and requires a Visual when non-empty. A custom
+rectangle may additionally own Animation-motion tracks keyed by absolute motion time. Tracks keep
+the same normalized owner-local coordinates, interpolate with `hold` or `linear`, may mark intervals
+inactive, and fall back to the rectangle's static bounds for motions without a track. Track motion IDs
+and key times are validated against the Interactable's Animation Visual; static-image Interactables
+cannot author motion tracks. Hit geometry
 and highlight-source capabilities are independent: analytic geometry does not depend on alpha
 coverage or on overlay support. Interactable presentation may define one Definition-level cursor
 fallback; its implicit `visual-alpha` Hotspot uses that cursor, while custom Hotspots may override it. Cursor
@@ -156,10 +161,15 @@ can inherit its Visual or author an explicit replacement/null while Hotspot beha
 The Definition editor's Visual picker admits images and Animations, with a default/named motion selector.
 Custom Interactable Hotspot geometry is edited through the same full-tab Hotspot Focus workflow used
 by Rooms. The normal Interactable editor retains semantic fields, while Focus owns only source-image
-geometry, local undo/redo, Fit/native zoom, and transactional Done/Cancel behavior. Rectangle mode
+geometry, local undo/redo, Fit/native zoom, and transactional Done/Cancel behavior. For Animation
+Visuals, Focus also exposes the Animation's motion selector and canonical absolute-time playhead with
+play/pause, scrub, sprite-frame stepping, implicit/authored marker jumps, hold/linear key creation,
+and inactive keys. Dragging/resizing while a motion is selected keys geometry at the current playhead;
+motions without tracks display the static fallback bounds. Rectangle mode
 stays active for batch creation and new custom rectangles default to the owning Interactable.
 `visual-alpha` mode can open the same focused source-image surface for inspection but does not expose
-rectangle drawing. Animation geometry inspection uses the selected motion's first source frame; the
+rectangle drawing. Animation geometry inspection samples the selected motion frame at the Focus
+playhead against the Animation logical canvas; the
 focused Room preview stages and plays the full Animation through production resource realization.
 Alpha or non-empty custom Hotspots without a Visual are authoring errors. A visible Room occurrence
 whose Interactable has no Visual is allowed but produces an authoring warning because it will not render. `CompiledProject` decodes immutable Definitions and separate declared

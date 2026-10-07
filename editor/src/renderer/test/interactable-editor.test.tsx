@@ -69,6 +69,113 @@ beforeEach(() => {
 });
 
 describe('InteractableEditor', () => {
+  it('authors custom Hotspot motion keys against the shared Animation timeline', async () => {
+    const project = createAuthoringProject();
+    for (const id of ['frame-a', 'frame-b'] as const) {
+      project.assets[id] = {
+        id,
+        label: id,
+        data: {
+          kind: 'image',
+          source: { type: 'project-file', path: `assets/images/${id}.png` },
+          aliases: [],
+          sampling: 'linear',
+          byteSize: 64,
+          contentHash: `sha256:${id === 'frame-a' ? 'a'.repeat(64) : 'b'.repeat(64)}`,
+          imageMetadata: { width: 64, height: 32, hasAlpha: true, orientation: 1 },
+        },
+      };
+    }
+    project.animations.loop = {
+      id: 'loop',
+      label: 'Loop',
+      data: {
+        kind: 'animation',
+        canvas: { width: 64, height: 32 },
+        defaultMotionId: 'sweep',
+        motions: [
+          {
+            id: 'sweep',
+            kind: 'sprite-sequence',
+            markers: [{ id: 'middle', timeMs: 100 }],
+            frames: [
+              { image: { $ref: { collection: 'assets', id: 'frame-a' } }, durationMs: 100 },
+              { image: { $ref: { collection: 'assets', id: 'frame-b' } }, durationMs: 100 },
+            ],
+          },
+          {
+            id: 'rest',
+            kind: 'sprite-sequence',
+            markers: [],
+            frames: [{ image: { $ref: { collection: 'assets', id: 'frame-a' } }, durationMs: 200 }],
+          },
+        ],
+      },
+    };
+    const data = defaultInteractableData('Door');
+    data.presentation.visual = {
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'loop' } },
+      motionId: null,
+      playback: null,
+    };
+    data.presentation.hotspots = {
+      kind: 'custom',
+      hotspots: [
+        {
+          ...defaultHotspotBehavior('Moving'),
+          id: 'moving',
+          shape: {
+            kind: 'rect',
+            bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+          },
+        },
+      ],
+    };
+    project.interactables.door = { id: 'door', label: 'Door', traits: [], data };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    useHotspotFocusStore.getState().start({
+      tabId: tab.id,
+      ownerKind: 'interactable',
+      ownerId: 'door',
+      assetId: 'frame-a',
+      mode: 'rectangles',
+      items: data.presentation.hotspots.hotspots,
+      selectedHotspotId: 'moving',
+    });
+
+    renderEditor();
+
+    expect(screen.getByRole('combobox', { name: 'Motion' })).toHaveTextContent('sweep');
+    expect(screen.getByRole('slider', { name: 'Animation timeline' })).toHaveValue('0');
+    expect(screen.getByRole('button', { name: 'start' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'middle' })).toBeVisible();
+    expect(screen.getByRole('button', { name: 'end' })).toBeVisible();
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Key geometry' }));
+
+    expect(
+      useHotspotFocusStore.getState().sessionsByTabId[tab.id]?.history.present[0]?.shape
+        ?.motionTracks,
+    ).toEqual([
+      {
+        motionId: 'sweep',
+        keyframes: [
+          {
+            timeMs: 0,
+            interpolation: 'hold',
+            active: true,
+            bounds: { x: 0.1, y: 0.2, width: 0.3, height: 0.4 },
+          },
+        ],
+      },
+    ]);
+  });
+
   it('loads hotspot geometry from the full-resolution bounded Asset source', async () => {
     const originalImage = window.Image;
     class LoadedImage {

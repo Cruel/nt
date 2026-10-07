@@ -468,7 +468,8 @@
                     "x": 0.1,
                     "y": 0.1
                   },
-                  "kind": "rect"
+                  "kind": "rect",
+                  "motionTracks": []
                 },
                 "target": {
                   "featureId": "face",
@@ -493,7 +494,8 @@
                     "x": 0.3,
                     "y": 0.3
                   },
-                  "kind": "rect"
+                  "kind": "rect",
+                  "motionTracks": []
                 },
                 "target": {
                   "featureId": "face",
@@ -4748,7 +4750,7 @@
       }
     ]
   },
-  "saveContract": "sc1:58e042b27c3e8e50500f25e2237d194c",
+  "saveContract": "sc1:d3f7babe4c36631cc9820dae33d5cbf8",
   "schema": "noveltea.compiled.project",
   "schemaVersion": 1,
   "settings": {

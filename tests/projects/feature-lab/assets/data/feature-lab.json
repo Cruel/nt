@@ -1935,6 +1935,18 @@
           "automation": []
         },
         {
+          "id": "animated-custom-hotspot",
+          "title": "Follow motion-keyed custom geometry",
+          "action": "On the custom board, follow the small lower motion probe as it sweeps left-to-right over the first second, stays at the right edge, disappears from 1.5–1.8 seconds, then returns left. Click the probe while active. In Hotspot Focus, scrub the sweep markers and switch to the rest motion.",
+          "expected": "The probe selects the shared badge Feature only at its sampled normalized rectangle, interpolates linearly during the sweep, cannot be hit while inactive, and returns on the next active key. Hotspot Focus uses the same playhead/markers/frame stepping and shows static fallback geometry for the rest motion because it has no dedicated track.",
+          "status": "ready",
+          "verification": "manual",
+          "created": "2026-10-06T20:58:00Z",
+          "modified": "2026-10-06T20:58:00Z",
+          "assetRequirements": ["ui-pattern"],
+          "automation": []
+        },
+        {
           "id": "target-and-priority",
           "title": "Resolve one eligible semantic path",
           "action": "Pick center, both badge sides and Room strip; toggle center and pick again; use Exit strip.",

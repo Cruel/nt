@@ -517,7 +517,9 @@ struct StructuredAssetDependencyIndex::Impl {
         for (const auto& hotspot : custom->hotspots) {
             requires_mask |=
                 !std::holds_alternative<core::compiled::NoHotspotHighlight>(hotspot.highlight);
-            request.regions.push_back({.hotspot = hotspot.id, .bounds = hotspot.shape.bounds});
+            for (const auto& bounds :
+                 core::compiled::hotspot_motion_coverage_regions(hotspot.shape))
+                request.regions.push_back({.hotspot = hotspot.id, .bounds = bounds});
             append_highlight_material(output, hotspot.highlight, collection_diagnostics,
                                       "Interactable hotspot highlight");
         }

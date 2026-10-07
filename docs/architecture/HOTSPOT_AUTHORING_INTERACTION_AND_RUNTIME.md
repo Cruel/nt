@@ -44,7 +44,13 @@ normal dependency/validation diagnostics rather than by inventing a replacement 
 
 Room Hotspots use normalized rectangular bounds relative to the complete background source image.
 Interactable Hotspots use either current-sample Visual alpha coverage or normalized custom rectangles
-relative to the complete image/Animation Visual canvas. Every Hotspot retains a stable owner-local ID, label,
+relative to the complete image/Animation Visual canvas. Custom Interactable rectangles may add
+motion-local tracks owned by that Hotspot. Each track names one Animation motion and contains
+strictly increasing absolute-time keys with normalized bounds, an active flag, and outgoing
+`hold`/`linear` interpolation. Before the first key and for motions without a track, static bounds
+remain authoritative. Inactive sampled intervals publish no hit target at that geometry. The
+Animation resource never owns these interaction tracks, so reuse and localization of Animation
+content do not duplicate semantic interaction data. Every Hotspot retains a stable owner-local ID, label,
 condition, input order, highlight policy, and target. `none` is a valid target for either owner kind;
 new Room geometry defaults to `none`, while new Interactable Hotspots may continue to default to the
 owner. Validation emits an informational diagnostic for the inert state instead of rejecting it.
@@ -74,6 +80,12 @@ for inspection without exposing rectangle creation. Focus derives an alpha-cover
 from the full-resolution source image so transparent versus interactive pixels remain visible, while
 the geometry-less visual-alpha Hotspot behavior still appears in the shared item list and can be
 selected for inspection without manufacturing a fake rectangle.
+
+When the owner uses an Animation Visual, Hotspot Focus adds the common Animation timeline over that
+logical canvas. Authors can select any motion, play/pause, scrub, step sprite frames, jump to implicit
+or authored markers, and key the selected rectangle at the playhead. Geometry edits at a motion
+playhead update the motion-local key rather than the static fallback; local undo/redo and the final
+transactional Done/Cancel boundary remain unchanged.
 
 Room Edit projects authored Room Hotspots back through the background's source-image UV mapping, so
 cover cropping, contain/center geometry, stretch, authored Camera View, and editor navigation all

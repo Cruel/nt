@@ -264,7 +264,17 @@ function compileInteractableHotspots(
       highlight: compileHighlight(hotspot.highlight),
       cursor: hotspot.cursor ?? null,
       target: compileInteractableHotspotTarget(hotspot.target),
-      shape: { kind: 'rect', bounds: { ...hotspot.shape.bounds } },
+      shape: {
+        kind: 'rect',
+        bounds: { ...hotspot.shape.bounds },
+        motionTracks: (hotspot.shape.motionTracks ?? []).map((track) => ({
+          motionId: track.motionId,
+          keyframes: track.keyframes.map((keyframe) => ({
+            ...keyframe,
+            bounds: { ...keyframe.bounds },
+          })),
+        })),
+      },
     })),
   };
 }

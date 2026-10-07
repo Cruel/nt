@@ -102,6 +102,13 @@ reset/load/reconstruction discard them. These are host/backend controls, not new
 commands. Finite named-motion operations are separate coordinator-owned requests and transient
 controls cannot override them.
 
+Custom Interactable Hotspots may own motion-local normalized rectangle tracks without putting
+interaction data on the reusable Animation resource. Runtime samples those tracks from the same
+backend-local motion phase used for the realized raster frame: missing tracks use static bounds,
+`hold` and `linear` are the initial interpolation modes, and inactive samples do not hit. Hotspot
+Focus uses the shared authoring timeline helpers for play/pause/scrub/frame-step/marker inspection and
+can author keys for any motion in the selected Animation.
+
 Video, animated Inventory icons, and broader sprite-field cutover remain later work. Interactable world Hotspots can
 already sample a selected raster Animation frame's CPU coverage.
 
