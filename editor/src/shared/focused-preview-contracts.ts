@@ -125,6 +125,12 @@ const authoringManifestEntrySchema = z
     }),
   ])
   .superRefine((entry, context) => {
+    if (entry.logicalPath.startsWith('project:/.noveltea/build/prepared-media/'))
+      context.addIssue({
+        code: 'custom',
+        path: ['sourceKind'],
+        message: 'Private video frames require prepared-media authority.',
+      });
     if (entry.resourceId !== `asset:${entry.assetId}`)
       context.addIssue({
         code: 'custom',
@@ -184,8 +190,18 @@ const preparedMediaManifestEntrySchema = strict({
   sourceKind: z.literal('prepared-media'),
   assetId: z.string().min(1),
   kind: z.literal('image'),
-  sampling: z.enum(imageSamplingValues),
+  sampling: z.literal('linear'),
 }).superRefine((entry, context) => {
+  if (
+    !entry.assetId.startsWith('prepared-video-') ||
+    !entry.logicalPath.startsWith('project:/.noveltea/build/prepared-media/') ||
+    entry.logicalPath !== `project:/${entry.fetchProjectRelativePath}`
+  )
+    context.addIssue({
+      code: 'custom',
+      path: ['logicalPath'],
+      message: 'Prepared video frames require a canonical private Project path.',
+    });
   if (entry.resourceId !== `asset:${entry.assetId}`)
     context.addIssue({
       code: 'custom',
@@ -228,6 +244,12 @@ export const nativePreviewResourceManifestEntrySchema = z.union([
       }),
     ])
     .superRefine((entry, context) => {
+      if (entry.logicalPath.startsWith('project:/.noveltea/build/prepared-media/'))
+        context.addIssue({
+          code: 'custom',
+          path: ['sourceKind'],
+          message: 'Private video frames require prepared-media authority.',
+        });
       if (entry.resourceId !== `asset:${entry.assetId}`)
         context.addIssue({
           code: 'custom',
@@ -235,6 +257,18 @@ export const nativePreviewResourceManifestEntrySchema = z.union([
           message: 'Authoring resourceId must equal asset:<assetId>.',
         });
     }),
+  strict({
+    ...nativeBase,
+    resourceId: z.string().regex(/^asset:prepared-video-.+$/),
+    sourceKind: z.literal('prepared-media'),
+    assetId: z.string().startsWith('prepared-video-'),
+    kind: z.literal('image'),
+    sampling: z.literal('linear'),
+  }).refine(
+    (entry) =>
+      entry.resourceId === `asset:${entry.assetId}` &&
+      entry.logicalPath.startsWith('project:/.noveltea/build/prepared-media/'),
+  ),
   strict({
     ...nativeBase,
     resourceId: z.string().startsWith('source:'),
@@ -298,7 +332,7 @@ export const projectNativeManifest = (
     if (entry.sourceKind === 'prepared-media')
       return {
         resourceId: entry.resourceId,
-        sourceKind: 'authoring-asset' as const,
+        sourceKind: 'prepared-media' as const,
         assetId: entry.assetId,
         logicalPath: entry.logicalPath,
         contentHash: entry.contentHash,

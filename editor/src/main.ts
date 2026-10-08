@@ -71,7 +71,7 @@ import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-
 import { importDesktopProject } from './main/services/desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
-import { prepareOpaqueVideoMotion } from './main/services/media-preparation-service';
+import { prepareProjectOpaqueVideo } from './main/services/project-video-preparation-service';
 import {
   compileShaders,
   exportPackage,
@@ -1404,10 +1404,7 @@ void app.whenReady().then(async () => {
     IPC_CHANNELS.PREPARE_OPAQUE_VIDEO,
     (arguments_) => prepareOpaqueVideoArgumentsSchema.parse(arguments_),
     (projectSessionId, request) =>
-      prepareOpaqueVideoMotion(
-        activeProjectSessions.requireActiveProjectRoot(projectSessionId),
-        request,
-      ),
+      prepareProjectOpaqueVideo(activeProjectSessions, projectSessionId, request),
   );
 
   guardedIpc.handle(

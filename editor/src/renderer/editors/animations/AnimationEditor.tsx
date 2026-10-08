@@ -58,9 +58,19 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const [rangeStart, setRangeStart] = useState('start');
   const [rangeEnd, setRangeEnd] = useState('end');
   const [urls, setUrls] = useState<Record<string, string>>({});
-  const duration = motion ? animationDuration(motion) : 0;
-  const start = motion ? animationMarkerTime(motion, rangeStart) : null;
-  const end = motion ? animationMarkerTime(motion, rangeEnd) : null;
+  const videoRef = useRef<HTMLVideoElement>(null);
+  const [videoMetadata, setVideoMetadata] = useState<{ url: string; durationMs: number } | null>(
+    null,
+  );
+  const videoUrl = motion?.kind === 'video' ? urls[motion.video.$ref.id] : null;
+  const timelineMotion = useMemo(() => {
+    if (motion?.kind !== 'video' || motion.sourceRange || videoMetadata?.url !== videoUrl)
+      return motion;
+    return { ...motion, sourceRange: { startMs: 0, endMs: videoMetadata.durationMs } };
+  }, [motion, videoMetadata, videoUrl]);
+  const duration = timelineMotion ? animationDuration(timelineMotion) : 0;
+  const start = timelineMotion ? animationMarkerTime(timelineMotion, rangeStart) : null;
+  const end = timelineMotion ? animationMarkerTime(timelineMotion, rangeEnd) : null;
   const validRange = start !== null && end !== null && start < end;
   const policy = useMemo<MotionPolicy>(
     () => ({
@@ -123,19 +133,25 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   }, [session, assetKey]);
 
   useEffect(() => {
-    if (!playing || !spriteMotion || (loop && !validRange)) return;
+    const video = videoRef.current;
+    if (video && motion?.kind === 'video')
+      video.currentTime = ((motion.sourceRange?.startMs ?? 0) + Math.min(time, duration)) / 1000;
+  }, [time, duration, motion, videoUrl]);
+
+  useEffect(() => {
+    if (!playing || !timelineMotion || duration <= 0 || (loop && !validRange)) return;
     const anchor = timeRef.current;
     const started = performance.now();
     let handle = 0;
     const tick = (now: number) => {
-      const next = advanceAnimationTime(spriteMotion, policy, anchor, now - started);
+      const next = advanceAnimationTime(timelineMotion, policy, anchor, now - started);
       setTime(next);
       if (!loop && next >= duration) setPlaying(false);
       else handle = requestAnimationFrame(tick);
     };
     handle = requestAnimationFrame(tick);
     return () => cancelAnimationFrame(handle);
-  }, [playing, spriteMotion, loop, policy, validRange, duration, restart]);
+  }, [playing, timelineMotion, loop, policy, validRange, duration, restart]);
 
   if (!data || !record || !id || !motion)
     return <div className="p-4">{t('animationEditor.unavailable')}</div>;
@@ -190,7 +206,6 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     setTime(Math.max(0, Math.min(value, duration)));
   };
   const supportsFrames = motion.kind === 'sprite-sequence';
-  const videoUrl = motion.kind === 'video' ? urls[motion.video.$ref.id] : null;
   return (
     <div className="h-full space-y-4 overflow-auto p-4">
       <h2 className="font-semibold">{record.label ?? id}</h2>
@@ -287,11 +302,22 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
       <div className="flex h-64 items-center justify-center bg-muted/20">
         {videoUrl ? (
           <video
+            key={videoUrl}
+            ref={videoRef}
             src={videoUrl}
-            controls
             muted
             playsInline
-            className="max-h-full max-w-full object-fill"
+            preload="auto"
+            onLoadedMetadata={(event) => {
+              const video = event.currentTarget;
+              if (Number.isFinite(video.duration) && video.duration > 0)
+                setVideoMetadata({ url: videoUrl, durationMs: Math.round(video.duration * 1000) });
+              video.currentTime =
+                ((motion.kind === 'video' ? (motion.sourceRange?.startMs ?? 0) : 0) +
+                  timeRef.current) /
+                1000;
+            }}
+            className="max-h-full max-w-full bg-black object-contain"
             style={{ aspectRatio: `${data.canvas.width} / ${data.canvas.height}` }}
           />
         ) : frame && urls[frame.image.$ref.id] ? (
@@ -307,7 +333,10 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
       </div>
       <p className="text-xs text-muted-foreground">{t('animationEditor.sourcePreview')}</p>
       <div className="flex flex-wrap gap-2">
-        <Button onClick={() => setPlaying(true)} disabled={!frame || (loop && !validRange)}>
+        <Button
+          onClick={() => setPlaying(true)}
+          disabled={(!frame && !videoUrl) || duration <= 0 || (loop && !validRange)}
+        >
           {t('animationEditor.play')}
         </Button>
         <Button onClick={() => setPlaying(false)}>{t('animationEditor.pause')}</Button>

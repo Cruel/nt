@@ -55,9 +55,12 @@ For the current opaque-video tracer, runtime-artifact preparation preserves the 
 while also generating deterministic private opaque raster frames through the pinned authoring FFmpeg.
 Embedded audio is omitted from that representation and yields an authoring warning because generic
 Animation is visual-only. The prepared representation is packaged as ordinary image payloads so
-mandatory readiness and native texture residency remain transactional; this representation is
-intentionally replaceable by later target-specific media encodings without changing authored or
-compiled Animation meaning.
+mandatory seed readiness and native texture residency use existing transactions and asynchronous
+requests. Publication pins only the initial sample, not the entire decoded video. The native media
+stream requests frames at NovelTea-owned presentation times, with bounded current/pending decode
+interest and explicit hidden-occurrence cancellation. This representation is intentionally
+replaceable by later target-specific media encodings without changing authored or compiled Animation
+meaning.
 
 ## Loading and Validation
 

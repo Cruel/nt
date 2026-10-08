@@ -1613,6 +1613,99 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
           {"exits", nlohmann::json::array()}}},
         {"composition", nullptr},
     };
+    SECTION("opaque video focused publication prepares only its seed and samples natively")
+    {
+        ui_values_succeed = true;
+        auto video_room = room;
+        video_room["world"]["hotspots"] = nlohmann::json::array();
+        video_room["world"]["background"]["materialParameters"] = nlohmann::json::array();
+        video_room["world"]["background"]["materialTextures"] = nlohmann::json::array();
+        video_room["world"]["placements"] = nlohmann::json::array(
+            {{{"id", "table"},
+              {"bounds", {{"x", 0.0}, {"y", 0.0}, {"width", 1.0}, {"height", 1.0}}},
+              {"layoutOrder", nullptr},
+              {"label", nullptr},
+              {"layoutId", nullptr}}});
+        video_room["world"]["animations"] = nlohmann::json::array(
+            {{{"id", "video"},
+              {"canvas", {{"width", 64}, {"height", 32}}},
+              {"defaultMotionId", "idle"},
+              {"motions",
+               nlohmann::json::array(
+                   {{{"id", "idle"},
+                     {"kind", "sprite-sequence"},
+                     {"markers", nlohmann::json::array()},
+                     {"frames",
+                      nlohmann::json::array(
+                          {{{"assetId", "prepared-video-test-0"}, {"durationMs", 50}},
+                           {{"assetId", "prepared-video-test-1"}, {"durationMs", 100}}})}}})}}});
+        video_room["world"]["interactables"] =
+            nlohmann::json::array({{{"occurrenceId", "key-occurrence"},
+                                    {"interactableId", "key"},
+                                    {"condition", {{"kind", "always"}}},
+                                    {"placementId", "table"},
+                                    {"visual",
+                                     {{"kind", "animation"},
+                                      {"animationId", "video"},
+                                      {"motionId", nullptr},
+                                      {"playback", nullptr}}},
+                                    {"materialId", nullptr},
+                                    {"materialParameters", nlohmann::json::array()},
+                                    {"materialTextures", nlohmann::json::array()},
+                                    {"enabled", true},
+                                    {"visible", true},
+                                    {"occurrenceVisible", true},
+                                    {"order", 0}}});
+        auto video_request = make_request(core::editor::FocusedEditorDocumentKind::Room,
+                                          "room-video", video_room, 2);
+        video_request.resources = {
+            {.resource_id = "asset:prepared-video-test-0",
+             .source_kind = "prepared-media",
+             .logical_path = "project:/.noveltea/build/prepared-media/test/frame-a.png",
+             .content_hash = "sha256:" + std::string(64, 'a'),
+             .kind = "image",
+             .sampling = "linear",
+             .asset_id = "prepared-video-test-0"},
+            {.resource_id = "asset:prepared-video-test-1",
+             .source_kind = "prepared-media",
+             .logical_path = "project:/.noveltea/build/prepared-media/test/frame-b.png",
+             .content_hash = "sha256:" + std::string(64, 'b'),
+             .kind = "image",
+             .sampling = "linear",
+             .asset_id = "prepared-video-test-1"}};
+        const auto applied = presenter.apply(std::move(video_request));
+        INFO(last_diagnostic);
+        REQUIRE(applied);
+        const auto publish_video = [&] {
+            for (std::size_t attempt = 0; attempt < 32; ++attempt) {
+                (void)asset_executor.advance_one_step();
+                (void)asset_executor.dispatch_owner_completions(
+                    std::numeric_limits<std::size_t>::max());
+                presenter.update();
+            }
+        };
+        publish_video();
+        INFO(last_diagnostic);
+        REQUIRE(completions.back() == std::pair<std::string, std::string>{"room-video", "applied"});
+        REQUIRE(world_backend.frame()->draws.size() == 1);
+        const auto video_decode_count = [&] {
+            return std::ranges::count_if(focused_textures.requests, [](const auto& request) {
+                return request.path.starts_with("project:/.noveltea/build/prepared-media/");
+            });
+        };
+        CHECK(video_decode_count() == 1);
+        REQUIRE(world_backend.frame()->draws.front().video_stream);
+        core::RuntimeClockUpdate video_clock;
+        world_backend.realize(video_clock);
+        video_clock.gameplay_time = std::chrono::milliseconds{75};
+        world_backend.realize(video_clock);
+        publish_video();
+        world_backend.realize(video_clock);
+        CHECK(video_decode_count() == 2);
+        CHECK((*world_backend.frame()->draws.front().texture_lease)->path.ends_with("frame-b.png"));
+        presenter.clear();
+        return;
+    }
     REQUIRE(presenter.apply(
         make_request(core::editor::FocusedEditorDocumentKind::Room, "room-fail", room, 2)));
     presenter.update();

@@ -29,7 +29,7 @@ export interface ResolvedOriginalAsset {
 
 interface ResolveContainedOriginalAssetOptions {
   maxBytes?: number;
-  requireKind?: 'image' | 'audio';
+  requireKind?: 'image' | 'audio' | 'video';
   allowDerivedMetadata?: boolean;
 }
 

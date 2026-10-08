@@ -806,6 +806,8 @@ public:
     {
         requests.push_back(request);
         m_recorder.calls.push_back("texture:" + request.path);
+        if (request.path == rejected_path)
+            return {};
         assets::TextureAsset texture{.handle = static_cast<std::uint16_t>(
                                          request.path.ends_with("animation-frame-b.png") ? 2 : 1),
                                      .path = request.path,
@@ -826,6 +828,7 @@ public:
     }
 
     std::vector<assets::TextureAssetRequest> requests;
+    std::string rejected_path;
 
 private:
     DispatchRecorder& m_recorder;
@@ -1236,7 +1239,7 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
         "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
     REQUIRE(find_request<assets::TextureAssetRequest>(
         collected.requests, [](const auto& request) { return request.path == frame_a; }));
-    REQUIRE(find_request<assets::TextureAssetRequest>(
+    CHECK_FALSE(find_request<assets::TextureAssetRequest>(
         collected.requests, [](const auto& request) { return request.path == frame_b; }));
 
     assets::MandatoryAssetGate gate(fixture.manager);
@@ -1257,23 +1260,97 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
     const auto& draw = world.frame()->draws.front();
     REQUIRE(draw.raster_animation_frames.size() == 2);
     REQUIRE(draw.raster_animation_frames[0].texture_lease.has_value());
-    REQUIRE(draw.raster_animation_frames[1].texture_lease.has_value());
+    CHECK_FALSE(draw.raster_animation_frames[1].texture_lease.has_value());
     CHECK((*draw.raster_animation_frames[0].texture_lease)->path == frame_a);
-    CHECK((*draw.raster_animation_frames[1].texture_lease)->path == frame_b);
 
     core::RuntimeClockUpdate clock;
     world.realize(clock);
     REQUIRE(world.frame()->base_world_composition_batch.commands().size() == 1);
     CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle ==
           draw.raster_animation_frames[0].texture.handle);
-    clock.gameplay_time = std::chrono::milliseconds{75};
-    world.realize(clock);
-    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle ==
-          draw.raster_animation_frames[1].texture.handle);
-    clock.gameplay_time = std::chrono::milliseconds{175};
-    world.realize(clock);
-    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle ==
-          draw.raster_animation_frames[0].texture.handle);
+    REQUIRE(world.frame()->draws.front().video_stream);
+    const auto video_decode_count = [&] {
+        return std::ranges::count_if(fixture.textures.requests, [](const auto& request) {
+            return request.path == frame_a || request.path == frame_b;
+        });
+    };
+    CHECK(video_decode_count() == 1);
+
+    SECTION("time-directed decoding skips eager loading and loops on NovelTea time")
+    {
+        clock.gameplay_time = std::chrono::milliseconds{75};
+        world.realize(clock);
+        CHECK(world.frame()->draws.front().video_stream->state() ==
+              assets::AssetRequestState::Pending);
+        fixture.run_until_idle();
+        clock.gameplay_time = std::chrono::milliseconds{100};
+        world.realize(clock);
+        REQUIRE(world.frame()->draws.front().texture_lease.has_value());
+        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_b);
+        clock.gameplay_time = std::chrono::milliseconds{175};
+        world.realize(clock);
+        fixture.run_until_idle();
+        world.realize(clock);
+        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_a);
+    }
+    SECTION("hidden occurrences suspend decode and catch up without restarting their epoch")
+    {
+        snapshot.revision = core::PresentationSnapshotRevision::from_number(2);
+        snapshot.environments.front().visible = false;
+        REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+        world.retain_only({});
+        clock.gameplay_time = std::chrono::milliseconds{75};
+        world.realize(clock);
+        fixture.run_until_idle();
+        CHECK(video_decode_count() == 1);
+        snapshot.revision = core::PresentationSnapshotRevision::from_number(3);
+        snapshot.environments.front().visible = true;
+        REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+        world.retain_only({});
+        clock.gameplay_time = std::chrono::milliseconds{125};
+        world.realize(clock);
+        fixture.run_until_idle();
+        world.realize(clock);
+        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_b);
+    }
+    SECTION("hiding cancels an in-flight decode even when a tooling observer retains the stream")
+    {
+        const auto stream = world.frame()->draws.front().video_stream;
+        clock.gameplay_time = std::chrono::milliseconds{75};
+        world.realize(clock);
+        REQUIRE(stream->state() == assets::AssetRequestState::Pending);
+        snapshot.revision = core::PresentationSnapshotRevision::from_number(2);
+        snapshot.environments.front().visible = false;
+        REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+        world.retain_only({});
+        CHECK(stream->state() == assets::AssetRequestState::Ready);
+        fixture.run_until_idle();
+        CHECK(world.take_media_diagnostics().empty());
+    }
+    SECTION("reset reconstructs a fresh video stream and phase")
+    {
+        world.reset();
+        REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+        clock.gameplay_time = std::chrono::milliseconds{175};
+        world.realize(clock);
+        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_a);
+        CHECK(video_decode_count() == 1);
+    }
+    SECTION("frame failure is terminal and diagnosed once without repeated decode requests")
+    {
+        fixture.textures.rejected_path = frame_b;
+        clock.gameplay_time = std::chrono::milliseconds{75};
+        world.realize(clock);
+        fixture.run_until_idle();
+        world.realize(clock);
+        CHECK(world.frame()->draws.front().video_stream->state() ==
+              assets::AssetRequestState::Failed);
+        CHECK_FALSE(world.take_media_diagnostics().empty());
+        world.realize(clock);
+        CHECK(world.take_media_diagnostics().empty());
+        CHECK(video_decode_count() == 2);
+        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_a);
+    }
     gate.clear_package_on_owner();
 }
 

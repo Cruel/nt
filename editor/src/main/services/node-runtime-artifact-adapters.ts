@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { readFile } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareOpaqueVideoMotion } from './media-preparation-service';
+import { prepareOpaqueVideoMotion } from './opaque-video-preparation-service';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import type {
   RuntimeArtifactPathAdapter,

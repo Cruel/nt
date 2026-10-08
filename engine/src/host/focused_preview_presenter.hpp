@@ -169,7 +169,8 @@ private:
                                core::Diagnostics>
     build_asset_requests(const core::editor::FocusedEditorDocumentRequest& request,
                          const ShaderMaterialProject& materials,
-                         assets::AssetSourceGeneration generation);
+                         assets::AssetSourceGeneration generation,
+                         const FocusedState* room = nullptr);
     [[nodiscard]] core::Result<FocusedState, core::Diagnostics> prepare_room_state(
         const core::editor::FocusedEditorDocumentRequest& request,
         const core::editor::TypedEditorRoomPreviewDocument& document,

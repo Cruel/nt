@@ -1,0 +1,14 @@
+{
+  "id": "opaque-colors",
+  "label": "Synthetic Opaque Video (Audio Ignored)",
+  "data": {
+    "kind": "video",
+    "source": { "type": "project-file", "path": "assets/video/opaque-colors.mp4" },
+    "aliases": [],
+    "mimeType": "video/mp4",
+    "extension": ".mp4",
+    "byteSize": 33090,
+    "contentHash": "sha256:d12a7ab53a5b79ab77a11cfa1d92ab1ab296b8d88ae8a3428a7568cb83b2139d",
+    "imageMetadata": null
+  }
+}

@@ -58,6 +58,16 @@ The World Composition station also demonstrates the first raster Animation trace
 manual check contrasts current-frame alpha picking with the static gate button and analytic custom
 right board, including fixed placement across differing source dimensions.
 
+World Composition also includes the `opaque-video-animation` check: `opaque-color-loop` selects
+500–2500 ms of the original synthetic `assets/video/opaque-colors.mp4`. Its 96×64 source contains
+one second each of red, green, and blue plus a 440 Hz AAC tone. The tone must generate a preparation
+warning, never Animation audio. The always-present gameplay panel and conditional unscaled panel
+expose pause, appearance/retirement, reconstruction, range, and focused-preview behavior. Automated
+native sampling tests cover hidden-time catch-up and decode failure; the catalog's visual procedure
+still requires manual acceptance. The source can be regenerated with FFmpeg lavfi `color` inputs
+(red/lime/blue, 96×64, 30 fps, one second each), a three-input video concat, and a three-second `sine`
+input encoded as MPEG-4/AAC; update its Asset byte-size/hash if regenerated.
+
 The World & Interaction expansion adds two focused stations. `room-lifecycle` exercises source/Exit/target rejection, ordered lifecycle program/Script Hook phases, entry context, child Dialogue flow, and authored transition behavior; `room-lifecycle-flow` and `room-lifecycle-child-flow` are its semantic witnesses. `world-composition` exercises background fit cycling, presentation-space bounds/views, multiple occurrences of one gameplay identity, fallback/explicit placements, a placement-attached Layout, conditional composition, cross-plane order, and authored plus runtime Environment lifetime; `world-composition-flow` verifies the authoritative state changes. The existing `rooms-interactions` station also distinguishes guard-vetoed navigation from directed Room Change. Inventory behaviors that still lack a normal authored invocation path are kept explicitly `blocked` rather than narrowed: `no-room-boundary`, full transition-precedence selection including an explicit request, occurrence Location plus independent visibility/eligibility mutation, dynamic/no-presentation placement precedence, and named camera-view/Focus selection.
 
 The Dialogue & Presentation pilot uses an ordinary Room lifecycle to start a real Dialogue with staged Character presentation, a normal-to-smile expression change, timed flash and notification-sound cues, spoken voice playback, a real runtime Dialogue choice, and a choice effect that mutates authoritative global state. Its semantic Test covers opening/continuation/branch state, while its UI Test advances semantically to the behavior under test and then clicks the real RmlUi choice. The pilot intentionally does not add another GPU/readback fixture: existing focused runtime UI/rendering readback coverage already protects composition mechanics, while these pilot checks exercise the authored-project presentation path manually without adding a redundant GPU golden. Real reference media improve manual perceptual verification but do not by themselves justify another composition-mechanics fixture.

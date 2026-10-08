@@ -6,6 +6,7 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
@@ -104,6 +105,30 @@ struct PreparedVideoMotion {
     std::vector<PreparedRasterMediaFrame> frames;
     bool operator==(const PreparedVideoMotion&) const = default;
 };
+
+[[nodiscard]] inline std::optional<std::uint64_t>
+prepared_video_duration_ms(const PreparedVideoMotion& motion) noexcept
+{
+    std::uint64_t duration = 0;
+    for (const auto& frame : motion.frames) {
+        if (frame.duration_ms == 0 ||
+            frame.duration_ms > std::numeric_limits<std::uint64_t>::max() - duration)
+            return std::nullopt;
+        duration += frame.duration_ms;
+    }
+    return duration > 0 ? std::optional{duration} : std::nullopt;
+}
+
+[[nodiscard]] inline std::size_t prepared_video_frame_at(const PreparedVideoMotion& motion,
+                                                         std::uint64_t time_ms) noexcept
+{
+    for (std::size_t index = 0; index < motion.frames.size(); ++index) {
+        if (time_ms < motion.frames[index].duration_ms)
+            return index;
+        time_ms -= motion.frames[index].duration_ms;
+    }
+    return motion.frames.empty() ? 0 : motion.frames.size() - 1;
+}
 
 struct PreparedMediaCatalog {
     std::vector<PreparedVideoMotion> motions;

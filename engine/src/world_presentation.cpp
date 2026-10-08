@@ -193,6 +193,7 @@ void append_visual_draw(std::vector<WorldPresentationDraw>& draws, core::Present
                      {},
                      {}});
     auto& draw = draws.back();
+    draw.video_stream = visual.video_stream;
     draw.raster_animation_key = visual.animation_key;
     draw.raster_animation_motion = visual.animation_motion;
     draw.motion_policy = visual.motion_policy;
@@ -524,15 +525,141 @@ std::string world_hotspot_identity(const core::compiled::HotspotRef& ref)
     return hotspot_identity(ref);
 }
 
+namespace {
+
+template<class Visitor>
+void visit_video_streams(const WorldPresentationFrame& frame, Visitor visitor)
+{
+    for (const auto& draw : frame.draws) {
+        if (draw.video_stream)
+            visitor(draw.video_stream);
+        for (const auto& clip : draw.actor_animation_clips)
+            for (const auto& clip_frame : clip.frames)
+                if (clip_frame.video_stream)
+                    visitor(clip_frame.video_stream);
+    }
+}
+
+template<class Frames>
+void suspend_unretained_video_streams(const std::vector<std::shared_ptr<WorldVideoStream>>& retired,
+                                      const Frames& retained)
+{
+    std::unordered_set<WorldVideoStream*> active;
+    for (const auto& [_, frame] : retained)
+        visit_video_streams(frame, [&](const auto& stream) { active.insert(stream.get()); });
+    for (const auto& stream : retired)
+        if (!active.contains(stream.get()))
+            stream->suspend();
+}
+
+class PreparedRasterVideoStream final : public WorldVideoStream {
+public:
+    PreparedRasterVideoStream(assets::AssetManager& assets,
+                              core::PreparedVideoMotion representation, std::size_t initial_index,
+                              assets::AssetLease<assets::TextureAsset> initial)
+        : m_assets(assets), m_representation(std::move(representation)),
+          m_generation(initial.cache_key().source_generation), m_current_index(initial_index),
+          m_current(std::move(initial))
+    {
+    }
+
+    core::Result<std::optional<assets::AssetLease<assets::TextureAsset>>, core::Diagnostics>
+    sample(std::uint64_t time_ms) override
+    {
+        using Sample = core::Result<std::optional<assets::AssetLease<assets::TextureAsset>>,
+                                    core::Diagnostics>;
+        if (m_state == assets::AssetRequestState::Failed)
+            return Sample::success(std::nullopt);
+        const auto fail = [&](core::Diagnostics diagnostics) {
+            m_pending.reset();
+            m_state = assets::AssetRequestState::Failed;
+            return Sample::failure(std::move(diagnostics));
+        };
+        if (m_generation != m_assets.source_generation_on_owner())
+            return fail(
+                {diagnostic("presentation.video_source_changed",
+                            "Video stream source generation changed; reconstruct presentation.",
+                            m_representation.animation.text())});
+        const auto index = core::prepared_video_frame_at(m_representation, time_ms);
+        if (m_pending) {
+            const auto pending_state = m_pending.state();
+            if (pending_state == assets::AssetRequestState::Failed ||
+                pending_state == assets::AssetRequestState::Canceled)
+                return fail(m_pending.diagnostics());
+            if (pending_state == assets::AssetRequestState::Ready) {
+                auto ready = std::move(m_pending).take_ready();
+                if (!ready)
+                    return fail({diagnostic("presentation.video_frame_unavailable",
+                                            "Ready video frame did not yield a texture lease.",
+                                            m_representation.animation.text())});
+                m_current = std::move(*ready);
+                m_current_index = m_pending_index;
+            }
+        }
+        if (index == m_current_index) {
+            m_pending.reset();
+            m_state = assets::AssetRequestState::Ready;
+            m_current.mark_used_on_owner();
+            return Sample::success(m_current);
+        }
+        // Let a slow decode finish instead of starving it as the requested playhead advances.
+        if (!m_pending) {
+            const assets::TextureAssetRequest request{
+                .path = "project:/" + m_representation.frames[index].path,
+                .sampler = MaterialTextureSampler::ClampLinear};
+            auto requested = m_assets.request_texture(request, assets::AssetRequestReason::Demand,
+                                                      assets::AssetRequestUrgency::Background);
+            if (!requested)
+                return fail({std::move(requested).error()});
+            m_pending = std::move(*requested.value_if());
+            m_pending_index = index;
+        }
+        m_state = m_pending.state();
+        if (m_state == assets::AssetRequestState::Failed ||
+            m_state == assets::AssetRequestState::Canceled)
+            return fail(m_pending.diagnostics());
+        if (m_state == assets::AssetRequestState::Ready) {
+            auto ready = std::move(m_pending).take_ready();
+            if (!ready)
+                return fail({diagnostic("presentation.video_frame_unavailable",
+                                        "Ready video frame did not yield a texture lease.",
+                                        m_representation.animation.text())});
+            m_current = std::move(*ready);
+            m_current_index = m_pending_index;
+        }
+        m_current.mark_used_on_owner();
+        return Sample::success(m_current);
+    }
+
+    void suspend() noexcept override
+    {
+        m_pending.reset();
+        if (m_state != assets::AssetRequestState::Failed)
+            m_state = assets::AssetRequestState::Ready;
+    }
+    assets::AssetRequestState state() const noexcept override { return m_state; }
+
+private:
+    assets::AssetManager& m_assets;
+    core::PreparedVideoMotion m_representation;
+    assets::AssetSourceGeneration m_generation;
+    std::size_t m_current_index;
+    assets::AssetLease<assets::TextureAsset> m_current;
+    std::size_t m_pending_index = 0;
+    assets::AssetRequestHandle<assets::TextureAsset> m_pending;
+    assets::AssetRequestState m_state = assets::AssetRequestState::Ready;
+};
+
+} // namespace
+
 std::string prepared_video_motion_key(const core::AnimationId& animation,
                                       const core::AnimationMotionId& motion)
 {
     return animation.text() + "\n" + motion.text();
 }
 
-std::optional<QuadCommand>
-WorldPresentationDraw::ActorAnimationFrame::sample(std::uint64_t elapsed_ms,
-                                                   const QuadCommand& underlying) const
+std::optional<QuadCommand> WorldPresentationDraw::ActorAnimationFrame::sample(
+    std::uint64_t elapsed_ms, const QuadCommand& underlying, core::Diagnostics* diagnostics) const
 {
     if (!command)
         return std::nullopt;
@@ -549,6 +676,17 @@ WorldPresentationDraw::ActorAnimationFrame::sample(std::uint64_t elapsed_ms,
     if (duration_ms == 0)
         return result;
     auto phase = elapsed_ms % duration_ms;
+    if (video_stream) {
+        auto sampled = video_stream->sample(phase);
+        if (!sampled) {
+            if (diagnostics)
+                core::append_diagnostics(*diagnostics, std::move(sampled).error());
+        } else if (*sampled.value_if()) {
+            result.texture = Texture{(**sampled.value_if())->handle};
+            result.texture_sampler = MaterialTextureSampler::ClampLinear;
+        }
+        return result;
+    }
     for (const auto& frame : visual_frames) {
         if (phase < frame.duration_ms) {
             result.texture = Texture{frame.texture.handle};
@@ -741,12 +879,18 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
         core::compiled::motion_loop_times(*motion, policy, prepared_video_duration);
     if (prepared_video) {
         result.animation_key += ":video:" + prepared_video->content_hash;
+        const auto initial_index = core::prepared_video_frame_at(*prepared_video, *initial);
         result.animation_frames.reserve(prepared_video->frames.size());
         for (std::size_t index = 0; index < prepared_video->frames.size(); ++index) {
             const auto& frame = prepared_video->frames[index];
             const auto logical_path = "project:/" + frame.path;
             const assets::TextureAssetRequest request{
                 .path = logical_path, .sampler = MaterialTextureSampler::ClampLinear};
+            result.animation_key += ":" + frame.path + ":" + std::to_string(frame.duration_ms);
+            if (index != initial_index) {
+                result.animation_frames.push_back({frame.duration_ms, {}, std::nullopt});
+                continue;
+            }
             const auto* lease = m_assets.leased_texture_on_owner(request, m_lookup_scope);
             if (lease == nullptr)
                 return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
@@ -756,8 +900,11 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
                         ")",
                     std::string(context) + "/frame/" + std::to_string(index))});
             lease->mark_used_on_owner();
-            result.animation_key += ":" + frame.path + ":" + std::to_string(frame.duration_ms);
             result.animation_frames.push_back({frame.duration_ms, lease->asset(), *lease});
+            result.texture = lease->asset();
+            result.texture_lease = *lease;
+            result.video_stream = std::make_shared<PreparedRasterVideoStream>(
+                m_assets, *prepared_video, initial_index, *lease);
         }
     } else {
         result.animation_frames.reserve(motion->frames.size());
@@ -781,7 +928,7 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
                 {frame.duration_ms, *prepared.texture, std::move(prepared.texture_lease)});
         }
     }
-    if (!result.animation_frames.empty()) {
+    if (!prepared_video && !result.animation_frames.empty()) {
         result.texture = result.animation_frames.front().texture;
         result.texture_lease = result.animation_frames.front().texture_lease;
     }
@@ -1246,6 +1393,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                             prepared_frame.texture_lease = resolved_frame->texture_lease;
                             prepared_frame.material_lease = resolved_frame->material_lease;
                             prepared_frame.visual_frames = resolved_frame->animation_frames;
+                            prepared_frame.video_stream = resolved_frame->video_stream;
                         }
                     }
                     prepared.frames.push_back(std::move(prepared_frame));
@@ -1468,8 +1616,26 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
             }
             if (occurrence.epoch == 0)
                 occurrence.epoch = ++m_animation_epoch_generation;
-            if (draw != candidate.draws.end())
+            if (draw != candidate.draws.end()) {
                 draw->raster_animation_epoch = occurrence.epoch;
+                if (m_frame && draw->video_stream) {
+                    const auto previous_draw =
+                        std::ranges::find_if(m_frame->draws, [&](const auto& value) {
+                            return raster_animation_identity(value) == identity &&
+                                   value.raster_animation_key == draw->raster_animation_key &&
+                                   value.raster_animation_epoch == occurrence.epoch &&
+                                   value.video_stream && value.texture_lease &&
+                                   draw->texture_lease &&
+                                   value.texture_lease->cache_key().source_generation ==
+                                       draw->texture_lease->cache_key().source_generation;
+                        });
+                    if (previous_draw != m_frame->draws.end()) {
+                        draw->video_stream = previous_draw->video_stream;
+                        draw->texture_lease = previous_draw->texture_lease;
+                        draw->sampled_visual_texture = previous_draw->sampled_visual_texture;
+                    }
+                }
+            }
             candidate.animation_occurrences.push_back(std::move(occurrence));
         };
     for (const auto& environment : snapshot.environments)
@@ -1988,6 +2154,11 @@ WorldPresentationBackend::prepare_motion_override(core::PresentationSnapshotRevi
     if (!prepared)
         return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
             std::move(prepared).error());
+    if (prepared.value_if()->video_stream) {
+        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure({diagnostic(
+            "presentation.finite_video_motion_unsupported",
+            "Finite video motion operations are not supported by the opaque tracer.", context)});
+    }
     if (prepared.value_if()->animation_frames.empty()) {
         return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
             {diagnostic("presentation.motion_frames_unavailable",
@@ -2004,6 +2175,7 @@ WorldPresentationBackend::prepare_motion_override(core::PresentationSnapshotRevi
     }
     auto draw = *base;
     const auto& replacement = *prepared.value_if();
+    draw.video_stream = replacement.video_stream;
     draw.raster_animation_key = replacement.animation_key;
     draw.raster_animation_motion = replacement.animation_motion;
     draw.raster_animation_frames.clear();
@@ -2070,11 +2242,26 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                 }
                 const auto phase = raster_phase(draw, anchor, elapsed);
                 raster_motion_time = phase;
-                const auto& animation_frame =
-                    draw.raster_animation_frames[raster_frame_index(draw, phase)];
-                command.texture = animation_frame.texture;
-                command.texture_sampler = animation_frame.sampler;
-                draw.texture_lease = animation_frame.texture_lease;
+                if (draw.video_stream) {
+                    command.texture = draw.sampled_visual_texture.value_or(command.texture);
+                    if (clock) {
+                        auto sample = draw.video_stream->sample(static_cast<std::uint64_t>(phase));
+                        if (!sample)
+                            core::append_diagnostics(m_media_diagnostics,
+                                                     std::move(sample).error());
+                        else if (*sample.value_if()) {
+                            draw.texture_lease = std::move(**sample.value_if());
+                            command.texture = Texture{(*draw.texture_lease)->handle};
+                            command.texture_sampler = MaterialTextureSampler::ClampLinear;
+                        }
+                    }
+                } else {
+                    const auto& animation_frame =
+                        draw.raster_animation_frames[raster_frame_index(draw, phase)];
+                    command.texture = animation_frame.texture;
+                    command.texture_sampler = animation_frame.sampler;
+                    draw.texture_lease = animation_frame.texture_lease;
+                }
             }
         }
         auto effective_motion = draw.raster_animation_motion;
@@ -2184,7 +2371,8 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                         std::uint64_t frame_phase = phase_ms - lead_in_ms;
                         for (const auto& frame : active_clip->frames) {
                             if (frame_phase < frame.duration_ms) {
-                                if (auto sampled = frame.sample(frame_phase, command))
+                                if (auto sampled =
+                                        frame.sample(frame_phase, command, &m_media_diagnostics))
                                     command = std::move(*sampled);
                                 else
                                     command.color.a = 0.0f;
@@ -2533,6 +2721,8 @@ core::Result<bool, core::Diagnostics> WorldPresentationBackend::resize(Size view
 
 void WorldPresentationBackend::reset()
 {
+    for (const auto& [_, frame] : m_frames)
+        visit_video_streams(frame, [](const auto& stream) { stream->suspend(); });
     m_snapshot.reset();
     m_viewport = {};
     m_frame.reset();
@@ -2544,6 +2734,7 @@ void WorldPresentationBackend::reset()
     m_animation_epoch_generation = 0;
     m_generation = 0;
     m_hotspot_visual_state = {};
+    m_media_diagnostics.clear();
 }
 
 const WorldPresentationFrame* WorldPresentationBackend::frame() const noexcept
@@ -2634,14 +2825,19 @@ void WorldPresentationBackend::swap_prepared(WorldPresentationBackend& prepared)
     swap(m_animation_epoch_generation, prepared.m_animation_epoch_generation);
     swap(m_generation, prepared.m_generation);
     swap(m_hotspot_visual_state, prepared.m_hotspot_visual_state);
+    swap(m_media_diagnostics, prepared.m_media_diagnostics);
 }
 
 void WorldPresentationBackend::discard_revision(
     core::PresentationSnapshotRevision revision) noexcept
 {
     const auto number = revision.number();
+    std::vector<std::shared_ptr<WorldVideoStream>> retired;
+    if (const auto frame = m_frames.find(number); frame != m_frames.end())
+        visit_video_streams(frame->second, [&](const auto& stream) { retired.push_back(stream); });
     m_snapshots.erase(number);
     m_frames.erase(number);
+    suspend_unretained_video_streams(retired, m_frames);
     prune_loop_epochs();
     if (m_snapshot && m_snapshot->revision == revision) {
         m_snapshot.reset();
@@ -2658,14 +2854,19 @@ void WorldPresentationBackend::retain_only(
         return std::any_of(revisions.begin(), revisions.end(),
                            [&](const auto value) { return value.number() == revision; });
     };
+    std::vector<std::shared_ptr<WorldVideoStream>> retired;
     for (auto it = m_snapshots.begin(); it != m_snapshots.end();) {
         if (!retained(it->first)) {
+            if (const auto frame = m_frames.find(it->first); frame != m_frames.end())
+                visit_video_streams(frame->second,
+                                    [&](const auto& stream) { retired.push_back(stream); });
             m_frames.erase(it->first);
             it = m_snapshots.erase(it);
         } else {
             ++it;
         }
     }
+    suspend_unretained_video_streams(retired, m_frames);
     prune_loop_epochs();
 }
 

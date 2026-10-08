@@ -83,10 +83,17 @@ Animation authoring/compiled semantics name the Video Asset and range, not a cod
 The player does not ship or invoke FFmpeg.
 
 At package load the private metadata is strictly validated against the semantic Animation table and
-archive inventory. `StructuredPrefetch` maps a selected video motion to its prepared raster-frame
-textures, so the normal mandatory gate controls readiness and resource failure. The world resolver
-then presents those frames as the same raster sample stream used by sprite Animation. Logical bounds
-remain the Animation canvas and rendering continues through the existing quad/Engine2D Material path.
+archive inventory. `StructuredPrefetch` requests only the frame selected by the initial marker, so
+mandatory publication establishes one drawable seed plus the Material. `WorldVideoStream` is the
+native, time-directed media boundary; its current private raster implementation uses the normal
+asynchronous texture preparation/residency substrate. Each occurrence holds a current decoded frame
+and at most one pending request, skips intervening frames when catching up, and lets slow work finish
+rather than continually canceling it as time advances. Pending samples retain the last ready image;
+terminal resource failures produce a diagnostic once and do not retry every render frame. Retiring or
+hiding an occurrence cancels pending decode interest; hidden epochs still advance and reappearance
+samples the requested time. A retained transition predecessor remains a live presentation consumer.
+Logical bounds remain the Animation canvas and rendering continues through the existing
+quad/Engine2D Material path.
 Sampling is driven only by NovelTea gameplay or unscaled-presentation time; no platform media clock
 enters semantic playback. Existing occurrence epochs therefore provide default/loop playback,
 hidden-time catch-up, compatible-publication phase retention, reset/load/reconstruction restart, and
@@ -102,6 +109,9 @@ for focused publication (the focused-document section describes the owning trans
 Animation records open a specialized timeline editor with motion selection, absolute-time markers,
 frame-duration editing, scrub/play/pause/restart, and sprite frame stepping. Video motions use their
 semantic source/range on the shared timeline while frame stepping remains sprite-only in this tracer.
+The labeled source preview is muted and seeks from the shared playhead, including range offset,
+markers, loop bounds, scrub, and restart; it does not expose independent browser playback controls.
+Unranged video obtains its timeline duration from loaded source metadata.
 Reserved start/end
 markers are shown but cannot be edited. Preview-only loop ranges use the same canonical sampling
 rules as runtime through `editor/src/shared/animation-timeline.ts`. This lightweight source-image
@@ -113,7 +123,9 @@ a running playback anchor. Focused Room preview stages the referenced Environmen
 Character-layer Animations and their resources through production focused resource preparation, not a
 browser animation interpreter. Video motions invoke the same canonical opaque-video preparation job
 and stage its generated frames as bounded focused-preview resources before the native presenter
-receives them. Room Environments author and compile only nullable `visual`; the temporary image
+receives them. The focused native manifest preserves `prepared-media` authority rather than aliasing
+private frames to authored Image Assets. Only selected seed frames join mandatory texture readiness;
+subsequent samples use the same `WorldVideoStream` as runtime. Room Environments author and compile only nullable `visual`; the temporary image
 `asset` expand-contract field is retired and rejected rather than aliased.
 
 Interactable Definition and exact Instance targets admit owner-scoped `DesiredMotionSelection`,
@@ -202,7 +214,12 @@ claim of completed save/load or player interaction certification.
 - `tests/core/presentation_coordinator_tests.cpp` covers finite-motion target replacement,
   placement identity, skip/cancel, barrier classification, and clock/policy validation.
 - `tests/assets/structured_prefetch_tests.cpp` covers exact-target-revision mandatory preparation,
-  missing motion rejection, and asynchronous readiness before finite delivery.
+  missing motion rejection, and asynchronous readiness before finite delivery. Video sampling tests
+  additionally cover seed-only readiness, time-directed decode, hidden catch-up/cancellation,
+  reconstruction, and terminal frame failure without request churn.
+- `noveltea_focused_video_sampling` explicitly exercises focused prepared-media publication and
+  demand sampling through the native presenter. Widget/TypeScript contract tests cover the matching
+  private authority and reject the replaced authored-Image alias.
 - `tests/core/compiled_package_tests.cpp` covers strict private prepared-media decoding, rejection of
   unknown representation metadata, failure when a semantic video motion lacks prepared media, and
   successful assembly when the prepared inventory matches.
