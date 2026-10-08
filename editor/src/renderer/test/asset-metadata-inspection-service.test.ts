@@ -230,6 +230,29 @@ const GOOGLE_C2PA_ACTIONS = Buffer.from(
 );
 
 describe('Project Asset embedded metadata inspection', () => {
+  it('inspects admitted image bytes when cached size and revision metadata are absent', async () => {
+    const bytes = withPngText('prompt', JSON.stringify({ prompt: 'Hashless fixture' }));
+    const fixture = tempProject(bytes);
+    delete fixture.project.assets.generated!.data.byteSize;
+    delete fixture.project.assets.generated!.data.contentHash;
+    const sessions = new ActiveProjectSessionService();
+    const sessionId = await sessions.activateProjectFile(
+      fixture.projectFilePath,
+      undefined,
+      fixture.project,
+    );
+    const service = new AssetMetadataInspectionService(sessions);
+
+    const result = await service.inspect(sessionId, 'generated');
+
+    expect(result).toMatchObject({
+      ok: true,
+      status: 'ready',
+      kind: 'image',
+      contentHash: digest(bytes),
+    });
+  });
+
   it('returns grouped structural and textual PNG metadata from admitted bytes', async () => {
     const prompt = JSON.stringify({ prompt: 'Moonlit room' });
     const bytes = withPngText('ImageWidth', 'authored text', withPngText('prompt', prompt));
@@ -890,7 +913,7 @@ describe('Project Asset embedded metadata inspection', () => {
     );
   });
 
-  it('fails closed for stale sessions, unknown Assets, changed bytes, and unsafe source paths', async () => {
+  it('fails closed for stale sessions, unknown Assets, and unsafe paths while inspecting current contained bytes', async () => {
     const bytes = withPngText('prompt', '{"prompt":"trusted"}');
     const fixture = tempProject(bytes);
     const sessions = new ActiveProjectSessionService();
@@ -917,8 +940,9 @@ describe('Project Asset embedded metadata inspection', () => {
     changed[changed.byteLength - 1] ^= 1;
     fs.writeFileSync(source, changed);
     await expect(service.inspect(sessionId, 'generated')).resolves.toMatchObject({
-      ok: false,
-      code: 'revision-mismatch',
+      ok: true,
+      status: 'ready',
+      contentHash: digest(changed),
     });
 
     fs.writeFileSync(source, bytes);

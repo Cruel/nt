@@ -589,6 +589,7 @@ export class AssetMetadataInspectionService {
 
     const resolved = await resolveContainedOriginalAsset(this.sessions, projectSessionId, assetId, {
       requireKind: authorized.asset.kind,
+      allowDerivedMetadata: true,
     });
     if (typeof resolved === 'string')
       return sourceFailure(
