@@ -12,6 +12,14 @@ export interface OpaqueVideoPreparationRequest {
 export interface OpaqueVideoPreparationResult {
   contentHash: string;
   hadAudio: boolean;
+  browserVideo: {
+    sourcePath: string;
+    projectRelativePath: string;
+    contentHash: string;
+    byteSize: number;
+    width: number;
+    height: number;
+  };
   frames: {
     sourcePath: string;
     projectRelativePath: string;

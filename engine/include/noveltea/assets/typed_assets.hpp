@@ -59,10 +59,18 @@ struct FontAssetConfig {
     std::vector<FontFamilyAssetDesc> families;
 };
 
+struct PreparedVideoTextureSample {
+    std::string media_path;
+    double time_ms = 0;
+    std::uint16_t width = 0;
+    std::uint16_t height = 0;
+};
+
 struct TextureAssetRequest {
     std::string path;
     MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
     bool retain_alpha_coverage = false;
+    std::optional<PreparedVideoTextureSample> video_sample = std::nullopt;
 };
 
 struct TextureAlphaCoverage {

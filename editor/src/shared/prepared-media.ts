@@ -4,6 +4,7 @@ const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
 export const PREPARED_MEDIA_MANIFEST_PATH = 'assets/.prepared-media/manifest.json';
 export const PREPARED_MEDIA_SCHEMA = 'noveltea.private.prepared-media';
+export const PREPARED_MEDIA_VERSION = 1;
 export {
   OPAQUE_VIDEO_FRAME_RATE,
   type OpaqueVideoPreparationRequest,
@@ -40,6 +41,14 @@ export const opaqueVideoPreparationRequestSchema = strict({
 export const opaqueVideoPreparationResultSchema = strict({
   contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
   hadAudio: z.boolean(),
+  browserVideo: strict({
+    sourcePath: z.string().min(1),
+    projectRelativePath: z.string().min(1),
+    contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
+    byteSize: z.number().int().positive(),
+    width: z.number().int().positive().max(10_000),
+    height: z.number().int().positive().max(10_000),
+  }),
   frames: z
     .array(
       strict({
@@ -55,12 +64,18 @@ export const opaqueVideoPreparationResultSchema = strict({
 
 export const preparedMediaManifestSchema = strict({
   schema: z.literal(PREPARED_MEDIA_SCHEMA),
+  version: z.literal(PREPARED_MEDIA_VERSION),
   motions: z.array(
     strict({
       animationId: z.string().min(1),
       motionId: z.string().min(1),
       representation: z.literal('opaque-raster-frames'),
       contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
+      browserVideo: strict({
+        path: z.string().min(1),
+        width: z.number().int().positive().max(10_000),
+        height: z.number().int().positive().max(10_000),
+      }).nullable(),
       frames: z
         .array(
           strict({

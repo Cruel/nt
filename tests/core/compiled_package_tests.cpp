@@ -276,11 +276,13 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
 {
     const auto prepared_json = R"json({
       "schema":"noveltea.private.prepared-media",
+      "version":1,
       "motions":[{
         "animationId":"video-animation",
         "motionId":"idle",
         "representation":"opaque-raster-frames",
         "contentHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+        "browserVideo":{"path":"assets/.prepared-media/video-animation/idle/a/opaque.webm","width":320,"height":180},
         "frames":[
           {"path":"assets/.prepared-media/video-animation/idle/a/frame-000000.png","durationMs":500},
           {"path":"assets/.prepared-media/video-animation/idle/a/frame-000001.png","durationMs":500}
@@ -292,6 +294,16 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
     REQUIRE(decoded.value().motions.size() == 1);
     CHECK(decoded.value().motions.front().frames.size() == 2);
 
+    auto obsolete = nlohmann::json::parse(prepared_json);
+    obsolete.erase("version");
+    CHECK_FALSE(decode_prepared_media_catalog_json(obsolete.dump(), "prepared-media.json"));
+    obsolete = nlohmann::json::parse(prepared_json);
+    obsolete["motions"][0].erase("browserVideo");
+    CHECK_FALSE(decode_prepared_media_catalog_json(obsolete.dump(), "prepared-media.json"));
+    obsolete = nlohmann::json::parse(prepared_json);
+    obsolete["version"] = 0;
+    CHECK_FALSE(decode_prepared_media_catalog_json(obsolete.dump(), "prepared-media.json"));
+
     auto unknown_representation = nlohmann::json::parse(prepared_json);
     unknown_representation["motions"][0]["representation"] = "future-codec";
     auto rejected =
@@ -301,9 +313,12 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
 
     auto project = video_animation_project();
     auto manifest_json = package_manifest_for(project, false);
-    const auto prepared = prepared_video_catalog();
+    const auto prepared = decoded.value();
+    CHECK(prepared.motions.front().browser_video->width == 320);
     for (const auto& frame : prepared.motions.front().frames)
         manifest_json["entries"].push_back({{"path", frame.path}, {"size", 10}});
+    manifest_json["entries"].push_back(
+        {{"path", prepared.motions.front().browser_video->path}, {"size", 10}});
     auto manifest = decode_runtime_package_manifest(manifest_json);
     REQUIRE(manifest.has_value());
     auto inventory = inventory_for(manifest.value());
@@ -311,6 +326,21 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
     auto missing = assemble_compiled_package(project, manifest.value(), std::nullopt, inventory);
     REQUIRE_FALSE(missing.has_value());
     CHECK(has_code(missing.error(), "runtime_package.missing_prepared_video_motion"));
+
+    auto wrong_canvas = prepared;
+    wrong_canvas.motions.front().browser_video->width = 1;
+    auto invalid =
+        assemble_compiled_package(project, manifest.value(), std::nullopt, inventory, wrong_canvas);
+    REQUIRE_FALSE(invalid.has_value());
+    CHECK(has_code(invalid.error(), "runtime_package.invalid_browser_video"));
+    auto missing_browser = manifest_json;
+    erase_manifest_entry(missing_browser, prepared.motions.front().browser_video->path);
+    auto missing_browser_manifest = decode_runtime_package_manifest(missing_browser);
+    REQUIRE(missing_browser_manifest.has_value());
+    invalid = assemble_compiled_package(project, missing_browser_manifest.value(), std::nullopt,
+                                        inventory_for(missing_browser_manifest.value()), prepared);
+    REQUIRE_FALSE(invalid.has_value());
+    CHECK(has_code(invalid.error(), "runtime_package.invalid_browser_video"));
 
     auto assembled = assemble_compiled_package(std::move(project), std::move(manifest).value(),
                                                std::nullopt, std::move(inventory), prepared);

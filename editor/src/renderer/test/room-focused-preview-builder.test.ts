@@ -353,6 +353,14 @@ describe('graph-driven Room builder', () => {
     vi.mocked(window.noveltea.prepareOpaqueVideo).mockResolvedValueOnce({
       contentHash: 'a'.repeat(64),
       hadAudio: true,
+      browserVideo: {
+        sourcePath: '/project/.noveltea/build/prepared-media/a/opaque.webm',
+        projectRelativePath: '.noveltea/build/prepared-media/a/opaque.webm',
+        contentHash: 'd'.repeat(64),
+        byteSize: 13,
+        width: 320,
+        height: 180,
+      },
       frames: [
         {
           sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000000.png',

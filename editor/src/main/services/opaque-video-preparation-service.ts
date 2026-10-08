@@ -75,6 +75,7 @@ export async function prepareOpaqueVideoMotion(
         canvas: request.canvas,
         sourceRange: request.sourceRange ?? null,
         frameRate: OPAQUE_VIDEO_FRAME_RATE,
+        representationVersion: 1,
         toolRelease: pin.release,
       }),
     )
@@ -143,8 +144,58 @@ export async function prepareOpaqueVideoMotion(
         };
       }),
     );
+    const browserPath = join(directory, 'opaque.webm');
+    runMediaPreparation(
+      tool,
+      [
+        '-y',
+        '-fflags',
+        '+bitexact',
+        '-framerate',
+        String(OPAQUE_VIDEO_FRAME_RATE),
+        '-start_number',
+        '0',
+        '-i',
+        pattern,
+        '-t',
+        seconds(durations.reduce((total, duration) => total + duration, 0)),
+        '-map',
+        '0:v:0',
+        '-an',
+        '-sn',
+        '-dn',
+        '-map_metadata',
+        '-1',
+        '-c:v',
+        'libvpx-vp9',
+        '-pix_fmt',
+        'yuv420p',
+        '-lossless',
+        '1',
+        '-threads',
+        '1',
+        '-row-mt',
+        '0',
+        '-g',
+        '30',
+        '-flags:v',
+        '+bitexact',
+        browserPath,
+      ],
+      run,
+    );
+    const browserBytes = await readFile(browserPath);
+    if (browserBytes.length === 0) throw new Error('Browser video preparation produced no media.');
     return {
       contentHash: key,
+      browserVideo: {
+        sourcePath: browserPath,
+        projectRelativePath: `.noveltea/build/prepared-media/${key}/opaque.webm`,
+        contentHash: createHash('sha256').update(browserBytes).digest('hex'),
+        byteSize: browserBytes.length,
+        width,
+        height,
+      },
       hadAudio: /Stream #\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?: Audio:/u.test(result.stderr),
       frames,
     };

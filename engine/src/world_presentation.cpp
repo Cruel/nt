@@ -1,4 +1,5 @@
 #include "noveltea/world_presentation.hpp"
+#include "noveltea/assets/prepared_video_texture.hpp"
 
 #include "noveltea/presentation/presentation_operation_requests.hpp"
 
@@ -597,16 +598,14 @@ public:
             }
         }
         if (index == m_current_index) {
-            m_pending.reset();
+            // Loop wrap must not cancel a slow seek before it can ever produce a sample.
             m_state = assets::AssetRequestState::Ready;
             m_current.mark_used_on_owner();
             return Sample::success(m_current);
         }
         // Let a slow decode finish instead of starving it as the requested playhead advances.
         if (!m_pending) {
-            const assets::TextureAssetRequest request{
-                .path = "project:/" + m_representation.frames[index].path,
-                .sampler = MaterialTextureSampler::ClampLinear};
+            const auto request = assets::prepared_video_texture_request(m_representation, index);
             auto requested = m_assets.request_texture(request, assets::AssetRequestReason::Demand,
                                                       assets::AssetRequestUrgency::Background);
             if (!requested)
@@ -891,8 +890,7 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
         for (std::size_t index = 0; index < prepared_video->frames.size(); ++index) {
             const auto& frame = prepared_video->frames[index];
             const auto logical_path = "project:/" + frame.path;
-            const assets::TextureAssetRequest request{
-                .path = logical_path, .sampler = MaterialTextureSampler::ClampLinear};
+            const auto request = assets::prepared_video_texture_request(*prepared_video, index);
             result.animation_key += ":" + frame.path + ":" + std::to_string(frame.duration_ms);
             if (index != initial_index) {
                 result.animation_frames.push_back({frame.duration_ms, {}, std::nullopt});

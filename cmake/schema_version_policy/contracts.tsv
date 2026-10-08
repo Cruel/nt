@@ -1,4 +1,5 @@
 contract_id	current_version	lifecycle	owner	producer_paths	consumer_paths
+prepared-media	1	development	editor+engine	editor/src/shared/runtime-artifact-preparation.ts	editor/src/shared/prepared-media.ts,engine/src/core/compiled_package_codec.cpp
 project-workspace	1	development	editor	editor/src/shared/project-workspace/project-workspace-contracts.ts	editor/src/shared/project-workspace/project-workspace-discovery.ts,editor/src/shared/project-workspace/project-workspace-service.ts,editor/src/shared/project-workspace/workspace-manifest-schema.ts,editor/src/shared/project-schema/schema-reference.ts
 portable-project-bundle	1	development	editor	editor/src/main/services/portable-project-bundle-service.ts	editor/src/main/services/portable-project-bundle-service.ts,editor/src/cli/project-bundle-cli.ts
 compiled-project	1	development	editor+engine	editor/src/shared/project-schema/compiled-project.ts	editor/src/shared/project-schema/compiled-project.ts,engine/src/core/compiled_project_codec/project_decoder.cpp,scripts/development-snapshot.mjs

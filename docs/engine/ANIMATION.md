@@ -5,7 +5,7 @@
 Animation is immutable reusable raster content, separate from source Assets and gameplay identities.
 Phase 1 established one canonical image/Animation Visual contract across Room Environments,
 Interactable presentation, and Character visual layers. The first Phase-2 opaque-video tracer is now
-implemented on native runtime and focused Room preview. Interactables use current-frame
+implemented on native runtime, Web players, and focused Room preview. Interactables use current-frame
 `visual-alpha` hit testing for image/sprite realization; dynamic video alpha remains future work.
 Character semantic composition and choreography remain separate from reusable Animation content.
 
@@ -77,8 +77,12 @@ do not change occurrence placement.
 
 For a video motion, runtime-artifact preparation invokes the pinned private FFmpeg tool while keeping
 the creator Video Asset intact. The current tracer normalizes the selected source/range to the
-Animation logical canvas and emits a deterministic opaque 30 fps PNG sequence plus private
-prepared-media metadata. Package paths, frame transport, and metadata shape are deliberately private;
+Animation logical canvas and emits a deterministic opaque 30 fps PNG sequence plus a muted
+VP9/WebM alternative encoded from those normalized samples and private prepared-media metadata.
+The exporter currently includes both alternatives rather than pruning by target. The private
+manifest has one current version (1); the replaced unversioned shape is rejected and
+must be regenerated. Its required nullable `browserVideo` field names a private packaged WebM and
+canvas dimensions, never an authored Video/Animation field. Package paths, frame transport, and metadata shape are deliberately private;
 Animation authoring/compiled semantics name the Video Asset and range, not a codec or generated file.
 Prepared frame durations close exactly on the authored source-range endpoint when one is given;
 unranged video obtains its semantic endpoint from prepared media. The player does not ship or
@@ -91,7 +95,8 @@ native, time-directed media boundary; its current private raster implementation 
 asynchronous texture preparation/residency substrate. Each occurrence holds a current decoded frame
 and at most one pending request, skips intervening frames when catching up, and lets slow work finish
 rather than continually canceling it as time advances. Pending samples retain the last ready image;
-terminal resource failures produce a diagnostic once and do not retry every render frame. Retiring or
+terminal resource failures produce a diagnostic once and do not retry every render frame. A loop returning to its currently held sample does not cancel unfinished preparation, preventing
+slow browser seeks from starving on every wrap. Retiring or
 hiding an occurrence cancels pending decode interest; hidden epochs still advance and reappearance
 samples the requested time. A retained transition predecessor remains a live presentation consumer.
 Logical bounds remain the Animation canvas and rendering continues through the existing
@@ -100,6 +105,23 @@ Sampling is driven only by NovelTea gameplay or unscaled-presentation time; no p
 enters semantic playback. Existing occurrence epochs therefore provide default/loop playback,
 hidden-time catch-up, compatible-publication phase retention, reset/load/reconstruction restart, and
 independent phase for shared Animation occurrences.
+
+On Web, a declared browser alternative makes the same stream request time-addressed typed textures
+through `assets::prepared_video_texture_request`. Browser-native, paused `HTMLVideoElement` seeks and
+canvas RGBA rasterization live in `web/video_texture.js`, with no `play()` or browser playback clock.
+`WebVideoTextureTask` reads only the selected packaged media entry incrementally, reserves source,
+GPU and conservative browser/decode/upload temporary costs through ordinary residency, then hands
+pixels and mip preparation to the existing owner-thread bgfx texture finalizer. Source bytes are
+limited to 128 MiB per prepared browser representation; at most two browser decoders are active.
+Queued/active cancellation disposes media elements and revokes Blob URLs before releasing WASM
+buffers. Browser callbacks publish atomic completion directly to the task; worker polling never
+uses synchronous main-thread proxies, which can starve media events. Final textures are ordinary
+immutable residency-managed leases and may be shared by occurrences sampling the same frame.
+For a declared browser alternative, unsupported/corrupt media, canvas mismatch, and decode timeout
+are typed resource failures, not PNG fallbacks. Finite startup uses the same all-frame gate and terminal
+sample readiness rules as native. Reopening/seeking per uncached sample is a bounded tracer, not a
+claim of real-time codec throughput; persistent decoder optimization remains below this boundary.
+Focused Room previews retain their explicit PNG-frame transport and existing manifest/protocol.
 
 See [Animation and Tweening](../rendering/ANIMATION_AND_TWEENING.md#raster-animation-realization)
 for epoch ownership and reconstruction, and
@@ -191,8 +213,9 @@ Focus uses the shared authoring timeline helpers for play/pause/scrub/frame-step
 can author keys for any motion in the selected Animation.
 
 Opaque native video Animation is implemented as the first replaceable prepared-media tracer, including
-finite named-motion operation parity and representation-derived frame addressing. Browser-native Web
-realization, true codec-level frame introspection, multi-representation target selection,
+finite named-motion operation parity and representation-derived frame addressing. Web now realizes
+the prepared browser alternative through the same semantic stream/texture contract. True
+codec-level frame introspection, target-specific representation pruning,
 transparent video, dynamic video `visual-alpha`, movies, and animated Inventory icons remain
 follow-up work. The Phase 1 world-presentation sprite-to-Visual
 cutover remains complete, and Interactable world Hotspots can sample sprite Animation frame CPU
@@ -239,6 +262,16 @@ claim of completed save/load or player interaction certification.
 - `tests/core/compiled_package_tests.cpp` covers strict private prepared-media decoding, rejection of
   unknown representation metadata, failure when a semantic video motion lacks prepared media, and
   successful assembly when the prepared inventory matches.
+- `tests/web/prepared_video_texture_tests.cpp` runs under WebAssembly to protect focused PNG-frame
+  transport, fractional interval sampling, and distinct raster/browser cache identities.
+- `tests/web/video_texture_tests.mjs` exercises real browser directed color decoding, independent
+  samples, bounded queue cancellation, corrupt media, and dimension failure. Its 96×64, two-second
+  VP9 fixture is generated by the pinned preparer from Feature Lab's `opaque-color-loop` range.
+  `scripts/web-player-package-smoke.mjs --video --package <prepared-package>` additionally proves
+  red/green/blue output reaches the ordinary raster Visual panel through the actual Web player.
+  This uses the debug player's direct-start smoke mode, not title-screen interaction certification.
+- `tests/tooling/playback_expectation_tests.cpp` covers prepared-media handoff during normal
+  package export certification and rejection of absent private media files.
 - Runtime-artifact preparation tests cover deterministic private video lowering and audio-ignore
   diagnostics, while focused Room preview tests cover canonical preparation/staging of the video
   representation. The current private PNG frame transport is test evidence for the tracer, not a

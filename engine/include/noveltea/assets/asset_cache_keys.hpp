@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <string>
 #include <type_traits>
+#include <utility>
 #include <variant>
 
 namespace noveltea::assets {
@@ -22,9 +23,15 @@ namespace noveltea::assets {
 [[nodiscard]] inline AssetCacheKey make_texture_cache_key(const TextureAssetRequest& request,
                                                           AssetSourceGeneration generation)
 {
-    return {.stable_identity = "texture|" + request.path + "|" +
-                               std::to_string(static_cast<std::uint32_t>(request.sampler)),
-            .source_generation = generation};
+    std::string identity = "texture|" + request.path + "|" +
+                           std::to_string(static_cast<std::uint32_t>(request.sampler));
+    if (request.video_sample) {
+        const auto& video = *request.video_sample;
+        identity += "|video|" + std::to_string(video.media_path.size()) + ":" + video.media_path +
+                    "|" + std::to_string(video.time_ms) + "|" + std::to_string(video.width) + "x" +
+                    std::to_string(video.height);
+    }
+    return {.stable_identity = std::move(identity), .source_generation = generation};
 }
 
 [[nodiscard]] inline AssetCacheKey

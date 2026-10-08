@@ -224,6 +224,10 @@ Result<HeadlessRuntimeInput, Diagnostics> make_headless_running_game_input(
             entries.push_back({{"path", frame.path}, {"size", 0}});
             files.push_back({frame.path, 0, std::nullopt});
         }
+        if (motion.browser_video) {
+            entries.push_back({{"path", motion.browser_video->path}, {"size", 0}});
+            files.push_back({motion.browser_video->path, 0, std::nullopt});
+        }
     }
 
     nlohmann::json manifest = {
@@ -620,23 +624,27 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
         prepared_media = std::move(decoded).value();
     }
     for (const auto& motion : prepared_media.motions) {
-        for (const auto& frame : motion.frames) {
+        std::vector<std::string> required_paths;
+        for (const auto& frame : motion.frames)
+            required_paths.push_back(frame.path);
+        if (motion.browser_video)
+            required_paths.push_back(motion.browser_video->path);
+        for (const auto& path : required_paths) {
             if (std::none_of(options.file_entries.begin(), options.file_entries.end(),
-                             [&](const auto& entry) {
-                                 return entry.package_path == frame.path;
-                             }))
+                             [&](const auto& entry) { return entry.package_path == path; }))
                 return Result<void, Diagnostics>::failure(
                     {{.code = "export.missing_prepared_media",
                       .message = "Prepared video file is absent from export inventory.",
-                      .source_path = frame.path}});
+                      .source_path = path}});
         }
     }
-    auto input = make_headless_running_game_input(
-        project, std::move(shader_material_metadata), "en", options.shader_variants,
-        std::move(prepared_media));
+    auto input =
+        make_headless_running_game_input(project, std::move(shader_material_metadata), "en",
+                                         options.shader_variants, std::move(prepared_media));
     if (!input)
         return Result<void, Diagnostics>::failure(std::move(input).error());
-    auto runtime = load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
+    auto runtime =
+        load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
     if (!runtime)
         return Result<void, Diagnostics>::failure(std::move(runtime).error());
     return Result<void, Diagnostics>::success();

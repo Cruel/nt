@@ -151,6 +151,10 @@ describe('private media preparation tool', () => {
         request,
         tool,
         (_exe, args) => {
+          if (args.at(-1)?.endsWith('.webm')) {
+            writeFileSync(args.at(-1)!, 'browser video');
+            return { stdout: '', stderr: '' };
+          }
           if (!args.includes('-vf')) return run(_exe, args);
           expect(readFileSync(args[args.indexOf('-i') + 1]!)).toEqual(bytes);
           writeFileSync(args.at(-1)!.replace('%06d', '000000'), 'frame');
@@ -214,6 +218,10 @@ describe('private media preparation tool', () => {
         if (args.includes('-encoders')) return run(_executable, args);
         if (args.includes('-protocols')) return run(_executable, args);
         const pattern = args.at(-1)!;
+        if (pattern.endsWith('.webm')) {
+          writeFileSync(pattern, Buffer.from('browser video'));
+          return { stdout: '', stderr: '' };
+        }
         writeFileSync(pattern.replace('%06d', '000000'), Buffer.from('frame one'));
         writeFileSync(pattern.replace('%06d', '000001'), Buffer.from('frame two'));
         return {
@@ -236,6 +244,16 @@ describe('private media preparation tool', () => {
       );
 
       expect(result.hadAudio).toBe(true);
+      expect(result).toMatchObject({
+        browserVideo: {
+          sourcePath: expect.stringMatching(/opaque\.webm$/u),
+          projectRelativePath: expect.stringMatching(/opaque\.webm$/u),
+          contentHash: expect.stringMatching(/^[0-9a-f]{64}$/u),
+          byteSize: expect.any(Number),
+          width: 320,
+          height: 180,
+        },
+      });
       expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/u);
       expect(result.frames.map((frame) => frame.durationMs)).toEqual([33, 967]);
       expect(result.frames.reduce((total, frame) => total + frame.durationMs, 0)).toBe(1000);

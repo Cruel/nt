@@ -422,6 +422,19 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
             add_assembly_error(diagnostics, "runtime_package.invalid_prepared_video_motion",
                                "Prepared media must match a semantic video Animation motion.",
                                "/prepared_media/motions/" + std::to_string(index));
+        if (prepared.browser_video) {
+            const auto& browser = *prepared.browser_video;
+            if (!ProjectPackageWriter::is_allowed_package_path(browser.path) ||
+                !browser.path.starts_with("assets/.prepared-media/") ||
+                !browser.path.ends_with(".webm") || !declared.contains(browser.path) ||
+                animation == project.animations().end() ||
+                browser.width != animation->canvas.width ||
+                browser.height != animation->canvas.height)
+                add_assembly_error(
+                    diagnostics, "runtime_package.invalid_browser_video",
+                    "Browser video must match the Animation canvas and package inventory.",
+                    "/prepared_media/motions/" + std::to_string(index));
+        }
         if (prepared.frames.empty())
             add_assembly_error(diagnostics, "runtime_package.empty_prepared_video_motion",
                                "Prepared video motion must contain at least one raster frame.",

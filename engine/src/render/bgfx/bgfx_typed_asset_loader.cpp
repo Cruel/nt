@@ -1,4 +1,5 @@
 #include "render/bgfx/bgfx_typed_asset_loader.hpp"
+#include "render/bgfx/web_video_texture.hpp"
 
 #include "assets/asset_preparation_io.hpp"
 #include "noveltea/render/material_contract.hpp"
@@ -1211,6 +1212,8 @@ std::unique_ptr<assets::AssetPreparationTask<assets::TextureAsset>>
 BgfxTypedAssetLoader::create_texture_preparation_task(const assets::TextureAssetRequest& request)
 {
     auto& owner = static_cast<TexturePreparationOwner&>(*this);
+    if (request.video_sample)
+        return make_web_video_texture_task(m_assets, owner, request);
     return std::make_unique<TexturePreparationTask>(m_assets, owner, request);
 }
 

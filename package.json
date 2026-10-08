@@ -16,6 +16,8 @@
     "web:player-bootstrap:test": "node --test tests/web/player_bootstrap_tests.mjs",
     "web:player-bootstrap:browser": "node scripts/web-player-bootstrap-browser-tests.mjs",
     "web:player-package:smoke": "node scripts/web-player-package-smoke.mjs",
+    "web:video:test": "node tests/web/video_texture_tests.mjs --request-build-dir build/web-debug",
+    "web:video:smoke": "node scripts/web-player-package-smoke.mjs --video",
     "web:certify-export": "node scripts/web-export-certification.mjs"
   },
   "devDependencies": {

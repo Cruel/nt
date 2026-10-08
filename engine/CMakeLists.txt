@@ -139,6 +139,10 @@ target_compile_definitions(noveltea_engine PRIVATE
 )
 
 if(EMSCRIPTEN)
+    target_link_options(noveltea_engine INTERFACE
+        "SHELL:--js-library ${CMAKE_SOURCE_DIR}/web/video_texture.js")
+    set_property(TARGET noveltea_engine APPEND PROPERTY INTERFACE_LINK_DEPENDS
+        "${CMAKE_SOURCE_DIR}/web/video_texture.js")
     # miniaudio embeds EM_ASM JavaScript using Emscripten's $0/$1 parameter
     # syntax. Clang diagnoses those tokens as an extension while parsing the
     # third-party header included by this translation unit.
