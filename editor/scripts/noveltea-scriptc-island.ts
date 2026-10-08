@@ -494,6 +494,8 @@ async function createPinnedRuntimeArtifactPaths(
   fileSystem: import('../src/shared/project-workspace/project-workspace-file-system').ProjectWorkspaceFileSystem,
   projectRoot: string,
   inputs: import('../src/shared/project-workspace/resident-project-workspace-service').PinnedPortableResidentProjectInputs,
+  cliExecutable: () => string,
+  mediaRunner: (executable: string, args: readonly string[]) => { stdout: string; stderr: string },
 ): Promise<import('../src/shared/runtime-artifact-preparation').RuntimeArtifactPathAdapter> {
   const [nodePaths, pinnedAssets] = await Promise.all([
     import('../src/main/services/node-runtime-artifact-adapters'),
@@ -503,7 +505,7 @@ async function createPinnedRuntimeArtifactPaths(
     inputs.externalAssets.map((entry) => [entry.path.replaceAll('\\', '/'), entry]),
   );
   return {
-    ...nodePaths.nodeRuntimeArtifactPaths,
+    ...nodePaths.createNodeRuntimeArtifactPaths(cliExecutable, mediaRunner),
     async readProjectTextSources(root, entries) {
       const results = new Map<
         string,
@@ -561,6 +563,16 @@ async function createPinnedRuntimeArtifactPaths(
         (entry) => results.get(entry.assetId) ?? { status: 'unavailable', assetId: entry.assetId },
       );
     },
+  };
+}
+
+function hostMediaToolRunner(invokeHost: ScriptcHostInvoke) {
+  return (executable: string, args: readonly string[]) => {
+    const response = JSON.parse(
+      invokeHost('run-process', JSON.stringify({ command: executable, args: [...args] })),
+    ) as { ok: boolean; stdout?: string; stderr?: string; error?: string };
+    if (response.ok !== true) throw new Error(response.error ?? 'Media-tool execution failed.');
+    return { stdout: response.stdout ?? '', stderr: response.stderr ?? '' };
   };
 }
 
@@ -786,11 +798,24 @@ async function runNovelTeaScriptcIslandScoped(
           fileSystem,
           pinned.projectRoot,
           pinnedInputs,
+          () => invokeHost('cli-executable-path', ''),
+          hostMediaToolRunner(invokeHost),
         );
         trace(`pinned Project snapshot hydrated: ${pinned.projectRoot}`);
       }
     }
   }
+
+  const runtimeArtifactPaths =
+    pinnedRuntimeArtifactPaths ??
+    (['package', 'test', 'platform', 'project'].includes(family)
+      ? (
+          await import('../src/main/services/node-runtime-artifact-adapters')
+        ).createNodeRuntimeArtifactPaths(
+          () => invokeHost('cli-executable-path', ''),
+          hostMediaToolRunner(invokeHost),
+        )
+      : undefined);
 
   if (family === 'platform') {
     trace('platform tools import starting');
@@ -798,7 +823,7 @@ async function runNovelTeaScriptcIslandScoped(
       await import('../src/cli/platform-tool-service-node');
     trace('platform tools import completed');
     platformTools = createNovelTeaCliPlatformToolService(nativeTools, {
-      runtimeArtifactPaths: pinnedRuntimeArtifactPaths,
+      runtimeArtifactPaths,
       pinnedProjectTextSources,
     });
   }
@@ -854,6 +879,7 @@ async function runNovelTeaScriptcIslandScoped(
           ? { scopedReadAuthority: scopedResidentReadAuthority(fileSystem) }
           : {}),
         nativeTools,
+        ...(runtimeArtifactPaths ? { runtimeArtifactPaths } : {}),
         ...(platformTools ? { platformTools } : {}),
         ...(embeddedBuiltInFiles
           ? { comfyUiWorkflowLibraryOptions: { embeddedBuiltInFiles } }
@@ -883,7 +909,6 @@ async function runNovelTeaScriptcIslandScoped(
               pinnedExternalAssets,
               pinnedProjectTextSources,
               pinnedRuntimeBuildCacheInputs,
-              runtimeArtifactPaths: pinnedRuntimeArtifactPaths,
             }
           : {}),
         onAuthoringValidationInstrumentation:

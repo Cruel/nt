@@ -31,6 +31,11 @@ Layouts:
 Only the existing public CLI directory participates in installer PATH integration. FFmpeg is not
 added to PATH, game packages, or player templates. Resolution follows the real CLI executable,
 including when the public CLI is a symlink, rather than the working directory or ambient PATH.
+For runtime-artifact video preparation, the standalone ScriptC host supplies its real executable
+path to the dynamic island (whose `process.execPath` is a virtual `scriptc` name) and executes FFmpeg
+through its existing host subprocess boundary (the island does not support `spawnSync`). The Node
+driver uses its resolved installed NovelTea CLI path and native Node process runner. An explicit
+`NOVELTEA_FFMPEG` override bypasses executable resolution entirely.
 
 ## Shared service and diagnostics
 
@@ -59,6 +64,12 @@ assembly stages those frames under the private `assets/.prepared-media/` namespa
 private metadata. Embedded source audio is detected only to produce the authoring warning; generic
 Animation remains visual-only. Neither the generated PNG layout nor the private prepared-media
 metadata is an authored/public schema commitment.
+
+Authored Test execution uses the same prepared-media manifest as runtime-package export.
+The Node and standalone ScriptC CLI paths forward it to the native headless and UI Test runners,
+including suite preflight and cached direct-native execution. These runners must admit the same
+prepared video motions as exported packages, rather than treating a video-backed Project as
+runnable without its private prepared-media catalog.
 
 ```sh
 noveltea --json media-tool check

@@ -1,5 +1,5 @@
 /* oxlint-disable typescript/no-explicit-any -- ScriptC static lowering requires erased native JSON boundary shapes here; unknown/union forms force this fast path into the dynamic island. */
-import { mkdtempSync, readFileSync, rmSync, unlinkSync } from 'node:fs';
+import { mkdtempSync, readFileSync, realpathSync, rmSync, unlinkSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import {
@@ -81,6 +81,7 @@ function processAlive(requestText: string): string {
 
 function invokeHost(operation: string, requestText: string): string {
   if (operation === 'process-alive') return processAlive(requestText);
+  if (operation === 'cli-executable-path') return realpathSync(process.execPath);
   if (operation === 'read-stdin') {
     if (cachedStdin === null) cachedStdin = readFileSync(0, 'utf8');
     return cachedStdin;
@@ -106,7 +107,12 @@ function invokeCapturedHost(
   requestText: string,
   forwardCapturedOutput: boolean,
 ): string {
-  if (operation === 'process-alive' || operation === 'read-stdin' || operation === 'run-process')
+  if (
+    operation === 'process-alive' ||
+    operation === 'read-stdin' ||
+    operation === 'run-process' ||
+    operation === 'cli-executable-path'
+  )
     return invokeHost(operation, requestText);
 
   const envelope = JSON.parse(
@@ -433,6 +439,17 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
   }
   const entries: any[] = needsCatalog ? probe.catalog.entries : [];
   const shaderMaterialMetadata: any = probe.artifact?.shaderMaterialMetadata ?? null;
+  const shaderVariants: any = probe.artifact?.packageOptions?.shaderVariants ?? [];
+  let preparedMediaManifest: string | null = null;
+  const textEntries: any = probe.artifact?.packageOptions?.textEntries;
+  if (textEntries && typeof textEntries.length === 'number') {
+    for (const entry of textEntries) {
+      if (entry?.packagePath !== 'assets/.prepared-media/manifest.json') continue;
+      if (typeof entry.text !== 'string') return null;
+      preparedMediaManifest = entry.text;
+      break;
+    }
+  }
   const authoringDiagnostics = staticAuthoringDiagnostics(probe);
   trace('runtime cache hit: static/native test path admitted');
 
@@ -493,7 +510,9 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
       spec: entry.spec,
       projectRoot: root,
       shaderMaterialMetadata,
+      shaderVariants,
     };
+    if (preparedMediaManifest !== null) request.preparedMediaManifest = preparedMediaManifest;
     nativeResponse = parseNativeResponse(
       entry.runner === 'runtime-ui' ? 'run-ui-test' : 'run-test',
       request,
@@ -501,12 +520,15 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
     cachedCatalogPayload = true;
     successMessage = `NovelTea test run ${testId} succeeded.`;
   } else if (suite) {
-    nativeResponse = parseNativeResponse('run-test-suite', {
+    const request: any = {
       project: compiledProject,
       catalog: probe.catalog,
       projectRoot: root,
       shaderMaterialMetadata,
-    });
+      shaderVariants,
+    };
+    if (preparedMediaManifest !== null) request.preparedMediaManifest = preparedMediaManifest;
+    nativeResponse = parseNativeResponse('run-test-suite', request);
   } else {
     const stdinText = invokeHost('read-stdin', '');
     if (!stdinText || stdinText.trim() === '')
@@ -522,7 +544,9 @@ function staticTestPath(argv: readonly string[]): HostResult | null {
       spec,
       projectRoot: root,
       shaderMaterialMetadata,
+      shaderVariants,
     };
+    if (preparedMediaManifest !== null) request.preparedMediaManifest = preparedMediaManifest;
     nativeResponse = parseNativeResponse(stdinUi ? 'run-ui-test' : 'run-test', request);
     successMessage = `NovelTea test ${stdinUi ? 'run-ui-spec' : 'run-spec'} succeeded.`;
   }
@@ -1827,7 +1851,11 @@ function requestInvokeHost(
       emitEvent({ type: 'progress', message: `[${event.stage}] ${event.message}` });
       return '';
     }
-    if (operation === 'process-alive' || operation === 'run-process')
+    if (
+      operation === 'process-alive' ||
+      operation === 'run-process' ||
+      operation === 'cli-executable-path'
+    )
       return invokeHost(operation, requestText);
     const envelope = JSON.parse(
       invokeHost(`capture:${operation}`, requestText),

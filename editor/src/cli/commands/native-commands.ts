@@ -3,6 +3,8 @@ import path from 'node:path';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import { PREPARED_MEDIA_MANIFEST_PATH } from '../../shared/prepared-media';
+import type { PreparedRuntimeArtifact } from '../../shared/project-schema/prepared-runtime-artifact';
 import {
   captureRuntimeBuildCacheTestInputs,
   lookupCanonicalRuntimeBuildCache,
@@ -33,6 +35,13 @@ import {
 
 const shaderVariantIds = new Set(['glsl-330', 'essl-300', 'metal']);
 const runtimeBuildCacheProcessLiveness = new NodeProjectWorkspaceProcessLiveness();
+
+function preparedMediaTestRequest(artifact: PreparedRuntimeArtifact) {
+  const manifest = artifact.packageOptions.textEntries.find(
+    (entry) => entry.packagePath === PREPARED_MEDIA_MANIFEST_PATH,
+  );
+  return manifest ? { preparedMediaManifest: manifest.text } : {};
+}
 
 function nativeFailure(code: string, pathValue: string, response: unknown): CliSemanticResult {
   const record =
@@ -501,6 +510,7 @@ export const testRunCommand: CliCommandDefinition = {
             if (!runtime.ok) return Promise.resolve({ ok: false });
             return context.nativeTools.runTestSuite!({
               project: runtime.artifact.compiledProject,
+              ...preparedMediaTestRequest(runtime.artifact),
               catalog: runtime.testCatalog,
               projectRoot: context.snapshot.projectRoot,
               ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
@@ -559,6 +569,7 @@ export const testRunCommand: CliCommandDefinition = {
           if (!runtimeEntry || runtimeEntry.status !== 'runnable') return { ok: false };
           const request = {
             project: runtime.artifact.compiledProject,
+            ...preparedMediaTestRequest(runtime.artifact),
             spec: runtimeEntry.spec,
             projectRoot: context.snapshot.projectRoot,
             ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
@@ -619,6 +630,7 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
             ui
               ? context.nativeTools.runUiTest({
                   project: runtime.artifact.compiledProject,
+                  ...preparedMediaTestRequest(runtime.artifact),
                   spec,
                   projectRoot: context.snapshot.projectRoot,
                   ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),
@@ -627,6 +639,7 @@ function stdinTestCommand(pathValue: readonly string[], ui: boolean): CliCommand
                 })
               : context.nativeTools.runHeadlessTest({
                   project: runtime.artifact.compiledProject,
+                  ...preparedMediaTestRequest(runtime.artifact),
                   spec,
                   projectRoot: context.snapshot.projectRoot,
                   ...pinnedProjectTextSourceRequest(context.pinnedProjectTextSources),

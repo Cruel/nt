@@ -306,6 +306,15 @@ test('native build and release jobs verify the linked devtools capability matrix
   );
 });
 
+test('native coverage stages verified FFmpeg for Feature Lab video preparation', () => {
+  const linux = job('linux');
+  const stage = step(linux, 'Stage pinned FFmpeg for Feature Lab');
+  const tests = step(linux, 'Feature Lab authored Tests');
+  assert.match(stage, /node editor\/scripts\/private-media-tools\.mjs build\/coverage-media/);
+  assert.match(tests, /NOVELTEA_FFMPEG: .*build\/coverage-media\/tools\/ffmpeg\/bin\/ffmpeg/);
+  assert.ok(linux.indexOf(stage) < linux.indexOf(tests));
+});
+
 test('release editor consumers restore bundled FFmpeg executable permissions', () => {
   const marker = '- name: Make NovelTea host tools executable';
   const start = releaseWorkflow.indexOf(marker);

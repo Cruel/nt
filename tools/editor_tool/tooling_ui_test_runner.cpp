@@ -365,8 +365,8 @@ struct HeadlessRuntimeInput {
 
 Result<HeadlessRuntimeInput, Diagnostics>
 make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                        std::string runtime_locale,
-                        std::vector<std::string> shader_variants = {})
+                        std::string runtime_locale, std::vector<std::string> shader_variants = {},
+                        PreparedMediaCatalog prepared_media = {})
 {
     auto decoded_project = decode_compiled_project(gameplay, "game");
     if (!decoded_project)
@@ -387,6 +387,13 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
         const auto path = runtime_package_entry_path(*locale.catalog_path);
         entries.push_back({{"path", path}, {"size", 0}});
         files.push_back({path, 0, std::nullopt});
+    }
+
+    for (const auto& motion : prepared_media.motions) {
+        for (const auto& frame : motion.frames) {
+            entries.push_back({{"path", frame.path}, {"size", 0}});
+            files.push_back({frame.path, 0, std::nullopt});
+        }
     }
 
     nlohmann::json manifest = {
@@ -478,7 +485,8 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
     }
     auto package = assemble_compiled_package(std::move(*decoded_project.value_if()),
                                              std::move(*typed_manifest.value_if()),
-                                             std::move(typed_shader_materials), std::move(files));
+                                             std::move(typed_shader_materials), std::move(files),
+                                             std::move(prepared_media));
     if (!package)
         return Result<HeadlessRuntimeInput, Diagnostics>::failure(std::move(package).error());
     return Result<HeadlessRuntimeInput, Diagnostics>::success(
@@ -746,8 +754,20 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
             shader_variants.push_back(variant.get<std::string>());
         }
     }
+    PreparedMediaCatalog prepared_media;
+    if (const auto media = request.find("preparedMediaManifest"); media != request.end()) {
+        if (!media->is_string())
+            return compiled_project_admission_failure(
+                "Runtime UI Test preparedMediaManifest must be a string.");
+        auto decoded = decode_prepared_media_catalog_json(
+            media->get_ref<const std::string&>(), "assets/.prepared-media/manifest.json");
+        if (!decoded)
+            return compiled_project_admission_failure(
+                "Invalid prepared media for Runtime UI Test.", diagnostics_json(decoded.error()));
+        prepared_media = std::move(*decoded.value_if());
+    }
     auto input = make_running_game_input(project_json, shader_materials, "en",
-                                         std::move(shader_variants));
+                                         std::move(shader_variants), std::move(prepared_media));
     if (!input)
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   diagnostics_json(input.error()));
