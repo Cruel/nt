@@ -22,19 +22,23 @@ class RuntimeExecutor;
 
 class RuntimeSession final : private RuntimeCommandGatewayServices {
 public:
+    using MotionDurationLookup = std::function<std::optional<std::uint64_t>(
+        const core::AnimationId&, const core::AnimationMotionId&)>;
     // RuntimeSession is confined to the thread that constructs it. Platform/backend work returns
     // through later typed inputs; callbacks must never mutate the session directly.
     [[nodiscard]] static core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
     create(const core::CompiledProject& project, ScriptInvocationPort& scripts,
            PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
            core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
-           std::string runtime_locale = {}, RuntimeBudgetConfiguration runtime_budget = {});
+           std::string runtime_locale = {}, RuntimeBudgetConfiguration runtime_budget = {},
+           MotionDurationLookup motion_duration_lookup = {});
     [[nodiscard]] static core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
     restore(const core::CompiledProject& project, ScriptInvocationPort& scripts,
             PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
             core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
             core::TypedSaveSlotId slot, std::string runtime_locale = {},
-            RuntimeBudgetConfiguration runtime_budget = {});
+            RuntimeBudgetConfiguration runtime_budget = {},
+            MotionDurationLookup motion_duration_lookup = {});
     ~RuntimeSession() override;
 
     [[nodiscard]] RuntimeDispatchResult dispatch(const core::RuntimeInputMessage& input);
@@ -143,7 +147,8 @@ private:
                    PresentationModelPort& presentation_model, PresentationRuntimePort& presentation,
                    core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
                    std::unique_ptr<RuntimeExecutor> executor, std::string runtime_locale,
-                   RuntimeBudgetConfiguration runtime_budget) noexcept;
+                   RuntimeBudgetConfiguration runtime_budget,
+                   MotionDurationLookup motion_duration_lookup) noexcept;
 
     [[nodiscard]] WorkResult apply_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] core::Diagnostics settle_transaction();
@@ -232,6 +237,7 @@ private:
     void queue_input(core::RuntimeInputMessage input) override;
 
     const core::CompiledProject& m_project;
+    MotionDurationLookup m_motion_duration_lookup;
     ScriptInvocationPort& m_scripts;
     PresentationModelPort& m_presentation_model;
     PresentationRuntimePort& m_presentation;

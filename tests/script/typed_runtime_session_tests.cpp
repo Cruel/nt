@@ -900,7 +900,8 @@ struct Fixture {
 
     explicit Fixture(std::string_view filename = "comprehensive.json",
                      runtime::RuntimeBudgetConfiguration budget = {},
-                     const std::function<void(nlohmann::json&)>& amend = {})
+                     const std::function<void(nlohmann::json&)>& amend = {},
+                     TypedRuntimeSession::MotionDurationLookup motion_duration_lookup = {})
         : project(load_project(filename, amend)), runtime_budget(budget)
     {
         sources.add("project:/scripts/layout.lua", "return { fixture = true }\n");
@@ -929,8 +930,9 @@ struct Fixture {
         INFO(bootstrap_error);
         REQUIRE(static_cast<bool>(bootstrapped));
         REQUIRE(runtime.freeze_project_hooks());
-        auto created = test_support::create_runtime_session(project, script_port, presentation,
-                                                            saves, "en", runtime_budget);
+        auto created =
+            test_support::create_runtime_session(project, script_port, presentation, saves, "en",
+                                                 runtime_budget, std::move(motion_duration_lookup));
         REQUIRE(created);
         session = std::move(created).value();
     }
@@ -4480,6 +4482,82 @@ TEST_CASE("runtime Lua motion selection settles into owner-scoped semantic desir
         core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
     REQUIRE(flushed.diagnostics.empty());
     CHECK(fixture.session->presentation_state().motion_selections().empty());
+}
+
+TEST_CASE("runtime finite video motion uses prepared media endpoint instead of sprite frames")
+{
+    const auto prepare_project = [](nlohmann::json& document) {
+        document["resources"]["assets"].push_back({{"id", "video-source"},
+                                                   {"kind", "video"},
+                                                   {"path", "assets/video/source.mp4"},
+                                                   {"aliases", nlohmann::json::array()}});
+        document["resources"]["animations"] = nlohmann::json::parse(
+            R"([{"id":"key-motion","canvas":{"width":64,"height":32},"defaultMotionId":"idle","motions":[{"id":"idle","kind":"video","video":{"kind":"asset","id":"video-source"},"markers":[{"id":"middle","timeMs":50}]}]}])");
+        auto key = std::ranges::find_if(document["definitions"]["interactables"],
+                                        [](const auto& value) { return value["id"] == "key"; });
+        REQUIRE(key != document["definitions"]["interactables"].end());
+        (*key)["presentation"]["visual"] = nlohmann::json::parse(
+            R"({"kind":"animation","animation":{"kind":"animation","id":"key-motion"},"motionId":null,"playback":null})");
+    };
+    const auto media_duration =
+        [](const core::AnimationId& animation,
+           const core::AnimationMotionId& motion) -> std::optional<std::uint64_t> {
+        if (animation.text() == "key-motion" && motion.text() == "idle")
+            return 167;
+        return std::nullopt;
+    };
+    Fixture fixture("comprehensive.json", {}, prepare_project, media_duration);
+    REQUIRE(fixture.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const runtime::MotionRequest motion{make_id<core::InteractableInstanceIdTag>("key"),
+                                        *core::AnimationMotionId::create("idle").value_if(),
+                                        {.repeat = core::MotionRepeat::Once,
+                                         .rate = 1.0,
+                                         .clock = core::LayoutClockDomain::Gameplay,
+                                         .initial_marker = "middle"},
+                                        std::nullopt,
+                                        false,
+                                        true};
+    const auto requested = fixture.session->gateway().request_motion(motion);
+    const std::string request_error = requested ? "" : requested.error().front().message;
+    INFO(request_error);
+    REQUIRE(requested);
+    auto updated = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    REQUIRE(updated.diagnostics.empty());
+    REQUIRE_FALSE(fixture.presentation.presentation_operations.empty());
+    const auto* operation = std::get_if<core::PlayMotionOperation>(
+        &fixture.presentation.presentation_operations.back());
+    REQUIRE(operation);
+    CHECK(operation->common.duration == std::chrono::milliseconds{117});
+    CHECK(operation->motion == motion.motion);
+
+    Fixture unavailable("comprehensive.json", {}, prepare_project);
+    REQUIRE(unavailable.session->dispatch(core::RuntimeInputMessage{core::StartRuntimeInput{}})
+                .diagnostics.empty());
+    const auto rejected = unavailable.session->gateway().request_motion(motion);
+    REQUIRE_FALSE(rejected);
+    CHECK(rejected.error().front().code == "runtime.motion_request_invalid");
+    const auto selection = execute_session_lua(
+        unavailable,
+        "local ok, err = noveltea.presentation.set_motion_selection({kind='interactable', "
+        "id='key'}, 'idle', {['repeat']='loop', rate=1, clock='gameplay', initial_marker='middle', "
+        "loop_range={start='middle', ['end']='end'}}, {owner='session'}); "
+        "assert(ok, tostring(err))",
+        "typed-video-motion-selection");
+    const std::string selection_error = selection ? "" : selection.error().message;
+    INFO(selection_error);
+    REQUIRE(selection);
+    const auto settled = unavailable.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{0}}});
+    for (const auto& diagnostic : settled.diagnostics)
+        WARN(diagnostic.code << ": " << diagnostic.message);
+    REQUIRE(settled.diagnostics.empty());
+    REQUIRE(unavailable.session->presentation_state().motion_selections().size() == 1);
+    CHECK(unavailable.session->presentation_state()
+              .motion_selections()
+              .front()
+              .policy.loop_range->end == "end");
 }
 
 TEST_CASE("runtime Lua Material Parameters support Material Definition and Interactable scopes")

@@ -141,13 +141,16 @@ core::Result<void, core::Diagnostics> RuntimeSession::request_motion(MotionReque
         animation->motions, [&](const auto& candidate) { return candidate.id == request.motion; });
     if (motion == animation->motions.end())
         return reject("The requested Animation motion does not exist");
-    const auto initial = core::compiled::motion_initial_time(*motion, request.playback);
-    if (!initial)
-        return reject("Invalid finite motion policy or marker");
-    long double duration = 0;
-    for (const auto& frame : motion->frames)
-        duration += frame.duration_ms;
-    duration = std::ceil((duration - *initial) / request.playback.rate);
+    const auto prepared_duration = m_motion_duration_lookup
+                                       ? m_motion_duration_lookup(visual->animation, request.motion)
+                                       : std::nullopt;
+    const auto initial =
+        core::compiled::motion_initial_time(*motion, request.playback, prepared_duration);
+    const auto endpoint = core::compiled::motion_duration_ms(*motion, prepared_duration);
+    if (!initial || !endpoint || *initial >= *endpoint)
+        return reject("Invalid finite motion policy, marker, or unresolved endpoint");
+    const long double duration =
+        std::ceil(static_cast<long double>(*endpoint - *initial) / request.playback.rate);
     if (duration <= 0 || duration > std::numeric_limits<std::int64_t>::max())
         return reject("Finite motion requires a representable positive endpoint duration");
     const auto* script =

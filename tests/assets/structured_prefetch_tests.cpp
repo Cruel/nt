@@ -1,4 +1,5 @@
 #include <noveltea/world_presentation.hpp>
+#include <noveltea/world_transition.hpp>
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -610,7 +611,7 @@ core::LoadedCompiledPackage video_animation_collector_package()
         {"kind", "video"},
         {"video", {{"kind", "asset"}, {"id", "video-source"}}},
         {"sourceRange", {{"startMs", 0}, {"endMs", 150}}},
-        {"markers", nlohmann::json::array()},
+        {"markers", nlohmann::json::array({{{"id", "middle"}, {"timeMs", 50}}})},
     };
     document["resources"]["animations"] = nlohmann::json::array({
         {{"id", "video-loop"},
@@ -1293,6 +1294,42 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
         world.realize(clock);
         CHECK((*world.frame()->draws.front().texture_lease)->path == frame_a);
     }
+    SECTION("video uses marker-bounded loops and prepared frame addressing")
+    {
+        snapshot.revision = core::PresentationSnapshotRevision::from_number(2);
+        auto* video_visual =
+            std::get_if<core::compiled::AnimationVisual>(&*snapshot.environments.front().visual);
+        REQUIRE(video_visual);
+        video_visual->playback =
+            core::MotionPlaybackPolicy{.repeat = core::MotionRepeat::Loop,
+                                       .rate = 1.0,
+                                       .clock = core::LayoutClockDomain::Gameplay,
+                                       .initial_marker = "middle",
+                                       .loop_range = core::MotionLoopRange{"middle", "end"}};
+        REQUIRE(gate.begin_on_owner(snapshot).disposition ==
+                assets::MandatoryAssetGateDisposition::Pending);
+        fixture.run_until_idle();
+        REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+        auto marker_transaction = gate.take_ready_transaction_on_owner();
+        REQUIRE(marker_transaction);
+        REQUIRE(marker_transaction->commit_on_owner(false));
+        REQUIRE(world.reconcile(snapshot, {640.0f, 360.0f}));
+        const auto& entry = world.frame()->draws.front();
+        const WorldVisualOccurrence occurrence{entry.family, entry.stable_identity, entry.sublayer};
+        REQUIRE(world.motion_position(occurrence, clock));
+        CHECK(world.motion_position(occurrence, clock).value().time_ms == 50);
+        CHECK(world.motion_position(occurrence, clock).value().frame_count == 2);
+        clock.gameplay_time = std::chrono::milliseconds{120};
+        world.realize(clock);
+        clock.gameplay_time = std::chrono::milliseconds{140};
+        world.realize(clock);
+        CHECK(world.motion_position(occurrence, clock).value().time_ms == 70);
+        REQUIRE(world.control_motion(occurrence, SeekMotionFrame{0}, clock));
+        CHECK(world.motion_position(occurrence, clock).value().time_ms == 0);
+        REQUIRE(world.control_motion(occurrence, SeekMotionTime{100}, clock));
+        CHECK(world.motion_position(occurrence, clock).value().frame_index == 1);
+        CHECK(world.motion_position(occurrence, clock).value().time_ms == 100);
+    }
     SECTION("hidden occurrences suspend decode and catch up without restarting their epoch")
     {
         snapshot.revision = core::PresentationSnapshotRevision::from_number(2);
@@ -1350,6 +1387,194 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
         CHECK(world.take_media_diagnostics().empty());
         CHECK(video_decode_count() == 2);
         CHECK((*world.frame()->draws.front().texture_lease)->path == frame_a);
+    }
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE("finite video motion prepares all required frames before causal startup",
+          "[assets][mandatory-assets][animation][video][presentation-operation]")
+{
+    PlannerFixture fixture;
+    MaterialDefinition material;
+    material.role = ShaderRole::Engine2D;
+    fixture.materials.definition = &material;
+    auto package = video_animation_collector_package();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330",
+                                       fixture.manager.source_generation_on_owner()));
+
+    core::RuntimePresentationSnapshot desired;
+    desired.revision = core::PresentationSnapshotRevision::from_number(1);
+    desired.interactables.push_back(
+        {id<core::InteractableInstanceId>("key"),
+         {id<core::RoomId>("hall"), id<core::RoomPlacementId>("placement")},
+         {0.0, 0.0, 1.0, 1.0},
+         core::compiled::AnimationVisual{id<core::AnimationId>("video-loop"),
+                                         id<core::AnimationMotionId>("idle"), std::nullopt},
+         id<core::MaterialId>("sprite-material")});
+    REQUIRE(gate.begin_on_owner(desired).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto initial = gate.take_ready_transaction_on_owner();
+    REQUIRE(initial);
+    REQUIRE(initial->commit_on_owner(false));
+    constexpr std::string_view last_frame =
+        "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
+    const assets::TextureAssetRequest final_request{.path = std::string(last_frame),
+                                                    .sampler = MaterialTextureSampler::ClampLinear};
+    CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
+
+    desired.revision = core::PresentationSnapshotRevision::from_number(2);
+    REQUIRE(gate.begin_on_owner(desired).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    const core::MotionPlaybackPolicy playback{.repeat = core::MotionRepeat::Once,
+                                              .rate = 1.0,
+                                              .clock = core::LayoutClockDomain::Gameplay};
+    const core::PresentationOperation operation{core::PlayMotionOperation{
+        {.id = core::PresentationOperationId::from_number(42),
+         .duration = std::chrono::milliseconds{150},
+         .skippable = true,
+         .clock = core::LayoutClockDomain::Gameplay,
+         .revisions = {core::PresentationSnapshotRevision::from_number(1), desired.revision}},
+        core::InteractableMotionOperationTarget{
+            id<core::InteractableInstanceId>("key"),
+            {id<core::RoomId>("hall"), id<core::RoomPlacementId>("placement")}},
+        id<core::AnimationMotionId>("idle"),
+        playback,
+        std::nullopt}};
+    SECTION("all frames are resident before the finite operation may start")
+    {
+        REQUIRE(gate.include_presentation_operation_on_owner(operation));
+        CHECK(gate.active_on_owner());
+        CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
+        fixture.run_until_idle();
+        REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+        auto ready = gate.take_ready_transaction_on_owner();
+        REQUIRE(ready);
+        REQUIRE(fixture.manager.leased_texture_on_owner(final_request));
+        REQUIRE(ready->commit_on_owner(false));
+        REQUIRE(fixture.manager.leased_texture_on_owner(final_request));
+    }
+    SECTION("a missing final frame fails the entire causal gate")
+    {
+        fixture.textures.rejected_path = std::string(last_frame);
+        REQUIRE(gate.include_presentation_operation_on_owner(operation));
+        fixture.run_until_idle();
+        CHECK(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Failed);
+        CHECK_FALSE(gate.take_ready_transaction_on_owner());
+        CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
+    }
+    gate.clear_package_on_owner();
+}
+
+TEST_CASE("native finite video play and transition realize prepared endpoints",
+          "[assets][presentation-operation][animation][video]")
+{
+    PlannerFixture fixture;
+    MaterialDefinition material;
+    material.role = ShaderRole::Engine2D;
+    fixture.materials.definition = &material;
+    auto package = video_animation_collector_package();
+    assets::MandatoryAssetGate gate(fixture.manager);
+    REQUIRE(gate.bind_package_on_owner(package, "glsl-330",
+                                       fixture.manager.source_generation_on_owner()));
+
+    core::RuntimePresentationSnapshot source;
+    source.revision = core::PresentationSnapshotRevision::from_number(1);
+    const core::MotionPlaybackPolicy desired_policy{.repeat = core::MotionRepeat::Loop,
+                                                    .rate = 1.0,
+                                                    .clock = core::LayoutClockDomain::Gameplay,
+                                                    .initial_marker = "middle"};
+    source.interactables.push_back(
+        {id<core::InteractableInstanceId>("key"),
+         {id<core::RoomId>("hall"), id<core::RoomPlacementId>("placement")},
+         {0.0, 0.0, 1.0, 1.0},
+         core::compiled::AnimationVisual{id<core::AnimationId>("video-loop"),
+                                         id<core::AnimationMotionId>("idle"), desired_policy},
+         id<core::MaterialId>("sprite-material")});
+    REQUIRE(gate.begin_on_owner(source).disposition ==
+            assets::MandatoryAssetGateDisposition::Pending);
+    fixture.run_until_idle();
+    REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+    auto initial = gate.take_ready_transaction_on_owner();
+    REQUIRE(initial);
+    REQUIRE(initial->commit_on_owner(false));
+
+    auto target = source;
+    target.revision = core::PresentationSnapshotRevision::from_number(2);
+    REQUIRE(gate.begin_on_owner(target).disposition ==
+            assets::MandatoryAssetGateDisposition::Ready);
+    const core::MotionPlaybackPolicy finite_policy{.repeat = core::MotionRepeat::Once,
+                                                   .rate = 1.0,
+                                                   .clock = core::LayoutClockDomain::Gameplay};
+    const core::MotionOperationTarget motion_target{core::InteractableMotionOperationTarget{
+        id<core::InteractableInstanceId>("key"),
+        {id<core::RoomId>("hall"), id<core::RoomPlacementId>("placement")}}};
+    core::FinitePresentationOperationCommon common{
+        .id = core::PresentationOperationId::from_number(100),
+        .duration = std::chrono::milliseconds{150},
+        .skippable = true,
+        .clock = core::LayoutClockDomain::Gameplay,
+        .revisions = {source.revision, target.revision}};
+    const auto motion = id<core::AnimationMotionId>("idle");
+
+    bool transition_motion = false;
+    SECTION("temporary play-motion returns to desired video") { transition_motion = false; }
+    SECTION("transition-motion binds the committed video revision") { transition_motion = true; }
+    {
+        const core::PresentationOperation operation =
+            transition_motion
+                ? core::PresentationOperation{core::TransitionMotionOperation{
+                      common, motion_target, motion, motion, finite_policy, std::nullopt}}
+                : core::PresentationOperation{core::PlayMotionOperation{
+                      common, motion_target, motion, finite_policy, std::nullopt}};
+        REQUIRE(gate.include_presentation_operation_on_owner(operation));
+        fixture.run_until_idle();
+        REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+        auto ready = gate.take_ready_transaction_on_owner();
+        REQUIRE(ready);
+        REQUIRE(ready->commit_on_owner(false));
+
+        AssetWorldPresentationResourceResolver resources(fixture.manager);
+        resources.bind_package(package);
+        WorldPresentationBackend world(resources);
+        REQUIRE(world.reconcile(source, {640.0f, 360.0f}));
+        REQUIRE(world.reconcile(target, {640.0f, 360.0f}));
+        WorldTransitionBackend transitions(world);
+        const core::CoordinatedOperationDelivery delivery{
+            {common.id, core::PresentationOperationSequence::from_number(100),
+             core::PresentationOperationOwner::GameplayRuntime, core::CheckpointClass::Disposable,
+             core::NoPresentationCompletion{}},
+            std::visit(
+                [](const auto& value) -> core::CoordinatedPresentationOperation { return value; },
+                operation)};
+        REQUIRE(transitions.realize(delivery));
+        auto composed = transitions.compose_targeted_world_batch();
+        REQUIRE(composed);
+        REQUIRE(composed.value().world_composition_batch.commands().size() == 1);
+        REQUIRE(world.frame()->draws.front().texture_lease);
+        const auto first_path = (*world.frame()->draws.front().texture_lease)->path;
+        CHECK(first_path.ends_with("frame-000000.png"));
+
+        core::RuntimeClockUpdate clocks;
+        clocks.gameplay_delta = std::chrono::milliseconds{150};
+        transitions.advance(clocks);
+        fixture.run_until_idle();
+        clocks.gameplay_delta = std::chrono::milliseconds{0};
+        transitions.advance(clocks);
+        composed = transitions.compose_targeted_world_batch();
+        REQUIRE(composed);
+        REQUIRE(world.frame()->draws.front().texture_lease);
+        const auto final_path = (*world.frame()->draws.front().texture_lease)->path;
+        CHECK(final_path.ends_with("frame-000001.png"));
+        CHECK(final_path != first_path);
+        transitions.advance(clocks);
+        auto acknowledged = transitions.take_acknowledgements();
+        REQUIRE(acknowledged.size() == 2);
+        CHECK(std::holds_alternative<core::BackendOperationCompleted>(acknowledged.back().fact));
+        REQUIRE(world.frame()->draws.front().texture_lease);
+        CHECK((*world.frame()->draws.front().texture_lease)->path == final_path);
     }
     gate.clear_package_on_owner();
 }

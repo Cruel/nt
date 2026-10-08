@@ -80,7 +80,9 @@ the creator Video Asset intact. The current tracer normalizes the selected sourc
 Animation logical canvas and emits a deterministic opaque 30 fps PNG sequence plus private
 prepared-media metadata. Package paths, frame transport, and metadata shape are deliberately private;
 Animation authoring/compiled semantics name the Video Asset and range, not a codec or generated file.
-The player does not ship or invoke FFmpeg.
+Prepared frame durations close exactly on the authored source-range endpoint when one is given;
+unranged video obtains its semantic endpoint from prepared media. The player does not ship or
+invoke FFmpeg.
 
 At package load the private metadata is strictly validated against the semantic Animation table and
 archive inventory. `StructuredPrefetch` requests only the frame selected by the initial marker, so
@@ -153,16 +155,27 @@ Finite motion is once-only, uses gameplay or unscaled-presentation time, admits 
 optional initial marker, and derives its deterministic duration from the selected motion endpoint.
 Loop ranges are not finite-operation semantics.
 
+The runtime command gateway derives finite video duration from package-owned prepared-media
+metadata (not the empty sprite frame list), including on reset and save-load reconstruction.
 The coordinator remains authoritative for replacement, skip/cancel, checkpoint barriers, and
 terminal acknowledgement. The world backend owns only prepared temporary samples and progress.
 Required finite-motion frames join the existing mandatory publication gate before delivery, so a
-causal operation cannot begin with an unprepared motion. The final authored sample must be realized
-successfully before completion is acknowledged. While a finite motion owns an occurrence, transient
+causal operation cannot begin with an unprepared motion. For the current prepared-raster video
+representation, the finite gate prepares every video frame failure-atomically rather than just the
+normal looping occurrence's initial sample. The world backend follows the operation's canonical
+once-only timeline; it waits for the required video sample to be actually realized at the authored
+endpoint before acknowledging completion, and reports media failure rather than treating decoder EOF
+or a stale prior frame as success. While a finite motion owns an occurrence, transient
 pause/restart/seek controls are rejected rather than mutating the underlying playback anchor.
 
 `WorldPresentationBackend::control_motion` targets one live `WorldVisualOccurrence` with typed
-pause, resume, restart, seek-time, or seek-frame commands; `motion_position` exposes sprite frame
-index/count and motion time. Static Visuals fail with `Unsupported`, absent occurrences with
+pause, resume, restart, seek-time, or seek-frame commands; `motion_position` exposes motion time
+and frame index/count when the concrete representation supports frame addressing. The current
+prepared-raster video representation supports indexed frame seek and introspection; future opaque
+video representations may expose only time-based seeking. Deferred video endpoints are accepted
+by semantic motion selection, snapshot projection, and save-state validation so unranged video can
+select known markers and `end`; the backend checks actual timing when media is prepared.
+Static Visuals fail with `Unsupported`, absent occurrences with
 `MissingOccurrence`, and non-finite/out-of-bounds addressing with `InvalidPosition`, without
 mutating prior realization. Restart uses the authored initial marker and preserves pause status.
 Compatible publication/prepared swaps retain control anchors; selection replacement, disposal,
@@ -177,10 +190,11 @@ backend-local motion phase used for the realized raster frame: missing tracks us
 Focus uses the shared authoring timeline helpers for play/pause/scrub/frame-step/marker inspection and
 can author keys for any motion in the selected Animation.
 
-Opaque native video Animation is implemented as the first replaceable prepared-media tracer. Richer
-video seek/frame introspection and finite-operation parity, browser-native Web realization,
-multi-representation target selection, transparent video, dynamic video `visual-alpha`, movies, and
-animated Inventory icons remain follow-up work. The Phase 1 world-presentation sprite-to-Visual
+Opaque native video Animation is implemented as the first replaceable prepared-media tracer, including
+finite named-motion operation parity and representation-derived frame addressing. Browser-native Web
+realization, true codec-level frame introspection, multi-representation target selection,
+transparent video, dynamic video `visual-alpha`, movies, and animated Inventory icons remain
+follow-up work. The Phase 1 world-presentation sprite-to-Visual
 cutover remains complete, and Interactable world Hotspots can sample sprite Animation frame CPU
 coverage; video alpha coverage is not provided by the opaque tracer.
 
@@ -216,7 +230,9 @@ claim of completed save/load or player interaction certification.
 - `tests/assets/structured_prefetch_tests.cpp` covers exact-target-revision mandatory preparation,
   missing motion rejection, and asynchronous readiness before finite delivery. Video sampling tests
   additionally cover seed-only readiness, time-directed decode, hidden catch-up/cancellation,
-  reconstruction, and terminal frame failure without request churn.
+  reconstruction, terminal frame failure without request churn, marker-bounded loop and frame-seek
+  controls, all-frame causal preparation and failure, and native finite play/transition endpoint
+  realization. Render-backend tests exercise delayed video endpoint acknowledgement and failure.
 - `noveltea_focused_video_sampling` explicitly exercises focused prepared-media publication and
   demand sampling through the native presenter. Widget/TypeScript contract tests cover the matching
   private authority and reject the replaced authored-Image alias.

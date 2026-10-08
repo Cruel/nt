@@ -22,13 +22,12 @@ core::Diagnostics run_on_game_ready(ScriptInvocationPort& scripts, RuntimeExecut
 
 } // namespace
 
-core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>
-RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
-                       runtime::PresentationModelPort& presentation_model,
-                       runtime::PresentationRuntimePort& presentation,
-                       core::TypedSaveSlotStore& saves, const core::SaveStateCodecPort& save_codec,
-                       std::string runtime_locale,
-                       runtime::RuntimeBudgetConfiguration runtime_budget)
+core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession::create(
+    const core::CompiledProject& project, runtime::ScriptInvocationPort& scripts,
+    runtime::PresentationModelPort& presentation_model,
+    runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
+    const core::SaveStateCodecPort& save_codec, std::string runtime_locale,
+    runtime::RuntimeBudgetConfiguration runtime_budget, MotionDurationLookup motion_duration_lookup)
 {
     if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
@@ -47,9 +46,10 @@ RuntimeSession::create(const core::CompiledProject& project, runtime::ScriptInvo
     if (!ready_diagnostics.empty())
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(ready_diagnostics));
-    auto session = std::unique_ptr<RuntimeSession>(new RuntimeSession(
-        project, scripts, presentation_model, presentation, saves, save_codec,
-        std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget));
+    auto session = std::unique_ptr<RuntimeSession>(
+        new RuntimeSession(project, scripts, presentation_model, presentation, saves, save_codec,
+                           std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget,
+                           std::move(motion_duration_lookup)));
     auto checkpoint = session->m_checkpoint_service.publish_candidate(session->m_kernel->state());
     if (!checkpoint)
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
@@ -63,7 +63,8 @@ core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession:
     runtime::PresentationModelPort& presentation_model,
     runtime::PresentationRuntimePort& presentation, core::TypedSaveSlotStore& saves,
     const core::SaveStateCodecPort& save_codec, core::TypedSaveSlotId slot,
-    std::string runtime_locale, runtime::RuntimeBudgetConfiguration runtime_budget)
+    std::string runtime_locale, runtime::RuntimeBudgetConfiguration runtime_budget,
+    MotionDurationLookup motion_duration_lookup)
 {
     if (runtime_budget.instruction_limit == 0 || runtime_budget.command_limit == 0) {
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
@@ -152,9 +153,10 @@ core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics> RuntimeSession:
         return core::Result<std::unique_ptr<RuntimeSession>, core::Diagnostics>::failure(
             std::move(ready_diagnostics));
 
-    auto session = std::unique_ptr<RuntimeSession>(new RuntimeSession(
-        project, scripts, presentation_model, presentation, saves, save_codec,
-        std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget));
+    auto session = std::unique_ptr<RuntimeSession>(
+        new RuntimeSession(project, scripts, presentation_model, presentation, saves, save_codec,
+                           std::move(*kernel.value_if()), std::move(runtime_locale), runtime_budget,
+                           std::move(motion_duration_lookup)));
 
     auto checkpoint = session->m_checkpoint_service.prepare_loaded_checkpoint(
         std::move(stored.value_if()->encoded_save), *decoded.value_if(),

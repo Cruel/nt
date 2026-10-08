@@ -638,6 +638,13 @@ public:
             m_state = assets::AssetRequestState::Ready;
     }
     assets::AssetRequestState state() const noexcept override { return m_state; }
+    bool frame_addressable() const noexcept override { return true; }
+    bool sample_ready(std::uint64_t time_ms) const noexcept override
+    {
+        return m_state != assets::AssetRequestState::Failed &&
+               m_generation == m_assets.source_generation_on_owner() &&
+               m_current_index == core::prepared_video_frame_at(m_representation, time_ms);
+    }
 
 private:
     assets::AssetManager& m_assets;
@@ -1976,8 +1983,10 @@ WorldPresentationBackend::motion_position(const WorldVisualOccurrence& occurrenc
             elapsed = now - epoch->second.started_at;
     }
     const auto phase = raster_phase(*draw, anchor, elapsed);
-    return Result::success({static_cast<double>(phase), raster_frame_index(*draw, phase),
-                            draw->raster_animation_frames.size(), paused});
+    const bool frames_available = !draw->video_stream || draw->video_stream->frame_addressable();
+    return Result::success({static_cast<double>(phase),
+                            frames_available ? raster_frame_index(*draw, phase) : 0,
+                            frames_available ? draw->raster_animation_frames.size() : 0, paused});
 }
 
 core::Result<bool, MotionControlError>
@@ -2007,6 +2016,8 @@ WorldPresentationBackend::control_motion(const WorldVisualOccurrence& occurrence
             return Result::failure(MotionControlError::InvalidPosition);
         anchor = seek->time_ms;
     } else if (const auto* seek = std::get_if<SeekMotionFrame>(&control)) {
+        if (draw->video_stream && !draw->video_stream->frame_addressable())
+            return Result::failure(MotionControlError::Unsupported);
         if (seek->frame_index >= draw->raster_animation_frames.size())
             return Result::failure(MotionControlError::InvalidPosition);
         anchor = 0;
@@ -2057,6 +2068,27 @@ bool WorldPresentationBackend::finite_motion_active(
     return std::ranges::any_of(m_finite_motion_samples, [&](const auto& value) {
         return value.motion.occurrence == occurrence;
     });
+}
+
+FiniteMotionSampleStatus WorldPresentationBackend::finite_motion_sample_status(
+    const WorldVisualOccurrence& occurrence) const noexcept
+{
+    const auto found = std::ranges::find_if(m_finite_motion_samples, [&](const auto& value) {
+        return value.motion.occurrence == occurrence;
+    });
+    if (found == m_finite_motion_samples.end())
+        return FiniteMotionSampleStatus::Failed;
+    const auto& draw = found->motion.draw;
+    if (!draw.video_stream)
+        return FiniteMotionSampleStatus::Ready;
+    if (draw.video_stream->state() == assets::AssetRequestState::Failed)
+        return FiniteMotionSampleStatus::Failed;
+    const auto phase = raster_phase(
+        draw, draw.motion_initial_ms,
+        std::chrono::microseconds{static_cast<std::int64_t>(found->elapsed_ms * 1000)});
+    return draw.video_stream->sample_ready(static_cast<std::uint64_t>(phase))
+               ? FiniteMotionSampleStatus::Ready
+               : FiniteMotionSampleStatus::Pending;
 }
 
 core::Result<WorldPreparedMotionOverride, core::Diagnostics>
@@ -2154,11 +2186,6 @@ WorldPresentationBackend::prepare_motion_override(core::PresentationSnapshotRevi
     if (!prepared)
         return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
             std::move(prepared).error());
-    if (prepared.value_if()->video_stream) {
-        return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure({diagnostic(
-            "presentation.finite_video_motion_unsupported",
-            "Finite video motion operations are not supported by the opaque tracer.", context)});
-    }
     if (prepared.value_if()->animation_frames.empty()) {
         return core::Result<WorldPreparedMotionOverride, core::Diagnostics>::failure(
             {diagnostic("presentation.motion_frames_unavailable",
@@ -2273,11 +2300,22 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
             const auto phase = raster_phase(
                 replacement, replacement.motion_initial_ms,
                 std::chrono::microseconds{static_cast<std::int64_t>(finite->elapsed_ms * 1000)});
-            const auto& selected =
-                replacement.raster_animation_frames[raster_frame_index(replacement, phase)];
-            command.texture = selected.texture;
-            command.texture_sampler = selected.sampler;
-            draw.texture_lease = selected.texture_lease;
+            if (replacement.video_stream) {
+                auto sample = replacement.video_stream->sample(static_cast<std::uint64_t>(phase));
+                if (!sample)
+                    core::append_diagnostics(m_media_diagnostics, std::move(sample).error());
+                else if (*sample.value_if()) {
+                    draw.texture_lease = std::move(**sample.value_if());
+                    command.texture = Texture{(*draw.texture_lease)->handle};
+                    command.texture_sampler = MaterialTextureSampler::ClampLinear;
+                }
+            } else {
+                const auto& selected =
+                    replacement.raster_animation_frames[raster_frame_index(replacement, phase)];
+                command.texture = selected.texture;
+                command.texture_sampler = selected.sampler;
+                draw.texture_lease = selected.texture_lease;
+            }
             effective_motion = replacement.raster_animation_motion;
             raster_motion_time = phase;
         }

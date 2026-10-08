@@ -386,6 +386,17 @@ RunningGame::RunningGame(core::LoadedCompiledPackage package) noexcept
 
 RunningGame::~RunningGame() = default;
 
+RuntimeSession::MotionDurationLookup RunningGame::motion_duration_lookup() const
+{
+    return [this](const core::AnimationId& animation,
+                  const core::AnimationMotionId& motion) -> std::optional<std::uint64_t> {
+        for (const auto& prepared : m_package.prepared_media().motions)
+            if (prepared.animation == animation && prepared.motion == motion)
+                return core::prepared_video_duration_ms(prepared);
+        return std::nullopt;
+    };
+}
+
 core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>
 RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort& script_certifier,
                     ScriptInvocationPort& scripts, PresentationModelPort& presentation_model,
@@ -431,9 +442,9 @@ RunningGame::create(core::LoadedCompiledPackage package, ScriptCertificationPort
     runtime->m_save_codec = &save_codec;
     runtime->m_runtime_locale = runtime_locale;
     runtime->m_startup_context = std::move(startup_context);
-    auto session = RuntimeSession::create(runtime->m_package.project(), *runtime->m_script_binding,
-                                          presentation_model, presentation, saves, save_codec,
-                                          std::move(runtime_locale));
+    auto session = RuntimeSession::create(
+        runtime->m_package.project(), *runtime->m_script_binding, presentation_model, presentation,
+        saves, save_codec, std::move(runtime_locale), {}, runtime->motion_duration_lookup());
     if (!session)
         return core::Result<std::unique_ptr<RunningGame>, core::Diagnostics>::failure(
             std::move(session).error());
@@ -455,7 +466,8 @@ RunningGame::prepare_reset_candidate(const core::ResetRuntimeInput& reset,
 
     auto binding = std::make_unique<SessionScriptInvocationPort>(scripts);
     auto session = RuntimeSession::create(m_package.project(), *binding, *m_presentation_model,
-                                          presentation, *m_saves, *m_save_codec, m_runtime_locale);
+                                          presentation, *m_saves, *m_save_codec, m_runtime_locale,
+                                          {}, motion_duration_lookup());
     if (!session)
         return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
             std::move(session).error());
@@ -512,9 +524,9 @@ RunningGame::prepare_load_candidate(core::TypedSaveSlotId slot, ScriptInvocation
     }
 
     auto binding = std::make_unique<SessionScriptInvocationPort>(scripts);
-    auto session =
-        RuntimeSession::restore(m_package.project(), *binding, *m_presentation_model, presentation,
-                                *m_saves, *m_save_codec, slot, m_runtime_locale);
+    auto session = RuntimeSession::restore(m_package.project(), *binding, *m_presentation_model,
+                                           presentation, *m_saves, *m_save_codec, slot,
+                                           m_runtime_locale, {}, motion_duration_lookup());
     if (!session)
         return core::Result<std::unique_ptr<RuntimeSessionCandidate>, core::Diagnostics>::failure(
             std::move(session).error());

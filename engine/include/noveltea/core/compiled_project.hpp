@@ -493,6 +493,32 @@ motion_initial_time(const SpriteAnimationMotion& motion, const MotionPlaybackPol
                               prepared_video_duration);
 }
 
+// Pure SessionState/SaveState validation cannot know an unranged video's prepared endpoint.
+// Validate all resolvable markers now; the presentation resolver checks the final endpoint.
+[[nodiscard]] inline bool
+motion_policy_valid_for_selection(const SpriteAnimationMotion& motion,
+                                  const MotionPlaybackPolicy& policy) noexcept
+{
+    if (motion.kind != AnimationMotionKind::Video || motion_duration_ms(motion))
+        return motion_initial_time(motion, policy).has_value();
+    if (!valid_motion_policy(policy))
+        return false;
+    const auto known = [&](std::string_view marker) {
+        return marker == "end" || motion_marker_time(motion, marker).has_value();
+    };
+    if (!known(policy.initial_marker.value_or("start")))
+        return false;
+    const auto start = policy.loop_range ? std::string_view(policy.loop_range->start) : "start";
+    const auto end = policy.loop_range ? std::string_view(policy.loop_range->end) : "end";
+    if (!known(start) || !known(end))
+        return false;
+    if (end == "end")
+        return start != "end";
+    const auto start_ms = motion_marker_time(motion, start);
+    const auto end_ms = motion_marker_time(motion, end);
+    return start_ms && end_ms && *start_ms < *end_ms;
+}
+
 enum class DisplayOrientation : std::uint8_t {
     Landscape,
     Portrait

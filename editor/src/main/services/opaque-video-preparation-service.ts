@@ -38,12 +38,17 @@ async function readContainedVideoSource(projectRoot: string, sourcePath: string)
   return readFile(source);
 }
 
-function frameDurations(frameCount: number): number[] {
+function frameDurations(frameCount: number, authoredDurationMs?: number): number[] {
   const durations: number[] = [];
   for (let index = 0; index < frameCount; index += 1) {
     const start = Math.round((index * 1000) / OPAQUE_VIDEO_FRAME_RATE);
-    const end = Math.round(((index + 1) * 1000) / OPAQUE_VIDEO_FRAME_RATE);
-    durations.push(Math.max(1, end - start));
+    const end =
+      index === frameCount - 1 && authoredDurationMs !== undefined
+        ? authoredDurationMs
+        : Math.round(((index + 1) * 1000) / OPAQUE_VIDEO_FRAME_RATE);
+    if (end <= start)
+      throw new Error('Prepared video frames extend beyond the authored source range.');
+    durations.push(end - start);
   }
   return durations;
 }
@@ -121,7 +126,10 @@ export async function prepareOpaqueVideoMotion(
       throw new Error(
         `Video preparation produced no frames for Animation '${request.animationId}'.`,
       );
-    const durations = frameDurations(frameNames.length);
+    const authoredDurationMs = request.sourceRange
+      ? request.sourceRange.endMs - request.sourceRange.startMs
+      : undefined;
+    const durations = frameDurations(frameNames.length, authoredDurationMs);
     const frames = await Promise.all(
       frameNames.map(async (name, index) => {
         const sourcePath = join(directory, name);

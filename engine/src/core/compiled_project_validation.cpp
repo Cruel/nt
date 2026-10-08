@@ -376,16 +376,7 @@ private:
                             return candidate.id == motion;
                         });
                     if (selected != resource->motions.end() && value.playback) {
-                        const bool deferred_video_duration =
-                            selected->kind == AnimationMotionKind::Video &&
-                            !motion_duration_ms(*selected).has_value();
-                        if ((!deferred_video_duration &&
-                             !motion_initial_time(*selected, *value.playback)) ||
-                            (deferred_video_duration && !valid_motion_policy(*value.playback)))
-                            error("compiled_project.invalid_motion_policy",
-                                  "Invalid playback policy or initial marker.", path + "/playback");
-                        if (deferred_video_duration && value.playback->initial_marker &&
-                            !motion_marker_time(*selected, *value.playback->initial_marker))
+                        if (!motion_policy_valid_for_selection(*selected, *value.playback))
                             error("compiled_project.invalid_motion_policy",
                                   "Invalid playback policy or initial marker.", path + "/playback");
                     }

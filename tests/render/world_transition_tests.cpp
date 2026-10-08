@@ -51,8 +51,38 @@ public:
     }
 };
 
+class DeferredVideoStream final : public WorldVideoStream {
+public:
+    bool final_ready = false;
+    bool final_fails = false;
+    bool supports_frames = true;
+    std::uint64_t requested_time_ms = 0;
+
+    Result<std::optional<assets::AssetLease<assets::TextureAsset>>, Diagnostics>
+    sample(std::uint64_t time_ms) override
+    {
+        requested_time_ms = time_ms;
+        return Result<std::optional<assets::AssetLease<assets::TextureAsset>>,
+                      Diagnostics>::success(std::nullopt);
+    }
+    void suspend() noexcept override {}
+    assets::AssetRequestState state() const noexcept override
+    {
+        if (requested_time_ms >= 40 && final_fails)
+            return assets::AssetRequestState::Failed;
+        return requested_time_ms >= 40 && !final_ready ? assets::AssetRequestState::Pending
+                                                       : assets::AssetRequestState::Ready;
+    }
+    bool frame_addressable() const noexcept override { return supports_frames; }
+    bool sample_ready(std::uint64_t time_ms) const noexcept override
+    {
+        return requested_time_ms == time_ms && state() == assets::AssetRequestState::Ready;
+    }
+};
+
 class MotionWorldResources final : public WorldPresentationResourceResolver {
 public:
+    std::shared_ptr<WorldVideoStream> inspection_video;
     Result<WorldPreparedVisual, Diagnostics>
     resolve(std::optional<AssetId>, std::optional<core::MaterialId>, std::string_view) override
     {
@@ -90,6 +120,8 @@ public:
              std::nullopt}};
         result.texture = result.animation_frames.front().texture;
         result.motion_policy = animation->playback;
+        if (motion == id<AnimationMotionId>("inspect"))
+            result.video_stream = inspection_video;
         return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
     }
 
@@ -1028,6 +1060,85 @@ TEST_CASE("finite play motion temporarily overrides a Visual then restores desir
     CHECK(world.frame()->hotspot_hit_targets.front().active);
     CHECK(std::get<compiled::NormalizedRect>(world.frame()->hotspot_hit_targets.front().shape).x ==
           Catch::Approx(0));
+}
+
+TEST_CASE("video motion time controls remain available without frame-addressing capability")
+{
+    MotionWorldResources resources;
+    auto video = std::make_shared<DeferredVideoStream>();
+    video->supports_frames = false;
+    resources.inspection_video = video;
+    WorldPresentationBackend world(resources);
+    auto desired = motion_snapshot(1, "inspect");
+    REQUIRE(world.reconcile(desired, {640.0f, 360.0f}));
+    const WorldVisualOccurrence occurrence{WorldDrawFamily::Interactable, "key", 0};
+    core::RuntimeClockUpdate clock;
+    const auto position = world.motion_position(occurrence, clock);
+    REQUIRE(position);
+    CHECK(position.value().frame_count == 0);
+    const auto unsupported = world.control_motion(occurrence, SeekMotionFrame{0}, clock);
+    REQUIRE_FALSE(unsupported);
+    CHECK(unsupported.error() == MotionControlError::Unsupported);
+    REQUIRE(world.control_motion(occurrence, SeekMotionTime{20}, clock));
+    CHECK(world.motion_position(occurrence, clock).value().time_ms == 20);
+}
+
+TEST_CASE("finite video motion waits for its realized endpoint and diagnoses decoder failure")
+{
+    MotionWorldResources resources;
+    auto video = std::make_shared<DeferredVideoStream>();
+    resources.inspection_video = video;
+    WorldPresentationBackend world(resources);
+    REQUIRE(world.reconcile(motion_snapshot(1), {640.0f, 360.0f}));
+    REQUIRE(world.reconcile(motion_snapshot(2), {640.0f, 360.0f}));
+    WorldTransitionBackend transitions(world);
+    const WorldVisualOccurrence occurrence{WorldDrawFamily::Interactable, "key", 0};
+    const auto request = [&](std::uint64_t id_number) {
+        return PlayMotionOperation{common(id_number),
+                                   InteractableMotionOperationTarget{
+                                       id<InteractableInstanceId>("key"),
+                                       {id<RoomId>("room"), id<RoomPlacementId>("key-placement")}},
+                                   id<AnimationMotionId>("inspect"), finite_motion_playback(),
+                                   std::nullopt};
+    };
+    REQUIRE(transitions.realize(targeted_delivery(76, request(76))));
+    (void)transitions.take_acknowledgements();
+    RuntimeClockUpdate clocks;
+    CHECK_FALSE(world.control_motion(occurrence, SeekMotionTime{55}, clocks));
+
+    clocks.gameplay_delta = std::chrono::milliseconds{100};
+    transitions.advance(clocks);
+    REQUIRE(video->requested_time_ms == 100);
+    REQUIRE(transitions.compose_targeted_world_batch());
+    clocks.gameplay_delta = std::chrono::milliseconds{0};
+    transitions.advance(clocks);
+    CHECK(transitions.take_acknowledgements().empty());
+    CHECK(transitions.targeted_render_states().size() == 1);
+
+    video->final_ready = true;
+    transitions.advance(clocks);
+    REQUIRE(transitions.compose_targeted_world_batch());
+    transitions.advance(clocks);
+    auto acknowledged = transitions.take_acknowledgements();
+    REQUIRE(acknowledged.size() == 1);
+    CHECK(std::holds_alternative<BackendOperationCompleted>(acknowledged.front().fact));
+    REQUIRE(world.control_motion(occurrence, PauseMotion{}, clocks));
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 11);
+
+    video->final_ready = false;
+    video->final_fails = false;
+    REQUIRE(transitions.realize(targeted_delivery(77, request(77))));
+    (void)transitions.take_acknowledgements();
+    video->final_fails = true;
+    clocks.gameplay_delta = std::chrono::milliseconds{100};
+    transitions.advance(clocks);
+    acknowledged = transitions.take_acknowledgements();
+    REQUIRE(acknowledged.size() == 1);
+    const auto* failure = std::get_if<BackendOperationFailed>(&acknowledged.front().fact);
+    REQUIRE(failure);
+    CHECK(failure->diagnostic.code == "presentation.finite_motion_media_failed");
+    REQUIRE(world.control_motion(occurrence, PauseMotion{}, clocks));
+    CHECK(world.frame()->base_world_composition_batch.commands().front().texture.handle == 11);
 }
 
 TEST_CASE("finite play motion targets the exact resolved Interactable occurrence")
