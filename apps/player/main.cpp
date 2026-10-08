@@ -505,6 +505,14 @@ int main(int argc, char** argv)
     auto engine = std::make_unique<noveltea::Engine>();
     auto player_tooling = tooling_config(argc, argv);
 #if !defined(NDEBUG)
+    for (int i = 1; i < argc; ++i) {
+        if (std::string_view(argv[i]) == "--smoke-run-runtime") {
+            engine_config.load_title_screen = false;
+            player_tooling.keep_runtime_running = true;
+        }
+    }
+#endif
+#if !defined(NDEBUG)
     if (const char* frames = std::getenv("NOVELTEA_PLAYER_SMOKE_FRAMES")) {
         player_tooling.frame_limit = static_cast<std::uint32_t>(std::strtoul(frames, nullptr, 10));
     }

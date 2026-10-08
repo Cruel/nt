@@ -75,6 +75,9 @@ cmake --build --preset web-debug
 cmake --build --preset web-debug --target cxx-policy
 cmake --build --preset web-debug --target public-header-probes module-dependency-inventory
 pnpm run web:smoke:debug
+node tests/web/video_texture_tests.mjs --request-build-dir build/web-debug
+# Prepared Feature Lab package with World Composition entrypoint, default HUD and neutral camera:
+node scripts/web-player-package-smoke.mjs --build-dir build/web-debug --video --package /path/to/video.ntpkg
 cmake --preset web-debug-no-threads
 cmake --build --preset web-debug-no-threads --target noveltea-player
 cmake --preset web-release-no-threads
@@ -172,6 +175,18 @@ untrusted-template acknowledgement; release certification separately exercises i
 player templates.
 Android CI invokes `pnpm android:fixture` and `noveltea platform export` directly for both fixture
 revisions so the public command path, rather than a private test-only entrypoint, is certified.
+
+The opaque-video smoke takes a normally exported disposable copy of Feature Lab. In that copy,
+set `project.json`'s entrypoint to `world-composition`, clear `settings.ui.systemLayouts` to use the
+default fullscreen HUD, and set that Room's default camera to center `(1200, 675)`, zoom `1`,
+rotation `0`. Keep source media, Animation, Materials, and bootstrap unchanged. Export through
+`noveltea package export --allow-localization-warnings`, then pass the `.ntpkg` to the command
+above. `--video` uses the debug-only `--smoke-run-runtime` player argument to run the ordinary
+runtime directly, without testing title-screen interaction. The browser checks paused native
+media seeks and screenshot colors at the authored panel; this is platform realization coverage,
+not a second gameplay-semantic suite. `NOVELTEA_WEB_VIDEO_SMOKE_CAPTURE` optionally names a
+failure screenshot. `pnpm web:video:test` runs the smaller browser media-boundary checks plus the
+WebAssembly request-contract test, using the configured Web-debug compiler.
 
 For repository-local Web export testing, `scripts/run-web.sh` refreshes the repository `noveltea`
 host CLI, configures the canonical release Web player template, exports the selected project (or the shared acceptance

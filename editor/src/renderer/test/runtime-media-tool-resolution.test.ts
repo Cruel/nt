@@ -116,7 +116,8 @@ describe('runtime video media-tool discovery', () => {
         canvas: { width: 16, height: 16 },
       });
       expect(result.frames).toHaveLength(1);
-      expect(calls).toHaveLength(4);
+      expect(result.browserVideo.byteSize).toBeGreaterThan(0);
+      expect(calls).toHaveLength(8);
       expect(new Set(calls)).toEqual(
         new Set([
           path.join(

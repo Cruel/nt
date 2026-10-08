@@ -1,4 +1,5 @@
 #include "noveltea/assets/structured_prefetch.hpp"
+#include "noveltea/assets/prepared_video_texture.hpp"
 
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_manager.hpp"
@@ -429,10 +430,10 @@ struct StructuredAssetDependencyIndex::Impl {
                 return;
             }
             // Publication needs one drawable seed; subsequent decoding follows requested time.
-            const auto& frame =
-                representation.frames[core::prepared_video_frame_at(representation, *initial)];
-            output.add(texture_descriptor(logical_project_path(frame.path),
-                                          MaterialTextureSampler::ClampLinear, source_generation));
+            auto request = prepared_video_texture_request(
+                representation, core::prepared_video_frame_at(representation, *initial));
+            const auto cache_key = make_texture_cache_key(request, source_generation);
+            output.add({.request = std::move(request), .cache_key = cache_key});
             return;
         }
         for (const auto& frame : motion->frames)

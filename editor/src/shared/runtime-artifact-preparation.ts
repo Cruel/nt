@@ -47,6 +47,7 @@ import {
 import {
   PREPARED_MEDIA_MANIFEST_PATH,
   PREPARED_MEDIA_SCHEMA,
+  PREPARED_MEDIA_VERSION,
   preparedMediaManifestSchema,
   preparedVideoFramePackagePath,
   type OpaqueVideoPreparationRequest,
@@ -1155,7 +1156,11 @@ async function prepareOpaqueVideoRepresentations(
 
   const fileEntries: ExportFileEntry[] = [];
   const diagnostics: ProjectValidationDiagnostic[] = [];
-  const manifest: PreparedMediaManifest = { schema: PREPARED_MEDIA_SCHEMA, motions: [] };
+  const manifest: PreparedMediaManifest = {
+    schema: PREPARED_MEDIA_SCHEMA,
+    version: PREPARED_MEDIA_VERSION,
+    motions: [],
+  };
   for (const entry of requests) {
     try {
       const prepared = await paths.prepareOpaqueVideo(projectRoot, entry.request);
@@ -1175,11 +1180,24 @@ async function prepareOpaqueVideoRepresentations(
         });
         return { path: packagePath, durationMs: frame.durationMs };
       });
+      const browserPath = frames[0]!.path.replace(/frame-000000\.png$/u, 'opaque.webm');
+      fileEntries.push({
+        source: prepared.browserVideo.sourcePath,
+        packagePath: browserPath,
+        storage: 'stored',
+        assetId: `prepared-media:${entry.animationId}:${entry.motionId}:browser`,
+        kind: 'prepared-media',
+      });
       manifest.motions.push({
         animationId: entry.animationId,
         motionId: entry.motionId,
         representation: 'opaque-raster-frames',
         contentHash: prepared.contentHash,
+        browserVideo: {
+          path: browserPath,
+          width: prepared.browserVideo.width,
+          height: prepared.browserVideo.height,
+        },
         frames,
       });
       if (prepared.hadAudio)
@@ -1816,7 +1834,10 @@ export async function verifyPreparedRuntimeArtifact(
       );
     const referencedPreparedPaths = new Set<string>();
     for (const motion of parsedPreparedMedia.data.motions)
-      for (const frame of motion.frames) {
+      for (const frame of [
+        ...motion.frames,
+        ...(motion.browserVideo ? [motion.browserVideo] : []),
+      ]) {
         if (!referencedPreparedPaths.add(frame.path))
           return rejectedEvidence(
             'Prepared-media manifest contains a duplicate frame path.',

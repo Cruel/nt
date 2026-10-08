@@ -98,11 +98,19 @@ struct PreparedRasterMediaFrame {
     bool operator==(const PreparedRasterMediaFrame&) const = default;
 };
 
+struct PreparedBrowserVideo {
+    std::string path;
+    std::uint16_t width = 0;
+    std::uint16_t height = 0;
+    bool operator==(const PreparedBrowserVideo&) const = default;
+};
+
 struct PreparedVideoMotion {
     AnimationId animation;
     AnimationMotionId motion;
     std::string content_hash;
     std::vector<PreparedRasterMediaFrame> frames;
+    std::optional<PreparedBrowserVideo> browser_video = std::nullopt;
     bool operator==(const PreparedVideoMotion&) const = default;
 };
 

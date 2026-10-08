@@ -365,7 +365,8 @@ struct HeadlessRuntimeInput {
 
 Result<HeadlessRuntimeInput, Diagnostics>
 make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
-                        std::string runtime_locale, std::vector<std::string> shader_variants = {},
+                        std::string runtime_locale,
+                        std::vector<std::string> shader_variants = {},
                         PreparedMediaCatalog prepared_media = {})
 {
     auto decoded_project = decode_compiled_project(gameplay, "game");
@@ -393,6 +394,10 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
         for (const auto& frame : motion.frames) {
             entries.push_back({{"path", frame.path}, {"size", 0}});
             files.push_back({frame.path, 0, std::nullopt});
+        }
+        if (motion.browser_video) {
+            entries.push_back({{"path", motion.browser_video->path}, {"size", 0}});
+            files.push_back({motion.browser_video->path, 0, std::nullopt});
         }
     }
 
@@ -762,8 +767,8 @@ nlohmann::json run_ui_test(const nlohmann::json& request,
         auto decoded = decode_prepared_media_catalog_json(
             media->get_ref<const std::string&>(), "assets/.prepared-media/manifest.json");
         if (!decoded)
-            return compiled_project_admission_failure(
-                "Invalid prepared media for Runtime UI Test.", diagnostics_json(decoded.error()));
+            return compiled_project_admission_failure("Invalid prepared media for Runtime UI Test.",
+                                                      diagnostics_json(decoded.error()));
         prepared_media = std::move(*decoded.value_if());
     }
     auto input = make_running_game_input(project_json, shader_materials, "en",

@@ -437,6 +437,68 @@ TEST_CASE("native package export admits semantic shaders sharing compiled binari
     CHECK(response.value("success", false));
 }
 
+TEST_CASE("package export certifies prepared video through the normal media inventory")
+{
+    ProjectRootFixture root;
+    auto project = load_minimal_compiled_project();
+    project["resources"]["assets"].push_back({{"id", "video"},
+                                              {"kind", "video"},
+                                              {"path", "assets/video/source.mov"},
+                                              {"aliases", nlohmann::json::array()}});
+    project["resources"]["animations"] = nlohmann::json::array(
+        {{{"id", "video-animation"},
+          {"canvas", {{"width", 96}, {"height", 64}}},
+          {"defaultMotionId", "idle"},
+          {"motions", nlohmann::json::array({{{"id", "idle"},
+                                              {"kind", "video"},
+                                              {"video", {{"kind", "asset"}, {"id", "video"}}},
+                                              {"markers", nlohmann::json::array()}}})}}});
+    const std::string frame = "assets/.prepared-media/video/frame.png";
+    const std::string browser = "assets/.prepared-media/video/opaque.webm";
+    const nlohmann::json media = {
+        {"schema", "noveltea.private.prepared-media"},
+        {"version", 1},
+        {"motions",
+         nlohmann::json::array(
+             {{{"animationId", "video-animation"},
+               {"motionId", "idle"},
+               {"representation", "opaque-raster-frames"},
+               {"contentHash", std::string(64, 'a')},
+               {"frames", nlohmann::json::array({{{"path", frame}, {"durationMs", 1000}}})},
+               {"browserVideo", {{"path", browser}, {"width", 96}, {"height", 64}}}}})}};
+    auto files = nlohmann::json::array();
+    for (const auto& path : {std::string{"scripts/bootstrap.lua"},
+                             std::string{"assets/video/source.mov"}, frame, browser})
+        files.push_back({{"source", (root.root() / "scripts/bootstrap.lua").string()},
+                         {"packagePath", path},
+                         {"storage", "auto"}});
+    nlohmann::json request = {
+        {"project", project},
+        {"outputPath", (root.root() / "video.ntpkg").string()},
+        {"options",
+         {{"projectName", "Video Export"},
+          {"projectVersion", "1.0"},
+          {"display",
+           {{"reference_resolution", {{"width", 1920}, {"height", 1080}}},
+            {"world_raster_policy", "capped"},
+            {"bar_color", "#000000"}}},
+          {"accessibility",
+           {{"ui_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}},
+            {"text_scale", {{"enabled", true}, {"minimum", 1.0}, {"maximum", 2.0}}}}},
+          {"fileEntries", files},
+          {"textEntries",
+           nlohmann::json::array({{{"packagePath", "assets/.prepared-media/manifest.json"},
+                                   {"text", media.dump()},
+                                   {"storage", "compressed"}}})}}}};
+    auto result = noveltea::tooling::export_package(request.dump());
+    INFO(result.response_json);
+    CHECK(result.exit_code == 0);
+    request["options"]["fileEntries"].erase(3);
+    result = noveltea::tooling::export_package(request.dump());
+    CHECK(result.exit_code != 0);
+    CHECK(result.response_json.find("export.missing_prepared_media") != std::string::npos);
+}
+
 TEST_CASE("native UI playback marks compiled-project admission failures for cache recovery")
 {
     const nlohmann::json request = {

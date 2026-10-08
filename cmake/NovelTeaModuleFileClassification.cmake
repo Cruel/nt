@@ -403,6 +403,10 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui_debug_imgui.cpp
     engine/src/ui_debug_stub.cpp
     engine/src/ui/rmlui/runtime_ui.cpp
+    engine/include/noveltea/assets/prepared_video_texture.hpp
+    engine/src/assets/prepared_video_texture.cpp
+    engine/src/render/bgfx/web_video_texture.cpp
+    engine/src/render/bgfx/web_video_texture.hpp
     engine/src/world_presentation.cpp
     engine/src/world_transition.cpp
 )

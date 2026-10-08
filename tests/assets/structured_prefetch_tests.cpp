@@ -1283,8 +1283,11 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
         world.realize(clock);
         CHECK(world.frame()->draws.front().video_stream->state() ==
               assets::AssetRequestState::Pending);
+        // A loop returning to the current image must not starve an unfinished browser seek.
+        clock.gameplay_time = std::chrono::milliseconds{175};
+        world.realize(clock);
         fixture.run_until_idle();
-        clock.gameplay_time = std::chrono::milliseconds{100};
+        clock.gameplay_time = std::chrono::milliseconds{250};
         world.realize(clock);
         REQUIRE(world.frame()->draws.front().texture_lease.has_value());
         CHECK((*world.frame()->draws.front().texture_lease)->path == frame_b);

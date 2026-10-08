@@ -252,6 +252,14 @@ describe('Prepared Runtime Artifact module', () => {
           return {
             contentHash: 'a'.repeat(64),
             hadAudio: true,
+            browserVideo: {
+              sourcePath: '/project/.noveltea/build/prepared-media/a/opaque.webm',
+              projectRelativePath: '.noveltea/build/prepared-media/a/opaque.webm',
+              contentHash: 'd'.repeat(64),
+              byteSize: 13,
+              width: 320,
+              height: 180,
+            },
             frames: [
               {
                 sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000000.png',
@@ -300,12 +308,18 @@ describe('Prepared Runtime Artifact module', () => {
     expect(privateManifest).toBeDefined();
     expect(JSON.parse(privateManifest!.text)).toMatchObject({
       schema: 'noveltea.private.prepared-media',
+      version: 1,
       motions: [
         {
           animationId: 'portrait',
           motionId: 'idle',
           representation: 'opaque-raster-frames',
           contentHash: 'a'.repeat(64),
+          browserVideo: {
+            path: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/opaque.webm',
+            width: 320,
+            height: 180,
+          },
         },
       ],
     });

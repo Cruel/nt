@@ -1,4 +1,5 @@
 #include "noveltea/assets/mandatory_asset_gate.hpp"
+#include "noveltea/assets/prepared_video_texture.hpp"
 #include "noveltea/runtime/flow_prediction.hpp"
 
 #include "noveltea/assets/asset_cache_keys.hpp"
@@ -1760,9 +1761,8 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_presentation_o
             return prepared.animation == selected_animation && prepared.motion == *motion;
         });
     if (prepared_video != m_impl->package->prepared_media().motions.end()) {
-        for (const auto& frame : prepared_video->frames) {
-            TextureAssetRequest request{.path = "project:/" + frame.path,
-                                        .sampler = MaterialTextureSampler::ClampLinear};
+        for (std::size_t index = 0; index < prepared_video->frames.size(); ++index) {
+            auto request = prepared_video_texture_request(*prepared_video, index);
             const auto key =
                 make_texture_cache_key(request, m_impl->dependency_index->source_generation());
             const bool already_included =

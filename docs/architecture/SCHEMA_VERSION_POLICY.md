@@ -32,12 +32,18 @@ are:
 | Save File Format | 1 | Physical `.ntsav` representation. |
 | Player Template Format | 1 | Installable/downloadable player-template package and descriptor. |
 | Player Runtime API | 1 | Editor-generated bootstrap/package metadata consumed by the player. |
+| Prepared Media Manifest | 1 | Private normalized video representations consumed below Animation semantics. |
 | NovelTea User Config Format | 1 | Shared `~/.noveltea/config.json` for editor and CLI. |
 | ComfyUI Workflow Manifest | 1 | Importable/shareable ComfyUI workflow package manifest. |
 | Editor Runtime Protocol | 1 | Editor/runtime preview, playback, profiling, and related IPC. |
 | Runtime User Settings Format | 1 | Player-side user settings that survive game/runtime updates. |
 | CLI JSON Protocol | 1 | Machine-readable `noveltea --json` interface. |
 | Daemon Protocol | 1 | Private standalone CLI client/broker/worker framing and compatibility identity. |
+
+The Web opaque-video realization (#406) establishes the private Prepared Media Manifest boundary.
+Its representation metadata may change independently of authored Animation and player bootstrap
+semantics, so it owns a current-only transport version. The prior unversioned manifest is rejected;
+development packages/cache artifacts must be regenerated, not imported implicitly.
 
 No other current schema has an independent compatibility epoch unless it is first added to this
 inventory by an explicit architecture decision.
