@@ -2357,7 +2357,7 @@ Result<void, Diagnostics> validate_save_state_impl(const CompiledProject& projec
         if (animation)
             for (const auto& motion : animation->motions)
                 if (motion.id == selection.motion)
-                    valid = compiled::motion_initial_time(motion, selection.policy).has_value();
+                    valid = compiled::motion_policy_valid_for_selection(motion, selection.policy);
         if (!valid_saved_owner(project, save, selection.owner) || !valid)
             error("save_codec.invalid_presentation_record",
                   "Motion selection has an invalid owner, target, motion, or playback policy.");

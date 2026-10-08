@@ -359,10 +359,12 @@ RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvoc
                                core::TypedSaveSlotStore& saves,
                                const core::SaveStateCodecPort& save_codec,
                                std::unique_ptr<RuntimeExecutor> kernel, std::string runtime_locale,
-                               RuntimeBudgetConfiguration runtime_budget) noexcept
-    : m_project(project), m_scripts(scripts), m_presentation_model(presentation_model),
-      m_presentation(presentation), m_checkpoint_service(project, saves, save_codec),
-      m_kernel(std::move(kernel)), m_runtime_budget(runtime_budget),
+                               RuntimeBudgetConfiguration runtime_budget,
+                               MotionDurationLookup motion_duration_lookup) noexcept
+    : m_project(project), m_motion_duration_lookup(std::move(motion_duration_lookup)),
+      m_scripts(scripts), m_presentation_model(presentation_model), m_presentation(presentation),
+      m_checkpoint_service(project, saves, save_codec), m_kernel(std::move(kernel)),
+      m_runtime_budget(runtime_budget),
       m_runtime_locale(runtime_locale.empty() ? project.localization().default_locale
                                               : std::move(runtime_locale)),
       m_owner_thread(std::this_thread::get_id())

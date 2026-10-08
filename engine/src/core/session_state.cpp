@@ -1509,7 +1509,8 @@ Result<void, Diagnostics> SessionState::upsert_motion_selection(const CompiledPr
                           "Motion selection requires an animated Interactable target"));
     const auto motion = std::ranges::find_if(
         animation->motions, [&](const auto& candidate) { return candidate.id == value.motion; });
-    if (motion == animation->motions.end() || !compiled::motion_initial_time(*motion, value.policy))
+    if (motion == animation->motions.end() ||
+        !compiled::motion_policy_valid_for_selection(*motion, value.policy))
         return Result<void, Diagnostics>::failure(
             feature_error("runtime.motion_selection_invalid_policy",
                           "Motion, playback policy, or initial marker is invalid"));

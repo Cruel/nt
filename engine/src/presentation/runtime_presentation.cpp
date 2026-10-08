@@ -1762,8 +1762,8 @@ PresentationProjector::project(const CompiledProject& project, const runtime::Ru
             if (animation == nullptr ||
                 std::ranges::none_of(animation->motions, [&](const auto& motion) {
                     return motion.id == selected_motion->motion &&
-                           compiled::motion_initial_time(motion, selected_motion->policy)
-                               .has_value();
+                           compiled::motion_policy_valid_for_selection(motion,
+                                                                       selected_motion->policy);
                 }))
                 diagnostics.push_back(
                     unresolved("desired Interactable motion", selected_motion->motion.text()));

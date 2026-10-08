@@ -237,7 +237,8 @@ describe('private media preparation tool', () => {
 
       expect(result.hadAudio).toBe(true);
       expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/u);
-      expect(result.frames.map((frame) => frame.durationMs)).toEqual([33, 34]);
+      expect(result.frames.map((frame) => frame.durationMs)).toEqual([33, 967]);
+      expect(result.frames.reduce((total, frame) => total + frame.durationMs, 0)).toBe(1000);
       expect(
         result.frames.every((frame) => frame.projectRelativePath.includes(result.contentHash)),
       ).toBe(true);

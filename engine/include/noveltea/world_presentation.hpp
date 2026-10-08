@@ -29,6 +29,8 @@ public:
     sample(std::uint64_t presentation_time_ms) = 0;
     virtual void suspend() noexcept = 0;
     [[nodiscard]] virtual assets::AssetRequestState state() const noexcept = 0;
+    [[nodiscard]] virtual bool frame_addressable() const noexcept { return false; }
+    [[nodiscard]] virtual bool sample_ready(std::uint64_t) const noexcept { return false; }
 };
 
 struct WorldPreparedVisual {
@@ -382,6 +384,12 @@ struct WorldVisualOccurrence {
     std::uint8_t sublayer = 0;
     bool operator==(const WorldVisualOccurrence&) const = default;
 };
+enum class FiniteMotionSampleStatus {
+    Pending,
+    Ready,
+    Failed
+};
+
 struct WorldPreparedMotionOverride {
     WorldVisualOccurrence occurrence;
     WorldPresentationDraw draw;
@@ -439,6 +447,8 @@ public:
                             const core::MotionOperationTarget& target,
                             const core::AnimationMotionId& motion,
                             const core::MotionPlaybackPolicy& playback);
+    [[nodiscard]] FiniteMotionSampleStatus
+    finite_motion_sample_status(const WorldVisualOccurrence& occurrence) const noexcept;
     [[nodiscard]] bool update_hotspot_visual_state(HotspotInteractionVisualState state);
 
     [[nodiscard]] const WorldPresentationFrame* frame() const noexcept;

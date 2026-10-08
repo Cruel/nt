@@ -629,10 +629,26 @@ void WorldTransitionBackend::advance(const core::RuntimeClockUpdate& clocks)
                              "Targeted finite realization lost its backend-local interpolation "
                              "track")}});
         } else {
-            if (it->motion_override)
+            if (it->motion_override) {
                 m_world.sample_finite_motion(it->motion_override->occurrence,
                                              static_cast<long double>(common.duration.count()) *
                                                  sample->value);
+                if (m_world.finite_motion_sample_status(it->motion_override->occurrence) ==
+                    FiniteMotionSampleStatus::Failed) {
+                    const auto metadata = it->metadata;
+                    m_world.end_finite_motion(it->motion_override->occurrence);
+                    release_tween(common, it->tween);
+                    it = m_targeted.erase(it);
+                    m_acknowledgements.push_back(
+                        {metadata.operation, metadata.sequence, metadata.owner,
+                         core::BackendOperationFailed{
+                             core::PresentationFailureDomain::WorldPresentation,
+                             failure(
+                                 "presentation.finite_motion_media_failed",
+                                 "Required finite-motion video sample could not be realized")}});
+                    continue;
+                }
+            }
             if (const auto* gesture = std::get_if<core::CharacterGestureOperation>(&it->request)) {
                 const auto elapsed_ms =
                     sample->completed
@@ -959,7 +975,9 @@ WorldTransitionBackend::compose_targeted_world_batch() const
             // World realization owns the effective sample used by drawing and interaction.
             draw->draw.command.texture = *draw->draw.sampled_visual_texture;
             draw->draw.command.texture_sampler = draw->draw.sampled_visual_sampler;
-            if (sample && sample->completed)
+            if (sample && sample->completed &&
+                m_world.finite_motion_sample_status(override.occurrence) ==
+                    FiniteMotionSampleStatus::Ready)
                 active.motion_endpoint_realized = true;
             continue;
         }

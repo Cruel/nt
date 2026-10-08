@@ -86,6 +86,7 @@ public:
 
 private:
     explicit RunningGame(core::LoadedCompiledPackage package) noexcept;
+    [[nodiscard]] RuntimeSession::MotionDurationLookup motion_duration_lookup() const;
 
     core::LoadedCompiledPackage m_package;
     std::unique_ptr<SessionScriptInvocationPort> m_script_binding;
