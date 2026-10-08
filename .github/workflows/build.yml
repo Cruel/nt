@@ -143,6 +143,9 @@ jobs:
     runs-on: ubuntu-24.04
     needs: shader-assets
     timeout-minutes: 120
+    permissions:
+      contents: read
+      id-token: write
 
     steps:
       - name: Checkout
@@ -285,6 +288,16 @@ jobs:
         run: |
           node scripts/native-coverage.mjs merge build/reports/coverage/cpp
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/combined/summary.json 'Combined (union)' >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish combined native coverage to Codecov
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: build/reports/coverage/cpp/combined/cobertura.xml
+          disable_search: true
+          flags: native
+          fail_ci_if_error: false
 
       - name: Upload C++ coverage
         if: ${{ !cancelled() }}
@@ -1317,6 +1330,9 @@ jobs:
     runs-on: ubuntu-24.04
     needs: [linux-cli, web-preview]
     timeout-minutes: 90
+    permissions:
+      contents: read
+      id-token: write
     env:
       NOVELTEA_CLI_PATH: ${{ github.workspace }}/build/cli/linux/noveltea
 
@@ -1379,6 +1395,16 @@ jobs:
       - name: Summarize editor coverage
         if: ${{ !cancelled() }}
         run: node scripts/coverage-summary.mjs editor editor/coverage/coverage-summary.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Publish editor coverage to Codecov
+        if: ${{ !cancelled() && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) }}
+        uses: codecov/codecov-action@v7
+        with:
+          use_oidc: true
+          files: editor/coverage/lcov.info
+          disable_search: true
+          flags: editor
+          fail_ci_if_error: false
 
       - name: Upload editor coverage
         if: ${{ !cancelled() }}

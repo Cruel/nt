@@ -2,7 +2,9 @@
 
 Coverage is a hole detector, not proof that a behavior is correctly tested. Investigate uncovered
 public paths alongside the behavior-focused test policy; do not add artificial assertions to raise
-percentages. There is no global numeric gate, combined C++/editor percentage, or automated PR comment.
+percentages. There is no global numeric gate or combined C++/editor percentage. Codecov receives
+separate native and editor reports for repository/PR coverage comparisons; its PR comments and checks
+are controlled by Codecov settings, not a CI percentage threshold.
 Test failures and broken report generation still fail CI.
 
 ## Boundaries and CI
@@ -47,8 +49,14 @@ code, but this is not packaged Electron or native-bridge coverage. Coverage runs
 timeouts to account for instrumentation overhead without changing normal unit-test timeouts.
 
 CI appends three labeled native line/branch tables and a separate editor line/function/branch table
-to job summaries. Download `noveltea-coverage-editor` for editor HTML, Istanbul JSON, summary JSON and
-LCOV. gcovr uses repository-relative paths; Vitest's raw Istanbul JSON uses resolved source paths
+to job summaries. The Build workflow also uploads `combined/cobertura.xml` under Codecov's
+`native` flag and `editor/coverage/lcov.info` under its `editor` flag. Each job authenticates
+through GitHub Actions OIDC (`id-token: write`), so no repository upload secret is needed.
+Uploads are informational (`fail_ci_if_error: false`) and are skipped for fork pull requests,
+where Codecov OIDC authentication is unavailable. The repository must be enabled in Codecov
+before reports are visible. Configure PR comments/status checks in Codecov itself.
+
+Download `noveltea-coverage-editor` for editor HTML, Istanbul JSON, summary JSON and LCOV. gcovr uses repository-relative paths; Vitest's raw Istanbul JSON uses resolved source paths
 (LCOV provides relative paths). These per-file report sets can support a future baseline ratchet or
 changed-code policy; neither is selected now.
 
