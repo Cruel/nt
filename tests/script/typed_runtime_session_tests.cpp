@@ -1637,6 +1637,87 @@ TEST_CASE("runtime publication carries authoritative non-global prediction condi
     }));
 }
 
+TEST_CASE("prediction requirements change when the active Scene advances past a frontier")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        document["entrypoint"] = {{"kind", "scene"},
+                                  {"scene", {{"kind", "scene"}, {"id", "closing"}}}};
+        document["flowPrediction"]["slices"][0]["condition"] = {
+            {"kind", "global-property-comparison"},
+            {"property", {{"kind", "property"}, {"id", "count"}}},
+            {"operator", "greater-equal"},
+            {"value", 0}};
+        document["flowPrediction"]["slices"][2]["condition"] = {
+            {"kind", "global-property-comparison"},
+            {"property", {{"kind", "property"}, {"id", "ratio"}}},
+            {"operator", "greater-equal"},
+            {"value", 0.0}};
+    });
+    auto initial = fixture.session->publish_initial_state();
+    REQUIRE(initial.diagnostics.empty());
+    REQUIRE(initial.publication);
+    const auto count = make_id<core::PropertyIdTag>("count");
+    const auto ratio = make_id<core::PropertyIdTag>("ratio");
+    CHECK(std::ranges::any_of(initial.publication->prediction_context.global_properties,
+                              [&](const auto& property) { return property.property == count; }));
+    auto started = dispatch_settled(*fixture.session, core::StartRuntimeInput{});
+    REQUIRE(started.diagnostics.empty());
+    REQUIRE(started.publication);
+    const auto& properties = started.publication->prediction_context.global_properties;
+    CHECK_FALSE(std::ranges::any_of(
+        properties, [&](const auto& property) { return property.property == count; }));
+    CHECK(std::ranges::any_of(properties,
+                              [&](const auto& property) { return property.property == ratio; }));
+}
+
+TEST_CASE("prediction requirements retain fresh global and Condition values across clock ticks")
+{
+    Fixture fixture("scene-program.json", {}, [](nlohmann::json& document) {
+        document["entrypoint"] = {{"kind", "scene"},
+                                  {"scene", {{"kind", "scene"}, {"id", "closing"}}}};
+        document["flowPrediction"]["slices"][2]["condition"] = {
+            {"kind", "all"},
+            {"conditions", nlohmann::json::array(
+                               {{{"kind", "global-property-comparison"},
+                                 {"property", {{"kind", "property"}, {"id", "count"}}},
+                                 {"operator", "greater-equal"},
+                                 {"value", 0}},
+                                {{"kind", "property-comparison"},
+                                 {"owner",
+                                  {{"kind", "interactable"},
+                                   {"interactable", {{"kind", "interactable"}, {"id", "key"}}}}},
+                                 {"propertyId", "enabled"},
+                                 {"operator", "truthy"}}})}};
+    });
+    const auto count = make_id<core::PropertyIdTag>("count");
+    const auto key = make_id<core::InteractableInstanceIdTag>("key");
+    const auto enabled = make_id<core::PropertyIdTag>("enabled");
+    const auto check_values = [&](const runtime::RuntimeDispatchResult& result,
+                                  std::int64_t expected_count, bool expected_enabled) {
+        REQUIRE(result.diagnostics.empty());
+        REQUIRE(result.publication);
+        const auto& context = result.publication->prediction_context;
+        const auto property = std::ranges::find(context.global_properties, count,
+                                                &runtime::FlowPredictionGlobalProperty::property);
+        REQUIRE(property != context.global_properties.end());
+        CHECK(property->value == core::RuntimeValue{expected_count});
+        REQUIRE(context.condition_facts.size() == 1);
+        CHECK(context.condition_facts.front().value == expected_enabled);
+    };
+    const auto initial = dispatch_settled(*fixture.session, core::StartRuntimeInput{});
+    REQUIRE(initial.publication);
+    REQUIRE(initial.publication->active_scene);
+    REQUIRE(fixture.session->gateway().set_global_property(count, std::int64_t{7}));
+    check_values(fixture.session->dispatch(core::RuntimeInputMessage{
+                     core::AdvanceTimeInput{std::chrono::milliseconds{16}}}),
+                 7, true);
+    REQUIRE(fixture.session->gateway().set_global_property(count, std::int64_t{9}));
+    REQUIRE(fixture.session->gateway().set_property(key, enabled, false));
+    check_values(fixture.session->dispatch(core::RuntimeInputMessage{
+                     core::AdvanceTimeInput{std::chrono::milliseconds{16}}}),
+                 9, false);
+}
+
 core::Result<void, ScriptError> execute_session_lua(Fixture& fixture, std::string source,
                                                     std::string chunk_name)
 {
@@ -2431,6 +2512,25 @@ TEST_CASE("active Interaction prediction scopes authoritative slot-bound Conditi
     const auto projection = runtime::FlowPredictor(fixture.project)
                                 .predict(root, invoked.publication->prediction_context);
     CHECK(projection.context_requirements.condition_facts.empty());
+
+    auto ticked = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{16}}});
+    REQUIRE(ticked.diagnostics.empty());
+    REQUIRE(ticked.publication);
+    REQUIRE(ticked.publication->prediction_context.active_interaction);
+    CHECK(*ticked.publication->prediction_context.active_interaction == root);
+    REQUIRE(fixture.session->gateway().set_property(key, make_id<core::PropertyIdTag>("enabled"),
+                                                    false));
+    auto changed = fixture.session->dispatch(
+        core::RuntimeInputMessage{core::AdvanceTimeInput{std::chrono::milliseconds{16}}});
+    REQUIRE(changed.diagnostics.empty());
+    REQUIRE(changed.publication);
+    REQUIRE(changed.publication->prediction_context.active_interaction);
+    const auto& changed_root = *changed.publication->prediction_context.active_interaction;
+    CHECK(changed_root.position == root.position);
+    REQUIRE(changed_root.condition_facts.size() == 1);
+    CHECK_FALSE(changed_root.condition_facts.front().value);
+    CHECK(changed.publication->prediction_context.condition_facts.empty());
 }
 
 TEST_CASE("semantic Verb menu publication never auto-selects a primary Offer")

@@ -78,25 +78,14 @@ resident_action_candidate(const ResidentInteractionPredictionCandidate& candidat
             .primary = candidate.primary};
 }
 
-FlowPredictionContext
-build_prediction_context(const core::CompiledProject& project, RuntimeExecutor& kernel,
-                         const FlowPredictionContext& navigation_context,
-                         const std::optional<ActiveScenePredictionRoot>& active_scene,
-                         const std::optional<ActiveDialoguePredictionRoot>& active_dialogue,
-                         const std::optional<ResidentRoomPredictionRoot>& resident_room)
+void discover_prediction_requirements(
+    const core::CompiledProject& project, const FlowPredictionContext& requirements_context,
+    const std::optional<ActiveScenePredictionRoot>& active_scene,
+    const std::optional<ActiveDialoguePredictionRoot>& active_dialogue,
+    const std::optional<ResidentRoomPredictionRoot>& resident_room,
+    FlowPredictionContextRequirements& requirements,
+    FlowPredictionContextRequirements& invocation_requirements)
 {
-    FlowPredictionContext context = navigation_context;
-    if (!project.flow_prediction())
-        return context;
-
-    FlowPredictionContext requirements_context = navigation_context;
-    requirements_context.global_properties.clear();
-    requirements_context.condition_facts.clear();
-    // Future-Room resident actions are deliberately conservative speculation. Do not let their
-    // deeper Flow enlarge the authoritative requirement prepass across the Room graph; when later
-    // planning reaches them, unavailable facts widen through the predictor's existing semantics.
-    requirements_context.future_resident_rooms.clear();
-    FlowPredictionContextRequirements requirements;
     const auto merge_requirements_into = [](FlowPredictionContextRequirements& target,
                                             const FlowPredictionProjection& projection) {
         for (const auto& property : projection.context_requirements.global_properties) {
@@ -119,69 +108,36 @@ build_prediction_context(const core::CompiledProject& project, RuntimeExecutor& 
         merge_requirements(predictor.predict(*active_scene, requirements_context));
     else if (active_dialogue)
         merge_requirements(predictor.predict(*active_dialogue, requirements_context));
-    else if (navigation_context.active_interaction) {
+    else if (requirements_context.active_interaction) {
         FlowPredictionContextRequirements interaction_requirements;
         merge_requirements_into(
             interaction_requirements,
-            predictor.predict(*navigation_context.active_interaction, requirements_context));
+            predictor.predict(*requirements_context.active_interaction, requirements_context));
         for (const auto& property : interaction_requirements.global_properties) {
             if (std::ranges::find(requirements.global_properties, property) ==
                 requirements.global_properties.end())
                 requirements.global_properties.push_back(property);
         }
-        if (context.active_interaction) {
-            const core::ConditionEvaluationContext interaction_context{
-                .interaction_bindings = context.active_interaction->interaction_bindings,
-                .command_results = context.active_interaction->command_results};
-            for (const auto& condition : interaction_requirements.condition_facts) {
-                auto evaluated = kernel.evaluate(condition, interaction_context);
-                if (const auto* value = evaluated.value_if())
-                    context.active_interaction->condition_facts.push_back({condition, *value});
-            }
-        }
-    } else if (navigation_context.active_room_transition) {
+        invocation_requirements = std::move(interaction_requirements);
+    } else if (requirements_context.active_room_transition) {
         FlowPredictionContextRequirements transition_requirements;
         merge_requirements_into(
             transition_requirements,
-            predictor.predict(*navigation_context.active_room_transition, requirements_context));
+            predictor.predict(*requirements_context.active_room_transition, requirements_context));
         for (const auto& property : transition_requirements.global_properties) {
             if (std::ranges::find(requirements.global_properties, property) ==
                 requirements.global_properties.end())
                 requirements.global_properties.push_back(property);
         }
-        if (context.active_room_transition) {
-            const core::ConditionEvaluationContext transition_context{
-                .interaction_bindings = {},
-                .command_results = context.active_room_transition->command_results};
-            for (const auto& condition : transition_requirements.condition_facts) {
-                auto evaluated = kernel.evaluate(condition, transition_context);
-                if (const auto* value = evaluated.value_if())
-                    context.active_room_transition->condition_facts.push_back({condition, *value});
-            }
-        }
+        invocation_requirements = std::move(transition_requirements);
     } else if (resident_room)
         merge_requirements(predictor.predict(*resident_room, requirements_context));
-    for (const auto& prospective : navigation_context.prospective_room_entries)
+    for (const auto& prospective : requirements_context.prospective_room_entries)
         merge_requirements(predictor.predict(prospective, requirements_context));
-    for (const auto& detached : navigation_context.detached_scenes)
+    for (const auto& detached : requirements_context.detached_scenes)
         merge_requirements(predictor.predict(detached, requirements_context));
-    for (const auto& detached : navigation_context.detached_dialogues)
+    for (const auto& detached : requirements_context.detached_dialogues)
         merge_requirements(predictor.predict(detached, requirements_context));
-
-    context.global_properties.reserve(requirements.global_properties.size());
-    for (const auto& property : requirements.global_properties) {
-        auto value = kernel.gateway().global_property(property);
-        if (const auto* current = value.value_if())
-            context.global_properties.push_back({property, *current});
-    }
-
-    context.condition_facts.reserve(requirements.condition_facts.size());
-    for (const auto& condition : requirements.condition_facts) {
-        auto evaluated = kernel.evaluate(condition);
-        if (const auto* value = evaluated.value_if())
-            context.condition_facts.push_back({condition, *value});
-    }
-    return context;
 }
 
 void append_prospective_navigation_context(FlowPredictionContext& context,
@@ -352,6 +308,78 @@ bool same_snapshot_value(const core::RuntimePresentationSnapshot& left,
 }
 
 } // namespace
+
+FlowPredictionContext RuntimeSession::build_prediction_context(
+    const FlowPredictionContext& navigation_context,
+    const std::optional<ActiveScenePredictionRoot>& active_scene,
+    const std::optional<ActiveDialoguePredictionRoot>& active_dialogue,
+    const std::optional<ResidentRoomPredictionRoot>& resident_room)
+{
+    FlowPredictionContext context = navigation_context;
+    if (!m_project.flow_prediction())
+        return context;
+
+    FlowPredictionContext discovery_context = navigation_context;
+    discovery_context.global_properties.clear();
+    discovery_context.condition_facts.clear();
+    // Future resident speculation must not enlarge the authoritative requirement prepass.
+    discovery_context.future_resident_rooms.clear();
+    const bool reusable = m_prediction_requirements &&
+                          m_prediction_requirements->discovery_context == discovery_context &&
+                          m_prediction_requirements->active_scene == active_scene &&
+                          m_prediction_requirements->active_dialogue == active_dialogue &&
+                          m_prediction_requirements->resident_room == resident_room;
+    if (!reusable) {
+        PredictionRequirementsCache cache{.discovery_context = std::move(discovery_context),
+                                          .active_scene = active_scene,
+                                          .active_dialogue = active_dialogue,
+                                          .resident_room = resident_room,
+                                          .shared = {},
+                                          .invocation = {}};
+        discover_prediction_requirements(m_project, cache.discovery_context, active_scene,
+                                         active_dialogue, resident_room, cache.shared,
+                                         cache.invocation);
+        m_prediction_requirements = std::move(cache);
+    }
+
+    // Cache requirement identities, never authoritative values (including invocation-bound facts).
+    const auto& requirements = m_prediction_requirements->shared;
+    context.global_properties.reserve(requirements.global_properties.size());
+    for (const auto& property : requirements.global_properties) {
+        auto value = m_kernel->gateway().global_property(property);
+        if (const auto* current = value.value_if())
+            context.global_properties.push_back({property, *current});
+    }
+    context.condition_facts.reserve(requirements.condition_facts.size());
+    for (const auto& condition : requirements.condition_facts) {
+        auto evaluated = m_kernel->evaluate(condition);
+        if (const auto* value = evaluated.value_if())
+            context.condition_facts.push_back({condition, *value});
+    }
+    if (!active_scene && !active_dialogue) {
+        const auto& invocation = m_prediction_requirements->invocation;
+        if (context.active_interaction) {
+            const core::ConditionEvaluationContext bindings{
+                .interaction_bindings = context.active_interaction->interaction_bindings,
+                .command_results = context.active_interaction->command_results};
+            for (const auto& condition : invocation.condition_facts) {
+                auto evaluated = m_kernel->evaluate(condition, bindings);
+                if (const auto* value = evaluated.value_if())
+                    context.active_interaction->condition_facts.push_back({condition, *value});
+            }
+        } else if (context.active_room_transition) {
+            const core::ConditionEvaluationContext bindings{
+                .interaction_bindings = {},
+                .command_results = context.active_room_transition->command_results};
+            for (const auto& condition : invocation.condition_facts) {
+                auto evaluated = m_kernel->evaluate(condition, bindings);
+                if (const auto* value = evaluated.value_if())
+                    context.active_room_transition->condition_facts.push_back({condition, *value});
+            }
+        }
+    }
+    return context;
+}
 
 RuntimeSession::RuntimeSession(const core::CompiledProject& project, ScriptInvocationPort& scripts,
                                PresentationModelPort& presentation_model,
@@ -1732,7 +1760,7 @@ void RuntimeSession::project_publication(WorkResult& work, runtime::RuntimeDispa
                               active_dialogue->dialogue, active_dialogue->position}}
                         : std::nullopt;
     auto prediction_context =
-        build_prediction_context(m_project, *m_kernel, navigation_context, active_scene_prediction,
+        build_prediction_context(navigation_context, active_scene_prediction,
                                  active_dialogue_prediction, resident_room_prediction);
 
     runtime::RuntimePublication publication{.revision = m_next_publication_revision,
