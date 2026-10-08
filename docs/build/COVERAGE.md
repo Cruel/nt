@@ -11,8 +11,10 @@ Test failures and broken report generation still fail CI.
 
 The Build workflow's Linux desktop job instruments first-party native targets using GCC/gcov. It
 runs the normal CTest suite and the complete Feature Lab authored semantic/UI Test suite through the
-Node CLI driver, with an explicitly selected instrumented native bridge and UI runner. The standalone
-release CLI is not used: its native objects are uninstrumented. The Lab measurement includes the
+Node CLI driver, with an explicitly selected instrumented native bridge and UI runner. The job
+stages the checksum-verified, pinned FFmpeg tool separately and sets `NOVELTEA_FFMPEG` for the
+Feature Lab suite so video-backed Animations can be prepared without waiting for the standalone
+CLI build. The standalone release CLI is not used: its native objects are uninstrumented. The Lab measurement includes the
 native preparation and playback operations exercised by that workflow, not TypeScript compiler
 execution, manual station visits, or every perceptual check in the catalog.
 
@@ -78,8 +80,10 @@ xvfb-run -a ctest --test-dir build/linux-coverage --output-on-failure \
   --output-junit "$PWD/build/reports/coverage/cpp/ctest/test-results.xml"
 node scripts/native-coverage.mjs report build/linux-coverage build/reports/coverage/cpp/ctest
 
+node editor/scripts/private-media-tools.mjs build/coverage-media
 node scripts/native-coverage.mjs reset build/linux-coverage
 mkdir -p build/reports/coverage/cpp/feature-lab
+NOVELTEA_FFMPEG="$PWD/build/coverage-media/tools/ffmpeg/bin/ffmpeg" \
 NOVELTEA_NATIVE_TOOL_BRIDGE="$PWD/build/linux-coverage/tools/editor_tool/noveltea-tooling-bridge" \
 NOVELTEA_UI_TEST_RUNNER="$PWD/build/linux-coverage/tools/editor_tool/noveltea-ui-test-runner" \
   xvfb-run -a node editor/dist-electron/tools/noveltea.mjs \

@@ -38,10 +38,11 @@ export function resolveMediaTool(options: {
 }
 
 export function installedMediaTool(cliExecutable = process.execPath): MediaTool {
+  const override = process.env.NOVELTEA_FFMPEG;
   return resolveMediaTool({
-    // Public CLI links must resolve against the installation, not /usr/bin.
-    cliExecutable: realpathSync(cliExecutable),
-    override: process.env.NOVELTEA_FFMPEG,
+    // An explicit media tool works without resolving a (possibly virtual) CLI executable.
+    cliExecutable: override === undefined ? realpathSync(cliExecutable) : cliExecutable,
+    override,
   });
 }
 

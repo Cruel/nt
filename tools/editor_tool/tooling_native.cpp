@@ -192,11 +192,10 @@ void strip_shader_material_sources(nlohmann::json& metadata)
     }
 }
 
-Result<HeadlessRuntimeInput, Diagnostics>
-make_headless_running_game_input(nlohmann::json gameplay,
-                                 std::optional<nlohmann::json> shader_materials,
-                                 std::string runtime_locale,
-                                 std::vector<std::string> shader_variants = {})
+Result<HeadlessRuntimeInput, Diagnostics> make_headless_running_game_input(
+    nlohmann::json gameplay, std::optional<nlohmann::json> shader_materials,
+    std::string runtime_locale, std::vector<std::string> shader_variants = {},
+    PreparedMediaCatalog prepared_media = {})
 {
     auto decoded_project = decode_compiled_project(gameplay, "game");
     if (!decoded_project) {
@@ -218,6 +217,13 @@ make_headless_running_game_input(nlohmann::json gameplay,
         const auto path = runtime_package_entry_path(*locale.catalog_path);
         entries.push_back({{"path", path}, {"size", 0}});
         files.push_back({path, 0, std::nullopt});
+    }
+
+    for (const auto& motion : prepared_media.motions) {
+        for (const auto& frame : motion.frames) {
+            entries.push_back({{"path", frame.path}, {"size", 0}});
+            files.push_back({frame.path, 0, std::nullopt});
+        }
     }
 
     nlohmann::json manifest = {
@@ -311,9 +317,9 @@ make_headless_running_game_input(nlohmann::json gameplay,
             return Result<HeadlessRuntimeInput, Diagnostics>::failure(std::move(decoded).error());
         typed_shader_materials = std::move(*decoded.value_if());
     }
-    auto package = assemble_compiled_package(std::move(*decoded_project.value_if()),
-                                             std::move(*typed_manifest.value_if()),
-                                             std::move(typed_shader_materials), std::move(files));
+    auto package = assemble_compiled_package(
+        std::move(*decoded_project.value_if()), std::move(*typed_manifest.value_if()),
+        std::move(typed_shader_materials), std::move(files), std::move(prepared_media));
     if (!package)
         return Result<HeadlessRuntimeInput, Diagnostics>::failure(std::move(package).error());
     return Result<HeadlessRuntimeInput, Diagnostics>::success(
@@ -604,8 +610,30 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
     auto shader_material_metadata = options.shader_material_metadata;
     if (shader_material_metadata && options.strip_shader_sources)
         strip_shader_material_sources(*shader_material_metadata);
-    auto input = make_headless_running_game_input(project, std::move(shader_material_metadata), "en",
-                                                   options.shader_variants);
+    PreparedMediaCatalog prepared_media;
+    for (const auto& entry : options.text_entries) {
+        if (entry.package_path != "assets/.prepared-media/manifest.json")
+            continue;
+        auto decoded = decode_prepared_media_catalog_json(entry.text, entry.package_path);
+        if (!decoded)
+            return Result<void, Diagnostics>::failure(std::move(decoded).error());
+        prepared_media = std::move(decoded).value();
+    }
+    for (const auto& motion : prepared_media.motions) {
+        for (const auto& frame : motion.frames) {
+            if (std::none_of(options.file_entries.begin(), options.file_entries.end(),
+                             [&](const auto& entry) {
+                                 return entry.package_path == frame.path;
+                             }))
+                return Result<void, Diagnostics>::failure(
+                    {{.code = "export.missing_prepared_media",
+                      .message = "Prepared video file is absent from export inventory.",
+                      .source_path = frame.path}});
+        }
+    }
+    auto input = make_headless_running_game_input(
+        project, std::move(shader_material_metadata), "en", options.shader_variants,
+        std::move(prepared_media));
     if (!input)
         return Result<void, Diagnostics>::failure(std::move(input).error());
     auto runtime = load_headless_running_game(std::move(*input.value_if()), scripts, presentation, saves);
@@ -699,8 +727,22 @@ nlohmann::json run_compiled_playback(const nlohmann::json& request)
             shader_variants.push_back(variant.get<std::string>());
         }
     }
-    auto input = make_headless_running_game_input(*project, std::move(shader_material_metadata), "en",
-                                                   std::move(shader_variants));
+    PreparedMediaCatalog prepared_media;
+    if (const auto manifest = request.find("preparedMediaManifest"); manifest != request.end()) {
+        if (!manifest->is_string())
+            return compiled_project_admission_failure(
+                "Runtime Test preparedMediaManifest must be a string.");
+        auto decoded = decode_prepared_media_catalog_json(
+            manifest->get_ref<const std::string&>(), "assets/.prepared-media/manifest.json");
+        if (!decoded)
+            return compiled_project_admission_failure(
+                "Invalid prepared media for Runtime Test.",
+                compiled_diagnostics_to_json(decoded.error()));
+        prepared_media = std::move(*decoded.value_if());
+    }
+    auto input = make_headless_running_game_input(
+        *project, std::move(shader_material_metadata), "en", std::move(shader_variants),
+        std::move(prepared_media));
     if (!input)
         return compiled_project_admission_failure("Compiled runtime load failed.",
                                                   compiled_diagnostics_to_json(input.error()));
@@ -1327,6 +1369,10 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
         if (auto shader_metadata = request.find("shaderMaterialMetadata");
             shader_metadata != request.end())
             preflight_request["shaderMaterialMetadata"] = *shader_metadata;
+        if (auto media = request.find("preparedMediaManifest"); media != request.end())
+            preflight_request["preparedMediaManifest"] = *media;
+        if (auto variants = request.find("shaderVariants"); variants != request.end())
+            preflight_request["shaderVariants"] = *variants;
         const auto preflight = run_compiled_playback(preflight_request);
         if (!json_access::value_or(preflight, "ok", false))
             return preflight;
@@ -1372,6 +1418,10 @@ nlohmann::json run_test_suite(const nlohmann::json& request)
         if (auto shader_metadata = request.find("shaderMaterialMetadata");
             shader_metadata != request.end())
             single_request["shaderMaterialMetadata"] = *shader_metadata;
+        if (auto media = request.find("preparedMediaManifest"); media != request.end())
+            single_request["preparedMediaManifest"] = *media;
+        if (auto variants = request.find("shaderVariants"); variants != request.end())
+            single_request["shaderVariants"] = *variants;
         const auto response = runner == "runtime-ui" ? run_external_ui_playback(single_request)
                                                      : run_compiled_playback(single_request);
         if (!json_access::value_or(response, "ok", false) || !response.contains("report")) {

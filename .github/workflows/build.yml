@@ -262,6 +262,11 @@ jobs:
           node scripts/native-coverage.mjs report build/linux-debug build/reports/coverage/cpp/ctest
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest/summary.json CTest >> "$GITHUB_STEP_SUMMARY"
 
+      - name: Stage pinned FFmpeg for Feature Lab
+        run: |
+          node editor/scripts/private-media-tools.mjs build/coverage-media
+          chmod +x build/coverage-media/tools/ffmpeg/bin/ffmpeg
+
       - name: Reset Feature Lab coverage counters
         if: ${{ !cancelled() }}
         run: node scripts/native-coverage.mjs reset build/linux-debug
@@ -269,6 +274,7 @@ jobs:
       - name: Feature Lab authored Tests
         if: ${{ !cancelled() }}
         env:
+          NOVELTEA_FFMPEG: ${{ github.workspace }}/build/coverage-media/tools/ffmpeg/bin/ffmpeg
           NOVELTEA_NATIVE_TOOL_BRIDGE: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-tooling-bridge
           NOVELTEA_UI_TEST_RUNNER: ${{ github.workspace }}/build/linux-debug/tools/editor_tool/noveltea-ui-test-runner
         run: |
