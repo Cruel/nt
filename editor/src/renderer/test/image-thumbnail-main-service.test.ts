@@ -240,6 +240,33 @@ describe('main-process image thumbnail service', () => {
     await expect(fs.readFile(path.join(current, 'current.webp'), 'utf8')).resolves.toBe('current');
   });
 
+  it('generates a hashless admitted image after deriving its canonical revision', async () => {
+    const fixture = await fixtureProject();
+    const source = await writeRaster(fixture.assetDirectory);
+    const service = thumbnailService(fixture, {
+      resolveProjectAsset: (requestSource) => ({
+        root: fixture.root,
+        kind: 'image',
+        sourcePath: requestSource.projectRelativePath,
+        contentHash: undefined,
+      }),
+    });
+
+    const result = await service.request({
+      source: {
+        projectSessionId: TEST_PROJECT_SESSION_ID,
+        assetId: TEST_ASSET_ID,
+        projectRelativePath: 'assets/images/source.png',
+        width: 8,
+        height: 4,
+        orientation: 1,
+      },
+      variant: { kind: 'profile', profile: 'card' },
+    });
+
+    expect(result).toMatchObject({ ok: true, sourceRevision: source.hash });
+  });
+
   it('deduplicates hashless requests and rejects revision or metadata mismatch without publication', async () => {
     const fixture = await fixtureProject();
     const source = await writeRaster(fixture.assetDirectory);

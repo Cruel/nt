@@ -516,7 +516,8 @@ export class ImageThumbnailService {
     if (
       authorization.kind !== 'image' ||
       authorization.sourcePath !== request.source.projectRelativePath ||
-      (request.source.contentHash !== undefined &&
+      (authorization.contentHash !== undefined &&
+        request.source.contentHash !== undefined &&
         authorization.contentHash !== request.source.contentHash)
     ) {
       throw new Error('unauthorized_asset');
