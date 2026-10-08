@@ -312,6 +312,11 @@ target_compile_definitions(noveltea_host_tests PRIVATE
     ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 noveltea_attach_runtime_assets(noveltea_host_tests)
 catch_discover_tests(noveltea_host_tests)
+# Earlier focused-owner sections return before discovering the video section.
+add_test(NAME noveltea_focused_video_sampling
+    COMMAND noveltea_host_tests
+        "FocusedPreviewPresenter preserves prior owners and commits Room candidates"
+        -c "opaque video focused publication prepares only its seed and samples natively")
 
 add_library(noveltea_player_bootstrap_test_support OBJECT
     "${CMAKE_SOURCE_DIR}/engine/src/core/player_bootstrap.cpp"

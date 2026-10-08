@@ -10,14 +10,26 @@
 
 #include <cstdint>
 #include <functional>
+#include <memory>
 #include <optional>
 #include <span>
 #include <string>
 #include <string_view>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 namespace noveltea {
+
+class WorldVideoStream {
+public:
+    virtual ~WorldVideoStream() = default;
+    [[nodiscard]] virtual core::Result<std::optional<assets::AssetLease<assets::TextureAsset>>,
+                                       core::Diagnostics>
+    sample(std::uint64_t presentation_time_ms) = 0;
+    virtual void suspend() noexcept = 0;
+    [[nodiscard]] virtual assets::AssetRequestState state() const noexcept = 0;
+};
 
 struct WorldPreparedVisual {
     struct AnimationFrame {
@@ -34,6 +46,7 @@ struct WorldPreparedVisual {
     std::string animation_key;
     std::optional<core::AnimationMotionId> animation_motion;
     std::vector<AnimationFrame> animation_frames;
+    std::shared_ptr<WorldVideoStream> video_stream = nullptr;
     std::optional<core::MotionPlaybackPolicy> motion_policy;
     std::uint64_t motion_initial_ms = 0;
     std::optional<std::pair<std::uint64_t, std::uint64_t>> motion_loop_ms;
@@ -85,7 +98,7 @@ struct WorldPresentationResourceCatalog {
 class AssetWorldPresentationResourceResolver final : public WorldPresentationResourceResolver {
 public:
     explicit AssetWorldPresentationResourceResolver(
-        const assets::AssetManager& assets,
+        assets::AssetManager& assets,
         assets::AssetLeaseLookupScope lookup_scope = assets::AssetLeaseLookupScope::Runtime)
         : m_assets(assets), m_lookup_scope(lookup_scope)
     {
@@ -113,7 +126,7 @@ public:
                     std::string_view context) override;
 
 private:
-    const assets::AssetManager& m_assets;
+    assets::AssetManager& m_assets;
     assets::AssetLeaseLookupScope m_lookup_scope = assets::AssetLeaseLookupScope::Runtime;
     std::unordered_map<std::string, WorldPresentationImageResource> m_images;
     std::unordered_map<std::string, core::compiled::AnimationResource> m_animations;
@@ -176,9 +189,11 @@ struct WorldPresentationDraw {
         std::optional<assets::AssetLease<assets::MaterialAsset>> material_lease;
         std::vector<WorldPreparedVisual::AnimationFrame> visual_frames;
         bool overrides_visual = false;
+        std::shared_ptr<WorldVideoStream> video_stream = nullptr;
 
-        [[nodiscard]] std::optional<QuadCommand> sample(std::uint64_t elapsed_ms,
-                                                        const QuadCommand& underlying) const;
+        [[nodiscard]] std::optional<QuadCommand>
+        sample(std::uint64_t elapsed_ms, const QuadCommand& underlying,
+               core::Diagnostics* diagnostics = nullptr) const;
     };
     struct ActorAnimationClip {
         core::CharacterAnimationClipId id;
@@ -197,6 +212,7 @@ struct WorldPresentationDraw {
     };
     std::string raster_animation_key;
     std::vector<RasterAnimationFrame> raster_animation_frames;
+    std::shared_ptr<WorldVideoStream> video_stream = nullptr;
     std::optional<core::AnimationMotionId> raster_animation_motion = std::nullopt;
     std::uint64_t raster_animation_epoch = 0;
     std::optional<core::CharacterPresentationLayerId> actor_layer_id = std::nullopt;
@@ -406,6 +422,10 @@ public:
     reconcile(const core::RuntimePresentationSnapshot& snapshot, Size viewport);
     void invalidate_resources() noexcept { m_resources_dirty = true; }
     void realize(const core::RuntimeClockUpdate& clock);
+    [[nodiscard]] core::Diagnostics take_media_diagnostics()
+    {
+        return std::exchange(m_media_diagnostics, {});
+    }
     [[nodiscard]] core::Result<bool, core::Diagnostics> resize(Size viewport);
     void reset();
     [[nodiscard]] core::Result<MotionPosition, MotionControlError>
@@ -449,6 +469,7 @@ private:
                          const core::RuntimeClockUpdate* clock = nullptr);
     void rebuild_hotspot_overlays(WorldPresentationFrame& frame);
     void prune_loop_epochs();
+    core::Diagnostics m_media_diagnostics;
     void begin_finite_motion(const WorldPreparedMotionOverride& motion);
     void sample_finite_motion(const WorldVisualOccurrence& occurrence, long double elapsed_ms);
     void end_finite_motion(const WorldVisualOccurrence& occurrence) noexcept;

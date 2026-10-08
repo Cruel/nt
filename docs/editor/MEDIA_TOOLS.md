@@ -41,8 +41,17 @@ and Node/Electron tooling. Editor composition uses `checkMediaTools`/`prepareMed
 for trusted tooling jobs; future long-running preparation should execute in disposable workers,
 not directly in the interactive main loop. Do not expose raw arguments from authored data or IPC.
 
-`prepareOpaqueVideoMotion` is the canonical tracer job used by renderer-driven export, focused Room
-preview, and headless runtime-artifact preparation. It hashes the source bytes plus semantic
+`opaque-video-preparation-service.ts` owns the Node/Electron-only binary snapshot/preparation job;
+keeping it off the static ScriptC inspection graph avoids unsupported binary filesystem operations.
+Its `prepareOpaqueVideoMotion` is the canonical tracer job used by renderer-driven export, focused
+Room preview, and headless runtime-artifact preparation. Editor IPC uses
+`project-video-preparation-service.ts` to authorize the active Video Asset identity, reject a
+mismatched renderer path, and read a bounded, contained regular-file snapshot through the existing
+Asset authority. The canonical host job also rejects lexical/symlink source escapes and escaped
+output directories. It decodes the exact hashed snapshot rather than reopening the creator pathname;
+concurrent identical jobs share one in-flight preparation. Editor composition resolves FFmpeg from
+the installed NovelTea CLI location, not the Electron executable location.
+It hashes the source bytes plus semantic
 preparation inputs and the pinned tool release, selects only the first video stream, disables
 audio/subtitle/data output, fits the image into the Animation logical canvas, and currently emits a
 deterministic 30 fps opaque PNG sequence beneath `.noveltea/build/prepared-media/`. Runtime-package
@@ -76,4 +85,6 @@ identity/configuration/capability failures, admitted target selection, and check
 The CLI build checks actual relocated tool identity on each native host. Editor package smoke invokes
 the shared service on a small deterministic source, encodes VP9 WebM, decodes it, and checks the
 resulting pixels. Full Windows/macOS executable smokes require their native release runners.
-Feature Lab is not applicable: this is host-tool installation, not runtime-observable authoring behavior.
+Host-tool installation itself is automation-only. The video preparation/runtime integration is
+manually exercisable in Feature Lab's World Composition `opaque-video-animation` check; its original
+synthetic MP4 includes embedded AAC specifically to expose audio-ignore warning regressions.

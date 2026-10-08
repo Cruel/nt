@@ -2924,6 +2924,7 @@ void Engine::Impl::realize_layouts_and_bind_ui()
 {
     const auto& clocks = m_game_host_values.frame_clock;
     m_world_presentation.realize(clocks);
+    append_runtime_diagnostics(m_world_presentation.take_media_diagnostics());
     m_world_hotspots.realization_changed();
     m_presentation_layouts.apply_transition_state(m_world_transitions, m_world_presentation);
 }

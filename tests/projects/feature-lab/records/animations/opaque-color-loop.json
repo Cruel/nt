@@ -1,0 +1,18 @@
+{
+  "id": "opaque-color-loop",
+  "label": "Opaque Video Range",
+  "data": {
+    "kind": "animation",
+    "canvas": { "width": 96, "height": 64 },
+    "defaultMotionId": "colors",
+    "motions": [
+      {
+        "id": "colors",
+        "kind": "video",
+        "video": { "$ref": { "collection": "assets", "id": "opaque-colors" } },
+        "sourceRange": { "startMs": 500, "endMs": 2500 },
+        "markers": [{ "id": "green", "timeMs": 500 }]
+      }
+    ]
+  }
+}

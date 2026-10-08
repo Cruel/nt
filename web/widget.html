@@ -818,7 +818,7 @@ thead, tbody, tfoot {
         kind: entry.kind,
         ...(entry.sampling ? { sampling: entry.sampling } : {}),
         ...(entry.retainAlphaCoverage === true ? { retainAlphaCoverage: true } : {}),
-        ...(entry.sourceKind === 'authoring-asset' ? { assetId: entry.assetId } : {}),
+        ...(['authoring-asset', 'prepared-media'].includes(entry.sourceKind) ? { assetId: entry.assetId } : {}),
         ...(entry.sourceKind === 'shader-compiled-output' ? {
           shaderId: entry.shaderId,
           shaderStage: entry.shaderStage,
@@ -864,12 +864,23 @@ thead, tbody, tfoot {
           paths.set(path, entry.resourceId);
         }
         if (entry.sourceKind === 'authoring-asset') {
+          if (entry.logicalPath.startsWith('project:/.noveltea/build/prepared-media/')) {
+            throw new Error('Private video frames require prepared-media authority.');
+          }
           if (typeof entry.assetId !== 'string' || entry.assetId.length === 0 || entry.resourceId !== `asset:${entry.assetId}`) {
             throw new Error(`Focused preview authoring Asset identity is invalid: '${entry.resourceId}'.`);
           }
           if (!assetKinds.has(entry.kind)) throw new Error(`Focused preview Asset kind is invalid: '${entry.kind || ''}'.`);
           if (entry.sampling !== undefined && (entry.kind !== 'image' || !samplingValues.has(entry.sampling))) {
             throw new Error(`Focused preview Asset sampling is invalid: '${entry.sampling || ''}'.`);
+          }
+        } else if (entry.sourceKind === 'prepared-media') {
+          if (typeof entry.assetId !== 'string' || !entry.assetId.startsWith('prepared-video-') ||
+              entry.resourceId !== `asset:${entry.assetId}` || entry.kind !== 'image' ||
+              entry.sampling !== 'linear' || entry.retainAlphaCoverage ||
+              !entry.logicalPath.startsWith('project:/.noveltea/build/prepared-media/') ||
+              entry.logicalPath !== `project:/${entry.fetchProjectRelativePath}`) {
+            throw new Error('Focused preview private video frame identity is invalid.');
           }
         } else if (entry.sourceKind === 'project-source') {
           if (

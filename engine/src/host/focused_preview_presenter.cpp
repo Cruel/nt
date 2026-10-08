@@ -221,7 +221,9 @@ validate_room_manifest_closure(const core::editor::FocusedEditorDocumentRequest&
     std::set<std::string> logical_paths;
     for (const auto& resource : request.resources) {
         logical_paths.insert(resource.logical_path);
-        if (resource.source_kind == "authoring-asset" && resource.asset_id)
+        if ((resource.source_kind == "authoring-asset" ||
+             resource.source_kind == "prepared-media") &&
+            resource.asset_id)
             asset_ids.insert(*resource.asset_id);
     }
     core::Diagnostics diagnostics;
@@ -1441,7 +1443,8 @@ void FocusedPreviewPresenter::supersede_candidate()
 core::Result<std::vector<assets::StructuredAssetRequestDescriptor>, core::Diagnostics>
 FocusedPreviewPresenter::build_asset_requests(
     const core::editor::FocusedEditorDocumentRequest& request,
-    const ShaderMaterialProject& materials, assets::AssetSourceGeneration generation)
+    const ShaderMaterialProject& materials, assets::AssetSourceGeneration generation,
+    const FocusedState* room)
 {
     std::vector<assets::StructuredAssetRequestDescriptor> result;
     std::optional<std::string> active_shader_variant;
@@ -1475,6 +1478,53 @@ FocusedPreviewPresenter::build_asset_requests(
             result.push_back(
                 {.request = typed, .cache_key = assets::make_font_cache_key(typed, generation)});
         }
+    }
+    if (room && room->snapshot) {
+        const auto add_visual = [&](const std::optional<core::compiled::Visual>& visual) {
+            if (!visual)
+                return;
+            const auto* selected = std::get_if<core::compiled::AnimationVisual>(&*visual);
+            if (!selected)
+                return;
+            const auto animation =
+                std::ranges::find_if(room->world_catalog.animations, [&](const auto& value) {
+                    return value.id == selected->animation;
+                });
+            if (animation == room->world_catalog.animations.end())
+                return;
+            const auto motion_id = selected->motion.value_or(animation->default_motion);
+            const auto motion = std::ranges::find_if(
+                animation->motions, [&](const auto& value) { return value.id == motion_id; });
+            const auto prepared = std::ranges::find_if(
+                room->world_catalog.prepared_video_motions, [&](const auto& value) {
+                    return value.animation == animation->id && value.motion == motion_id;
+                });
+            if (motion == animation->motions.end() ||
+                prepared == room->world_catalog.prepared_video_motions.end())
+                return;
+            const auto initial = core::compiled::motion_initial_time(
+                *motion, selected->playback.value_or(core::MotionPlaybackPolicy{}),
+                core::prepared_video_duration_ms(*prepared));
+            if (!initial || prepared->frames.empty())
+                return;
+            const assets::TextureAssetRequest typed{
+                .path = "project:/" +
+                        prepared->frames[core::prepared_video_frame_at(*prepared, *initial)].path,
+                .sampler = MaterialTextureSampler::ClampLinear};
+            result.push_back(
+                {.request = typed, .cache_key = assets::make_texture_cache_key(typed, generation)});
+        };
+        for (const auto& environment : room->snapshot->environments)
+            if (environment.visible)
+                add_visual(environment.visual);
+        for (const auto& interactable : room->snapshot->interactables)
+            if (interactable.visible)
+                add_visual(interactable.visual);
+        for (const auto& actor : room->snapshot->actors)
+            if (actor.enabled && actor.visible)
+                for (const auto& layer : actor.layers)
+                    if (layer.visible)
+                        add_visual(layer.visual);
     }
     std::unordered_set<std::string> shader_program_keys;
     for (const auto& material : materials.materials) {
@@ -1564,9 +1614,30 @@ FocusedPreviewPresenter::prepare_room_state(
             core::compiled::SpriteAnimationMotion compiled_motion{
                 decoded_id<core::AnimationMotionId>(motion.id), {}, motion.markers};
             compiled_motion.frames.reserve(motion.frames.size());
-            for (const auto& frame : motion.frames)
-                compiled_motion.frames.push_back(
-                    {decoded_id<core::AssetId>(frame.asset_id), frame.duration_ms});
+            core::PreparedVideoMotion prepared_motion{resource.id, compiled_motion.id, {}, {}};
+            for (const auto& frame : motion.frames) {
+                const auto prepared =
+                    std::ranges::find_if(request.resources, [&](const auto& value) {
+                        return value.source_kind == "prepared-media" &&
+                               value.asset_id == frame.asset_id;
+                    });
+                if (prepared == request.resources.end()) {
+                    compiled_motion.frames.push_back(
+                        {decoded_id<core::AssetId>(frame.asset_id), frame.duration_ms});
+                } else {
+                    prepared_motion.content_hash = prepared->content_hash;
+                    prepared_motion.frames.push_back(
+                        {prepared->logical_path.substr(9), frame.duration_ms});
+                }
+            }
+            if (!prepared_motion.frames.empty()) {
+                if (!compiled_motion.frames.empty())
+                    return core::Result<FocusedState, core::Diagnostics>::failure(
+                        {error("editor_preview.mixed_video_frames",
+                               "A prepared video motion cannot mix authored and private frames.")});
+                compiled_motion.kind = core::compiled::AnimationMotionKind::Video;
+                state.world_catalog.prepared_video_motions.push_back(std::move(prepared_motion));
+            }
             resource.motions.push_back(std::move(compiled_motion));
         }
         state.world_catalog.animations.push_back(std::move(resource));
@@ -1903,8 +1974,8 @@ bool FocusedPreviewPresenter::apply(core::editor::FocusedEditorDocumentRequest r
         return false;
     }
     const auto source_generation = m_dependencies.assets.source_generation_on_owner();
-    auto requests =
-        build_asset_requests(request, decoded.value_if()->shader_materials, source_generation);
+    auto requests = build_asset_requests(request, decoded.value_if()->shader_materials,
+                                         source_generation, prepared.value_if());
     if (!requests) {
         auto diagnostics = std::move(requests).error();
         auto prepared_state = std::move(*prepared.value_if());

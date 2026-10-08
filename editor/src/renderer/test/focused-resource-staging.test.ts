@@ -3,6 +3,66 @@ import path from 'node:path';
 import vm from 'node:vm';
 import { describe, expect, it } from 'vite-plus/test';
 
+import {
+  nativePreviewResourceManifestEntrySchema,
+  projectNativeManifest,
+  type PreviewResourceManifestEntry,
+} from '../../shared/focused-preview-contracts';
+
+it('admits and projects private video frames consistently through the real widget boundary', () => {
+  const entry: PreviewResourceManifestEntry = {
+    resourceId: 'asset:prepared-video-sample-0',
+    sourceKind: 'prepared-media',
+    assetId: 'prepared-video-sample-0',
+    kind: 'image',
+    sampling: 'linear',
+    usageRoles: ['room-preview'],
+    fetchProjectRelativePath: '.noveltea/build/prepared-media/sample/frame-000000.png',
+    logicalPath: 'project:/.noveltea/build/prepared-media/sample/frame-000000.png',
+    contentHash: `sha256:${'a'.repeat(64)}`,
+    byteSize: 1,
+  };
+  const widget = fs.readFileSync(path.resolve('../web/widget.html'), 'utf8');
+  const start = widget.indexOf('function validateFocusedManifest(');
+  const end = widget.indexOf('\n    async function stageFocusedManifest', start);
+  const context = {
+    focusedDocumentLimits: {
+      maxResources: 16384,
+      maxResourceBytes: 128 * 1024 * 1024,
+      maxTotalResourceBytes: 512 * 1024 * 1024,
+    },
+    safeProjectAssetPath: (value: unknown) =>
+      typeof value === 'string' &&
+      !value.startsWith('/') &&
+      value.split('/').every((part) => part && part !== '..' && part !== '.'),
+    focusedLogicalRelativePath: (value: string) =>
+      value.startsWith('project:/') ? value.slice(9) : null,
+    validate: null as ((entries: unknown[]) => void) | null,
+  };
+  expect(end).toBeGreaterThan(start);
+  vm.runInNewContext(`${widget.slice(start, end)}\nvalidate = validateFocusedManifest;`, context);
+  expect(() => context.validate!([entry])).not.toThrow();
+  expect(() =>
+    context.validate!([
+      {
+        ...entry,
+        sourceKind: 'authoring-asset',
+        fetchUrl: 'noveltea-asset://source/session/video',
+        fetchProjectRelativePath: undefined,
+      },
+    ]),
+  ).toThrow();
+  const projected = nativeManifestProjectionHarness()([entry]);
+  expect(projected).toEqual(projectNativeManifest([entry]));
+  expect(nativePreviewResourceManifestEntrySchema.safeParse(projected[0]).success).toBe(true);
+  expect(
+    nativePreviewResourceManifestEntrySchema.safeParse({
+      ...(projected[0] as object),
+      sourceKind: 'authoring-asset',
+    }).success,
+  ).toBe(false);
+});
+
 interface CommittedResource {
   contentHash: string;
   byteSize: number;

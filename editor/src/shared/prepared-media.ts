@@ -11,17 +11,27 @@ export {
 } from './prepared-media-contracts';
 
 export const opaqueVideoPreparationRequestSchema = strict({
-  animationId: z.string().min(1),
-  motionId: z.string().min(1),
-  assetId: z.string().min(1),
-  sourcePath: z.string().min(1),
+  animationId: z.string().min(1).max(1024),
+  motionId: z.string().min(1).max(1024),
+  assetId: z.string().min(1).max(1024),
+  sourcePath: z
+    .string()
+    .min(1)
+    .max(16_384)
+    .refine(
+      (value) =>
+        !value.startsWith('/') &&
+        !value.includes('\\') &&
+        !value.includes(':') &&
+        value.split('/').every((part) => part.length > 0 && part !== '.' && part !== '..'),
+    ),
   canvas: strict({
     width: z.number().int().positive().max(10_000),
     height: z.number().int().positive().max(10_000),
   }),
   sourceRange: strict({
-    startMs: z.number().int().nonnegative(),
-    endMs: z.number().int().positive(),
+    startMs: z.number().int().nonnegative().safe(),
+    endMs: z.number().int().positive().safe(),
   })
     .refine((range) => range.endMs > range.startMs)
     .optional(),

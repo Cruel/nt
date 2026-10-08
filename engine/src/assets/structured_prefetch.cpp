@@ -418,10 +418,21 @@ struct StructuredAssetDependencyIndex::Impl {
                     std::string(context) + " references a video Animation without prepared media");
                 return;
             }
-            for (const auto& frame : prepared->second->frames)
-                output.add(texture_descriptor(logical_project_path(frame.path),
-                                              MaterialTextureSampler::ClampLinear,
-                                              source_generation));
+            const auto& representation = *prepared->second;
+            const auto initial = core::compiled::motion_initial_time(
+                *motion, selected.playback.value_or(core::MotionPlaybackPolicy{}),
+                core::prepared_video_duration_ms(representation));
+            if (!initial || representation.frames.empty()) {
+                add_diagnostic(collection_diagnostics, "assets.prefetch_invalid_video_policy",
+                               std::string(context) +
+                                   " references an invalid prepared video policy");
+                return;
+            }
+            // Publication needs one drawable seed; subsequent decoding follows requested time.
+            const auto& frame =
+                representation.frames[core::prepared_video_frame_at(representation, *initial)];
+            output.add(texture_descriptor(logical_project_path(frame.path),
+                                          MaterialTextureSampler::ClampLinear, source_generation));
             return;
         }
         for (const auto& frame : motion->frames)
