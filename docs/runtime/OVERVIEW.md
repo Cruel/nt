@@ -14,6 +14,8 @@ Use this entrypoint before changing runtime state, playback, Lua scripting, runt
   transaction, command/request, semantic capability, Lua-adapter, checkpoint-integration, and
   coherent-publication architecture that runtime implementation work must follow.
 - `docs/runtime/STATE_AND_PLAYBACK.md` describes runtime input/output contracts, save policy, diagnostics, recorded playback, and remaining work.
+- `docs/runtime/FEATURE_LAB_PERFORMANCE_DIAGNOSIS.md` records the Lab menu's prediction-requirement
+  hotspot, actual WSL GPU identity, and the cache fix's measured verification.
 - `docs/runtime/LUA_RUNTIME.md` describes Lua runtime direction and command API.
 - `docs/runtime/DEVELOPER_DEBUGGING.md` defines the developer capability matrix, shared Devtools
   Snapshot/Console/Trace data plane, Lua `Debug.*`, RmlUi Debugger/native shortcuts, and the Feature
@@ -89,6 +91,18 @@ only: it never drives canonical Flow execution, and a missing/unused prediction 
 correctness unchanged because mandatory asset publication remains independent.
 This is the sole production speculative traversal boundary: there is no raw-definition
 direct-next/adjacent fallback or compatibility bucket path alongside `runtime::FlowPredictor`.
+
+`RuntimeSession` retains one requirement-discovery cache for its immutable Compiled Project. Its key
+contains the normalized discovery context and active Scene/Dialogue/resident Room roots, including
+navigation, invocation bindings/results, and suspended/detached Flow. Scene completion bookkeeping and
+Dialogue reveal progress do not change semantic root identity; continuation, cue, effect, and wait
+frontiers do. Global values and shared Condition facts are excluded from discovery input, and future
+resident-Room speculation remains excluded from this authoritative prepass. The cache stores only
+required property/Condition identities, including separately scoped invocation requirements. Every
+publication rereads authoritative values and evaluates Conditions in the current binding context;
+those live facts still reach the asset gate's existing changed-context/plan reconciliation boundary.
+Ordinary clock publications therefore do not retraverse an unchanged prediction frontier or freeze
+prediction facts. No persisted schema or mandatory asset-publication semantics change.
 
 `runtime::FlowPredictor` exposes a read-only semantic projection over the generated index. In addition
 to Scene and Dialogue entry roots, active Scene and Dialogue Flow can be rooted at their current

@@ -116,11 +116,13 @@ struct ProspectiveRoomEntryPredictionRoot {
 struct ActiveScenePredictionRoot {
     core::SceneId scene;
     core::SceneFramePosition position;
+    [[nodiscard]] bool operator==(const ActiveScenePredictionRoot&) const noexcept;
 };
 
 struct ActiveDialoguePredictionRoot {
     core::DialogueId dialogue;
     core::DialogueFramePosition position;
+    [[nodiscard]] bool operator==(const ActiveDialoguePredictionRoot&) const noexcept;
 };
 
 struct ActiveInteractionPredictionRoot {
@@ -173,6 +175,7 @@ struct FlowPredictionContext {
     // additional suspension demotion in the planner.
     std::vector<ActiveScenePredictionRoot> detached_suspended_scenes;
     std::vector<ActiveDialoguePredictionRoot> detached_suspended_dialogues;
+    bool operator==(const FlowPredictionContext&) const = default;
 };
 
 class FlowPredictor {

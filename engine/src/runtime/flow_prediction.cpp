@@ -1845,6 +1845,53 @@ std::optional<std::size_t> find_room_stage(const core::compiled::FlowPredictionI
 
 } // namespace
 
+bool ActiveScenePredictionRoot::operator==(const ActiveScenePredictionRoot& right) const noexcept
+{
+    if (scene != right.scene || position.stage_initialized != right.position.stage_initialized ||
+        position.next_step != right.position.next_step ||
+        position.substate.index() != right.position.substate.index())
+        return false;
+    return std::visit(
+        [&](const auto& left_substate) {
+            using T = std::decay_t<decltype(left_substate)>;
+            const auto& right_substate = std::get<T>(right.position.substate);
+            if constexpr (std::is_same_v<T, core::SceneInstructionCompletionPosition> ||
+                          std::is_same_v<T, core::SceneAutosavePendingPosition>) {
+                // Completion bookkeeping does not change the prediction continuation.
+                return left_substate.next_step == right_substate.next_step;
+            } else if constexpr (std::is_same_v<T, core::SceneChoiceEffectPosition>) {
+                return left_substate.option == right_substate.option &&
+                       left_substate.next_effect == right_substate.next_effect &&
+                       left_substate.awaiting_completion == right_substate.awaiting_completion;
+            } else {
+                return true;
+            }
+        },
+        position.substate);
+}
+
+bool ActiveDialoguePredictionRoot::operator==(
+    const ActiveDialoguePredictionRoot& right) const noexcept
+{
+    if (dialogue != right.dialogue || position.block != right.position.block ||
+        position.segment != right.position.segment || position.edge != right.position.edge ||
+        position.stage != right.position.stage)
+        return false;
+    switch (position.stage) {
+    case core::DialogueFramePosition::Stage::PresentSegment:
+        // Reveal progress is microstate; cue and completion cursors are semantic frontiers.
+        return position.next_cue == right.position.next_cue &&
+               position.awaiting_completion == right.position.awaiting_completion;
+    case core::DialogueFramePosition::Stage::ApplySegmentEffects:
+    case core::DialogueFramePosition::Stage::ApplyChoiceEffects:
+        return position.next_effect == right.position.next_effect &&
+               position.effect_command == right.position.effect_command &&
+               position.awaiting_completion == right.position.awaiting_completion;
+    default:
+        return true;
+    }
+}
+
 FlowPredictionProjection FlowPredictor::predict(const core::compiled::Entrypoint& root) const
 {
     return predict(root, {});

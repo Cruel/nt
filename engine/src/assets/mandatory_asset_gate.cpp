@@ -172,57 +172,13 @@ AudioClipKind audio_kind(core::compiled::AudioPurpose channel) noexcept
 bool same_scene_prediction_root(const runtime::ActiveScenePredictionRoot& left,
                                 const runtime::ActiveScenePredictionRoot& right) noexcept
 {
-    if (left.scene != right.scene ||
-        left.position.stage_initialized != right.position.stage_initialized ||
-        left.position.next_step != right.position.next_step ||
-        left.position.substate.index() != right.position.substate.index())
-        return false;
-
-    return std::visit(
-        [&](const auto& left_substate) {
-            using T = std::decay_t<decltype(left_substate)>;
-            const auto* right_substate = std::get_if<T>(&right.position.substate);
-            if (right_substate == nullptr)
-                return false;
-            if constexpr (std::is_same_v<T, core::SceneInstructionCompletionPosition>) {
-                // Only the continuation cursor affects prediction; completion metadata is runtime
-                // bookkeeping and must not churn speculative generations.
-                return left_substate.next_step == right_substate->next_step;
-            } else if constexpr (std::is_same_v<T, core::SceneAutosavePendingPosition>) {
-                return left_substate.next_step == right_substate->next_step;
-            } else if constexpr (std::is_same_v<T, core::SceneChoiceEffectPosition>) {
-                return left_substate.option == right_substate->option &&
-                       left_substate.next_effect == right_substate->next_effect &&
-                       left_substate.awaiting_completion == right_substate->awaiting_completion;
-            } else {
-                return true;
-            }
-        },
-        left.position.substate);
+    return left == right;
 }
 
 bool same_dialogue_prediction_root(const runtime::ActiveDialoguePredictionRoot& left,
                                    const runtime::ActiveDialoguePredictionRoot& right) noexcept
 {
-    if (left.dialogue != right.dialogue || left.position.block != right.position.block ||
-        left.position.segment != right.position.segment ||
-        left.position.edge != right.position.edge || left.position.stage != right.position.stage)
-        return false;
-
-    switch (left.position.stage) {
-    case core::DialogueFramePosition::Stage::PresentSegment:
-        // Text reveal offset is presentation microstate. Only crossing a cue or entering/leaving a
-        // completion wait changes the prediction root.
-        return left.position.next_cue == right.position.next_cue &&
-               left.position.awaiting_completion == right.position.awaiting_completion;
-    case core::DialogueFramePosition::Stage::ApplySegmentEffects:
-    case core::DialogueFramePosition::Stage::ApplyChoiceEffects:
-        return left.position.next_effect == right.position.next_effect &&
-               left.position.effect_command == right.position.effect_command &&
-               left.position.awaiting_completion == right.position.awaiting_completion;
-    default:
-        return true;
-    }
+    return left == right;
 }
 
 bool same_prediction_context(const runtime::FlowPredictionContext& left,

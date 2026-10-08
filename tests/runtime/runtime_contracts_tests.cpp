@@ -41,6 +41,50 @@ TEST_CASE("runtime publication revisions reject zero and never wrap")
     CHECK_FALSE(maximum->next().has_value());
 }
 
+TEST_CASE("prediction root equality ignores reveal microstate but tracks semantic frontiers")
+{
+    const auto scene = core::SceneId::create("opening");
+    const auto step = core::SceneStepId::create("text");
+    const auto dialogue = core::DialogueId::create("intro");
+    const auto block = core::DialogueBlockId::create("line");
+    REQUIRE(scene);
+    REQUIRE(step);
+    REQUIRE(dialogue);
+    REQUIRE(block);
+
+    ActiveScenePredictionRoot scene_root{scene.value(),
+                                         {step.value(), core::SceneStepReady{}, true}};
+    auto next_scene = scene_root;
+    CHECK(next_scene == scene_root);
+    next_scene.position.next_step.reset();
+    CHECK_FALSE(next_scene == scene_root);
+    next_scene = scene_root;
+    next_scene.position.stage_initialized = false;
+    CHECK_FALSE(next_scene == scene_root);
+
+    ActiveDialoguePredictionRoot dialogue_root{
+        dialogue.value(),
+        {block.value(), std::nullopt, std::nullopt,
+         core::DialogueFramePosition::Stage::PresentSegment}};
+    auto next_dialogue = dialogue_root;
+    next_dialogue.position.reveal_progress = 0.75;
+    CHECK(next_dialogue == dialogue_root);
+    next_dialogue.position.next_cue = 1;
+    CHECK_FALSE(next_dialogue == dialogue_root);
+    next_dialogue = dialogue_root;
+    next_dialogue.position.awaiting_completion = true;
+    CHECK_FALSE(next_dialogue == dialogue_root);
+
+    FlowPredictionContext context;
+    context.detached_scenes.push_back(scene_root);
+    context.suspended_dialogues.push_back(dialogue_root);
+    auto next_context = context;
+    next_context.suspended_dialogues.front().position.reveal_progress = 0.5;
+    CHECK(next_context == context);
+    next_context.detached_scenes.front().position.next_step.reset();
+    CHECK_FALSE(next_context == context);
+}
+
 TEST_CASE("mutation impacts coalesce and can be merged")
 {
     MutationImpactJournal journal;

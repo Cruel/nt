@@ -94,6 +94,15 @@ public:
     void set_effective_gameplay_pause(core::EffectiveGameplayPause pause) noexcept;
 
 private:
+    struct PredictionRequirementsCache {
+        FlowPredictionContext discovery_context;
+        std::optional<ActiveScenePredictionRoot> active_scene;
+        std::optional<ActiveDialoguePredictionRoot> active_dialogue;
+        std::optional<ResidentRoomPredictionRoot> resident_room;
+        FlowPredictionContextRequirements shared;
+        FlowPredictionContextRequirements invocation;
+    };
+
     struct WorkResult {
         RuntimeInputDisposition disposition = RuntimeInputDisposition::Handled;
         std::vector<RuntimeEvent> events;
@@ -153,6 +162,11 @@ private:
     [[nodiscard]] WorkResult apply_input(const core::RuntimeInputMessage& input);
     [[nodiscard]] core::Diagnostics settle_transaction();
     void project_publication(WorkResult& work, RuntimeDispatchResult& result);
+    [[nodiscard]] FlowPredictionContext
+    build_prediction_context(const FlowPredictionContext& navigation_context,
+                             const std::optional<ActiveScenePredictionRoot>& active_scene,
+                             const std::optional<ActiveDialoguePredictionRoot>& active_dialogue,
+                             const std::optional<ResidentRoomPredictionRoot>& resident_room);
     [[nodiscard]] core::Result<PresentationAcceptance, core::Diagnostics>
     accept_presentation(const core::PresentationOperation& operation);
     [[nodiscard]] core::Result<PresentationAcceptance, core::Diagnostics>
@@ -248,6 +262,7 @@ private:
     bool m_dispatch_active = false;
     bool m_force_publication = false;
     std::optional<RuntimePublication> m_current_publication;
+    std::optional<PredictionRequirementsCache> m_prediction_requirements;
     RuntimePublicationRevision m_next_publication_revision =
         *RuntimePublicationRevision::from_number(1);
     std::unique_ptr<RuntimeExecutor> m_kernel;
