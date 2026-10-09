@@ -10,6 +10,15 @@ A settled authoring batch invalidates only the physical paths reported by chokid
 
 ## Revisions and three-way reconciliation
 
+Explicit Asset attachments participate in the same dynamically refreshed known-reference
+watcher routing set. Unreferenced files beneath `support/` are ignored. Authoring Source
+associations persist independent exact-byte source/Asset hash baselines per Asset. The watcher
+caches the source revisions and invalidates only observed paths; source changes cause nonblocking
+Asset-owned diagnostics, not content reassembly. An actual physical Asset-byte update advances
+that Asset's baseline via the existing revision-CAS workspace writer and publishes the resulting
+authoring delta. Timestamp-only updates do not advance baselines. An association missing a
+baseline is reported as untracked until acknowledged. These warnings survive reopening.
+
 Authoritative authoring files use exact-byte `sha256:<hex>` revisions, with `absent` representing an expected missing path. Stateless workspace tooling may still derive an aggregate `workspaceRevision`, but active-editor synchronization does not expose or compare that aggregate and does not replace it with another global generation counter. Exact hashes answer the narrow question “are these exact physical bytes still the bytes this operation was based on?” Renderer `projectRevision` remains the in-memory authoring-document revision used by authoring services such as the dependency graph; persistence-only Save does not advance it. Ignored editor-local/session state is outside tracked authoring identity; tracked `editor.json` organization remains an ordinary authoring source.
 
 For every affected logical save unit reconciliation compares:

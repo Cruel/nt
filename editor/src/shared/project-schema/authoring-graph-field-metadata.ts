@@ -523,7 +523,10 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/rooms\/\*\/data\/environments\/\*\/visual(?:\/|$)/, OWNER],
   [/^\/interactables\/\*\/data\/presentation\/visual(?:\/|$)/, OWNER],
   // Attachment relationships are authoring-only Project file metadata, not gameplay dependencies.
-  [/^\/assets\/\*\/data\/attachments\/\*\/(?:path|purpose|displayName)$/, NONE],
+  [
+    /^\/assets\/\*\/data\/attachments\/\*\/(?:path|purpose|displayName|sourceBaselineHash|assetBaselineHash)$/,
+    NONE,
+  ],
 ]);
 
 function explicitFieldEffect(path: JsonPointer): AuthoringFieldGraphEffect | undefined {
@@ -1162,7 +1165,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
   Object.freeze({
     animations: 'e1c9c32e',
     archetypes: 'f71e0c56',
-    assets: '57165259',
+    assets: '9fba5e0e',
     bootstrapModule: 'd01eb484',
     characters: 'f9ecb9ba',
     dialogues: '81f2a616',

@@ -35,8 +35,13 @@ export function assetAttachmentPatches(
   project: AuthoringProject,
   assetIds: readonly string[],
   change: { kind: 'add' | 'remove' | 'replace'; attachment: AssetAttachment; priorPath?: string },
+  assetRevisionsById: Readonly<Record<string, string>> = {},
 ): JsonPatchOperation[] {
-  const parsed = assetAttachmentSchema.parse(change.attachment);
+  const parsed = Object.fromEntries(
+    Object.entries(assetAttachmentSchema.parse(change.attachment)).filter(
+      ([, value]) => value !== undefined,
+    ),
+  ) as AssetAttachment;
   const unique = [...new Set(assetIds)];
   // Preflight all targets so no partial association can be committed.
   const updates = unique.map((assetId) => {
@@ -52,9 +57,19 @@ export function assetAttachmentPatches(
     if (current.some((item) => item.path === parsed.path && item.path !== key))
       throw new Error(`Asset '${assetId}' already references '${parsed.path}'.`);
     const next = [...current];
+    const selectedAssetRevision = assetRevisionsById[assetId] ?? parsed.assetBaselineHash;
+    const attachment =
+      change.kind === 'add' && parsed.purpose === 'authoring-source'
+        ? {
+            ...parsed,
+            ...(/^sha256:[0-9a-f]{64}$/u.test(selectedAssetRevision ?? '')
+              ? { assetBaselineHash: selectedAssetRevision }
+              : {}),
+          }
+        : parsed;
     if (change.kind === 'remove') next.splice(index, 1);
-    else if (change.kind === 'replace') next[index] = parsed;
-    else next.push(parsed);
+    else if (change.kind === 'replace') next[index] = attachment;
+    else next.push(attachment);
     return {
       op: Object.hasOwn(record.data as object, 'attachments')
         ? ('replace' as const)

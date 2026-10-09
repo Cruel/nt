@@ -16,6 +16,7 @@ import type { WorkbenchNavigationRequest } from '@/workbench/workbench-navigatio
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseRoomData } from '../../shared/project-schema/authoring-rooms';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 
 function decodePointerSegment(segment: string) {
   return segment.replaceAll('~1', '/').replaceAll('~0', '~');
@@ -470,10 +471,19 @@ export function resolveProjectDiagnosticTarget(
     return target(tab, 'test.summary');
   }
   if (collection === 'assets' && project.assets[id]) {
-    return target(
-      buildAssetDetailTabForRecord(id, recordLabel(project, 'assets', id)),
-      'asset.summary',
-    );
+    const tab = buildAssetDetailTabForRecord(id, recordLabel(project, 'assets', id));
+    if (scope === 'data' && field === 'attachments') {
+      const index = indexedSegment(segments[4]);
+      const attachment =
+        index === null ? null : parseAssetData(project.assets[id].data)?.attachments[index];
+      return target(
+        tab,
+        attachment
+          ? `asset.attachment.${encodeURIComponent(attachment.path)}`
+          : 'asset.attachments',
+      );
+    }
+    return target(tab, 'asset.summary');
   }
   if (collection === 'materials' && project.materials[id]) {
     return target(

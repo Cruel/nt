@@ -213,6 +213,38 @@ describe('asset operations', () => {
     expect(data?.aliases).toEqual(['ui.click']);
   });
 
+  it('advances only the reimported Asset association revisions', () => {
+    const project = projectWithAsset();
+    const source = `sha256:${'a'.repeat(64)}`;
+    const nextSource = `sha256:${'b'.repeat(64)}`;
+    const originalAsset = `sha256:${'c'.repeat(64)}`;
+    project.assets.click.data.attachments = [
+      {
+        path: 'support/sources/click.wav',
+        purpose: 'authoring-source',
+        sourceBaselineHash: source,
+        assetBaselineHash: originalAsset,
+      },
+    ];
+    const reimported = { ...metadata('click-new.mp3'), contentHash: `sha256:${'d'.repeat(64)}` };
+    const result = executeCommand(createInitialCommandBusState(toJsonValue(project)), {
+      type: 'asset.reimportFile',
+      payload: {
+        assetId: 'click',
+        asset: reimported,
+        sourceRevisions: { 'support/sources/click.wav': nextSource },
+      },
+    });
+    expect(result.ok).toBe(true);
+    const data = parseAssetData((result.state.document as typeof project).assets.click.data);
+    expect(data?.attachments).toEqual([
+      expect.objectContaining({
+        sourceBaselineHash: nextSource,
+        assetBaselineHash: reimported.contentHash,
+      }),
+    ]);
+  });
+
   it('repairs nullable referenced asset fields and preserves Force Delete', () => {
     const project = projectWithAsset();
     project.rooms.foyer = {

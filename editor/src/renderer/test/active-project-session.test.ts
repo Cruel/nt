@@ -4,6 +4,8 @@ import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
+import { ActiveProjectWorkspaceSession } from '../../main/services/active-project-workspace-session';
+import { advanceExternallyUpdatedAssetSourceBaselines } from '../../main/services/project-authoring-source-freshness-service';
 import { openProject } from '../../main/services/editor-tool-service';
 import { createProject } from '../../main/services/project-file-service';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
@@ -11,6 +13,7 @@ import { parseAuthoringProject } from '../../shared/project-schema/authoring-pro
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { projectWorkspaceFiles } from '../../shared/project-workspace/project-workspace-service';
+import { createNodeProjectWorkspaceService } from '../../shared/project-workspace/node-project-workspace-service';
 
 const temporaryRoots: string[] = [];
 
@@ -35,6 +38,66 @@ function sha256(bytes: Uint8Array): `sha256:${string}` {
 }
 
 describe('active Project session lifecycle', () => {
+  it('persists independent Authoring Source revision advances across workspace reopen', async () => {
+    const root = await createWorkspace('source-revision-persistence');
+    await fs.mkdir(path.join(root, 'support/sources'), { recursive: true });
+    await fs.mkdir(path.join(root, 'records/assets'), { recursive: true });
+    await fs.writeFile(path.join(root, 'support/sources/drawing.psd'), 'initial drawing');
+    const beforeSource = sha256(Buffer.from('initial drawing'));
+    for (const id of ['alpha', 'beta']) {
+      const bytes = Buffer.from(`${id} before`);
+      await fs.writeFile(path.join(root, `assets/${id}.bin`), bytes);
+      await fs.writeFile(
+        path.join(root, `records/assets/${id}.json`),
+        JSON.stringify({
+          id,
+          label: id,
+          data: {
+            kind: 'binary',
+            source: { type: 'project-file', path: `assets/${id}.bin` },
+            aliases: [],
+            imageMetadata: null,
+            contentHash: sha256(bytes),
+            attachments: [
+              {
+                path: 'support/sources/drawing.psd',
+                purpose: 'authoring-source',
+                sourceBaselineHash: beforeSource,
+                assetBaselineHash: sha256(bytes),
+              },
+            ],
+          },
+        }),
+      );
+    }
+    const service = createNodeProjectWorkspaceService();
+    const opened = await service.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    await fs.writeFile(path.join(root, 'support/sources/drawing.psd'), 'edited drawing');
+    await fs.writeFile(path.join(root, 'assets/alpha.bin'), 'alpha updated');
+    const changedAssetRevision = sha256(Buffer.from('alpha updated'));
+    expect(
+      await advanceExternallyUpdatedAssetSourceBaselines(session, {
+        'assets/alpha.bin': changedAssetRevision,
+      }),
+    ).toEqual(['records/assets/alpha.json']);
+    const reopened = await createNodeProjectWorkspaceService().open(root);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    const alpha = reopened.snapshot.project.assets.alpha.data.attachments![0];
+    const beta = reopened.snapshot.project.assets.beta.data.attachments![0];
+    expect(alpha).toMatchObject({
+      sourceBaselineHash: sha256(Buffer.from('edited drawing')),
+      assetBaselineHash: changedAssetRevision,
+    });
+    expect(beta).toMatchObject({
+      sourceBaselineHash: beforeSource,
+      assetBaselineHash: sha256(Buffer.from('beta before')),
+    });
+  });
+
   it('persists Asset attachment rewrites when a source file or directory is moved', async () => {
     const root = await createWorkspace('source-attachment-rewrite');
     await fs.mkdir(path.join(root, 'records/assets'), { recursive: true });
@@ -49,7 +112,7 @@ describe('active Project session lifecycle', () => {
         id: 'script',
         label: 'Script',
         data: {
-          kind: 'script',
+          kind: 'text',
           source: { type: 'project-file', path: 'scripts/original/example.lua' },
           aliases: [],
           imageMetadata: null,

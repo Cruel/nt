@@ -83,6 +83,14 @@ export const assetAttachmentSchema = z
       .refine(isSafeProjectAttachmentPath, 'Attachment must be a portable Project-contained path.'),
     purpose: z.enum(assetAttachmentPurposeValues),
     displayName: z.string().trim().min(1).max(256).optional(),
+    sourceBaselineHash: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/u)
+      .optional(),
+    assetBaselineHash: z
+      .string()
+      .regex(/^sha256:[0-9a-f]{64}$/u)
+      .optional(),
   })
   .strict();
 

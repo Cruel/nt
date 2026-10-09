@@ -25,6 +25,7 @@ export interface ProjectAttachmentImportResponse {
 export interface ProjectAttachmentInspection {
   path: string;
   exists: boolean;
+  contentHash?: `sha256:${string}`;
   byteSize?: number;
   preview?: string;
   previewLimited?: boolean;

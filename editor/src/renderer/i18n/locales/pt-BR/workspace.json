@@ -22,7 +22,8 @@
       "share": "Compartilhar anexo do Asset",
       "changePurpose": "Alterar finalidade do anexo",
       "remove": "Remover associação do anexo",
-      "rename": "Renomear nome de exibição do anexo"
+      "rename": "Renomear nome de exibição do anexo",
+      "acknowledgeSource": "Confirmar revisão da fonte de criação"
     },
     "sessionChanged": "O projeto ou Asset ativo mudou. Revise os anexos e tente novamente.",
     "open": "Abrir",
@@ -40,6 +41,9 @@
     "usedBy_one": "Usado por {{count}} Asset",
     "usedBy_other": "Usado por {{count}} Assets",
     "missing": "Arquivo ausente — revincule para reparar",
+    "possiblyOutdated": "Possivelmente desatualizado em relação à fonte de criação",
+    "sourceBaselineMissing": "Revisão inicial da fonte ainda não registrada",
+    "acknowledgeSource": "Confirmar revisão",
     "invalidPath": "Escolha um caminho portátil contido no projeto.",
     "newPath": "Novo caminho do arquivo no projeto",
     "editName": "Nome de exibição para {{path}}",

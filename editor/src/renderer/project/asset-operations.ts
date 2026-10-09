@@ -50,6 +50,7 @@ export interface AssetRenameAliasPayload {
 export interface AssetReimportPayload {
   assetId: string;
   asset: ImportedAssetMetadata;
+  sourceRevisions?: Record<string, string>;
 }
 
 export interface AssetDeletePayload {
@@ -324,7 +325,15 @@ export function reimportAssetPatches(
   const next = {
     ...assetDataFromImportMetadata(payload.asset),
     aliases: current.aliases,
-    attachments: current.attachments,
+    attachments: current.attachments.map((attachment) =>
+      attachment.purpose === 'authoring-source' && payload.sourceRevisions?.[attachment.path]
+        ? {
+            ...attachment,
+            sourceBaselineHash: payload.sourceRevisions[attachment.path],
+            assetBaselineHash: payload.asset.contentHash,
+          }
+        : attachment,
+    ),
     ...(current.kind === 'image' ? { sampling: current.sampling ?? 'linear' } : {}),
   };
   return {
