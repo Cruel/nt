@@ -2,6 +2,9 @@
 
 #include "ui/rmlui/runtime_ui_action_gateway.hpp"
 #include "ui/rmlui/rmlui_custom_components.hpp"
+#include "ui/rmlui/runtime_license_catalog.hpp"
+
+#include "noveltea/assets/asset_manager.hpp"
 
 #include <noveltea/active_text.hpp>
 
@@ -88,6 +91,8 @@ std::string shell_screen_name(core::RuntimeShellScreen screen)
         return "confirmation";
     case Screen::Debug:
         return "debug";
+    case Screen::Licenses:
+        return "licenses";
     }
     return "none";
 }
@@ -805,6 +810,32 @@ struct ConfirmationProjection {
     std::string get_prompt() { return prompt; }
 };
 
+struct LicenseEntryProjection {
+    std::string label;
+    std::uint64_t index = 0;
+    bool selected = false;
+    std::string get_label() { return label; }
+    std::uint64_t get_index() { return index; }
+    bool get_selected() { return selected; }
+};
+
+struct LicensesProjection {
+    std::vector<LicenseEntryProjection> engine;
+    std::vector<LicenseEntryProjection> project;
+    std::string selected_title;
+    std::string selected_text;
+    bool empty = true;
+    bool engine_missing = false;
+    bool invalid_inventory = false;
+    std::vector<LicenseEntryProjection>& get_engine() { return engine; }
+    std::vector<LicenseEntryProjection>& get_project() { return project; }
+    std::string get_selected_title() { return selected_title; }
+    std::string get_selected_text() { return selected_text; }
+    bool get_empty() { return empty; }
+    bool get_engine_missing() { return engine_missing; }
+    bool get_invalid_inventory() { return invalid_inventory; }
+};
+
 struct ShellProjection {
     bool available = false;
     std::string screen = "none";
@@ -818,6 +849,7 @@ struct ShellProjection {
     CheckpointProjection checkpoint;
     std::vector<SaveSlotProjection> save_slots;
     ConfirmationProjection confirmation;
+    LicensesProjection licenses;
     bool get_available() { return available; }
     std::string get_screen() { return screen; }
     bool get_game_active() { return game_active; }
@@ -830,6 +862,7 @@ struct ShellProjection {
     CheckpointProjection& get_checkpoint() { return checkpoint; }
     std::vector<SaveSlotProjection>& get_save_slots() { return save_slots; }
     ConfirmationProjection& get_confirmation() { return confirmation; }
+    LicensesProjection& get_licenses() { return licenses; }
 };
 
 struct Projection {
@@ -865,6 +898,10 @@ struct RuntimeUiDataModel::Impl {
     RuntimeUiDataModel::PresentationParentResolver presentation_parent_resolver;
     Projection projection;
     std::vector<HandleRecord> handles;
+    const assets::AssetManager* license_assets = nullptr;
+    RuntimeLicenseCatalog license_catalog;
+    bool licenses_open = false;
+    std::size_t selected_license = 0;
 
     Impl(RuntimeUiActionGateway& action_gateway,
          RuntimeUiDataModel::PresentationParentResolver resolver)
@@ -876,6 +913,29 @@ struct RuntimeUiDataModel::Impl {
     {
         for (auto& record : handles)
             record.handle.DirtyAllVariables();
+    }
+
+    void update_licenses()
+    {
+        auto& out = projection.shell.licenses;
+        out = {};
+        out.empty = license_catalog.notices.empty();
+        out.engine_missing = license_catalog.engine_inventory_missing;
+        out.invalid_inventory = license_catalog.invalid_inventory;
+        for (std::size_t i = 0; i < license_catalog.notices.size(); ++i) {
+            const auto& source = license_catalog.notices[i];
+            auto& entries = source.group == "engine" ? out.engine : out.project;
+            entries.push_back({source.label, static_cast<std::uint64_t>(i), i == selected_license});
+        }
+        if (license_assets && !out.empty && selected_license < license_catalog.notices.size()) {
+            out.selected_title = license_catalog.notices[selected_license].label;
+            auto text = license_catalog.read_notice(*license_assets, selected_license);
+            if (text)
+                out.selected_text = std::move(*text);
+            else
+                out.invalid_inventory = true;
+        }
+        dirty_all();
     }
 
     bool register_types(Rml::DataModelConstructor& c)
@@ -1058,6 +1118,16 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(LocaleChangeResultProjection, message));
         ok &= register_struct<ConfirmationProjection>(c, NT_MEMBER(ConfirmationProjection, active),
                                                       NT_MEMBER(ConfirmationProjection, prompt));
+        ok &= register_struct<LicenseEntryProjection>(c, NT_MEMBER(LicenseEntryProjection, label),
+                                                      NT_MEMBER(LicenseEntryProjection, index),
+                                                      NT_MEMBER(LicenseEntryProjection, selected));
+        ok &= c.RegisterArray<std::vector<LicenseEntryProjection>>();
+        ok &= register_struct<LicensesProjection>(
+            c, NT_MEMBER(LicensesProjection, engine), NT_MEMBER(LicensesProjection, project),
+            NT_MEMBER(LicensesProjection, selected_title),
+            NT_MEMBER(LicensesProjection, selected_text), NT_MEMBER(LicensesProjection, empty),
+            NT_MEMBER(LicensesProjection, engine_missing),
+            NT_MEMBER(LicensesProjection, invalid_inventory));
         ok &= register_struct<ShellProjection>(
             c, NT_MEMBER(ShellProjection, available), NT_MEMBER(ShellProjection, screen),
             NT_MEMBER(ShellProjection, game_active), NT_MEMBER(ShellProjection, status),
@@ -1065,7 +1135,7 @@ struct RuntimeUiDataModel::Impl {
             NT_MEMBER(ShellProjection, locales), NT_MEMBER(ShellProjection, locale_change_pending),
             NT_MEMBER(ShellProjection, locale_change_result),
             NT_MEMBER(ShellProjection, checkpoint), NT_MEMBER(ShellProjection, save_slots),
-            NT_MEMBER(ShellProjection, confirmation));
+            NT_MEMBER(ShellProjection, confirmation), NT_MEMBER(ShellProjection, licenses));
 #undef NT_MEMBER
         return ok;
     }
@@ -1176,6 +1246,26 @@ struct RuntimeUiDataModel::Impl {
                                     return gateway.dispatch_shell_command(
                                         core::RuntimeShellCommand{core::OpenTextLogShellCommand{}});
                                 }));
+        ok &=
+            c.BindEventCallback("shell_open_licenses", callback([this](const auto&) {
+                                    return gateway.dispatch_shell_command(core::RuntimeShellCommand{
+                                        core::OpenLicensesShellCommand{}});
+                                }));
+        ok &= c.BindEventCallback(
+            "shell_select_license",
+            [this](Rml::DataModelHandle, Rml::Event& event, const Rml::VariantList& args) {
+                const auto index = event_slot_number_arg(args, 0);
+                if (index >= license_catalog.notices.size() || !licenses_open)
+                    return;
+                selected_license = static_cast<std::size_t>(index);
+                update_licenses();
+                if (auto* target = event.GetCurrentElement()) {
+                    if (auto* document = target->GetOwnerDocument()) {
+                        if (auto* scroller = document->GetElementById("nt-license-text-scroll"))
+                            scroller->SetScrollTop(0);
+                    }
+                }
+            });
         ok &= c.BindEventCallback("shell_open_debug", callback([this](const auto&) {
                                       return gateway.dispatch_shell_command(
                                           core::RuntimeShellCommand{core::OpenDebugShellCommand{}});
@@ -1280,6 +1370,12 @@ void RuntimeUiDataModel::set_project(std::string title, std::string subtitle,
     m_impl->projection.project.subtitle = std::move(subtitle);
     m_impl->projection.project.start_label = start_label.empty() ? "Start" : std::move(start_label);
     m_impl->dirty_all();
+}
+
+void RuntimeUiDataModel::set_license_assets(const assets::AssetManager* assets)
+{
+    m_impl->license_assets = assets;
+    m_impl->licenses_open = false;
 }
 
 void RuntimeUiDataModel::set_gameplay(const RuntimeUiGameplayValues& values,
@@ -1541,6 +1637,14 @@ void RuntimeUiDataModel::set_shell(const core::RuntimeShellViewState& view,
     out = {};
     out.available = true;
     out.screen = shell_screen_name(view.screen);
+    const bool opening_licenses = view.screen == core::RuntimeShellScreen::Licenses;
+    if (opening_licenses && !m_impl->licenses_open) {
+        m_impl->license_catalog = m_impl->license_assets
+                                      ? RuntimeLicenseCatalog::load(*m_impl->license_assets)
+                                      : RuntimeLicenseCatalog{};
+        m_impl->selected_license = 0;
+    }
+    m_impl->licenses_open = opening_licenses;
     out.game_active = view.game_active;
     out.status = view.status;
     out.settings.ui_scale = {view.accessibility.ui_scale.enabled, view.settings.ui_scale(),
@@ -1626,11 +1730,14 @@ void RuntimeUiDataModel::set_shell(const core::RuntimeShellViewState& view,
     }
     out.confirmation.active = view.confirmation.has_value();
     out.confirmation.prompt = view.confirmation ? view.confirmation->prompt : std::string{};
+    if (opening_licenses)
+        m_impl->update_licenses();
     m_impl->dirty_all();
 }
 
 void RuntimeUiDataModel::clear_shell()
 {
+    m_impl->licenses_open = false;
     m_impl->projection.shell = {};
     m_impl->projection.shell.settings.ui_scale.value = core::RuntimeUserSettings::default_ui_scale;
     m_impl->projection.shell.settings.ui_scale.default_value =

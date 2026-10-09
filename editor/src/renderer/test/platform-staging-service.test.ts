@@ -383,6 +383,14 @@ describe('platform staging service', () => {
     expect(first.success, JSON.stringify(first.diagnostics)).toBe(true);
     expect(fs.existsSync(path.join(request.outputDirectory, 'old'))).toBe(false);
     expect(first.manifest?.files.every((entry) => /^[0-9a-f]{64}$/.test(entry.sha256))).toBe(true);
+    for (const relative of ['licenses/index.json', 'licenses/fixture-dependency--license.txt']) {
+      expect(
+        fs.readFileSync(path.join(request.outputDirectory, 'assets/system', relative)),
+      ).toEqual(fs.readFileSync(path.join(request.outputDirectory, relative)));
+      expect(
+        first.manifest?.files.some((entry) => entry.path === `assets/system/${relative}`),
+      ).toBe(true);
+    }
     const firstBytes = outputBytes(request.outputDirectory);
     const second = await stagePlatformExport({ ...request, operationId: 'two' });
     expect(second.manifest).toEqual(first.manifest);
@@ -610,6 +618,23 @@ describe('platform staging service', () => {
     expect(names.some((name) => /^player\.[0-9a-f]{16}\.js$/.test(name))).toBe(true);
     expect(names.some((name) => /^game\.[0-9a-f]{16}\.ntpkg$/.test(name))).toBe(true);
     expect(names.some((name) => /^player\.[0-9a-f]{16}\.data$/.test(name))).toBe(true);
+    expect(
+      fs.readFileSync(path.join(webRequest.outputDirectory, 'assets/system/licenses/index.json')),
+    ).toEqual(fs.readFileSync(path.join(templateRoot, 'licenses/index.json')));
+    expect(
+      fs.readFileSync(
+        path.join(
+          webRequest.outputDirectory,
+          'assets/system/licenses/fixture-dependency--license.txt',
+        ),
+      ),
+    ).toEqual(fs.readFileSync(path.join(templateRoot, 'licenses/fixture-dependency--license.txt')));
+    const offlineAssets = fs.readFileSync(
+      path.join(webRequest.outputDirectory, 'service-worker.js'),
+      'utf8',
+    );
+    expect(offlineAssets).toContain('assets/system/licenses/index.json');
+    expect(offlineAssets).toContain('assets/system/licenses/fixture-dependency--license.txt');
     const index = fs.readFileSync(path.join(webRequest.outputDirectory, 'index.html'), 'utf8');
     expect(index).toContain('Module._noveltea_player_resize(r.logicalWidth,r.logicalHeight');
     expect(index).toContain('Module._noveltea_player_backbuffer_width()');

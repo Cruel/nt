@@ -14,6 +14,10 @@ class Context;
 class Event;
 } // namespace Rml
 
+namespace noveltea::assets {
+class AssetManager;
+}
+
 namespace noveltea::ui::rmlui {
 
 class RuntimeUiActionGateway;
@@ -35,6 +39,7 @@ public:
     void detach_all();
 
     void set_project(std::string title, std::string subtitle, std::string start_label);
+    void set_license_assets(const assets::AssetManager* assets);
     void set_gameplay(const RuntimeUiGameplayValues& values, const std::string& typed_notification);
     void clear_gameplay();
     void set_gameplay_notification(const std::string& typed_notification,

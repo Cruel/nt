@@ -19,6 +19,7 @@ constexpr const char* kBuiltinModalLayoutId = "builtin-modal";
 constexpr const char* kBuiltinCommandBuilderLayoutId = "builtin-command-builder";
 constexpr const char* kBuiltinSceneTextLayoutId = "builtin-scene-text";
 constexpr const char* kBuiltinSceneChoiceLayoutId = "builtin-scene-choice";
+constexpr const char* kBuiltinLicensesLayoutId = "builtin-licenses";
 constexpr const char* kBuiltinInventoryLayoutId = "builtin-inventory";
 constexpr const char* kBuiltinVerbMenuLayoutId = "builtin-verb-menu";
 
@@ -65,6 +66,8 @@ system_role_for_builtin(RuntimeLayoutBuiltinDocument document) noexcept
         return core::compiled::SystemLayoutRole::SceneText;
     case RuntimeLayoutBuiltinDocument::SceneChoice:
         return core::compiled::SystemLayoutRole::SceneChoice;
+    case RuntimeLayoutBuiltinDocument::Licenses:
+        return core::compiled::SystemLayoutRole::Licenses;
     case RuntimeLayoutBuiltinDocument::Inventory:
     case RuntimeLayoutBuiltinDocument::VerbMenu:
         return std::nullopt;
@@ -89,6 +92,19 @@ void apply_builtin_defaults(RuntimeLayoutMountRequest& request,
                           .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
                           .visibility = core::LayoutVisibility::Visible,
                           .escape_dismissal = core::EscapeDismissalPolicy::Ignore,
+                          .entrance_operation = std::nullopt,
+                          .exit_operation = std::nullopt};
+        break;
+    case RuntimeLayoutBuiltinDocument::Licenses:
+        request.layout_id = kBuiltinLicensesLayoutId;
+        request.owner = core::MountedLayoutOwner::Shell;
+        request.policy = {.plane = core::PresentationPlane::MenuOverlay,
+                          .local_order = 210,
+                          .clock = core::LayoutClockDomain::UnscaledPresentation,
+                          .input = core::LayoutInputMode::Modal,
+                          .gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible,
+                          .visibility = core::LayoutVisibility::Visible,
+                          .escape_dismissal = core::EscapeDismissalPolicy::Dismiss,
                           .entrance_operation = std::nullopt,
                           .exit_operation = std::nullopt};
         break;

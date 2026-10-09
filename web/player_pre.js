@@ -4,6 +4,69 @@ Module.preRun.push(function () {
   var dependencyReleased = false;
   addRunDependency(dependency);
 
+  // The Web template's .data archive is compiled before a game selects its target.
+  // Finalized exports add that target's verified notices as ordinary static system assets.
+  // Stage those bytes into Emscripten's existing system:/ mount before the native player
+  // starts; RuntimeUI still reads only through AssetManager and verifies every notice.
+  var noticeDependency = 'noveltea-player-license-assets';
+  addRunDependency(noticeDependency);
+  (async function stageTargetNotices() {
+    var root = new URL('assets/system/', document.baseURI);
+    var indexUrl = new URL('licenses/index.json', root);
+    var indexResponse = await fetch(indexUrl, { cache: 'no-store' });
+    if (indexResponse.status === 404) return; // This target has no engine notice inventory.
+    if (!indexResponse.ok) throw new Error('Engine license index could not be downloaded.');
+    var indexBuffer = await indexResponse.arrayBuffer();
+    if (indexBuffer.byteLength > 1024 * 1024) throw new Error('Engine license index exceeds 1 MiB.');
+    var index = JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(indexBuffer));
+    if (!index || index.format !== 'noveltea.engine-licenses' || !Array.isArray(index.components))
+      throw new Error('Engine license index format is invalid.');
+    var entries = [];
+    var seen = new Set();
+    var total = 0;
+    for (var component of index.components) {
+      if (!component || !Array.isArray(component.files)) throw new Error('Engine license component is invalid.');
+      for (var file of component.files) {
+        if (!file || typeof file.path !== 'string' ||
+          !file.path.startsWith('licenses/') || !file.path.endsWith('.txt') ||
+          file.path.includes('\\') || file.path.includes(':') ||
+          file.path.split('/').some(function (part) { return !part || part === '.' || part === '..'; }) ||
+          !Number.isSafeInteger(file.size) || file.size < 1 || file.size > 1024 * 1024 ||
+          typeof file.sha256 !== 'string' || !/^[0-9a-f]{64}$/.test(file.sha256) ||
+          seen.has(file.path) || entries.length >= 512)
+          throw new Error('Engine license index entry is invalid.');
+        total += file.size;
+        if (total > 64 * 1024 * 1024) throw new Error('Engine license inventory exceeds 64 MiB.');
+        seen.add(file.path);
+        entries.push(file);
+      }
+    }
+    var verified = [];
+    for (var entry of entries) {
+      var response = await fetch(new URL(entry.path, root), { cache: 'no-store' });
+      if (!response.ok) throw new Error('Engine license notice could not be downloaded.');
+      var buffer = await response.arrayBuffer();
+      if (buffer.byteLength !== entry.size || buffer.byteLength > 1024 * 1024)
+        throw new Error('Engine license notice length differs from the inventory.');
+      var digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
+      var hash = Array.from(digest, function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
+      if (hash !== entry.sha256) throw new Error('Engine license notice checksum differs from the inventory.');
+      verified.push({ path: entry.path, bytes: new Uint8Array(buffer) });
+    }
+    FS.mkdirTree('/assets/system/licenses');
+    for (var item of verified) {
+      var target = '/assets/system/' + item.path;
+      FS.mkdirTree(target.slice(0, target.lastIndexOf('/')));
+      FS.writeFile(target, item.bytes);
+    }
+    FS.writeFile('/assets/system/licenses/index.json', new Uint8Array(indexBuffer));
+  })().catch(function (error) {
+    // A corrupted/missing index never silently substitutes another platform's notices.
+    console.warn('[player] target license inventory unavailable:', error);
+  }).finally(function () {
+    removeRunDependency(noticeDependency);
+  });
+
   var defaultView = null;
   if (typeof Module.onNovelTeaLoadingProgress !== 'function' && typeof document !== 'undefined') {
     defaultView = NovelTeaPlayerBootstrap.installDefaultLoadingUi(document);

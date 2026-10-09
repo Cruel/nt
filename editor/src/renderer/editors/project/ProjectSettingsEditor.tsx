@@ -1084,6 +1084,7 @@ const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
   'command-builder': 'Command builder',
   'scene-text': 'Scene text',
   'scene-choice': 'Scene choice',
+  licenses: 'Licenses',
 };
 
 export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {

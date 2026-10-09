@@ -14,6 +14,7 @@
                 <button id="nt-pause-load" data-event-click="shell_open_load()"><nt-tr key="noveltea.shell.load"/></button>
                 <button id="nt-pause-text-log" data-event-click="shell_open_text_log()"><nt-tr key="noveltea.shell.text_log"/></button>
                 <button id="nt-pause-settings" data-event-click="shell_open_settings()"><nt-tr key="noveltea.shell.settings"/></button>
+                <button id="nt-pause-licenses" data-event-click="shell_open_licenses()"><nt-tr key="noveltea.shell.licenses"/></button>
                 <button id="nt-pause-title-screen" data-event-click="shell_return_to_title()"><nt-tr key="noveltea.shell.title"/></button>
                 <button id="nt-pause-quit" data-event-click="shell_quit()"><nt-tr key="noveltea.shell.quit"/></button>
             </nav>

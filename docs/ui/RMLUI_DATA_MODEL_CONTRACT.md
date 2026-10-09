@@ -118,7 +118,7 @@ choice presentation underneath it.
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `shell.available` | bool | RuntimeUI currently retains a shell view. |
-| `shell.screen` | string | `none`, `title`, `pause`, `settings`, `save`, `load`, `text-log`, `confirmation`, or `debug`. |
+| `shell.screen` | string | `none`, `title`, `pause`, `settings`, `save`, `load`, `text-log`, `licenses`, `confirmation`, or `debug`. |
 | `shell.game_active` | bool | Current shell game-active state. |
 | `shell.status` | string | Current shell status text. |
 | `shell.settings.ui_scale.enabled` | bool | Project UI-scale policy enabled. |
@@ -152,6 +152,13 @@ choice presentation underneath it.
 | `shell.save_slots` | array | Every shell slot in source order, including autosave. |
 | `shell.confirmation.active` | bool | A confirmation is active. |
 | `shell.confirmation.prompt` | string | Confirmation prompt, else empty. |
+| `shell.licenses.engine` | array | Engine/library entries with `label`, `index`, and `selected`. |
+| `shell.licenses.project` | array | Game asset entries with the same shape. |
+| `shell.licenses.selected_title` | string | Currently selected notice name. |
+| `shell.licenses.selected_text` | string | Literal selected plain text, or empty when validation fails. |
+| `shell.licenses.empty` | bool | No notice entries are available. |
+| `shell.licenses.engine_missing` | bool | This target's engine inventory is absent. |
+| `shell.licenses.invalid_inventory` | bool | An index or selected notice failed verification. |
 
 The checkpoint summary format is exactly:
 
@@ -198,6 +205,8 @@ shell_open_settings()
 shell_open_save()
 shell_open_load()
 shell_open_text_log()
+shell_open_licenses()
+shell_select_license(index)
 shell_open_debug()
 shell_close()
 shell_return_to_title()

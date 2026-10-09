@@ -2605,6 +2605,7 @@ const runtimeSettingsSchema = strict({
         'command-builder',
         'scene-text',
         'scene-choice',
+        'licenses',
       ]),
     }),
   ),

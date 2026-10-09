@@ -197,7 +197,7 @@ and replacement/load reconstruction receives a fresh occurrence token so delayed
 address the new realization.
 
 System Layouts use the typed `Game.shell` table. It provides start/pause/resume, settings, save/load,
-text-log, confirmation, return-to-title, quit, and optional debug-overlay commands. UI and text scale
+text-log, licenses, confirmation, return-to-title, quit, and optional debug-overlay commands. UI and text scale
 have independent `set_ui_scale(value)` and `set_text_scale(value)` bindings; built-in settings Layouts
 also use typed minimum/default/maximum bindings backed by the loaded project's exact policy ranges.
 `Game.shell.state()` returns a read-only typed projection containing the current shell screen,
@@ -206,6 +206,17 @@ and replay distance, retained-checkpoint/thumbnail status, and typed save-slot m
 expose encoded save bytes, checkpoint ownership, a mutable JSON document, or a runtime-session
 pointer. Built-in menu documents hide a scale control when its project policy disables it.
 Project-authored system Layouts are resolved and mounted through the same policy path.
+
+Licenses use the existing engine-owned AssetManager namespaces `system:/licenses/` and
+`project:/licenses/`, not Lua filesystem access. The indexes are schema-checked, entries are
+path-confined, and selected text is limited to one MiB and hash-verified before being published
+through `shell.licenses`. RmlUi data binding renders its text literally rather than as RML.
+Missing target engine inventories remain visibly unavailable instead of substituting other targets.
+In editor Play preview, the prepared runtime package's Project notice index and physical source
+texts are staged into the usual `project:/licenses/` namespace before the compiled project loads.
+For exported Web players, target-specific engine notices are shipped as static system assets and
+preloaded into the Emscripten system filesystem before the native player starts; the viewer never
+fetches or parses these assets itself. The offline service worker caches that verified target set.
 
 System role owns lifecycle, mounting, input/pause policy, and shell routing, not a separate DOM
 population contract. The gameplay-owned `command-builder` role is the exception with a dedicated

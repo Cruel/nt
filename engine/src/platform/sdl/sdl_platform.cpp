@@ -9,6 +9,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <string>
+#include <unordered_map>
 #include <vector>
 
 #if defined(__EMSCRIPTEN__)
@@ -27,6 +28,7 @@ struct WebPointerEventScale {
 
 struct PlatformState {
     SDL_Window* window = nullptr;
+    std::unordered_map<SDL_JoystickID, SDL_Gamepad*> gamepads;
 #if defined(__APPLE__)
     SDL_MetalView metal_view = nullptr;
     void* metal_layer = nullptr;
@@ -164,7 +166,7 @@ bool Platform::initialize(const PlatformConfig& config)
     }
 #endif
 
-    Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_EVENTS;
+    Uint32 flags = SDL_INIT_VIDEO | SDL_INIT_EVENTS | SDL_INIT_GAMEPAD;
 #if defined(_WIN32) || defined(__APPLE__)
     std::fprintf(stderr, "[platform] starting SDL initialization\n");
 #endif
@@ -298,6 +300,19 @@ void Platform::poll_events()
 
     SDL_Event event;
     while (SDL_PollEvent(&event)) {
+        if (event.type == SDL_EVENT_GAMEPAD_ADDED) {
+            const SDL_JoystickID id = event.gdevice.which;
+            if (!m_state->gamepads.contains(id)) {
+                if (SDL_Gamepad* gamepad = SDL_OpenGamepad(id))
+                    m_state->gamepads.emplace(id, gamepad);
+            }
+        } else if (event.type == SDL_EVENT_GAMEPAD_REMOVED) {
+            if (auto found = m_state->gamepads.find(event.gdevice.which);
+                found != m_state->gamepads.end()) {
+                SDL_CloseGamepad(found->second);
+                m_state->gamepads.erase(found);
+            }
+        }
 #if defined(__EMSCRIPTEN__)
         if (is_web_pointer_event(event)) {
             if (m_state->pointer_event_scale_dirty) {
@@ -439,6 +454,12 @@ void Platform::shutdown()
 {
     if (!m_state->window)
         return;
+
+    for (const auto& [id, gamepad] : m_state->gamepads) {
+        (void)id;
+        SDL_CloseGamepad(gamepad);
+    }
+    m_state->gamepads.clear();
 
 #if defined(__APPLE__)
     if (m_state->metal_view) {

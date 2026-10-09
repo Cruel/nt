@@ -141,6 +141,16 @@ NormalizedHostEvent normalize_host_event(const SDL_Event& event,
         normalized.repeat = event.key.repeat;
         normalized.shift = (event.key.mod & SDL_KMOD_SHIFT) != 0;
         break;
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+    case SDL_EVENT_GAMEPAD_BUTTON_UP:
+        // The standard East/Back gamepad action shares Escape's shell-stack routing.
+        if (event.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) {
+            normalized.kind = event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN
+                                  ? NormalizedHostEventKind::KeyDown
+                                  : NormalizedHostEventKind::KeyUp;
+            normalized.key = NormalizedHostKey::Escape;
+        }
+        break;
     case SDL_EVENT_TEXT_INPUT:
         normalized.kind = NormalizedHostEventKind::TextInput;
         break;

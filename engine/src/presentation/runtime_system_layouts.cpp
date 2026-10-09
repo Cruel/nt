@@ -73,6 +73,12 @@ core::MountedLayoutPolicy runtime_system_layout_policy(core::compiled::SystemLay
         policy.input = core::LayoutInputMode::Modal;
         policy.gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible;
         break;
+    case core::compiled::SystemLayoutRole::Licenses:
+        policy.plane = core::PresentationPlane::MenuOverlay;
+        policy.local_order = 210;
+        policy.input = core::LayoutInputMode::Modal;
+        policy.gameplay_pause = core::GameplayPausePolicy::PauseWhileVisible;
+        break;
     case core::compiled::SystemLayoutRole::SaveMenu:
     case core::compiled::SystemLayoutRole::LoadMenu:
         policy.plane = core::PresentationPlane::MenuOverlay;
@@ -429,6 +435,9 @@ RuntimeSystemLayouts::dispatch(const core::RuntimeShellCommand& command)
                         "runtime_shell.text_log_unavailable", "Text log requires active gameplay"));
                 return open(core::RuntimeShellScreen::TextLog,
                             core::compiled::SystemLayoutRole::TextLog);
+            } else if constexpr (std::is_same_v<T, core::OpenLicensesShellCommand>) {
+                return open(core::RuntimeShellScreen::Licenses,
+                            core::compiled::SystemLayoutRole::Licenses);
             } else if constexpr (std::is_same_v<T, core::OpenDebugShellCommand>) {
                 return open(core::RuntimeShellScreen::Debug,
                             core::compiled::SystemLayoutRole::DebugOverlay);

@@ -1143,7 +1143,8 @@ std::optional<RuntimeSettings> decode_settings(Decoder& decoder, const nlohmann:
                                              {"text-log", SystemLayoutRole::TextLog},
                                              {"command-builder", SystemLayoutRole::CommandBuilder},
                                              {"scene-text", SystemLayoutRole::SceneText},
-                                             {"scene-choice", SystemLayoutRole::SceneChoice}})
+                                             {"scene-choice", SystemLayoutRole::SceneChoice},
+                                             {"licenses", SystemLayoutRole::Licenses}})
                                       : std::nullopt;
                       std::optional<LayoutId> id;
                       bool id_ok = id_value != nullptr;

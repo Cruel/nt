@@ -27,6 +27,7 @@ enum class RuntimeLayoutBuiltinDocument : std::uint8_t {
     CommandBuilder,
     SceneText,
     SceneChoice,
+    Licenses,
     Inventory,
     VerbMenu,
 };

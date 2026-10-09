@@ -621,6 +621,8 @@ const char* runtime_shell_screen_name(core::RuntimeShellScreen screen)
         return "confirmation";
     case core::RuntimeShellScreen::Debug:
         return "debug";
+    case core::RuntimeShellScreen::Licenses:
+        return "licenses";
     }
     return "none";
 }
@@ -697,6 +699,8 @@ std::string_view builtin_document_id(core::compiled::SystemLayoutRole role) noex
         return kRuntimeSceneTextDocumentId;
     case core::compiled::SystemLayoutRole::SceneChoice:
         return kRuntimeSceneChoiceDocumentId;
+    case core::compiled::SystemLayoutRole::Licenses:
+        return ui::rmlui::kRuntimeLicensesDocumentId;
     case core::compiled::SystemLayoutRole::DebugOverlay:
         return {};
     }
@@ -1412,6 +1416,9 @@ void RuntimeUI::State::install_shell_lua_api()
     shell.set_function("open_text_log", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::OpenTextLogShellCommand{}});
     });
+    shell.set_function("open_licenses", [this]() {
+        return dispatch_shell_command(core::RuntimeShellCommand{core::OpenLicensesShellCommand{}});
+    });
     shell.set_function("open_debug", [this]() {
         return dispatch_shell_command(core::RuntimeShellCommand{core::OpenDebugShellCommand{}});
     });
@@ -1778,6 +1785,7 @@ bool RuntimeUI::initialize(assets::AssetManager* assets, SDL_Window* window,
                 }
                 return std::nullopt;
             });
+        m_state->data_model->set_license_assets(assets);
         m_state->data_model->set_project(m_state->title_project, m_state->title_subtitle,
                                          m_state->title_start_label);
         if (const auto* view = m_state->action_gateway->view()) {

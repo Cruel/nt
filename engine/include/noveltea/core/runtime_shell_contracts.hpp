@@ -24,6 +24,7 @@ enum class RuntimeShellScreen : std::uint8_t {
     TextLog,
     Confirmation,
     Debug,
+    Licenses,
 };
 
 enum class RuntimeShellConfirmationKind : std::uint8_t {
@@ -94,6 +95,9 @@ struct OpenLoadShellCommand {
 struct OpenTextLogShellCommand {
     auto operator<=>(const OpenTextLogShellCommand&) const = default;
 };
+struct OpenLicensesShellCommand {
+    auto operator<=>(const OpenLicensesShellCommand&) const = default;
+};
 struct OpenDebugShellCommand {
     auto operator<=>(const OpenDebugShellCommand&) const = default;
 };
@@ -136,9 +140,9 @@ struct CancelShellCommand {
 using RuntimeShellCommand =
     std::variant<StartGameShellCommand, OpenPauseShellCommand, ResumeGameShellCommand,
                  OpenSettingsShellCommand, OpenSaveShellCommand, OpenLoadShellCommand,
-                 OpenTextLogShellCommand, OpenDebugShellCommand, CloseShellScreenCommand,
-                 RequestReturnToTitleShellCommand, RequestQuitShellCommand, SaveShellSlotCommand,
-                 RequestLoadShellSlotCommand, SetRuntimeUiScaleShellCommand,
+                 OpenTextLogShellCommand, OpenLicensesShellCommand, OpenDebugShellCommand,
+                 CloseShellScreenCommand, RequestReturnToTitleShellCommand, RequestQuitShellCommand,
+                 SaveShellSlotCommand, RequestLoadShellSlotCommand, SetRuntimeUiScaleShellCommand,
                  SetRuntimeTextScaleShellCommand, RequestRuntimeLocaleShellCommand,
                  ConfirmShellCommand, CancelShellCommand>;
 
