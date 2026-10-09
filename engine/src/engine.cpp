@@ -508,6 +508,8 @@ const char* system_layout_role_key(core::compiled::SystemLayoutRole role)
         return "scene-text";
     case core::compiled::SystemLayoutRole::SceneChoice:
         return "scene-choice";
+    case core::compiled::SystemLayoutRole::Licenses:
+        return "licenses";
     }
     return "unknown";
 }
@@ -538,6 +540,8 @@ system_layout_builtin(core::compiled::SystemLayoutRole role)
         return RuntimeLayoutBuiltinDocument::SceneText;
     case core::compiled::SystemLayoutRole::SceneChoice:
         return RuntimeLayoutBuiltinDocument::SceneChoice;
+    case core::compiled::SystemLayoutRole::Licenses:
+        return RuntimeLayoutBuiltinDocument::Licenses;
     case core::compiled::SystemLayoutRole::DebugOverlay:
         return std::nullopt;
     }

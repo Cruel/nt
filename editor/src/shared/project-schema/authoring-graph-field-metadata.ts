@@ -293,6 +293,8 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/settings\/ui\/systemLayouts\/command-builder\//, OWNER],
   [/^\/settings\/ui\/systemLayouts\/scene-text\//, OWNER],
   [/^\/settings\/ui\/systemLayouts\/scene-choice\//, OWNER],
+  // #417 adds the Licenses shell Layout as a new authoring dependency at the same schema version.
+  [/^\/settings\/ui\/systemLayouts\/licenses\//, OWNER],
   // Inventory presentation settings contribute to runtime dependency and preview invalidation.
   // The Project Inventory itself is canonical rather than selected through settings.
   [/^\/settings\/inventory(?:\/|$)/, OWNER],

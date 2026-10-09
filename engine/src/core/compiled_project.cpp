@@ -320,7 +320,7 @@ bool validate_structural_model(const compiled::CompiledProjectInput& input,
         return false;
     }
     for (const auto& layout : input.settings.system_layouts) {
-        if (!enum_at_most(layout.role, compiled::SystemLayoutRole::SceneChoice)) {
+        if (!enum_at_most(layout.role, compiled::SystemLayoutRole::Licenses)) {
             diagnostics = invalid_model("System layout role is invalid");
             return false;
         }

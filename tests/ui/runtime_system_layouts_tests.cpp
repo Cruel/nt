@@ -234,6 +234,31 @@ TEST_CASE("system Layout workflow supports nested pause settings confirmation an
     CHECK_FALSE(layouts.game_active());
 }
 
+TEST_CASE("licenses return to the originating title or pause without changing gameplay state")
+{
+    FakeSystemLayoutHost host;
+    RuntimeSystemLayouts layouts(host);
+    REQUIRE(layouts.initialize(true));
+    REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::OpenLicensesShellCommand{}}));
+    CHECK(layouts.current_screen() == core::RuntimeShellScreen::Licenses);
+    CHECK_FALSE(layouts.game_active());
+    REQUIRE(layouts.handle_escape());
+    CHECK(layouts.current_screen() == core::RuntimeShellScreen::Title);
+
+    REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::StartGameShellCommand{}}));
+    REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::OpenPauseShellCommand{}}));
+    REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::OpenLicensesShellCommand{}}));
+    const auto* licenses = mounted_role(host, core::compiled::SystemLayoutRole::Licenses);
+    REQUIRE(licenses);
+    CHECK(licenses->policy.gameplay_pause == core::GameplayPausePolicy::PauseWhileVisible);
+    CHECK(licenses->policy.input == core::LayoutInputMode::Modal);
+    REQUIRE(layouts.dispatch(core::RuntimeShellCommand{core::CloseShellScreenCommand{}}));
+    CHECK(layouts.current_screen() == core::RuntimeShellScreen::Pause);
+    CHECK(layouts.game_active());
+    CHECK(layouts.handle_escape());
+    CHECK(layouts.current_screen() == core::RuntimeShellScreen::None);
+}
+
 TEST_CASE("completed game returns directly to title without confirmation")
 {
     FakeSystemLayoutHost host;

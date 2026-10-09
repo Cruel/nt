@@ -69,6 +69,25 @@ TEST_CASE("normalize_host_event preserves native debugger shortcut state")
     CHECK(normalized.repeat);
 }
 
+TEST_CASE("gamepad East button uses the same typed shell Escape route")
+{
+    SDL_Event event{};
+    event.type = SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+    event.gbutton.button = SDL_GAMEPAD_BUTTON_EAST;
+    const auto normalized = normalize_host_event(event, {});
+    CHECK(normalized.kind == NormalizedHostEventKind::KeyDown);
+    CHECK(normalized.key == NormalizedHostKey::Escape);
+
+    HostInputRouter router;
+    const auto presentation = test_presentation();
+    const auto routed =
+        router.route(normalized, {.presentation = &presentation}, passive_consumers());
+    REQUIRE_FALSE(routed.tooling_actions.empty());
+    CHECK(std::holds_alternative<RouteSystemEscapeAction>(routed.tooling_actions.front()));
+    event.type = SDL_EVENT_GAMEPAD_BUTTON_UP;
+    CHECK(normalize_host_event(event, {}).kind == NormalizedHostEventKind::KeyUp);
+}
+
 TEST_CASE("HostInputRouter orders debug RuntimeUI and typed runtime admission")
 {
     HostInputRouter router;

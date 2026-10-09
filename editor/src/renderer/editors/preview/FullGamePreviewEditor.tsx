@@ -471,6 +471,13 @@ function previewAssetsForArtifact(artifact: PreparedRuntimeArtifact) {
     sourcePath: entry.source,
     runtimePath: entry.packagePath,
   }));
+  assets.push(
+    ...previewNoticeAssetMappings(
+      artifact.packageOptions.textEntries.find(
+        (entry) => entry.packagePath === 'licenses/index.json',
+      )?.text,
+    ),
+  );
   if (artifact.requiredShaderBinaryPaths.length === 0) return assets;
   const shaderAssetRoot = artifact.packageOptions.shaderAssetRoot;
   if (!shaderAssetRoot) return assets;
@@ -486,6 +493,19 @@ function previewAssetsForArtifact(artifact: PreparedRuntimeArtifact) {
   return assets;
 }
 
+function previewNoticeAssetMappings(indexText: string | undefined) {
+  if (!indexText) return [];
+  // This is the engine-validated Project distribution index prepared for the runtime package.
+  // The corresponding physical files are served through the existing Project asset endpoint.
+  const index = JSON.parse(indexText) as {
+    notices: Array<{ source: string; path: string }>;
+  };
+  return index.notices.map((notice) => ({
+    sourcePath: notice.source,
+    runtimePath: notice.path,
+  }));
+}
+
 async function compiledProjectDiagnosticEntries(
   project: AuthoringProject | null,
   recoveryFingerprint: unknown,
@@ -495,6 +515,7 @@ async function compiledProjectDiagnosticEntries(
   compiledProject: unknown;
   shaderMaterialMetadata: unknown;
   previewAssets: Array<{ sourcePath: string; runtimePath: string }>;
+  noticeIndexText: string | undefined;
   sourceFingerprint: string | null;
   blockers: ProjectValidationDiagnostic[];
   entries: Omit<RuntimeLogEntry, 'id'>[];
@@ -506,6 +527,7 @@ async function compiledProjectDiagnosticEntries(
       compiledProject: null,
       shaderMaterialMetadata: null,
       previewAssets: [],
+      noticeIndexText: undefined,
       sourceFingerprint: null,
       blockers: [],
       entries: [
@@ -531,6 +553,9 @@ async function compiledProjectDiagnosticEntries(
         compiledProject: shared.artifact.compiledProject,
         shaderMaterialMetadata: shared.artifact.shaderMaterialMetadata ?? null,
         previewAssets: previewAssetsForArtifact(shared.artifact),
+        noticeIndexText: shared.artifact.packageOptions.textEntries.find(
+          (entry) => entry.packagePath === 'licenses/index.json',
+        )?.text,
         sourceFingerprint: shared.artifact.sourceFingerprint,
         blockers: diagnostics.filter((diagnostic) =>
           projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
@@ -548,6 +573,7 @@ async function compiledProjectDiagnosticEntries(
         compiledProject: null,
         shaderMaterialMetadata: null,
         previewAssets: [],
+        noticeIndexText: undefined,
         sourceFingerprint: null,
         blockers: shared.diagnostics.filter((diagnostic) =>
           projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
@@ -575,6 +601,7 @@ async function compiledProjectDiagnosticEntries(
       compiledProject: null,
       shaderMaterialMetadata: null,
       previewAssets: [],
+      noticeIndexText: undefined,
       sourceFingerprint: null,
       blockers: prepared.diagnostics.filter((diagnostic) =>
         projectValidationBlocksBoundary(diagnostic, 'runtime-package'),
@@ -597,10 +624,20 @@ async function compiledProjectDiagnosticEntries(
     ok: prepared.status === 'prepared',
     compiledProject: exported.compiledProject ?? null,
     shaderMaterialMetadata: exported.shaderMaterialMetadata ?? null,
-    previewAssets: exported.fileEntries.map((entry) => ({
-      sourcePath: entry.source,
-      runtimePath: entry.packagePath,
-    })),
+    previewAssets: [
+      ...exported.fileEntries.map((entry) => ({
+        sourcePath: entry.source,
+        runtimePath: entry.packagePath,
+      })),
+      ...previewNoticeAssetMappings(
+        exported.packageOptions.textEntries.find(
+          (entry) => entry.packagePath === 'licenses/index.json',
+        )?.text,
+      ),
+    ],
+    noticeIndexText: exported.packageOptions.textEntries.find(
+      (entry) => entry.packagePath === 'licenses/index.json',
+    )?.text,
     sourceFingerprint: exported.sourceFingerprint,
     blockers: exported.runtimeBlockers,
     entries,
@@ -2790,6 +2827,7 @@ export function FullGamePreviewEditor({
     compiledProject: null,
     shaderMaterialMetadata: null,
     previewAssets: [],
+    noticeIndexText: undefined,
     sourceFingerprint: null,
     blockers: [],
     entries: [],
@@ -2926,6 +2964,7 @@ export function FullGamePreviewEditor({
         exported.compiledProject,
         exported.previewAssets,
         exported.shaderMaterialMetadata,
+        exported.noticeIndexText,
       );
       notifyAssetProfilerProjectReplaced();
       setCompiledProjectState({

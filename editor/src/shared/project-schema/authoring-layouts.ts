@@ -48,6 +48,7 @@ export const systemLayoutRoleValues = [
   'command-builder',
   'scene-text',
   'scene-choice',
+  'licenses',
 ] as const;
 
 export type LayoutKind = (typeof layoutKindValues)[number];
@@ -369,6 +370,7 @@ export const systemLayoutSettingsSchema = z
     'command-builder': layoutRecordRefSchema.nullable().optional(),
     'scene-text': layoutRecordRefSchema.nullable().optional(),
     'scene-choice': layoutRecordRefSchema.nullable().optional(),
+    licenses: layoutRecordRefSchema.nullable().optional(),
   })
   .strict()
   .default({});

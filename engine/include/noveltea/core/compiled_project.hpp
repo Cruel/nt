@@ -553,7 +553,8 @@ enum class SystemLayoutRole : std::uint8_t {
     TextLog,
     CommandBuilder,
     SceneText,
-    SceneChoice
+    SceneChoice,
+    Licenses
 };
 struct SystemLayout {
     SystemLayoutRole role;

@@ -89,6 +89,20 @@ constexpr std::array kSystemMessages{
                             "Language updated.", "Idioma atualizado."},
     SystemMessageDefinition{kSystemMessageIdBase + 35, "noveltea.status.language_change_failed",
                             "Unable to change language.", "Não foi possível alterar o idioma."},
+    SystemMessageDefinition{kSystemMessageIdBase + 36, "noveltea.shell.licenses", "Licenses",
+                            "Licenças"},
+    SystemMessageDefinition{kSystemMessageIdBase + 37, "noveltea.licenses.engine",
+                            "Engine & Libraries", "Motor e bibliotecas"},
+    SystemMessageDefinition{kSystemMessageIdBase + 38, "noveltea.licenses.project", "Game Assets",
+                            "Recursos do jogo"},
+    SystemMessageDefinition{kSystemMessageIdBase + 39, "noveltea.licenses.empty",
+                            "No notices available", "Nenhuma licença disponível"},
+    SystemMessageDefinition{kSystemMessageIdBase + 40, "noveltea.licenses.engine_unavailable",
+                            "Engine notices unavailable for this target.",
+                            "Licenças do motor indisponíveis para este destino."},
+    SystemMessageDefinition{kSystemMessageIdBase + 41, "noveltea.licenses.invalid",
+                            "A license inventory or notice failed validation.",
+                            "Falha na validação de licenças."},
 };
 
 const SystemMessageDefinition* find_system_message(MessageId id) noexcept

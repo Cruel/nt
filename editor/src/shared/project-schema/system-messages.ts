@@ -50,6 +50,12 @@ const definitions = [
   [33, 'noveltea.settings.language'],
   [34, 'noveltea.status.language_updated'],
   [35, 'noveltea.status.language_change_failed'],
+  [36, 'noveltea.shell.licenses'],
+  [37, 'noveltea.licenses.engine'],
+  [38, 'noveltea.licenses.project'],
+  [39, 'noveltea.licenses.empty'],
+  [40, 'noveltea.licenses.engine_unavailable'],
+  [41, 'noveltea.licenses.invalid'],
 ] as const;
 
 export const systemMessageDefinitions: readonly SystemMessageDefinition[] = Object.freeze(

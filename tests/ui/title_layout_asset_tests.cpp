@@ -67,6 +67,29 @@ TEST_CASE("built-in title layout uses the NovelTea data model")
     CHECK(rml.find("nt-command") == std::string::npos);
 }
 
+TEST_CASE("default Title and Pause menus expose the replaceable, data-driven Licenses viewer")
+{
+    const auto root = std::filesystem::path(NOVELTEA_SOURCE_DIR) / "engine/assets/system/ui";
+    const auto title = read_source_file(root / "title/default-title.rml");
+    const auto pause = read_source_file(root / "menu/pause-menu.rml");
+    const auto licenses = read_source_file(root / "menu/licenses.rml");
+    const auto styles = read_source_file(root / "menu/licenses.rcss");
+    CHECK(title.find("id=\"nt-title-licenses\" data-event-click=\"shell_open_licenses()\"") !=
+          std::string::npos);
+    CHECK(pause.find("id=\"nt-pause-licenses\" data-event-click=\"shell_open_licenses()\"") !=
+          std::string::npos);
+    CHECK(licenses.find("<body data-model=\"noveltea\">") != std::string::npos);
+    CHECK(licenses.find("shell_select_license(notice.index)") != std::string::npos);
+    CHECK(licenses.find("shell.licenses.engine") != std::string::npos);
+    CHECK(licenses.find("shell.licenses.project") != std::string::npos);
+    CHECK(licenses.find("shell.licenses.selected_text") != std::string::npos);
+    CHECK(licenses.find("id=\"nt-license-back\" data-event-click=\"shell_close()\"") !=
+          std::string::npos);
+    CHECK(styles.find("white-space: pre-wrap") != std::string::npos);
+    CHECK(styles.find("#nt-license-text-scroll") != std::string::npos);
+    CHECK(styles.find("#nt-license-list") != std::string::npos);
+}
+
 TEST_CASE("built-in system menu assets use NovelTea data-model callbacks")
 {
     const auto root = std::filesystem::path(NOVELTEA_SOURCE_DIR);

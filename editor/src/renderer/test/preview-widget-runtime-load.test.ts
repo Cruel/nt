@@ -12,14 +12,20 @@ function createRuntimeLoadHarness() {
   const implementation = widget.slice(start, end);
 
   const messages: Record<string, unknown>[] = [];
+  const stagedFiles: Array<[string, string]> = [];
+  const removedFiles: string[] = [];
   const context = {
     protocolVersion: 1,
     latestNativeErrorDiagnostic: null as null | Record<string, unknown>,
     nativeExportAvailable: () => true,
     moduleFileSystem: () => ({
       mkdirTree() {},
-      writeFile() {},
-      unlink() {},
+      writeFile(file: string, contents: string) {
+        stagedFiles.push([file, contents]);
+      },
+      unlink(file: string) {
+        removedFiles.push(file);
+      },
     }),
     safeProjectAssetPath: () => true,
     stageProjectAsset: async () => true,
@@ -59,7 +65,13 @@ function createRuntimeLoadHarness() {
 
   vm.runInNewContext(`${implementation}\nloadCompiledProject = loadCompiledProject;`, context);
   if (!context.loadCompiledProject) throw new Error('Runtime load harness did not load.');
-  return { context, messages, loadCompiledProject: context.loadCompiledProject };
+  return {
+    context,
+    messages,
+    stagedFiles,
+    removedFiles,
+    loadCompiledProject: context.loadCompiledProject,
+  };
 }
 
 function createRuntimeDebugHarness() {
@@ -496,5 +508,21 @@ describe('preview widget runtime project loading', () => {
     expect(harness.context.displayedFailure).toBe(
       'compiled_project.hotspot_source_image_required: Interactable hotspots require a sprite image Asset.',
     );
+  });
+
+  it('stages the prepared Project notice index into the native preview Asset namespace and clears stale indexes', async () => {
+    const harness = createRuntimeLoadHarness();
+    const noticeIndexText = '{"schema":"noveltea.project-notices","notices":[]}';
+    await harness.loadCompiledProject({
+      requestId: 'with-notices',
+      compiledProject: {},
+      noticeIndexText,
+    });
+    expect(harness.stagedFiles).toContainEqual([
+      '/assets/project/licenses/index.json',
+      noticeIndexText,
+    ]);
+    await harness.loadCompiledProject({ requestId: 'without-notices', compiledProject: {} });
+    expect(harness.removedFiles).toContain('/assets/project/licenses/index.json');
   });
 });

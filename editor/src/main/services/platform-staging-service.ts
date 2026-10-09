@@ -894,6 +894,11 @@ async function finalizeWebStage(
     wasm.path,
     data.path,
     packageEntry.path,
+    // Engine notice files are transported into Web's preloaded system namespace at startup.
+    // Include them in the offline PWA cache, and invalidate that cache when notices change.
+    ...files
+      .filter((item) => item.path.startsWith('assets/system/licenses/'))
+      .map((item) => item.path),
     ...allWebIcons.map((item) => item.path),
   ];
   const exportHash = sha256(
@@ -1205,6 +1210,19 @@ export async function stagePlatformExport(
           descriptorFile.mode,
         ),
       );
+      // RuntimeUI reads the verified target inventory through the system Asset namespace.
+      // Keep the template's root notices for distribution audits while mounting the same
+      // target's notice bytes under the player-visible system assets directory.
+      if (file.startsWith('licenses/'))
+        files.push(
+          await copyFileTracked(
+            safeRoot(templateRoot, file),
+            temp,
+            path.posix.join('assets/system', file),
+            'system-asset',
+            `template:${descriptor.templateId}`,
+          ),
+        );
     }
     files.push(
       await copyFileTracked(

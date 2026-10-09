@@ -1,0 +1,30 @@
+<rml>
+<head>
+    <title>NovelTea Licenses</title>
+    <link type="text/rcss" href="system|/ui/menu/system-menu.rcss"/>
+    <link type="text/rcss" href="system|/ui/menu/licenses.rcss"/>
+</head>
+<body data-model="noveltea">
+    <main class="nt-shell-root">
+        <section id="nt-licenses-panel" class="nt-shell-panel">
+            <h1><nt-tr key="noveltea.shell.licenses"/></h1>
+            <div id="nt-license-columns">
+                <nav id="nt-license-list">
+                    <h2><nt-tr key="noveltea.licenses.engine"/></h2>
+                    <button data-for="notice : shell.licenses.engine" data-event-click="shell_select_license(notice.index)" data-class-selected="notice.selected">{{ notice.label }}</button>
+                    <h2><nt-tr key="noveltea.licenses.project"/></h2>
+                    <button data-for="notice : shell.licenses.project" data-event-click="shell_select_license(notice.index)" data-class-selected="notice.selected">{{ notice.label }}</button>
+                    <p data-if="shell.licenses.empty"><nt-tr key="noveltea.licenses.empty"/></p>
+                </nav>
+                <section id="nt-license-content">
+                    <h2>{{ shell.licenses.selected_title }}</h2>
+                    <div id="nt-license-text-scroll"><p id="nt-license-text">{{ shell.licenses.selected_text }}</p></div>
+                </section>
+            </div>
+            <button id="nt-license-back" data-event-click="shell_close()"><nt-tr key="noveltea.shell.back"/></button>
+            <p id="nt-license-diagnostics" data-if="shell.licenses.engine_missing"><nt-tr key="noveltea.licenses.engine_unavailable"/></p>
+            <p data-if="shell.licenses.invalid_inventory"><nt-tr key="noveltea.licenses.invalid"/></p>
+        </section>
+    </main>
+</body>
+</rml>

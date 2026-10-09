@@ -338,6 +338,38 @@ bool process_sdl_event(Rml::Context& context, SDL_Window* window, const SDL_Even
     }
     case SDL_EVENT_KEY_UP:
         return consumed(context.ProcessKeyUp(convert_sdl_key(event.key.key), modifiers));
+    case SDL_EVENT_GAMEPAD_BUTTON_DOWN:
+    case SDL_EVENT_GAMEPAD_BUTTON_UP: {
+        using namespace Rml::Input;
+        auto key = KI_UNKNOWN;
+        int gamepad_modifiers = 0;
+        switch (event.gbutton.button) {
+        case SDL_GAMEPAD_BUTTON_DPAD_DOWN:
+        case SDL_GAMEPAD_BUTTON_DPAD_RIGHT:
+            key = KI_TAB;
+            break;
+        case SDL_GAMEPAD_BUTTON_DPAD_UP:
+        case SDL_GAMEPAD_BUTTON_DPAD_LEFT:
+            key = KI_TAB;
+            gamepad_modifiers = KM_SHIFT;
+            break;
+        case SDL_GAMEPAD_BUTTON_SOUTH:
+            key = KI_RETURN;
+            break;
+        case SDL_GAMEPAD_BUTTON_EAST:
+            key = KI_ESCAPE;
+            break;
+        default:
+            return false;
+        }
+        if (event.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+            bool handled = consumed(context.ProcessKeyDown(key, gamepad_modifiers));
+            if (key == KI_RETURN)
+                handled = consumed(context.ProcessTextInput('\n')) || handled;
+            return handled;
+        }
+        return consumed(context.ProcessKeyUp(key, gamepad_modifiers));
+    }
     case SDL_EVENT_TEXT_INPUT:
         return consumed(context.ProcessTextInput(Rml::String(event.text.text)));
     case SDL_EVENT_FINGER_DOWN: {

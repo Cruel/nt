@@ -120,6 +120,10 @@ const systemLayoutReferenceByRole: Readonly<
     document: 'ui/runtime/scene-choice.rml',
     supportingFiles: ['ui/runtime/scene-presentation.rcss'],
   },
+  licenses: {
+    document: 'ui/menu/licenses.rml',
+    supportingFiles: ['ui/menu/system-menu.rcss', 'ui/menu/licenses.rcss'],
+  },
 };
 
 function compareCodePoints(left: string, right: string): number {

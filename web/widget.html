@@ -1135,6 +1135,15 @@ thead, tbody, tfoot {
       try {
         fs.mkdirTree('/assets/project');
         fs.writeFile(editorCompiledProjectPath, JSON.stringify(message.compiledProject || {}, null, 2));
+        // Editor preview runs a compiled Project directly, not an .ntpkg. Mirror its
+        // prepared package index into the same AssetManager namespace used by players.
+        // Entry texts are supplied by the existing verified preview asset manifest.
+        if (typeof message.noticeIndexText === 'string' && message.noticeIndexText.length <= 1024 * 1024) {
+          fs.mkdirTree('/assets/project/licenses');
+          fs.writeFile('/assets/project/licenses/index.json', message.noticeIndexText);
+        } else {
+          try { fs.unlink('/assets/project/licenses/index.json'); } catch {}
+        }
         if (message.shaderMaterialMetadata) {
           fs.writeFile('/assets/project/shader-materials.json', JSON.stringify(message.shaderMaterialMetadata));
         } else {

@@ -381,6 +381,13 @@ export async function exportAndroidPlatform(
     const sdk = local.androidSdk!;
     const javaHome = local.javaHome!;
     const gradleRoot = path.join(project, descriptor.android.gradleProjectRoot);
+    // Gradle stages prebuilt-system as the Android player's system:/ namespace. The target's
+    // verified template notices live at licenses/ in the archive, outside that namespace.
+    // Mirror them before Gradle builds its runtime assets, without altering the audit copy.
+    await copyTree(
+      path.join(project, 'licenses'),
+      path.join(gradleRoot, 'prebuilt-system', 'licenses'),
+    );
     const gradlew = path.join(project, descriptor.android.gradleWrapperPath);
     const propertiesPath = path.join(generated, 'noveltea.properties');
     await writeFile(

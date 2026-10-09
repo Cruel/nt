@@ -447,7 +447,7 @@ Layout-specific commands include:
 - `layout.replaceData` for validated full data replacement;
 - `project.setSystemLayout` for setting or clearing named engine UI roles under
   `settings.ui.systemLayouts` (`title`, `game-hud`, `command-builder`, `pause-menu`, `save-menu`,
-  `load-menu`, `settings-menu`, `text-log`, `modal`, and `debug-overlay`).
+  `load-menu`, `settings-menu`, `text-log`, `licenses`, `modal`, and `debug-overlay`).
 
 Generic entity commands handle creation, rename, deletion, metadata, and duplication. Layouts do not participate in gameplay Trait attachments or universal record inheritance.
 
@@ -455,7 +455,7 @@ Generic entity commands handle creation, rename, deletion, metadata, and duplica
 
 At runtime, `RuntimeSystemLayouts` resolves each requested system role from the compiled project.
 When no project Layout is assigned, the engine uses a built-in fallback for title, game HUD,
-Command Builder, pause, save, load, settings, text log, and modal/confirmation. Debug overlay has no
+Command Builder, pause, save, load, settings, text log, licenses, and modal/confirmation. Debug overlay has no
 built-in fallback; projects that open it must assign a Layout.
 
 System roles use fixed engine contracts and cannot accept Layouts that declare custom inputs,
@@ -471,6 +471,7 @@ Authored and built-in system Layouts both mount through `RuntimeLayoutManager` w
 | game HUD | `GameUi` | gameplay | normal | continue |
 | Command Builder | `GameUi` | gameplay | normal | continue |
 | pause/settings/save/load | `MenuOverlay` | unscaled | modal | while visible |
+| licenses | `MenuOverlay` | unscaled | modal | while visible |
 | text log | `MenuOverlay` | unscaled | block gameplay | continue |
 | modal/confirmation | `Modal` | unscaled | modal | while visible |
 | debug overlay | `Debug` | unscaled | normal | continue |
@@ -486,6 +487,13 @@ Copying a built-in RML/RCSS document into a project Layout preserves its declara
 the copied `data-model`, `data-*` bindings, and typed callbacks are retained. IDs may be changed or
 omitted unless the authored stylesheet, focus logic, or project code itself depends on them. Current
 projection state is reused after document reload or lifecycle-context recreation.
+
+The replaceable `licenses` role opens from default Title and Pause menus with
+`shell_open_licenses()`. It consumes `shell.licenses` and `shell_select_license(index)` to present
+engine/library and Project notices with independently scrolling panes. Back returns to the
+originating Title or Pause screen, preserving gameplay state. The engine catalog is read from the
+selected target's `system:/licenses/index.json`, while Project notices come from the packaged
+`project:/licenses/index.json`. If a target inventory is absent, no other target is substituted.
 
 The `command-builder` role is gameplay-owned and replaceable. Runtime owns its occurrence identity,
 semantic subject capture, exact watched-reference snapshots, forced lifecycle termination, and final
