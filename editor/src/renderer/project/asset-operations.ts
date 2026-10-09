@@ -324,6 +324,7 @@ export function reimportAssetPatches(
   const next = {
     ...assetDataFromImportMetadata(payload.asset),
     aliases: current.aliases,
+    attachments: current.attachments,
     ...(current.kind === 'image' ? { sampling: current.sampling ?? 'linear' } : {}),
   };
   return {

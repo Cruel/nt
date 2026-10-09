@@ -20,7 +20,11 @@ import {
   type ComfyUiWorkflowKey,
 } from '../shared/comfyui-workflows';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
-import { isSafeProjectAssetPath } from '../shared/project-schema/authoring-assets';
+import {
+  assetAttachmentPurposeValues,
+  isSafeProjectAssetPath,
+  isSafeProjectAttachmentPath,
+} from '../shared/project-schema/authoring-assets';
 import {
   editorPendingRawInputSchema,
   editorProjectStateSchema,
@@ -325,6 +329,7 @@ export const listProjectSourceFilesArgumentsSchema = z.tuple([
 ]);
 
 const sourcePathSchema = z.string().min(1).max(MAX_PROJECT_PATH_LENGTH);
+const attachmentPathSchema = z.string().min(1).max(2048).refine(isSafeProjectAttachmentPath);
 const sourceRevisionSchema = z.union([sha256DigestSchema, z.literal('absent')]);
 
 export const projectSourceUsagesArgumentsSchema = z.tuple([
@@ -341,6 +346,13 @@ export const mutateProjectSourcesArgumentsSchema = z.tuple([
     .object({
       projectSessionId: z.string().min(1).max(MAX_PROJECT_SESSION_ID_LENGTH),
       operation: z.discriminatedUnion('kind', [
+        z
+          .object({
+            kind: z.literal('move-attachment'),
+            fromPath: attachmentPathSchema,
+            toPath: attachmentPathSchema,
+          })
+          .strict(),
         z
           .object({
             kind: z.literal('create-file'),
@@ -437,6 +449,33 @@ export const auditProjectAssetsArgumentsSchema = z.tuple([
 export const projectAssetPathsArgumentsSchema = z.tuple([
   projectSessionIdSchema,
   z.array(projectRelativePathSchema).max(MAX_ASSET_OPERATION_PATHS),
+]);
+
+export const organizeUntrackedProjectAssetArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  authoringProjectSchema,
+  projectRelativePathSchema,
+  z.enum(['support', 'correct-folder']),
+]);
+
+export const listProjectAttachmentFilesArgumentsSchema = z.tuple([projectSessionIdSchema]);
+export const importProjectAttachmentFilesArgumentsSchema = z.tuple([
+  z
+    .object({
+      projectSessionId: projectSessionIdSchema,
+      purpose: z.enum(assetAttachmentPurposeValues),
+      destinationDirectory: attachmentPathSchema.optional(),
+    })
+    .strict(),
+]);
+export const inspectProjectAttachmentFileArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  attachmentPathSchema,
+]);
+export const openProjectAttachmentFileArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  attachmentPathSchema,
+  z.enum(['open', 'reveal']),
 ]);
 
 export const restoreProjectAssetFilesArgumentsSchema = z.tuple([

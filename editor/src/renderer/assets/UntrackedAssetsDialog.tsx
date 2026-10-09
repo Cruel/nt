@@ -1,7 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
+import { useTranslation } from 'react-i18next';
+import { createEditorFormatters } from '@/i18n/formatting';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
-import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
+import type {
+  ProjectAssetAuditFile,
+  ProjectAssetOrganizationAction,
+} from '../../shared/project-asset-audit';
 
 interface UntrackedAssetsDialogProps {
   files: ProjectAssetAuditFile[];
@@ -9,16 +14,10 @@ interface UntrackedAssetsDialogProps {
   onOpenChange: (open: boolean) => void;
   onImportSelected: (paths: string[]) => Promise<void>;
   onDeleteSelected: (paths: string[]) => Promise<void>;
-  onIgnoreSelected: (paths: string[]) => void;
+  onMoveFile: (path: string, action: ProjectAssetOrganizationAction) => Promise<void>;
 }
 
-type PendingAction = 'import' | 'delete' | null;
-
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
+type PendingAction = 'import' | 'delete' | ProjectAssetOrganizationAction | null;
 
 export function UntrackedAssetsDialog({
   files,
@@ -26,11 +25,19 @@ export function UntrackedAssetsDialog({
   onOpenChange,
   onImportSelected,
   onDeleteSelected,
-  onIgnoreSelected,
+  onMoveFile,
 }: UntrackedAssetsDialogProps) {
+  const { t, i18n } = useTranslation('workspace');
+  const format = createEditorFormatters(i18n.language);
   const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [tab, setTab] = useState<'media' | 'other'>('media');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
+  const [movePath, setMovePath] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const visibleFiles = useMemo(
+    () => files.filter((file) => file.importable === (tab === 'media')),
+    [files, tab],
+  );
   const selectedPaths = useMemo(
     () =>
       files.map((file) => file.projectRelativePath).filter((filePath) => selected.has(filePath)),
@@ -54,7 +61,7 @@ export function UntrackedAssetsDialog({
   }
 
   function selectAll() {
-    setSelected(new Set(files.map((file) => file.projectRelativePath)));
+    setSelected(new Set(visibleFiles.map((file) => file.projectRelativePath)));
   }
 
   function clearSelection() {
@@ -62,41 +69,66 @@ export function UntrackedAssetsDialog({
   }
 
   async function confirmAction() {
-    if (!pendingAction || selectedPaths.length === 0) return;
+    if (!pendingAction) return;
+    if ((pendingAction === 'import' || pendingAction === 'delete') && selectedPaths.length === 0)
+      return;
     setBusy(true);
     try {
       if (pendingAction === 'import') await onImportSelected(selectedPaths);
-      else await onDeleteSelected(selectedPaths);
+      else if (pendingAction === 'delete') await onDeleteSelected(selectedPaths);
+      else if (movePath) await onMoveFile(movePath, pendingAction);
       setSelected(new Set());
       setPendingAction(null);
+      setMovePath(null);
     } finally {
       setBusy(false);
     }
   }
 
-  const actionLabel = pendingAction === 'import' ? 'Import' : 'Delete';
+  const actionLabel = pendingAction ? t(`assetDiscovery.actions.${pendingAction}`) : '';
 
   return (
     <>
       <Dialog
         open={open}
         onOpenChange={(nextOpen) => {
-          if (nextOpen) onOpenChange(true);
+          onOpenChange(nextOpen);
         }}
       >
-        <DialogPopup className="max-w-3xl" showCloseButton={false}>
-          <DialogTitle>Untracked Asset Files</DialogTitle>
-          <DialogDescription>
-            NovelTea found files in the project assets folder that are not registered in the
-            project. Import them, move them to the project trash, or ignore them for now.
-          </DialogDescription>
+        <DialogPopup className="max-w-3xl" showCloseButton>
+          <DialogTitle>{t('assetDiscovery.title')}</DialogTitle>
+          <DialogDescription>{t('assetDiscovery.description')}</DialogDescription>
+          <div className="mt-3 flex gap-2">
+            <Button
+              size="sm"
+              variant={tab === 'media' ? 'default' : 'outline'}
+              onClick={() => {
+                setTab('media');
+                clearSelection();
+              }}
+            >
+              {t('assetDiscovery.mediaTab', {
+                count: files.filter((file) => file.importable).length,
+              })}
+            </Button>
+            <Button
+              size="sm"
+              variant={tab === 'other' ? 'default' : 'outline'}
+              onClick={() => {
+                setTab('other');
+                clearSelection();
+              }}
+            >
+              {t('assetDiscovery.otherTab', {
+                count: files.filter((file) => !file.importable).length,
+              })}
+            </Button>
+          </div>
           <div className="mt-3 flex items-center justify-between gap-3 text-xs text-muted-foreground">
-            <span>
-              {files.length} untracked file{files.length === 1 ? '' : 's'} detected
-            </span>
+            <span>{t('assetDiscovery.fileCount', { count: visibleFiles.length })}</span>
             <div className="flex gap-2">
               <Button size="sm" variant="outline" className="h-7 px-2 text-xs" onClick={selectAll}>
-                Select All
+                {t('assetDiscovery.selectAll')}
               </Button>
               <Button
                 size="sm"
@@ -104,18 +136,24 @@ export function UntrackedAssetsDialog({
                 className="h-7 px-2 text-xs"
                 onClick={clearSelection}
               >
-                Clear
+                {t('assetDiscovery.clear')}
               </Button>
             </div>
           </div>
           <div className="mt-3 max-h-[50vh] space-y-2 overflow-auto rounded border p-2">
-            {files.map((file) => (
-              <label
+            {visibleFiles.length === 0 ? (
+              <p className="p-3 text-center text-xs text-muted-foreground">
+                {t('assetDiscovery.empty')}
+              </p>
+            ) : null}
+            {visibleFiles.map((file) => (
+              <div
                 key={file.projectRelativePath}
-                className="flex cursor-pointer items-center gap-3 rounded border p-2 hover:bg-accent/60"
+                className="flex items-center gap-3 rounded border p-2 hover:bg-accent/60"
               >
                 <input
                   type="checkbox"
+                  aria-label={t('assetDiscovery.selectFile', { path: file.projectRelativePath })}
                   checked={selected.has(file.projectRelativePath)}
                   onChange={() => toggle(file.projectRelativePath)}
                 />
@@ -133,26 +171,28 @@ export function UntrackedAssetsDialog({
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-mono text-xs">{file.projectRelativePath}</div>
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    {file.kind} · {formatBytes(file.byteSize)}
+                    {file.kind} · {format.fileSize(file.byteSize)}
                   </div>
+                  {file.suggestedMove ? (
+                    <Button
+                      className="mt-1 h-6 px-2 text-[10px]"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        setMovePath(file.projectRelativePath);
+                        setPendingAction(file.suggestedMove ?? null);
+                      }}
+                    >
+                      {t(`assetDiscovery.actions.${file.suggestedMove}`)}
+                    </Button>
+                  ) : null}
                 </div>
-              </label>
+              </div>
             ))}
           </div>
           <div className="mt-4 flex justify-end gap-2">
-            <Button
-              size="sm"
-              variant="outline"
-              onClick={() => {
-                onIgnoreSelected(
-                  selectedPaths.length > 0
-                    ? selectedPaths
-                    : files.map((file) => file.projectRelativePath),
-                );
-                onOpenChange(false);
-              }}
-            >
-              Ignore
+            <Button size="sm" variant="outline" onClick={() => onOpenChange(false)}>
+              {t('assetDiscovery.close')}
             </Button>
             <Button
               size="sm"
@@ -160,14 +200,14 @@ export function UntrackedAssetsDialog({
               disabled={selectedPaths.length === 0}
               onClick={() => setPendingAction('delete')}
             >
-              Delete Selected
+              {t('assetDiscovery.deleteSelected')}
             </Button>
             <Button
               size="sm"
               disabled={selectedPaths.length === 0}
               onClick={() => setPendingAction('import')}
             >
-              Import Selected
+              {t('assetDiscovery.importSelected')}
             </Button>
           </div>
         </DialogPopup>
@@ -179,27 +219,33 @@ export function UntrackedAssetsDialog({
         }}
       >
         <DialogPopup showCloseButton={false}>
-          <DialogTitle>{actionLabel} selected files?</DialogTitle>
+          <DialogTitle>{t('assetDiscovery.confirmTitle', { action: actionLabel })}</DialogTitle>
           <DialogDescription>
-            This will {pendingAction === 'import' ? 'import' : 'move to project trash'}{' '}
-            {selectedPaths.length} file{selectedPaths.length === 1 ? '' : 's'}. Continue?
+            {pendingAction === 'support' || pendingAction === 'correct-folder'
+              ? t('assetDiscovery.moveConfirm', { path: movePath })
+              : t('assetDiscovery.confirmFiles', { count: selectedPaths.length })}
           </DialogDescription>
           <div className="mt-2 max-h-32 overflow-auto rounded border p-2 font-mono text-[10px] text-muted-foreground">
-            {selectedPaths.slice(0, 8).map((filePath) => (
+            {(movePath ? [movePath] : selectedPaths).slice(0, 8).map((filePath) => (
               <div key={filePath} className="truncate">
                 {filePath}
               </div>
             ))}
-            {selectedPaths.length > 8 ? <div>+ {selectedPaths.length - 8} more</div> : null}
+            {selectedPaths.length > 8 && !movePath ? (
+              <div>{t('assetDiscovery.moreFiles', { count: selectedPaths.length - 8 })}</div>
+            ) : null}
           </div>
           <div className="mt-4 flex justify-end gap-2">
             <Button
               size="sm"
               variant="outline"
               disabled={busy}
-              onClick={() => setPendingAction(null)}
+              onClick={() => {
+                setPendingAction(null);
+                setMovePath(null);
+              }}
             >
-              Cancel
+              {t('assetDiscovery.cancel')}
             </Button>
             <Button size="sm" disabled={busy} onClick={() => void confirmAction()}>
               {actionLabel}

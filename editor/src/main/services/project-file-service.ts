@@ -572,6 +572,7 @@ function collectProjectAssetPaths(project: unknown): string[] {
     const data = parseAssetData(record.data);
     if (!data || !isSafeProjectAssetPath(data.source.path)) continue;
     paths.add(data.source.path);
+    for (const attachment of data.attachments) paths.add(attachment.path);
   }
   return [...paths].sort();
 }

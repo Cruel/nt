@@ -8,6 +8,9 @@ export interface ProjectAssetAuditFile {
   mimeType?: string;
   byteSize: number;
   modifiedAt: string;
+  revision: string;
+  importable: boolean;
+  suggestedMove?: 'support' | 'correct-folder';
   previewUrl?: string;
 }
 
@@ -25,6 +28,8 @@ export interface ProjectAssetTrashMove {
   projectRelativePath: string;
   trashRelativePath: string;
 }
+
+export type ProjectAssetOrganizationAction = 'support' | 'correct-folder';
 
 export interface ProjectAssetFileOperationResponse {
   ok: boolean;

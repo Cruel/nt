@@ -57,6 +57,7 @@ export type ProjectSourceStructuralOperation =
       sourceIdentity: string;
     }
   | { kind: 'move'; fromPath: string; toPath: string }
+  | { kind: 'move-attachment'; fromPath: string; toPath: string }
   | { kind: 'delete'; path: string };
 
 export interface ProjectSourceStructuralRequest {
