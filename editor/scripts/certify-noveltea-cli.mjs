@@ -4351,8 +4351,33 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
   const archive = path.join(tempRoot, 'platform-template.tar.gz');
   const registry = path.join(tempRoot, 'platform-template-registry');
   await mkdir(path.join(source, 'licenses'), { recursive: true });
+  const noticeText = Buffer.from('MIT License\nCopyright (c) NovelTea certification fixture\n');
+  const noticePath = 'licenses/noveltea-certification-fixture--license.txt';
+  const noticeIndex = Buffer.from(
+    `${JSON.stringify({
+      format: 'noveltea.engine-licenses',
+      components: [
+        {
+          component: 'noveltea-certification-fixture',
+          displayName: 'NovelTea certification fixture',
+          version: '1.0',
+          files: [{ path: noticePath, size: noticeText.length, sha256: sha256(noticeText) }],
+        },
+      ],
+    })}\n`,
+  );
+  const sbomText = Buffer.from(
+    `${JSON.stringify({
+      bomFormat: 'CycloneDX',
+      specVersion: '1.5',
+      version: 1,
+      components: [{ type: 'library', name: 'noveltea-certification-fixture', version: '1.0' }],
+    })}\n`,
+  );
   const inputs = [
-    ['licenses/NOTICE.txt', Buffer.from('NovelTea platform host certification\n'), 'notice'],
+    [noticePath, noticeText, 'notice'],
+    ['licenses/index.json', noticeIndex, 'notice'],
+    ['SBOM.cdx.json', sbomText, 'support'],
     ['player.js', Buffer.from('globalThis.Module = globalThis.Module || {};\n'), 'player'],
     ['player.wasm', Buffer.from([0, 97, 115, 109, 1, 0, 0, 0]), 'player'],
     ['player.data', Buffer.from('certification-data\n'), 'system-asset'],
@@ -4388,12 +4413,15 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
     buildFlavor: 'debug',
     packageAccessModes: ['web-fetch'],
     files: inventory,
-    runtimeDependencies: [{ path: 'licenses/NOTICE.txt', kind: 'notice' }],
+    runtimeDependencies: [
+      { path: noticePath, kind: 'notice' },
+      { path: 'licenses/index.json', kind: 'notice' },
+    ],
     artifacts: {
       archive: path.basename(archive),
       symbols: 'symbols.tar.gz',
-      sbom: 'licenses/NOTICE.txt',
-      notices: 'licenses/NOTICE.txt',
+      sbom: 'SBOM.cdx.json',
+      notices: 'licenses/index.json',
     },
     provenance: { provider: 'local', source: 'certification' },
     host: { assembly: 'any', requiresToolchain: false, tools: [] },

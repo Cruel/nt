@@ -74,9 +74,20 @@ await cp(path.resolve(bundletoolArg), path.join(source, 'android', 'tools', 'bun
 await chmod(path.join(source, 'android', 'gradlew'), 0o755);
 // Use the same resolved license generator and SBOM contract as desktop and Web.
 // The ABI/flavor-specific CMake cache owns the source dependency inventory.
-const cmakeRoots = await findDirectoriesContaining(path.join(root, 'android', 'app', '.cxx'), 'CMakeCache.txt');
-const matchingRoots = cmakeRoots.filter((candidate) => candidate.split(path.sep).includes(abi) &&
-  candidate.toLowerCase().includes(flavor.toLowerCase()));
+const androidCxx = path.join(root, 'android', 'app', '.cxx');
+const cmakeRoots = await findDirectoriesContaining(androidCxx, 'CMakeCache.txt');
+const matchingRoots = [];
+for (const candidate of cmakeRoots) {
+  // Gradle owns .cxx/<variant>/<configuration-hash>/<abi>; fetched dependency
+  // sub-builds may have their own CMakeCache.txt and are not player builds.
+  const parts = path.relative(androidCxx, candidate).split(path.sep);
+  if (parts.length !== 3 || parts[2] !== abi || parts[0].toLowerCase() !== flavor.toLowerCase()) continue;
+  const cache = await readFile(path.join(candidate, 'CMakeCache.txt'), 'utf8');
+  const config = /^CMAKE_BUILD_TYPE:[^=]*=(.*)$/m.exec(cache)?.[1]?.toLowerCase();
+  if ((flavor === 'debug' ? config === 'debug' :
+    ['release', 'relwithdebinfo', 'minsizerel'].includes(config)))
+    matchingRoots.push(candidate);
+}
 if (matchingRoots.length !== 1)
   throw new Error(`Expected one Android ${flavor}/${abi} CMake build root, found ${matchingRoots.length}.`);
 const metadata = spawnSync('node', [path.join(root, 'cmake/generate-player-template-metadata.mjs'),
