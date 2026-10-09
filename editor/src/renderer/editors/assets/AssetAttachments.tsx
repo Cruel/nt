@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { createEditorFormatters } from '@/i18n/formatting';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -36,7 +37,8 @@ interface Props {
 }
 
 export function AssetAttachments({ assetId, project, projectSessionId }: Props) {
-  const { t } = useTranslation('workspace');
+  const { t, i18n } = useTranslation('workspace');
+  const format = createEditorFormatters(i18n.language);
   const executeCommand = useCommandStore((state) => state.executeCommand);
   const openTab = useWorkbenchStore((state) => state.openTab);
   const attachments = useMemo(
@@ -117,7 +119,12 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
     label: string,
   ): boolean {
     try {
-      const patches = assetAttachmentPatches(project, ids, change);
+      const current = useProjectStore.getState();
+      if (current.projectSessionId !== projectSessionId || !isAuthoringProject(current.document)) {
+        setStatus(t('assetAttachments.sessionChanged'));
+        return false;
+      }
+      const patches = assetAttachmentPatches(current.document, ids, change);
       if (!patches.length) {
         setStatus(t('assetAttachments.alreadyAttached'));
         return false;
@@ -167,7 +174,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
             ...(displayName.trim() ? { displayName: displayName.trim() } : {}),
           },
         },
-        'Attach existing Project file',
+        t('assetAttachments.history.attachExisting'),
       )
     ) {
       setRelativePath('');
@@ -177,11 +184,13 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
 
   async function importFiles() {
     if (!projectSessionId) return;
+    const initialProjectInstanceId = useProjectStore.getState().projectInstanceId;
+    const importPurpose = purpose;
     setBusy(true);
     try {
       const result = await window.noveltea.importProjectAttachmentFiles({
         projectSessionId,
-        purpose,
+        purpose: importPurpose,
         ...(destinationDirectory.trim()
           ? { destinationDirectory: destinationDirectory.trim() }
           : {}),
@@ -191,12 +200,29 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
         return;
       }
       if (result.canceled || !result.paths.length) return;
+      const latest = useProjectStore.getState();
+      if (
+        latest.projectSessionId !== projectSessionId ||
+        latest.projectInstanceId !== initialProjectInstanceId ||
+        !isAuthoringProject(latest.document)
+      ) {
+        setStatus(t('assetAttachments.sessionChanged'));
+        return;
+      }
       // One command for the entire selection, so undo removes associations together, not files.
-      const current = new Set(attachments.map((item) => item.path));
+      const record = latest.document.assets[assetId];
+      const liveAttachments = record && parseAssetData(record.data)?.attachments;
+      if (!record || !liveAttachments) {
+        setStatus(t('assetAttachments.sessionChanged'));
+        return;
+      }
+      const current = new Set(liveAttachments.map((item) => item.path));
       const items = [...new Set(result.paths)].filter((value) => !current.has(value));
       if (items.length) {
-        const record = project.assets[assetId]!;
-        const next = [...attachments, ...items.map((filePath) => ({ path: filePath, purpose }))];
+        const next = [
+          ...liveAttachments,
+          ...items.map((filePath) => ({ path: filePath, purpose: importPurpose })),
+        ];
         const response = executeCommand({
           type: 'project.applyPatch',
           label: t('assetAttachments.importFiles'),
@@ -238,7 +264,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       apply(
         [assetId],
         { kind: 'replace', attachment: { ...item, path: editValue }, priorPath: item.path },
-        'Relink Asset attachment',
+        t('assetAttachments.history.relink'),
       )
     ) {
       setEditPath(null);
@@ -251,10 +277,21 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       setStatus(t('assetAttachments.invalidPath'));
       return;
     }
-    const saved = useProjectStore.getState().savedDocument;
+    const store = useProjectStore.getState();
+    const originalInstanceId = store.projectInstanceId;
+    const saved = store.savedDocument;
+    if (
+      store.projectSessionId !== projectSessionId ||
+      useCommandStore.getState().persistencePending ||
+      useCommandStore.getState().history.activeTransaction
+    ) {
+      setStatus(t('assetAttachments.saveBeforeMove'));
+      return;
+    }
     if (
       !isAuthoringProject(saved) ||
-      Object.entries(project.assets).some(([id, asset]) => {
+      !isAuthoringProject(store.document) ||
+      Object.entries(store.document.assets).some(([id, asset]) => {
         const current = parseAssetData(asset.data);
         const baseline = parseAssetData(saved.assets[id]?.data);
         return (
@@ -276,8 +313,15 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
         setStatus(result.error ?? t('assetAttachments.failed'));
         return;
       }
-      if (result.pathRemap)
-        useProjectStore.getState().applyCommittedSourcePathRemap(result.pathRemap);
+      if (
+        useProjectStore.getState().projectSessionId !== projectSessionId ||
+        useProjectStore.getState().projectInstanceId !== originalInstanceId
+      )
+        return;
+      if (result.pathRemap) {
+        if (useProjectStore.getState().applyCommittedSourcePathRemap(result.pathRemap))
+          useCommandStore.getState().invalidateHistoryAfterCommittedFileMove();
+      }
       setMovePath(null);
       setMoveValue('');
       setStatus(t('assetAttachments.updated'));
@@ -301,7 +345,9 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
   function bulkAttach() {
     const item = attachments.find((attachment) => attachment.path === sharePath);
     if (!item || !shareTargets.length) return;
-    if (apply(shareTargets, { kind: 'add', attachment: item }, 'Share Asset attachment')) {
+    if (
+      apply(shareTargets, { kind: 'add', attachment: item }, t('assetAttachments.history.share'))
+    ) {
       setSharePath(null);
       setShareTargets([]);
     }
@@ -317,7 +363,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
     <section className="space-y-3 rounded border p-3" data-workbench-anchor="asset.attachments">
       <h3 className="text-sm font-medium">{t('assetAttachments.title')}</h3>
       <p className="text-xs text-muted-foreground">{t('assetAttachments.description')}</p>
-      <div className="grid gap-2 sm:grid-cols-2">
+      <div className="grid gap-2 @xl:grid-cols-2">
         <div>
           <Label>{t('assetAttachments.purpose')}</Label>
           <Select
@@ -394,8 +440,10 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                     {check && !check.exists ? (
                       <span className="text-destructive">{t('assetAttachments.missing')}</span>
                     ) : null}
-                    {check?.exists ? (
-                      <span className="text-muted-foreground">{check.byteSize} B</span>
+                    {check?.exists && typeof check.byteSize === 'number' ? (
+                      <span className="text-muted-foreground">
+                        {format.fileSize(check.byteSize)}
+                      </span>
                     ) : null}
                   </div>
                   {item.displayName ? (
@@ -411,7 +459,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                             kind: 'replace',
                             attachment: { ...item, purpose: value as AssetAttachmentPurpose },
                           },
-                          'Change attachment purpose',
+                          t('assetAttachments.history.changePurpose'),
                         )
                       }
                     >
@@ -472,7 +520,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                         apply(
                           [assetId],
                           { kind: 'remove', attachment: item },
-                          'Remove attachment association',
+                          t('assetAttachments.history.remove'),
                         )
                       }
                     >
@@ -513,7 +561,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                               ...(name ? { displayName: name } : {}),
                             },
                           },
-                          'Rename attachment display name',
+                          t('assetAttachments.history.rename'),
                         );
                       }}
                     >

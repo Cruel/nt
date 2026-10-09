@@ -35,6 +35,83 @@ function sha256(bytes: Uint8Array): `sha256:${string}` {
 }
 
 describe('active Project session lifecycle', () => {
+  it('persists Asset attachment rewrites when a source file or directory is moved', async () => {
+    const root = await createWorkspace('source-attachment-rewrite');
+    await fs.mkdir(path.join(root, 'records/assets'), { recursive: true });
+    await fs.mkdir(path.join(root, 'scripts/original'), { recursive: true });
+    await fs.writeFile(path.join(root, 'scripts/original/example.lua'), 'return {}\n');
+    await fs.writeFile(path.join(root, 'assets/owned.bin'), 'asset data');
+    const assetPath = path.join(root, 'records/assets/owned.json');
+    const sourceAssetPath = path.join(root, 'records/assets/script.json');
+    await fs.writeFile(
+      sourceAssetPath,
+      JSON.stringify({
+        id: 'script',
+        label: 'Script',
+        data: {
+          kind: 'script',
+          source: { type: 'project-file', path: 'scripts/original/example.lua' },
+          aliases: [],
+          imageMetadata: null,
+          attachments: [{ path: 'scripts/original/example.lua', purpose: 'reference' }],
+        },
+      }),
+    );
+    await fs.writeFile(
+      assetPath,
+      JSON.stringify({
+        id: 'owned',
+        label: 'Owned',
+        data: {
+          kind: 'binary',
+          source: { type: 'project-file', path: 'assets/owned.bin' },
+          aliases: [],
+          imageMetadata: null,
+          attachments: [{ path: 'scripts/original/example.lua', purpose: 'reference' }],
+        },
+      }),
+    );
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const attached = await service.attachToSuccessfulResult(await openProject(root), activation);
+    const projectSessionId = attached.projectSessionId!;
+    expect(
+      await service.mutateProjectSources({
+        projectSessionId,
+        operation: {
+          kind: 'move',
+          fromPath: 'scripts/original/example.lua',
+          toPath: 'scripts/original/renamed.lua',
+        },
+      }),
+    ).toMatchObject({ success: true });
+    expect(JSON.parse(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
+      { path: 'scripts/original/renamed.lua', purpose: 'reference' },
+    ]);
+    expect(JSON.parse(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
+      source: { path: 'scripts/original/renamed.lua' },
+      attachments: [{ path: 'scripts/original/renamed.lua', purpose: 'reference' }],
+    });
+    expect(
+      await service.mutateProjectSources({
+        projectSessionId,
+        operation: {
+          kind: 'move',
+          fromPath: 'scripts/original',
+          toPath: 'scripts/moved',
+        },
+      }),
+    ).toMatchObject({ success: true });
+    expect(JSON.parse(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
+      { path: 'scripts/moved/renamed.lua', purpose: 'reference' },
+    ]);
+    expect(JSON.parse(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
+      source: { path: 'scripts/moved/renamed.lua' },
+      attachments: [{ path: 'scripts/moved/renamed.lua', purpose: 'reference' }],
+    });
+    expect((await openProject(root)).success).toBe(true);
+  });
+
   it('moves a shared attachment and all saved Asset references in one workspace transaction', async () => {
     const project = await createWorkspace('shared-attachment-move');
     const records = path.join(project, 'records/assets');

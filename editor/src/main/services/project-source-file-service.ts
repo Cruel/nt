@@ -202,6 +202,23 @@ function rewriteSemanticPaths(
   scriptSourcePaths: Record<string, string>,
   remap: ReadonlyMap<string, string>,
 ): void {
+  for (const record of Object.values(project.assets)) {
+    const data = parseAssetData(record.data);
+    if (!data) continue;
+    const sourcePath = mappedPath(data.source.path, remap);
+    const attachments = data.attachments.map((attachment) => ({
+      ...attachment,
+      path: mappedPath(attachment.path, remap),
+    }));
+    if (
+      sourcePath !== data.source.path ||
+      attachments.some((attachment, index) => attachment.path !== data.attachments[index]?.path)
+    ) {
+      if (new Set(attachments.map((attachment) => attachment.path)).size !== attachments.length)
+        throw new Error(`Source move would create duplicate attachments on Asset '${record.id}'.`);
+      record.data = { ...data, source: { ...data.source, path: sourcePath }, attachments };
+    }
+  }
   for (const record of Object.values(project.materials)) {
     const shader = (record.data as { shader?: Record<string, { kind?: string; path?: string }> })
       .shader;

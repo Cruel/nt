@@ -11,6 +11,7 @@ import {
   serializeWorkbenchTabStates,
 } from '@/workbench/workbench-tab-state';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import { assetAttachmentPatches } from '../../shared/project-schema/authoring-asset-attachments';
 
 const tab: WorkbenchTab = {
   id: 'tab:asset-detail:assets:logo',
@@ -63,6 +64,146 @@ beforeEach(() => {
 });
 
 describe('AssetEditor', () => {
+  it('merges imported associations with changes made during the asynchronous file picker', async () => {
+    const document = project();
+    useProjectStore.getState().loadProjectDocument({
+      document,
+      savedDocument: document,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    let finishImport!: (value: { paths: string[]; reused: string[] }) => void;
+    vi.mocked(window.noveltea.importProjectAttachmentFiles).mockReturnValue(
+      new Promise((resolve) => {
+        finishImport = resolve;
+      }),
+    );
+    render(<AssetEditor tab={tab} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Import Files…' }));
+    await waitFor(() => expect(window.noveltea.importProjectAttachmentFiles).toHaveBeenCalled());
+    act(() => {
+      const live = useProjectStore.getState().document as typeof document;
+      expect(
+        useCommandStore.getState().executeCommand({
+          type: 'project.applyPatch',
+          label: 'Attach from another inspector',
+          payload: assetAttachmentPatches(live, ['logo'], {
+            kind: 'add',
+            attachment: { path: 'support/other.md', purpose: 'other' },
+          }),
+          originSaveUnitId: 'record:assets:logo',
+          persistencePolicy: 'manual-save',
+        }).ok,
+      ).toBe(true);
+      finishImport({ paths: ['support/imported.md'], reused: [] });
+    });
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+      ).toEqual([
+        { path: 'support/other.md', purpose: 'other' },
+        { path: 'support/imported.md', purpose: 'reference' },
+      ]),
+    );
+    act(() => {
+      useCommandStore.getState().undo();
+    });
+    expect(
+      (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+    ).toEqual([{ path: 'support/other.md', purpose: 'other' }]);
+  });
+
+  it('does not attach completed imports to a different active Project session', async () => {
+    const document = project();
+    useProjectStore.getState().loadProjectDocument({
+      document,
+      savedDocument: document,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    let finishImport!: (value: { paths: string[]; reused: string[] }) => void;
+    vi.mocked(window.noveltea.importProjectAttachmentFiles).mockReturnValue(
+      new Promise((resolve) => {
+        finishImport = resolve;
+      }),
+    );
+    render(<AssetEditor tab={tab} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Import Files…' }));
+    await waitFor(() => expect(window.noveltea.importProjectAttachmentFiles).toHaveBeenCalled());
+    const other = project();
+    act(() => {
+      useProjectStore.getState().loadProjectDocument({
+        document: other,
+        savedDocument: other,
+        projectPath: '/mock/another',
+        projectFilePath: '/mock/another/project.json',
+        projectSessionId: '22222222-2222-4222-8222-222222222222',
+      });
+      finishImport({ paths: ['support/stale.md'], reused: [] });
+    });
+    await waitFor(() =>
+      expect(screen.getByText(/active Project or Asset changed/i)).toBeInTheDocument(),
+    );
+    expect(
+      (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+    ).toBeUndefined();
+  });
+
+  it('invalidates stale undo patches after a committed attachment file move', async () => {
+    const document = project();
+    document.assets.logo.data.attachments = [{ path: 'support/original.md', purpose: 'reference' }];
+    useProjectStore.getState().loadProjectDocument({
+      document,
+      savedDocument: document,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
+      async (_session, filePath) => ({ path: filePath, exists: true, byteSize: 20 }),
+    );
+    vi.mocked(window.noveltea.mutateProjectSources).mockResolvedValue({
+      ok: true,
+      success: true,
+      pathRemap: { 'support/original.md': 'support/moved.md' },
+      changedPaths: ['support/original.md', 'support/moved.md'],
+    });
+    render(<AssetEditor tab={tab} />);
+    act(() => {
+      const live = useProjectStore.getState().document as typeof document;
+      expect(
+        useCommandStore.getState().executeCommand({
+          type: 'project.applyPatch',
+          label: 'Rename attachment display name',
+          payload: assetAttachmentPatches(live, ['logo'], {
+            kind: 'replace',
+            attachment: { path: 'support/original.md', purpose: 'reference', displayName: 'Notes' },
+          }),
+          originSaveUnitId: 'record:assets:logo',
+          persistencePolicy: 'manual-save',
+        }).ok,
+      ).toBe(true);
+      useProjectStore.getState().markSaved();
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Move File' }));
+    fireEvent.change(screen.getByLabelText('New Project file location'), {
+      target: { value: 'support/moved.md' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Move and Update Links' }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+      ).toEqual([{ path: 'support/moved.md', purpose: 'reference', displayName: 'Notes' }]),
+    );
+    expect(useCommandStore.getState().history.entries).toHaveLength(0);
+    expect(useCommandStore.getState().undo().projectChanged).toBe(false);
+    expect(
+      (useProjectStore.getState().savedDocument as typeof document).assets.logo.data.attachments,
+    ).toEqual([{ path: 'support/moved.md', purpose: 'reference', displayName: 'Notes' }]);
+  });
+
   it('adds existing Project attachments and shares them atomically with other Assets', async () => {
     const document = project();
     document.assets.other = {

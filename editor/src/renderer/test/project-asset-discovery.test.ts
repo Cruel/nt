@@ -41,6 +41,8 @@ describe('Project Asset discovery', () => {
     await writeFile(path.join(root, 'assets/images/header-only.png'), tinyPng.subarray(0, 8));
     await writeFile(path.join(root, 'assets/images/bad.jpg'), 'not a JPEG');
     await writeFile(path.join(root, 'assets/audio/noise.mp3'), 'text not an MP3');
+    await writeFile(path.join(root, 'assets/audio/truncated.ogg'), 'OggS');
+    await writeFile(path.join(root, 'assets/audio/truncated.flac'), 'fLaC');
     await writeFile(path.join(root, 'assets/audio/valid.wav'), 'RIFFxxxxWAVEfmt ');
     await writeFile(
       path.join(root, 'assets/video/clip.mp4'),
@@ -57,6 +59,8 @@ describe('Project Asset discovery', () => {
       result.untrackedFiles.map((file) => [file.projectRelativePath, file.importable]),
     ).toEqual([
       ['assets/audio/noise.mp3', false],
+      ['assets/audio/truncated.flac', false],
+      ['assets/audio/truncated.ogg', false],
       ['assets/audio/valid.wav', true],
       ['assets/images/bad.jpg', false],
       ['assets/images/font.ttf', true],
@@ -86,6 +90,13 @@ describe('Project Asset discovery', () => {
     const invalid = await importUntrackedProjectAssets(projectFilePath, ['assets/images/bad.jpg']);
     expect(invalid.success).toBe(false);
     expect(invalid.error).toMatch(/recognized image format/);
+    for (const extension of ['ogg', 'flac']) {
+      const truncated = await importUntrackedProjectAssets(projectFilePath, [
+        `assets/audio/truncated.${extension}`,
+      ]);
+      expect(truncated.success).toBe(false);
+      expect(truncated.error).toMatch(/recognized audio format/);
+    }
   });
 
   it('excludes registered sources, temporary paths, and symbolic links', async () => {

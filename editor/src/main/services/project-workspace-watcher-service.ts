@@ -10,6 +10,10 @@ import type { AuthoringProject } from '../../shared/project-schema/authoring-pro
 import { stripLocalEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { assetSourcePaths } from '../../shared/project-workspace/project-workspace-service';
+import {
+  attachmentUsages,
+  projectAttachmentPaths,
+} from '../../shared/project-schema/authoring-asset-attachments';
 import { buildJsonPointer } from '../../shared/json-pointer';
 import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
 import { projectSourceUsages } from './project-source-file-service';
@@ -28,6 +32,7 @@ interface ActiveWatcher {
   sourceChangedPaths: Set<string>;
   transactionObserved: boolean;
   assetSourcePaths: Set<string>;
+  assetDiagnosticsSignature: string;
   workspaceSession: ActiveProjectWorkspaceSession;
   resumeHandler: () => void;
   automaticRetryUsed: boolean;
@@ -134,6 +139,7 @@ export function refreshProjectWorkspaceWatchAssetSourcePaths(
 ): void {
   target.clear();
   assetSourcePaths(project).forEach((assetPath) => target.add(assetPath));
+  projectAttachmentPaths(project).forEach((attachmentPath) => target.add(attachmentPath));
 }
 
 function appendExternalValues(
@@ -404,8 +410,11 @@ async function flushWatcher(
     });
   }
   const assetDiagnostics: ProjectValidationDiagnostic[] = assetFileRevisions
-    ? Object.entries(assetFileRevisions).flatMap(([relativePath, revision]) =>
-        revision === 'absent' && watcher.assetSourcePaths.has(relativePath)
+    ? Object.entries(assetFileRevisions).flatMap(([relativePath, revision]) => {
+        if (revision !== 'absent' || !watcher.assetSourcePaths.has(relativePath)) return [];
+        const currentProject = watcher.workspaceSession.project();
+        const isSource = assetSourcePaths(currentProject).includes(relativePath);
+        return isSource
           ? [
               {
                 code: 'workspace.asset-source.missing',
@@ -413,18 +422,41 @@ async function flushWatcher(
                 category: 'Asset source',
                 path: `/${relativePath}`,
                 message: `Referenced asset source '${relativePath}' is missing.`,
-                boundaries: ['authoring'],
+                boundaries: ['authoring'] as ProjectValidationDiagnostic['boundaries'],
                 ownerPaths: [`/${relativePath}`],
               },
             ]
-          : [],
-      )
+          : [];
+      })
     : [];
+  // A diagnostic snapshot must survive unrelated batches and clear after relink/removal.
+  const currentProject = watcher.workspaceSession.project();
+  for (const relativePath of projectAttachmentPaths(currentProject)) {
+    const exists = await fs.stat(path.join(watcher.projectRoot, relativePath)).then(
+      (stat) => stat.isFile(),
+      () => false,
+    );
+    if (exists) continue;
+    for (const usage of attachmentUsages(currentProject, relativePath)) {
+      const ownerPath = buildJsonPointer(['assets', usage.assetId]);
+      assetDiagnostics.push({
+        code: 'workspace.asset-attachment.missing',
+        severity: 'error',
+        category: 'Asset attachment',
+        path: `${ownerPath}/data/attachments`,
+        message: `Attached file '${relativePath}' is missing. Open Asset '${usage.label}' and use Relink to repair the association.`,
+        boundaries: ['authoring'],
+        ownerPaths: [ownerPath],
+      });
+    }
+  }
+  const assetDiagnosticsSignature = JSON.stringify(assetDiagnostics);
   if (
     authoringChangedPaths.length === 0 &&
     publishedAssetChangedPaths.length === 0 &&
     sourceChangedPaths.length === 0 &&
-    !authoring
+    !authoring &&
+    assetDiagnosticsSignature === watcher.assetDiagnosticsSignature
   )
     return;
   const changedPaths = [
@@ -446,6 +478,7 @@ async function flushWatcher(
     owner.isDestroyed()
   )
     return;
+  watcher.assetDiagnosticsSignature = assetDiagnosticsSignature;
   owner.webContents.send(IPC_CHANNELS.PROJECT_WORKSPACE_WATCH_EVENT, {
     projectSessionId: watcher.projectSessionId,
     changedPaths,
@@ -454,7 +487,7 @@ async function flushWatcher(
     sourceChangedPaths,
     ...(sourceDiagnostics.length > 0 ? { sourceDiagnostics } : {}),
     ...(assetFileRevisions ? { assetFileRevisions } : {}),
-    ...(assetDiagnostics.length > 0 ? { assetDiagnostics } : {}),
+    assetDiagnostics,
     ...(authoring ? { authoring } : {}),
   } satisfies ProjectWorkspaceWatchEvent);
   if (
@@ -522,6 +555,7 @@ export async function startProjectWorkspaceWatcher(
   if (!isSessionCurrent(projectSessionId)) return staleWatcherResponse();
   await workspaceSession.captureAuthoringFileStamps();
   const knownAssetSourcePaths = new Set(workspaceSession.knownAssetSourcePaths());
+  refreshProjectWorkspaceWatchAssetSourcePaths(knownAssetSourcePaths, workspaceSession.project());
   const watcher = chokidar.watch(projectRoot, {
     ignoreInitial: true,
     awaitWriteFinish: {
@@ -550,6 +584,7 @@ export async function startProjectWorkspaceWatcher(
     sourceChangedPaths: new Set(),
     transactionObserved: false,
     assetSourcePaths: knownAssetSourcePaths,
+    assetDiagnosticsSignature: '[]',
     workspaceSession,
     resumeHandler: requestResync,
     automaticRetryUsed: false,
@@ -564,6 +599,9 @@ export async function startProjectWorkspaceWatcher(
   watcher.on('error', requestResync);
   powerMonitor.on('resume', requestResync);
   activeWatcher = state;
+  // ignoreInitial suppresses filesystem events for attachments already missing on reopen.
+  for (const attachmentPath of projectAttachmentPaths(workspaceSession.project()))
+    schedule(path.join(projectRoot, attachmentPath));
   return { ok: true, success: true, diagnostics: [] };
 }
 
