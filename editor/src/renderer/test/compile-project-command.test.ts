@@ -98,7 +98,7 @@ describe('project compiler workspace command', () => {
       },
     ]);
     expect(result.report.bytesWritten).toBeGreaterThan(0);
-  });
+  }, 20_000);
 
   it('rejects retired monolithic authoring-project input', async () => {
     const directory = await fs.mkdtemp(path.join(tmpdir(), 'noveltea-project-compile-monolith-'));

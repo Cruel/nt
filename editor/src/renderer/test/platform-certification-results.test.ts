@@ -37,7 +37,7 @@ function setup(corruptLicenseIndex = false) {
     })}\n`,
   );
   const licensePath = 'licenses/fixture-lib--license.txt';
-  const licenseText = 'MIT License\nCopyright (c) Fixture\n';
+  const licenseText = 'MIT License\nCopyright (c) Fixture\n\fAdditional page\n';
   writeFileSync(path.join(stage, licensePath), licenseText);
   writeFileSync(
     path.join(stage, 'licenses/index.json'),

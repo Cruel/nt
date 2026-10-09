@@ -37,10 +37,16 @@ const registryRoot = () =>
   process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
   path.join(os.homedir(), '.noveltea', 'templates');
 const digest = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
+const licenseSlug = (value: string) =>
+  value
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '');
 function containsControlCharacters(value: string): boolean {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index);
-    if (code === 127 || (code < 32 && code !== 9 && code !== 10 && code !== 13)) return true;
+    if (code === 127 || (code < 32 && code !== 9 && code !== 10 && code !== 12 && code !== 13))
+      return true;
   }
   return false;
 }
@@ -89,6 +95,8 @@ async function verifyEngineLicenses(root: string, descriptor: TemplateDescriptor
     named.add(component.component);
     previous = component.component;
     for (const file of component.files) {
+      if (!file.path.startsWith(`licenses/${licenseSlug(component.component)}--`))
+        throw new Error(`License '${file.path}' does not belong to '${component.component}'.`);
       if (indexed.has(file.path)) throw new Error(`Duplicate license index path '${file.path}'.`);
       indexed.add(file.path);
       const item = declared.get(file.path);
