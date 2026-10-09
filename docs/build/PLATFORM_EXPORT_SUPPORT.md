@@ -78,7 +78,9 @@ prebuilt SDL3 AAR and native shared-library closure, and checks the staged syste
 font. The packaged SDL3 license is pinned to the SDL3 AAR version; unexpected
 shipped native libraries require an explicit verified source mapping before
 packaging can succeed. The Android descriptor and release sidecar use the same
-named index and byte-level certification as desktop and Web.
+named index and byte-level certification as desktop and Web. Installing or
+revalidating an Android template also applies the same license-index, named-text,
+inventory, runtime-dependency, and SBOM consistency checks as other platforms.
 Host-only tools/tests are excluded. Missing/ambiguous sources, placeholder
 licenses, or an unrecognized source layout abort generation; do not add
 hand-maintained copies of ordinary vcpkg copyrights.

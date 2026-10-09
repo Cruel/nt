@@ -79,7 +79,6 @@ const engineNoticeIndexSchema = z
   .strict();
 
 async function verifyEngineLicenses(root: string, descriptor: TemplateDescriptor) {
-  if (descriptor.platform === 'android') return; // Android's independent template work is not #413.
   const index = engineNoticeIndexSchema.parse(
     JSON.parse(await readFile(path.join(root, 'licenses/index.json'), 'utf8')),
   );
