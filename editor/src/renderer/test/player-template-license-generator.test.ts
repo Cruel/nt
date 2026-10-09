@@ -243,6 +243,23 @@ describe('resolved player-template license generation', () => {
     expect(generate(fixture.root).result.stderr).toContain('placeholder text');
   });
 
+  it('rejects notices the runtime reader cannot display while retaining upstream form-feed bytes', () => {
+    const fixture = webFixture();
+    const source = path.join(fixture.build, '_deps/bgfx.cmake-src/bimg/LICENSE');
+    writeFileSync(source, `License\n${'x'.repeat(1024 * 1024)}`);
+    expect(generate(fixture.root).result.stderr).toContain('empty or placeholder text');
+
+    writeFileSync(source, 'License\u0085invalid control');
+    expect(generate(fixture.root).result.stderr).toContain('empty or placeholder text');
+
+    const original = 'License\fPage two\n';
+    writeFileSync(source, original);
+    const output = generate(fixture.root);
+    expect(output.result.status, output.result.stderr).toBe(0);
+    const component = getIndex(output.stage).components.find((item) => item.component === 'bimg')!;
+    expect(readFileSync(path.join(output.stage, component.files[0]!.path), 'utf8')).toBe(original);
+  });
+
   it('fails if Emscripten port version resolution is ambiguous', () => {
     const fixture = webFixture();
     write(

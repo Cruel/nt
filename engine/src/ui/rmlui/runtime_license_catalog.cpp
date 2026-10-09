@@ -55,6 +55,17 @@ bool valid_text(std::string_view text)
                std::as_bytes(std::span(text.data(), text.size())));
 }
 
+bool valid_engine_text(std::string_view text)
+{
+    // Original upstream notices can use form feeds as page separators. Preserve
+    // their bytes; allow that one control only for engine-owned notices.
+    if (text.empty() || text.size() > kMaxNoticeBytes)
+        return false;
+    std::string normalized(text);
+    std::replace(normalized.begin(), normalized.end(), static_cast<char>(12), '\n');
+    return valid_text(normalized);
+}
+
 std::optional<nlohmann::json> read_index(const assets::AssetManager& assets, std::string_view path)
 {
     auto text = assets.read_text(path);
@@ -178,8 +189,11 @@ std::optional<std::string> RuntimeLicenseCatalog::read_notice(const assets::Asse
         return std::nullopt;
     const auto& notice = notices[index];
     auto text = assets.read_text(notice.path);
-    if (!text || !valid_text(*text.value) ||
-        (notice.byte_size != 0 && notice.byte_size != text.value->size()) ||
+    if (!text)
+        return std::nullopt;
+    const bool content_valid =
+        notice.group == "engine" ? valid_engine_text(*text.value) : valid_text(*text.value);
+    if (!content_valid || (notice.byte_size != 0 && notice.byte_size != text.value->size()) ||
         core::sha256_hex(std::as_bytes(std::span(text.value->data(), text.value->size()))) !=
             notice.sha256)
         return std::nullopt;

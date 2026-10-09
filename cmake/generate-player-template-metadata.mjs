@@ -40,8 +40,8 @@ function addComponent(name, componentVersion, sources, provenance) {
       throw new Error(`Required ${name} license source missing: ${absolute}`);
     const data = readFileSync(absolute);
     const rendered = textDecoder.decode(data);
-    if (!rendered.trim() ||
-        /[\u0000-\u0008\u000b\u000e-\u001f\u007f]/.test(rendered) ||
+    if (!rendered.trim() || data.length > 1024 * 1024 ||
+        /[\u0000-\u0008\u000b\u000e-\u001f\u007f-\u009f]/.test(rendered) ||
         /No dependency notice file was found|Resolved dependency license texts are collected|PLACEHOLDER LICENSE/i.test(rendered))
       throw new Error(`Required ${name} license contains empty or placeholder text: ${absolute}`);
     let sourceName = slug(path.basename(source)) || 'notice';
@@ -243,6 +243,8 @@ if (android) {
 }
 
 notices.sort((a, b) => a.component < b.component ? -1 : a.component > b.component ? 1 : 0);
+if (notices.reduce((sum, item) => sum + item.files.length, 0) > 512)
+  throw new Error('Engine notice inventory exceeds the runtime viewer limit of 512 entries.');
 components.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
 if (notices.length !== components.length) throw new Error('SBOM/license component count mismatch.');
 mkdirSync(output, { recursive: true });
@@ -250,6 +252,9 @@ writeFileSync(path.join(output, 'SBOM.cdx.json'), `${JSON.stringify({
   bomFormat: 'CycloneDX', specVersion: '1.5', version: 1,
   metadata: { component: { type: 'application', name: 'noveltea-player', version } }, components,
 }, null, 2)}\n`);
-writeFileSync(path.join(output, 'licenses', 'index.json'), `${JSON.stringify({
+const indexBytes = `${JSON.stringify({
   format: 'noveltea.engine-licenses', components: notices,
-}, null, 2)}\n`);
+}, null, 2)}\n`;
+if (Buffer.byteLength(indexBytes) > 1024 * 1024)
+  throw new Error('Engine license index exceeds the runtime reader limit of 1 MiB.');
+writeFileSync(path.join(output, 'licenses', 'index.json'), indexBytes);

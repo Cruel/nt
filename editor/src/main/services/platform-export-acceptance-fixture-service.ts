@@ -2,6 +2,8 @@ import { createHash } from 'node:crypto';
 import { copyFile, mkdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import sharp from 'sharp';
+import { createLocalizedAssetVariant } from '../../shared/authoring-localized-assets';
+import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import {
   parsePlatformExportProfile,
   type ExportPlatform,
@@ -141,6 +143,48 @@ export async function materializePlatformExportAcceptanceFixture(
     }
   }
   const profile = profileFor(options);
+  const fontNotice = 'support/licenses/shared-font.txt';
+  project.assets['body-font']!.data.attachments = [
+    { path: fontNotice, purpose: 'distribution-notice', displayName: 'Shared Font License' },
+  ];
+  project.assets['alternate-font'] = {
+    id: 'alternate-font',
+    label: 'Alternate Font',
+    data: assetDataFromImportMetadata({
+      kind: 'font',
+      projectRelativePath: 'assets/fonts/alternate.ttf',
+      imageMetadata: null,
+    }),
+  };
+  project.assets['alternate-font'].data.attachments = [
+    { path: fontNotice, purpose: 'distribution-notice', displayName: 'Shared Font License' },
+  ];
+  project.layouts['fixture-hud']!.data.dependencies.fonts.push({
+    $ref: { collection: 'assets', id: 'alternate-font' },
+  });
+  project.assets['backdrop-fr'] = {
+    id: 'backdrop-fr',
+    label: 'French Backdrop',
+    data: assetDataFromImportMetadata({
+      kind: 'image',
+      projectRelativePath: 'assets/images/backdrop-fr.png',
+      imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+    }),
+  };
+  project.assets['backdrop-fr'].data.attachments = [
+    {
+      path: 'support/licenses/localized-art.txt',
+      purpose: 'distribution-notice',
+      displayName: 'Localized Artwork',
+    },
+  ];
+  project.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+  project.localization.assets.fr = {
+    backdrop: createLocalizedAssetVariant(project, 'backdrop', 'backdrop-fr')!,
+  };
+  project.settings.distributionNotices = [
+    { path: 'support/licenses/project.md', displayName: 'Project-wide Credits' },
+  ];
   project.export = {
     runtime: {
       id: 'runtime-canonical',
@@ -162,7 +206,7 @@ export async function materializePlatformExportAcceptanceFixture(
       includeTests: false,
       previewAfterExport: false,
       localization: {
-        locales: ['en'],
+        locales: ['en', 'fr'],
         defaultLocale: 'en',
         quality: 'development',
       },
@@ -180,6 +224,7 @@ export async function materializePlatformExportAcceptanceFixture(
     mkdir(path.join(projectRoot, 'assets/fonts'), { recursive: true }),
     mkdir(path.join(projectRoot, 'assets/audio'), { recursive: true }),
     mkdir(path.join(projectRoot, 'assets/scripts'), { recursive: true }),
+    mkdir(path.join(projectRoot, 'support/licenses'), { recursive: true }),
     mkdir(path.join(projectRoot, 'shaders'), { recursive: true }),
   ]);
   await sharp({ create: { width: 1024, height: 1024, channels: 4, background: '#553399' } })
@@ -188,7 +233,23 @@ export async function materializePlatformExportAcceptanceFixture(
   await sharp({ create: { width: 64, height: 64, channels: 4, background: '#223355' } })
     .png()
     .toFile(path.join(projectRoot, 'assets/images/backdrop.png'));
+  await sharp({ create: { width: 64, height: 64, channels: 4, background: '#772255' } })
+    .png()
+    .toFile(path.join(projectRoot, 'assets/images/backdrop-fr.png'));
   await copyFile(options.fontSourcePath, path.join(projectRoot, 'assets/fonts/body.ttf'));
+  await copyFile(options.fontSourcePath, path.join(projectRoot, 'assets/fonts/alternate.ttf'));
+  await writeFile(
+    path.join(projectRoot, 'support/licenses/shared-font.txt'),
+    'Fixture font license\r\n',
+  );
+  await writeFile(
+    path.join(projectRoot, 'support/licenses/localized-art.txt'),
+    'French artwork attribution\n',
+  );
+  await writeFile(
+    path.join(projectRoot, 'support/licenses/project.md'),
+    'Project-wide distribution terms\n',
+  );
   await writeFile(path.join(projectRoot, 'assets/audio/theme.wav'), wavSilence());
   await writeFile(path.join(projectRoot, 'assets/scripts/startup.lua'), 'fixture_started = true\n');
   await writeFile(

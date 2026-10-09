@@ -28,6 +28,7 @@ export interface AndroidArtifactInspectionRequest {
   artifacts: Array<{ kind: 'apk' | 'aab'; path: string }>;
   deployment: PlatformDeploymentModel;
   descriptor: TemplateDescriptor;
+  templateRoot: string;
   packageSha256: string;
   temporaryRoot: string;
   probe: AndroidToolchainProbeResult;
@@ -60,6 +61,78 @@ function exactSet(actual: string[], expected: string[]) {
     actual.length === expected.length &&
     actual.every((item, index) => item === [...expected].sort()[index])
   );
+}
+
+// Audit the Android asset namespace that the player actually mounts as system:/.
+// Template integrity alone cannot prove that Gradle packaged its generated assets.
+export async function inspectAndroidLicenseAssets(
+  artifactAssetsRoot: string,
+  templateRoot: string,
+  descriptor: TemplateDescriptor,
+): Promise<PlatformStageDiagnostic[]> {
+  const expected = descriptor.files
+    .filter((entry) => entry.path.startsWith('licenses/'))
+    .sort((a, b) => a.path.localeCompare(b.path));
+  const expectedPaths = expected.map((entry) => entry.path);
+  const licensesRoot = path.join(artifactAssetsRoot, 'system', 'licenses');
+  const actualPaths: string[] = [];
+  const walk = async (directory: string, prefix = 'licenses'): Promise<void> => {
+    for (const entry of await readdir(directory, { withFileTypes: true })) {
+      const relative = `${prefix}/${entry.name}`;
+      if (entry.isDirectory()) await walk(path.join(directory, entry.name), relative);
+      else if (entry.isFile()) actualPaths.push(relative);
+      else throw new Error(`Non-regular Android license resource '${relative}'.`);
+    }
+  };
+  try {
+    await walk(licensesRoot);
+  } catch (error) {
+    return [
+      diagnostic(
+        'android-license-inventory-missing',
+        'assets/system/licenses',
+        `Packaged engine license resources are unavailable: ${error instanceof Error ? error.message : String(error)}`,
+      ),
+    ];
+  }
+  actualPaths.sort();
+  if (!expectedPaths.includes('licenses/index.json') || !exactSet(actualPaths, expectedPaths))
+    return [
+      diagnostic(
+        'android-license-inventory-mismatch',
+        'assets/system/licenses',
+        `Packaged engine license resources [${actualPaths.join(', ')}] differ from the certified template inventory [${expectedPaths.join(', ')}].`,
+      ),
+    ];
+  const diagnostics: PlatformStageDiagnostic[] = [];
+  for (const entry of expected) {
+    try {
+      const actual = await readFile(path.join(artifactAssetsRoot, 'system', entry.path));
+      const template = await readFile(path.join(templateRoot, entry.path));
+      if (
+        actual.length !== entry.size ||
+        sha256(actual) !== entry.sha256 ||
+        template.length !== entry.size ||
+        sha256(template) !== entry.sha256
+      )
+        diagnostics.push(
+          diagnostic(
+            'android-license-content-mismatch',
+            `assets/system/${entry.path}`,
+            `Packaged engine notice '${entry.path}' differs from the certified source bytes/checksum.`,
+          ),
+        );
+    } catch (error) {
+      diagnostics.push(
+        diagnostic(
+          'android-license-content-missing',
+          `assets/system/${entry.path}`,
+          `Could not read engine notice '${entry.path}': ${error instanceof Error ? error.message : String(error)}`,
+        ),
+      );
+    }
+  }
+  return diagnostics;
 }
 
 async function inspectApk(
@@ -245,6 +318,13 @@ async function inspectApk(
     );
     return { diagnostics, signature: 'unknown', nativeLibraries: [] };
   }
+  diagnostics.push(
+    ...(await inspectAndroidLicenseAssets(
+      path.join(extract, 'assets'),
+      request.templateRoot,
+      request.descriptor,
+    )),
+  );
   const packagePath = path.join(extract, 'assets', 'noveltea', 'bootstrap', 'game.ntpkg');
   const configPath = path.join(extract, 'assets', 'noveltea', 'bootstrap', 'player.json');
   try {
@@ -394,6 +474,13 @@ export async function inspectAndroidArtifacts(
       try {
         const bundleExtract = path.join(request.temporaryRoot, 'bundle');
         await extractArchive(artifact.path, bundleExtract, request.local.javaHome);
+        diagnostics.push(
+          ...(await inspectAndroidLicenseAssets(
+            path.join(bundleExtract, 'base', 'assets'),
+            request.templateRoot,
+            request.descriptor,
+          )),
+        );
         const bundleAbiRoot = path.join(bundleExtract, 'base', 'lib');
         const bundleAbis = (await readdir(bundleAbiRoot, { withFileTypes: true }))
           .filter((entry) => entry.isDirectory())

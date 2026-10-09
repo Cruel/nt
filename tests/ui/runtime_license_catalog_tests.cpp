@@ -111,3 +111,30 @@ TEST_CASE("license catalog admits a one-MiB plain text notice but rejects larger
     add(*project, "project:/licenses/large.txt", text + "L");
     CHECK_FALSE(catalog.read_notice(manager, 0));
 }
+
+TEST_CASE("engine notice pagination form feeds remain readable without relaxing Project notices")
+{
+    auto system = std::make_shared<assets::MemoryAssetSource>();
+    auto project = std::make_shared<assets::MemoryAssetSource>();
+    const std::string engine_text = "Upstream license page 1\fPage 2\n";
+    add(*system, "system:/licenses/upstream--license.txt", engine_text);
+    add(*system, "system:/licenses/index.json",
+        "{\"format\":\"noveltea.engine-licenses\",\"components\":[{\"component\":\"upstream\","
+        "\"displayName\":\"Upstream\",\"version\":\"1.0\",\"files\":[{\"path\":\"licenses/"
+        "upstream--license.txt\",\"size\":" +
+            std::to_string(engine_text.size()) + ",\"sha256\":\"" + digest(engine_text) +
+            "\"}]}]}");
+    add(*project, "project:/licenses/local.txt", engine_text);
+    add(*project, "project:/licenses/index.json",
+        "{\"schema\":\"noveltea.project-notices\",\"notices\":[{\"path\":\"licenses/local.txt\","
+        "\"source\":\"local.txt\",\"displayName\":\"Local\",\"contentHash\":\"sha256:" +
+            digest(engine_text) + "\"}]}");
+    assets::AssetManager manager;
+    manager.mount("system", system);
+    manager.mount("project", project);
+    const auto catalog = ui::rmlui::RuntimeLicenseCatalog::load(manager);
+    REQUIRE_FALSE(catalog.invalid_inventory);
+    REQUIRE(catalog.notices.size() == 2);
+    CHECK(catalog.read_notice(manager, 0) == engine_text);
+    CHECK_FALSE(catalog.read_notice(manager, 1));
+}

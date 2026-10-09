@@ -44,6 +44,25 @@ Use `--dry-run` on semantic mutations when the command supports it. A semantic c
 current project, so diagnostics produced while a multi-record edit is only half complete are not the
 final verdict on the intended coherent change.
 
+## Distribution notices and license verification
+
+Use Project Settings `distributionNotices` for game-wide acknowledgements, and Asset
+`attachments` with purpose `distribution-notice` for obligations attached to a
+physical packaged Asset. Reference portable Project-relative UTF-8 `.txt` or `.md`
+files (usually under `support/licenses/`), never absolute paths. One source file
+can be associated with several Assets without copying it or exporting duplicate
+entries. Localized Asset variants can have their own notices; the final export
+includes notices for every physical Asset actually packaged for the selected
+locales. Source/Reference/Other attachments are not distribution notices.
+
+The Runtime Package stores Project notices under `licenses/` with its own index;
+it does **not** contain engine dependency licenses. Certified player templates
+provide those separately through `system:/licenses/`. Use the built-in Licenses
+System Layout in the game preview to inspect the two provenance groups, then
+run `noveltea platform export` with a target-specific certified template. Never
+substitute another target's engine notices during preview or construct a second
+license reader.
+
 ## Complete coherent edits
 
 Many operations span multiple records. For example, presenting a new exact Interactable in a Room

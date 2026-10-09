@@ -45,7 +45,10 @@ const licenseSlug = (value: string) =>
 function containsControlCharacters(value: string): boolean {
   for (let index = 0; index < value.length; index++) {
     const code = value.charCodeAt(index);
-    if (code === 127 || (code < 32 && code !== 9 && code !== 10 && code !== 12 && code !== 13))
+    if (
+      (code >= 127 && code <= 159) ||
+      (code < 32 && code !== 9 && code !== 10 && code !== 12 && code !== 13)
+    )
       return true;
   }
   return false;
@@ -79,8 +82,11 @@ const engineNoticeIndexSchema = z
   .strict();
 
 async function verifyEngineLicenses(root: string, descriptor: TemplateDescriptor) {
+  const indexBytes = await readFile(path.join(root, 'licenses/index.json'));
+  if (indexBytes.length > 1024 * 1024)
+    throw new Error('Engine license index exceeds the runtime reader limit.');
   const index = engineNoticeIndexSchema.parse(
-    JSON.parse(await readFile(path.join(root, 'licenses/index.json'), 'utf8')),
+    JSON.parse(new TextDecoder('utf-8', { fatal: true }).decode(indexBytes)),
   );
   const declared = new Map(descriptor.files.map((item) => [item.path, item]));
   const indexed = new Set(['licenses/index.json']);
@@ -112,6 +118,7 @@ async function verifyEngineLicenses(root: string, descriptor: TemplateDescriptor
       const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
       if (
         bytes.length !== file.size ||
+        bytes.length > 1024 * 1024 ||
         digest(bytes) !== file.sha256 ||
         !content.trim() ||
         containsControlCharacters(content) ||
@@ -123,6 +130,8 @@ async function verifyEngineLicenses(root: string, descriptor: TemplateDescriptor
     }
   }
   const licensePaths = [...declared.keys()].filter((name) => name.startsWith('licenses/')).sort();
+  if (indexed.size - 1 > 512)
+    throw new Error('Engine license inventory exceeds the runtime viewer limit.');
   const noticeDependencies = descriptor.runtimeDependencies
     .filter((item) => item.kind === 'notice')
     .map((item) => item.path)
