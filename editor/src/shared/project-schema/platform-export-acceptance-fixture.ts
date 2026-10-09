@@ -4,7 +4,7 @@ import { emptyMaterialApplication } from './authoring-material-applications';
 import { defaultMaterialData } from './authoring-materials';
 import { createAuthoringProject } from './authoring-project';
 import { defaultRoomData, roomAssetRef, roomRoomRef } from './authoring-rooms';
-export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION = '2026-07-11.1' as const;
+export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION = '2026-10-09.1' as const;
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_PATH = 'shaders/fixture.fs.sc' as const;
 export const PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_SHADER_SOURCE = `$input v_texcoord0, v_color0
 

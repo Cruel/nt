@@ -254,6 +254,13 @@ build toolchain, honors the profile compression policy, and writes those target 
 metadata so cross-host publication does not depend on the host filesystem preserving POSIX
 permissions. Android uses the source-template form: it carries a Gradle
 project and structured Android descriptor while retaining precompiled native player libraries.
+Project-wide Distribution Notices and the notices attached to included physical
+Assets (including localized variants) remain separate files inside `game.ntpkg`;
+they are not duplicated beside the game package in desktop/web exports.
+The built-in **Licenses** menu lists verified engine/player notices under
+**Engine & Libraries** and Project notice entries under **Game Assets**. Android
+exports install the engine collection as player-readable assets, and final APK/AAB
+inspection checks its complete contents against the template before publication.
 The exporter runs its declared build workflow with an already installed compatible toolchain; it
 never installs SDKs or silently builds NovelTea itself.
 

@@ -13,7 +13,10 @@ export async function verifyEngineNoticeIndex(templateRoot, descriptor, sbom) {
   if (descriptor.artifacts?.notices !== 'licenses/index.json')
     throw new Error('Player template must declare licenses/index.json, not an aggregate notice.');
   const indexFile = path.join(templateRoot, 'licenses/index.json');
-  const index = JSON.parse(await readFile(indexFile, 'utf8'));
+  const indexBytes = await readFile(indexFile);
+  if (indexBytes.length > 1024 * 1024)
+    throw new Error('Engine license index exceeds the runtime reader limit.');
+  const index = JSON.parse(textDecoder.decode(indexBytes));
   if (index.format !== 'noveltea.engine-licenses' ||
       Object.keys(index).sort().join(',') !== 'components,format' ||
       !Array.isArray(index.components) || index.components.length === 0)
@@ -47,17 +50,19 @@ export async function verifyEngineNoticeIndex(templateRoot, descriptor, sbom) {
           declaration.sha256 !== file.sha256 || (declaration.role && declaration.role !== 'notice'))
         throw new Error(`Engine license '${file.path}' does not match the template file inventory.`);
       const data = await readFile(path.join(templateRoot, file.path));
-      if (data.length !== file.size || sha256(data) !== file.sha256)
+      if (data.length !== file.size || data.length > 1024 * 1024 || sha256(data) !== file.sha256)
         throw new Error(`Engine license integrity mismatch for '${file.path}'.`);
       const text = textDecoder.decode(data);
       if (!text.trim() ||
-          /[\u0000-\u0008\u000b\u000e-\u001f\u007f]/.test(text) ||
+          /[\u0000-\u0008\u000b\u000e-\u001f\u007f-\u009f]/.test(text) ||
           /No dependency notice file was found|Resolved dependency license texts are collected|PLACEHOLDER LICENSE/i.test(text))
         throw new Error(`Missing or placeholder engine license text in '${file.path}'.`);
     }
   }
   if (!inventory.has('licenses/index.json'))
     throw new Error('Engine license index is missing from template file inventory.');
+  if (indexed.size - 1 > 512)
+    throw new Error('Engine license index exceeds the runtime viewer limit.');
   const declaredLicenses = [...inventory.keys()].filter((name) => name.startsWith('licenses/')).sort();
   if (declaredLicenses.join('\n') !== [...indexed].sort().join('\n'))
     throw new Error('Template licenses/ files and engine license index are not an exact set.');

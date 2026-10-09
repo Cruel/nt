@@ -514,6 +514,7 @@ export async function exportAndroidPlatform(
       artifacts: inspectionArtifacts,
       deployment: built.model,
       descriptor,
+      templateRoot,
       packageSha256: generatedResult.packageHash,
       temporaryRoot: path.join(temp, 'inspection'),
       probe,

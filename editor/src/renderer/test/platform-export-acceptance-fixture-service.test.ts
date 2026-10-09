@@ -32,6 +32,29 @@ describe('platform export acceptance fixture materializer', () => {
     expect(first.projectSha256).toBe(second.projectSha256);
     expect(first.profileSha256).toBe(second.profileSha256);
     expect(await readFile(first.projectPath)).toEqual(await readFile(second.projectPath));
+    for (const relative of [
+      'support/licenses/shared-font.txt',
+      'support/licenses/localized-art.txt',
+      'support/licenses/project.md',
+    ])
+      expect(await readFile(path.join(firstRoot, relative))).toEqual(
+        await readFile(path.join(secondRoot, relative)),
+      );
+    expect(await readFile(path.join(firstRoot, 'support/licenses/shared-font.txt'), 'utf8')).toBe(
+      'Fixture font license\r\n',
+    );
+    const bodyFont = JSON.parse(
+      await readFile(path.join(firstRoot, 'records/assets/body-font.json'), 'utf8'),
+    );
+    const alternateFont = JSON.parse(
+      await readFile(path.join(firstRoot, 'records/assets/alternate-font.json'), 'utf8'),
+    );
+    expect(bodyFont.data.attachments).toEqual(alternateFont.data.attachments);
+    expect(bodyFont.data.attachments).toHaveLength(1);
+    const frenchArtwork = JSON.parse(
+      await readFile(path.join(firstRoot, 'records/assets/backdrop-fr.json'), 'utf8'),
+    );
+    expect(frenchArtwork.data.attachments[0].path).toBe('support/licenses/localized-art.txt');
   });
 
   it('changes the Android project identity revision without changing its stable application/save identity', async () => {

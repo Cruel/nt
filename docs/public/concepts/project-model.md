@@ -16,6 +16,15 @@ Project-wide declaration without duplicating it. Original notice bytes remain se
 Runtime Package's `licenses/` namespace, outside the gameplay Asset registry. These relationships
 are declarations, not an inference of license obligations.
 
+Exported players also ship their own engine/library license texts, drawn from that
+platform's certified player template rather than from the Project. Players can
+open the built-in **Licenses** menu from the title or pause menu to read the
+separate **Engine & Libraries** and **Game Assets** collections. Custom title,
+pause, and Licenses System Layouts may replace the built-in presentation while
+retaining the engine-owned notice catalog and actions. In the editor preview,
+if the selected target's engine notice inventory is unavailable, the viewer can
+still show Project notices without borrowing another platform's licenses.
+
 ## Identity and references
 
 Top-level records have stable IDs within their collection. A Room ID and Character ID may use the
