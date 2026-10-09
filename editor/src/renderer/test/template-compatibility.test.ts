@@ -29,7 +29,7 @@ const descriptor = parseTemplateDescriptor({
     archive: 'player.tar.gz',
     symbols: 'symbols.tar.gz',
     sbom: 'SBOM.cdx.json',
-    notices: 'NOTICE.txt',
+    notices: 'licenses/index.json',
   },
   provenance: { provider: 'local', source: 'test' },
   host: { assembly: 'any', requiresToolchain: false, tools: [] },

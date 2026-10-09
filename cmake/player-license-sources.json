@@ -1,0 +1,65 @@
+{
+  "displayNames": {
+    "bgfx": "bgfx",
+    "bx": "bx",
+    "bimg": "bimg",
+    "fast-float": "fast_float",
+    "nlohmann-json": "nlohmann/json",
+    "Liberation Sans": "Liberation Sans (bundled system font)"
+  },
+  "vcpkgRuntimeRoots": [
+    "fast-float", "freetype", "harfbuzz", "libpng", "libunibreak",
+    "lua", "miniaudio", "miniz", "nlohmann-json", "sdl3",
+    "sheenbidi", "sol2"
+  ],
+  "vcpkgLinuxRoots": ["dbus"],
+  "fetched": {
+    "bgfx.cmake": {
+      "version": "1.161.9495-578",
+      "components": [
+        { "name": "bgfx", "paths": ["bgfx/LICENSE"] },
+        { "name": "bx", "paths": ["bx/LICENSE"] },
+        { "name": "bimg", "paths": ["bimg/LICENSE"] }
+      ]
+    },
+    "fast_float": {
+      "name": "fast-float", "version": "8.2.8",
+      "paths": ["LICENSE-MIT", "LICENSE-APACHE", "LICENSE-BOOST"]
+    },
+    "harfbuzz": { "version": "14.2.1", "paths": ["COPYING", "src/ms-use/COPYING"] },
+    "libunibreak_src": { "name": "libunibreak", "version": "7.0", "paths": ["LICENCE"] },
+    "lua_src": {
+      "name": "lua", "version": "5.5.0",
+      "paths": ["@repo/cmake/licenses/lua-5.5.0-license.txt"],
+      "evidence": "doc/readme.html"
+    },
+    "miniaudio": { "version": "0.11.25" },
+    "miniz": { "version": "3.1.1" },
+    "nlohmann_json": { "name": "nlohmann-json", "version": "3.12.0" },
+    "rmlui": { "name": "rmlui", "paths": ["LICENSE.txt"] },
+    "rmlui_bgfx": { "player": false },
+    "sheenbidi": { "version": "3.0.0" },
+    "sol2": { "name": "sol2", "paths": ["LICENSE.txt"] },
+    "twink": { "name": "twink", "paths": ["LICENSE"] },
+    "imgui": { "player": false }
+  },
+  "emscriptenPorts": {
+    "sdl3": { "versionPattern": "^SDL-release-(.+)$", "paths": ["LICENSE.txt"] },
+    "freetype": {
+      "versionPattern": "^freetype-VER-(.+)$",
+      "paths": ["LICENSE.TXT", "docs/FTL.TXT"]
+    },
+    "libpng": { "versionPattern": "^libpng-(.+)$", "paths": ["LICENSE"] },
+    "zlib": { "versionPattern": "^zlib-(.+)$", "paths": ["LICENSE"] }
+  },
+  "systemFont": {
+    "name": "Liberation Sans",
+    "version": "1.07",
+    "asset": "engine/assets/system/fonts/LiberationSans.ttf",
+    "assetSha256": "ab361e0a5689b3ce393ced46e48fc80e8c1848231e38316300f0fcf6dabd273a",
+    "licenses": [
+      "cmake/licenses/liberation-fonts-1.7-License.txt",
+      "cmake/licenses/liberation-fonts-1.7-COPYING"
+    ]
+  }
+}

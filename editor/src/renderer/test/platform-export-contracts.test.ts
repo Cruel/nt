@@ -90,7 +90,7 @@ describe('platform export contracts', () => {
         archive: 'template.tar.gz',
         symbols: 'symbols.tar.gz',
         sbom: 'SBOM.cdx.json',
-        notices: 'licenses/NOTICE.txt',
+        notices: 'licenses/index.json',
       },
       provenance: { provider: 'local', source: 'test' },
       host: { assembly: 'any', requiresToolchain: false, tools: [] },

@@ -60,6 +60,24 @@ Release CI audits ELF dependencies and runtime paths with `readelf`/`ldd`, PE im
 CycloneDX SBOMs, collected notices, checksums, the release registry index, and GitHub provenance
 attestations are published as separate release assets.
 
+Desktop and Web template generation uses `cmake/generate-player-template-metadata.mjs`
+over the resolved vcpkg, CMake FetchContent, and Emscripten-port inventories.
+It preserves upstream license bytes in individual `licenses/*.txt` files and
+emits a deterministic `licenses/index.json` with component/display identities,
+versions, paths, sizes, and SHA-256 digests. The template's `artifacts.notices`
+points to that index; `<templateId>.licenses.index.json` is the independent
+release sidecar, while the indexed texts remain in the template archive.
+The SBOM covers exactly the same component/version pairs.
+
+`cmake/player-license-sources.json` records target applicability and targeted
+exceptions for composite bgfx/bx/bimg, upstream license locations, Emscripten
+ports, and the hash-pinned legacy Liberation Sans system font. The font's
+original upstream GPL/exception texts are held under `cmake/licenses/`.
+Host-only tools/tests are excluded. Missing/ambiguous sources, placeholder
+licenses, or an unrecognized source layout abort generation; do not add
+hand-maintained copies of ordinary vcpkg copyrights. Android's distinct
+template-notice producer is not changed by this Desktop/Web slice.
+
 ### Release platform certification scope
 
 Platform certification is the fail-closed qualification of a **specific published player template
@@ -84,8 +102,8 @@ Every template must prove the following universal release claims:
 | `canonical-export` | The canonical project/profile fixture completes the public project/profile export workflow. |
 | `runtime-package-integrity` | Canonical export evidence binds the emitted runtime package SHA-256 to the finalized export manifest. |
 | `symbols-build-id` | The separately published symbol archive contains the exact template `buildId` in `BUILD_ID` and actual symbol payloads. |
-| `third-party-notices` | The descriptor-declared notice artifact exists and is non-empty. |
-| `sbom` | The descriptor-declared SBOM exists and parses as CycloneDX. |
+| `third-party-notices` | Desktop/Web: the exact named license set, index, text bytes, hashes, and descriptor notice dependencies must agree; placeholders and incomplete/ambiguous catalogs fail. Android retains its separate notice check. |
+| `sbom` | CycloneDX SBOM parses, and Desktop/Web component/version identities exactly match the license index. |
 
 Target-specific certification then binds the platform-specific behavior that the release runner can
 actually observe:

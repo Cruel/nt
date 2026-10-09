@@ -678,6 +678,12 @@ export const templateDescriptorSchema = z
   })
   .strict()
   .superRefine((value, context) => {
+    if (value.platform !== 'android' && value.artifacts.notices !== 'licenses/index.json')
+      context.addIssue({
+        code: 'custom',
+        path: ['artifacts', 'notices'],
+        message: 'Desktop and Web player templates require the named licenses/index.json catalog.',
+      });
     if (value.platform === 'android' && !value.android)
       context.addIssue({
         code: 'custom',

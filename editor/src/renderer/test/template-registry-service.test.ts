@@ -23,6 +23,7 @@ afterEach(() => {
 function archiveFixture(
   kind: 'tar' | 'zip' = 'tar',
   modes: { stored?: number; declared?: number } = {},
+  corruptNotices = false,
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-template-'));
   roots.push(root);
@@ -30,6 +31,39 @@ function archiveFixture(
   fs.mkdirSync(path.join(content, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(content, 'bin/player'), 'player', { mode: modes.stored ?? 0o755 });
   const player = fs.readFileSync(path.join(content, 'bin/player'));
+  fs.mkdirSync(path.join(content, 'licenses'));
+  const license = Buffer.from('MIT License\nCopyright (c) Example\n');
+  const licensePath = 'licenses/fixture-library--license.txt';
+  fs.writeFileSync(path.join(content, licensePath), license);
+  const index = {
+    format: 'noveltea.engine-licenses',
+    components: [
+      {
+        component: 'fixture-library',
+        displayName: 'Fixture Library',
+        version: '1.0',
+        files: [
+          {
+            path: licensePath,
+            size: license.length,
+            sha256: corruptNotices ? 'f'.repeat(64) : hash(license),
+          },
+        ],
+      },
+    ],
+  };
+  fs.writeFileSync(path.join(content, 'licenses/index.json'), JSON.stringify(index));
+  fs.writeFileSync(
+    path.join(content, 'SBOM.cdx.json'),
+    JSON.stringify({
+      bomFormat: 'CycloneDX',
+      components: [{ name: 'fixture-library', version: '1.0' }],
+    }),
+  );
+  const noticeFiles = ['licenses/index.json', licensePath, 'SBOM.cdx.json'].map((name) => {
+    const bytes = fs.readFileSync(path.join(content, name));
+    return { path: name, size: bytes.length, mode: 0o644, sha256: hash(bytes) };
+  });
   const descriptor = {
     format: 'noveltea.player-template',
     formatVersion: 1,
@@ -54,13 +88,18 @@ function archiveFixture(
         mode: modes.declared ?? fs.statSync(path.join(content, 'bin/player')).mode & 0o777,
         sha256: hash(player),
       },
+      ...noticeFiles,
     ],
-    runtimeDependencies: [{ path: 'bin/player', kind: 'library' }],
+    runtimeDependencies: [
+      { path: 'bin/player', kind: 'library' },
+      { path: 'licenses/index.json', kind: 'notice' },
+      { path: licensePath, kind: 'notice' },
+    ],
     artifacts: {
       archive: 'template.tar.gz',
       symbols: 'symbols.tar.gz',
       sbom: 'SBOM.cdx.json',
-      notices: 'NOTICE.txt',
+      notices: 'licenses/index.json',
     },
     provenance: { provider: 'local', source: 'test' },
     host: { assembly: 'any', requiresToolchain: false, tools: [] },
@@ -163,6 +202,12 @@ describe('template registry service', () => {
     expect(resolved.success).toBe(true);
     expect(resolved.diagnostics[0]?.code).toBe('template-untrusted');
     expect((await removePlayerTemplate('linux-x64-release', 'build-1')).removed).toBe(true);
+  });
+  it('rejects an index whose license integrity disagrees with the actual file', async () => {
+    const { archive } = archiveFixture('tar', {}, true);
+    const result = await installPlayerTemplate({ archivePath: archive, origin: 'bad-license' });
+    expect(result.success).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain('License index entry');
   });
   it.skipIf(process.platform === 'win32')('installs ZIP templates without CMake', async () => {
     const { archive } = archiveFixture('zip');

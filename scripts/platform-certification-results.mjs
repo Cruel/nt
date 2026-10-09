@@ -6,6 +6,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { spawn } from 'node:child_process';
+import { verifyEngineNoticeIndex } from './player-template-notice-index.mjs';
 
 const RESULTS_FORMAT = 'noveltea-platform-certification-results';
 const PROOF_FORMAT = 'noveltea-platform-certification-proof';
@@ -172,10 +173,7 @@ async function verifySymbols(archive, descriptor) {
 }
 
 async function verifyNoticeAndSbom(templateRoot, descriptor) {
-  for (const [label, relative] of [
-    ['notices', descriptor.artifacts.notices],
-    ['SBOM', descriptor.artifacts.sbom],
-  ]) {
+  for (const [label, relative] of [['SBOM', descriptor.artifacts.sbom]]) {
     if (!safeRelativePath(relative)) throw new Error(`Invalid ${label} path '${relative}'.`);
     const data = await readFile(path.join(templateRoot, ...relative.split('/')));
     if (data.length === 0) throw new Error(`${label} artifact is empty.`);
@@ -184,7 +182,18 @@ async function verifyNoticeAndSbom(templateRoot, descriptor) {
     await readFile(path.join(templateRoot, ...descriptor.artifacts.sbom.split('/')), 'utf8'),
   );
   if (sbom.bomFormat !== 'CycloneDX') throw new Error('Template SBOM is not CycloneDX.');
-  return { sbomFormat: sbom.bomFormat };
+  if (descriptor.platform === 'android') {
+    const relative = descriptor.artifacts.notices;
+    if (!safeRelativePath(relative) ||
+        !(await readFile(path.join(templateRoot, ...relative.split('/')))).length)
+      throw new Error('Android notice artifact is missing or empty.');
+    return { sbomFormat: sbom.bomFormat, notices: 'Android notice artifact' };
+  }
+  const noticeAudit = await verifyEngineNoticeIndex(templateRoot, descriptor, sbom);
+  return {
+    sbomFormat: sbom.bomFormat,
+    notices: `${noticeAudit.componentCount} components / ${noticeAudit.fileCount} license texts`,
+  };
 }
 
 async function readJson(file, expectedFormat) {
@@ -306,7 +315,7 @@ async function main() {
     const metadata = await verifyNoticeAndSbom(templateRoot, descriptor);
     await addProof({
       check: 'third-party-notices',
-      detail: 'Template contains the declared non-empty third-party notices artifact.',
+      detail: `Verified ${metadata.notices} against the template inventory and SBOM.`,
       verifier: 'platform-certification-results#verifyNoticeAndSbom',
       sources: [archive],
     });
