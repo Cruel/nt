@@ -1,4 +1,4 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { WorkspacePage } from '@/routes/workspace';
 import { useCommandStore } from '@/commands/command-store';
@@ -71,6 +71,7 @@ function dispatchOpenProject(projectPath: string) {
 
 beforeEach(() => {
   vi.clearAllMocks();
+  localStorage.clear();
   useProjectStore.getState().clearProject();
   useWorkbenchStore.getState().resetWorkbench();
   useDraftDirtyStore.getState().resetDraftDirty();
@@ -179,6 +180,84 @@ beforeEach(() => {
 });
 
 describe('WorkspacePage new project modal', () => {
+  it('offers one dismissible media batch, preserves manual discovery, and notifies on new revisions', async () => {
+    const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
+    const projectFilePath = '/mock/project/project.json';
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      savedDocument: project,
+      projectPath: '/mock/project',
+      projectFilePath,
+      projectSessionId: 'opened-project-session',
+    });
+    useWorkspaceStore.setState({ project, projectPath: '/mock/project', projectFilePath });
+
+    const mediaFile = {
+      projectRelativePath: 'assets/images/new.png',
+      absolutePath: '/mock/project/assets/images/new.png',
+      extension: '.png',
+      kind: 'image' as const,
+      byteSize: 100,
+      modifiedAt: '2026-10-08T12:00:00Z',
+      revision: '100:1',
+      importable: true,
+    };
+    const otherFile = {
+      ...mediaFile,
+      projectRelativePath: 'assets/README.md',
+      extension: '.md',
+      kind: 'text' as const,
+      importable: false,
+      suggestedMove: 'support' as const,
+    };
+    vi.mocked(window.noveltea.auditProjectAssets).mockResolvedValue({
+      ok: true,
+      success: true,
+      untrackedFiles: [mediaFile, otherFile],
+      skippedUnstableFiles: [],
+      diagnostics: [],
+    });
+
+    const first = render(<WorkspacePage />);
+    expect(await screen.findByText('1 new importable media file')).toBeInTheDocument();
+    expect(
+      screen.queryByRole('dialog', { name: 'Unregistered Project files' }),
+    ).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Dismiss' }));
+    expect(screen.queryByText('1 new importable media file')).not.toBeInTheDocument();
+    first.unmount();
+
+    render(<WorkspacePage />);
+    await waitFor(() => expect(window.noveltea.auditProjectAssets).toHaveBeenCalledTimes(2));
+    expect(screen.queryByText('1 new importable media file')).not.toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: /Unregistered files \(2\)/ }));
+    expect(
+      await screen.findByRole('dialog', { name: 'Unregistered Project files' }),
+    ).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Other Files (1)' }));
+    expect(screen.getByText('assets/README.md')).toBeInTheDocument();
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Unregistered Project files' }))
+        .getAllByRole('button', { name: 'Close' })
+        .at(-1)!,
+    );
+
+    vi.mocked(window.noveltea.auditProjectAssets).mockResolvedValue({
+      ok: true,
+      success: true,
+      untrackedFiles: [{ ...mediaFile, revision: '100:2' }, otherFile],
+      skippedUnstableFiles: [],
+      diagnostics: [],
+    });
+    fireEvent.click(screen.getByRole('button', { name: /Unregistered files \(2\)/ }));
+    fireEvent.click(
+      within(screen.getByRole('dialog', { name: 'Unregistered Project files' }))
+        .getAllByRole('button', { name: 'Close' })
+        .at(-1)!,
+    );
+    expect(await screen.findByText('1 new importable media file')).toBeInTheDocument();
+  });
+
   it('keeps the bottom-panel host available and toggleable without a Project', () => {
     useBottomPanelStore.getState().setVisible(false);
 

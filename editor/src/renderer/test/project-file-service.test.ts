@@ -1631,6 +1631,54 @@ describe('project-file-service workspace-v1', () => {
     );
   });
 
+  it('copies referenced shared support attachments through Save As without duplicating sources', async () => {
+    const source = tempProjectRoot();
+    const destination = tempRoot();
+    await createProject({ projectName: 'With Attachments', projectDirectory: source });
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(source);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const project = structuredClone(opened.snapshot.project);
+    for (const id of ['first', 'second']) {
+      project.assets[id] = {
+        id,
+        label: id,
+        data: {
+          kind: 'binary',
+          source: { type: 'project-file', path: `assets/${id}.bin` },
+          aliases: [],
+          imageMetadata: null,
+          attachments: [
+            { path: 'support/licenses/shared.txt', purpose: 'distribution-notice' },
+            { path: 'support/sources/original.psd', purpose: 'authoring-source' },
+          ],
+        },
+      };
+      fs.writeFileSync(path.join(source, 'assets', `${id}.bin`), `asset ${id}`);
+    }
+    fs.mkdirSync(path.join(source, 'support/licenses'), { recursive: true });
+    fs.mkdirSync(path.join(source, 'support/sources'), { recursive: true });
+    fs.writeFileSync(path.join(source, 'support/licenses/shared.txt'), 'License remains literal\n');
+    fs.writeFileSync(path.join(source, 'support/sources/original.psd'), Buffer.from([1, 2, 3]));
+    dialogs.destination = destination;
+    const saved = await saveProjectCopyAs({} as never, source, project, []);
+    expect(saved.success).toBe(true);
+    expect(fs.readFileSync(path.join(destination, 'support/licenses/shared.txt'), 'utf8')).toBe(
+      'License remains literal\n',
+    );
+    expect(fs.readFileSync(path.join(destination, 'support/sources/original.psd'))).toEqual(
+      Buffer.from([1, 2, 3]),
+    );
+    const reopened = await workspace.open(destination);
+    expect(reopened.ok).toBe(true);
+    if (reopened.ok) {
+      expect(reopened.snapshot.project.assets.first.data.attachments).toEqual(
+        reopened.snapshot.project.assets.second.data.attachments,
+      );
+    }
+  });
+
   it('does not write a Save As destination after active-session authority is revoked', async () => {
     const source = tempProjectRoot();
     const destination = tempRoot();

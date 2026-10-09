@@ -50,10 +50,17 @@ import {
 import {
   auditProjectAssets,
   importUntrackedProjectAssets,
+  organizeUntrackedProjectAsset,
   purgeProjectTrash,
   restoreProjectAssetFiles,
   trashProjectAssetFiles,
 } from './main/services/project-asset-audit-service';
+import {
+  importProjectAttachmentFiles,
+  inspectProjectAttachmentFile,
+  listProjectAttachmentFiles,
+  openProjectAttachmentFile,
+} from './main/services/project-asset-attachment-service';
 import {
   startProjectWorkspaceWatcher,
   stopProjectWorkspaceWatcher,
@@ -149,6 +156,11 @@ import {
 } from './main/services/image-thumbnail-cache-paths';
 import {
   auditProjectAssetsArgumentsSchema,
+  importProjectAttachmentFilesArgumentsSchema,
+  inspectProjectAttachmentFileArgumentsSchema,
+  listProjectAttachmentFilesArgumentsSchema,
+  openProjectAttachmentFileArgumentsSchema,
+  organizeUntrackedProjectAssetArgumentsSchema,
   cancelImageThumbnailPrewarmArgumentsSchema,
   cancelPlatformExportArgumentsSchema,
   comfyUiAnalyzeWorkflowArgumentsSchema,
@@ -1566,6 +1578,69 @@ void app.whenReady().then(async () => {
         };
       }
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.ORGANIZE_UNTRACKED_PROJECT_ASSET,
+    (arguments_) => organizeUntrackedProjectAssetArgumentsSchema.parse(arguments_),
+    async (projectSessionId, project, projectRelativePath, action) => {
+      try {
+        const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
+        return await organizeUntrackedProjectAsset(
+          path.join(projectRoot, 'project.json'),
+          project,
+          projectRelativePath,
+          action,
+          () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        );
+      } catch (error) {
+        return {
+          ok: false,
+          success: false,
+          diagnostics: [],
+          error: error instanceof Error ? error.message : 'Project session is stale or unknown.',
+        };
+      }
+    },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.LIST_PROJECT_ATTACHMENT_FILES,
+    (arguments_) => listProjectAttachmentFilesArgumentsSchema.parse(arguments_),
+    async (projectSessionId) => ({
+      files: await listProjectAttachmentFiles(
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+      ),
+    }),
+  );
+  guardedIpc.handle(
+    IPC_CHANNELS.IMPORT_PROJECT_ATTACHMENT_FILES,
+    (arguments_) => importProjectAttachmentFilesArgumentsSchema.parse(arguments_),
+    async (request) => {
+      const root = activeProjectSessions.requireActiveProjectRoot(request.projectSessionId);
+      return importProjectAttachmentFiles(mainWindow, root, request, () =>
+        activeProjectSessions.requireActiveProjectRoot(request.projectSessionId),
+      );
+    },
+  );
+  guardedIpc.handle(
+    IPC_CHANNELS.INSPECT_PROJECT_ATTACHMENT_FILE,
+    (arguments_) => inspectProjectAttachmentFileArgumentsSchema.parse(arguments_),
+    (projectSessionId, relativePath) =>
+      inspectProjectAttachmentFile(
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        relativePath,
+      ),
+  );
+  guardedIpc.handle(
+    IPC_CHANNELS.OPEN_PROJECT_ATTACHMENT_FILE,
+    (arguments_) => openProjectAttachmentFileArgumentsSchema.parse(arguments_),
+    (projectSessionId, relativePath, action) =>
+      openProjectAttachmentFile(
+        activeProjectSessions.requireActiveProjectRoot(projectSessionId),
+        relativePath,
+        action,
+      ),
   );
 
   guardedIpc.handle(

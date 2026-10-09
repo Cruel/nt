@@ -315,6 +315,10 @@ _Avoid_: Ambient
 An imported project resource such as an image, font, audio file, script, shader source, data file, or opaque binary, addressed through stable project asset identity and metadata.
 _See_: `docs/engine/ASSET.md`
 
+**Asset Attachment**:
+An explicit Project-relative file relationship owned by an Asset, recording a purpose such as Distribution Notice, Authoring Source, or Reference. The underlying physical Project file may be shared across Assets without becoming a registered runtime Asset.
+_See_: `docs/engine/ASSET.md`
+
 ## Runtime
 
 **Flow**:

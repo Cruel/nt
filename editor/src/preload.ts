@@ -225,6 +225,22 @@ const api: NovelTeaElectronApi = {
       projectSessionId,
       projectRelativePaths,
     ),
+  organizeUntrackedProjectAsset: (projectSessionId, project, projectRelativePath, action) =>
+    ipcRenderer.invoke(
+      IPC_CHANNELS.ORGANIZE_UNTRACKED_PROJECT_ASSET,
+      projectSessionId,
+      project,
+      projectRelativePath,
+      action,
+    ),
+  listProjectAttachmentFiles: (projectSessionId) =>
+    ipcRenderer.invoke(IPC_CHANNELS.LIST_PROJECT_ATTACHMENT_FILES, projectSessionId),
+  importProjectAttachmentFiles: (request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.IMPORT_PROJECT_ATTACHMENT_FILES, request),
+  inspectProjectAttachmentFile: (projectSessionId, path) =>
+    ipcRenderer.invoke(IPC_CHANNELS.INSPECT_PROJECT_ATTACHMENT_FILE, projectSessionId, path),
+  openProjectAttachmentFile: (projectSessionId, path, action) =>
+    ipcRenderer.invoke(IPC_CHANNELS.OPEN_PROJECT_ATTACHMENT_FILE, projectSessionId, path, action),
   trashProjectAssetFiles: (projectSessionId: string, projectRelativePaths: string[]) =>
     ipcRenderer.invoke(
       IPC_CHANNELS.TRASH_PROJECT_ASSET_FILES,

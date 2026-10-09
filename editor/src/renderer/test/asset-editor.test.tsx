@@ -63,6 +63,100 @@ beforeEach(() => {
 });
 
 describe('AssetEditor', () => {
+  it('adds existing Project attachments and shares them atomically with other Assets', async () => {
+    const document = project();
+    document.assets.other = {
+      id: 'other',
+      label: 'Other',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/other.bin' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    useProjectStore.getState().loadProjectDocument({
+      document,
+      savedDocument: document,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    vi.mocked(window.noveltea.listProjectAttachmentFiles).mockResolvedValue({
+      files: [{ path: 'support/licenses/font.txt', byteSize: 42 }],
+    });
+    vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
+      async (_session, filePath) => ({
+        path: filePath,
+        exists: true,
+        byteSize: 42,
+        preview: 'license text',
+      }),
+    );
+    render(<AssetEditor tab={tab} />);
+    expect(await screen.findByText('Attachments')).toBeInTheDocument();
+    fireEvent.change(screen.getByLabelText('Existing Project file'), {
+      target: { value: 'support/licenses/font.txt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Attach Existing' }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+      ).toMatchObject([{ path: 'support/licenses/font.txt', purpose: 'reference' }]),
+    );
+    fireEvent.click(screen.getByRole('button', { name: 'Preview' }));
+    expect(await screen.findByText('license text')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Attach to Other Assets' }));
+    fireEvent.click(screen.getByLabelText('Other'));
+    fireEvent.click(screen.getByRole('button', { name: 'Attach Selected' }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as typeof document).assets.other.data.attachments,
+      ).toMatchObject([{ path: 'support/licenses/font.txt', purpose: 'reference' }]),
+    );
+    expect(screen.getByText('Used by 2 Assets')).toBeInTheDocument();
+    useCommandStore.getState().undo();
+    expect(
+      (useProjectStore.getState().document as typeof document).assets.other.data.attachments,
+    ).toBeUndefined();
+    expect(
+      (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+    ).toHaveLength(1);
+  });
+
+  it('imports multiple supporting files as one undoable association without deleting physical files', async () => {
+    const document = project();
+    useProjectStore.getState().loadProjectDocument({
+      document,
+      savedDocument: document,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.json',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    vi.mocked(window.noveltea.importProjectAttachmentFiles).mockResolvedValue({
+      paths: ['support/references/one.md', 'support/references/two.md'],
+      reused: [],
+    });
+    render(<AssetEditor tab={tab} />);
+    fireEvent.click(screen.getByRole('button', { name: 'Import Files…' }));
+    await waitFor(() =>
+      expect(
+        (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+      ).toHaveLength(2),
+    );
+    expect(window.noveltea.importProjectAttachmentFiles).toHaveBeenCalledWith(
+      expect.objectContaining({
+        purpose: 'reference',
+        projectSessionId: '11111111-1111-4111-8111-111111111111',
+      }),
+    );
+    useCommandStore.getState().undo();
+    expect(
+      (useProjectStore.getState().document as typeof document).assets.logo.data.attachments,
+    ).toBeUndefined();
+    expect(window.noveltea.openProjectAttachmentFile).not.toHaveBeenCalled();
+  });
+
   it('edits asset tags through the shared tag input', async () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
