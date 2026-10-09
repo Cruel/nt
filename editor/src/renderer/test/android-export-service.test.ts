@@ -47,7 +47,7 @@ const descriptor = parseTemplateDescriptor({
     archive: 'template.zip',
     symbols: 'symbols.zip',
     sbom: 'SBOM.cdx.json',
-    notices: 'NOTICE.txt',
+    notices: 'licenses/index.json',
   },
   provenance: { provider: 'local', source: 'test' },
   host: { assembly: 'any', requiresToolchain: true, tools: [] },
