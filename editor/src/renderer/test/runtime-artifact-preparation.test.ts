@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vite-plus/test';
+import { createHash } from 'node:crypto';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { createLocalizedAssetVariant } from '../../shared/authoring-localized-assets';
@@ -116,6 +117,62 @@ function compiledShaderOutput(
 }
 
 describe('Prepared Runtime Artifact module', () => {
+  it('invalidates saved Project evidence when an applicable notice changes without editing Project JSON', async () => {
+    const project = roomProject();
+    project.settings.distributionNotices = [{ path: 'support/licenses/LICENSE.txt' }];
+    const profile = { ...defaultExportProfile(), compileShadersBeforeExport: false };
+    let notice = 'Original copyright\r\n';
+    const paths = {
+      resolveProjectSource: (root: string | null, source: string) => `${root}/${source}`,
+      shaderAssetRoot: () => undefined,
+      readProjectTextSources: async (
+        _root: string | null,
+        entries: readonly {
+          assetId: string;
+          projectRelativePath: string;
+          expectedContentHash: `sha256:${string}` | null;
+        }[],
+      ) =>
+        entries.map(({ assetId, projectRelativePath }) => {
+          const text = projectRelativePath.endsWith('/LICENSE.txt') ? notice : '';
+          return {
+            status: 'ready' as const,
+            assetId,
+            projectRelativePath,
+            contentHash: `sha256:${createHash('sha256').update(text).digest('hex')}` as const,
+            text,
+          };
+        }),
+    };
+    const result = await prepareRuntimeArtifactForTest(project, {
+      projectRoot: '/project',
+      profile,
+      paths,
+    });
+    expect(result.status).toBe('prepared');
+    if (result.status !== 'prepared') return;
+    expect(
+      (
+        await verifyPreparedRuntimeArtifact(result.artifact, {
+          project,
+          projectRoot: '/project',
+          profile,
+          paths,
+        })
+      ).status,
+    ).toBe('verified');
+    notice = 'Revised copyright\r\n';
+    expect(
+      (
+        await verifyPreparedRuntimeArtifact(result.artifact, {
+          project,
+          projectRoot: '/project',
+          profile,
+          paths,
+        })
+      ).status,
+    ).toBe('rejected');
+  });
   it('assembles a compiled package input from a simple room project', async () => {
     const profile = { ...defaultExportProfile(), compileShadersBeforeExport: false };
     const result = await prepareRuntimeAssessmentForTest(roomProject(), {
@@ -546,7 +603,11 @@ describe('Prepared Runtime Artifact module', () => {
       result.compiledProject?.localization.locales.find((locale) => locale.locale === 'es')
         ?.catalogPath,
     ).toBe('localization/es.json');
-    expect(result.packageOptions.textEntries).toHaveLength(1);
+    expect(result.packageOptions.textEntries).toHaveLength(2);
+    expect(result.packageOptions.textEntries[1]).toMatchObject({
+      packagePath: 'licenses/index.json',
+      storage: 'compressed',
+    });
     expect(result.packageOptions.textEntries[0]).toMatchObject({
       packagePath: 'localization/es.json',
       storage: 'compressed',

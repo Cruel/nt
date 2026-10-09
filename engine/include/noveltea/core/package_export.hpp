@@ -47,6 +47,7 @@ struct PackageExportFileEntry {
     std::filesystem::path source;
     std::string package_path;
     PackageExportStorage storage = PackageExportStorage::Auto;
+    std::string expected_sha256;
 };
 
 struct PackageExportTextEntry {
@@ -97,6 +98,8 @@ public:
 
     [[nodiscard]] static bool is_safe_package_path(std::string_view path) noexcept;
     [[nodiscard]] static bool is_allowed_package_path(std::string_view path) noexcept;
+    [[nodiscard]] static bool
+    is_valid_distribution_notice_text(std::span<const std::byte> bytes) noexcept;
 };
 
 } // namespace noveltea::core

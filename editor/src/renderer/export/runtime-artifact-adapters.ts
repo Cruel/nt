@@ -44,6 +44,8 @@ export const rendererRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
             projectRelativePath,
             contentHash: result.contentHash,
             text: result.text,
+            byteLength:
+              new TextEncoder().encode(result.text).byteLength + (result.hadUtf8Bom ? 3 : 0),
           }
         : { status: 'unavailable' as const, assetId };
     });

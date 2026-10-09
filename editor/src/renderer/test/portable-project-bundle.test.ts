@@ -163,6 +163,12 @@ async function createPortableFixture(root: string): Promise<{
     path.join(projectRoot, 'support/licenses/notice.txt'),
     'redistribution terms\n',
   );
+  await fs.writeFile(path.join(projectRoot, 'support/licenses/project.md'), 'Project terms\r\n');
+  const authoredProject = JSON.parse(await fs.readFile(projectManifestPath, 'utf8')) as {
+    settings: Record<string, unknown>;
+  };
+  authoredProject.settings.distributionNotices = [{ path: 'support/licenses/project.md' }];
+  await fs.writeFile(projectManifestPath, `${JSON.stringify(authoredProject, null, 2)}\n`);
   await fs.writeFile(
     path.join(projectRoot, 'support/sources/original.psd'),
     Buffer.from([3, 1, 4]),
@@ -271,6 +277,9 @@ describe('portable .ntproject Project bundle', () => {
     expect(result).toMatchObject({ success: true, projectPath: destination });
     expect(await fs.readFile(path.join(destination, 'support/licenses/notice.txt'), 'utf8')).toBe(
       'redistribution terms\n',
+    );
+    expect(await fs.readFile(path.join(destination, 'support/licenses/project.md'), 'utf8')).toBe(
+      'Project terms\r\n',
     );
     expect(await fs.readFile(path.join(destination, 'support/sources/original.psd'))).toEqual(
       Buffer.from([3, 1, 4]),

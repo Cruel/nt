@@ -9,6 +9,7 @@
 #include <nlohmann/json.hpp>
 
 #include <array>
+#include <algorithm>
 #include <atomic>
 #include <cstdint>
 #include <filesystem>
@@ -30,6 +31,9 @@
 using namespace noveltea;
 
 namespace {
+
+constexpr std::string_view empty_project_notice_index =
+    R"({"schema":"noveltea.project-notices","notices":[]})";
 
 struct ZipFixtureEntry {
     std::string path;
@@ -69,6 +73,10 @@ nlohmann::json runtime_manifest(const nlohmann::json& gameplay,
     nlohmann::json package_entries = nlohmann::json::array();
     for (const auto& [path, size] : entries)
         package_entries.push_back({{"path", path}, {"size", size}});
+    if (std::none_of(entries.begin(), entries.end(),
+                     [](const auto& entry) { return entry.first == "licenses/index.json"; }))
+        package_entries.push_back(
+            {{"path", "licenses/index.json"}, {"size", empty_project_notice_index.size()}});
 
     return {
         {"format", "noveltea.runtime-package"},
@@ -107,6 +115,11 @@ assets::AssetBytes make_zip(std::span<const ZipFixtureEntry> entries)
         REQUIRE(mz_zip_writer_add_mem(&archive, entry.path.c_str(), entry.bytes.data(),
                                       entry.bytes.size(), entry.compression));
     }
+    if (std::none_of(entries.begin(), entries.end(),
+                     [](const auto& entry) { return entry.path == "licenses/index.json"; }))
+        REQUIRE(mz_zip_writer_add_mem(&archive, "licenses/index.json",
+                                      empty_project_notice_index.data(),
+                                      empty_project_notice_index.size(), MZ_DEFAULT_COMPRESSION));
     void* data = nullptr;
     size_t size = 0;
     REQUIRE(mz_zip_writer_finalize_heap_archive(&archive, &data, &size));
@@ -653,6 +666,69 @@ TEST_CASE("Web runtime package startup consumes one immutable memory-backed ZIP"
 
     manager.clear_namespace("project");
     CHECK(backing_lifetime.expired());
+}
+
+TEST_CASE("runtime package validates Project distribution notice index and original bytes",
+          "[assets][notices]")
+{
+    const auto gameplay = minimal_gameplay();
+    const auto gameplay_bytes = json_bytes(gameplay);
+    const std::string notice = "Copyright © author\r\n";
+    const std::string notice_path = "licenses/support/licenses/NOTICE.md";
+    const auto hash =
+        "sha256:" + core::sha256_hex(std::as_bytes(std::span(notice.data(), notice.size())));
+    const auto index = nlohmann::json{
+        {"schema", "noveltea.project-notices"},
+        {"notices", nlohmann::json::array({{{"path", notice_path},
+                                            {"source", "support/licenses/NOTICE.md"},
+                                            {"displayName", "Author"},
+                                            {"contentHash", hash}}})},
+    };
+    const auto run = [&](nlohmann::json catalog, std::string_view notice_text, bool include_index,
+                         bool include_notice, bool extra_notice) {
+        std::vector<ZipFixtureEntry> files = {{"game", gameplay_bytes, MZ_BEST_COMPRESSION}};
+        std::vector<std::pair<std::string, std::uint64_t>> declared = {
+            {"game", gameplay_bytes.size()}};
+        if (include_index) {
+            const auto index_bytes = json_bytes(catalog);
+            declared.emplace_back("licenses/index.json", index_bytes.size());
+            files.push_back({"licenses/index.json", index_bytes, MZ_BEST_COMPRESSION});
+        }
+        if (include_notice) {
+            const auto raw = bytes(notice_text);
+            declared.emplace_back(notice_path, raw.size());
+            files.push_back({notice_path, raw, MZ_BEST_COMPRESSION});
+        }
+        if (extra_notice) {
+            const auto raw = bytes("unindexed");
+            declared.emplace_back("licenses/extra.txt", raw.size());
+            files.push_back({"licenses/extra.txt", raw, MZ_BEST_COMPRESSION});
+        }
+        files.push_back({"manifest.json", json_bytes(runtime_manifest(gameplay, declared)),
+                         MZ_BEST_COMPRESSION});
+        std::shared_ptr<const assets::AssetBytes> raw =
+            std::make_shared<assets::AssetBytes>(make_zip(files));
+        return runtime::resolve_running_game_package_source(
+                   std::make_shared<assets::ZipAssetSource>(std::move(raw)),
+                   "project:/notice-test.ntpkg", "en")
+            .has_value();
+    };
+    CHECK(run(index, notice, true, true, false));
+    CHECK_FALSE(run(index, notice, false, true, false));
+    CHECK_FALSE(run(index, notice, true, false, false));
+    CHECK_FALSE(run(index, notice, true, true, true));
+    auto wrong_hash = index;
+    wrong_hash["notices"][0]["contentHash"] = "sha256:" + std::string(64, '0');
+    CHECK_FALSE(run(wrong_hash, notice, true, true, false));
+    CHECK_FALSE(run(index, "invalid\xFF", true, true, false));
+    auto control_text_index = index;
+    const std::string control_text("illegal\0control", 15);
+    control_text_index["notices"][0]["contentHash"] =
+        "sha256:" + core::sha256_hex(std::as_bytes(std::span(control_text)));
+    CHECK_FALSE(run(control_text_index, control_text, true, true, false));
+    auto malformed = index;
+    malformed["notices"][0].erase("source");
+    CHECK_FALSE(run(malformed, notice, true, true, false));
 }
 
 TEST_CASE("runtime package startup leaves an unrequested corrupt entry untouched")

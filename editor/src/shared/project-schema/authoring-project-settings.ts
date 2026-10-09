@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { isSafeProjectAttachmentPath } from './authoring-assets';
 import { parseAssetData } from './authoring-assets';
 import {
   cursorNamedIdSchema,
@@ -264,6 +265,31 @@ export function effectiveProjectAccessibilityScale(
 
 export const typedProjectSettingsSchema = z
   .object({
+    distributionNotices: z
+      .array(
+        z
+          .object({
+            path: z
+              .string()
+              .refine(isSafeProjectAttachmentPath, 'Notice must have a safe Project path.')
+              .refine((value) => /\.(?:txt|md)$/i.test(value), 'Notice must be .txt or .md.')
+              .describe(
+                'Safe Project-relative path to an original UTF-8 plain-text notice file; .txt and .md only, at most 1 MiB.',
+              ),
+            displayName: z
+              .string()
+              .trim()
+              .min(1)
+              .max(256)
+              .optional()
+              .describe('Optional notice viewer name; shared paths must agree on explicit names.'),
+          })
+          .strict(),
+      )
+      .default([])
+      .describe(
+        'Unconditional Project-wide distribution notices. Asset attachment notices are included only when their physical Asset is packaged.',
+      ),
     ui: z
       .object({ systemLayouts: systemLayoutSettingsSchema })
       .strict()

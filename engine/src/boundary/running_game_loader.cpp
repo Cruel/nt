@@ -4,15 +4,20 @@
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
 #include "noveltea/core/player_bootstrap.hpp"
+#include "noveltea/core/package_export.hpp"
 #include "noveltea/core/save_state_codec.hpp"
 #include "noveltea/presentation/runtime_presentation_model.hpp"
 
 #include <algorithm>
+#include <cctype>
 #include <cstdint>
 #include <filesystem>
 #include <iomanip>
 #include <limits>
 #include <memory>
+#include <span>
+#include <nlohmann/json.hpp>
+#include <set>
 #include <sstream>
 #include <string>
 #include <string_view>
@@ -177,6 +182,11 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
         return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
             package_source_failure(indexed_entries.error, logical_path));
     }
+    for (const auto& entry : *indexed_entries.value)
+        if (entry.path.starts_with("licenses/") && entry.metadata.uncompressed_size > 1024 * 1024)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                load_failure("content.runtime_notice_invalid",
+                             "Notice payload exceeds the size limit.", std::string(logical_path)));
 
     auto manifest_blob = read_package_blob(source, "manifest.json", logical_path);
     if (!manifest_blob)
@@ -190,6 +200,79 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
     if (!manifest)
         return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
             std::move(manifest).error());
+
+    const bool has_notices = std::ranges::any_of(*indexed_entries.value, [](const auto& entry) {
+        return entry.path.starts_with("licenses/");
+    });
+    if (!has_notices)
+        return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+            load_failure("content.runtime_notice_index_missing",
+                         "Runtime Package is missing the required licenses/index.json catalog.",
+                         std::string(logical_path)));
+    {
+        auto index_blob = read_package_blob(source, "licenses/index.json", logical_path);
+        if (!index_blob)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                std::move(index_blob).error());
+        const auto& bytes = index_blob.value_if()->bytes;
+        if (bytes.size() > 1024 * 1024)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                load_failure("content.runtime_notice_invalid",
+                             "Notice index exceeds the size limit.", std::string(logical_path)));
+        const auto index = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
+        bool valid = index.is_object() && index.size() == 2 &&
+                     index.value("schema", std::string{}) == "noveltea.project-notices" &&
+                     index.contains("notices") && index["notices"].is_array();
+        std::set<std::string> declared_notices{"licenses/index.json"};
+        std::string previous_source_path;
+        if (valid) {
+            for (const auto& notice : index["notices"]) {
+                if (!notice.is_object() || notice.size() != 4 || !notice.contains("path") ||
+                    !notice["path"].is_string() || !notice.contains("source") ||
+                    !notice["source"].is_string() || !notice.contains("displayName") ||
+                    !notice["displayName"].is_string() || !notice.contains("contentHash") ||
+                    !notice["contentHash"].is_string()) {
+                    valid = false;
+                    break;
+                }
+                const auto entry_path = notice["path"].get<std::string>();
+                const auto source_path = notice["source"].get<std::string>();
+                const auto hash = notice["contentHash"].get<std::string>();
+                auto extension = std::filesystem::path(source_path).extension().string();
+                std::transform(
+                    extension.begin(), extension.end(), extension.begin(),
+                    [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+                if (entry_path != "licenses/" + source_path ||
+                    !core::ProjectPackageWriter::is_safe_package_path(source_path) ||
+                    (extension != ".txt" && extension != ".md") ||
+                    (!previous_source_path.empty() && source_path <= previous_source_path) ||
+                    notice["displayName"].get<std::string>().empty() || hash.size() != 71 ||
+                    !hash.starts_with("sha256:") || !declared_notices.insert(entry_path).second) {
+                    valid = false;
+                    break;
+                }
+                previous_source_path = source_path;
+                auto document = read_package_blob(source, entry_path, logical_path);
+                if (!document || document.value_if()->bytes.size() > 1024 * 1024 ||
+                    !core::ProjectPackageWriter::is_valid_distribution_notice_text(
+                        std::as_bytes(std::span(document.value_if()->bytes))) ||
+                    "sha256:" + core::sha256_hex(
+                                    std::as_bytes(std::span(document.value_if()->bytes))) !=
+                        hash) {
+                    valid = false;
+                    break;
+                }
+            }
+        }
+        for (const auto& entry : *indexed_entries.value)
+            if (entry.path.starts_with("licenses/") && !declared_notices.contains(entry.path))
+                valid = false;
+        if (!valid)
+            return core::Result<core::LoadedCompiledPackage, core::Diagnostics>::failure(
+                load_failure("content.runtime_notice_invalid",
+                             "Runtime Package distribution notice inventory is invalid.",
+                             std::string(logical_path)));
+    }
 
     auto gameplay_blob = read_package_blob(source, "game", logical_path);
     if (!gameplay_blob)

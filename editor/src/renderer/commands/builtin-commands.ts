@@ -87,6 +87,7 @@ import {
   setProjectDisplayPatches,
   setProjectEntrypointPatches,
   setProjectAppPatches,
+  setProjectDistributionNoticesPatches,
   setProjectIconPatches,
   setProjectReferenceResolutionPatches,
   setProjectRoomNavigationTransitionPatches,
@@ -1032,6 +1033,9 @@ const projectAppSchema = z
   })
   .strict();
 const projectSetAppSchema = z.object({ app: projectAppSchema });
+const projectDistributionNoticesSchema = z.object({
+  notices: z.array(z.object({ path: z.string(), displayName: z.string().optional() }).strict()),
+});
 const projectRoomNavigationTransitionSchema = z.object({
   transition: z
     .object({
@@ -1784,6 +1788,11 @@ export const projectSetAppCommand: CommandHandler = ({ document, payload }) =>
     setProjectAppPatches(document, parsed),
   );
 
+export const projectSetDistributionNoticesCommand: CommandHandler = ({ document, payload }) =>
+  parseEntityCommand(projectDistributionNoticesSchema, payload, (parsed) =>
+    setProjectDistributionNoticesPatches(document, parsed),
+  );
+
 export const projectSetRoomNavigationTransitionCommand: CommandHandler = ({ document, payload }) =>
   parseEntityCommand(projectRoomNavigationTransitionSchema, payload, (parsed) =>
     setProjectRoomNavigationTransitionPatches(document, parsed),
@@ -1911,6 +1920,7 @@ export function createBuiltinCommandHandlers(): Record<string, CommandHandler> {
     'project.setUndefinedInteractionProgram': projectSetUndefinedInteractionProgramCommand,
     'project.setIcon': projectSetIconCommand,
     'project.setApp': projectSetAppCommand,
+    'project.setDistributionNotices': projectSetDistributionNoticesCommand,
     'project.setRoomNavigationTransition': projectSetRoomNavigationTransitionCommand,
     'project.setTagColor': projectSetTagColorCommand,
     'project.createChapter': projectCreateChapterCommand,
@@ -2059,6 +2069,8 @@ export function labelForCommand(type: string): string {
       return 'Set project icon';
     case 'project.setApp':
       return 'Update app identity';
+    case 'project.setDistributionNotices':
+      return 'Update distribution notices';
     case 'project.setRoomNavigationTransition':
       return 'Update room navigation transition';
     case 'project.setTagColor':

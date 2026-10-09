@@ -523,6 +523,7 @@ const EXPLICIT_FIELD_EFFECTS: readonly [RegExp, AuthoringFieldGraphEffect][] = O
   [/^\/rooms\/\*\/data\/environments\/\*\/visual(?:\/|$)/, OWNER],
   [/^\/interactables\/\*\/data\/presentation\/visual(?:\/|$)/, OWNER],
   // Attachment relationships are authoring-only Project file metadata, not gameplay dependencies.
+  [/^\/settings\/distributionNotices(?:\/|$)/, NONE],
   [
     /^\/assets\/\*\/data\/attachments\/\*\/(?:path|purpose|displayName|sourceBaselineHash|assetBaselineHash)$/,
     NONE,

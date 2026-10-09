@@ -33,6 +33,7 @@ export interface PreparedRuntimePackageOptions {
     source: string;
     packagePath: string;
     storage: 'auto' | 'stored' | 'compressed';
+    expectedSha256?: string;
   }>;
   textEntries: Array<{
     text: string;
@@ -169,7 +170,14 @@ const packageOptionsSchema = z
     shaderVariants: z.array(z.string()),
     shaderMaterialMetadata: shaderMaterialProjectWireSchema.optional(),
     requiredShaderBinaryPaths: z.array(z.string()),
-    fileEntries: z.array(fileEntrySchema.pick({ source: true, packagePath: true, storage: true })),
+    fileEntries: z.array(
+      fileEntrySchema.pick({ source: true, packagePath: true, storage: true }).extend({
+        expectedSha256: z
+          .string()
+          .regex(/^sha256:[0-9a-f]{64}$/)
+          .optional(),
+      }),
+    ),
     textEntries: z.array(
       z
         .object({

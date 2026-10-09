@@ -6,6 +6,7 @@ import {
   effectiveProjectAccessibilityScale,
   projectSettingsForEditing,
   projectSettingsFromProject,
+  typedProjectSettingsSchema,
   validateProjectSettingsAuthoringState,
   validateTypedProjectSettings,
 } from '../../shared/project-schema/authoring-project-settings';
@@ -37,6 +38,27 @@ function addAssets(project: ReturnType<typeof createAuthoringProject>) {
 }
 
 describe('authoring project settings', () => {
+  it('authors safe Project-wide notice references without inferring Asset licenses', () => {
+    const project = createAuthoringProject();
+    expect(projectSettingsFromProject(project).distributionNotices).toEqual([]);
+    const notices = [{ path: 'support/licenses/terms.md', displayName: 'Terms' }];
+    expect(
+      typedProjectSettingsSchema.safeParse({ ...project.settings, distributionNotices: notices })
+        .success,
+    ).toBe(true);
+    for (const path of [
+      '../outside.md',
+      '/absolute.txt',
+      'support/licenses/image.png',
+      '.git/README.md',
+    ])
+      expect(
+        typedProjectSettingsSchema.safeParse({
+          ...project.settings,
+          distributionNotices: [{ path }],
+        }).success,
+      ).toBe(false);
+  });
   it('normalizes absent settings to built-in fallbacks', () => {
     const project = createAuthoringProject();
     const settings = projectSettingsFromProject(project);
