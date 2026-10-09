@@ -11,7 +11,7 @@ const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(
 // This index is part of the current player-template contract, not a separately versioned format.
 export async function verifyEngineNoticeIndex(templateRoot, descriptor, sbom) {
   if (descriptor.artifacts?.notices !== 'licenses/index.json')
-    throw new Error('Desktop/Web template must declare licenses/index.json, not an aggregate notice.');
+    throw new Error('Player template must declare licenses/index.json, not an aggregate notice.');
   const indexFile = path.join(templateRoot, 'licenses/index.json');
   const index = JSON.parse(await readFile(indexFile, 'utf8'));
   if (index.format !== 'noveltea.engine-licenses' ||

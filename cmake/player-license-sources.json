@@ -26,7 +26,9 @@
       "name": "fast-float", "version": "8.2.8",
       "paths": ["LICENSE-MIT", "LICENSE-APACHE", "LICENSE-BOOST"]
     },
+    "freetype": { "androidOnly": true, "version": "2.14.3", "paths": ["LICENSE.TXT", "docs/FTL.TXT"] },
     "harfbuzz": { "version": "14.2.1", "paths": ["COPYING", "src/ms-use/COPYING"] },
+    "libpng": { "androidOnly": true, "version": "1.6.58", "paths": ["LICENSE"] },
     "libunibreak_src": { "name": "libunibreak", "version": "7.0", "paths": ["LICENCE"] },
     "lua_src": {
       "name": "lua", "version": "5.5.0",

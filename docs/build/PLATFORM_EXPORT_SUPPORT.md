@@ -60,7 +60,7 @@ Release CI audits ELF dependencies and runtime paths with `readelf`/`ldd`, PE im
 CycloneDX SBOMs, collected notices, checksums, the release registry index, and GitHub provenance
 attestations are published as separate release assets.
 
-Desktop and Web template generation uses `cmake/generate-player-template-metadata.mjs`
+Desktop, Web, and Android template generation uses `cmake/generate-player-template-metadata.mjs`
 over the resolved vcpkg, CMake FetchContent, and Emscripten-port inventories.
 It preserves upstream license bytes in individual `licenses/*.txt` files and
 emits a deterministic `licenses/index.json` with component/display identities,
@@ -73,10 +73,15 @@ The SBOM covers exactly the same component/version pairs.
 exceptions for composite bgfx/bx/bimg, upstream license locations, Emscripten
 ports, and the hash-pinned legacy Liberation Sans system font. The font's
 original upstream GPL/exception texts are held under `cmake/licenses/`.
+Android resolves the matching ABI/flavor Gradle CMake source tree, includes the
+prebuilt SDL3 AAR and native shared-library closure, and checks the staged system
+font. The packaged SDL3 license is pinned to the SDL3 AAR version; unexpected
+shipped native libraries require an explicit verified source mapping before
+packaging can succeed. The Android descriptor and release sidecar use the same
+named index and byte-level certification as desktop and Web.
 Host-only tools/tests are excluded. Missing/ambiguous sources, placeholder
 licenses, or an unrecognized source layout abort generation; do not add
-hand-maintained copies of ordinary vcpkg copyrights. Android's distinct
-template-notice producer is not changed by this Desktop/Web slice.
+hand-maintained copies of ordinary vcpkg copyrights.
 Installed vcpkg feature dependencies are included in the player notice closure
 (for example FreeType's Brotli/BZip2 support). Original license formatting,
 including page-break form feeds in vcpkg's FreeType copyright text, is preserved.
@@ -108,7 +113,7 @@ Every template must prove the following universal release claims:
 | `canonical-export` | The canonical project/profile fixture completes the public project/profile export workflow. |
 | `runtime-package-integrity` | Canonical export evidence binds the emitted runtime package SHA-256 to the finalized export manifest. |
 | `symbols-build-id` | The separately published symbol archive contains the exact template `buildId` in `BUILD_ID` and actual symbol payloads. |
-| `third-party-notices` | Desktop/Web: the exact named license set, index, text bytes, hashes, and descriptor notice dependencies must agree; placeholders and incomplete/ambiguous catalogs fail. Android retains its separate notice check. |
+| `third-party-notices` | All platforms: the exact named license set, index, text bytes, hashes, and descriptor notice dependencies must agree; placeholders and incomplete/ambiguous catalogs fail. |
 | `sbom` | CycloneDX SBOM parses, and Desktop/Web component/version identities exactly match the license index. |
 
 Target-specific certification then binds the platform-specific behavior that the release runner can

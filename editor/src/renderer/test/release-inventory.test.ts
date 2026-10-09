@@ -64,12 +64,7 @@ function completeInventory() {
     write(root, archive);
     write(root, symbols);
     write(root, `${templateId}.SBOM.cdx.json`);
-    write(
-      root,
-      templateId.startsWith('android-')
-        ? `${templateId}.THIRD_PARTY_NOTICES.txt`
-        : `${templateId}.licenses.index.json`,
-    );
+    write(root, `${templateId}.licenses.index.json`);
     write(root, `noveltea-certification-results-${templateId}.json`);
     write(root, proof);
     write(
@@ -217,11 +212,7 @@ describe('release inventory certification evidence', () => {
       templates: Array<{ platform: string; templateId: string; notices: string }>;
     };
     for (const item of registry.templates) {
-      expect(item.notices).toBe(
-        `${item.templateId}.${
-          item.platform === 'android' ? 'THIRD_PARTY_NOTICES.txt' : 'licenses.index.json'
-        }`,
-      );
+      expect(item.notices).toBe(`${item.templateId}.licenses.index.json`);
     }
     expect(registry.templates.find((item) => item.platform === 'web')?.notices).toBe(
       'web-wasm32-release.licenses.index.json',

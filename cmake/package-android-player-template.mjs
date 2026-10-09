@@ -72,15 +72,16 @@ await cp(prebuiltShaders, path.join(source, 'android', 'prebuilt-shaders'), { re
 await mkdir(path.join(source, 'android', 'tools'), { recursive: true });
 await cp(path.resolve(bundletoolArg), path.join(source, 'android', 'tools', 'bundletool-1.18.1.jar'));
 await chmod(path.join(source, 'android', 'gradlew'), 0o755);
-await mkdir(path.join(stage, 'licenses'), { recursive: true });
-const dependencies = [
-  ['SDL', '3.4.10'], ['Android Gradle Plugin', '8.7.3'], ['Gradle', '8.9'], ['bundletool', '1.18.1'],
-  ['Android NDK', '28.2.13676358'], ['bgfx.cmake', bgfxVersion], ['RmlUi', '6.3-dev-feature-calc-c6744d15'], ['Lua', '5.5.0'],
-  ['sol2', '3.5.0'], ['FreeType', '2.13.3'], ['HarfBuzz', '11.2.1'], ['SheenBidi', '2.6'],
-  ['libunibreak', '6.1'], ['miniaudio', '0.11.23'], ['nlohmann-json', '3.12.0'], ['libpng', '1.6.58'], ['zlib', '1.3.2'], ['twink', 'ea488b2'],
-];
-await writeFile(path.join(stage, 'SBOM.cdx.json'), `${JSON.stringify({ bomFormat: 'CycloneDX', specVersion: '1.5', version: 1, metadata: { component: { type: 'application', name: 'noveltea-android-player-template', version: releaseTag } }, components: dependencies.map(([name, version]) => ({ type: 'library', name, version })) }, null, 2)}\n`);
-await writeFile(path.join(stage, 'licenses', 'THIRD_PARTY_NOTICES.txt'), `NovelTea Android player template third-party inventory\n\n${dependencies.map(([name, version]) => `${name} ${version}`).join('\n')}\n\nResolved dependency license texts are collected from the native build source trees in release CI.\n`);
+// Use the same resolved license generator and SBOM contract as desktop and Web.
+// The ABI/flavor-specific CMake cache owns the source dependency inventory.
+const cmakeRoots = await findDirectoriesContaining(path.join(root, 'android', 'app', '.cxx'), 'CMakeCache.txt');
+const matchingRoots = cmakeRoots.filter((candidate) => candidate.split(path.sep).includes(abi) &&
+  candidate.toLowerCase().includes(flavor.toLowerCase()));
+if (matchingRoots.length !== 1)
+  throw new Error(`Expected one Android ${flavor}/${abi} CMake build root, found ${matchingRoots.length}.`);
+const metadata = spawnSync('node', [path.join(root, 'cmake/generate-player-template-metadata.mjs'),
+  path.join(matchingRoots[0], 'vcpkg_installed'), stage, releaseTag, matchingRoots[0], '--android'], { encoding: 'utf8' });
+if (metadata.status !== 0) throw new Error(`Android license generation failed: ${metadata.stderr || metadata.stdout}`);
 
 async function files(directory, prefix = '') { const output = []; for (const entry of await readdir(path.join(directory, prefix), { withFileTypes: true })) { const relative = path.posix.join(prefix, entry.name); if (entry.isDirectory()) output.push(...await files(directory, relative)); else if (entry.isFile()) output.push(relative); } return output.sort(); }
 const sha = async (file) => createHash('sha256').update(await readFile(file)).digest('hex');
@@ -88,7 +89,7 @@ const inventory = [];
 for (const relative of await files(stage)) {
   if (relative === 'template.json') continue;
   const info = await stat(path.join(stage, relative));
-  const role = relative.includes('/assets/system/') ? 'system-asset' : relative.endsWith('.aar') ? 'native-dependency' : relative.includes('NOTICE') ? 'notice' : 'support';
+  const role = relative.startsWith('licenses/') ? 'notice' : relative.includes('/prebuilt-system/') ? 'system-asset' : relative.endsWith('.aar') ? 'native-dependency' : 'support';
   inventory.push({ path: relative, size: info.size, mode: info.mode & 0o777, sha256: await sha(path.join(stage, relative)), role });
 }
 const templateId = `android-${abi}-${flavor}`; const buildId = `${releaseTag}-android-${abi}-${flavor}`;
@@ -98,15 +99,15 @@ const descriptor = {
   platform: 'android', architecture, abi, minimumPlatformVersion: 'Android API 24', graphicsBackends: ['opengles'], shaderVariants: ['essl-300'],
   compiledProjectFormatVersion: 1, playerRuntimeApiVersion: 1,
   compiledFeatures: ['lua', 'rmlui', 'audio', 'save', 'android-private-copy'], capabilities: ['network.client', 'external-url', 'gamepad', 'vibration', 'microphone', 'notifications', 'billing'],
-  buildFlavor: flavor, packageAccessModes: ['android-private-copy'], files: inventory, runtimeDependencies: [],
-  artifacts: { archive: `noveltea-player-template-${releaseTag}-${templateId}.${archiveExtension}`, symbols: `noveltea-player-symbols-${releaseTag}-${templateId}.zip`, sbom: 'SBOM.cdx.json', notices: 'licenses/THIRD_PARTY_NOTICES.txt' },
+  buildFlavor: flavor, packageAccessModes: ['android-private-copy'], files: inventory, runtimeDependencies: inventory.filter((entry) => entry.role === 'notice').map((entry) => ({ path: entry.path, kind: 'notice' })),
+  artifacts: { archive: `noveltea-player-template-${releaseTag}-${templateId}.${archiveExtension}`, symbols: `noveltea-player-symbols-${releaseTag}-${templateId}.zip`, sbom: 'SBOM.cdx.json', notices: 'licenses/index.json' },
   provenance: { provider: 'github-attestation', source: releaseTag }, host: { assembly: 'any', requiresToolchain: true, tools: ['java', 'android-sdk', 'bundletool'] },
   android: {
     gradleProjectRoot: 'source/android', applicationModule: 'app', gradleWrapperPath: 'source/android/gradlew', bundletoolPath: 'source/android/tools/bundletool-1.18.1.jar',
     insertionRoots: { generatedSource: 'generated/java', resources: 'generated/res', assets: 'generated/assets' }, namespace: 'org.noveltea.player', activityClass: 'org.noveltea.player.MainActivity', nativeLibraryName: 'noveltea-player',
     supportedAbis: [abi], artifactKinds: flavor === 'release' ? ['apk', 'aab'] : ['apk'], packageAccessModes: ['android-private-copy'], minimumSdk: { minimum: 24, maximum: 35 }, targetSdk: 35, compileSdk: 35,
     toolchain: { gradle: '8.9', androidGradlePlugin: '8.7.3', java: '17', buildTools: '35.0.0', ndk: '28.2.13676358', cmake: '3.31.6', bundletool: '1.18.1' },
-    roles: { manifest: ['source/android/app/src/main/AndroidManifest.xml'], nativeLibraries: [`source/android/prebuilt-native/${abi}`], runtimeAssets: ['source/android/prebuilt-system', 'source/android/prebuilt-shaders'], notices: ['licenses/THIRD_PARTY_NOTICES.txt'], supportFiles: ['source/android/gradlew', 'source/android/gradle/wrapper/gradle-wrapper.jar', 'source/android/tools/bundletool-1.18.1.jar'] },
+    roles: { manifest: ['source/android/app/src/main/AndroidManifest.xml'], nativeLibraries: [`source/android/prebuilt-native/${abi}`], runtimeAssets: ['source/android/prebuilt-system', 'source/android/prebuilt-shaders'], notices: ['licenses/index.json'], supportFiles: ['source/android/gradlew', 'source/android/gradle/wrapper/gradle-wrapper.jar', 'source/android/tools/bundletool-1.18.1.jar'] },
   },
 };
 await writeFile(path.join(stage, 'template.json'), `${JSON.stringify(descriptor, null, 2)}\n`);

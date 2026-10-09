@@ -28,7 +28,7 @@ else()
 endif()
 file(COPY_FILE "${stage}/template.json" "${root}/dist/${template_id}.template.json")
 file(COPY_FILE "${stage}/SBOM.cdx.json" "${root}/dist/${template_id}.SBOM.cdx.json")
-file(COPY_FILE "${stage}/licenses/THIRD_PARTY_NOTICES.txt" "${root}/dist/${template_id}.THIRD_PARTY_NOTICES.txt")
+file(COPY_FILE "${stage}/licenses/index.json" "${root}/dist/${template_id}.licenses.index.json")
 file(GLOB_RECURSE symbol_candidates
     "${root}/android/app/.cxx/*/*/${NOVELTEA_ANDROID_ABI}/libnoveltea-player.so"
     "${root}/android/app/build/intermediates/cxx/*/*/obj/${NOVELTEA_ANDROID_ABI}/libnoveltea-player.so")
