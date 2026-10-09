@@ -77,6 +77,12 @@ Host-only tools/tests are excluded. Missing/ambiguous sources, placeholder
 licenses, or an unrecognized source layout abort generation; do not add
 hand-maintained copies of ordinary vcpkg copyrights. Android's distinct
 template-notice producer is not changed by this Desktop/Web slice.
+Installed vcpkg feature dependencies are included in the player notice closure
+(for example FreeType's Brotli/BZip2 support). Original license formatting,
+including page-break form feeds in vcpkg's FreeType copyright text, is preserved.
+Generation also verifies that the hash-pinned system font reached the staged
+runtime assets (and the desktop template payload), so an absent/stale font
+cannot produce a successful license catalog for an incomplete player template.
 
 ### Release platform certification scope
 

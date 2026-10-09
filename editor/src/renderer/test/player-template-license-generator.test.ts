@@ -59,6 +59,11 @@ function webFixture() {
   const build = path.join(root, 'build');
   const emsdk = path.join(root, 'emsdk');
   write(build, 'CMakeCache.txt', `EMSDK:PATH=${emsdk}\n`);
+  write(
+    build,
+    'runtime-assets/system/fonts/LiberationSans.ttf',
+    readFileSync(path.resolve(process.cwd(), '../engine/assets/system/fonts/LiberationSans.ttf')),
+  );
   const licenseBytes = Buffer.from('MIT License\r\nCopyright \xc2\xa9 Test\r\n', 'utf8');
   for (const [name, rule] of Object.entries(rules.fetched)) {
     if (rule.player === false) continue;
@@ -175,30 +180,56 @@ describe('resolved player-template license generation', () => {
     const build = path.join(root, 'build');
     const target = 'x64-linux-noveltea';
     write(build, 'CMakeCache.txt', `VCPKG_TARGET_TRIPLET:STRING=${target}\n`);
-    const installed = [...rules.vcpkgRuntimeRoots, ...rules.vcpkgLinuxRoots];
-    const names = [...installed, 'catch2', 'imgui', 'vcpkg-cmake'];
-    const text = Buffer.from('MIT License\r\nOriginal source\r\n');
-    write(
-      build,
-      'vcpkg_installed/vcpkg/status',
-      names
-        .map(
-          (name) =>
-            `Package: ${name}\nVersion: 1.0.0\nArchitecture: ${name.startsWith('vcpkg-') ? 'x64-linux' : target}\nStatus: install ok installed\n`,
-        )
-        .join('\n'),
+    const bundledFont = readFileSync(
+      path.resolve(process.cwd(), '../engine/assets/system/fonts/LiberationSans.ttf'),
     );
-    for (const name of names)
-      write(build, `vcpkg_installed/${target}/share/${name}/copyright`, text);
+    write(build, 'runtime-assets/system/fonts/LiberationSans.ttf', bundledFont);
+    const packagedFont = 'stage/assets/system/fonts/LiberationSans.ttf';
+    write(root, packagedFont, bundledFont);
+    const installed = [...rules.vcpkgRuntimeRoots, ...rules.vcpkgLinuxRoots];
+    const names = [...installed, 'brotli', 'bzip2', 'expat', 'catch2', 'imgui', 'vcpkg-cmake'];
+    const text = Buffer.from('MIT License\r\nOriginal source\r\n');
+    const freeTypeText = Buffer.from('FreeType License\nPage one\fPage two\n');
+    const statusEntries = names.map(
+      (name) =>
+        `Package: ${name}\nVersion: 1.0.0\n${name === 'dbus' ? 'Depends: expat\n' : ''}Architecture: ${name.startsWith('vcpkg-') ? 'x64-linux' : target}\nStatus: install ok installed\n`,
+    );
+    const featureEntries = [
+      `Package: freetype\nFeature: brotli\nDepends: brotli\nArchitecture: ${target}\nStatus: install ok installed\n`,
+      `Package: freetype\nFeature: bzip2\nDepends: bzip2\nArchitecture: ${target}\nStatus: install ok installed\n`,
+      `Package: sdl3\nFeature: dbus\nDepends: dbus\nArchitecture: ${target}\nStatus: install ok installed\n`,
+    ];
+    const statusFile = 'vcpkg_installed/vcpkg/status';
+    write(build, statusFile, [...statusEntries, ...featureEntries].join('\n'));
+    for (const name of names) {
+      const source = `vcpkg_installed/${target}/share/${name}/copyright`;
+      write(build, source, name === 'freetype' ? freeTypeText : text);
+    }
     const { result, stage } = generate(root);
     expect(result.status, result.stderr).toBe(0);
     const index = getIndex(stage);
     expect(index.components.some((item) => item.component === 'sdl3')).toBe(true);
     expect(index.components.some((item) => item.component === 'dbus')).toBe(true);
+    for (const name of ['brotli', 'bzip2', 'expat'])
+      expect(index.components.some((item) => item.component === name)).toBe(true);
     expect(index.components.some((item) => item.component === 'catch2')).toBe(false);
     expect(index.components.some((item) => item.component === 'imgui')).toBe(false);
     expect(index.components.some((item) => item.component === 'vcpkg-cmake')).toBe(false);
     const sdl = index.components.find((item) => item.component === 'sdl3')!;
     expect(readFileSync(path.join(stage, sdl.files[0]!.path))).toEqual(text);
+    const freetype = index.components.find((item) => item.component === 'freetype')!;
+    expect(readFileSync(path.join(stage, freetype.files[0]!.path))).toEqual(freeTypeText);
+
+    rmSync(path.join(root, packagedFont));
+    expect(generate(root).result.stderr).toContain('Required desktop template font is missing');
+    write(root, packagedFont, bundledFont);
+
+    // Installed target feature dependencies cannot silently disappear from the SBOM/notices.
+    const withoutBrotli = statusEntries.filter((_, index) => names[index] !== 'brotli');
+    write(build, statusFile, [...withoutBrotli, ...featureEntries].join('\n'));
+    expect(generate(root).result.stderr).toContain('Missing installed player dependency brotli');
+
+    write(build, statusFile, [...statusEntries, statusEntries[0], ...featureEntries].join('\n'));
+    expect(generate(root).result.stderr).toContain('Ambiguous installed player dependency');
   });
 });

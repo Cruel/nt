@@ -88,6 +88,7 @@
                 "NOVELTEA_ENABLE_RENDER_PERF": "OFF",
                 "NOVELTEA_ENABLE_DEVTOOLS": "OFF",
                 "NOVELTEA_BUILD_SANDBOX": "OFF",
+                "NOVELTEA_CMAKE_STAGE_RUNTIME_ASSETS": "ON",
                 "NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER": "OFF"
             }
         },

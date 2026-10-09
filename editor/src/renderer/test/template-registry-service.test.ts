@@ -24,6 +24,7 @@ function archiveFixture(
   kind: 'tar' | 'zip' = 'tar',
   modes: { stored?: number; declared?: number } = {},
   corruptNotices = false,
+  misattributeNotices = false,
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-template-'));
   roots.push(root);
@@ -32,14 +33,14 @@ function archiveFixture(
   fs.writeFileSync(path.join(content, 'bin/player'), 'player', { mode: modes.stored ?? 0o755 });
   const player = fs.readFileSync(path.join(content, 'bin/player'));
   fs.mkdirSync(path.join(content, 'licenses'));
-  const license = Buffer.from('MIT License\nCopyright (c) Example\n');
+  const license = Buffer.from('MIT License\nCopyright (c) Example\n\fAdditional page\n');
   const licensePath = 'licenses/fixture-library--license.txt';
   fs.writeFileSync(path.join(content, licensePath), license);
   const index = {
     format: 'noveltea.engine-licenses',
     components: [
       {
-        component: 'fixture-library',
+        component: misattributeNotices ? 'wrong-library' : 'fixture-library',
         displayName: 'Fixture Library',
         version: '1.0',
         files: [
@@ -57,7 +58,9 @@ function archiveFixture(
     path.join(content, 'SBOM.cdx.json'),
     JSON.stringify({
       bomFormat: 'CycloneDX',
-      components: [{ name: 'fixture-library', version: '1.0' }],
+      components: [
+        { name: misattributeNotices ? 'wrong-library' : 'fixture-library', version: '1.0' },
+      ],
     }),
   );
   const noticeFiles = ['licenses/index.json', licensePath, 'SBOM.cdx.json'].map((name) => {
@@ -208,6 +211,12 @@ describe('template registry service', () => {
     const result = await installPlayerTemplate({ archivePath: archive, origin: 'bad-license' });
     expect(result.success).toBe(false);
     expect(result.diagnostics[0]?.message).toContain('License index entry');
+  });
+  it('rejects a component identity that does not own its named license files', async () => {
+    const { archive } = archiveFixture('tar', {}, false, true);
+    const result = await installPlayerTemplate({ archivePath: archive, origin: 'wrong-component' });
+    expect(result.success).toBe(false);
+    expect(result.diagnostics[0]?.message).toContain('does not belong');
   });
   it.skipIf(process.platform === 'win32')('installs ZIP templates without CMake', async () => {
     const { archive } = archiveFixture('zip');

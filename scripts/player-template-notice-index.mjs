@@ -6,6 +6,7 @@ const sha256 = (data) => createHash('sha256').update(data).digest('hex');
 const hex = /^[0-9a-f]{64}$/;
 const textDecoder = new TextDecoder('utf-8', { fatal: true });
 const compare = (left, right) => left < right ? -1 : left > right ? 1 : 0;
+const slug = (value) => value.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
 // This index is part of the current player-template contract, not a separately versioned format.
 export async function verifyEngineNoticeIndex(templateRoot, descriptor, sbom) {
@@ -36,6 +37,7 @@ export async function verifyEngineNoticeIndex(templateRoot, descriptor, sbom) {
       if (!file || Object.keys(file).sort().join(',') !== 'path,sha256,size' ||
           typeof file.path !== 'string' ||
           !/^licenses\/[a-z0-9-]+--[a-z0-9-]+\.txt$/.test(file.path) ||
+          !file.path.startsWith(`licenses/${slug(component.component)}--`) ||
           !Number.isSafeInteger(file.size) || file.size <= 0 ||
           !hex.test(file.sha256) || indexed.has(file.path))
         throw new Error(`Invalid or duplicated engine license path '${file?.path}'.`);
@@ -49,7 +51,7 @@ export async function verifyEngineNoticeIndex(templateRoot, descriptor, sbom) {
         throw new Error(`Engine license integrity mismatch for '${file.path}'.`);
       const text = textDecoder.decode(data);
       if (!text.trim() ||
-          /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(text) ||
+          /[\u0000-\u0008\u000b\u000e-\u001f\u007f]/.test(text) ||
           /No dependency notice file was found|Resolved dependency license texts are collected|PLACEHOLDER LICENSE/i.test(text))
         throw new Error(`Missing or placeholder engine license text in '${file.path}'.`);
     }

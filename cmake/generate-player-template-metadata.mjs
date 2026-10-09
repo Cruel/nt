@@ -40,7 +40,7 @@ function addComponent(name, componentVersion, sources, provenance) {
     const data = readFileSync(absolute);
     const rendered = textDecoder.decode(data);
     if (!rendered.trim() ||
-        /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f]/.test(rendered) ||
+        /[\u0000-\u0008\u000b\u000e-\u001f\u007f]/.test(rendered) ||
         /No dependency notice file was found|Resolved dependency license texts are collected|PLACEHOLDER LICENSE/i.test(rendered))
       throw new Error(`Required ${name} license contains empty or placeholder text: ${absolute}`);
     let sourceName = slug(path.basename(source)) || 'notice';
@@ -87,14 +87,30 @@ if (existsSync(statusPath)) {
       const at = line.indexOf(': ');
       return [line.slice(0, at), line.slice(at + 2)];
     }),
-  )).filter((item) => item.Package && item.Version && item.Status === 'install ok installed');
+  )).filter((item) => item.Package && item.Status === 'install ok installed');
   const cache = path.join(buildRoot, 'CMakeCache.txt');
   const cacheText = existsSync(cache) ? readFileSync(cache, 'utf8') : '';
   const triplet = /^VCPKG_TARGET_TRIPLET:[^=]*=(.+)$/m.exec(cacheText)?.[1];
-  const triplets = [...new Set(available.filter((item) => !item.Package.startsWith('vcpkg-')).map((item) => item.Architecture))];
+  const triplets = [...new Set(available.filter((item) => item.Version && !item.Package.startsWith('vcpkg-')).map((item) => item.Architecture))];
   const target = triplet || (triplets.length === 1 ? triplets[0] : null);
   if (!target) throw new Error(`Ambiguous vcpkg target triplet: ${triplets.join(', ')}`);
-  const candidates = new Map(available.filter((item) => item.Architecture === target).map((item) => [item.Package, item]));
+  const targetEntries = available.filter((item) => item.Architecture === target);
+  const candidates = new Map();
+  for (const item of targetEntries.filter((entry) => entry.Version)) {
+    if (candidates.has(item.Package))
+      throw new Error(`Ambiguous installed player dependency ${item.Package} for ${target}`);
+    candidates.set(item.Package, item);
+  }
+  const featureDependencies = new Map();
+  const installedFeatures = new Set();
+  for (const item of targetEntries.filter((item) => item.Feature)) {
+    const key = `${item.Package}:${item.Feature}`;
+    if (installedFeatures.has(key))
+      throw new Error(`Ambiguous installed player dependency feature ${key} for ${target}`);
+    installedFeatures.add(key);
+    if (!featureDependencies.has(item.Package)) featureDependencies.set(item.Package, []);
+    featureDependencies.get(item.Package).push(item.Depends ?? '');
+  }
   const required = new Set();
   function include(name) {
     if (name.startsWith('vcpkg-')) return; // Host-only port helpers, never player runtime code.
@@ -102,8 +118,11 @@ if (existsSync(statusPath)) {
     const item = candidates.get(name);
     if (!item) throw new Error(`Missing installed player dependency ${name} for ${target}`);
     required.add(name);
-    for (const dependency of (item.Depends ?? '').split(',').map((value) => value.trim().split(/[:[( ]/)[0]).filter(Boolean))
-      if (candidates.has(dependency)) include(dependency);
+    // Installed feature paragraphs have no Version field. Their dependency edges
+    // still matter (e.g. FreeType's brotli/bzip2 and SDL3's dbus).
+    for (const depends of [item.Depends ?? '', ...(featureDependencies.get(name) ?? [])])
+      for (const dependency of depends.split(',').map((value) => value.trim().split(/[:[( ]/)[0]).filter(Boolean))
+        include(dependency);
   }
   for (const name of exceptions.vcpkgRuntimeRoots) include(name);
   if (target.includes('linux'))
@@ -167,6 +186,17 @@ const font = exceptions.systemFont;
 const fontAsset = path.join(root, font.asset);
 if (shaFile(fontAsset) !== font.assetSha256)
   throw new Error('Bundled system font changed without updating its license provenance.');
+const fontRelative = font.asset.replace(/^engine\/assets\/system\//, '');
+if (fontRelative === font.asset)
+  throw new Error('Bundled system font must live under engine/assets/system.');
+const stagedFont = path.join(buildRoot, 'runtime-assets/system', fontRelative);
+if (!existsSync(stagedFont) || shaFile(stagedFont) !== font.assetSha256)
+  throw new Error(`Required bundled system font is missing or mismatched: ${stagedFont}`);
+if (existsSync(statusPath)) {
+  const packagedFont = path.join(output, 'assets/system', fontRelative);
+  if (!existsSync(packagedFont) || shaFile(packagedFont) !== font.assetSha256)
+    throw new Error(`Required desktop template font is missing or mismatched: ${packagedFont}`);
+}
 addComponent(font.name, font.version, font.licenses.map((relative) => path.join(root, relative)), font.asset);
 
 notices.sort((a, b) => a.component < b.component ? -1 : a.component > b.component ? 1 : 0);
