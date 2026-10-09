@@ -17,9 +17,7 @@ const templates = readdirSync(directory).filter((name) => name.endsWith('.templa
     descriptorSha256: createHash('sha256').update(descriptorData).digest('hex'),
     symbols: descriptor.artifacts.symbols,
     sbom: `${descriptor.templateId}.SBOM.cdx.json`,
-    notices: descriptor.platform === 'android'
-      ? `${descriptor.templateId}.THIRD_PARTY_NOTICES.txt`
-      : `${descriptor.templateId}.licenses.index.json`,
+    notices: `${descriptor.templateId}.licenses.index.json`,
     provenance: `https://github.com/${process.env.GITHUB_REPOSITORY}/attestations`,
   };
 });

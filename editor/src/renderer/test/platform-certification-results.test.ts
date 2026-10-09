@@ -219,7 +219,7 @@ function setup(corruptLicenseIndex = false) {
   return { root, archive, browser, results, report, collectArgs };
 }
 
-function setupAndroid() {
+function setupAndroid(corruptLicense = false) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'noveltea-cert-results-android-'));
   roots.push(root);
   const dist = path.join(root, 'dist');
@@ -233,13 +233,43 @@ function setupAndroid() {
   );
   writeFileSync(
     path.join(stage, 'SBOM.cdx.json'),
-    `${JSON.stringify({ bomFormat: 'CycloneDX', specVersion: '1.6', version: 1 })}\n`,
+    `${JSON.stringify({
+      bomFormat: 'CycloneDX',
+      specVersion: '1.6',
+      version: 1,
+      components: [{ type: 'library', name: 'fixture-lib', version: '1.0' }],
+    })}\n`,
   );
-  writeFileSync(path.join(stage, 'licenses/THIRD_PARTY_NOTICES.txt'), 'Third-party notices\n');
+  const licensePath = 'licenses/fixture-lib--license.txt';
+  const licenseText = corruptLicense
+    ? 'PLACEHOLDER LICENSE\n'
+    : 'MIT License\nCopyright (c) Fixture\n';
+  writeFileSync(path.join(stage, licensePath), licenseText);
+  writeFileSync(
+    path.join(stage, 'licenses/index.json'),
+    `${JSON.stringify({
+      format: 'noveltea.engine-licenses',
+      components: [
+        {
+          component: 'fixture-lib',
+          displayName: 'Fixture Library',
+          version: '1.0',
+          files: [
+            {
+              path: licensePath,
+              size: Buffer.byteLength(licenseText),
+              sha256: sha256(licenseText),
+            },
+          ],
+        },
+      ],
+    })}\n`,
+  );
   const relativeFiles = [
     'source/android/prebuilt-native/arm64-v8a/libnoveltea-player.so',
     'SBOM.cdx.json',
-    'licenses/THIRD_PARTY_NOTICES.txt',
+    licensePath,
+    'licenses/index.json',
   ];
   const files = relativeFiles.map((relative) => {
     const data = readFileSync(path.join(stage, relative));
@@ -248,7 +278,11 @@ function setupAndroid() {
       size: data.length,
       mode: 0o644,
       sha256: sha256(data),
-      role: relative.endsWith('.so') ? 'native-dependency' : 'support',
+      role: relative.startsWith('licenses/')
+        ? 'notice'
+        : relative.endsWith('.so')
+          ? 'native-dependency'
+          : 'support',
     };
   });
   const archiveName = 'noveltea-player-template-v1.0.0-android-arm64-v8a-release.tar.gz';
@@ -272,12 +306,15 @@ function setupAndroid() {
     compiledFeatures: ['android-private-copy'],
     packageAccessModes: ['android-private-copy'],
     files,
-    runtimeDependencies: [],
+    runtimeDependencies: [
+      { path: licensePath, kind: 'notice' },
+      { path: 'licenses/index.json', kind: 'notice' },
+    ],
     artifacts: {
       archive: archiveName,
       symbols: symbolName,
       sbom: 'SBOM.cdx.json',
-      notices: 'licenses/THIRD_PARTY_NOTICES.txt',
+      notices: 'licenses/index.json',
     },
     provenance: { provider: 'local', source: 'test' },
     host: { assembly: 'any', requiresToolchain: true, tools: ['java', 'android-sdk'] },
@@ -469,6 +506,13 @@ describe('platform certification results producer', () => {
     expect(
       run([certification, 'verify', '--archive', value.archive, '--report', value.report]).status,
     ).toBe(0);
+  });
+
+  it('rejects an Android template with inventory-only or placeholder license text', () => {
+    const value = setupAndroid(true);
+    const result = run(value.collectArgs);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('Missing or placeholder engine license text');
   });
 
   it('fails closed when an AAB template lacks passing bundletool evidence', () => {

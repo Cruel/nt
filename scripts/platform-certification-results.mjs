@@ -182,13 +182,6 @@ async function verifyNoticeAndSbom(templateRoot, descriptor) {
     await readFile(path.join(templateRoot, ...descriptor.artifacts.sbom.split('/')), 'utf8'),
   );
   if (sbom.bomFormat !== 'CycloneDX') throw new Error('Template SBOM is not CycloneDX.');
-  if (descriptor.platform === 'android') {
-    const relative = descriptor.artifacts.notices;
-    if (!safeRelativePath(relative) ||
-        !(await readFile(path.join(templateRoot, ...relative.split('/')))).length)
-      throw new Error('Android notice artifact is missing or empty.');
-    return { sbomFormat: sbom.bomFormat, notices: 'Android notice artifact' };
-  }
   const noticeAudit = await verifyEngineNoticeIndex(templateRoot, descriptor, sbom);
   return {
     sbomFormat: sbom.bomFormat,

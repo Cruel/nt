@@ -10,6 +10,7 @@ const installed = path.resolve(process.argv[2]);
 const output = path.resolve(process.argv[3]);
 const version = process.argv[4];
 const buildRoot = process.argv[5] ? path.resolve(process.argv[5]) : path.dirname(installed);
+const android = process.argv[6] === '--android';
 if (!process.argv[2] || !process.argv[3] || !version)
   throw new Error('Usage: generate-player-template-metadata.mjs <vcpkg_installed> <stage> <version> [build-root]');
 
@@ -80,7 +81,7 @@ function sourceRevision(source) {
 }
 
 const statusPath = path.join(installed, 'vcpkg', 'status');
-if (existsSync(statusPath)) {
+if (!android && existsSync(statusPath)) {
   const paragraphs = readFileSync(statusPath, 'utf8').split(/\r?\n\r?\n/);
   const available = paragraphs.map((paragraph) => Object.fromEntries(
     paragraph.split(/\r?\n/).filter((line) => line.includes(': ')).map((line) => {
@@ -135,9 +136,15 @@ if (existsSync(statusPath)) {
   }
 }
 const deps = path.join(buildRoot, '_deps');
-if (!existsSync(statusPath) && !existsSync(deps))
+if (!existsSync(deps) && (android || !existsSync(statusPath)))
   throw new Error(`Missing dependency inventory at ${statusPath} and ${deps}`);
 if (existsSync(deps)) {
+  const androidRequired = new Set([
+    'bgfx.cmake', 'fast_float', 'freetype', 'harfbuzz', 'libpng',
+    'libunibreak_src', 'lua_src', 'miniaudio', 'miniz', 'nlohmann_json',
+    'rmlui', 'sheenbidi', 'sol2', 'twink',
+  ]);
+  const observed = new Set();
   for (const entry of readdirSync(deps).filter((name) => name.endsWith('-src')).sort()) {
     const source = path.join(deps, entry);
     if (!statSync(source).isDirectory()) continue;
@@ -145,6 +152,12 @@ if (existsSync(deps)) {
     const rule = exceptions.fetched[name];
     if (!rule) throw new Error(`Unclassified CMake source dependency ${name}: add a target applicability rule.`);
     if (rule.player === false) continue;
+    if (rule.androidOnly && !android) continue;
+    if (android) {
+      if (!androidRequired.has(name))
+        throw new Error(`Unclassified Android runtime source dependency ${name}.`);
+      observed.add(name);
+    }
     if (rule.evidence) {
       const evidence = readFileSync(path.join(source, rule.evidence), 'utf8');
       if (!evidence.includes('Permission is hereby granted') ||
@@ -159,8 +172,10 @@ if (existsSync(deps)) {
       addComponent(rule.name ?? name.replaceAll('_src', ''), revision, pickSources(source, rule.paths, name), entry);
     }
   }
+  if (android) for (const name of androidRequired)
+    if (!observed.has(name)) throw new Error(`Missing Android runtime source dependency ${name}.`);
 }
-if (!existsSync(statusPath)) {
+if (!android && !existsSync(statusPath)) {
   const cache = path.join(buildRoot, 'CMakeCache.txt');
   const cacheText = existsSync(cache) ? readFileSync(cache, 'utf8') : '';
   const emsdkCache = /^EMSDK:[^=]*=(.+)$/m.exec(cacheText)?.[1]?.replaceAll('\\', '/');
@@ -189,15 +204,43 @@ if (shaFile(fontAsset) !== font.assetSha256)
 const fontRelative = font.asset.replace(/^engine\/assets\/system\//, '');
 if (fontRelative === font.asset)
   throw new Error('Bundled system font must live under engine/assets/system.');
-const stagedFont = path.join(buildRoot, 'runtime-assets/system', fontRelative);
+const stagedFont = android
+  ? path.join(output, 'source/android/prebuilt-system', fontRelative)
+  : path.join(buildRoot, 'runtime-assets/system', fontRelative);
 if (!existsSync(stagedFont) || shaFile(stagedFont) !== font.assetSha256)
   throw new Error(`Required bundled system font is missing or mismatched: ${stagedFont}`);
-if (existsSync(statusPath)) {
+if (!android && existsSync(statusPath)) {
   const packagedFont = path.join(output, 'assets/system', fontRelative);
   if (!existsSync(packagedFont) || shaFile(packagedFont) !== font.assetSha256)
     throw new Error(`Required desktop template font is missing or mismatched: ${packagedFont}`);
 }
 addComponent(font.name, font.version, font.licenses.map((relative) => path.join(root, relative)), font.asset);
+if (android) {
+  // The SDL AAR is the only Java/Prefab runtime dependency; Gradle and bundletool
+  // belong to template assembly, not to the installed player.
+  const aar = path.join(output, 'source/android/app/libs/SDL3-3.4.10.aar');
+  if (!existsSync(aar)) throw new Error(`Missing packaged SDL runtime AAR: ${aar}`);
+  const packagedLibraries = readdirSync(path.dirname(aar)).filter((name) => /\.(aar|jar)$/i.test(name));
+  if (packagedLibraries.length !== 1 || packagedLibraries[0] !== path.basename(aar))
+    throw new Error(`Unmapped Android Java/AAR dependency: ${packagedLibraries.join(', ')}`);
+  let prefab;
+  try {
+    prefab = JSON.parse(execFileSync('unzip', ['-p', aar, 'prefab/prefab.json'], { encoding: 'utf8' }));
+  } catch { throw new Error(`SDL3 AAR is missing a valid Prefab identity: ${aar}`); }
+  if (prefab.name !== 'SDL3' || prefab.version !== '3.4.10')
+    throw new Error(`SDL3 AAR identity mismatch: ${JSON.stringify(prefab)}`);
+  const sdlLicense = path.join(root, 'cmake/licenses/sdl3-3.4.10-LICENSE.txt');
+  addComponent('SDL3', '3.4.10', [sdlLicense], aar);
+  const nativeDir = path.join(output, 'source/android/prebuilt-native');
+  const abi = readdirSync(nativeDir);
+  if (abi.length !== 1) throw new Error('Ambiguous Android native ABI closure.');
+  const shipped = readdirSync(path.join(nativeDir, abi[0])).filter((name) => name.endsWith('.so')).sort();
+  for (const so of shipped)
+    if (!['libnoveltea-player.so', 'libSDL3.so'].includes(so))
+      throw new Error(`Unmapped shipped Android native library ${so}: add verified license provenance.`);
+  if (!shipped.includes('libSDL3.so') || !shipped.includes('libnoveltea-player.so'))
+    throw new Error('Android native dependency closure is incomplete.');
+}
 
 notices.sort((a, b) => a.component < b.component ? -1 : a.component > b.component ? 1 : 0);
 components.sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
