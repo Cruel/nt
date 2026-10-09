@@ -3,6 +3,10 @@ import { promises as fs } from 'node:fs';
 import path from 'node:path';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import { parseMaterialData } from '../../shared/project-schema/authoring-materials';
+import {
+  isSafeProjectAttachmentPath,
+  parseAssetData,
+} from '../../shared/project-schema/authoring-assets';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
 import type {
   ProjectSourceExpectedRevision,
@@ -198,6 +202,23 @@ function rewriteSemanticPaths(
   scriptSourcePaths: Record<string, string>,
   remap: ReadonlyMap<string, string>,
 ): void {
+  for (const record of Object.values(project.assets)) {
+    const data = parseAssetData(record.data);
+    if (!data) continue;
+    const sourcePath = mappedPath(data.source.path, remap);
+    const attachments = data.attachments.map((attachment) => ({
+      ...attachment,
+      path: mappedPath(attachment.path, remap),
+    }));
+    if (
+      sourcePath !== data.source.path ||
+      attachments.some((attachment, index) => attachment.path !== data.attachments[index]?.path)
+    ) {
+      if (new Set(attachments.map((attachment) => attachment.path)).size !== attachments.length)
+        throw new Error(`Source move would create duplicate attachments on Asset '${record.id}'.`);
+      record.data = { ...data, source: { ...data.source, path: sourcePath }, attachments };
+    }
+  }
   for (const record of Object.values(project.materials)) {
     const shader = (record.data as { shader?: Record<string, { kind?: string; path?: string }> })
       .shader;
@@ -588,6 +609,99 @@ export async function mutateProjectSources(
           success: true,
           changedPaths: [...new Set([...targetFiles, destination])].sort(),
           createdSourceIds: [destination],
+        };
+      }
+      if (operation.kind === 'move-attachment') {
+        const { fromPath, toPath } = operation;
+        if (
+          !isSafeProjectAttachmentPath(fromPath) ||
+          !isSafeProjectAttachmentPath(toPath) ||
+          !/^(?:assets|support)\//u.test(fromPath) ||
+          !/^(?:assets|support)\//u.test(toPath) ||
+          fromPath === toPath
+        )
+          throw new Error('Attachment moves must use distinct paths inside assets/ or support/.');
+        const sourceAbsolute = path.join(root, fromPath);
+        const targetAbsolute = path.join(root, toPath);
+        // Reject symlinked ancestors, including a missing destination beneath a linked folder.
+        for (const relative of [fromPath, toPath]) {
+          let cursor = root;
+          for (const segment of relative.split('/')) {
+            cursor = path.join(cursor, segment);
+            try {
+              if ((await fs.lstat(cursor)).isSymbolicLink())
+                throw new Error('Attachment moves cannot traverse symbolic links.');
+            } catch (error) {
+              if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+            }
+          }
+        }
+        if ((await fileSystem.inspect(sourceAbsolute)) !== 'file')
+          throw new Error(`Attachment '${fromPath}' is not a regular file.`);
+        if ((await fileSystem.inspect(targetAbsolute)) !== 'missing')
+          throw new Error(`Attachment destination '${toPath}' already exists.`);
+        const candidate = structuredClone(snapshot.project);
+        let references = 0;
+        for (const record of Object.values(candidate.assets)) {
+          const data = parseAssetData(record.data);
+          if (!data) continue;
+          const hasSource = data.source.path === fromPath;
+          const hasAttachment = data.attachments.some((attachment) => attachment.path === fromPath);
+          if (!hasSource && !hasAttachment) continue;
+          if (data.attachments.some((attachment) => attachment.path === toPath))
+            throw new Error('Moving this file would create a duplicate Asset attachment.');
+          record.data = {
+            ...data,
+            source: hasSource ? { ...data.source, path: toPath } : data.source,
+            attachments: data.attachments.map((attachment) =>
+              attachment.path === fromPath ? { ...attachment, path: toPath } : attachment,
+            ),
+          };
+          references++;
+        }
+        if (!references)
+          throw new Error('Only files referenced by saved Assets can be moved here.');
+        const bytes = await fileSystem.readBytes(sourceAbsolute);
+        const targets = changedProjectionTargets(snapshot, candidate, snapshot.scriptSourcePaths);
+        const written = await session
+          .service()
+          .write(
+            root,
+            snapshot.workspaceRevision,
+            candidate,
+            session.editorState(),
+            snapshot.scriptSourcePaths,
+            {
+              targetFiles: targets,
+              expectedFileRevisions: Object.fromEntries(
+                targets.map((file) => [
+                  file,
+                  snapshot.fileRevisions[file]?.contentHash ?? PROJECT_WORKSPACE_ABSENT_REVISION,
+                ]),
+              ),
+              operationLabel: `move attached Project file ${fromPath}`,
+              extraTargets: [
+                {
+                  path: toPath,
+                  operation: 'write',
+                  expectedRevision: PROJECT_WORKSPACE_ABSENT_REVISION,
+                  bytes,
+                },
+                {
+                  path: fromPath,
+                  operation: 'delete',
+                  expectedRevision: expectedRevisions[fromPath] ?? revision(bytes),
+                },
+              ],
+              preflightSnapshot: snapshot,
+            },
+          );
+        session.adopt(written.snapshot, session.editorState());
+        return {
+          ok: true,
+          success: true,
+          pathRemap: { [fromPath]: toPath },
+          changedPaths: [fromPath, toPath, ...targets],
         };
       }
       if (operation.kind === 'delete') {

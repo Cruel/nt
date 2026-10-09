@@ -139,6 +139,108 @@ describe('project workspace watcher policy', () => {
     );
   });
 
+  it('reports missing attachments on reopen, retains them across batches, and clears repaired associations', async () => {
+    const root = tempRoot();
+    const project = createAuthoringProject();
+    project.assets.owned = {
+      id: 'owned',
+      label: 'Owned',
+      data: {
+        kind: 'binary',
+        source: { type: 'project-file', path: 'assets/owned.bin' },
+        aliases: [],
+        imageMetadata: null,
+        attachments: [{ path: 'references/example.md', purpose: 'reference' }],
+      },
+    };
+    const known = new Set<string>();
+    refreshProjectWorkspaceWatchAssetSourcePaths(known, project);
+    expect(known.has('references/example.md')).toBe(true);
+    expect(
+      classifyProjectWorkspaceWatchPath(root, path.join(root, 'references/example.md'), known),
+    ).toBe('asset');
+    const snapshot = {
+      projectRoot: root,
+      project,
+      canonicalSourceFiles: [],
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    };
+    const session = {
+      captureAuthoringFileStamps: vi.fn(async () => undefined),
+      knownAssetSourcePaths: vi.fn(() => ['assets/owned.bin']),
+      coherenceState: vi.fn(() => 'coherent'),
+      markResyncNeeded: vi.fn(),
+      runExclusive: vi.fn(async (callback: () => unknown) => callback()),
+      snapshot: vi.fn(() => snapshot),
+      readFreshRevision: vi.fn(async () => 'absent' as const),
+      requiresAuthoringReassembly: vi.fn(() => false),
+      resynchronizeAuthoring: vi.fn(),
+      recoverPendingTransactions: vi.fn(async () => ({ recovered: false, changedPaths: [] })),
+      reassemble: vi.fn(),
+      observeAssetRevisions: vi.fn(async () => ({ 'references/example.md': 'absent' })),
+      project: vi.fn(() => project),
+    } as never;
+    const send = vi.fn();
+    const owner = { isDestroyed: () => false, webContents: { send } } as never;
+    await startProjectWorkspaceWatcher(
+      owner,
+      'session-a',
+      root,
+      session,
+      () => true,
+      async () => undefined,
+    );
+    await waitForWatcherFlush();
+    expect(send).toHaveBeenCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        assetChangedPaths: ['references/example.md'],
+        assetDiagnostics: [
+          expect.objectContaining({
+            code: 'workspace.asset-attachment.missing',
+            ownerPaths: ['/assets/owned'],
+            message: expect.stringContaining('Relink'),
+          }),
+        ],
+      }),
+    );
+    send.mockClear();
+    watcherHarness.emit('change', path.join(root, 'assets/unrelated.bin'));
+    await waitForWatcherFlush();
+    expect(send).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        assetChangedPaths: ['assets/unrelated.bin'],
+        assetDiagnostics: [expect.objectContaining({ code: 'workspace.asset-attachment.missing' })],
+      }),
+    );
+    fs.mkdirSync(path.join(root, 'references'), { recursive: true });
+    fs.writeFileSync(path.join(root, 'references/example.md'), 'repaired');
+    watcherHarness.emit('add', path.join(root, 'references/example.md'));
+    await waitForWatcherFlush();
+    expect(send).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ assetDiagnostics: [] }),
+    );
+    fs.unlinkSync(path.join(root, 'references/example.md'));
+    watcherHarness.emit('unlink', path.join(root, 'references/example.md'));
+    await waitForWatcherFlush();
+    expect(send).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({
+        assetDiagnostics: [expect.objectContaining({ code: 'workspace.asset-attachment.missing' })],
+      }),
+    );
+    project.assets.owned.data.attachments = [];
+    watcherHarness.emit('change', path.join(root, 'records/assets/owned.json'));
+    await waitForWatcherFlush();
+    expect(send).toHaveBeenLastCalledWith(
+      expect.any(String),
+      expect.objectContaining({ assetDiagnostics: [] }),
+    );
+  });
+
   it('classifies each observed path into exactly one downstream route', () => {
     const root = '/project';
     expect(classifyProjectWorkspaceWatchPath(root, '/project/assets/images/source.webp')).toBe(

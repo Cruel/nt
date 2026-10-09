@@ -34,6 +34,7 @@ import {
   type ScrollViewState,
 } from '@/workbench/workbench-tab-state';
 import { AssetPreview } from './AssetPreview';
+import { AssetAttachments } from './AssetAttachments';
 import type { AssetEmbeddedMetadataHandle } from './AssetEmbeddedMetadata';
 
 function lookupAsset(project: unknown, assetId: string | undefined) {
@@ -354,6 +355,14 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
               />
             </div>
           </section>
+
+          {isAuthoringProject(project) ? (
+            <AssetAttachments
+              assetId={assetId}
+              project={project}
+              projectSessionId={projectSessionId}
+            />
+          ) : null}
 
           <section className="rounded border p-3" data-workbench-anchor="asset.aliases">
             <h3 className="text-sm font-medium">Aliases</h3>

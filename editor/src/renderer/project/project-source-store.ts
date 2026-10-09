@@ -1,5 +1,6 @@
 import { create } from 'zustand';
 import { useProjectStore } from './project-store';
+import { useCommandStore } from '@/commands/command-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import type {
   ProjectSourceFile,
@@ -361,8 +362,15 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
   },
   mutate: async (operation) => {
     const state = get();
+    const originalProjectInstanceId = useProjectStore.getState().projectInstanceId;
     if (!state.projectSessionId)
       return { ok: false, success: false, error: 'No active Project source session.' };
+    if (
+      operation.kind === 'move' &&
+      (useCommandStore.getState().persistencePending ||
+        useCommandStore.getState().history.activeTransaction)
+    )
+      return { ok: false, success: false, error: 'Finish the active edit before moving files.' };
     const expectedRevisions = Object.fromEntries(
       state.files.flatMap((file) => {
         const affectedPath =
@@ -387,6 +395,11 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
       set({ error: result.error ?? 'Source operation failed.' });
       return result;
     }
+    if (
+      get().projectSessionId !== state.projectSessionId ||
+      useProjectStore.getState().projectInstanceId !== originalProjectInstanceId
+    )
+      return result;
     if (operation.kind === 'material-shader-copy' && result.createdSourceIds?.[0]) {
       useProjectStore
         .getState()
@@ -397,7 +410,9 @@ export const useProjectSourceStore = create<ProjectSourceStoreState>()((set, get
         );
     }
     if (result.pathRemap) {
-      useProjectStore.getState().applyCommittedSourcePathRemap(result.pathRemap);
+      const remapped = useProjectStore.getState().applyCommittedSourcePathRemap(result.pathRemap);
+      if (remapped && Object.keys(result.pathRemap).length > 0)
+        useCommandStore.getState().invalidateHistoryAfterCommittedFileMove();
       useWorkbenchStore.getState().remapSourceTabs(result.pathRemap);
       set((current) => ({
         files: remapFiles(current.files, result.pathRemap!),

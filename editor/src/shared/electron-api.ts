@@ -197,6 +197,27 @@ interface NovelTeaElectronApiContract {
     projectSessionId: string,
     projectRelativePaths: string[],
   ): Promise<ProjectAssetFileOperationResponse>;
+  organizeUntrackedProjectAsset(
+    projectSessionId: string,
+    project: unknown,
+    projectRelativePath: string,
+    action: import('./project-asset-audit').ProjectAssetOrganizationAction,
+  ): Promise<ProjectAssetFileOperationResponse>;
+  listProjectAttachmentFiles(
+    projectSessionId: string,
+  ): Promise<import('./project-asset-attachments').ProjectAttachmentFilesResponse>;
+  importProjectAttachmentFiles(
+    request: import('./project-asset-attachments').ProjectAttachmentImportRequest,
+  ): Promise<import('./project-asset-attachments').ProjectAttachmentImportResponse>;
+  inspectProjectAttachmentFile(
+    projectSessionId: string,
+    path: string,
+  ): Promise<import('./project-asset-attachments').ProjectAttachmentInspection>;
+  openProjectAttachmentFile(
+    projectSessionId: string,
+    path: string,
+    action: 'open' | 'reveal',
+  ): Promise<void>;
   trashProjectAssetFiles(
     projectSessionId: string,
     projectRelativePaths: string[],

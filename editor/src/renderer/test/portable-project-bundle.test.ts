@@ -154,6 +154,32 @@ async function createPortableFixture(root: string): Promise<{
   );
   expect(importedAsset.exitCode).toBe(0);
 
+  // Every portable Project includes explicitly associated support files, without registering them.
+  await fs.mkdir(path.join(projectRoot, 'support/licenses'), { recursive: true });
+  await fs.mkdir(path.join(projectRoot, 'support/sources'), { recursive: true });
+  await fs.writeFile(
+    path.join(projectRoot, 'support/licenses/notice.txt'),
+    'redistribution terms\n',
+  );
+  await fs.writeFile(
+    path.join(projectRoot, 'support/sources/original.psd'),
+    Buffer.from([3, 1, 4]),
+  );
+  const assetFiles = await fs.readdir(path.join(projectRoot, 'records/assets'));
+  const assetFile = path.join(
+    projectRoot,
+    'records/assets',
+    assetFiles.find((name) => name.endsWith('.json'))!,
+  );
+  const record = JSON.parse(await fs.readFile(assetFile, 'utf8')) as {
+    data: Record<string, unknown>;
+  };
+  record.data.attachments = [
+    { path: 'support/licenses/notice.txt', purpose: 'distribution-notice' },
+    { path: 'support/sources/original.psd', purpose: 'authoring-source' },
+  ];
+  await fs.writeFile(assetFile, `${JSON.stringify(record, null, 2)}\n`);
+
   await fs.mkdir(path.join(projectRoot, 'records', 'materials'), { recursive: true });
   await fs.mkdir(path.join(projectRoot, 'shaders'), { recursive: true });
   await fs.writeFile(
@@ -236,6 +262,12 @@ describe('portable .ntproject Project bundle', () => {
     });
 
     expect(result).toMatchObject({ success: true, projectPath: destination });
+    expect(await fs.readFile(path.join(destination, 'support/licenses/notice.txt'), 'utf8')).toBe(
+      'redistribution terms\n',
+    );
+    expect(await fs.readFile(path.join(destination, 'support/sources/original.psd'))).toEqual(
+      Buffer.from([3, 1, 4]),
+    );
     const projectManifest = JSON.parse(
       await fs.readFile(path.join(destination, 'project.json'), 'utf8'),
     );

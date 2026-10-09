@@ -36,6 +36,7 @@ interface CommandStoreState {
   commitTransaction: () => CommandExecutionResult;
   cancelTransaction: () => void;
   resetCommandHistory: () => void;
+  invalidateHistoryAfterCommittedFileMove: () => void;
   discardSaveUnitHistory: (saveUnitId: string) => void;
 }
 
@@ -314,6 +315,13 @@ export const useCommandStore = create<CommandStoreState>()((set, get) => ({
       lastDiagnostics: [],
       persistencePending: false,
     }),
+  // Filesystem renames are committed outside the command bus. Old forward/inverse
+  // patches can restore paths that no longer exist, including through redo or an
+  // active transaction. Invalidate the history at the physical commit boundary.
+  invalidateHistoryAfterCommittedFileMove: () => {
+    set({ history: createInitialCommandHistoryState(), lastDiagnostics: [] });
+    useProjectStore.getState().setHistoryCursor(-1);
+  },
   discardSaveUnitHistory: (saveUnitId) => {
     const history = get().history;
     const removedApplied = history.entries

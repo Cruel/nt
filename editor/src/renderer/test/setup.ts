@@ -324,6 +324,15 @@ Object.defineProperty(window, 'noveltea', {
     importUntrackedProjectAssets: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, assets: [], diagnostics: [] }),
+    organizeUntrackedProjectAsset: vi
+      .fn()
+      .mockResolvedValue({ ok: true, success: true, diagnostics: [] }),
+    listProjectAttachmentFiles: vi.fn().mockResolvedValue({ files: [] }),
+    importProjectAttachmentFiles: vi
+      .fn()
+      .mockResolvedValue({ paths: [], reused: [], canceled: true }),
+    inspectProjectAttachmentFile: vi.fn().mockResolvedValue({ path: '', exists: false }),
+    openProjectAttachmentFile: vi.fn().mockResolvedValue(undefined),
     trashProjectAssetFiles: vi
       .fn()
       .mockResolvedValue({ ok: true, success: true, moved: [], diagnostics: [] }),

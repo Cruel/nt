@@ -117,6 +117,37 @@ function remapProjectSourcePaths(
 ): JsonValue | null {
   if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
   const next = cloneJsonValue(document) as Record<string, JsonValue>;
+  const assets = next.assets;
+  if (assets && typeof assets === 'object' && !Array.isArray(assets)) {
+    for (const record of Object.values(assets)) {
+      if (!record || typeof record !== 'object' || Array.isArray(record)) continue;
+      const data = (record as Record<string, JsonValue>).data;
+      if (!data || typeof data !== 'object' || Array.isArray(data)) continue;
+      const asset = data as Record<string, JsonValue>;
+      const source = asset.source;
+      if (
+        source &&
+        typeof source === 'object' &&
+        !Array.isArray(source) &&
+        typeof source.path === 'string'
+      ) {
+        const mapped = pathRemap[source.path];
+        if (mapped) source.path = mapped;
+      }
+      if (Array.isArray(asset.attachments))
+        for (const attachment of asset.attachments) {
+          if (
+            !attachment ||
+            typeof attachment !== 'object' ||
+            Array.isArray(attachment) ||
+            typeof attachment.path !== 'string'
+          )
+            continue;
+          const mapped = pathRemap[attachment.path];
+          if (mapped) attachment.path = mapped;
+        }
+    }
+  }
   const materials = next.materials;
   if (materials && typeof materials === 'object' && !Array.isArray(materials)) {
     for (const record of Object.values(materials)) {
@@ -359,7 +390,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
               projectInstanceId: state.projectInstanceId,
               projectRevision,
               kind: 'external',
-              affectedPaths: ['/materials', '/scripts', '/layouts'],
+              affectedPaths: ['/materials', '/scripts', '/layouts', '/assets'],
             }),
           }
         : {}),
