@@ -1,11 +1,14 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include <noveltea/core/package_export.hpp>
+#include <noveltea/core/player_bootstrap.hpp>
 
 #include <array>
+#include <algorithm>
 #include <ctime>
 #include <filesystem>
 #include <fstream>
+#include <span>
 #include <string>
 #include <vector>
 
@@ -38,6 +41,50 @@ mz_uint16 method_for(mz_zip_archive& archive, const char* path)
 }
 
 } // namespace
+
+TEST_CASE("runtime package notice source bytes are unchanged and pinned to their prepared revision")
+{
+    const auto root = std::filesystem::temp_directory_path() / "noveltea-notice-export-test";
+    std::filesystem::remove_all(root);
+    const std::string text = "Line 1\r\nLine 2: café\r\n";
+    const auto notice_path = root / "NOTICE.md";
+    write_file(notice_path, text);
+    PackageExportOptions options;
+    options.project_name = "Notice Test";
+    options.project_version = "1.0.0";
+    options.display = nlohmann::json::object();
+    options.accessibility = nlohmann::json::object();
+    options.file_entries.push_back({
+        .source = notice_path,
+        .package_path = "licenses/support/NOTICE.md",
+        .storage = PackageExportStorage::Stored,
+        .expected_sha256 = "sha256:" + sha256_hex(std::as_bytes(std::span(text))),
+    });
+    options.text_entries.push_back({.text = R"({"schema":"noveltea.project-notices","notices":[]})",
+                                    .package_path = "licenses/index.json"});
+    std::vector<std::byte> package;
+    const auto output =
+        ProjectPackageWriter::write_to_memory(nlohmann::json::object(), options, package);
+    REQUIRE(output.success);
+    mz_zip_archive zip{};
+    REQUIRE(mz_zip_reader_init_mem(&zip, package.data(), package.size(), 0));
+    size_t extracted_size = 0;
+    void* original =
+        mz_zip_reader_extract_file_to_heap(&zip, "licenses/support/NOTICE.md", &extracted_size, 0);
+    REQUIRE(original != nullptr);
+    CHECK(std::string(static_cast<const char*>(original), extracted_size) == text);
+    mz_free(original);
+    REQUIRE(mz_zip_reader_end(&zip));
+
+    write_file(notice_path, text + "modified");
+    const auto stale =
+        ProjectPackageWriter::write_to_memory(nlohmann::json::object(), options, package);
+    CHECK_FALSE(stale.success);
+    CHECK(std::ranges::any_of(stale.diagnostics, [](const auto& issue) {
+        return issue.message.find("changed since export preparation") != std::string::npos;
+    }));
+    std::filesystem::remove_all(root);
+}
 
 TEST_CASE("runtime package exporter writes canonical ZIP timestamps")
 {

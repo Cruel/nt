@@ -7,7 +7,10 @@ import type { ProjectAssetFileOperationResponse } from '../../shared/project-ass
 import type { ProjectMutationPathValue } from '../../shared/editor-tooling';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
-import { parseAssetData } from '../../shared/project-schema/authoring-assets';
+import {
+  isSafeProjectAttachmentPath,
+  parseAssetData,
+} from '../../shared/project-schema/authoring-assets';
 import { stripLocalEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { assetSourcePaths } from '../../shared/project-workspace/project-workspace-service';
@@ -23,6 +26,21 @@ import { advanceExternallyUpdatedAssetSourceBaselines } from './project-authorin
 export const PROJECT_WORKSPACE_WATCH_STABILITY_THRESHOLD_MS = 200;
 export const PROJECT_WORKSPACE_WATCH_POLL_INTERVAL_MS = 50;
 export const PROJECT_WORKSPACE_WATCH_QUIET_PERIOD_MS = 150;
+
+function projectDistributionNoticePaths(
+  project: AuthoringProject,
+): { path: string; index: number }[] {
+  const value: unknown = project.settings.distributionNotices;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item, index) =>
+    item &&
+    typeof item === 'object' &&
+    typeof item.path === 'string' &&
+    isSafeProjectAttachmentPath(item.path)
+      ? [{ path: item.path, index }]
+      : [],
+  );
+}
 
 interface ActiveWatcher {
   projectSessionId: string;
@@ -144,6 +162,7 @@ export function refreshProjectWorkspaceWatchAssetSourcePaths(
   target.clear();
   assetSourcePaths(project).forEach((assetPath) => target.add(assetPath));
   projectAttachmentPaths(project).forEach((attachmentPath) => target.add(attachmentPath));
+  projectDistributionNoticePaths(project).forEach((notice) => target.add(notice.path));
 }
 
 function appendExternalValues(
@@ -472,6 +491,22 @@ async function flushWatcher(
     : [];
   // A diagnostic snapshot must survive unrelated batches and clear after relink/removal.
   const currentProject = watcher.workspaceSession.project();
+  for (const { index, path: noticePath } of projectDistributionNoticePaths(currentProject)) {
+    const exists = await fs.stat(path.join(watcher.projectRoot, noticePath)).then(
+      (stat) => stat.isFile(),
+      () => false,
+    );
+    if (!exists)
+      assetDiagnostics.push({
+        code: 'workspace.project-distribution-notice.missing',
+        severity: 'error',
+        category: 'Distribution notice',
+        path: `/settings/distributionNotices/${index}/path`,
+        message: `Project distribution notice '${noticePath}' is missing.`,
+        boundaries: ['authoring', 'runtime-package'],
+        ownerPaths: [`/settings/distributionNotices/${index}/path`],
+      });
+  }
   for (const relativePath of projectAttachmentPaths(currentProject)) {
     const exists = await fs.stat(path.join(watcher.projectRoot, relativePath)).then(
       (stat) => stat.isFile(),
@@ -675,6 +710,8 @@ export async function startProjectWorkspaceWatcher(
   // ignoreInitial suppresses filesystem events for attachments already missing on reopen.
   for (const attachmentPath of projectAttachmentPaths(workspaceSession.project()))
     schedule(path.join(projectRoot, attachmentPath));
+  for (const notice of projectDistributionNoticePaths(workspaceSession.project()))
+    schedule(path.join(projectRoot, notice.path));
   return { ok: true, success: true, diagnostics: [] };
 }
 

@@ -1002,6 +1002,7 @@ PackageExportOptions export_options_from_json(const nlohmann::json& json)
             file_entry.source =
                 filesystem_path_from_utf8(json_access::value_or(entry, "source", std::string{}));
             file_entry.package_path = json_access::value_or(entry, "packagePath", std::string{});
+            file_entry.expected_sha256 = json_access::value_or(entry, "expectedSha256", std::string{});
             const auto storage = json_access::value_or(entry, "storage", std::string("auto"));
             if (storage == "stored")
                 file_entry.storage = PackageExportStorage::Stored;

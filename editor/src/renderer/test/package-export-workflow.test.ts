@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { createHash } from 'node:crypto';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { defaultExportProfile } from '../../shared/project-schema/authoring-export';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
@@ -42,6 +43,48 @@ beforeEach(() => {
 });
 
 describe('package export workflow', () => {
+  it('passes original-byte SHA-256 notice pins and a dedicated catalog to the native exporter', async () => {
+    const project = validProject();
+    project.settings.distributionNotices = [{ path: 'support/licenses/TERMS.md' }];
+    const contents = '# Copyright\r\n';
+    const hash = `sha256:${createHash('sha256').update(contents).digest('hex')}`;
+    vi.mocked(window.noveltea.readProjectTextSources).mockImplementation(async (request) => ({
+      entries: request.entries.map(({ readKey, projectRelativePath }) => ({
+        status: 'ready' as const,
+        readKey,
+        projectRelativePath,
+        text: contents,
+        contentHash: hash as `sha256:${string}`,
+        hadUtf8Bom: false,
+      })),
+    }));
+    const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
+    const result = await runPackageExportWorkflow({
+      project,
+      projectRoot: '/project',
+      outputPath: '/project/out.ntpkg',
+      profile,
+    });
+    expect(result.success).toBe(true);
+    expect(window.noveltea.exportPackage).toHaveBeenCalledWith(
+      expect.anything(),
+      expect.anything(),
+      '/project/out.ntpkg',
+      expect.objectContaining({
+        fileEntries: expect.arrayContaining([
+          expect.objectContaining({
+            packagePath: 'licenses/support/licenses/TERMS.md',
+            expectedSha256: hash,
+          }),
+        ]),
+        textEntries: expect.arrayContaining([
+          expect.objectContaining({
+            packagePath: 'licenses/index.json',
+          }),
+        ]),
+      }),
+    );
+  });
   it('validates, builds runtime data, writes package, and stores result', async () => {
     const project = validProject();
     const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };

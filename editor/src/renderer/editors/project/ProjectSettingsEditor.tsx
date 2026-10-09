@@ -131,6 +131,7 @@ type ProjectSettingsCategory =
   | 'cursors'
   | 'title-screen'
   | 'app-identity'
+  | 'distribution-notices'
   | 'integrations'
   | 'transitions'
   | 'status';
@@ -185,6 +186,12 @@ const projectSettingsCategories: readonly CategorizedEditorCategory<ProjectSetti
     icon: BadgeInfo,
   },
   {
+    id: 'distribution-notices',
+    label: 'Distribution Notices',
+    description: 'Plain-text notices included with every Runtime Package.',
+    icon: ShieldCheck,
+  },
+  {
     id: 'integrations',
     label: 'Integrations',
     description: 'Project-visible editor integrations and workflow summaries.',
@@ -209,6 +216,11 @@ function isProjectSettingsCategory(value: unknown): value is ProjectSettingsCate
 }
 
 function projectSettingsCategoryForTarget(targetId: string): ProjectSettingsCategory {
+  if (
+    targetId.startsWith('projectSettings.distributionNotices') ||
+    targetId.startsWith('projectSettings.field.distributionNotice')
+  )
+    return 'distribution-notices';
   if (
     targetId.startsWith('projectSettings.metadata') ||
     targetId.startsWith('projectSettings.startup') ||
@@ -299,6 +311,7 @@ const PROJECT_SETTINGS_FIELD_ANCHORS: Record<string, string> = {
   '/settings/titleScreen/titleImage': 'projectSettings.field.titleImage',
   '/settings/titleScreen/startLabel': 'projectSettings.field.startLabel',
   '/settings/app/displayName': 'projectSettings.field.appDisplayName',
+  '/settings/distributionNotices': 'projectSettings.distributionNotices',
   '/settings/app/shortName': 'projectSettings.field.appShortName',
   '/settings/app/publisher': 'projectSettings.field.publisher',
   '/settings/app/applicationId': 'projectSettings.field.applicationId',
@@ -1141,6 +1154,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   );
   const [resolutionDialogOpen, setResolutionDialogOpen] = useState(false);
   const [resolutionWidth, setResolutionWidth] = useState('');
+  const [noticePathDraft, setNoticePathDraft] = useState('');
   const [resolutionHeight, setResolutionHeight] = useState('');
   const [testingCursorId, setTestingCursorId] = useState<string | null>(null);
   const [cursorIdDrafts, setCursorIdDrafts] = useState<Record<string, string>>({});
@@ -1363,6 +1377,16 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
     if (!settings) return false;
     const app = JSON.parse(JSON.stringify({ ...settings.app, ...patch })) as ProjectAppSettings;
     return commandSucceeded(runProjectCommand('project.setApp', { app }, 'Update app identity'));
+  }
+
+  function setDistributionNotices(notices: { path: string; displayName?: string }[]) {
+    return commandSucceeded(
+      runProjectCommand(
+        'project.setDistributionNotices',
+        { notices },
+        'Update distribution notices',
+      ),
+    );
   }
 
   function setDisplay(display: ProjectDisplaySettings) {
@@ -2775,6 +2799,85 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 />
               </div>
             </details>
+          </CardContent>
+        </Card>
+      ) : null}
+
+      {activeCategory === 'distribution-notices' ? (
+        <Card data-workbench-anchor="projectSettings.distributionNotices">
+          <CardHeader>
+            <CardTitle>Project-wide Distribution Notices</CardTitle>
+            <CardDescription>
+              Refer to existing Project files ending in .txt or .md. These notices ship
+              unconditionally; notices attached to individual Assets ship only when those Assets are
+              exported.
+            </CardDescription>
+          </CardHeader>
+          <CardContent className="grid gap-3">
+            {settings.distributionNotices.map((notice, index) => (
+              <div
+                key={`${notice.path}:${index}:${notice.displayName ?? ''}`}
+                className="flex items-center gap-2"
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="break-all text-sm">{notice.path}</div>
+                  <Input
+                    aria-label={`Display name for ${notice.path}`}
+                    placeholder="Display name (optional)"
+                    defaultValue={notice.displayName ?? ''}
+                    onBlur={(event) => {
+                      const displayName = event.currentTarget.value.trim() || undefined;
+                      if (displayName === notice.displayName) return;
+                      setDistributionNotices(
+                        settings.distributionNotices.map((item, position) =>
+                          position === index ? { ...item, displayName } : item,
+                        ),
+                      );
+                    }}
+                  />
+                </div>
+                <Button
+                  type="button"
+                  size="sm"
+                  variant="outline"
+                  onClick={() =>
+                    setDistributionNotices(
+                      settings.distributionNotices.filter((_, position) => position !== index),
+                    )
+                  }
+                >
+                  Remove
+                </Button>
+              </div>
+            ))}
+            <div className="flex gap-2">
+              <Input
+                aria-label="Project-relative notice path"
+                placeholder="support/licenses/NOTICE.txt"
+                value={noticePathDraft}
+                onChange={(event) => setNoticePathDraft(event.currentTarget.value)}
+              />
+              <Button
+                type="button"
+                disabled={
+                  !noticePathDraft.trim() ||
+                  settings.distributionNotices.some(
+                    (notice) => notice.path === noticePathDraft.trim(),
+                  )
+                }
+                onClick={() => {
+                  if (
+                    setDistributionNotices([
+                      ...settings.distributionNotices,
+                      { path: noticePathDraft.trim() },
+                    ])
+                  )
+                    setNoticePathDraft('');
+                }}
+              >
+                Add notice
+              </Button>
+            </div>
           </CardContent>
         </Card>
       ) : null}

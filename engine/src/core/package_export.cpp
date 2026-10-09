@@ -83,7 +83,8 @@ bool has_allowed_package_prefix(std::string_view path)
         return true;
     }
     if (starts_with(path, "assets/") || starts_with(path, "fonts/") ||
-        starts_with(path, "textures/") || starts_with(path, "localization/")) {
+        starts_with(path, "textures/") || starts_with(path, "localization/") ||
+        starts_with(path, "licenses/")) {
         return true;
     }
     return std::any_of(auxiliary_prefixes.begin(), auxiliary_prefixes.end(),
@@ -304,8 +305,39 @@ void collect_file_entries(const PackageExportOptions& options, std::vector<Pendi
                                file_entry.source.string() + "'.");
             continue;
         }
+        if (starts_with(package_path, "licenses/")) {
+            const auto size = std::filesystem::file_size(file_entry.source, error);
+            if (error || size > 1024 * 1024) {
+                add_diagnostic(
+                    result, PackageExportSeverity::Error, "notice", package_path,
+                    "Distribution notice exceeds the 1 MiB file limit or cannot be inspected.");
+                continue;
+            }
+        }
         auto bytes = read_file_bytes(file_entry.source, result, package_path);
         if (bytes) {
+            auto extension = file_entry.source.extension().string();
+            std::transform(extension.begin(), extension.end(), extension.begin(),
+                           [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+            if (starts_with(package_path, "licenses/") && extension != ".md" &&
+                extension != ".txt") {
+                add_diagnostic(result, PackageExportSeverity::Error, "notice", package_path,
+                               "Distribution notice source must have a .txt or .md filename.");
+                continue;
+            }
+            if (starts_with(package_path, "licenses/") &&
+                !ProjectPackageWriter::is_valid_distribution_notice_text(*bytes)) {
+                add_diagnostic(
+                    result, PackageExportSeverity::Error, "notice", package_path,
+                    "Distribution notice must be valid UTF-8 plain text of at most 1 MiB.");
+                continue;
+            }
+            if (!file_entry.expected_sha256.empty() &&
+                file_entry.expected_sha256 != "sha256:" + sha256_hex(*bytes)) {
+                add_diagnostic(result, PackageExportSeverity::Error, "notice", package_path,
+                               "Distribution notice bytes changed since export preparation.");
+                continue;
+            }
             add_entry(entries, result, std::move(package_path), std::move(*bytes),
                       options.include_checksums, file_entry.storage);
         }
@@ -557,6 +589,19 @@ PackageExportResult write_zip(const nlohmann::json& project, const PackageExport
     collect_shaders(options, entries, result);
     collect_shader_material_metadata(options, entries, result);
 
+    const auto has_index = std::ranges::any_of(
+        entries, [](const auto& entry) { return entry.path == "licenses/index.json"; });
+    const auto has_notice = std::ranges::any_of(entries, [](const auto& entry) {
+        return starts_with(entry.path, "licenses/") && entry.path != "licenses/index.json";
+    });
+    if (!has_index && has_notice)
+        add_diagnostic(result, PackageExportSeverity::Error, "notice", "licenses/index.json",
+                       "Runtime notice files require a distribution notice index.");
+    else if (!has_index)
+        add_entry(entries, result, "licenses/index.json",
+                  string_bytes(R"({"schema":"noveltea.project-notices","notices":[]})"),
+                  options.include_checksums);
+
     std::stable_sort(
         entries.begin(), entries.end(),
         [](const PendingEntry& lhs, const PendingEntry& rhs) { return lhs.path < rhs.path; });
@@ -694,6 +739,48 @@ PackageExportResult ProjectPackageWriter::write_to_memory(const nlohmann::json& 
 bool ProjectPackageWriter::is_allowed_package_path(std::string_view path) noexcept
 {
     return is_safe_package_path(path) && has_allowed_package_prefix(path);
+}
+
+bool ProjectPackageWriter::is_valid_distribution_notice_text(
+    std::span<const std::byte> bytes) noexcept
+{
+    if (bytes.size() > 1024 * 1024)
+        return false;
+    std::size_t index = 0;
+    while (index < bytes.size()) {
+        const auto lead = static_cast<std::uint8_t>(bytes[index++]);
+        std::uint32_t codepoint = lead;
+        std::size_t remaining = 0;
+        if (lead < 0x80) {
+            // ASCII character.
+        } else if (lead >= 0xc2 && lead <= 0xdf) {
+            codepoint = lead & 0x1f;
+            remaining = 1;
+        } else if (lead >= 0xe0 && lead <= 0xef) {
+            codepoint = lead & 0x0f;
+            remaining = 2;
+        } else if (lead >= 0xf0 && lead <= 0xf4) {
+            codepoint = lead & 0x07;
+            remaining = 3;
+        } else {
+            return false;
+        }
+        if (remaining > bytes.size() - index)
+            return false;
+        for (std::size_t continuation = 0; continuation < remaining; ++continuation) {
+            const auto byte = static_cast<std::uint8_t>(bytes[index++]);
+            if ((byte & 0xc0) != 0x80)
+                return false;
+            codepoint = (codepoint << 6) | (byte & 0x3f);
+        }
+        if ((remaining == 1 && codepoint < 0x80) || (remaining == 2 && codepoint < 0x800) ||
+            (remaining == 3 && codepoint < 0x10000) || codepoint > 0x10ffff ||
+            (codepoint >= 0xd800 && codepoint <= 0xdfff) ||
+            ((codepoint < 0x20 && codepoint != 9 && codepoint != 10 && codepoint != 13) ||
+             (codepoint >= 0x7f && codepoint <= 0x9f)))
+            return false;
+    }
+    return true;
 }
 
 bool ProjectPackageWriter::is_safe_package_path(std::string_view path) noexcept

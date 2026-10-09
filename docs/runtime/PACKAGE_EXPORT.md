@@ -14,6 +14,23 @@ are separate:
   optional checksums.
 - `shader-materials.json`: optional shader/material manifest.
 - referenced assets and required compiled shader binaries.
+- `licenses/index.json` and separate Project-authored `.txt`/`.md` notices beneath
+  `licenses/<Project-relative-path>`; no engine/player-template notices belong in `.ntpkg`.
+
+Project Settings `distributionNotices` are unconditional references to Project files. Asset
+attachments whose purpose is `distribution-notice` contribute only if that physical Asset appears
+in the final, pruned and localized export file inventory. Shared Project paths are packaged once;
+distinct paths remain distinct even if their basenames or contents match. Conflicting explicit
+display names for the same Project path block export. The index sorts entries by Project path and
+records the source path, display name, and original-byte SHA-256. Notices remain outside the
+Compiled Project's gameplay Asset registry and are displayed as literal plain text.
+
+Only safe Project-contained `.txt`/`.md` files containing valid UTF-8 with no forbidden controls
+and at most 1 MiB are accepted. Prepared Runtime Artifacts pin the original SHA-256 of each
+applicable notice; verification rechecks those revisions independently of saved Project JSON, and
+the native writer rejects a change between preparation and package writing. Source files are
+stored byte-for-byte, without whitespace, BOM, or newline normalization. The loader verifies the
+notice index and its declared physical files alongside the general package inventory and checksums.
 
 Opaque video-backed Animation may additionally contribute private prepared-media entries beneath
 `assets/.prepared-media/`, including private metadata and the current normalized raster
@@ -76,6 +93,7 @@ The engine package loader rejects:
 - malformed, missing, duplicate, or semantically mismatched private prepared-video metadata/frames;
 - invalid compiled references/resources;
 - Lua that fails certification.
+- missing, unindexed, renamed, altered, or invalid distribution notices.
 
 No legacy package reader or fallback exists. A package is assembled into
 `LoadedCompiledPackage` only after all validation succeeds.

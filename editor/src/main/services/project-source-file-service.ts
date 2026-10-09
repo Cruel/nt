@@ -202,6 +202,17 @@ function rewriteSemanticPaths(
   scriptSourcePaths: Record<string, string>,
   remap: ReadonlyMap<string, string>,
 ): void {
+  const distributionNotices = project.settings.distributionNotices;
+  if (Array.isArray(distributionNotices)) {
+    project.settings.distributionNotices = distributionNotices.map((notice) =>
+      notice && typeof notice === 'object' && typeof notice.path === 'string'
+        ? { ...notice, path: mappedPath(notice.path, remap) }
+        : notice,
+    );
+    const paths = project.settings.distributionNotices.map((notice) => notice.path);
+    if (new Set(paths).size !== paths.length)
+      throw new Error('Source move would create duplicate Project distribution notices.');
+  }
   for (const record of Object.values(project.assets)) {
     const data = parseAssetData(record.data);
     if (!data) continue;

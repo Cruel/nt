@@ -94,6 +94,10 @@ export interface SetProjectAppPayload {
   app: ProjectAppSettings;
 }
 
+export interface SetProjectDistributionNoticesPayload {
+  notices: { path: string; displayName?: string }[];
+}
+
 export interface SetProjectRoomNavigationTransitionPayload {
   transition: RoomNavigationTransition;
 }
@@ -373,6 +377,19 @@ export function setProjectAppPatches(
   return {
     patches: [patchValue(documentValue, '/settings/app', payload.app)],
     affectedPaths: ['/settings/app'],
+  };
+}
+
+export function setProjectDistributionNoticesPatches(
+  document: unknown,
+  payload: SetProjectDistributionNoticesPayload,
+): EntityOperationResult {
+  if (!projectForCommand(document))
+    return { patches: [], diagnostics: [error('Current document is not a NovelTea project.')] };
+  const documentValue = toJsonValue(document);
+  return {
+    patches: [patchValue(documentValue, '/settings/distributionNotices', payload.notices)],
+    affectedPaths: ['/settings/distributionNotices'],
   };
 }
 

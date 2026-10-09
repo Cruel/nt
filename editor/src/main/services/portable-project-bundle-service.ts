@@ -194,6 +194,8 @@ async function portableProjectOwnedPaths(
     addOwnedSourcePath(sourcePath, 'Asset');
   for (const sourcePath of projectAttachmentPaths(snapshot.project))
     addOwnedSourcePath(sourcePath, 'Asset attachment');
+  for (const notice of snapshot.project.settings.distributionNotices)
+    addOwnedSourcePath(notice.path, 'Project distribution notice');
   for (const record of Object.values(snapshot.project.materials)) {
     const material = parseMaterialData(record.data);
     if (!material)

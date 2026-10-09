@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { readFile } from 'node:fs/promises';
+import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { prepareOpaqueVideoMotion } from './opaque-video-preparation-service';
 import {
@@ -39,7 +39,18 @@ export function createNodeRuntimeArtifactPaths(
         entries.map(async ({ assetId, projectRelativePath, expectedContentHash }) => {
           if (!projectRoot) return { status: 'unavailable' as const, assetId };
           try {
-            const bytes = await readFile(path.resolve(projectRoot, projectRelativePath));
+            const root = await realpath(projectRoot);
+            const source = await realpath(path.resolve(root, projectRelativePath));
+            const relative = path.relative(root, source);
+            if (
+              relative === '..' ||
+              relative.startsWith(`..${path.sep}`) ||
+              path.isAbsolute(relative)
+            )
+              return { status: 'unavailable' as const, assetId };
+            if ((await stat(source)).size > 2 * 1024 * 1024)
+              return { status: 'unavailable' as const, assetId };
+            const bytes = await readFile(source);
             const contentHash =
               `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
             if (expectedContentHash !== null && contentHash !== expectedContentHash)
@@ -49,7 +60,8 @@ export function createNodeRuntimeArtifactPaths(
               assetId,
               projectRelativePath,
               contentHash,
-              text: bytes.toString('utf8').replace(/^\uFEFF/u, ''),
+              byteLength: bytes.byteLength,
+              text: new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^\uFEFF/u, ''),
             };
           } catch {
             return { status: 'unavailable' as const, assetId };

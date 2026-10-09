@@ -1,4 +1,5 @@
 import { publishCompiledArtifact } from './compiled-artifact-publication';
+import { collectRuntimeDistributionNotices } from './runtime-distribution-notices';
 import { applyExportLocalizationClosure } from './export-localization-closure';
 import { buildAuthoringDependencyGraph } from './authoring-dependency-graph';
 import { collectAuthoringSourceRequirements } from './authoring-source-analysis';
@@ -125,6 +126,7 @@ export interface RuntimeArtifactPathAdapter {
           projectRelativePath: string;
           contentHash: Sha256Digest;
           text: string;
+          byteLength?: number;
         }
       | { status: 'unavailable'; assetId: string }
     )[]
@@ -1383,6 +1385,54 @@ export async function prepareRuntimeArtifact(
       await prepareOpaqueVideoRepresentations(options.project, options.projectRoot, options.paths),
     );
   }
+  if (assessment.compiledArtifactAvailable) {
+    try {
+      const notices = await collectRuntimeDistributionNotices(
+        options.project,
+        new Set(
+          assessment.fileEntries
+            .filter(
+              (entry) =>
+                entry.kind !== 'prepared-media' &&
+                entry.kind !== 'script-source' &&
+                entry.kind !== 'shader-source',
+            )
+            .map((entry) => entry.assetId),
+        ),
+        options.projectRoot,
+        options.paths,
+      );
+      assessment = {
+        ...assessment,
+        manifestPreview: {
+          ...assessment.manifestPreview,
+          entryCount: assessment.manifestPreview.entryCount + notices.fileEntries.length + 1,
+        },
+        packageOptions: {
+          ...assessment.packageOptions,
+          fileEntries: [...assessment.packageOptions.fileEntries, ...notices.fileEntries],
+          textEntries: [...assessment.packageOptions.textEntries, notices.textEntry],
+        },
+      };
+    } catch (error) {
+      const issue = createProjectValidationDiagnostic({
+        code: 'runtime-package.distribution-notice.invalid',
+        severity: 'error',
+        path: '/settings/distributionNotices',
+        message: error instanceof Error ? error.message : 'Cannot verify distribution notices.',
+        category: 'Distribution notices',
+        boundaries: ['runtime-package'],
+        ownerPaths: ['/settings/distributionNotices'],
+      });
+      assessment = {
+        ...assessment,
+        ready: false,
+        diagnostics: collectProjectValidationDiagnostics(assessment.diagnostics, [issue]),
+        runtimeDiagnostics: [...assessment.runtimeDiagnostics, issue],
+        runtimeBlockers: [...assessment.runtimeBlockers, issue],
+      };
+    }
+  }
   const diagnostics = collectProjectValidationDiagnostics(
     assessment.diagnostics,
     shaderDiagnostics,
@@ -1931,6 +1981,24 @@ export async function verifyPreparedRuntimeArtifact(
   const expectedSeekablePaths = artifact.fileEntries
     .filter((entry) => entry.kind === 'audio')
     .map((entry) => entry.packagePath);
+  let expectedNotices;
+  try {
+    expectedNotices = await collectRuntimeDistributionNotices(
+      options.project,
+      new Set(
+        expectedInventory.entries
+          .filter((entry) => entry.kind !== 'script-source' && entry.kind !== 'shader-source')
+          .map((entry) => entry.assetId),
+      ),
+      options.projectRoot,
+      options.paths,
+    );
+  } catch {
+    return rejectedEvidence(
+      'Distribution notices changed or cannot be verified.',
+      '/artifact/packageOptions',
+    );
+  }
   const expectedShaderAssetRoot = expectedShaderVariants.length
     ? options.paths.shaderAssetRoot(options.projectRoot)
     : undefined;
@@ -1949,11 +2017,17 @@ export async function verifyPreparedRuntimeArtifact(
     stableStringify(artifact.packageOptions.requiredShaderBinaryPaths) ===
       stableStringify(expectedRequiredShaderBinaryPaths) &&
     stableStringify(normalizedPackageFileEntries(artifact.packageOptions.fileEntries)) ===
-      stableStringify(normalizedPackageFileEntries(expectedPackageFileEntries)) &&
+      stableStringify(
+        normalizedPackageFileEntries([
+          ...expectedPackageFileEntries,
+          ...expectedNotices.fileEntries,
+        ]),
+      ) &&
     stableStringify(artifact.packageOptions.textEntries) ===
       stableStringify([
         ...expectedPartitioned.textEntries,
         ...preparedMediaTextEntriesForVerification,
+        expectedNotices.textEntry,
       ]) &&
     stableStringify(artifact.packageOptions.requiredSeekablePaths) ===
       stableStringify(expectedSeekablePaths) &&
@@ -1980,7 +2054,8 @@ export async function verifyPreparedRuntimeArtifact(
       artifact.fileEntries.length +
       artifact.packageOptions.textEntries.length +
       expectedRequiredShaderBinaryPaths.length +
-      (artifact.shaderMaterialMetadata ? 1 : 0),
+      (artifact.shaderMaterialMetadata ? 1 : 0) +
+      expectedNotices.fileEntries.length,
     assetCount: artifact.fileEntries.length,
     shaderVariants: expectedShaderVariants,
     requiredShaderBinaryPaths: expectedRequiredShaderBinaryPaths,

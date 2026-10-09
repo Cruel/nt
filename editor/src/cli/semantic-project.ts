@@ -1,4 +1,6 @@
 import path from 'node:path';
+import { collectRuntimeDistributionNotices } from '../shared/runtime-distribution-notices';
+import { nodeRuntimeArtifactPaths } from '../main/services/node-runtime-artifact-adapters';
 import type { AuthoringValidationContribution } from '../shared/project-schema/authoring-validation-contributions';
 import type { AuthoringDependencyGraphSnapshot } from '../shared/authoring-dependency-contracts';
 import { exactSourceRewritePatches } from '../shared/authoring-source-rewrite';
@@ -312,6 +314,22 @@ export async function validateCliProject(
   const diagnostics: NovelTeaCliDiagnostic[] = preflight.diagnostics.map((item) =>
     cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
   );
+  try {
+    await collectRuntimeDistributionNotices(
+      snapshot.project,
+      new Set(Object.keys(snapshot.project.assets)),
+      snapshot.projectRoot,
+      nodeRuntimeArtifactPaths,
+    );
+  } catch (error) {
+    diagnostics.push(
+      cliDiagnostic(
+        'authoring.distribution-notice.invalid',
+        '/settings/distributionNotices',
+        error instanceof Error ? error.message : 'Distribution notice cannot be verified.',
+      ),
+    );
+  }
   const preflightMs = Date.now() - preflightStarted;
   const dependencyStarted = Date.now();
   const dependencyAnalysis = await workspace.buildDependencyGraphAnalysis(snapshot);

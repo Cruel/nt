@@ -83,6 +83,7 @@ export interface PackageExportOptions {
   fileEntries?: Array<{
     source: string;
     packagePath: string;
+    expectedSha256?: string;
     storage?: 'auto' | 'stored' | 'compressed';
   }>;
   textEntries?: Array<{

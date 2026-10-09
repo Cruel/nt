@@ -17,12 +17,22 @@ is shown beside the active category on ordinary editor widths and becomes a hori
 selector on narrow panes. Only the selected category is rendered, so unrelated controls do not form
 one long settings page.
 
-The Project Settings categories are General, Runtime, Asset Memory, Display, Audio, Cursors, Title Screen, App Identity,
+The Project Settings categories are General, Runtime, Asset Memory, Display, Audio, Cursors, Title Screen, App Identity, Distribution Notices,
 Integrations, Transitions, and Status. The active category is tab-scoped view state and is restored
 with the tab. Workbench targets and diagnostic links select the owning category before revealing,
 flashing, or focusing a section or field.
 
 ## Stored Data
+
+Distribution Notices authors `/settings/distributionNotices` as undoable Project-wide references
+to existing `.txt` or `.md` Project files, each with an optional display name. The Project-wide
+relationship is unconditional: every Runtime Package includes the notice. An Asset's
+`distribution-notice` attachment instead applies only when that physical Asset is included by the
+export's pruning and localization closure. Shared references to a single Project path do not
+duplicate its packaged bytes, and missing/invalid applicable notices block export. The editor
+watches Project-wide notice paths for external changes and missing-file diagnostics. The CLI's
+`validate` command verifies authored notices; Runtime Package preparation and verification also
+pin their exact original bytes. See `docs/runtime/PACKAGE_EXPORT.md` for the package contract.
 
 Project Settings edits the authoring project document through undoable command-bus operations. It
 does not write editor preferences, runtime user settings, or game progress. Editor preferences remain

@@ -7,6 +7,15 @@ The **Project** is the root authoring unit. It owns game-wide settings, startup,
 the reusable record collections, and infrastructure-level declarations such as the initial
 Interactable Instance registry. It is not itself a generic gameplay subject or Property owner.
 
+Project-wide **Distribution Notices** are explicit references to plain-text `.txt` or `.md` files
+inside the Project, with optional display names. They are included unconditionally when a Runtime
+Package is exported. Asset attachments with purpose `distribution-notice` are included only when
+the associated physical Asset is actually packaged; missing notices for excluded Assets do not
+block an unrelated export. The same Project file may be referenced by several Assets or by a
+Project-wide declaration without duplicating it. Original notice bytes remain separate in the
+Runtime Package's `licenses/` namespace, outside the gameplay Asset registry. These relationships
+are declarations, not an inference of license obligations.
+
 ## Identity and references
 
 Top-level records have stable IDs within their collection. A Room ID and Character ID may use the
