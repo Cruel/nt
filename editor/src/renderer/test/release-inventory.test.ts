@@ -50,16 +50,26 @@ function completeInventory() {
       root,
       `${templateId}.template.json`,
       JSON.stringify({
+        format: 'noveltea.player-template',
+        formatVersion: 1,
         templateId,
         buildId: `${tag}-${templateId}`,
         engineVersion: tag,
+        platform: templateId.split('-')[0],
+        architecture: templateId.split('-')[1],
+        buildFlavor: templateId.includes('-debug') ? 'debug' : 'release',
         artifacts: { archive, symbols },
       }),
     );
     write(root, archive);
     write(root, symbols);
     write(root, `${templateId}.SBOM.cdx.json`);
-    write(root, `${templateId}.THIRD_PARTY_NOTICES.txt`);
+    write(
+      root,
+      templateId.startsWith('android-')
+        ? `${templateId}.THIRD_PARTY_NOTICES.txt`
+        : `${templateId}.licenses.index.json`,
+    );
     write(root, `noveltea-certification-results-${templateId}.json`);
     write(root, proof);
     write(
@@ -196,6 +206,27 @@ function verify(root: string) {
 }
 
 describe('release inventory certification evidence', () => {
+  it('advertises the correct named-notice sidecars in the public template registry', () => {
+    const root = completeInventory();
+    const script = path.resolve(process.cwd(), '../.github/generate-template-registry.mjs');
+    const result = spawnSync(process.execPath, [script, root, tag], { encoding: 'utf8' });
+    expect(result.status, result.stderr).toBe(0);
+    const registry = JSON.parse(
+      readFileSync(path.join(root, 'noveltea-player-template-registry.json'), 'utf8'),
+    ) as {
+      templates: Array<{ platform: string; templateId: string; notices: string }>;
+    };
+    for (const item of registry.templates) {
+      expect(item.notices).toBe(
+        `${item.templateId}.${
+          item.platform === 'android' ? 'THIRD_PARTY_NOTICES.txt' : 'licenses.index.json'
+        }`,
+      );
+    }
+    expect(registry.templates.find((item) => item.platform === 'web')?.notices).toBe(
+      'web-wasm32-release.licenses.index.json',
+    );
+  });
   it('accepts one results file and every report proof for each required template', () => {
     const root = completeInventory();
     const result = verify(root);

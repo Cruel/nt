@@ -55,7 +55,9 @@ for (const descriptorName of descriptorNames) {
     descriptor.artifacts.archive,
     descriptor.artifacts.symbols,
     `${descriptor.templateId}.SBOM.cdx.json`,
-    `${descriptor.templateId}.THIRD_PARTY_NOTICES.txt`,
+    descriptor.platform === 'android'
+      ? `${descriptor.templateId}.THIRD_PARTY_NOTICES.txt`
+      : `${descriptor.templateId}.licenses.index.json`,
   ]) {
     requireFile(name);
   }

@@ -19,7 +19,7 @@ afterEach(() => {
   while (roots.length) rmSync(roots.pop()!, { recursive: true, force: true });
 });
 
-function setup() {
+function setup(corruptLicenseIndex = false) {
   const root = mkdtempSync(path.join(os.tmpdir(), 'noveltea-cert-results-'));
   roots.push(root);
   const dist = path.join(root, 'dist');
@@ -29,10 +29,37 @@ function setup() {
   writeFileSync(path.join(stage, 'player.js'), 'x');
   writeFileSync(
     path.join(stage, 'SBOM.cdx.json'),
-    `${JSON.stringify({ bomFormat: 'CycloneDX', specVersion: '1.6', version: 1 })}\n`,
+    `${JSON.stringify({
+      bomFormat: 'CycloneDX',
+      specVersion: '1.6',
+      version: 1,
+      components: [{ type: 'library', name: 'fixture-lib', version: '1.0' }],
+    })}\n`,
   );
-  writeFileSync(path.join(stage, 'licenses/THIRD_PARTY_NOTICES.txt'), 'Third-party notices\n');
-  const files = ['player.js', 'SBOM.cdx.json', 'licenses/THIRD_PARTY_NOTICES.txt'].map(
+  const licensePath = 'licenses/fixture-lib--license.txt';
+  const licenseText = 'MIT License\nCopyright (c) Fixture\n';
+  writeFileSync(path.join(stage, licensePath), licenseText);
+  writeFileSync(
+    path.join(stage, 'licenses/index.json'),
+    `${JSON.stringify({
+      format: 'noveltea.engine-licenses',
+      components: [
+        {
+          component: 'fixture-lib',
+          displayName: 'Fixture Library',
+          version: '1.0',
+          files: [
+            {
+              path: licensePath,
+              size: Buffer.byteLength(licenseText),
+              sha256: corruptLicenseIndex ? '0'.repeat(64) : sha256(licenseText),
+            },
+          ],
+        },
+      ],
+    })}\n`,
+  );
+  const files = ['player.js', 'SBOM.cdx.json', licensePath, 'licenses/index.json'].map(
     (relative) => {
       const data = readFileSync(path.join(stage, relative));
       return {
@@ -41,7 +68,11 @@ function setup() {
         mode: 0o644,
         sha256: sha256(data),
         role:
-          relative === 'player.js' ? 'player' : relative.endsWith('.txt') ? 'notice' : 'support',
+          relative === 'player.js'
+            ? 'player'
+            : relative.startsWith('licenses/')
+              ? 'notice'
+              : 'support',
       };
     },
   );
@@ -65,12 +96,16 @@ function setup() {
     compiledFeatures: ['web-single-threaded'],
     packageAccessModes: ['web-fetch'],
     files,
-    runtimeDependencies: [{ path: 'player.js', kind: 'library' }],
+    runtimeDependencies: [
+      { path: 'player.js', kind: 'library' },
+      { path: licensePath, kind: 'notice' },
+      { path: 'licenses/index.json', kind: 'notice' },
+    ],
     artifacts: {
       archive: archiveName,
       symbols: symbolName,
       sbom: 'SBOM.cdx.json',
-      notices: 'licenses/THIRD_PARTY_NOTICES.txt',
+      notices: 'licenses/index.json',
     },
     provenance: { provider: 'local', source: 'test' },
     host: { assembly: 'any', requiresToolchain: false, tools: [] },
@@ -390,6 +425,13 @@ describe('platform certification results producer', () => {
     const result = run(value.collectArgs);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("missing passing 'single-nested'");
+  });
+
+  it('rejects a license index inconsistent with the real text despite matching descriptor file hashes', () => {
+    const value = setup(true);
+    const result = run(value.collectArgs);
+    expect(result.status).not.toBe(0);
+    expect(result.stderr).toContain('does not match the template file inventory');
   });
 
   it('produces Android release evidence including conditional AAB bundletool proof', () => {

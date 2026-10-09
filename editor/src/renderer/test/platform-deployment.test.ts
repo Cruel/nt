@@ -45,7 +45,7 @@ const descriptor = {
     archive: 'web.zip',
     symbols: 'web-symbols.zip',
     sbom: 'SBOM.cdx.json',
-    notices: 'THIRD_PARTY_NOTICES.txt',
+    notices: 'licenses/index.json',
   },
   provenance: { provider: 'local' as const, source: 'test' },
   host: { assembly: 'any' as const, requiresToolchain: false, tools: [] },

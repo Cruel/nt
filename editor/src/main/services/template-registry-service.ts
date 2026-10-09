@@ -3,12 +3,14 @@ import { existsSync } from 'node:fs';
 import { lstat, mkdir, readFile, readdir, rename, rm, stat, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { z } from 'zod';
 import {
   parseTemplateDescriptor,
   templateCompatibilityRequirementsSchema,
   templateRegistryEntrySchema,
   type InstalledTemplate,
   type TemplateCompatibilityDiagnostic,
+  type TemplateDescriptor,
   type TemplateInstallRequest,
   type TemplateInstallResult,
   type TemplateRegistryEntry,
@@ -35,6 +37,108 @@ const registryRoot = () =>
   process.env.NOVELTEA_TEMPLATE_REGISTRY_ROOT ??
   path.join(os.homedir(), '.noveltea', 'templates');
 const digest = (value: Buffer | string) => createHash('sha256').update(value).digest('hex');
+function containsControlCharacters(value: string): boolean {
+  for (let index = 0; index < value.length; index++) {
+    const code = value.charCodeAt(index);
+    if (code === 127 || (code < 32 && code !== 9 && code !== 10 && code !== 13)) return true;
+  }
+  return false;
+}
+const engineNoticeIndexSchema = z
+  .object({
+    format: z.literal('noveltea.engine-licenses'),
+    components: z
+      .array(
+        z
+          .object({
+            component: z.string().trim().min(1),
+            displayName: z.string().trim().min(1),
+            version: z.string().trim().min(1),
+            files: z
+              .array(
+                z
+                  .object({
+                    path: z.string().regex(/^licenses\/[a-z0-9-]+--[a-z0-9-]+\.txt$/),
+                    size: z.number().int().positive(),
+                    sha256: z.string().regex(/^[0-9a-f]{64}$/),
+                  })
+                  .strict(),
+              )
+              .min(1),
+          })
+          .strict(),
+      )
+      .min(1),
+  })
+  .strict();
+
+async function verifyEngineLicenses(root: string, descriptor: TemplateDescriptor) {
+  if (descriptor.platform === 'android') return; // Android's independent template work is not #413.
+  const index = engineNoticeIndexSchema.parse(
+    JSON.parse(await readFile(path.join(root, 'licenses/index.json'), 'utf8')),
+  );
+  const declared = new Map(descriptor.files.map((item) => [item.path, item]));
+  const indexed = new Set(['licenses/index.json']);
+  const named = new Set<string>();
+  let previous = '';
+  for (const component of index.components) {
+    if (named.has(component.component) || (previous && previous >= component.component))
+      throw new Error(
+        `Engine license index has duplicate or unordered component '${component.component}'.`,
+      );
+    named.add(component.component);
+    previous = component.component;
+    for (const file of component.files) {
+      if (indexed.has(file.path)) throw new Error(`Duplicate license index path '${file.path}'.`);
+      indexed.add(file.path);
+      const item = declared.get(file.path);
+      if (
+        !item ||
+        item.size !== file.size ||
+        item.sha256 !== file.sha256 ||
+        (item.role && item.role !== 'notice')
+      )
+        throw new Error(
+          `License index entry '${file.path}' disagrees with the template inventory.`,
+        );
+      const bytes = await readFile(path.join(root, file.path));
+      const content = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+      if (
+        bytes.length !== file.size ||
+        digest(bytes) !== file.sha256 ||
+        !content.trim() ||
+        containsControlCharacters(content) ||
+        /No dependency notice file was found|Resolved dependency license texts are collected|PLACEHOLDER LICENSE/i.test(
+          content,
+        )
+      )
+        throw new Error(`Invalid or placeholder engine license text '${file.path}'.`);
+    }
+  }
+  const licensePaths = [...declared.keys()].filter((name) => name.startsWith('licenses/')).sort();
+  const noticeDependencies = descriptor.runtimeDependencies
+    .filter((item) => item.kind === 'notice')
+    .map((item) => item.path)
+    .sort();
+  if (
+    !declared.has('licenses/index.json') ||
+    licensePaths.join('\n') !== [...indexed].sort().join('\n') ||
+    noticeDependencies.join('\n') !== licensePaths.join('\n')
+  )
+    throw new Error('Template license files/index and runtime dependencies are inconsistent.');
+  const sbom = JSON.parse(await readFile(path.join(root, descriptor.artifacts.sbom), 'utf8')) as {
+    bomFormat?: string;
+    components?: Array<{ name: string; version: string }>;
+  };
+  const sbomNames = (sbom.components ?? [])
+    .map((item) => `${item.name}\u0000${item.version}`)
+    .sort();
+  const noticeNames = index.components
+    .map((item) => `${item.component}\u0000${item.version}`)
+    .sort();
+  if (sbom.bomFormat !== 'CycloneDX' || sbomNames.join('\n') !== noticeNames.join('\n'))
+    throw new Error('Template SBOM and engine license index component coverage disagree.');
+}
 const issue = (
   code: string,
   pathValue: string,
@@ -155,6 +259,7 @@ async function verifyInstalled(root: string): Promise<{
     if (data.length !== item.size || digest(data) !== item.sha256)
       throw new Error(`Installed template file '${item.path}' failed integrity verification.`);
   }
+  await verifyEngineLicenses(root, descriptor);
   return { entry, descriptor };
 }
 export async function inspectPlayerTemplate(
@@ -263,6 +368,7 @@ export async function installPlayerTemplate(
       if (data.length !== item.size || digest(data) !== item.sha256)
         throw new Error(`Archive file '${item.path}' failed descriptor verification.`);
     }
+    await verifyEngineLicenses(root, descriptor);
     const official = request.officialProvenance;
     const trusted =
       !!official &&

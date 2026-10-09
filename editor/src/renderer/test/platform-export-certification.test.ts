@@ -31,7 +31,7 @@ const descriptor = parseTemplateDescriptor({
     archive: 'player.zip',
     symbols: 'symbols.zip',
     sbom: 'sbom.json',
-    notices: 'notices.txt',
+    notices: 'licenses/index.json',
   },
   provenance: { provider: 'local', source: 'test' },
 });

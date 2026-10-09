@@ -17,6 +17,7 @@ import {
   parseProjectPlatformExportSettings,
 } from '../../shared/project-schema/platform-export-contracts';
 import { createPlatformExportValidationDiagnostic } from '../../shared/project-schema/project-validation';
+import { createTemplateLicenseFixture } from './player-template-license-fixture';
 
 function exportableProject() {
   const project = createAuthoringProject({ name: 'Main Trust Boundary' });
@@ -76,6 +77,7 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
   fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true });
   const playerPath = path.join(templateRoot, 'bin/player');
   fs.writeFileSync(playerPath, 'player', { mode: 0o755 });
+  const licenseFixture = createTemplateLicenseFixture(templateRoot);
   const player = fs.readFileSync(playerPath);
   const descriptor = {
     format: 'noveltea.player-template',
@@ -101,13 +103,17 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
         mode: fs.statSync(playerPath).mode & 0o777,
         sha256: createHash('sha256').update(player).digest('hex'),
       },
+      ...licenseFixture.files,
     ],
-    runtimeDependencies: [{ path: 'bin/player', kind: 'library' }],
+    runtimeDependencies: [
+      { path: 'bin/player', kind: 'library' },
+      ...licenseFixture.runtimeDependencies,
+    ],
     artifacts: {
       archive: 'template.tar.gz',
       symbols: 'symbols.tar.gz',
       sbom: 'SBOM.cdx.json',
-      notices: 'NOTICE.txt',
+      notices: 'licenses/index.json',
     },
     provenance: { provider: 'local', source: 'test' },
     host: { assembly: 'any', requiresToolchain: false, tools: [] },

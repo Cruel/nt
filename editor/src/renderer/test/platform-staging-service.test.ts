@@ -22,6 +22,7 @@ import {
   configurePlatformFileModeService,
   resetPlatformFileModeService,
 } from '../../main/services/platform-host-service';
+import { createTemplateLicenseFixture } from './player-template-license-fixture';
 
 const roots: string[] = [];
 const linuxTemplateArchive = process.env.NOVELTEA_LINUX_TEMPLATE_ARCHIVE;
@@ -197,6 +198,7 @@ async function fixture() {
   const templateRoot = templateRootForToken(templateToken);
   fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true });
   fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'player', { mode: 0o755 });
+  const licenseFixture = createTemplateLicenseFixture(templateRoot);
   const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
   const player = fs.readFileSync(path.join(templateRoot, 'bin/player'));
   const mode = 0o755;
@@ -217,15 +219,18 @@ async function fixture() {
     capabilities: [],
     buildFlavor: 'release',
     packageAccessModes: ['sidecar'],
-    files: [{ path: 'bin/player', size: player.length, mode, sha256: sha(player), role: 'player' }],
-    runtimeDependencies: [],
+    files: [
+      { path: 'bin/player', size: player.length, mode, sha256: sha(player), role: 'player' },
+      ...licenseFixture.files,
+    ],
+    runtimeDependencies: [...licenseFixture.runtimeDependencies],
     linuxNeeded: [],
     linuxRpaths: [],
     artifacts: {
       archive: 'linux.tar.gz',
       symbols: 'linux-symbols.tar.gz',
       sbom: 'SBOM.cdx.json',
-      notices: 'THIRD_PARTY_NOTICES.txt',
+      notices: 'licenses/index.json',
     },
     provenance: { provider: 'local', source: 'test' },
     host: { assembly: 'any', requiresToolchain: false, tools: [] },
@@ -505,6 +510,7 @@ describe('platform staging service', () => {
     fs.writeFileSync(path.join(templateRoot, 'player.js'), 'console.log("release player")');
     fs.writeFileSync(path.join(templateRoot, 'player.wasm'), Buffer.from([0, 97, 115, 109]));
     fs.writeFileSync(path.join(templateRoot, 'player.data'), 'system assets');
+    const licenseFixture = createTemplateLicenseFixture(templateRoot);
     const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
     const entries = ['player.js', 'player.wasm', 'player.data'].map((file) => {
       const data = fs.readFileSync(path.join(templateRoot, file));
@@ -532,13 +538,16 @@ describe('platform staging service', () => {
       capabilities: [],
       buildFlavor: 'release',
       packageAccessModes: ['web-fetch'],
-      files: entries,
-      runtimeDependencies: [{ path: 'player.data', kind: 'asset' }],
+      files: [...entries, ...licenseFixture.files],
+      runtimeDependencies: [
+        { path: 'player.data', kind: 'asset' },
+        ...licenseFixture.runtimeDependencies,
+      ],
       artifacts: {
         archive: 'web.zip',
         symbols: 'web-symbols.zip',
         sbom: 'SBOM.cdx.json',
-        notices: 'THIRD_PARTY_NOTICES.txt',
+        notices: 'licenses/index.json',
       },
       provenance: { provider: 'local', source: 'test' },
       host: { assembly: 'any', requiresToolchain: false, tools: [] },
@@ -714,6 +723,7 @@ describe('platform staging service', () => {
     fs.writeFileSync(path.join(templateRoot, 'bin/player.exe'), Buffer.from(executable.generate()));
     fs.writeFileSync(path.join(templateRoot, 'bin/runtime.dll'), 'declared dependency');
     fs.writeFileSync(path.join(templateRoot, 'player.pdb'), 'symbols');
+    const licenseFixture = createTemplateLicenseFixture(templateRoot);
     const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
     const entries = [
       { path: 'bin/player.exe', role: 'player' },
@@ -746,14 +756,17 @@ describe('platform staging service', () => {
       capabilities: [],
       buildFlavor: 'release',
       packageAccessModes: ['sidecar'],
-      files: entries,
-      runtimeDependencies: [{ path: 'bin/runtime.dll', kind: 'library' }],
+      files: [...entries, ...licenseFixture.files],
+      runtimeDependencies: [
+        { path: 'bin/runtime.dll', kind: 'library' },
+        ...licenseFixture.runtimeDependencies,
+      ],
       windowsImports: ['kernel32.dll', 'runtime.dll'],
       artifacts: {
         archive: 'windows.zip',
         symbols: 'windows-symbols.zip',
         sbom: 'SBOM.cdx.json',
-        notices: 'THIRD_PARTY_NOTICES.txt',
+        notices: 'licenses/index.json',
       },
       provenance: { provider: 'local', source: 'test' },
       host: { assembly: 'any', requiresToolchain: false, tools: [] },
@@ -902,6 +915,7 @@ describe('platform staging service', () => {
       const data = fs.readFileSync(path.join(templateRoot, item.path));
       return { ...item, size: data.length, sha256: sha(data) };
     });
+    const licenseFixture = createTemplateLicenseFixture(templateRoot);
     const descriptor = {
       format: TEMPLATE_DESCRIPTOR_FORMAT,
       formatVersion: 1,
@@ -919,10 +933,11 @@ describe('platform staging service', () => {
       capabilities: ['network.client', 'microphone'],
       buildFlavor: 'release',
       packageAccessModes: ['bundle-resource'],
-      files: entries,
+      files: [...entries, ...licenseFixture.files],
       runtimeDependencies: [
         { path: 'bin/player', kind: 'library' },
         { path: 'assets/system/fonts/LiberationSans.ttf', kind: 'asset' },
+        ...licenseFixture.runtimeDependencies,
       ],
       macosDependencies: ['/usr/lib/libSystem.B.dylib'],
       macosRpaths: [],
@@ -938,7 +953,7 @@ describe('platform staging service', () => {
         archive: 'macos.tar.gz',
         symbols: 'macos-symbols.tar.gz',
         sbom: 'SBOM.cdx.json',
-        notices: 'THIRD_PARTY_NOTICES.txt',
+        notices: 'licenses/index.json',
       },
       provenance: { provider: 'local', source: 'test' },
       host: { assembly: 'any', requiresToolchain: false, tools: [] },
@@ -1056,6 +1071,7 @@ describe('platform staging service', () => {
     const templateRoot = templateRootForToken(templateToken);
     fs.mkdirSync(path.join(templateRoot, 'bin'), { recursive: true });
     fs.writeFileSync(path.join(templateRoot, 'bin/player'), 'mach-o-player', { mode: 0o755 });
+    const licenseFixture = createTemplateLicenseFixture(templateRoot);
     const sha = (data: Buffer | string) => createHash('sha256').update(data).digest('hex');
     const player = fs.readFileSync(path.join(templateRoot, 'bin/player'));
     const descriptor = {
@@ -1083,8 +1099,12 @@ describe('platform staging service', () => {
           size: player.length,
           sha256: sha(player),
         },
+        ...licenseFixture.files,
       ],
-      runtimeDependencies: [{ path: 'bin/player', kind: 'library' }],
+      runtimeDependencies: [
+        { path: 'bin/player', kind: 'library' },
+        ...licenseFixture.runtimeDependencies,
+      ],
       macosDependencies: ['/usr/lib/libSystem.B.dylib'],
       macosRpaths: [],
       macosMachO: [
@@ -1099,7 +1119,7 @@ describe('platform staging service', () => {
         archive: 'macos.tar.gz',
         symbols: 'macos-symbols.tar.gz',
         sbom: 'SBOM.cdx.json',
-        notices: 'THIRD_PARTY_NOTICES.txt',
+        notices: 'licenses/index.json',
       },
       provenance: { provider: 'local', source: 'test' },
       host: { assembly: 'any', requiresToolchain: false, tools: [] },

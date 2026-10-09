@@ -76,7 +76,7 @@ function installedLinuxTemplate() {
         archive: 'template.tar',
         symbols: 'symbols.tar',
         sbom: 'SBOM.json',
-        notices: 'NOTICE.txt',
+        notices: 'licenses/index.json',
       },
       provenance: { provider: 'github-attestation' as const, source: 'test' },
       host: { assembly: 'any' as const, requiresToolchain: false, tools: [] },
