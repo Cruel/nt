@@ -7,6 +7,7 @@ import type { ProjectAssetFileOperationResponse } from '../../shared/project-ass
 import type { ProjectMutationPathValue } from '../../shared/editor-tooling';
 import type { ProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
+import { parseAssetData } from '../../shared/project-schema/authoring-assets';
 import { stripLocalEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import { assetSourcePaths } from '../../shared/project-workspace/project-workspace-service';
@@ -17,6 +18,7 @@ import {
 import { buildJsonPointer } from '../../shared/json-pointer';
 import type { ActiveProjectWorkspaceSession } from './active-project-workspace-session';
 import { projectSourceUsages } from './project-source-file-service';
+import { advanceExternallyUpdatedAssetSourceBaselines } from './project-authoring-source-freshness-service';
 
 export const PROJECT_WORKSPACE_WATCH_STABILITY_THRESHOLD_MS = 200;
 export const PROJECT_WORKSPACE_WATCH_POLL_INTERVAL_MS = 50;
@@ -33,6 +35,7 @@ interface ActiveWatcher {
   transactionObserved: boolean;
   assetSourcePaths: Set<string>;
   assetDiagnosticsSignature: string;
+  sourceRevisionCache: Map<string, `sha256:${string}` | 'absent'>;
   workspaceSession: ActiveProjectWorkspaceSession;
   resumeHandler: () => void;
   automaticRetryUsed: boolean;
@@ -100,7 +103,8 @@ export function classifyProjectWorkspaceWatchPath(
     (assetPath) => relative === assetPath || assetPath.startsWith(`${relative}/`),
   );
   if (relative === 'assets' || relative.startsWith('assets/') || isKnownAssetSource) return 'asset';
-  if (relative === 'support' || relative.startsWith('support/')) return 'source';
+  // Supporting files are only watched as asset inputs when explicitly associated.
+  // Unregistered files under support/ must not enter source-change diagnostics.
   if (relative === 'shaders' || relative.startsWith('shaders/')) return 'source';
   if (
     ['project.json', 'traits.json', 'editor.json'].includes(relative) ||
@@ -274,6 +278,7 @@ async function flushWatcher(
 ) {
   if (activeWatcher !== watcher || !isSessionCurrent(watcher.projectSessionId)) return;
   watcher.timer = null;
+  const beforeFlush = watcher.workspaceSession.snapshot();
   // Opening a workspace performs transaction recovery. Never invoke it while another NovelTea
   // writer still owns the project; the journal/lock watcher will schedule the committed state.
   if (await hasActiveNovelTeaWriter(watcher.projectRoot)) return;
@@ -282,7 +287,16 @@ async function flushWatcher(
   const observedAuthoringChangedPaths = [...watcher.authoringChangedPaths].sort();
   const assetChangedPaths = [...watcher.assetChangedPaths].sort();
   const sourceChangedPaths = [...watcher.sourceChangedPaths].sort();
+  for (const relativePath of [
+    ...observedAuthoringChangedPaths,
+    ...assetChangedPaths,
+    ...sourceChangedPaths,
+  ])
+    for (const cachedPath of watcher.sourceRevisionCache.keys())
+      if (cachedPath === relativePath || cachedPath.startsWith(`${relativePath}/`))
+        watcher.sourceRevisionCache.delete(cachedPath);
   const needsResync = watcher.workspaceSession.coherenceState() === 'resync-needed';
+  if (needsResync) watcher.sourceRevisionCache.clear();
   if (
     observedAuthoringChangedPaths.length === 0 &&
     assetChangedPaths.length === 0 &&
@@ -374,6 +388,33 @@ async function flushWatcher(
     }
   }
   const publishedAssetChangedPaths = assetFileRevisions ? assetChangedPaths : [];
+  if (assetFileRevisions && authoring?.success !== false) {
+    try {
+      const advancedPaths = await advanceExternallyUpdatedAssetSourceBaselines(
+        watcher.workspaceSession,
+        assetFileRevisions,
+        () =>
+          activeWatcher === watcher &&
+          isSessionCurrent(watcher.projectSessionId) &&
+          !owner.isDestroyed(),
+      );
+      if (advancedPaths.length) {
+        authoringChangedPaths = [...new Set([...authoringChangedPaths, ...advancedPaths])].sort();
+        authoring = successfulAuthoringWatchResult(
+          beforeFlush,
+          watcher.workspaceSession.snapshot(),
+          authoringChangedPaths,
+          authoring?.success ? authoring.diagnostics : [],
+        );
+      }
+    } catch {
+      // Failed CAS or an untrusted writer never advances a baseline. The next
+      // watcher observation will retry after the workspace has settled.
+      assetChangedPaths.forEach((relativePath) => watcher.assetChangedPaths.add(relativePath));
+      watcher.workspaceSession.markResyncNeeded();
+      scheduleAutomaticWatcherRetry(owner, watcher, isSessionCurrent, refreshSession);
+    }
+  }
   // Internal structural saves can remove an Asset record before chokidar delivers the source unlink.
   // Reconcile the watcher's cached source set with the current workspace before deciding that an
   // absent file is still referenced.
@@ -439,12 +480,43 @@ async function flushWatcher(
     if (exists) continue;
     for (const usage of attachmentUsages(currentProject, relativePath)) {
       const ownerPath = buildJsonPointer(['assets', usage.assetId]);
+      const index =
+        parseAssetData(currentProject.assets[usage.assetId]?.data)?.attachments.findIndex(
+          (item) => item.path === relativePath,
+        ) ?? -1;
       assetDiagnostics.push({
         code: 'workspace.asset-attachment.missing',
         severity: 'error',
         category: 'Asset attachment',
-        path: `${ownerPath}/data/attachments`,
+        path: `${ownerPath}/data/attachments/${index}`,
         message: `Attached file '${relativePath}' is missing. Open Asset '${usage.label}' and use Relink to repair the association.`,
+        boundaries: ['authoring'],
+        ownerPaths: [ownerPath],
+      });
+    }
+  }
+  for (const [assetId, record] of Object.entries(currentProject.assets)) {
+    const data = parseAssetData(record.data);
+    if (!data) continue;
+    for (const [index, attachment] of data.attachments.entries()) {
+      if (attachment.purpose !== 'authoring-source') continue;
+      let sourceRevision = watcher.sourceRevisionCache.get(attachment.path);
+      if (!sourceRevision) {
+        sourceRevision = await watcher.workspaceSession.readFreshRevision(attachment.path);
+        watcher.sourceRevisionCache.set(attachment.path, sourceRevision);
+      }
+      if (sourceRevision === 'absent' || sourceRevision === attachment.sourceBaselineHash) continue;
+      const ownerPath = buildJsonPointer(['assets', assetId]);
+      assetDiagnostics.push({
+        code: attachment.sourceBaselineHash
+          ? 'workspace.asset-authoring-source.outdated'
+          : 'workspace.asset-authoring-source.untracked',
+        severity: 'warning',
+        category: 'Asset attachment',
+        path: `${ownerPath}/data/attachments/${index}`,
+        message: attachment.sourceBaselineHash
+          ? `Asset '${record.label}' may be outdated relative to Authoring Source '${attachment.path}'. Acknowledge the source change or update the Asset.`
+          : `Asset '${record.label}' has no recorded Authoring Source revision for '${attachment.path}'. Open the Asset and acknowledge the current source to establish a baseline.`,
         boundaries: ['authoring'],
         ownerPaths: [ownerPath],
       });
@@ -585,6 +657,7 @@ export async function startProjectWorkspaceWatcher(
     transactionObserved: false,
     assetSourcePaths: knownAssetSourcePaths,
     assetDiagnosticsSignature: '[]',
+    sourceRevisionCache: new Map(),
     workspaceSession,
     resumeHandler: requestResync,
     automaticRetryUsed: false,

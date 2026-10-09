@@ -1,5 +1,5 @@
 import { createHash } from 'node:crypto';
-import { promises as fs } from 'node:fs';
+import { createReadStream, promises as fs } from 'node:fs';
 import path from 'node:path';
 import { dialog, shell, type BrowserWindow } from 'electron';
 import type {
@@ -76,10 +76,13 @@ export async function inspectProjectAttachmentFile(
   try {
     const absolute = await projectFile(root, relative, true);
     const stat = await fs.stat(absolute);
+    const hash = createHash('sha256');
+    for await (const chunk of createReadStream(absolute)) hash.update(chunk);
     const result: ProjectAttachmentInspection = {
       path: relative,
       exists: true,
       byteSize: stat.size,
+      contentHash: `sha256:${hash.digest('hex')}`,
     };
     if (/\.(txt|md|json|csv|toml|yaml|yml|rml|rcss|css|lua)$/i.test(relative)) {
       const handle = await fs.open(absolute, 'r');

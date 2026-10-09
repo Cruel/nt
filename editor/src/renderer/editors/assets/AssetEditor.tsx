@@ -193,10 +193,25 @@ export function AssetEditor({ tab }: WorkbenchEditorProps) {
       setMessage(result.error ?? result.diagnostics[0]?.message ?? 'Asset reimport failed.');
       return;
     }
+    const sourceRevisions = Object.fromEntries(
+      (
+        await Promise.all(
+          assetData.attachments
+            .filter((attachment) => attachment.purpose === 'authoring-source')
+            .map(async (attachment) => {
+              const inspection = await window.noveltea.inspectProjectAttachmentFile(
+                projectSessionId,
+                attachment.path,
+              );
+              return [attachment.path, inspection.contentHash] as const;
+            }),
+        )
+      ).filter((entry): entry is readonly [string, `sha256:${string}`] => !!entry[1]),
+    );
     run({
       type: 'asset.reimportFile',
       label: `Reimport ${assetId}`,
-      payload: { assetId, asset: result.asset },
+      payload: { assetId, asset: result.asset, sourceRevisions },
     });
   }
 

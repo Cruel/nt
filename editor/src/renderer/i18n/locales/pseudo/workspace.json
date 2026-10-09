@@ -22,7 +22,8 @@
       "share": "[Šhârë Âššët âttâçhmëñt]",
       "changePurpose": "[Çhâñgë âttâçhmëñt pûrpôšë]",
       "remove": "[Rëmôvë âttâçhmëñt âššôçïâtïôñ]",
-      "rename": "[Rëñâmë âttâçhmëñt dïšplây ñâmë]"
+      "rename": "[Rëñâmë âttâçhmëñt dïšplây ñâmë]",
+      "acknowledgeSource": "[Âçkñôwlëdgë Âûthôrïñg Sôûrçë rëvïšïôñ]"
     },
     "sessionChanged": "[Âçtïvë Prôjëçt ôr Âššët çhâñgëd. Rëvïëw âñd try âgâïñ.]",
     "open": "[Ôpëñ]",
@@ -40,6 +41,9 @@
     "usedBy_one": "[Ûšëd by {{count}} Âššët]",
     "usedBy_other": "[Ûšëd by {{count}} Âššëtš]",
     "missing": "[Mïššïñg fïlë — rëlïñk tô rëpâïr]",
+    "possiblyOutdated": "[Pôššïbly ôûtdâtëd rëlâtïvë tô Âûthôrïñg Sôûrçë]",
+    "sourceBaselineMissing": "[Sôûrçë bâšëlïñë ñôt yët rëçôrdëd]",
+    "acknowledgeSource": "[Âçkñôwlëdgë rëvïšïôñ]",
     "invalidPath": "[Çhôôšë â Prôjëçt-çôñtâïñëd fïlë pâth.]",
     "newPath": "[Rëplâçëmëñt Prôjëçt fïlë pâth]",
     "editName": "[Dïšplây ñâmë fôr {{path}}]",

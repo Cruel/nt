@@ -157,6 +157,8 @@ async function createPortableFixture(root: string): Promise<{
   // Every portable Project includes explicitly associated support files, without registering them.
   await fs.mkdir(path.join(projectRoot, 'support/licenses'), { recursive: true });
   await fs.mkdir(path.join(projectRoot, 'support/sources'), { recursive: true });
+  await fs.mkdir(path.join(projectRoot, 'support/references'), { recursive: true });
+  await fs.mkdir(path.join(projectRoot, 'support/other'), { recursive: true });
   await fs.writeFile(
     path.join(projectRoot, 'support/licenses/notice.txt'),
     'redistribution terms\n',
@@ -165,6 +167,9 @@ async function createPortableFixture(root: string): Promise<{
     path.join(projectRoot, 'support/sources/original.psd'),
     Buffer.from([3, 1, 4]),
   );
+  await fs.writeFile(path.join(projectRoot, 'support/references/story.md'), '# Story\n');
+  await fs.writeFile(path.join(projectRoot, 'support/other/raw.dat'), Buffer.from([0, 255, 128]));
+  await fs.writeFile(path.join(projectRoot, 'support/other/unreferenced.dat'), 'not bundled\n');
   const assetFiles = await fs.readdir(path.join(projectRoot, 'records/assets'));
   const assetFile = path.join(
     projectRoot,
@@ -177,6 +182,8 @@ async function createPortableFixture(root: string): Promise<{
   record.data.attachments = [
     { path: 'support/licenses/notice.txt', purpose: 'distribution-notice' },
     { path: 'support/sources/original.psd', purpose: 'authoring-source' },
+    { path: 'support/references/story.md', purpose: 'reference' },
+    { path: 'support/other/raw.dat', purpose: 'other' },
   ];
   await fs.writeFile(assetFile, `${JSON.stringify(record, null, 2)}\n`);
 
@@ -268,6 +275,15 @@ describe('portable .ntproject Project bundle', () => {
     expect(await fs.readFile(path.join(destination, 'support/sources/original.psd'))).toEqual(
       Buffer.from([3, 1, 4]),
     );
+    expect(await fs.readFile(path.join(destination, 'support/references/story.md'), 'utf8')).toBe(
+      '# Story\n',
+    );
+    expect(await fs.readFile(path.join(destination, 'support/other/raw.dat'))).toEqual(
+      Buffer.from([0, 255, 128]),
+    );
+    await expect(
+      fs.stat(path.join(destination, 'support/other/unreferenced.dat')),
+    ).rejects.toMatchObject({ code: 'ENOENT' });
     const projectManifest = JSON.parse(
       await fs.readFile(path.join(destination, 'project.json'), 'utf8'),
     );

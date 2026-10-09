@@ -76,13 +76,33 @@ function projectWithRecords(): AuthoringProject {
       steps: [{ id: 'continue-start' }],
     } as never,
   };
-  project.assets.logo = { id: 'logo', label: 'Logo', data: {} as never };
+  project.assets.logo = {
+    id: 'logo',
+    label: 'Logo',
+    data: {
+      kind: 'binary',
+      source: { type: 'project-file', path: 'assets/logo.bin' },
+      aliases: [],
+      imageMetadata: null,
+      attachments: [{ path: 'support/sources/drawing.psd', purpose: 'authoring-source' }],
+    },
+  };
   project.materials.tint = { id: 'tint', label: 'Tint', data: {} as never };
   project.variables.score = { id: 'score', label: 'Score', data: {} as never };
   return project;
 }
 
 describe('diagnostic navigation', () => {
+  it('navigates Asset attachment diagnostics to the exact associated file', () => {
+    const project = projectWithRecords();
+    expect(
+      resolveProjectDiagnosticTarget(project, '/assets/logo/data/attachments/0/sourceBaselineHash')
+        ?.target?.id,
+    ).toBe('asset.attachment.support%2Fsources%2Fdrawing.psd');
+    expect(
+      resolveProjectDiagnosticTarget(project, '/assets/logo/data/attachments')?.target?.id,
+    ).toBe('asset.attachments');
+  });
   it('parses JSON pointer escapes', () => {
     expect(parseJsonPointer('/rooms/a~1b/data/~0key')).toEqual(['rooms', 'a/b', 'data', '~key']);
   });

@@ -1,4 +1,5 @@
 import fs from 'node:fs';
+import { createHash } from 'node:crypto';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
@@ -137,6 +138,107 @@ describe('project workspace watcher policy', () => {
     expect(classifyProjectWorkspaceWatchPath(root, '/project/images/old.webp', known)).toBe(
       'ignore',
     );
+    expect(
+      classifyProjectWorkspaceWatchPath(root, '/project/support/unregistered.txt', known),
+    ).toBe('ignore');
+  });
+
+  it('tracks exact Authoring Source revisions independently for Assets sharing one file', async () => {
+    const root = tempRoot();
+    const relative = 'support/sources/portrait.psd';
+    fs.mkdirSync(path.join(root, 'support/sources'), { recursive: true });
+    const baseline = `sha256:${createHash('sha256').update('before').digest('hex')}` as const;
+    const hashFile = async () =>
+      `sha256:${createHash('sha256')
+        .update(fs.readFileSync(path.join(root, relative)))
+        .digest('hex')}` as const;
+    fs.writeFileSync(path.join(root, relative), 'before');
+    const project = createAuthoringProject();
+    for (const id of ['left', 'right']) {
+      project.assets[id] = {
+        id,
+        label: id,
+        data: {
+          kind: 'binary',
+          source: { type: 'project-file', path: `assets/${id}.bin` },
+          aliases: [],
+          imageMetadata: null,
+          attachments: [
+            { path: relative, purpose: 'authoring-source', sourceBaselineHash: baseline },
+          ],
+        },
+      };
+    }
+    const snapshot = {
+      projectRoot: root,
+      project,
+      canonicalSourceFiles: [],
+      fileRevisions: {},
+      scriptSourcePaths: {},
+    };
+    const session = {
+      captureAuthoringFileStamps: vi.fn(async () => undefined),
+      knownAssetSourcePaths: vi.fn(() => []),
+      coherenceState: vi.fn(() => 'coherent'),
+      markResyncNeeded: vi.fn(),
+      runExclusive: vi.fn(async (callback: () => unknown) => callback()),
+      snapshot: vi.fn(() => snapshot),
+      project: vi.fn(() => project),
+      readFreshRevision: vi.fn(hashFile),
+      observeAssetRevisions: vi.fn(async () => ({ [relative]: await hashFile() })),
+      requiresAuthoringReassembly: vi.fn(() => false),
+    } as never;
+    const send = vi.fn();
+    const owner = { isDestroyed: () => false, webContents: { send } } as never;
+    await startProjectWorkspaceWatcher(
+      owner,
+      'session-shared',
+      root,
+      session,
+      () => true,
+      async () => undefined,
+    );
+    await waitForWatcherFlush();
+    expect(send.mock.lastCall?.[1].assetDiagnostics).toEqual([]);
+
+    fs.writeFileSync(path.join(root, relative), 'after');
+    watcherHarness.emit('change', path.join(root, relative));
+    await waitForWatcherFlush();
+    expect(send.mock.lastCall?.[1].assetDiagnostics).toEqual([
+      expect.objectContaining({
+        code: 'workspace.asset-authoring-source.outdated',
+        severity: 'warning',
+        ownerPaths: ['/assets/left'],
+      }),
+      expect.objectContaining({
+        code: 'workspace.asset-authoring-source.outdated',
+        severity: 'warning',
+        ownerPaths: ['/assets/right'],
+      }),
+    ]);
+
+    const updated = await hashFile();
+    project.assets.left.data.attachments![0].sourceBaselineHash = updated;
+    watcherHarness.emit('change', path.join(root, relative));
+    await waitForWatcherFlush();
+    expect(send.mock.lastCall?.[1].assetDiagnostics).toEqual([
+      expect.objectContaining({ ownerPaths: ['/assets/right'] }),
+    ]);
+
+    await stopProjectWorkspaceWatcher();
+    send.mockClear();
+    await startProjectWorkspaceWatcher(
+      owner,
+      'session-shared',
+      root,
+      session,
+      () => true,
+      async () => undefined,
+    );
+    await waitForWatcherFlush();
+    expect(send.mock.lastCall?.[1].assetDiagnostics).toEqual([
+      expect.objectContaining({ ownerPaths: ['/assets/right'] }),
+    ]);
   });
 
   it('reports missing attachments on reopen, retains them across batches, and clears repaired associations', async () => {

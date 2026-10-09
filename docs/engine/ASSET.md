@@ -93,6 +93,9 @@ Aliases are project-global and must be unique across assets.
 Every registered Asset kind may hold explicit `data.attachments` relationships to existing
 physical Project files. Each entry records a normalized Project-relative `path`, a purpose
 (`distribution-notice`, `authoring-source`, `reference`, or `other`), and an optional `displayName`.
+An Authoring Source association also records optional exact-byte `sourceBaselineHash` and
+`assetBaselineHash` (`sha256:<hex>`). The baselines belong to that Asset's association, not the
+shared source path: two Assets referencing the same working file can have different revisions.
 The file is not another registered Asset, is never auto-classified as a license from its filename,
 and may be associated with multiple Assets without duplication. One Asset may use a given canonical
 path only once. Unsafe traversal, absolute/drive paths, local/generated trees, and VCS paths are
@@ -111,6 +114,18 @@ physical file. Reimporting an Asset preserves its attachments.
 
 The Project Workspace watcher observes all saved attachment paths, including paths outside
 `assets/` and `support/`, and reports missing references against the owning Asset in Problems.
+Unassociated files under `support/` are ignored by the watcher and do not enter Project
+source-change reconciliation. Only explicit attachment relationships register those paths.
+On link/import/relink, the Inspector captures the physical source and Asset byte hashes.
+Source-only byte changes produce a persistent, nonblocking *possibly outdated* diagnostic
+against each affected Asset; changing only timestamps does not warn. The Inspector offers
+**Acknowledge revision** as an undoable, manually saved Asset edit. Asset reimport also advances
+the baselines for that Asset. External changes to an Asset's physical bytes advance only that
+Asset's baselines using a revision-checked workspace transaction; other Assets sharing the same
+source remain outdated until individually updated or acknowledged. Associations predating the
+baseline fields are reported as untracked until explicitly acknowledged rather than silently
+assumed fresh. Missing files retain their separate repair diagnostic. Hashes and warnings are
+rebuilt from saved associations when reopening the editor.
 Missing-attachment diagnostics are checked on Project reopen and recomputed across all saved
 associations after watcher batches, so unrelated file changes cannot erase an unresolved warning.
 Restoring the file, relinking, or removing its association clears the warning.

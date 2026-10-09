@@ -22,7 +22,8 @@
       "share": "Share Asset attachment",
       "changePurpose": "Change attachment purpose",
       "remove": "Remove attachment association",
-      "rename": "Rename attachment display name"
+      "rename": "Rename attachment display name",
+      "acknowledgeSource": "Acknowledge Authoring Source revision"
     },
     "sessionChanged": "The active Project or Asset changed. Review attachments and try again.",
     "open": "Open",
@@ -40,6 +41,9 @@
     "usedBy_one": "Used by {{count}} Asset",
     "usedBy_other": "Used by {{count}} Assets",
     "missing": "Missing file — relink to repair",
+    "possiblyOutdated": "Possibly outdated relative to Authoring Source",
+    "sourceBaselineMissing": "Source baseline not yet recorded",
+    "acknowledgeSource": "Acknowledge revision",
     "invalidPath": "Choose a portable, Project-contained file path.",
     "newPath": "Replacement Project file path",
     "editName": "Display name for {{path}}",

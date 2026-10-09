@@ -139,6 +139,37 @@ describe('first-class Asset attachment contract', () => {
       assetAttachmentPatches(changed, ['alpha'], { kind: 'remove', attachment: notice }),
     ).toHaveLength(1);
   });
+
+  it('records independent physical Asset baselines for a shared Authoring Source', async () => {
+    const { project } = await fixture();
+    const left = `sha256:${'1'.repeat(64)}`;
+    const right = `sha256:${'2'.repeat(64)}`;
+    const source = `sha256:${'a'.repeat(64)}`;
+    project.assets.alpha.data.contentHash = left;
+    project.assets.beta.data.contentHash = right;
+    const changes = assetAttachmentPatches(
+      project,
+      ['alpha', 'beta'],
+      {
+        kind: 'add',
+        attachment: {
+          path: 'support/sources/portrait.psd',
+          purpose: 'authoring-source',
+          sourceBaselineHash: source,
+        },
+      },
+      { alpha: left, beta: right },
+    );
+    const updated = applyJsonPatch(toJsonValue(project), changes)
+      .document as unknown as typeof project;
+    expect(parseAssetData(updated.assets.alpha.data)?.attachments).toEqual([
+      expect.objectContaining({ sourceBaselineHash: source, assetBaselineHash: left }),
+    ]);
+    expect(parseAssetData(updated.assets.beta.data)?.attachments).toEqual([
+      expect.objectContaining({ sourceBaselineHash: source, assetBaselineHash: right }),
+    ]);
+    expect(parseAssetData(project.assets.alpha.data)?.attachments).toEqual([]);
+  });
 });
 
 describe('Project-owned attachment files', () => {
