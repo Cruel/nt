@@ -35,6 +35,75 @@ function sha256(bytes: Uint8Array): `sha256:${string}` {
 }
 
 describe('active Project session lifecycle', () => {
+  it('moves a shared attachment and all saved Asset references in one workspace transaction', async () => {
+    const project = await createWorkspace('shared-attachment-move');
+    const records = path.join(project, 'records/assets');
+    await fs.mkdir(records, { recursive: true });
+    await fs.mkdir(path.join(project, 'support/references'), { recursive: true });
+    await fs.writeFile(path.join(project, 'support/references/source.md'), 'Shared reference\n');
+    for (const id of ['first', 'second']) {
+      await fs.writeFile(path.join(project, 'assets', `${id}.bin`), 'asset data');
+      await fs.writeFile(
+        path.join(records, `${id}.json`),
+        `${JSON.stringify({
+          id,
+          label: id,
+          data: {
+            kind: 'binary',
+            source: { type: 'project-file', path: `assets/${id}.bin` },
+            aliases: [],
+            imageMetadata: null,
+            attachments: [{ path: 'support/references/source.md', purpose: 'reference' }],
+          },
+        })}\n`,
+      );
+    }
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const opened = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const projectSessionId = opened.projectSessionId!;
+    const move = await service.mutateProjectSources({
+      projectSessionId,
+      operation: {
+        kind: 'move-attachment',
+        fromPath: 'support/references/source.md',
+        toPath: 'support/references/renamed.md',
+      },
+    });
+    expect(move).toMatchObject({
+      success: true,
+      pathRemap: {
+        'support/references/source.md': 'support/references/renamed.md',
+      },
+    });
+    expect(await fs.readFile(path.join(project, 'support/references/renamed.md'), 'utf8')).toBe(
+      'Shared reference\n',
+    );
+    await expect(fs.access(path.join(project, 'support/references/source.md'))).rejects.toThrow();
+    for (const id of ['first', 'second']) {
+      const record = JSON.parse(await fs.readFile(path.join(records, `${id}.json`), 'utf8'));
+      expect(record.data.attachments).toEqual([
+        { path: 'support/references/renamed.md', purpose: 'reference' },
+      ]);
+    }
+    await fs.writeFile(path.join(project, 'support/references/occupied.md'), 'Occupied');
+    const collision = await service.mutateProjectSources({
+      projectSessionId,
+      operation: {
+        kind: 'move-attachment',
+        fromPath: 'support/references/renamed.md',
+        toPath: 'support/references/occupied.md',
+      },
+    });
+    expect(collision.success).toBe(false);
+    expect(await fs.readFile(path.join(project, 'support/references/occupied.md'), 'utf8')).toBe(
+      'Occupied',
+    );
+    expect(await fs.readFile(path.join(project, 'support/references/renamed.md'), 'utf8')).toBe(
+      'Shared reference\n',
+    );
+  });
+
   it('activates a canonical Project root, refreshes it, and rotates for another Project', async () => {
     const projectA = await createWorkspace('a');
     const projectB = await createWorkspace('b');

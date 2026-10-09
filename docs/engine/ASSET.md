@@ -39,6 +39,11 @@ interface AssetData {
     path: string;
   };
   aliases: string[];
+  attachments?: Array<{
+    path: string;
+    purpose: 'distribution-notice' | 'authoring-source' | 'reference' | 'other';
+    displayName?: string;
+  }>;
   mimeType?: string;
   extension?: string;
   byteSize?: number;
@@ -82,6 +87,36 @@ bg-opening
 Aliases are project-global and must be unique across assets.
 
 ## High-Level Model
+
+### First-class attachments
+
+Every registered Asset kind may hold explicit `data.attachments` relationships to existing
+physical Project files. Each entry records a normalized Project-relative `path`, a purpose
+(`distribution-notice`, `authoring-source`, `reference`, or `other`), and an optional `displayName`.
+The file is not another registered Asset, is never auto-classified as a license from its filename,
+and may be associated with multiple Assets without duplication. One Asset may use a given canonical
+path only once. Unsafe traversal, absolute/drive paths, local/generated trees, and VCS paths are
+rejected by the schema and Project-session file authority.
+
+The Asset inspector groups attachments by purpose. Authors may link an existing Project file in
+place or import one or more external files by copying into `support/licenses/`, `support/sources/`,
+`support/references/`, or `support/other/`, respectively. The target directory is editable but must
+remain Project-contained. Imports reuse matching byte-identical files; incompatible collisions get
+unique filenames, with no overwrite. File-copy batches commit through the Project Workspace
+transaction boundary. A file's purpose is explicit, not inferred from a `.txt` or other extension.
+The inspector offers bounded UTF-8 text preview, Open/Reveal, name and purpose changes, reverse
+usage navigation, relinking for missing files, association removal, and one undoable command to
+associate a single file with multiple Assets. Undoing or removing a relationship never deletes the
+physical file. Reimporting an Asset preserves its attachments.
+
+The Project Workspace watcher observes file changes under `support/`; the inspector refreshes
+missing-file state and previews. Project-owned attached files are copied by Save As and included
+in portable `.ntproject` bundles, regardless of purpose. These attachments are not automatically
+runtime Assets and are not shipped with `.ntpkg` merely because they are associated; distribution
+notice packaging is a separate explicit export concern. The main-owned `move-attachment` Project
+source operation commits the physical move and every referencing saved Asset source/attachment path
+in one transaction. The inspector requires attachment edits to be saved first, so pending editor
+associations cannot silently diverge from the authoritative Project snapshot.
 
 An asset record does not embed file contents. It points to a safe project-relative source path and stores metadata collected during import or reimport.
 
@@ -188,6 +223,30 @@ Asset-specific commands are command-backed and produce JSON patches:
 Generic entity commands can still update metadata such as label, tags, color, parent, and sort key.
 
 ## Editor Behavior
+
+### Discovery and organization
+
+The Project Workspace watcher triggers the existing `auditProjectAssets` service, which enumerates
+unregistered physical files under `assets/` but does not register or move them automatically.
+Routine discovery checks at most 4 KiB of each candidate's header for recognized image, font,
+audio, and video signatures; inspection is limited to six concurrent files and uses one shared
+file-stability settle interval per batch. This is a suggestion filter, not a substitute for
+validation when explicitly importing a file. Large originals are not embedded as discovery previews.
+
+Recognized media produces one dismissible, nonmodal notification. Dismissals are held in local
+editor storage by Project file path and file size/modified-time revision; unchanged candidates stay
+quiet on reopen, and changed/new revisions can prompt again. The status bar always offers manual
+access to the same unregistered-file dialog. Its **Other Files** view includes text, data,
+unrecognized media, and miscellaneous files, none of which causes a notification by itself.
+Text/data and binary files can still be registered explicitly. Registered Asset sources and
+attached Project file paths are excluded from discovery.
+
+The dialog suggests **Move to Support** for unregistered nonmedia under `assets/` and **Move to
+Correct Folder** for validated media in mismatched folders. These are explicit confirmed operations
+using the Project Workspace transaction boundary, with absent-destination preconditions; existing
+targets cannot be overwritten. Folder conventions are advisory, and neither source contents nor
+filename imply a license or any attachment purpose. Support material is not automatically registered
+or packaged by this workflow.
 
 The Assets editor shows metadata, aliases, stable reference usages, alias usages, deletion safety information, and an asset preview panel. Image records also expose a Linear/Nearest sampling control. Alias management is local to the asset editor, with explicit assign/remove/rename operations.
 

@@ -78,3 +78,5 @@ reviewer should check:
 | 2026-07-08 | Added Project Settings ComfyUI workflow management and import/repair dialog copy to the `workspace` namespace. | `pt-BR` remains machine-unreviewed. |
 | 2026-08-28 | Added the shared typed Property Manager table, dialog, schema/value controls, Trait attachment controls, and accessibility copy to the `workspace` namespace. | Locale statuses unchanged. |
 | 2026-09-30 | Localized Hotspot Focus draft/command/status copy and the shared dirty-close/apply/save dialog copy. | `pt-BR` remains machine-unreviewed; pseudo coverage remains key-compatible. |
+| 2026-10-08 | Localized unregistered Asset discovery notification, manual categories, and folder-move confirmations. | `pt-BR` remains unreviewed; pseudo coverage remains key-compatible. |
+| 2026-10-08 | Added Asset inspector Attachments, purpose selectors, sharing, previews, relinking, and move copy in the maintained locales. | `pt-BR` remains machine-unreviewed; pseudo remains a development-only check. |

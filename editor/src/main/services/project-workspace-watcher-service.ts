@@ -95,6 +95,7 @@ export function classifyProjectWorkspaceWatchPath(
     (assetPath) => relative === assetPath || assetPath.startsWith(`${relative}/`),
   );
   if (relative === 'assets' || relative.startsWith('assets/') || isKnownAssetSource) return 'asset';
+  if (relative === 'support' || relative.startsWith('support/')) return 'source';
   if (relative === 'shaders' || relative.startsWith('shaders/')) return 'source';
   if (
     ['project.json', 'traits.json', 'editor.json'].includes(relative) ||

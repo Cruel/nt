@@ -112,6 +112,11 @@ import { validateProjectSettingsAuthoringState } from '../../shared/project-sche
 import { createProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import type { ToolDiagnostic } from '../../shared/editor-tooling';
 import type { ProjectAssetAuditFile } from '../../shared/project-asset-audit';
+import type { ProjectAssetOrganizationAction } from '../../shared/project-asset-audit';
+import {
+  dismissAssetCandidates,
+  undisclosedAssetCandidates,
+} from '@/assets/asset-discovery-dismissals';
 import type { DesktopProjectImportRequest } from '../../shared/project-import-handoff';
 import { shouldReconcileProjectWorkspaceWatchEvent } from '../../shared/project-workspace-watch';
 
@@ -247,12 +252,16 @@ export function WorkspacePage() {
   const [projectImportError, setProjectImportError] = useState<string | null>(null);
   const [checkedStartupProjectImport, setCheckedStartupProjectImport] = useState(false);
   const [untrackedAssetFiles, setUntrackedAssetFiles] = useState<ProjectAssetAuditFile[]>([]);
+  const [assetDiscoveryNotification, setAssetDiscoveryNotification] = useState<
+    ProjectAssetAuditFile[]
+  >([]);
   const [untrackedAssetDialogOpen, setUntrackedAssetDialogOpen] = useState(false);
   const [externalConflictBusy, setExternalConflictBusy] = useState(false);
   const lastObservedCommandId = useRef<string | null>(null);
   const didAttemptStartupRestore = useRef(false);
   const ignoredUntrackedAssetPaths = useRef<Set<string>>(new Set());
   const lastAssetAuditProjectFilePath = useRef<string | null>(null);
+  const lastAssetAuditRequestId = useRef(0);
   const latestProjectFilePathRef = useRef<string | null>(null);
   const completingWindowClose = useRef(false);
   const projectImportRequestRef = useRef<DesktopProjectImportRequest | null>(null);
@@ -695,6 +704,7 @@ export function WorkspacePage() {
 
   const runAssetAudit = useCallback(
     async (projectOverride: unknown = useProjectStore.getState().document) => {
+      const requestId = ++lastAssetAuditRequestId.current;
       const latestProjectFilePath = useProjectStore.getState().projectFilePath;
       const latestProjectSessionId = useProjectStore.getState().projectSessionId;
       if (!latestProjectFilePath || !latestProjectSessionId || !projectOverride) return;
@@ -708,6 +718,7 @@ export function WorkspacePage() {
         return;
       }
       if (
+        requestId !== lastAssetAuditRequestId.current ||
         latestProjectFilePath !== latestProjectFilePathRef.current ||
         latestProjectSessionId !== useProjectStore.getState().projectSessionId ||
         !useProjectStore.getState().document
@@ -717,12 +728,9 @@ export function WorkspacePage() {
         (file) => !ignoredUntrackedAssetPaths.current.has(file.projectRelativePath),
       );
       setUntrackedAssetFiles(visibleFiles);
-      if (visibleFiles.length > 0) {
-        setUntrackedAssetDialogOpen(true);
-        setStatusMessage(
-          `Detected ${visibleFiles.length} untracked asset file${visibleFiles.length === 1 ? '' : 's'}`,
-        );
-      }
+      setAssetDiscoveryNotification(
+        undisclosedAssetCandidates(latestProjectFilePath, visibleFiles),
+      );
     },
     [setStatusMessage],
   );
@@ -753,6 +761,7 @@ export function WorkspacePage() {
     setLastExportResult(null);
     ignoredUntrackedAssetPaths.current = new Set();
     setUntrackedAssetFiles([]);
+    setAssetDiscoveryNotification([]);
     setUntrackedAssetDialogOpen(false);
     setStatusMessage('No project loaded');
     addTimelineEntry({ source: 'command', message: 'Closed project' });
@@ -927,11 +936,13 @@ export function WorkspacePage() {
     const currentProjectFilePath = projectFilePath ?? null;
     if (lastAssetAuditProjectFilePath.current !== currentProjectFilePath) {
       ignoredUntrackedAssetPaths.current = new Set();
+      setAssetDiscoveryNotification([]);
       lastAssetAuditProjectFilePath.current = currentProjectFilePath;
     }
     const currentProject = useProjectStore.getState().document;
     if (!projectFilePath || !projectPath || !projectSessionId || !currentProject) {
       setUntrackedAssetFiles([]);
+      setAssetDiscoveryNotification([]);
       setUntrackedAssetDialogOpen(false);
       return;
     }
@@ -1762,18 +1773,36 @@ export function WorkspacePage() {
   }
 
   async function reopenUntrackedAssetsDialog() {
-    if (untrackedAssetFiles.length > 0) setUntrackedAssetDialogOpen(true);
+    setUntrackedAssetDialogOpen(true);
     await runAssetAudit();
   }
 
-  function ignoreUntrackedAssets(projectRelativePaths: string[]) {
-    ignoredUntrackedAssetPaths.current = new Set([
-      ...ignoredUntrackedAssetPaths.current,
-      ...projectRelativePaths,
-    ]);
-    setUntrackedAssetFiles((files) =>
-      files.filter((file) => !projectRelativePaths.includes(file.projectRelativePath)),
+  function dismissAssetNotification() {
+    const filePath = useProjectStore.getState().projectFilePath;
+    if (filePath) dismissAssetCandidates(filePath, assetDiscoveryNotification);
+    setAssetDiscoveryNotification([]);
+  }
+
+  async function moveUntrackedAsset(
+    projectRelativePath: string,
+    action: ProjectAssetOrganizationAction,
+  ) {
+    const state = useProjectStore.getState();
+    if (!state.projectSessionId || !state.document) return;
+    const response = await window.noveltea.organizeUntrackedProjectAsset(
+      state.projectSessionId,
+      state.document,
+      projectRelativePath,
+      action,
     );
+    if (!response.success) {
+      const message = response.error ?? t('assetDiscovery.moveError');
+      setStatusMessage(message);
+      setAlert({ title: t('assetDiscovery.moveFailed'), message });
+      return;
+    }
+    setStatusMessage(t('assetDiscovery.moved', { path: projectRelativePath }));
+    await runAssetAudit();
   }
 
   async function importAssets() {
@@ -2215,12 +2244,12 @@ export function WorkspacePage() {
         onOpenTab={openWorkbenchTab}
       />
       <UntrackedAssetsDialog
-        open={untrackedAssetDialogOpen && untrackedAssetFiles.length > 0}
+        open={untrackedAssetDialogOpen}
         onOpenChange={setUntrackedAssetDialogOpen}
         files={untrackedAssetFiles}
         onImportSelected={importUntrackedAssets}
         onDeleteSelected={trashUntrackedAssets}
-        onIgnoreSelected={ignoreUntrackedAssets}
+        onMoveFile={moveUntrackedAsset}
       />
       <ProjectExternalConflictDialog
         saveUnitId={externalConflict?.saveUnitId ?? null}
@@ -2257,21 +2286,42 @@ export function WorkspacePage() {
         </span>
         <span className="mx-2 text-muted-foreground/30">|</span>
         <ComfyUiStatusIndicator />
-        {untrackedAssetFiles.length > 0 ? (
+        <span className="truncate font-mono text-[10px] text-muted-foreground">
+          {statusMessage}
+        </span>
+        {projectFilePath ? (
           <button
             type="button"
-            className="truncate rounded px-1 font-mono text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
-            title="Open untracked asset files"
+            className="ml-auto shrink-0 rounded px-2 text-[10px] text-muted-foreground hover:bg-accent hover:text-accent-foreground"
+            title={t('assetDiscovery.openTitle')}
             onClick={() => void reopenUntrackedAssetsDialog()}
           >
-            {statusMessage}
+            {t('assetDiscovery.open', { count: untrackedAssetFiles.length })}
           </button>
-        ) : (
-          <span className="truncate font-mono text-[10px] text-muted-foreground">
-            {statusMessage}
-          </span>
-        )}
+        ) : null}
       </div>
+      {assetDiscoveryNotification.length > 0 && !untrackedAssetDialogOpen ? (
+        <div
+          role="status"
+          className="fixed bottom-10 right-4 z-50 flex max-w-sm items-center gap-3 rounded-md border bg-background p-3 text-sm shadow-lg"
+        >
+          <span>
+            {t('assetDiscovery.notification', { count: assetDiscoveryNotification.length })}
+          </span>
+          <Button
+            size="sm"
+            onClick={() => {
+              dismissAssetNotification();
+              setUntrackedAssetDialogOpen(true);
+            }}
+          >
+            {t('assetDiscovery.review')}
+          </Button>
+          <Button size="sm" variant="ghost" onClick={dismissAssetNotification}>
+            {t('assetDiscovery.dismiss')}
+          </Button>
+        </div>
+      ) : null}
     </div>
   );
 }

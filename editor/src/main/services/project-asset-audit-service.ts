@@ -6,6 +6,7 @@ import type { ImportedAssetMetadata } from '../../shared/asset-import';
 import type {
   ProjectAssetAuditResponse,
   ProjectAssetFileOperationResponse,
+  ProjectAssetOrganizationAction,
   ProjectAssetTrashMove,
 } from '../../shared/project-asset-audit';
 import {
@@ -41,6 +42,8 @@ function mimeForExtension(extension: string): string | undefined {
       return 'image/webp';
     case '.gif':
       return 'image/gif';
+    case '.bmp':
+      return 'image/bmp';
     case '.svg':
       return 'image/svg+xml';
     case '.ttf':
@@ -57,6 +60,20 @@ function mimeForExtension(extension: string): string | undefined {
       return 'audio/ogg';
     case '.wav':
       return 'audio/wav';
+    case '.flac':
+      return 'audio/flac';
+    case '.m4a':
+      return 'audio/mp4';
+    case '.mp4':
+      return 'video/mp4';
+    case '.m4v':
+      return 'video/x-m4v';
+    case '.webm':
+      return 'video/webm';
+    case '.mkv':
+      return 'video/x-matroska';
+    case '.mov':
+      return 'video/quicktime';
     case '.lua':
       return 'text/x-lua';
     case '.json':
@@ -67,8 +84,115 @@ function mimeForExtension(extension: string): string | undefined {
       return undefined;
   }
 }
-function isImageMime(mimeType?: string) {
-  return !!mimeType && mimeType.startsWith('image/');
+const MEDIA_KINDS = new Set(['image', 'font', 'audio', 'video']);
+const INSPECTION_BYTES = 4096;
+const INSPECTION_CONCURRENCY = 6;
+
+function isRecognizedMedia(extension: string, bytes: Buffer): boolean {
+  const ascii = (start: number, end: number) => bytes.toString('ascii', start, end);
+  const starts = (magic: string) => ascii(0, magic.length) === magic;
+  switch (extension) {
+    case '.png':
+      return (
+        bytes.length >= 33 &&
+        bytes.subarray(0, 8).equals(Buffer.from([137, 80, 78, 71, 13, 10, 26, 10])) &&
+        bytes.readUInt32BE(8) === 13 &&
+        ascii(12, 16) === 'IHDR' &&
+        bytes.readUInt32BE(16) > 0 &&
+        bytes.readUInt32BE(20) > 0
+      );
+    case '.jpg':
+    case '.jpeg':
+      return bytes.length >= 4 && bytes[0] === 0xff && bytes[1] === 0xd8 && bytes[2] === 0xff;
+    case '.gif':
+      return (
+        bytes.length >= 13 &&
+        (starts('GIF87a') || starts('GIF89a')) &&
+        bytes.readUInt16LE(6) > 0 &&
+        bytes.readUInt16LE(8) > 0
+      );
+    case '.webp':
+      return (
+        bytes.length >= 20 &&
+        starts('RIFF') &&
+        ascii(8, 12) === 'WEBP' &&
+        ['VP8 ', 'VP8L', 'VP8X'].includes(ascii(12, 16))
+      );
+    case '.bmp':
+      return starts('BM') && bytes.length >= 26 && bytes.readInt32LE(18) > 0;
+    case '.svg':
+      return /<svg(?:\s|>)/i.test(bytes.toString('utf8').replace(/^\uFEFF/, ''));
+    case '.ttf':
+      return (
+        bytes.length >= 28 &&
+        bytes.readUInt32BE(0) === 0x00010000 &&
+        bytes.readUInt16BE(4) > 0 &&
+        bytes.length >= 12 + bytes.readUInt16BE(4) * 16
+      );
+    case '.otf':
+      return (
+        starts('OTTO') &&
+        bytes.length >= 28 &&
+        bytes.readUInt16BE(4) > 0 &&
+        bytes.length >= 12 + bytes.readUInt16BE(4) * 16
+      );
+    case '.woff':
+      return starts('wOFF') && bytes.length >= 44;
+    case '.woff2':
+      return starts('wOF2') && bytes.length >= 48;
+    case '.mp3':
+      return (
+        (bytes.length >= 10 && starts('ID3') && bytes[3] >= 2 && bytes[3] <= 4) ||
+        (bytes.length >= 4 && bytes[0] === 0xff && (bytes[1] & 0xe6) === 0xe2)
+      );
+    case '.ogg':
+      return starts('OggS');
+    case '.wav':
+      return starts('RIFF') && bytes.length >= 16 && ascii(8, 12) === 'WAVE';
+    case '.flac':
+      return starts('fLaC');
+    case '.m4a':
+    case '.mp4':
+    case '.m4v':
+    case '.mov':
+      return bytes.length >= 12 && ascii(4, 8) === 'ftyp';
+    case '.mkv':
+    case '.webm':
+      return (
+        bytes.length >= 8 && bytes.subarray(0, 4).equals(Buffer.from([0x1a, 0x45, 0xdf, 0xa3]))
+      );
+    default:
+      return false;
+  }
+}
+
+async function readMediaHeader(absolutePath: string): Promise<Buffer> {
+  const handle = await fs.open(absolutePath, 'r');
+  try {
+    const bytes = Buffer.alloc(INSPECTION_BYTES);
+    const { bytesRead } = await handle.read(bytes, 0, bytes.length, 0);
+    return bytes.subarray(0, bytesRead);
+  } finally {
+    await handle.close();
+  }
+}
+
+async function mapLimited<T, U>(values: T[], mapper: (value: T) => Promise<U>): Promise<U[]> {
+  const results: U[] = [];
+  let next = 0;
+  await Promise.all(
+    Array.from({ length: Math.min(INSPECTION_CONCURRENCY, values.length) }, async () => {
+      while (next < values.length) {
+        const index = next++;
+        results[index] = await mapper(values[index]);
+      }
+    }),
+  );
+  return results;
+}
+
+function correctFolder(kind: string): string {
+  return { image: 'images', font: 'fonts', audio: 'audio', video: 'video' }[kind] ?? '';
 }
 
 function isTemporaryOrHiddenAssetPath(filePath: string) {
@@ -116,35 +240,37 @@ async function walkFiles(root: string): Promise<string[]> {
   return files;
 }
 
-async function isFileStable(absolutePath: string) {
-  const first = await fs.stat(absolutePath);
-  await new Promise((resolve) => setTimeout(resolve, 200));
-  const second = await fs.stat(absolutePath);
-  return first.size === second.size && first.mtimeMs === second.mtimeMs;
-}
-
 async function inspectUntrackedAssetFile(
   projectRoot: string,
   absolutePath: string,
+  stat: import('node:fs').Stats,
 ): Promise<ProjectAssetAuditResponse['untrackedFiles'][number]> {
   const relative = slashPath(path.relative(projectRoot, absolutePath));
-  const stat = await fs.stat(absolutePath);
   const extension = path.extname(absolutePath).toLowerCase();
   const mimeType = mimeForExtension(extension);
-  let previewUrl: string | undefined;
-  if (isImageMime(mimeType) && stat.size <= 15 * 1024 * 1024) {
-    const bytes = await fs.readFile(absolutePath);
-    previewUrl = `data:${mimeType};base64,${bytes.toString('base64')}`;
-  }
+  const kind = inferAssetKindFromExtension(extension);
+  const importable =
+    MEDIA_KINDS.has(kind) &&
+    stat.size > 0 &&
+    isRecognizedMedia(extension, await readMediaHeader(absolutePath));
+  const folder = correctFolder(kind);
+  const suggestedMove =
+    importable && folder && !relative.startsWith(`assets/${folder}/`)
+      ? 'correct-folder'
+      : !MEDIA_KINDS.has(kind)
+        ? 'support'
+        : undefined;
   return {
     projectRelativePath: relative,
     absolutePath,
-    kind: inferAssetKindFromExtension(extension),
+    kind,
     extension,
     mimeType,
     byteSize: stat.size,
     modifiedAt: stat.mtime.toISOString(),
-    previewUrl,
+    revision: `${stat.size}:${stat.mtimeMs}`,
+    importable,
+    suggestedMove,
   };
 }
 
@@ -154,6 +280,7 @@ function referencedAssetPaths(project: unknown) {
   for (const record of Object.values(project.assets)) {
     const data = parseAssetData(record.data);
     if (data?.source.path) paths.add(data.source.path);
+    if (data) for (const attachment of data.attachments) paths.add(attachment.path);
   }
   return paths;
 }
@@ -167,6 +294,8 @@ async function metadataForExistingAsset(
   const bytes = await fs.readFile(safe.absolute);
   const extension = path.extname(safe.absolute).toLowerCase();
   const kind = inferAssetKindFromExtension(extension);
+  if (MEDIA_KINDS.has(kind) && !isRecognizedMedia(extension, bytes.subarray(0, INSPECTION_BYTES)))
+    throw new Error(`File does not contain a recognized ${kind} format (${extension}).`);
   const common = {
     originalPath: safe.absolute,
     originalName: path.basename(safe.absolute),
@@ -254,15 +383,27 @@ export async function auditProjectAssets(
         relative: slashPath(path.relative(projectRoot, absolutePath)),
       }))
       .filter((file) => !referenced.has(file.relative));
-    const inspected = await Promise.all(
-      candidates.map(async ({ absolutePath, relative }) => {
+    const initialStats = await mapLimited(candidates, async ({ absolutePath }) => {
+      try {
+        return await fs.stat(absolutePath);
+      } catch {
+        return null;
+      }
+    });
+    // One shared settle interval keeps file-write stability checks bounded for large batches.
+    if (candidates.length) await new Promise((resolve) => setTimeout(resolve, 200));
+    const inspected = await mapLimited(
+      candidates.map((candidate, index) => ({ ...candidate, first: initialStats[index] })),
+      async ({ absolutePath, relative, first }) => {
         try {
-          if (!(await isFileStable(absolutePath))) return { relative, unstable: true as const };
-          return { file: await inspectUntrackedAssetFile(projectRoot, absolutePath) };
+          const second = await fs.stat(absolutePath);
+          if (!first || first.size !== second.size || first.mtimeMs !== second.mtimeMs)
+            return { relative, unstable: true as const };
+          return { file: await inspectUntrackedAssetFile(projectRoot, absolutePath, second) };
         } catch (error) {
           return { relative, error };
         }
-      }),
+      },
     );
     assertAuthority?.();
     for (const result of inspected) {
@@ -328,6 +469,83 @@ export async function importUntrackedProjectAssets(
     diagnostics,
     error: diagnostics.find((item) => item.severity === 'error')?.message,
   };
+}
+
+export async function organizeUntrackedProjectAsset(
+  projectFilePath: string,
+  project: unknown,
+  projectRelativePath: string,
+  action: ProjectAssetOrganizationAction,
+  assertAuthority?: () => void,
+): Promise<ProjectAssetFileOperationResponse> {
+  try {
+    assertAuthority?.();
+    const safe = safeAssetRelativePath(projectFilePath, projectRelativePath);
+    if (!safe || !safe.relative.startsWith('assets/'))
+      throw new Error('Only unregistered files inside assets/ can be organized.');
+    if (referencedAssetPaths(project).has(safe.relative))
+      throw new Error('Registered or attached Project files cannot be moved from discovery.');
+    const sourceStat = await fs.lstat(safe.absolute);
+    if (!sourceStat.isFile()) throw new Error('Source must be a regular file.');
+    const kind = inferAssetKindFromExtension(path.extname(safe.relative).toLowerCase());
+    const folder = correctFolder(kind);
+    if (action === 'support' && MEDIA_KINDS.has(kind))
+      throw new Error('Move to Support is for nonmedia files.');
+    if (action === 'correct-folder') {
+      if (
+        !folder ||
+        !isRecognizedMedia(
+          path.extname(safe.relative).toLowerCase(),
+          await readMediaHeader(safe.absolute),
+        )
+      )
+        throw new Error('Only recognized media can be moved to the matching Asset folder.');
+    }
+    const destinationRelativePath = slashPath(
+      path.posix.join(
+        action === 'support' ? 'support' : `assets/${folder}`,
+        path.posix.basename(safe.relative),
+      ),
+    );
+    if (safe.relative === destinationRelativePath)
+      throw new Error('File is already in its suggested folder.');
+    const rootReal = await fs.realpath(safe.projectRoot);
+    const sourceReal = await fs.realpath(safe.absolute);
+    if (!sourceReal.startsWith(`${rootReal}${path.sep}`))
+      throw new Error('Source resolves outside the Project.');
+    const destinationSafe = safeProjectRelativePath(projectFilePath, destinationRelativePath);
+    if (!destinationSafe) throw new Error('Destination escapes the Project.');
+    // Check existing ancestors, including symlinked folders, before the transactional move.
+    let ancestor = path.dirname(destinationSafe.absolute);
+    while (ancestor !== safe.projectRoot && ancestor !== path.dirname(ancestor)) {
+      try {
+        const real = await fs.realpath(ancestor);
+        if (real !== rootReal && !real.startsWith(`${rootReal}${path.sep}`))
+          throw new Error('Destination folder resolves outside the Project.');
+        break;
+      } catch (error) {
+        if ((error as NodeJS.ErrnoException).code !== 'ENOENT') throw error;
+        ancestor = path.dirname(ancestor);
+      }
+    }
+    assertAuthority?.();
+    await moveProjectAssetFileTransaction(
+      safe.projectRoot,
+      safe.relative,
+      destinationRelativePath,
+      'organize untracked asset',
+      PROJECT_WORKSPACE_ABSENT_REVISION,
+    );
+    return { ok: true, success: true, diagnostics: [] };
+  } catch (error) {
+    const message = error instanceof Error ? error.message : 'Could not move untracked file.';
+    return {
+      ok: false,
+      success: false,
+      diagnostics: [diagnostic(projectRelativePath, message)],
+      error: message,
+    };
+  }
 }
 
 export async function trashProjectAssetFiles(

@@ -45,11 +45,55 @@ export const assetSourceSchema = z
   })
   .strict();
 
+export const assetAttachmentPurposeValues = [
+  'distribution-notice',
+  'authoring-source',
+  'reference',
+  'other',
+] as const;
+export type AssetAttachmentPurpose = (typeof assetAttachmentPurposeValues)[number];
+
+const excludedAttachmentSegments = new Set([
+  '.git',
+  '.hg',
+  '.svn',
+  '.noveltea',
+  'node_modules',
+  'build',
+  'dist',
+  'out',
+  '.cache',
+]);
+
+export function isSafeProjectAttachmentPath(value: string): boolean {
+  return (
+    isSafeProjectAssetPath(value) &&
+    value.length <= 2048 &&
+    !['project.json', '.gitignore', '.gitattributes', '.gitmodules', 'ntproject.json'].includes(
+      value.toLowerCase(),
+    ) &&
+    value.split('/').every((segment) => !excludedAttachmentSegments.has(segment.toLowerCase()))
+  );
+}
+
+export const assetAttachmentSchema = z
+  .object({
+    path: z
+      .string()
+      .refine(isSafeProjectAttachmentPath, 'Attachment must be a portable Project-contained path.'),
+    purpose: z.enum(assetAttachmentPurposeValues),
+    displayName: z.string().trim().min(1).max(256).optional(),
+  })
+  .strict();
+
+export type AssetAttachment = z.infer<typeof assetAttachmentSchema>;
+
 export const assetDataSchema = withSchemaDocumentation(
   z
     .object({
       kind: z.enum(assetKindValues),
       source: assetSourceSchema,
+      attachments: z.array(assetAttachmentSchema).optional(),
       aliases: z.array(z.string()).default([]),
       sampling: z.enum(imageSamplingValues).optional(),
       mimeType: z.string().optional(),
@@ -70,6 +114,17 @@ export const assetDataSchema = withSchemaDocumentation(
     })
     .strict()
     .superRefine((asset, context) => {
+      const used = new Set<string>();
+      (asset.attachments ?? []).forEach((attachment, index) => {
+        // Paths are canonical POSIX Project-relative names; one physical file has one purpose per Asset.
+        if (used.has(attachment.path))
+          context.addIssue({
+            code: 'custom',
+            path: ['attachments', index, 'path'],
+            message: 'Attachment file is already associated with this Asset.',
+          });
+        used.add(attachment.path);
+      });
       if (asset.kind === 'image' && asset.imageMetadata === null)
         context.addIssue({
           code: 'custom',
@@ -87,11 +142,16 @@ export const assetDataSchema = withSchemaDocumentation(
     constraints: [
       'Image Assets require a non-null imageMetadata object.',
       'Every non-image Asset requires imageMetadata to be null.',
+      'attachments is an optional collection of explicit Project-relative file relationships, not registered Assets.',
+      'Each attachment has one purpose: distribution-notice, authoring-source, reference, or other; displayName is optional.',
+      'Each Asset may associate a physical attachment path only once; paths must exclude local, generated, and VCS directories.',
     ],
   },
 );
 
-export type AssetData = z.infer<typeof assetDataSchema>;
+export type AssetData = Omit<z.infer<typeof assetDataSchema>, 'attachments'> & {
+  attachments: AssetAttachment[];
+};
 
 type AssetImportMetadataBase = {
   projectRelativePath: string;
@@ -125,7 +185,7 @@ const dataExt = new Set(['.json', '.toml', '.yaml', '.yml', '.csv']);
 
 export function parseAssetData(value: unknown): AssetData | null {
   const parsed = assetDataSchema.safeParse(value);
-  return parsed.success ? parsed.data : null;
+  return parsed.success ? { ...parsed.data, attachments: parsed.data.attachments ?? [] } : null;
 }
 
 export function isAssetRecord(
@@ -225,6 +285,7 @@ export function assetDataFromImportMetadata(metadata: AssetDataImportMetadata): 
   return {
     kind: metadata.kind,
     source: { type: 'project-file', path: metadata.projectRelativePath },
+    attachments: [],
     aliases: metadata.aliases ?? [],
     ...(metadata.kind === 'image' ? { sampling: metadata.sampling ?? 'linear' } : {}),
     mimeType: metadata.mimeType,

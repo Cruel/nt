@@ -12,6 +12,7 @@ import {
   compareProjectWorkspaceUnicodeCodePoints,
 } from '../../shared/project-workspace/project-workspace-service';
 import { parseMaterialData } from '../../shared/project-schema/authoring-materials';
+import { projectAttachmentPaths } from '../../shared/project-schema/authoring-asset-attachments';
 import { sha256PrefixedBytes } from '../../shared/web-crypto';
 import { createPlatformArchive } from './platform-host-service';
 
@@ -191,6 +192,8 @@ async function portableProjectOwnedPaths(
   };
   for (const sourcePath of assetSourcePaths(snapshot.project))
     addOwnedSourcePath(sourcePath, 'Asset');
+  for (const sourcePath of projectAttachmentPaths(snapshot.project))
+    addOwnedSourcePath(sourcePath, 'Asset attachment');
   for (const record of Object.values(snapshot.project.materials)) {
     const material = parseMaterialData(record.data);
     if (!material)
