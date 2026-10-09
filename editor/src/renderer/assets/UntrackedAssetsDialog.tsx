@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useTranslation } from 'react-i18next';
+import { createEditorFormatters } from '@/i18n/formatting';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import type {
@@ -18,12 +19,6 @@ interface UntrackedAssetsDialogProps {
 
 type PendingAction = 'import' | 'delete' | ProjectAssetOrganizationAction | null;
 
-function formatBytes(bytes: number) {
-  if (bytes < 1024) return `${bytes} B`;
-  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`;
-  return `${(bytes / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 export function UntrackedAssetsDialog({
   files,
   open,
@@ -32,7 +27,8 @@ export function UntrackedAssetsDialog({
   onDeleteSelected,
   onMoveFile,
 }: UntrackedAssetsDialogProps) {
-  const { t } = useTranslation('workspace');
+  const { t, i18n } = useTranslation('workspace');
+  const format = createEditorFormatters(i18n.language);
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [tab, setTab] = useState<'media' | 'other'>('media');
   const [pendingAction, setPendingAction] = useState<PendingAction>(null);
@@ -175,7 +171,7 @@ export function UntrackedAssetsDialog({
                 <div className="min-w-0 flex-1">
                   <div className="truncate font-mono text-xs">{file.projectRelativePath}</div>
                   <div className="mt-1 text-[10px] text-muted-foreground">
-                    {file.kind} · {formatBytes(file.byteSize)}
+                    {file.kind} · {format.fileSize(file.byteSize)}
                   </div>
                   {file.suggestedMove ? (
                     <Button
@@ -236,7 +232,7 @@ export function UntrackedAssetsDialog({
               </div>
             ))}
             {selectedPaths.length > 8 && !movePath ? (
-              <div>+ {selectedPaths.length - 8} more</div>
+              <div>{t('assetDiscovery.moreFiles', { count: selectedPaths.length - 8 })}</div>
             ) : null}
           </div>
           <div className="mt-4 flex justify-end gap-2">

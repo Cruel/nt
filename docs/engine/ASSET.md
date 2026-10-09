@@ -109,14 +109,22 @@ usage navigation, relinking for missing files, association removal, and one undo
 associate a single file with multiple Assets. Undoing or removing a relationship never deletes the
 physical file. Reimporting an Asset preserves its attachments.
 
-The Project Workspace watcher observes file changes under `support/`; the inspector refreshes
-missing-file state and previews. Project-owned attached files are copied by Save As and included
+The Project Workspace watcher observes all saved attachment paths, including paths outside
+`assets/` and `support/`, and reports missing references against the owning Asset in Problems.
+Missing-attachment diagnostics are checked on Project reopen and recomputed across all saved
+associations after watcher batches, so unrelated file changes cannot erase an unresolved warning.
+Restoring the file, relinking, or removing its association clears the warning.
+The inspector also refreshes missing-file state and previews and offers manual Relink.
+Project-owned attached files are copied by Save As and included
 in portable `.ntproject` bundles, regardless of purpose. These attachments are not automatically
 runtime Assets and are not shipped with `.ntpkg` merely because they are associated; distribution
 notice packaging is a separate explicit export concern. The main-owned `move-attachment` Project
 source operation commits the physical move and every referencing saved Asset source/attachment path
 in one transaction. The inspector requires attachment edits to be saved first, so pending editor
 associations cannot silently diverge from the authoritative Project snapshot.
+Ordinary Project source-file moves also rewrite matching saved Asset source and attachment paths. Because physical
+file moves are non-undoable Project Workspace transactions, the editor invalidates the prior
+command-history stack after a successful move so Undo/Redo cannot resurrect nonexistent paths.
 
 An asset record does not embed file contents. It points to a safe project-relative source path and stores metadata collected during import or reimport.
 

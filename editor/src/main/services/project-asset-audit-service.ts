@@ -146,11 +146,29 @@ function isRecognizedMedia(extension: string, bytes: Buffer): boolean {
         (bytes.length >= 4 && bytes[0] === 0xff && (bytes[1] & 0xe6) === 0xe2)
       );
     case '.ogg':
-      return starts('OggS');
+      if (bytes.length < 28 || !starts('OggS') || bytes[4] !== 0 || (bytes[5]! & 0xf8) !== 0)
+        return false;
+      {
+        const segments = bytes[26]!;
+        if (!segments || bytes.length < 27 + segments) return false;
+        const payloadLength = bytes
+          .subarray(27, 27 + segments)
+          .reduce((sum, size) => sum + size, 0);
+        return (
+          payloadLength > 0 &&
+          bytes.length >= Math.min(INSPECTION_BYTES, 27 + segments + payloadLength)
+        );
+      }
     case '.wav':
       return starts('RIFF') && bytes.length >= 16 && ascii(8, 12) === 'WAVE';
     case '.flac':
-      return starts('fLaC');
+      // Native FLAC requires a complete 34-byte STREAMINFO metadata block first.
+      return (
+        bytes.length >= 42 &&
+        starts('fLaC') &&
+        (bytes[4]! & 0x7f) === 0 &&
+        bytes.readUIntBE(5, 3) === 34
+      );
     case '.m4a':
     case '.mp4':
     case '.m4v':

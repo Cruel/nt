@@ -993,14 +993,10 @@ export function WorkspacePage() {
           }
         }
         const assetAuditChanged = event.assetChangedPaths.length > 0;
+        const assetDiagnosticsChanged = assetAuditChanged || event.assetDiagnostics !== undefined;
         const hadAssetDiagnostics = externalAssetDiagnosticsRef.current.length > 0;
-        if (assetAuditChanged) {
-          externalAssetDiagnosticsRef.current = (event.assetDiagnostics ?? []).map(
-            (diagnostic) => ({
-              ...diagnostic,
-              category: 'Asset source',
-            }),
-          );
+        if (assetDiagnosticsChanged) {
+          externalAssetDiagnosticsRef.current = [...(event.assetDiagnostics ?? [])];
           if (externalAssetDiagnosticsRef.current.length > 0) {
             setDiagnostics(
               collectWorkspaceProjectDiagnostics(latestProject, [
@@ -1031,7 +1027,7 @@ export function WorkspacePage() {
             setStatusMessage('Project source is valid again');
           }
           if (
-            assetAuditChanged &&
+            assetDiagnosticsChanged &&
             hadAssetDiagnostics &&
             externalAssetDiagnosticsRef.current.length === 0
           ) {
