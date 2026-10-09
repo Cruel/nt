@@ -42,13 +42,20 @@ function write(root: string, relative: string, bytes: Buffer | string) {
   writeFileSync(file, bytes);
 }
 
-function generate(root: string) {
+function generate(root: string, android = false) {
   const build = path.join(root, 'build');
   const stage = path.join(root, 'stage');
   mkdirSync(stage, { recursive: true });
   const result = spawnSync(
     process.execPath,
-    [generator, path.join(build, 'vcpkg_installed'), stage, 'v0.1.0', build],
+    [
+      generator,
+      path.join(build, 'vcpkg_installed'),
+      stage,
+      'v0.1.0',
+      build,
+      ...(android ? ['--android'] : []),
+    ],
     { encoding: 'utf8' },
   );
   return { result, stage };
@@ -118,6 +125,26 @@ function webFixture() {
   return { root, build, emsdk, licenseBytes };
 }
 
+function androidFixture() {
+  const fixture = webFixture();
+  const stage = path.join(fixture.root, 'stage');
+  const sdlAar = 'source/android/app/libs/SDL3-3.4.10.aar';
+  const prefabRoot = path.join(fixture.root, 'sdl-prefab');
+  write(prefabRoot, 'prefab/prefab.json', JSON.stringify({ name: 'SDL3', version: '3.4.10' }));
+  mkdirSync(path.dirname(path.join(stage, sdlAar)), { recursive: true });
+  execFileSync('zip', ['-q', path.join(stage, sdlAar), 'prefab/prefab.json'], {
+    cwd: prefabRoot,
+  });
+  write(
+    stage,
+    'source/android/prebuilt-system/fonts/LiberationSans.ttf',
+    readFileSync(path.resolve(process.cwd(), '../engine/assets/system/fonts/LiberationSans.ttf')),
+  );
+  write(stage, 'source/android/prebuilt-native/x86_64/libSDL3.so', 'sdl native fixture');
+  write(stage, 'source/android/prebuilt-native/x86_64/libnoveltea-player.so', 'player fixture');
+  return { ...fixture, stage };
+}
+
 function getIndex(stage: string) {
   return JSON.parse(readFileSync(path.join(stage, 'licenses/index.json'), 'utf8')) as {
     components: Array<{
@@ -133,6 +160,57 @@ function getIndex(stage: string) {
 }
 
 describe('resolved player-template license generation', () => {
+  it.skipIf(process.platform === 'win32')(
+    'resolves deterministic Android ABI/flavor notices for the fetched and packaged dependency closure',
+    () => {
+      const fixture = androidFixture();
+      const first = generate(fixture.root, true);
+      expect(first.result.status, first.result.stderr).toBe(0);
+      const index = getIndex(first.stage);
+      const names = index.components.map((item) => item.component);
+      for (const name of ['SDL3', 'bgfx', 'bx', 'bimg', 'freetype', 'lua', 'Liberation Sans'])
+        expect(names).toContain(name);
+      expect(names).not.toContain('imgui');
+      expect(names).not.toContain('rmlui_bgfx');
+      const sdl = index.components.find((item) => item.component === 'SDL3')!;
+      expect(sdl.version).toBe('3.4.10');
+      expect(readFileSync(path.join(first.stage, sdl.files[0]!.path))).toEqual(
+        readFileSync(path.resolve(process.cwd(), '../cmake/licenses/sdl3-3.4.10-LICENSE.txt')),
+      );
+      const firstIndex = readFileSync(path.join(first.stage, 'licenses/index.json'));
+      const firstSbom = readFileSync(path.join(first.stage, 'SBOM.cdx.json'));
+      const second = generate(fixture.root, true);
+      expect(second.result.status, second.result.stderr).toBe(0);
+      expect(readFileSync(path.join(second.stage, 'licenses/index.json'))).toEqual(firstIndex);
+      expect(readFileSync(path.join(second.stage, 'SBOM.cdx.json'))).toEqual(firstSbom);
+      expect(
+        JSON.parse(firstSbom.toString()).components.map((item: { name: string }) => item.name),
+      ).toEqual(names);
+    },
+  );
+
+  it.skipIf(process.platform === 'win32')(
+    'rejects missing composite licenses and unmapped Android native or Java dependencies',
+    () => {
+      const fixture = androidFixture();
+      expect(generate(fixture.root, true).result.status).toBe(0);
+      const bimgLicense = path.join(fixture.build, '_deps/bgfx.cmake-src/bimg/LICENSE');
+      rmSync(bimgLicense);
+      expect(generate(fixture.root, true).result.stderr).toContain(
+        'Required bimg license source missing',
+      );
+      writeFileSync(bimgLicense, fixture.licenseBytes);
+      write(fixture.stage, 'source/android/prebuilt-native/x86_64/libunknown.so', 'unmapped');
+      expect(generate(fixture.root, true).result.stderr).toContain(
+        'Unmapped shipped Android native library',
+      );
+      rmSync(path.join(fixture.stage, 'source/android/prebuilt-native/x86_64/libunknown.so'));
+      write(fixture.stage, 'source/android/app/libs/another-runtime.jar', 'unmapped');
+      expect(generate(fixture.root, true).result.stderr).toContain(
+        'Unmapped Android Java/AAR dependency',
+      );
+    },
+  );
   it('produces byte-preserved, named composite notices and deterministic SBOM/index files', () => {
     const fixture = webFixture();
     const first = generate(fixture.root);

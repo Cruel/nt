@@ -25,6 +25,7 @@ function archiveFixture(
   modes: { stored?: number; declared?: number } = {},
   corruptNotices = false,
   misattributeNotices = false,
+  platform: 'linux' | 'android' = 'linux',
 ) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'nt-template-'));
   roots.push(root);
@@ -70,20 +71,20 @@ function archiveFixture(
   const descriptor = {
     format: 'noveltea.player-template',
     formatVersion: 1,
-    templateId: 'linux-x64-release',
+    templateId: platform === 'android' ? 'android-x86_64-debug' : 'linux-x64-release',
     buildId: 'build-1',
     engineVersion: '1',
-    platform: 'linux',
-    architecture: 'x64',
-    minimumPlatformVersion: 'glibc 2.28',
-    graphicsBackends: ['opengl'],
-    shaderVariants: ['glsl-330'],
+    platform,
+    architecture: platform === 'android' ? 'x86_64' : 'x64',
+    minimumPlatformVersion: platform === 'android' ? 'Android API 24' : 'glibc 2.28',
+    graphicsBackends: [platform === 'android' ? 'opengles' : 'opengl'],
+    shaderVariants: [platform === 'android' ? 'essl-300' : 'glsl-330'],
     compiledProjectFormatVersion: 1,
     playerRuntimeApiVersion: 1,
     compiledFeatures: ['lua'],
     capabilities: [],
-    buildFlavor: 'release',
-    packageAccessModes: ['sidecar'],
+    buildFlavor: platform === 'android' ? 'debug' : 'release',
+    packageAccessModes: [platform === 'android' ? 'android-private-copy' : 'sidecar'],
     files: [
       {
         path: 'bin/player',
@@ -106,6 +107,47 @@ function archiveFixture(
     },
     provenance: { provider: 'local', source: 'test' },
     host: { assembly: 'any', requiresToolchain: false, tools: [] },
+    ...(platform === 'android'
+      ? {
+          abi: 'x86_64',
+          android: {
+            gradleProjectRoot: 'source/android',
+            applicationModule: 'app',
+            gradleWrapperPath: 'source/android/gradlew',
+            bundletoolPath: 'source/android/tools/bundletool-1.18.1.jar',
+            insertionRoots: {
+              generatedSource: 'generated/java',
+              resources: 'generated/res',
+              assets: 'generated/assets',
+            },
+            namespace: 'org.noveltea.player',
+            activityClass: 'org.noveltea.player.MainActivity',
+            nativeLibraryName: 'noveltea-player',
+            supportedAbis: ['x86_64'],
+            artifactKinds: ['apk'],
+            packageAccessModes: ['android-private-copy'],
+            minimumSdk: { minimum: 24, maximum: 35 },
+            targetSdk: 35,
+            compileSdk: 35,
+            toolchain: {
+              gradle: '8.9',
+              androidGradlePlugin: '8.7.3',
+              java: '17',
+              buildTools: '35.0.0',
+              ndk: '28.2.13676358',
+              cmake: '3.31.6',
+              bundletool: '1.18.1',
+            },
+            roles: {
+              manifest: [],
+              nativeLibraries: [],
+              runtimeAssets: [],
+              notices: ['licenses/index.json'],
+              supportFiles: [],
+            },
+          },
+        }
+      : {}),
   };
   fs.writeFileSync(path.join(content, 'template.json'), JSON.stringify(descriptor));
   const archive = path.join(root, kind === 'zip' ? 'template.zip' : 'template.tar.gz');
@@ -217,6 +259,20 @@ describe('template registry service', () => {
     const result = await installPlayerTemplate({ archivePath: archive, origin: 'wrong-component' });
     expect(result.success).toBe(false);
     expect(result.diagnostics[0]?.message).toContain('does not belong');
+  });
+  it('validates named Android license contents during template installation', async () => {
+    const valid = archiveFixture('tar', {}, false, false, 'android');
+    expect((await installPlayerTemplate({ archivePath: valid.archive })).success).toBe(true);
+
+    const corrupt = archiveFixture('tar', {}, true, false, 'android');
+    const corruptResult = await installPlayerTemplate({ archivePath: corrupt.archive });
+    expect(corruptResult.success).toBe(false);
+    expect(corruptResult.diagnostics[0]?.message).toContain('License index entry');
+
+    const misattributed = archiveFixture('tar', {}, false, true, 'android');
+    const identityResult = await installPlayerTemplate({ archivePath: misattributed.archive });
+    expect(identityResult.success).toBe(false);
+    expect(identityResult.diagnostics[0]?.message).toContain('does not belong');
   });
   it.skipIf(process.platform === 'win32')('installs ZIP templates without CMake', async () => {
     const { archive } = archiveFixture('zip');
