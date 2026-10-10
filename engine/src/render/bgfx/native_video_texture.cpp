@@ -532,7 +532,7 @@ public:
     core::Result<Prepared, core::Diagnostics> finalize_on_owner() noexcept override
     {
         const auto create_shader = [](const assets::AssetBytes& bytes) {
-            return bytes.empty() ? bgfx::ShaderHandle{BGFX_INVALID_HANDLE}
+            return bytes.empty() ? bgfx::ShaderHandle{bgfx::kInvalidHandle}
                                  : bgfx::createShader(bgfx::copy(
                                        bytes.data(), static_cast<std::uint32_t>(bytes.size())));
         };

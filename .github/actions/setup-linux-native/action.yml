@@ -47,6 +47,7 @@ runs:
         packages=(
           build-essential
           ninja-build
+          nasm
           cmake
           curl
           zip
