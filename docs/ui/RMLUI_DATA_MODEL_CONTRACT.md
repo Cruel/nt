@@ -207,6 +207,7 @@ shell_open_load()
 shell_open_text_log()
 shell_open_licenses()
 shell_select_license(index)
+shell_scroll_license(direction)
 shell_open_debug()
 shell_close()
 shell_return_to_title()
@@ -227,6 +228,12 @@ and the selected slot must currently be occupied. `shell_set_locale` accepts onl
 locale and requests an asynchronous locale-environment transition; it is not a gameplay mutation. Invalid kinds, hidden/unexposed or empty slots,
 numbers, stale IDs, hidden/disabled targets, disallowed Layout contexts, and malformed arguments do
 not dispatch typed commands.
+
+`shell_scroll_license(direction)` is available only while the Licenses shell is open. Pass
+`0` to scroll the selected notice upward or `1` to scroll it downward; the callback scrolls
+by at least 160 CSS pixels (or 80% of the panel height). Replacement Licenses layouts must
+provide an element with id `nt-license-text-scroll` in the invoking document as the scrolling
+container. The action does not change the selected notice; it has no effect if the panel is absent.
 
 Each callback is a thin adapter over the same `RuntimeUiActionGateway` path used by the equivalent
 `Game.ui.*` or `Game.shell.*` Lua helper. `Game.ui.submit_command_builder()`,

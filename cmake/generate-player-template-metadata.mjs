@@ -110,6 +110,91 @@ function verifyFetchedVersion(name, pinned) {
     throw new Error(`Stale license version pin for '${name}': ${pinned} differs from CMake's resolved source declaration.`);
 }
 
+// Attest the *resolved* FetchContent inputs, not just matching version words in the
+// declarations. An overridden/stale extracted checkout cannot borrow the declared
+// version to label unrelated license bytes.
+function verifyResolvedFetchedSource(name, source, licenseSources) {
+  const prefix = path.join(buildRoot, '_deps', `${name}-subbuild`, `${name}-populate-prefix`, 'src');
+  const stamp = path.join(prefix, `${name}-populate-stamp`);
+  const urlInfo = path.join(stamp, `${name}-populate-urlinfo.txt`);
+  const gitInfo = path.join(stamp, `${name}-populate-gitinfo.txt`);
+  const infoFile = existsSync(urlInfo) ? urlInfo : gitInfo;
+  if (!existsSync(infoFile))
+    throw new Error(`Missing resolved FetchContent download metadata for ${name}: ${stamp}`);
+  const info = readFileSync(infoFile, 'utf8');
+  const resolved = /^source_dir=(.+)$/m.exec(info)?.[1]?.trim();
+  if (!resolved || path.resolve(resolved) !== path.resolve(source))
+    throw new Error(`Resolved FetchContent source path mismatch for ${name}: ${resolved ?? '<unknown>'}`);
+
+  const declaration = cmakeDeclarations.flatMap((cmake) =>
+    [...cmake.matchAll(/FetchContent_Declare\(\s*([\w.]+)([\s\S]*?)\n\s*\)/gi)]
+      .filter((match) => match[1].toLowerCase() === name.toLowerCase())
+      .map((match) => match[2]),
+  );
+  if (!declaration.length)
+    throw new Error(`No FetchContent declaration for resolved source ${name}`);
+  const vars = Object.fromEntries(cmakeDeclarations.flatMap((cmake) =>
+    [...cmake.matchAll(/set\((NOVELTEA_[A-Z0-9_]+)\s+"([^"]+)"\)/g)]
+      .map((match) => [match[1], match[2]])));
+  const expand = (value) => value.replace(/\$\{(NOVELTEA_[A-Z0-9_]+)\}/g, (_, key) => {
+    if (!vars[key]) throw new Error(`Unresolved FetchContent pin variable ${key} for ${name}`);
+    return vars[key];
+  });
+
+  const relativeSources = licenseSources.filter((file) =>
+    path.resolve(file).startsWith(`${path.resolve(source)}${path.sep}`));
+  if (info.includes('method=git')) {
+    if (!existsSync(path.join(source, '.git')))
+      throw new Error(`Resolved Git source ${name} is not a Git checkout: ${source}`);
+    const tags = declaration.map((entry) => /\bGIT_TAG\s+"?([^\s"\)]+)/i.exec(entry)?.[1])
+      .filter(Boolean).map(expand);
+    if (!tags.length) throw new Error(`No pinned GIT_TAG for ${name}`);
+    const rev = (ref) => execFileSync('git', ['-C', source, 'rev-parse', `${ref}^{commit}`],
+      { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+    const head = rev('HEAD');
+    if (!tags.some((tag) => {
+      try { return rev(tag) === head; } catch { return false; }
+    })) throw new Error(`Resolved Git source ${name} is at ${head}, not its FetchContent pin ${tags.join(', ')}`);
+    for (const file of relativeSources) {
+      const relative = path.relative(source, file).split(path.sep).join('/');
+      const pristine = execFileSync('git', ['-C', source, 'show', `HEAD:${relative}`],
+        { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 2 * 1024 * 1024 });
+      if (hash(pristine) !== shaFile(file))
+        throw new Error(`Resolved Git source ${name} has modified license bytes: ${relative}`);
+    }
+    return;
+  }
+  if (!info.includes('method=url'))
+    throw new Error(`Unknown FetchContent method for ${name}`);
+  const url = /^url\(s\)=(\S+)/m.exec(info)?.[1];
+  const pinnedHash = /^hash=(SHA256|SHA512)=([a-f0-9]+)$/mi.exec(info);
+  if (!url || !pinnedHash) throw new Error(`Unpinned downloaded source ${name}`);
+  const urls = declaration.map((entry) => /\bURL\s+"?([^\s"\)]+)/i.exec(entry)?.[1])
+    .filter(Boolean).map(expand);
+  const hashes = declaration.map((entry) => /\bURL_HASH\s+(SHA256|SHA512)=([^\s"\)]+)/i.exec(entry))
+    .filter(Boolean).map((match) => `${match[1].toUpperCase()}=${expand(match[2])}`);
+  if (!urls.includes(url) || !hashes.includes(`${pinnedHash[1].toUpperCase()}=${pinnedHash[2]}`))
+    throw new Error(`Resolved download for ${name} disagrees with CMake URL/hash pin`);
+  const archive = path.join(prefix, path.posix.basename(new URL(url).pathname));
+  if (!existsSync(archive))
+    throw new Error(`Cannot attest extracted ${name} without downloaded archive: ${archive}`);
+  const actualHash = createHash(pinnedHash[1].toLowerCase()).update(readFileSync(archive)).digest('hex');
+  if (actualHash !== pinnedHash[2].toLowerCase())
+    throw new Error(`Downloaded source archive checksum mismatch for ${name}`);
+  const archivedPaths = execFileSync('tar', ['-tf', archive], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
+    .split('\n').filter(Boolean);
+  for (const file of relativeSources) {
+    const relative = path.relative(source, file).split(path.sep).join('/');
+    const matches = archivedPaths.filter((entry) =>
+      entry === relative || entry.split('/').slice(1).join('/') === relative);
+    if (matches.length !== 1)
+      throw new Error(`Cannot uniquely identify ${name} license ${relative} in resolved archive`);
+    const bytes = execFileSync('tar', ['-xOf', archive, matches[0]], { maxBuffer: 2 * 1024 * 1024 });
+    if (hash(bytes) !== shaFile(file))
+      throw new Error(`Resolved archive ${name} has modified license bytes: ${relative}`);
+  }
+}
+
 const statusPath = path.join(installed, 'vcpkg', 'status');
 if (!android && existsSync(statusPath)) {
   const paragraphs = readFileSync(statusPath, 'utf8').split(/\r?\n\r?\n/);
@@ -196,6 +281,10 @@ if (existsSync(deps)) {
     }
     if (rule.version) verifyFetchedVersion(name, rule.version);
     const revision = rule.version ?? sourceRevision(source);
+    const licenseSources = rule.components
+      ? rule.components.flatMap((component) => pickSources(source, component.paths, component.name))
+      : pickSources(source, rule.paths, name);
+    verifyResolvedFetchedSource(name, source, licenseSources);
     if (rule.components) {
       for (const component of rule.components)
         addComponent(component.name, revision, pickSources(source, component.paths, component.name), entry);

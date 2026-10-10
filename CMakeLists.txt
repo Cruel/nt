@@ -249,6 +249,7 @@ if(NOT TARGET miniz::miniz)
     FetchContent_Declare(
         miniz
         URL https://github.com/richgel999/miniz/archive/refs/tags/3.1.1.tar.gz
+        URL_HASH SHA256=8bb29c7bd6f22356e5583e794bed4a0b3e6dfcbcadb49974fc9270ccca1e5557
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(miniz)

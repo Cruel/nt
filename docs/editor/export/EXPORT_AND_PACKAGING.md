@@ -270,6 +270,11 @@ RmlUi Licenses viewer. It exercises selection, verified bytes and SHA-256, share
 font/Project-wide/localized notices, and rejection of a tampered notice. Platform
 certification requires this viewer evidence; Android's final player/device acceptance
 remains the responsibility of its target-specific CI.
+Web release certification additionally launches the finalized browser player and requires
+`player_pre.js` to fetch each indexed engine notice and its index from the distribution's
+actual URLs, verifying response checksums at root and nested base paths. This supplements,
+but does not replace, an end-to-end browser-rendered Licenses-viewer interaction witness;
+that target-player acceptance remains tracked by #418.
 The exporter runs its declared build workflow with an already installed compatible toolchain; it
 never installs SDKs or silently builds NovelTea itself.
 

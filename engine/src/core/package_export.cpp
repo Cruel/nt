@@ -744,7 +744,7 @@ bool ProjectPackageWriter::is_allowed_package_path(std::string_view path) noexce
 bool ProjectPackageWriter::is_valid_distribution_notice_text(
     std::span<const std::byte> bytes) noexcept
 {
-    if (bytes.size() > 1024 * 1024)
+    if (bytes.empty() || bytes.size() > 1024 * 1024)
         return false;
     std::size_t index = 0;
     while (index < bytes.size()) {

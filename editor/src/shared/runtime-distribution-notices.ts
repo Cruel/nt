@@ -81,11 +81,12 @@ export async function collectRuntimeDistributionNotices(
     if (!read || read.status !== 'ready' || read.projectRelativePath !== relative)
       throw new Error(`Distribution notice '${relative}' is missing, unsafe, or invalid UTF-8.`);
     if (
+      (read.byteLength ?? new TextEncoder().encode(read.text).length) === 0 ||
       (read.byteLength ?? new TextEncoder().encode(read.text).length) > 1024 * 1024 ||
       hasProhibitedControls(read.text)
     )
       throw new Error(
-        `Distribution notice '${relative}' is too large or contains prohibited controls.`,
+        `Distribution notice '${relative}' is empty, too large, or contains prohibited controls.`,
       );
     return {
       path: `licenses/${relative}`,

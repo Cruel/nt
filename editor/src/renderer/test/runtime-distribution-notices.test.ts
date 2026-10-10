@@ -136,6 +136,10 @@ describe('Project distribution notice inventory', () => {
     await expect(
       collectRuntimeDistributionNotices(project, new Set(), '/game', paths),
     ).rejects.toThrow(/controls/);
+    contents['support/licenses/global.md'] = '';
+    await expect(
+      collectRuntimeDistributionNotices(project, new Set(), '/game', paths),
+    ).rejects.toThrow(/empty/);
   });
 
   it('rejects an index larger than the canonical runtime notice limit', async () => {
