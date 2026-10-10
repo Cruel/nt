@@ -33,8 +33,8 @@ stored byte-for-byte, without whitespace, BOM, or newline normalization. The loa
 notice index and its declared physical files alongside the general package inventory and checksums.
 
 Opaque video-backed Animation may additionally contribute private prepared-media entries beneath
-`assets/.prepared-media/`, including private metadata and the current normalized raster
-representation. These entries are runtime-artifact implementation data, not authored Animation
+`assets/.prepared-media/`, including private semantic frame metadata and a prepared opaque
+VP9/WebM representation. These entries are runtime-artifact implementation data, not authored Animation
 semantics or a frozen public package-media schema. Gameplay JSON continues to reference only the
 semantic Video Asset/motion contract.
 
@@ -68,12 +68,14 @@ entry inventory and rejects any required-seekable path that is missing or ZIP-co
 paths such as `assets/audio/theme.wav`, FLAC, and M4A remain directly seekable when runtime semantics
 select streaming.
 
-For the current opaque-video tracer, runtime-artifact preparation preserves the creator Video Asset
-while also generating deterministic private opaque raster frames through the pinned authoring FFmpeg.
-Embedded audio is omitted from that representation and yields an authoring warning because generic
-Animation is visual-only. The prepared representation is packaged as ordinary image payloads so
-mandatory seed readiness and native texture residency use existing transactions and asynchronous
-requests. Ordinary publication and causal finite named-motion startup require only the selected
+Opaque-video runtime-artifact preparation preserves the creator Video Asset and generates private
+semantic frame metadata and opaque VP9/WebM through the pinned authoring FFmpeg. Embedded audio is
+omitted and yields an authoring warning because generic Animation is visual-only. Native players use
+libwebm plus persistent hardware-preferred/libvpx fallback decoding of that same prepared WebM;
+browser preview retains browser decoding. The prepared-media package stores one encoded WebM per
+motion plus semantic sample durations, without intermediate PNGs or a raster fallback.
+Native YUV upload/conversion and sample residency use the existing typed transactions and
+asynchronous requests; see `docs/assets/NATIVE_VIDEO.md`. Ordinary publication and causal finite named-motion startup require only the selected
 initial sample (including the operation's initial marker) and Material closure, not every video
 sample. The mandatory transaction remains failure-atomic for those startup resources. Later samples
 stream on demand; a late final sample delays finite completion until realized, and terminal sample

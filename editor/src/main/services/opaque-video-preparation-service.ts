@@ -1,6 +1,6 @@
 import { createHash } from 'node:crypto';
 import { rmSync } from 'node:fs';
-import { mkdir, readFile, readdir, realpath, stat, unlink, writeFile } from 'node:fs/promises';
+import { mkdir, readFile, realpath, stat, unlink, writeFile } from 'node:fs/promises';
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import pin from '../../shared/media-tool-pin.json';
 import {
@@ -53,9 +53,22 @@ function frameDurations(frameCount: number, authoredDurationMs?: number): number
   return durations;
 }
 
+function encodedFrameCount(progress: string): number {
+  // FFmpeg -progress produces machine-readable reports, including the final
+  // number of encoded frames. Never infer the count from an estimated duration:
+  // short sources and source-range trims may yield fewer samples.
+  const reports = [...progress.matchAll(/^frame=(\d+)\r?$/gmu)];
+  if (!/^progress=end\r?$/mu.test(progress) || reports.length === 0)
+    throw new Error('Video preparation did not report a completed frame count.');
+  const count = Number(reports.at(-1)![1]);
+  if (!Number.isSafeInteger(count) || count <= 0 || count > 1_000_000)
+    throw new Error('Video preparation produced an invalid number of frames.');
+  return count;
+}
+
 const pendingVideoPreparations = new Map<string, Promise<OpaqueVideoPreparationResult>>();
 
-/** Canonical private raster preparation; authored/compiled Animation semantics never name it. */
+/** Canonical private VP9 preparation; authored/compiled Animation semantics never name it. */
 export async function prepareOpaqueVideoMotion(
   projectRoot: string,
   request: OpaqueVideoPreparationRequest,
@@ -75,7 +88,7 @@ export async function prepareOpaqueVideoMotion(
         canvas: request.canvas,
         sourceRange: request.sourceRange ?? null,
         frameRate: OPAQUE_VIDEO_FRAME_RATE,
-        representationVersion: 1,
+        representationVersion: 2,
         toolRelease: pin.release,
       }),
     )
@@ -90,7 +103,7 @@ export async function prepareOpaqueVideoMotion(
     if (parentRelative.startsWith('..') || isAbsolute(parentRelative))
       throw new Error('Prepared video output must be contained in the Project.');
     const directory = join(parent, key);
-    const pattern = join(directory, 'frame-%06d.png');
+    const videoPath = join(directory, 'opaque.webm');
     rmSync(directory, { recursive: true, force: true });
     await mkdir(directory, { recursive: true });
     // Decode the hashed snapshot, not a pathname that can change after Asset admission.
@@ -110,9 +123,25 @@ export async function prepareOpaqueVideoMotion(
       '-dn',
       '-vf',
       `fps=${OPAQUE_VIDEO_FRAME_RATE},scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2:color=black,format=rgb24`,
-      '-start_number',
+      '-map_metadata',
+      '-1',
+      '-c:v',
+      'libvpx-vp9',
+      '-pix_fmt',
+      'yuv420p',
+      '-lossless',
+      '1',
+      '-threads',
+      '1',
+      '-row-mt',
       '0',
-      pattern,
+      '-g',
+      '30',
+      '-flags:v',
+      '+bitexact',
+      '-progress',
+      'pipe:1',
+      videoPath,
     );
     let result: ReturnType<MediaToolRunner>;
     try {
@@ -120,76 +149,17 @@ export async function prepareOpaqueVideoMotion(
     } finally {
       await unlink(source);
     }
-    const frameNames = (await readdir(directory))
-      .filter((name) => /^frame-\d{6}\.png$/u.test(name))
-      .sort((left, right) => left.localeCompare(right));
-    if (frameNames.length === 0)
-      throw new Error(
-        `Video preparation produced no frames for Animation '${request.animationId}'.`,
-      );
+    const frameCount = encodedFrameCount(result.stdout);
     const authoredDurationMs = request.sourceRange
       ? request.sourceRange.endMs - request.sourceRange.startMs
       : undefined;
-    const durations = frameDurations(frameNames.length, authoredDurationMs);
-    const frames = await Promise.all(
-      frameNames.map(async (name, index) => {
-        const sourcePath = join(directory, name);
-        const bytes = await readFile(sourcePath);
-        return {
-          sourcePath,
-          projectRelativePath: `.noveltea/build/prepared-media/${key}/${name}`,
-          contentHash: createHash('sha256').update(bytes).digest('hex'),
-          byteSize: bytes.byteLength,
-          durationMs: durations[index]!,
-        };
-      }),
-    );
-    const browserPath = join(directory, 'opaque.webm');
-    runMediaPreparation(
-      tool,
-      [
-        '-y',
-        '-fflags',
-        '+bitexact',
-        '-framerate',
-        String(OPAQUE_VIDEO_FRAME_RATE),
-        '-start_number',
-        '0',
-        '-i',
-        pattern,
-        '-t',
-        seconds(durations.reduce((total, duration) => total + duration, 0)),
-        '-map',
-        '0:v:0',
-        '-an',
-        '-sn',
-        '-dn',
-        '-map_metadata',
-        '-1',
-        '-c:v',
-        'libvpx-vp9',
-        '-pix_fmt',
-        'yuv420p',
-        '-lossless',
-        '1',
-        '-threads',
-        '1',
-        '-row-mt',
-        '0',
-        '-g',
-        '30',
-        '-flags:v',
-        '+bitexact',
-        browserPath,
-      ],
-      run,
-    );
-    const browserBytes = await readFile(browserPath);
+    const durations = frameDurations(frameCount, authoredDurationMs);
+    const browserBytes = await readFile(videoPath);
     if (browserBytes.length === 0) throw new Error('Browser video preparation produced no media.');
     return {
       contentHash: key,
       browserVideo: {
-        sourcePath: browserPath,
+        sourcePath: videoPath,
         projectRelativePath: `.noveltea/build/prepared-media/${key}/opaque.webm`,
         contentHash: createHash('sha256').update(browserBytes).digest('hex'),
         byteSize: browserBytes.length,
@@ -197,7 +167,7 @@ export async function prepareOpaqueVideoMotion(
         height,
       },
       hadAudio: /Stream #\d+:\d+(?:\[[^\]]*\])?(?:\([^)]*\))?: Audio:/u.test(result.stderr),
-      frames,
+      frameDurationsMs: durations,
     };
   })();
   pendingVideoPreparations.set(jobKey, job);

@@ -1,6 +1,7 @@
 set(NOVELTEA_SHADER_PROGRAMS
     triangle vs_triangle.sc fs_triangle.sc
     quad     vs_quad.sc     fs_quad.sc
+    video_yuv vs_video_yuv.sc fs_video_yuv.sc
     premultiplied_quad vs_quad.sc fs_premultiplied_quad.sc
     hotspot_alpha vs_quad.sc fs_hotspot_alpha.sc
     hotspot_custom vs_quad.sc fs_hotspot_custom.sc

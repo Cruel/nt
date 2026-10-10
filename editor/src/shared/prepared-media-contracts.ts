@@ -20,11 +20,5 @@ export interface OpaqueVideoPreparationResult {
     width: number;
     height: number;
   };
-  frames: {
-    sourcePath: string;
-    projectRelativePath: string;
-    contentHash: string;
-    byteSize: number;
-    durationMs: number;
-  }[];
+  frameDurationsMs: number[];
 }

@@ -437,7 +437,7 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
         }
         if (prepared.frames.empty())
             add_assembly_error(diagnostics, "runtime_package.empty_prepared_video_motion",
-                               "Prepared video motion must contain at least one raster frame.",
+                               "Prepared video motion must contain at least one semantic sample.",
                                "/prepared_media/motions/" + std::to_string(index));
         for (std::size_t frame_index = 0; frame_index < prepared.frames.size(); ++frame_index) {
             const auto& frame = prepared.frames[frame_index];
@@ -445,10 +445,10 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
                                     "/frames/" + std::to_string(frame_index);
             if (!ProjectPackageWriter::is_allowed_package_path(frame.path) ||
                 !frame.path.starts_with("assets/.prepared-media/") ||
-                !declared.contains(frame.path))
+                !frame.path.ends_with(".webm") || !declared.contains(frame.path))
                 add_assembly_error(
                     diagnostics, "runtime_package.invalid_prepared_video_frame",
-                    "Prepared video frame is missing or outside the private media namespace.",
+                    "Prepared video stream is missing or outside the private media namespace.",
                     frame_path);
             if (frame.duration_ms == 0)
                 add_assembly_error(diagnostics,

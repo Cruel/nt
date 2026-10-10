@@ -7,8 +7,7 @@ TextureAssetRequest prepared_video_texture_request(const core::PreparedVideoMoti
 {
     TextureAssetRequest request{.path = "project:/" + motion.frames[index].path,
                                 .sampler = MaterialTextureSampler::ClampLinear};
-#ifdef __EMSCRIPTEN__
-    // Focused previews retain their explicit PNG-frame transport.
+    // The private WebM representation is shared by native and browser decoding.
     if (motion.browser_video) {
         // Rounded semantic boundaries can precede codec PTS; sample inside the interval.
         double time = static_cast<double>(motion.frames[index].duration_ms) / 2.0;
@@ -19,6 +18,10 @@ TextureAssetRequest prepared_video_texture_request(const core::PreparedVideoMoti
                                                           .time_ms = time,
                                                           .width = video.width,
                                                           .height = video.height};
+    }
+#ifndef __EMSCRIPTEN__
+    else {
+        request.video_sample = PreparedVideoTextureSample{};
     }
 #endif
     return request;

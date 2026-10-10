@@ -168,6 +168,7 @@ target_link_libraries(noveltea_engine
 )
 target_compile_definitions(noveltea_engine PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 include(NovelTeaAudio)
+include(NovelTeaVideo)
 noveltea_provide_miniaudio(MINIAUDIO_INCLUDE_DIRS)
 target_include_directories(noveltea_engine PRIVATE ${MINIAUDIO_INCLUDE_DIRS})
 

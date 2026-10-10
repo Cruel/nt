@@ -31,6 +31,9 @@ namespace noveltea::assets {
                     "|" + std::to_string(video.time_ms) + "|" + std::to_string(video.width) + "x" +
                     std::to_string(video.height);
     }
+    if (request.video_session)
+        identity += "|occurrence|" + std::to_string(request.video_session->identity()) +
+                    "|revision|" + std::to_string(request.video_sample->revision);
     return {.stable_identity = std::move(identity), .source_generation = generation};
 }
 

@@ -629,7 +629,7 @@ decode_prepared_media_catalog_json(std::string_view text, std::string source_pat
                 representation_value
                     ? decoder.string(*representation_value, pointer + "/representation", true)
                     : std::nullopt;
-            if (representation && *representation != "opaque-raster-frames")
+            if (representation && *representation != "opaque-vp9-webm")
                 decoder.error("unknown_value", "Unsupported prepared media representation.",
                               pointer + "/representation");
             auto hash = hash_value ? decoder.string(*hash_value, pointer + "/contentHash", true)
@@ -643,7 +643,7 @@ decode_prepared_media_catalog_json(std::string_view text, std::string source_pat
                               pointer + "/contentHash");
             std::optional<PreparedBrowserVideo> browser_video;
             const auto* browser = decoder.required(*value, "browserVideo", pointer);
-            if (browser && !browser->is_null() &&
+            if (browser &&
                 decoder.object(*browser, pointer + "/browserVideo", {"path", "width", "height"})) {
                 const auto bp = pointer + "/browserVideo";
                 const auto* path_value = decoder.required(*browser, "path", bp);
@@ -668,6 +668,9 @@ decode_prepared_media_catalog_json(std::string_view text, std::string source_pat
                 if (path && width && height)
                     browser_video = PreparedBrowserVideo{std::move(*path), *width, *height};
             }
+            if (!browser_video)
+                decoder.error("missing_video", "Prepared VP9 motion requires its WebM stream.",
+                              pointer + "/browserVideo");
             std::vector<PreparedRasterMediaFrame> frames;
             if (!frames_value || !frames_value->is_array()) {
                 if (frames_value)
@@ -677,33 +680,23 @@ decode_prepared_media_catalog_json(std::string_view text, std::string source_pat
                      ++frame_index) {
                     const auto frame_pointer = pointer + "/frames/" + std::to_string(frame_index);
                     const auto* frame = json_access::element(*frames_value, frame_index);
-                    if (!frame || !decoder.object(*frame, frame_pointer, {"path", "durationMs"}))
+                    if (!frame || !decoder.object(*frame, frame_pointer, {"durationMs"}))
                         continue;
-                    const auto* path_value = decoder.required(*frame, "path", frame_pointer);
                     const auto* duration_value =
                         decoder.required(*frame, "durationMs", frame_pointer);
-                    auto path = path_value
-                                    ? decoder.string(*path_value, frame_pointer + "/path", true)
-                                    : std::nullopt;
                     auto duration = duration_value
                                         ? decoder.integer<std::uint64_t>(
                                               *duration_value, frame_pointer + "/durationMs", true)
                                         : std::nullopt;
-                    if (path && (!ProjectPackageWriter::is_allowed_package_path(*path) ||
-                                 !path->starts_with("assets/.prepared-media/")))
-                        decoder.error(
-                            "invalid_path",
-                            "Prepared media frame path is outside the private media namespace.",
-                            frame_pointer + "/path");
-                    if (path && duration)
-                        frames.push_back({std::move(*path), *duration});
+                    if (duration && browser_video)
+                        frames.push_back({browser_video->path, *duration});
                 }
             }
             if (frames.empty())
                 decoder.error("missing_frames",
                               "Prepared video motion requires at least one frame.",
                               pointer + "/frames");
-            if (animation && motion && representation && hash && !frames.empty())
+            if (animation && motion && representation && hash && browser_video && !frames.empty())
                 output.motions.push_back({std::move(*animation), std::move(*motion),
                                           std::move(*hash), std::move(frames),
                                           std::move(browser_video)});

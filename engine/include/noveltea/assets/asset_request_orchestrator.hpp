@@ -111,6 +111,11 @@ struct AssetOrchestratorProfilerEntry {
 template<class T> class AssetPreparationTask {
 public:
     virtual ~AssetPreparationTask() = default;
+    // Dependency handles are owner-only; implementations must not mutate worker-read state here.
+    virtual void refresh_dependencies_on_owner(AssetRequestReason,
+                                               std::optional<PrefetchGenerationId>) noexcept
+    {
+    }
 
     [[nodiscard]] virtual AssetPreparationCapabilities
     requested_capabilities_on_owner() const noexcept
@@ -796,10 +801,15 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             }
             return;
         }
+        const auto reason = effective_reason(*entry);
+        if (auto* task = entry->active_task ? entry->active_task : entry->deferred_task.get()) {
+            const auto ticket = active_prefetch_ticket(*entry);
+            task->refresh_dependencies_on_owner(reason, ticket ? std::optional{ticket->generation}
+                                                               : std::nullopt);
+        }
         if (!entry->job_id.valid())
             return;
 
-        const auto reason = effective_reason(*entry);
         const auto desired = reason == AssetRequestReason::Prefetch ? jobs::JobPriority::Prefetch
                                                                     : jobs::JobPriority::Critical;
         entry->admission_reason = reason;
@@ -1431,6 +1441,9 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
             return;
         }
         entry->admission_reason = effective_reason(*entry);
+        const auto ticket = active_prefetch_ticket(*entry);
+        entry->deferred_task->refresh_dependencies_on_owner(
+            entry->admission_reason, ticket ? std::optional{ticket->generation} : std::nullopt);
         const ResidencyCost temporary{.temporary_bytes = entry->estimated_cost.temporary_bytes};
         if (entry->preparation_reservation) {
             auto resized = residency->resize_preparation_on_owner(

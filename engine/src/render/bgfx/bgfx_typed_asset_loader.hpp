@@ -14,6 +14,8 @@
 
 namespace noveltea::bgfx_backend {
 
+class NativeVideoTextureLoader;
+
 struct Rgba8MipChain {
     std::vector<std::uint8_t> bytes;
     std::uint8_t mip_count = 0;
@@ -216,6 +218,7 @@ private:
     const ShaderMaterialProject* m_shader_materials = nullptr;
     bgfx::TextureHandle m_fallback_texture = BGFX_INVALID_HANDLE;
     std::unordered_map<std::string, CachedTexture> m_textures;
+    std::unique_ptr<NativeVideoTextureLoader> m_native_video;
 };
 
 } // namespace noveltea::bgfx_backend

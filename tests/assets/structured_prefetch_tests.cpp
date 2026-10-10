@@ -6,6 +6,7 @@
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/assets/mandatory_asset_gate.hpp"
+#include "noveltea/assets/prepared_video_texture.hpp"
 #include "noveltea/assets/structured_prefetch.hpp"
 #include "noveltea/core/compiled_package_codec.hpp"
 #include "noveltea/core/compiled_project_codec.hpp"
@@ -623,12 +624,9 @@ core::LoadedCompiledPackage video_animation_collector_package()
         core::decode_compiled_project(document, "structured-prefetch-video-project.json");
     REQUIRE(project);
     auto manifest_json = package_manifest_for(project.value());
-    constexpr std::string_view frame_a =
-        "assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000000.png";
-    constexpr std::string_view frame_b =
-        "assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
-    manifest_json["entries"].push_back({{"path", frame_a}, {"size", 10}});
-    manifest_json["entries"].push_back({{"path", frame_b}, {"size", 10}});
+    constexpr std::string_view video_path =
+        "assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/opaque.webm";
+    manifest_json["entries"].push_back({{"path", video_path}, {"size", 10}});
     auto manifest = core::decode_runtime_package_manifest(manifest_json);
     REQUIRE(manifest);
     auto shader_materials = core::decode_shader_material_manifest(shader_material_manifest());
@@ -637,7 +635,8 @@ core::LoadedCompiledPackage video_animation_collector_package()
         {core::PreparedVideoMotion{id<core::AnimationId>("video-loop"),
                                    id<core::AnimationMotionId>("idle"),
                                    std::string(64, 'a'),
-                                   {{std::string(frame_a), 50}, {std::string(frame_b), 100}}}}};
+                                   {{std::string(video_path), 50}, {std::string(video_path), 100}},
+                                   core::PreparedBrowserVideo{std::string(video_path), 64, 32}}}};
     auto inventory = inventory_for(manifest.value());
     auto package = core::assemble_compiled_package(
         std::move(project).value(), std::move(manifest).value(),
@@ -794,6 +793,45 @@ private:
     DispatchRecorder& m_recorder;
 };
 
+class RecordingVideoSession final : public assets::VideoTextureSession {
+public:
+    explicit RecordingVideoSession(assets::TextureAssetLoader& loader)
+        : m_loader(loader), m_id(next_id++)
+    {
+    }
+    std::uint64_t identity() const noexcept override { return m_id; }
+    const char* backend() const noexcept override { return "recording-video"; }
+    std::uint64_t uploads_on_owner() const noexcept override { return m_uploads; }
+    std::shared_ptr<assets::VideoTextureResidencyPin>
+    retain_residency(const assets::AssetLease<assets::TextureAsset>&) override
+    {
+        return nullptr;
+    }
+    std::unique_ptr<assets::AssetPreparationTask<assets::TextureAsset>>
+    create_texture_preparation_task(assets::TextureAssetRequest request) override
+    {
+        ++m_uploads;
+        return m_loader.create_texture_preparation_task(request);
+    }
+
+private:
+    assets::TextureAssetLoader& m_loader;
+    inline static std::uint64_t next_id = 1;
+    std::uint64_t m_id;
+    std::uint64_t m_uploads = 0;
+};
+class RecordingVideoSource final : public assets::VideoTextureSource {
+public:
+    explicit RecordingVideoSource(assets::TextureAssetLoader& loader) : m_loader(loader) {}
+    std::shared_ptr<assets::VideoTextureSession> create_session() override
+    {
+        return std::make_shared<RecordingVideoSession>(m_loader);
+    }
+
+private:
+    assets::TextureAssetLoader& m_loader;
+};
+
 class RecordingTextureLoader final : public assets::TextureAssetLoader {
 public:
     explicit RecordingTextureLoader(DispatchRecorder& recorder) : m_recorder(recorder) {}
@@ -807,15 +845,22 @@ public:
     {
         requests.push_back(request);
         m_recorder.calls.push_back("texture:" + request.path);
-        if (request.path == rejected_path)
+        if (request.path == rejected_path ||
+            (rejected_video_time_ms && request.video_sample &&
+             request.video_sample->time_ms == *rejected_video_time_ms))
             return {};
-        assets::TextureAsset texture{.handle = static_cast<std::uint16_t>(
-                                         request.path.ends_with("animation-frame-b.png") ? 2 : 1),
-                                     .path = request.path,
-                                     .width = static_cast<std::uint16_t>(
-                                         request.path.ends_with("animation-frame-b.png") ? 48 : 24),
-                                     .height = 32,
-                                     .sampler = request.sampler};
+        assets::TextureAsset texture{
+            .handle =
+                static_cast<std::uint16_t>(request.path.ends_with("animation-frame-b.png") ? 2 : 1),
+            .path = request.path,
+            .width = static_cast<std::uint16_t>(
+                request.path.ends_with("animation-frame-b.png") ? 48 : 24),
+            .height = 32,
+            .sampler = request.sampler,
+            .video_source = request.video_sample && !request.video_session
+                                ? std::make_shared<RecordingVideoSource>(*this)
+                                : nullptr,
+            .video_session = request.video_session};
         if (request.retain_alpha_coverage) {
             const auto stride = (texture.width + 7) / 8;
             texture.alpha_coverage = assets::TextureAlphaCoverage{
@@ -830,6 +875,7 @@ public:
 
     std::vector<assets::TextureAssetRequest> requests;
     std::string rejected_path;
+    std::optional<double> rejected_video_time_ms;
 
 private:
     DispatchRecorder& m_recorder;
@@ -1235,13 +1281,16 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
     context.current_presentation = &snapshot;
     const auto collected = assets::MandatoryAssetDependencyCollector(index).collect(context);
     constexpr std::string_view frame_a =
-        "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000000.png";
-    constexpr std::string_view frame_b =
-        "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
-    REQUIRE(find_request<assets::TextureAssetRequest>(
-        collected.requests, [](const auto& request) { return request.path == frame_a; }));
-    CHECK_FALSE(find_request<assets::TextureAssetRequest>(
-        collected.requests, [](const auto& request) { return request.path == frame_b; }));
+        "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/opaque.webm";
+    REQUIRE(find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+        return request.path == frame_a && request.video_sample &&
+               request.video_sample->time_ms == 25.0;
+    }));
+    CHECK_FALSE(
+        find_request<assets::TextureAssetRequest>(collected.requests, [](const auto& request) {
+            return request.path == frame_a && request.video_sample &&
+                   request.video_sample->time_ms == 100.0;
+        }));
 
     assets::MandatoryAssetGate gate(fixture.manager);
     REQUIRE(gate.bind_package_on_owner(package, "glsl-330", generation));
@@ -1272,7 +1321,7 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
     REQUIRE(world.frame()->draws.front().video_stream);
     const auto video_decode_count = [&] {
         return std::ranges::count_if(fixture.textures.requests, [](const auto& request) {
-            return request.path == frame_a || request.path == frame_b;
+            return request.path == frame_a && request.video_sample.has_value();
         });
     };
     CHECK(video_decode_count() == 1);
@@ -1289,8 +1338,13 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
         fixture.run_until_idle();
         clock.gameplay_time = std::chrono::milliseconds{250};
         world.realize(clock);
+        fixture.run_until_idle();
+        world.realize(clock);
         REQUIRE(world.frame()->draws.front().texture_lease.has_value());
-        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_b);
+        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_a);
+        CHECK(std::ranges::any_of(fixture.textures.requests, [](const auto& request) {
+            return request.video_sample && request.video_sample->time_ms == 100.0;
+        }));
         clock.gameplay_time = std::chrono::milliseconds{175};
         world.realize(clock);
         fixture.run_until_idle();
@@ -1351,7 +1405,7 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
         world.realize(clock);
         fixture.run_until_idle();
         world.realize(clock);
-        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_b);
+        CHECK((*world.frame()->draws.front().texture_lease)->path == frame_a);
     }
     SECTION("hiding cancels an in-flight decode even when a tooling observer retains the stream")
     {
@@ -1378,7 +1432,7 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
     }
     SECTION("frame failure is terminal and diagnosed once without repeated decode requests")
     {
-        fixture.textures.rejected_path = frame_b;
+        fixture.textures.rejected_video_time_ms = 100.0;
         clock.gameplay_time = std::chrono::milliseconds{75};
         world.realize(clock);
         fixture.run_until_idle();
@@ -1422,10 +1476,8 @@ TEST_CASE("finite video motion prepares only its initial sample before causal st
     auto initial = gate.take_ready_transaction_on_owner();
     REQUIRE(initial);
     REQUIRE(initial->commit_on_owner(false));
-    constexpr std::string_view last_frame =
-        "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
-    const assets::TextureAssetRequest final_request{.path = std::string(last_frame),
-                                                    .sampler = MaterialTextureSampler::ClampLinear};
+    const auto final_request =
+        assets::prepared_video_texture_request(package.prepared_media().motions.front(), 1);
     CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
 
     desired.revision = core::PresentationSnapshotRevision::from_number(2);
@@ -1459,7 +1511,7 @@ TEST_CASE("finite video motion prepares only its initial sample before causal st
     }
     SECTION("a missing later sample does not fail startup")
     {
-        fixture.textures.rejected_path = std::string(last_frame);
+        fixture.textures.rejected_video_time_ms = 100.0;
         REQUIRE(gate.include_presentation_operation_on_owner(operation));
         fixture.run_until_idle();
         REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
@@ -1486,7 +1538,7 @@ TEST_CASE("finite video motion prepares only its initial sample before causal st
     {
         auto marked_operation = operation;
         std::get<core::PlayMotionOperation>(marked_operation).playback.initial_marker = "middle";
-        fixture.textures.rejected_path = std::string(last_frame);
+        fixture.textures.rejected_video_time_ms = 100.0;
         REQUIRE(gate.include_presentation_operation_on_owner(marked_operation));
         fixture.run_until_idle();
         CHECK(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Failed);
@@ -1585,15 +1637,14 @@ TEST_CASE("native finite video play and transition realize prepared endpoints",
         REQUIRE(composed.value().world_composition_batch.commands().size() == 1);
         REQUIRE(world.frame()->draws.front().texture_lease);
         const auto first_path = (*world.frame()->draws.front().texture_lease)->path;
-        CHECK(first_path.ends_with("frame-000000.png"));
+        CHECK(first_path.ends_with("opaque.webm"));
 
         core::RuntimeClockUpdate clocks;
         auto acknowledged = transitions.take_acknowledgements();
         REQUIRE(acknowledged.size() == 1);
         CHECK(std::holds_alternative<core::BackendOperationRunning>(acknowledged.front().fact));
         if (terminal_failure)
-            fixture.textures.rejected_path =
-                "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
+            fixture.textures.rejected_video_time_ms = 100.0;
         clocks.gameplay_delta = std::chrono::milliseconds{150};
         transitions.advance(clocks);
         if (terminal_failure) {
@@ -1618,8 +1669,10 @@ TEST_CASE("native finite video play and transition realize prepared endpoints",
         REQUIRE(composed);
         REQUIRE(world.frame()->draws.front().texture_lease);
         const auto final_path = (*world.frame()->draws.front().texture_lease)->path;
-        CHECK(final_path.ends_with("frame-000001.png"));
-        CHECK(final_path != first_path);
+        CHECK(final_path == first_path);
+        CHECK(std::ranges::any_of(fixture.textures.requests, [](const auto& request) {
+            return request.video_sample && request.video_sample->time_ms == 100.0;
+        }));
         transitions.advance(clocks);
         acknowledged = transitions.take_acknowledgements();
         REQUIRE(acknowledged.size() == 1);

@@ -1,4 +1,5 @@
 #include "host/focused_preview_presenter.hpp"
+#include "noveltea/assets/prepared_video_texture.hpp"
 
 #include "noveltea/assets/asset_cache_keys.hpp"
 #include "noveltea/core/data_asset.hpp"
@@ -1507,10 +1508,8 @@ FocusedPreviewPresenter::build_asset_requests(
                 core::prepared_video_duration_ms(*prepared));
             if (!initial || prepared->frames.empty())
                 return;
-            const assets::TextureAssetRequest typed{
-                .path = "project:/" +
-                        prepared->frames[core::prepared_video_frame_at(*prepared, *initial)].path,
-                .sampler = MaterialTextureSampler::ClampLinear};
+            const auto typed = assets::prepared_video_texture_request(
+                *prepared, core::prepared_video_frame_at(*prepared, *initial));
             result.push_back(
                 {.request = typed, .cache_key = assets::make_texture_cache_key(typed, generation)});
         };
@@ -1625,6 +1624,24 @@ FocusedPreviewPresenter::prepare_room_state(
                     compiled_motion.frames.push_back(
                         {decoded_id<core::AssetId>(frame.asset_id), frame.duration_ms});
                 } else {
+                    if (prepared->kind != "video" || !prepared->width || !prepared->height ||
+                        *prepared->width == 0 || *prepared->width > 8192 ||
+                        *prepared->height == 0 || *prepared->height > 8192)
+                        return core::Result<FocusedState, core::Diagnostics>::failure({error(
+                            "editor_preview.prepared_video_missing",
+                            "Focused video requires its prepared encoded stream and extent.")});
+                    const core::PreparedBrowserVideo video{
+                        prepared->logical_path.substr(9),
+                        static_cast<std::uint16_t>(*prepared->width),
+                        static_cast<std::uint16_t>(*prepared->height)};
+                    if (prepared_motion.browser_video &&
+                        (prepared_motion.browser_video->path != video.path ||
+                         prepared_motion.browser_video->width != video.width ||
+                         prepared_motion.browser_video->height != video.height))
+                        return core::Result<FocusedState, core::Diagnostics>::failure(
+                            {error("editor_preview.mixed_video_streams",
+                                   "A focused motion must sample one prepared encoded stream.")});
+                    prepared_motion.browser_video = video;
                     prepared_motion.content_hash = prepared->content_hash;
                     prepared_motion.frames.push_back(
                         {prepared->logical_path.substr(9), frame.duration_ms});

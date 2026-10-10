@@ -103,7 +103,7 @@ public:
                  AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
     request_texture(const TextureAssetRequest& request, AssetRequestReason reason,
-                    AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
+                    AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) const noexcept;
     [[nodiscard]] core::Result<AssetRequestHandle<HotspotMaskAsset>, core::Diagnostic>
     request_hotspot_mask(const HotspotMaskAssetRequest& request, AssetRequestReason reason,
                          AssetRequestUrgency urgency = AssetRequestUrgency::Blocking) noexcept;
@@ -120,7 +120,8 @@ public:
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
     prefetch_font(const FontAssetRequest& request, PrefetchGenerationId generation) noexcept;
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
-    prefetch_texture(const TextureAssetRequest& request, PrefetchGenerationId generation) noexcept;
+    prefetch_texture(const TextureAssetRequest& request,
+                     PrefetchGenerationId generation) const noexcept;
     [[nodiscard]] core::Result<PrefetchTicket, core::Diagnostic>
     prefetch_hotspot_mask(const HotspotMaskAssetRequest& request,
                           PrefetchGenerationId generation) noexcept;

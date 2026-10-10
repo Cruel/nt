@@ -20,6 +20,7 @@ set(required_source_fragments
     "/_deps/bgfx.cmake-src/bimg/"
     "/_deps/bgfx.cmake-src/bgfx/src/"
     "/_deps/harfbuzz-src/"
+    "/_deps/libwebm-src/"
     "/_deps/imgui-src/"
     "/_deps/rmlui-src/"
     "/_deps/rmlui_bgfx-src/"

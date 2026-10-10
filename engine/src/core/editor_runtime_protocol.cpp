@@ -2443,7 +2443,7 @@ decode_focused_editor_document_request_text(std::string_view request_text,
             exact_fields(item,
                          {"resourceId", "sourceKind", "logicalPath", "contentHash", "byteSize",
                           "kind", "sampling", "assetId", "shaderId", "shaderStage", "shaderVariant",
-                          "retainAlphaCoverage"},
+                          "retainAlphaCoverage", "width", "height"},
                          diagnostics, path);
             if (!item.is_object())
                 continue;
@@ -2487,6 +2487,19 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                     target = std::move(*value);
             };
             optional_string("sampling", entry.sampling);
+            for (const auto name : {"width", "height"}) {
+                if (!item.contains(name))
+                    continue;
+                const auto value = json_access::member_as<std::uint32_t>(item, name);
+                if (entry.source_kind != "prepared-media" || !value || *value == 0 || *value > 8192)
+                    diagnostics.push_back(error(
+                        "editor_preview.invalid_video_extent",
+                        "Only prepared video has bounded integer dimensions.", path + "/" + name));
+                else if (std::string_view{name} == "width")
+                    entry.width = *value;
+                else
+                    entry.height = *value;
+            }
             if (item.contains("retainAlphaCoverage")) {
                 if (const auto value = json_access::member_as<bool>(item, "retainAlphaCoverage"))
                     entry.retain_alpha_coverage = *value;
@@ -2569,13 +2582,15 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                               "Alpha coverage retention is valid only for image Assets.", path));
             } else if (entry.source_kind == "prepared-media") {
                 if (!entry.asset_id || !entry.asset_id->starts_with("prepared-video-") ||
-                    entry.resource_id != "asset:" + *entry.asset_id || entry.kind != "image" ||
-                    entry.sampling != "linear" || entry.retain_alpha_coverage || entry.shader_id ||
-                    entry.shader_stage || entry.shader_variant ||
+                    entry.resource_id != "asset:" + *entry.asset_id || entry.kind != "video" ||
+                    !entry.width || !entry.height || entry.sampling != "linear" ||
+                    entry.retain_alpha_coverage || entry.shader_id || entry.shader_stage ||
+                    entry.shader_variant ||
                     !entry.logical_path.starts_with("project:/.noveltea/build/prepared-media/"))
                     diagnostics.push_back(
                         error("editor_preview.invalid_manifest_identity",
-                              "Prepared media requires a private opaque frame identity.", path));
+                              "Prepared media requires a private opaque video identity and extent.",
+                              path));
             } else if (entry.source_kind == "project-source") {
                 const auto project_prefix = std::string_view{"project:/"};
                 const auto relative = entry.logical_path.starts_with(project_prefix)

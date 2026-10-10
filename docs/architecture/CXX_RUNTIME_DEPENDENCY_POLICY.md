@@ -29,6 +29,47 @@ receive the policy directly on their CMake targets.
 | miniz | 3.1.1 | C/status-code integration. | ZIP/package errors are recoverable and translated into NovelTea diagnostics. |
 | libpng | 1.6.58; vcpkg on desktop, Emscripten `-sUSE_LIBPNG=1` port on Web, pinned upstream archive on Android; `libpng-2.0` license | C-only runtime dependency with zlib 1.3.2 as its only runtime library dependency. It introduces no C++ objects, exception ABI, or compiler RTTI. `noveltea_engine` links `PNG::PNG` privately and remains compiled under the normal no-exceptions/no-RTTI policy. | Screenshot requests reject invalid dimensions/compression levels before encoding. libpng allocation/setup failures and libpng error callbacks become failed screenshot jobs; the adapter uses libpng's `setjmp`/`longjmp` error boundary and never exposes it outside the encoder. Allocation exhaustion in NovelTea/libpng storage remains process-fatal. |
 
+## Native video dependency admission (#419)
+
+The opaque native media path adds libwebm 1.0.0.32 (BSD-3-Clause), fetched from the hash-pinned
+upstream archive in `cmake/NovelTeaVideo.cmake`, and libvpx 1.16.0 (BSD-3-Clause AND ISC), resolved by
+the repository-pinned vcpkg manifest for desktop targets. Android uses the hash-pinned portable C
+VP9 decoder source build in `cmake/NovelTeaAndroidVpx.cmake`; RTCD/version headers are generated
+before CMake-owned compilation, with encoder interfaces and architecture-specific objects excluded. Only libwebm's `mkvparser/mkvparser.cc` enters
+`noveltea_webm_parser`; no muxer, sample programs, WebM tools, or alternate parser are linked. Its
+complete C++ closure is that one object, compiled through
+`noveltea_apply_runtime_dependency_policy` with `-fno-exceptions -fno-rtti` or `/EHs-c- /GR-` and
+`_HAS_EXCEPTIONS=0`. The dependency compile-database checker inventories its fetched source. libvpx
+is C/assembly and introduces no transitive C++ objects or RTTI/exception ABI. Neither dependency
+enters Web players, which retain browser decoding. No FFmpeg/libav library enters any player.
+
+The adapter uses libwebm status codes and libvpx `vpx_codec_err_t`, translating malformed container,
+unsupported codec, timestamp/dimension mismatch, decoder failure, and GPU resource failure to
+`assets.native_video.*` diagnostics. Source bytes are bounded to 128 MiB, packets to 32 MiB, video
+extent to 8192 per axis, packet count to 65,536, and libwebm reader operations to 250,000. libvpx uses one decode thread and bounded
+external reference-buffer callbacks. Allocation exhaustion and violated internal library assertions
+remain fatal; ordinary malformed media must return a diagnostic. `native_video_decoder_tests.cpp`
+exercises real prepared VP9, held samples, independent positions, seeks, truncation, dimension
+mismatch, and packet corruption. GPU conversion and async readiness are verified separately.
+
+Linux production build, decoder failure tests (45 assertions), focused video tests (539 assertions),
+and real OpenGL YUV readback/session smoke passed. Linux `cxx-policy` verified 297 first-party,
+369 dependency, and 240 fetched RmlUi C++ commands. Player template license generation passed and
+inventories libwebm, libvpx (including its patent notice), and Linux libva 2.23.0 headers. libva
+runtime libraries are dynamically loaded system components; fetched headers introduce no C++
+objects. The Linux Debug player baseline was 796,398,320 bytes on disk / 58,065,523 bytes text;
+the current complete-feature build is 810,495,872 / 60,092,830, a 14,097,552-byte disk and
+2,027,307-byte text delta. This is a Debug feature-level comparison, not an isolated codec or
+Release-size measurement.
+
+The Android portable source graph was configured, compiled, linked, and decoded the real VP9
+fixture on a native host verification harness. No Android SDK/device was available, so that does
+not establish Android platform availability. Windows/macOS resolve libvpx through their native
+triplets; their SDK compilation and hardware playback remain outstanding. This Linux host has no
+DRM render node, so VA-API playback is also unverified. See `docs/assets/NATIVE_VIDEO.md` for
+hardware selection/fallback, GPU ownership, and verification boundaries. Full-suite/focused-preview
+integration and Web verification remain in progress; this admission report is not a completion claim.
+
 ## Platform build policy
 
 - Linux players use `x64-linux-noveltea` inside the pinned glibc 2.28 release environment and statically link libstdc++/libgcc so the host C++ runtime cannot raise the player floor. Linux authoring uses the separate `x64-linux-authoring-noveltea` triplet inside the pinned Debian 12/glibc 2.36 environment.

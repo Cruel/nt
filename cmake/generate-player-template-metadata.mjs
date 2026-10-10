@@ -11,6 +11,9 @@ const output = path.resolve(process.argv[3]);
 const version = process.argv[4];
 const buildRoot = process.argv[5] ? path.resolve(process.argv[5]) : path.dirname(installed);
 const android = process.argv[6] === '--android';
+const cacheFile = path.join(buildRoot, 'CMakeCache.txt');
+const cacheContents = existsSync(cacheFile) ? readFileSync(cacheFile, 'utf8') : '';
+const web = /^CMAKE_TOOLCHAIN_FILE:[^=]*=.*emscripten/im.test(cacheContents);
 if (!process.argv[2] || !process.argv[3] || !version)
   throw new Error('Usage: generate-player-template-metadata.mjs <vcpkg_installed> <stage> <version> [build-root]');
 
@@ -241,13 +244,15 @@ if (!android && existsSync(statusPath)) {
         include(dependency);
   }
   for (const name of exceptions.vcpkgRuntimeRoots) include(name);
+  if (!web) for (const name of exceptions.vcpkgNativeRoots) include(name);
   if (target.includes('linux'))
     for (const name of exceptions.vcpkgLinuxRoots) include(name);
   const share = path.join(installed, target, 'share');
   for (const name of [...required].sort()) {
     const item = candidates.get(name);
     const source = path.join(share, name, 'copyright');
-    addComponent(name, item.Version, [source], `vcpkg:${target}`);
+    const additional = (exceptions.vcpkgAdditionalNotices[name] ?? []).map((file) => path.join(root, file));
+    addComponent(name, item.Version, [source, ...additional], `vcpkg:${target}`);
   }
 }
 const deps = path.join(buildRoot, '_deps');
@@ -257,7 +262,7 @@ if (existsSync(deps)) {
   const androidRequired = new Set([
     'bgfx.cmake', 'fast_float', 'freetype', 'harfbuzz', 'libpng',
     'libunibreak_src', 'lua_src', 'miniaudio', 'miniz', 'nlohmann_json',
-    'rmlui', 'sheenbidi', 'sol2', 'twink',
+    'rmlui', 'sheenbidi', 'sol2', 'twink', 'libwebm', 'libvpx',
   ]);
   const observed = new Set();
   for (const entry of readdirSync(deps).filter((name) => name.endsWith('-src')).sort()) {
@@ -268,6 +273,7 @@ if (existsSync(deps)) {
     if (!rule) throw new Error(`Unclassified CMake source dependency ${name}: add a target applicability rule.`);
     if (rule.player === false) continue;
     if (rule.androidOnly && !android) continue;
+    if (rule.nativeOnly && web) continue;
     if (android) {
       if (!androidRequired.has(name))
         throw new Error(`Unclassified Android runtime source dependency ${name}.`);

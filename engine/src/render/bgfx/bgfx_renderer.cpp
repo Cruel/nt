@@ -5,6 +5,7 @@
 #include "render/bgfx/bgfx_shader_loader.hpp"
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
 #include "render/bgfx/bgfx_typed_asset_loader.hpp"
+#include "render/bgfx/native_video_texture.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -317,7 +318,11 @@ Renderer::ScissorRect Renderer::current_scissor() const
     return m_scissor_stack.empty() ? ScissorRect{} : m_scissor_stack.back();
 }
 
-void Renderer::end_frame() { m_bgfx_frame = bgfx::frame(); }
+void Renderer::end_frame()
+{
+    m_bgfx_frame = bgfx::frame();
+    reset_native_video_upload_views();
+}
 
 bool Renderer::request_screenshot_capture(RendererScreenshotRequest request)
 {

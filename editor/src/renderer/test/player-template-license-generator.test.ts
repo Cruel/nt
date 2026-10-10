@@ -11,6 +11,7 @@ const rules = JSON.parse(
 ) as {
   vcpkgRuntimeRoots: string[];
   vcpkgLinuxRoots: string[];
+  vcpkgNativeRoots: string[];
   fetched: Record<
     string,
     {
@@ -281,7 +282,11 @@ describe('resolved player-template license generation', () => {
     write(build, 'runtime-assets/system/fonts/LiberationSans.ttf', bundledFont);
     const packagedFont = 'stage/assets/system/fonts/LiberationSans.ttf';
     write(root, packagedFont, bundledFont);
-    const installed = [...rules.vcpkgRuntimeRoots, ...rules.vcpkgLinuxRoots];
+    const installed = [
+      ...rules.vcpkgRuntimeRoots,
+      ...rules.vcpkgNativeRoots,
+      ...rules.vcpkgLinuxRoots,
+    ];
     const names = [...installed, 'brotli', 'bzip2', 'expat', 'catch2', 'imgui', 'vcpkg-cmake'];
     const text = Buffer.from('MIT License\r\nOriginal source\r\n');
     const freeTypeText = Buffer.from('FreeType License\nPage one\fPage two\n');
@@ -305,6 +310,12 @@ describe('resolved player-template license generation', () => {
     const index = getIndex(stage);
     expect(index.components.some((item) => item.component === 'sdl3')).toBe(true);
     expect(index.components.some((item) => item.component === 'dbus')).toBe(true);
+    expect(index.components.some((item) => item.component === 'libvpx')).toBe(true);
+    const vpx = index.components.find((item) => item.component === 'libvpx')!;
+    expect(vpx.files).toHaveLength(2);
+    expect(readFileSync(path.join(stage, vpx.files[1]!.path))).toEqual(
+      readFileSync(path.resolve(process.cwd(), '../cmake/licenses/libvpx-1.16.0-patents.txt')),
+    );
     for (const name of ['brotli', 'bzip2', 'expat'])
       expect(index.components.some((item) => item.component === name)).toBe(true);
     expect(index.components.some((item) => item.component === 'catch2')).toBe(false);

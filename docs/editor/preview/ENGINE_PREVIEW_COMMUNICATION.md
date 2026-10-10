@@ -651,11 +651,16 @@ Animation Hotspots use logical canvas dimensions and no fixed source Asset. The 
 Assets in the normal manifest, requesting retained CPU coverage for every selected `visual-alpha` frame. Native decoding rejects invalid canvas
 sizes, non-positive/non-integer frame durations, empty motions/frames, duplicate Animation or local
 motion IDs, and missing default/selected motions. Manifest closure covers image Visuals and every
-included Animation frame; missing entries fail before candidate publication. Prepared video frames
-have explicit `prepared-media` resource authority, linear sampling, generated Asset identities, and
-matching private `.noveltea/build/prepared-media/` logical/fetch paths. They must not be projected as
-`authoring-asset` entries. Focused publication decodes only the selected initial video frame; the
-native time-directed sampler requests subsequent frames through ordinary asynchronous residency.
+included Animation frame; missing entries fail before candidate publication. Prepared video motions
+have one explicit `prepared-media` resource with `kind: 'video'`, linear sampling, a generated
+`prepared-video-…-stream` Asset identity, required integer `width`/`height` (1–8192), and matching
+private `.noveltea/build/prepared-media/` WebM logical/fetch paths. All semantic frame-duration
+entries reference that stream identity; PNG resources are not staged for focused video. The current
+V1 shape replaces the PNG-only projection atomically and rejects image-kind or dimensionless
+prepared-media entries. These resources must not be projected as `authoring-asset` entries.
+Focused publication prepares only the selected initial/marker sample through the same typed
+prepared-video request builder as world presentation; subsequent samples use native persistent
+sessions or browser decoding with ordinary asynchronous residency.
 
 The focused presenter uses the production resource resolver and raster world backend under focused
 mandatory leases. Successful prepared publication preserves compatible live Animation occurrence
@@ -745,7 +750,7 @@ The focused native envelope is closed and versioned:
 
 The editor-facing manifest carries semantic usage roles plus one source-owned fetch authority.
 Authoring Assets require the main-owned `noveltea-asset://source/` URL in `fetchUrl`; compiled Shader
-outputs and private prepared-media frames require `fetchProjectRelativePath`. These fields are used only by the web staging layer and
+outputs and private prepared-media streams require `fetchProjectRelativePath`. These fields are used only by the web staging layer and
 are omitted from the native projection.
 Compiled Shader entries identify the stage and one closed renderer variant (`glsl-330`, `essl-300`,
 or `metal`) and carry verified binary hash, byte size, and compile-input fingerprint metadata in

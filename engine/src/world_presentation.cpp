@@ -553,15 +553,16 @@ void suspend_unretained_video_streams(const std::vector<std::shared_ptr<WorldVid
             stream->suspend();
 }
 
-class PreparedRasterVideoStream final : public WorldVideoStream {
+class PreparedVideoStream final : public WorldVideoStream {
 public:
-    PreparedRasterVideoStream(assets::AssetManager& assets,
-                              core::PreparedVideoMotion representation, std::size_t initial_index,
-                              assets::AssetLease<assets::TextureAsset> initial)
+    PreparedVideoStream(assets::AssetManager& assets, core::PreparedVideoMotion representation,
+                        std::size_t initial_index, assets::AssetLease<assets::TextureAsset> initial)
         : m_assets(assets), m_representation(std::move(representation)),
           m_generation(initial.cache_key().source_generation), m_current_index(initial_index),
-          m_current(std::move(initial))
+          m_current(std::move(initial)), m_seed(m_current)
     {
+        if (m_seed->video_source)
+            m_session = m_seed->video_source->create_session();
     }
 
     core::Result<std::optional<assets::AssetLease<assets::TextureAsset>>, core::Diagnostics>
@@ -576,6 +577,13 @@ public:
             m_state = assets::AssetRequestState::Failed;
             return Sample::failure(std::move(diagnostics));
         };
+#ifndef __EMSCRIPTEN__
+        if (!m_session)
+            return fail(
+                {diagnostic("presentation.video_decoder_unavailable",
+                            "Native VP9 media source did not provide an occurrence decoder.",
+                            m_representation.animation.text())});
+#endif
         if (m_generation != m_assets.source_generation_on_owner())
             return fail(
                 {diagnostic("presentation.video_source_changed",
@@ -593,9 +601,19 @@ public:
                     return fail({diagnostic("presentation.video_frame_unavailable",
                                             "Ready video frame did not yield a texture lease.",
                                             m_representation.animation.text())});
-                m_current = std::move(*ready);
-                m_current_index = m_pending_index;
+                if (m_session && !m_session_anchor) {
+                    m_session_anchor = *ready;
+                    m_session_pin = m_session->retain_residency(*ready);
+                }
+                if (!m_session || m_pending_index == index) {
+                    m_current = std::move(*ready);
+                    m_current_index = m_pending_index;
+                }
             }
+        }
+        if (m_session && index == m_seed_index) {
+            m_current = m_seed;
+            m_current_index = m_seed_index;
         }
         if (index == m_current_index) {
             // Loop wrap must not cancel a slow seek before it can ever produce a sample.
@@ -605,9 +623,16 @@ public:
         }
         // Let a slow decode finish instead of starving it as the requested playhead advances.
         if (!m_pending) {
-            const auto request = assets::prepared_video_texture_request(m_representation, index);
-            auto requested = m_assets.request_texture(request, assets::AssetRequestReason::Demand,
-                                                      assets::AssetRequestUrgency::Background);
+            auto request = assets::prepared_video_texture_request(m_representation, index);
+            request.video_session = m_session;
+            if (m_session)
+                request.video_sample->revision = ++m_sample_revision;
+            // First occurrence allocation is visible demand, not deferrable background prefetch.
+            const auto urgency = m_session && !m_session_anchor
+                                     ? assets::AssetRequestUrgency::Blocking
+                                     : assets::AssetRequestUrgency::Background;
+            auto requested =
+                m_assets.request_texture(request, assets::AssetRequestReason::Demand, urgency);
             if (!requested)
                 return fail({std::move(requested).error()});
             m_pending = std::move(*requested.value_if());
@@ -623,8 +648,14 @@ public:
                 return fail({diagnostic("presentation.video_frame_unavailable",
                                         "Ready video frame did not yield a texture lease.",
                                         m_representation.animation.text())});
-            m_current = std::move(*ready);
-            m_current_index = m_pending_index;
+            if (m_session && !m_session_anchor) {
+                m_session_anchor = *ready;
+                m_session_pin = m_session->retain_residency(*ready);
+            }
+            if (!m_session || m_pending_index == index) {
+                m_current = std::move(*ready);
+                m_current_index = m_pending_index;
+            }
         }
         m_current.mark_used_on_owner();
         return Sample::success(m_current);
@@ -632,11 +663,24 @@ public:
 
     void suspend() noexcept override
     {
+        if (m_pending && m_session && !m_session_anchor &&
+            m_pending.state() == assets::AssetRequestState::Ready) {
+            if (auto ready = std::move(m_pending).take_ready()) {
+                m_session_anchor = *ready;
+                m_session_pin = m_session->retain_residency(*ready);
+            }
+        }
         m_pending.reset();
         if (m_state != assets::AssetRequestState::Failed)
             m_state = assets::AssetRequestState::Ready;
     }
     assets::AssetRequestState state() const noexcept override { return m_state; }
+    const char* backend() const noexcept override
+    {
+        if (m_session && std::string_view(m_session->backend()) != "pending")
+            return m_session->backend();
+        return m_seed->video_session ? m_seed->video_session->backend() : "browser-media";
+    }
     bool frame_addressable() const noexcept override { return true; }
     bool sample_ready(std::uint64_t time_ms) const noexcept override
     {
@@ -651,6 +695,12 @@ private:
     assets::AssetSourceGeneration m_generation;
     std::size_t m_current_index;
     assets::AssetLease<assets::TextureAsset> m_current;
+    assets::AssetLease<assets::TextureAsset> m_seed;
+    std::size_t m_seed_index = m_current_index;
+    std::shared_ptr<assets::VideoTextureSession> m_session;
+    std::optional<assets::AssetLease<assets::TextureAsset>> m_session_anchor;
+    std::shared_ptr<assets::VideoTextureResidencyPin> m_session_pin;
+    std::uint64_t m_sample_revision = 0;
     std::size_t m_pending_index = 0;
     assets::AssetRequestHandle<assets::TextureAsset> m_pending;
     assets::AssetRequestState m_state = assets::AssetRequestState::Ready;
@@ -845,11 +895,11 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
         const auto prepared = m_prepared_video_motions.find(
             prepared_video_motion_key(selection.animation, motion_id));
         if (prepared == m_prepared_video_motions.end())
-            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure({diagnostic(
-                "presentation.world_video_representation_unresolved",
-                "World presentation video Animation has no prepared raster representation: " +
-                    selection.animation.text() + "/" + motion_id.text(),
-                context)});
+            return core::Result<WorldPreparedVisual, core::Diagnostics>::failure(
+                {diagnostic("presentation.world_video_representation_unresolved",
+                            "World presentation video Animation has no prepared representation: " +
+                                selection.animation.text() + "/" + motion_id.text(),
+                            context)});
         prepared_video = &prepared->second;
         std::uint64_t duration = 0;
         for (const auto& frame : prepared_video->frames) {
@@ -908,8 +958,8 @@ AssetWorldPresentationResourceResolver::resolve_visual(const core::compiled::Vis
             result.animation_frames.push_back({frame.duration_ms, lease->asset(), *lease});
             result.texture = lease->asset();
             result.texture_lease = *lease;
-            result.video_stream = std::make_shared<PreparedRasterVideoStream>(
-                m_assets, *prepared_video, initial_index, *lease);
+            result.video_stream = std::make_shared<PreparedVideoStream>(m_assets, *prepared_video,
+                                                                        initial_index, *lease);
         }
     } else {
         result.animation_frames.reserve(motion->frames.size());

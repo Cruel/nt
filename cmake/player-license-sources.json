@@ -13,6 +13,8 @@
     "sheenbidi", "sol2"
   ],
   "vcpkgLinuxRoots": ["dbus"],
+  "vcpkgNativeRoots": ["libvpx"],
+  "vcpkgAdditionalNotices": { "libvpx": ["cmake/licenses/libvpx-1.16.0-patents.txt"] },
   "fetched": {
     "bgfx.cmake": {
       "version": "1.161.9495-578",
@@ -30,6 +32,9 @@
     "harfbuzz": { "version": "14.2.1", "paths": ["COPYING", "src/ms-use/COPYING"] },
     "libpng": { "androidOnly": true, "version": "1.6.58", "paths": ["LICENSE"] },
     "libunibreak_src": { "name": "libunibreak", "version": "7.0", "paths": ["LICENCE"] },
+    "libwebm": { "nativeOnly": true, "version": "1.0.0.32", "paths": ["LICENSE.TXT", "PATENTS.TXT"] },
+    "libvpx": { "androidOnly": true, "version": "1.16.0", "paths": ["LICENSE", "PATENTS"] },
+    "libva_headers": { "name": "libva (headers)", "nativeOnly": true, "version": "2.23.0", "paths": ["COPYING"] },
     "lua_src": {
       "name": "lua", "version": "5.5.0",
       "paths": ["@repo/cmake/licenses/lua-5.5.0-license.txt"],

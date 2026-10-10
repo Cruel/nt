@@ -7,6 +7,7 @@
 #include "noveltea/core/editor_runtime_protocol.hpp"
 #include "noveltea/jobs/inline_job_executor.hpp"
 #include "fake_script_source.hpp"
+#include "fake_video_texture_source.hpp"
 
 #include <catch2/catch_test_macros.hpp>
 
@@ -64,8 +65,9 @@ private:
 class FocusedTexturePreparationTask final
     : public assets::AssetPreparationTask<assets::TextureAsset> {
 public:
-    explicit FocusedTexturePreparationTask(assets::TextureAssetRequest request)
-        : m_request(std::move(request))
+    explicit FocusedTexturePreparationTask(assets::TextureAssetRequest request,
+                                           std::shared_ptr<assets::VideoTextureSource> source = {})
+        : m_request(std::move(request)), m_source(std::move(source))
     {
     }
 
@@ -95,13 +97,16 @@ public:
                                                .path = m_request.path,
                                                .width = 64,
                                                .height = 32,
-                                               .sampler = m_request.sampler},
+                                               .sampler = m_request.sampler,
+                                               .video_source = m_source,
+                                               .video_session = m_request.video_session},
                  .cost = {.prepared_cpu_bytes = 1},
                  .destroy_on_owner = {}});
     }
 
 private:
     assets::TextureAssetRequest m_request;
+    std::shared_ptr<assets::VideoTextureSource> m_source;
     bool m_ready = false;
 };
 
@@ -118,7 +123,10 @@ public:
     create_texture_preparation_task(const assets::TextureAssetRequest& request) override
     {
         requests.push_back(request);
-        return std::make_unique<FocusedTexturePreparationTask>(request);
+        return std::make_unique<FocusedTexturePreparationTask>(
+            request, request.video_sample && !request.video_session
+                         ? std::make_shared<test::FakeVideoTextureSource>(*this)
+                         : nullptr);
     }
 
     std::vector<assets::TextureAssetRequest> requests;
@@ -1635,10 +1643,10 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
                    {{{"id", "idle"},
                      {"kind", "sprite-sequence"},
                      {"markers", nlohmann::json::array()},
-                     {"frames",
-                      nlohmann::json::array(
-                          {{{"assetId", "prepared-video-test-0"}, {"durationMs", 50}},
-                           {{"assetId", "prepared-video-test-1"}, {"durationMs", 100}}})}}})}}});
+                     {"frames", nlohmann::json::array({{{"assetId", "prepared-video-test-stream"},
+                                                        {"durationMs", 50}},
+                                                       {{"assetId", "prepared-video-test-stream"},
+                                                        {"durationMs", 100}}})}}})}}});
         video_room["world"]["interactables"] =
             nlohmann::json::array({{{"occurrenceId", "key-occurrence"},
                                     {"interactableId", "key"},
@@ -1659,20 +1667,15 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         auto video_request = make_request(core::editor::FocusedEditorDocumentKind::Room,
                                           "room-video", video_room, 2);
         video_request.resources = {
-            {.resource_id = "asset:prepared-video-test-0",
+            {.resource_id = "asset:prepared-video-test-stream",
              .source_kind = "prepared-media",
-             .logical_path = "project:/.noveltea/build/prepared-media/test/frame-a.png",
+             .logical_path = "project:/.noveltea/build/prepared-media/test/opaque.webm",
              .content_hash = "sha256:" + std::string(64, 'a'),
-             .kind = "image",
+             .kind = "video",
              .sampling = "linear",
-             .asset_id = "prepared-video-test-0"},
-            {.resource_id = "asset:prepared-video-test-1",
-             .source_kind = "prepared-media",
-             .logical_path = "project:/.noveltea/build/prepared-media/test/frame-b.png",
-             .content_hash = "sha256:" + std::string(64, 'b'),
-             .kind = "image",
-             .sampling = "linear",
-             .asset_id = "prepared-video-test-1"}};
+             .asset_id = "prepared-video-test-stream",
+             .width = 64,
+             .height = 32}};
         const auto applied = presenter.apply(std::move(video_request));
         INFO(last_diagnostic);
         REQUIRE(applied);
@@ -1702,7 +1705,9 @@ TEST_CASE("FocusedPreviewPresenter preserves prior owners and commits Room candi
         publish_video();
         world_backend.realize(video_clock);
         CHECK(video_decode_count() == 2);
-        CHECK((*world_backend.frame()->draws.front().texture_lease)->path.ends_with("frame-b.png"));
+        REQUIRE(focused_textures.requests.back().video_sample);
+        CHECK(focused_textures.requests.back().video_sample->time_ms == 100);
+        CHECK((*world_backend.frame()->draws.front().texture_lease)->path.ends_with("opaque.webm"));
         presenter.clear();
         return;
     }

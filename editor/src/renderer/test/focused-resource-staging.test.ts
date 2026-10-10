@@ -9,16 +9,18 @@ import {
   type PreviewResourceManifestEntry,
 } from '../../shared/focused-preview-contracts';
 
-it('admits and projects private video frames consistently through the real widget boundary', () => {
+it('admits and projects private encoded video consistently through the real widget boundary', () => {
   const entry: PreviewResourceManifestEntry = {
     resourceId: 'asset:prepared-video-sample-0',
     sourceKind: 'prepared-media',
     assetId: 'prepared-video-sample-0',
-    kind: 'image',
+    kind: 'video',
     sampling: 'linear',
+    width: 32,
+    height: 16,
     usageRoles: ['room-preview'],
-    fetchProjectRelativePath: '.noveltea/build/prepared-media/sample/frame-000000.png',
-    logicalPath: 'project:/.noveltea/build/prepared-media/sample/frame-000000.png',
+    fetchProjectRelativePath: '.noveltea/build/prepared-media/sample/opaque.webm',
+    logicalPath: 'project:/.noveltea/build/prepared-media/sample/opaque.webm',
     contentHash: `sha256:${'a'.repeat(64)}`,
     byteSize: 1,
   };
@@ -42,6 +44,8 @@ it('admits and projects private video frames consistently through the real widge
   expect(end).toBeGreaterThan(start);
   vm.runInNewContext(`${widget.slice(start, end)}\nvalidate = validateFocusedManifest;`, context);
   expect(() => context.validate!([entry])).not.toThrow();
+  expect(() => context.validate!([{ ...entry, kind: 'image' }])).toThrow();
+  expect(() => context.validate!([{ ...entry, width: undefined }])).toThrow();
   expect(() =>
     context.validate!([
       {

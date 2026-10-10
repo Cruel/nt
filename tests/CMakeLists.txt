@@ -499,6 +499,26 @@ add_executable(noveltea_asset_tests
     assets/runtime_package_loader_tests.cpp
     assets/zip_asset_source_tests.cpp
 )
+if(NOT EMSCRIPTEN)
+    target_sources(noveltea_asset_tests PRIVATE assets/native_video_decoder_tests.cpp)
+    add_executable(noveltea_native_video_texture_smoke render/native_video_texture_smoke.cpp)
+    target_link_libraries(noveltea_native_video_texture_smoke PRIVATE noveltea_engine)
+    noveltea_apply_runtime_compiler_policy(noveltea_native_video_texture_smoke)
+    target_compile_definitions(noveltea_native_video_texture_smoke PRIVATE
+        NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
+        NOVELTEA_TEST_RUNTIME_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}")
+    noveltea_attach_generated_shaders(noveltea_native_video_texture_smoke)
+    noveltea_attach_runtime_assets(noveltea_native_video_texture_smoke)
+    find_program(NOVELTEA_VIDEO_XVFB_RUN xvfb-run)
+    if(NOVELTEA_VIDEO_XVFB_RUN)
+        add_test(NAME noveltea_native_video_texture_smoke
+            COMMAND "${NOVELTEA_VIDEO_XVFB_RUN}" -a $<TARGET_FILE:noveltea_native_video_texture_smoke>)
+    else()
+        add_test(NAME noveltea_native_video_texture_smoke COMMAND noveltea_native_video_texture_smoke)
+    endif()
+    set_tests_properties(noveltea_native_video_texture_smoke PROPERTIES
+        SKIP_RETURN_CODE 4 LABELS "video;render;native;readback" TIMEOUT 120)
+endif()
 target_include_directories(noveltea_asset_tests PRIVATE "${CMAKE_SOURCE_DIR}/engine/src")
 target_compile_definitions(noveltea_asset_tests PRIVATE
     NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
