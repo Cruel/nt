@@ -3,6 +3,7 @@ import type {
   LocalizationFontCoverageRequest,
   LocalizationFontCoverageResponse,
 } from '../shared/localization-font-coverage';
+import { validateImportedAudioVideo } from '../main/services/media-import-validation-service';
 import {
   compileShadersNative,
   exportPackageNative,
@@ -12,9 +13,12 @@ import {
   shadercNative,
   texturecNative,
   validateFontCoverageNative,
+  inspectFontNative,
 } from '@noveltea/tooling-native';
 
 export interface NovelTeaCliNativeToolService {
+  inspectFont?(absolutePath: string): Promise<{ ok: boolean; glyphCount?: number; error?: string }>;
+  validateMedia?(absolutePath: string, kind: 'audio' | 'video'): Promise<void>;
   compileShaders(
     shaderProject: unknown,
     options: ShaderCompileOptions,
@@ -34,6 +38,10 @@ export interface NovelTeaCliNativeToolService {
 
 export function createInProcessNovelTeaCliNativeToolService(): NovelTeaCliNativeToolService {
   return {
+    validateMedia: validateImportedAudioVideo,
+    async inspectFont(absolutePath) {
+      return inspectFontNative({ path: absolutePath });
+    },
     async compileShaders(shaderProject, options) {
       return compileShadersNative<ShaderCompileResponse>({
         shaderProject,

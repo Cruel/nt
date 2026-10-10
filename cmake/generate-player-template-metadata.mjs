@@ -80,6 +80,36 @@ function sourceRevision(source) {
   }
 }
 
+// These pins are declarations about the resolved FetchContent inputs, not free-form
+// display strings. Reconcile them with the actual version/tag in CMake's download
+// declarations so the SBOM and index cannot agree on the same stale manual pin.
+const cmakeDeclarations = [
+  path.join(root, 'CMakeLists.txt'),
+  path.join(root, 'engine/CMakeLists.txt'),
+  ...readdirSync(path.join(root, 'cmake')).filter((name) => name.endsWith('.cmake'))
+    .map((name) => path.join(root, 'cmake', name)),
+].map((file) => readFileSync(file, 'utf8'));
+const bgfxVersion = /set\(NOVELTEA_BGFX_VERSION\s+"([^"]+)"\)/.exec(
+  readFileSync(path.join(root, 'cmake/NovelTeaBgfxVersion.cmake'), 'utf8'),
+)?.[1];
+function verifyFetchedVersion(name, pinned) {
+  const declarations = cmakeDeclarations.flatMap((source) =>
+    [...source.matchAll(/FetchContent_Declare\(\s*([\w.]+)([\s\S]*?)\n\s*\)/gi)]
+      .filter((match) => match[1].toLowerCase() === name.toLowerCase())
+      .map((match) => match[2]),
+  );
+  if (!declarations.length)
+    throw new Error(`No CMake FetchContent declaration for pinned license source '${name}'.`);
+  const versionTokens = pinned.split(/[._-]/g).map((part) =>
+    part.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'));
+  const versionPattern = new RegExp(`(^|[^0-9])${versionTokens.join('[._-]')}(?![0-9])`, 'i');
+  if (!declarations.some((entry) => {
+    const expanded = entry.replaceAll('${NOVELTEA_BGFX_VERSION}', bgfxVersion ?? '');
+    return versionPattern.test(expanded);
+  }))
+    throw new Error(`Stale license version pin for '${name}': ${pinned} differs from CMake's resolved source declaration.`);
+}
+
 const statusPath = path.join(installed, 'vcpkg', 'status');
 if (!android && existsSync(statusPath)) {
   const paragraphs = readFileSync(statusPath, 'utf8').split(/\r?\n\r?\n/);
@@ -164,6 +194,7 @@ if (existsSync(deps)) {
           !evidence.includes('Lua.org, PUC-Rio'))
         throw new Error(`Unable to verify license provenance of ${name} from ${rule.evidence}`);
     }
+    if (rule.version) verifyFetchedVersion(name, rule.version);
     const revision = rule.version ?? sourceRevision(source);
     if (rule.components) {
       for (const component of rule.components)

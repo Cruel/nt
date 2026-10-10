@@ -137,4 +137,14 @@ describe('Project distribution notice inventory', () => {
       collectRuntimeDistributionNotices(project, new Set(), '/game', paths),
     ).rejects.toThrow(/controls/);
   });
+
+  it('rejects an index larger than the canonical runtime notice limit', async () => {
+    const { project, paths } = fixture({});
+    project.settings.distributionNotices = Array.from({ length: 513 }, (_, index) => ({
+      path: `support/licenses/notice-${index}.txt`,
+    }));
+    await expect(
+      collectRuntimeDistributionNotices(project, new Set(), '/game', paths),
+    ).rejects.toThrow(/512-entry/);
+  });
 });

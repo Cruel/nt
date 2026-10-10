@@ -16,6 +16,8 @@ import {
 import { isAuthoringProject } from '../../shared/project-schema/authoring-project';
 import { PROJECT_WORKSPACE_ABSENT_REVISION } from '../../shared/project-workspace/project-workspace-transaction';
 import { moveProjectAssetFileTransaction } from './project-asset-file-transaction';
+import { validateImportedFont } from './font-import-validation-service';
+import { validateImportedAudioVideo } from './media-import-validation-service';
 
 function projectRootFromFile(projectFilePath: string): string {
   return path.dirname(path.resolve(projectFilePath));
@@ -312,8 +314,15 @@ async function metadataForExistingAsset(
   const bytes = await fs.readFile(safe.absolute);
   const extension = path.extname(safe.absolute).toLowerCase();
   const kind = inferAssetKindFromExtension(extension);
-  if (MEDIA_KINDS.has(kind) && !isRecognizedMedia(extension, bytes.subarray(0, INSPECTION_BYTES)))
+  // Discovery uses cheap header heuristics; explicit audio/video registration trusts
+  // FFmpeg instead so valid containers with unusual layouts are not rejected here.
+  if (
+    (kind === 'image' || kind === 'font') &&
+    !isRecognizedMedia(extension, bytes.subarray(0, INSPECTION_BYTES))
+  )
     throw new Error(`File does not contain a recognized ${kind} format (${extension}).`);
+  if (kind === 'font') await validateImportedFont(safe.absolute, extension);
+  if (kind === 'audio' || kind === 'video') await validateImportedAudioVideo(safe.absolute, kind);
   const common = {
     originalPath: safe.absolute,
     originalName: path.basename(safe.absolute),

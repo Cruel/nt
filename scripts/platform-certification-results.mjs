@@ -226,6 +226,14 @@ function verifyCanonicalEvidence(canonical, descriptor, label = 'Canonical evide
   }
   if (typeof canonical.packageAccessMode !== 'string' || canonical.packageAccessMode.length === 0)
     throw new Error(`${label} is missing its exercised package access mode.`);
+  if (canonical.target !== 'android') {
+    const viewer = canonical.licenseViewer;
+    if (viewer?.viewer !== 'runtime_licenses' ||
+        !Number.isSafeInteger(viewer.engineNotices) || viewer.engineNotices < 1 ||
+        viewer.projectNotices !== 3 ||
+        !/^[0-9a-f]{64}$/.test(viewer.catalogSha256 ?? ''))
+      throw new Error(`${label} is missing finalized export -> Runtime Package -> native Licenses viewer acceptance evidence.`);
+  }
 }
 
 async function main() {

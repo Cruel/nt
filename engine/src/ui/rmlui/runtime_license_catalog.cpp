@@ -7,6 +7,7 @@
 #include <algorithm>
 #include <cctype>
 #include <cstddef>
+#include <map>
 #include <set>
 #include <span>
 #include <string_view>
@@ -66,12 +67,33 @@ bool valid_engine_text(std::string_view text)
     return valid_text(normalized);
 }
 
+std::optional<std::string> read_bounded_text(const assets::AssetManager& assets,
+                                             std::string_view path)
+{
+    auto opened = assets.open(path);
+    if (!opened)
+        return std::nullopt;
+    auto& reader = **opened.value;
+    auto size = reader.size();
+    if (!size || *size.value > kMaxNoticeBytes)
+        return std::nullopt;
+    std::string text(static_cast<std::size_t>(*size.value), '\0');
+    std::size_t offset = 0;
+    while (offset < text.size()) {
+        auto read = reader.read(text.data() + offset, text.size() - offset);
+        if (!read || *read.value == 0 || *read.value > text.size() - offset)
+            return std::nullopt;
+        offset += *read.value;
+    }
+    return text;
+}
+
 std::optional<nlohmann::json> read_index(const assets::AssetManager& assets, std::string_view path)
 {
-    auto text = assets.read_text(path);
-    if (!text || text.value->size() > kMaxNoticeBytes)
+    auto text = read_bounded_text(assets, path);
+    if (!text)
         return std::nullopt;
-    auto parsed = nlohmann::json::parse(*text.value, nullptr, false);
+    auto parsed = nlohmann::json::parse(*text, nullptr, false);
     if (!parsed.is_object())
         return std::nullopt;
     return parsed;
@@ -124,6 +146,9 @@ bool append_project(const nlohmann::json& index, std::vector<RuntimeLicenseNotic
         index["schema"] != "noveltea.project-notices" || !index.contains("notices") ||
         !index["notices"].is_array())
         return false;
+    // Player and Runtime Package inventories are certified separately. Neither may consume
+    // the other's quota, or an otherwise valid Project notice catalog disappears from the UI.
+    const auto project_start = out.size();
     std::string previous;
     for (const auto& notice : index["notices"]) {
         if (!notice.is_object() || notice.size() != 4 || !notice.contains("path") ||
@@ -136,11 +161,17 @@ bool append_project(const nlohmann::json& index, std::vector<RuntimeLicenseNotic
         const auto source = notice["source"].get<std::string>();
         const auto label = notice["displayName"].get<std::string>();
         const auto hash = notice["contentHash"].get<std::string>();
+        const auto dot = path.find_last_of('.');
+        if (dot == std::string::npos)
+            return false;
+        auto extension = path.substr(dot);
+        std::transform(extension.begin(), extension.end(), extension.begin(),
+                       [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
         if (!safe_notice_path(path) || path != "licenses/" + source ||
-            !(path.ends_with(".txt") || path.ends_with(".md")) ||
+            (extension != ".txt" && extension != ".md") ||
             (!previous.empty() && source <= previous) || label.empty() ||
             !hash.starts_with("sha256:") || !valid_sha256(std::string_view(hash).substr(7)) ||
-            out.size() >= kMaxNotices)
+            out.size() - project_start >= kMaxNotices)
             return false;
         previous = source;
         out.push_back({"project", label, "project:/" + path, hash.substr(7), 0});
@@ -171,6 +202,16 @@ RuntimeLicenseCatalog RuntimeLicenseCatalog::load(const assets::AssetManager& as
     } else if (assets.exists("project:/licenses/index.json")) {
         catalog.invalid_inventory = true;
     }
+    // A display name is advisory. Distinct Project files with the same label must remain
+    // identifiable without authors having to rename their original notice files.
+    std::map<std::string, std::size_t> project_label_counts;
+    for (const auto& notice : catalog.notices)
+        if (notice.group == "project")
+            ++project_label_counts[notice.label];
+    for (auto& notice : catalog.notices)
+        if (notice.group == "project" && project_label_counts[notice.label] > 1)
+            notice.label +=
+                " (" + notice.path.substr(std::string("project:/licenses/").size()) + ")";
     std::stable_sort(catalog.notices.begin(), catalog.notices.end(),
                      [](const auto& a, const auto& b) {
                          if (a.group != b.group)
@@ -188,16 +229,15 @@ std::optional<std::string> RuntimeLicenseCatalog::read_notice(const assets::Asse
     if (index >= notices.size())
         return std::nullopt;
     const auto& notice = notices[index];
-    auto text = assets.read_text(notice.path);
+    auto text = read_bounded_text(assets, notice.path);
     if (!text)
         return std::nullopt;
     const bool content_valid =
-        notice.group == "engine" ? valid_engine_text(*text.value) : valid_text(*text.value);
-    if (!content_valid || (notice.byte_size != 0 && notice.byte_size != text.value->size()) ||
-        core::sha256_hex(std::as_bytes(std::span(text.value->data(), text.value->size()))) !=
-            notice.sha256)
+        notice.group == "engine" ? valid_engine_text(*text) : valid_text(*text);
+    if (!content_valid || (notice.byte_size != 0 && notice.byte_size != text->size()) ||
+        core::sha256_hex(std::as_bytes(std::span(text->data(), text->size()))) != notice.sha256)
         return std::nullopt;
-    return std::move(*text.value);
+    return text;
 }
 
 } // namespace noveltea::ui::rmlui

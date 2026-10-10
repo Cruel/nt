@@ -56,6 +56,8 @@ const definitions = [
   [39, 'noveltea.licenses.empty'],
   [40, 'noveltea.licenses.engine_unavailable'],
   [41, 'noveltea.licenses.invalid'],
+  [42, 'noveltea.licenses.scroll_up'],
+  [43, 'noveltea.licenses.scroll_down'],
 ] as const;
 
 export const systemMessageDefinitions: readonly SystemMessageDefinition[] = Object.freeze(

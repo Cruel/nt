@@ -653,6 +653,17 @@ export async function mutateProjectSources(
           throw new Error(`Attachment destination '${toPath}' already exists.`);
         const candidate = structuredClone(snapshot.project);
         let references = 0;
+        const notices = candidate.settings.distributionNotices;
+        if (notices.some((notice) => notice.path === fromPath)) {
+          if (notices.some((notice) => notice.path === toPath))
+            throw new Error(
+              'Moving this file would create a duplicate Project distribution notice.',
+            );
+          candidate.settings.distributionNotices = notices.map((notice) =>
+            notice.path === fromPath ? { ...notice, path: toPath } : notice,
+          );
+          references++;
+        }
         for (const record of Object.values(candidate.assets)) {
           const data = parseAssetData(record.data);
           if (!data) continue;

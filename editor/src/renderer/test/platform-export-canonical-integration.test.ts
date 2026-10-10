@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
-import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { spawnSync } from 'node:child_process';
+import { access, mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterAll, beforeAll, describe, expect, it } from 'vite-plus/test';
@@ -19,6 +20,169 @@ const suite = enabled ? describe : describe.skip;
 let root = '';
 
 const sha256 = (data: Buffer) => createHash('sha256').update(data).digest('hex');
+
+type ExportManifestFile = { path: string; origin: string; sha256: string };
+
+async function inspectActualExportLicenseViewer(
+  outputDirectory: string,
+  files: readonly ExportManifestFile[],
+  packageEntry: ExportManifestFile,
+  projectRoot: string,
+) {
+  const indexEntry = files.find((file) => file.path.endsWith('assets/system/licenses/index.json'));
+  expect(indexEntry, 'Final export is missing player-readable engine licenses').toBeDefined();
+  const systemPrefix = indexEntry!.path.slice(0, -'licenses/index.json'.length);
+  const systemAssetsRoot = path.join(outputDirectory, systemPrefix);
+  const indexBytes = await readFile(path.join(outputDirectory, indexEntry!.path));
+  expect(sha256(indexBytes)).toBe(indexEntry!.sha256);
+  const index = JSON.parse(indexBytes.toString('utf8')) as {
+    components: Array<{
+      displayName: string;
+      version: string;
+      files: Array<{ path: string; sha256: string; size: number }>;
+    }>;
+  };
+  const expectedEngine = index.components.flatMap((component) =>
+    component.files.map((file) => ({
+      group: 'engine',
+      label: `${component.displayName} (${component.version})`,
+      path: `system:/${file.path}`,
+      sha256: file.sha256,
+      size: file.size,
+    })),
+  );
+  expect(expectedEngine.length).toBeGreaterThan(0);
+  const actualEngineEntries = files.filter((file) =>
+    file.path.startsWith(`${systemPrefix}licenses/`),
+  );
+  expect(actualEngineEntries.length).toBe(expectedEngine.length + 1);
+  for (const entry of expectedEngine) {
+    const published = files.find(
+      (file) => file.path === `${systemPrefix}${entry.path.slice('system:/'.length)}`,
+    );
+    expect(published?.sha256, entry.path).toBe(entry.sha256);
+    expect(sha256(await readFile(path.join(outputDirectory, published!.path)))).toBe(entry.sha256);
+  }
+
+  const name =
+    process.platform === 'win32' ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
+  const repository = path.resolve(process.cwd(), '..');
+  const preset =
+    process.platform === 'win32'
+      ? 'windows-release'
+      : process.platform === 'darwin'
+        ? 'macos-release'
+        : 'linux-release';
+  const cliHost =
+    process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
+  const candidates = [
+    process.env.NOVELTEA_LICENSE_VIEWER_RUNNER,
+    path.join(repository, 'build/cli', cliHost, name),
+    path.join(repository, 'build', preset, 'tools/editor_tool', name),
+    path.join(repository, 'build/linux-debug/tools/editor_tool', name),
+  ].filter((value): value is string => Boolean(value));
+  let runner: string | null = null;
+  for (const candidate of candidates) {
+    try {
+      await access(candidate);
+      runner = candidate;
+      break;
+    } catch {
+      // The standalone CLI is installed under different build presets on CI hosts.
+    }
+  }
+  expect(
+    runner,
+    'Cross-platform acceptance requires the native Licenses viewer runner',
+  ).not.toBeNull();
+
+  const requestPath = path.join(projectRoot, '.license-acceptance-input.json');
+  const responsePath = path.join(projectRoot, '.license-acceptance-output.json');
+  await writeFile(
+    requestPath,
+    JSON.stringify({
+      operation: 'license-export-acceptance',
+      systemAssetsRoot,
+      packagePath: path.join(outputDirectory, packageEntry.path),
+    }),
+  );
+  const result = spawnSync(runner!, [requestPath, responsePath], {
+    encoding: 'utf8',
+    timeout: 60_000,
+    windowsHide: true,
+  });
+  expect(result.error, result.stderr).toBeUndefined();
+  const response = JSON.parse(await readFile(responsePath, 'utf8')) as {
+    ok?: boolean;
+    error?: string;
+    viewer?: string;
+    notices?: Array<{
+      group: string;
+      label: string;
+      path: string;
+      sha256: string;
+      size: number;
+    }>;
+  };
+  expect(result.status, result.stderr || response.error).toBe(0);
+  expect(response.ok, response.error).toBe(true);
+  expect(response.viewer).toBe('runtime_licenses');
+  const expectedProject = [
+    ['Shared Font License', 'support/licenses/shared-font.txt'],
+    ['Localized Artwork', 'support/licenses/localized-art.txt'],
+    ['Project-wide Credits', 'support/licenses/project.md'],
+  ];
+  const project = await Promise.all(
+    expectedProject.map(async ([label, source]) => ({
+      group: 'project',
+      label,
+      sha256: sha256(await readFile(path.join(projectRoot, source))),
+    })),
+  );
+  const notices = response.notices ?? [];
+  expect(notices.filter((notice) => notice.group === 'engine')).toEqual(
+    expect.arrayContaining(expectedEngine),
+  );
+  expect(notices.filter((notice) => notice.group === 'engine')).toHaveLength(expectedEngine.length);
+  expect(notices.filter((notice) => notice.group === 'project')).toHaveLength(3);
+  for (const notice of project) {
+    expect(notices).toEqual(expect.arrayContaining([expect.objectContaining(notice)]));
+  }
+  // Exercise the real native catalog failure path against a byte-tampered *finalized*
+  // export, not a synthetic malformed index. Restore the published artifact afterward.
+  const engineFile = expectedEngine[0]!;
+  const originalPath = path.join(
+    outputDirectory,
+    `${systemPrefix}${engineFile.path.slice('system:/'.length)}`,
+  );
+  const originalBytes = await readFile(originalPath);
+  const tampered = Buffer.from(originalBytes);
+  tampered[0] = tampered[0] === 65 ? 66 : 65;
+  const rejectedPath = path.join(projectRoot, '.license-acceptance-rejected.json');
+  try {
+    await writeFile(originalPath, tampered);
+    const rejected = spawnSync(runner!, [requestPath, rejectedPath], {
+      encoding: 'utf8',
+      timeout: 60_000,
+      windowsHide: true,
+    });
+    const rejectedResponse = JSON.parse(await readFile(rejectedPath, 'utf8')) as {
+      ok: boolean;
+      error?: string;
+    };
+    expect(rejected.status).not.toBe(0);
+    expect(rejectedResponse.ok).toBe(false);
+    expect(rejectedResponse.error).toMatch(/notice bytes failed.*validation/u);
+  } finally {
+    await writeFile(originalPath, originalBytes);
+  }
+  return {
+    viewer: response.viewer,
+    engineNotices: expectedEngine.length,
+    projectNotices: project.length,
+    catalogSha256: sha256(Buffer.from(JSON.stringify(notices))),
+  };
+}
 
 suite('canonical platform export integration', () => {
   beforeAll(async () => {
@@ -104,6 +268,7 @@ suite('canonical platform export integration', () => {
           '--template',
           templateId,
           '--allow-untrusted-template',
+          '--allow-localization-warnings',
           '--output',
           outputDirectory,
           ...(configPath ? ['--config', configPath] : []),
@@ -116,9 +281,7 @@ suite('canonical platform export integration', () => {
       expect(command.envelope.success, JSON.stringify(command.envelope.diagnostics, null, 2)).toBe(
         true,
       );
-      const manifest = command.envelope.manifest as
-        | { files: Array<{ origin: string; sha256: string }> }
-        | undefined;
+      const manifest = command.envelope.manifest as { files: ExportManifestFile[] } | undefined;
       const deployment = command.envelope.deployment as
         | {
             templateId?: string;
@@ -131,6 +294,16 @@ suite('canonical platform export integration', () => {
       expect(packageEntry?.sha256).toMatch(/^[0-9a-f]{64}$/);
       expect(deployment?.compiledProjectFormatVersion).toBeTypeOf('number');
       expect(deployment?.playerRuntimeApiVersion).toBeTypeOf('number');
+      // Android's finalized player/runtime acceptance is delegated to Android CI.
+      const licenseViewer =
+        target === 'android'
+          ? undefined
+          : await inspectActualExportLicenseViewer(
+              outputDirectory,
+              manifest!.files,
+              packageEntry!,
+              fixture.projectRoot,
+            );
 
       const evidence = {
         format: 'noveltea-canonical-export-fixture',
@@ -152,6 +325,7 @@ suite('canonical platform export integration', () => {
         templateId: deployment?.templateId,
         templateBuildId: deployment?.buildId,
         outputManifestSha256: sha256(Buffer.from(JSON.stringify(manifest))),
+        ...(licenseViewer ? { licenseViewer } : {}),
       };
       const evidencePath =
         process.env.NOVELTEA_CANONICAL_EVIDENCE_OUTPUT ??

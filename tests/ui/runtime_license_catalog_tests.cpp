@@ -5,6 +5,8 @@
 
 #include <catch2/catch_test_macros.hpp>
 
+#include <nlohmann/json.hpp>
+
 #include <memory>
 #include <span>
 #include <string>
@@ -110,6 +112,99 @@ TEST_CASE("license catalog admits a one-MiB plain text notice but rejects larger
 
     add(*project, "project:/licenses/large.txt", text + "L");
     CHECK_FALSE(catalog.read_notice(manager, 0));
+}
+
+TEST_CASE("license catalog displays mixed-case Project notice file extensions")
+{
+    auto project = std::make_shared<assets::MemoryAssetSource>();
+    constexpr std::string_view text = "Attribution kept as plain text\n";
+    add(*project, "project:/licenses/support/NOTICE.MD", text);
+    add(*project, "project:/licenses/index.json",
+        "{\"schema\":\"noveltea.project-notices\",\"notices\":[{\"path\":\"licenses/support/"
+        "NOTICE.MD\","
+        "\"source\":\"support/"
+        "NOTICE.MD\",\"displayName\":\"Attribution\",\"contentHash\":\"sha256:" +
+            digest(text) + "\"}]}");
+    assets::AssetManager manager;
+    manager.mount("project", project);
+    const auto catalog = ui::rmlui::RuntimeLicenseCatalog::load(manager);
+    REQUIRE_FALSE(catalog.invalid_inventory);
+    REQUIRE(catalog.notices.size() == 1);
+    CHECK(catalog.read_notice(manager, 0) == text);
+}
+
+TEST_CASE("extensionless Project notice paths are rejected without throwing")
+{
+    auto project = std::make_shared<assets::MemoryAssetSource>();
+    add(*project, "project:/licenses/NOTICE", "Copyright\n");
+    add(*project, "project:/licenses/index.json",
+        "{\"schema\":\"noveltea.project-notices\",\"notices\":[{\"path\":\"licenses/NOTICE\","
+        "\"source\":\"NOTICE\",\"displayName\":\"Notice\",\"contentHash\":\"sha256:" +
+            digest("Copyright\n") + "\"}]}");
+    assets::AssetManager manager;
+    manager.mount("project", project);
+    const auto catalog = ui::rmlui::RuntimeLicenseCatalog::load(manager);
+    CHECK(catalog.invalid_inventory);
+    CHECK(catalog.notices.empty());
+}
+
+TEST_CASE("duplicate Project notice labels are disambiguated by their source paths")
+{
+    auto project = std::make_shared<assets::MemoryAssetSource>();
+    const auto entries = nlohmann::json::array({
+        {{"path", "licenses/art/LICENSE.txt"},
+         {"source", "art/LICENSE.txt"},
+         {"displayName", "LICENSE.txt"},
+         {"contentHash", "sha256:" + digest("Art\n")}},
+        {{"path", "licenses/fonts/LICENSE.txt"},
+         {"source", "fonts/LICENSE.txt"},
+         {"displayName", "LICENSE.txt"},
+         {"contentHash", "sha256:" + digest("Fonts\n")}},
+    });
+    const nlohmann::json index = {{"schema", "noveltea.project-notices"}, {"notices", entries}};
+    add(*project, "project:/licenses/index.json", index.dump());
+    add(*project, "project:/licenses/art/LICENSE.txt", "Art\n");
+    add(*project, "project:/licenses/fonts/LICENSE.txt", "Fonts\n");
+    assets::AssetManager manager;
+    manager.mount("project", project);
+    const auto catalog = ui::rmlui::RuntimeLicenseCatalog::load(manager);
+    REQUIRE_FALSE(catalog.invalid_inventory);
+    REQUIRE(catalog.notices.size() == 2);
+    CHECK(catalog.notices[0].label == "LICENSE.txt (art/LICENSE.txt)");
+    CHECK(catalog.notices[1].label == "LICENSE.txt (fonts/LICENSE.txt)");
+}
+
+TEST_CASE("engine and Project notice inventories have independent entry limits")
+{
+    auto system = std::make_shared<assets::MemoryAssetSource>();
+    auto project = std::make_shared<assets::MemoryAssetSource>();
+    auto files = nlohmann::json::array();
+    for (int i = 0; i < 512; ++i) {
+        const auto path = "licenses/library--notice-" + std::to_string(i) + ".txt";
+        files.push_back({{"path", path}, {"size", 1}, {"sha256", digest("x")}});
+    }
+    const nlohmann::json engine_index = {
+        {"format", "noveltea.engine-licenses"},
+        {"components", nlohmann::json::array({{{"component", "library"},
+                                               {"displayName", "Library"},
+                                               {"version", "1.0"},
+                                               {"files", files}}})},
+    };
+    add(*system, "system:/licenses/index.json", engine_index.dump());
+    constexpr std::string_view project_text = "Game art notice\n";
+    add(*project, "project:/licenses/art.txt", project_text);
+    add(*project, "project:/licenses/index.json",
+        "{\"schema\":\"noveltea.project-notices\",\"notices\":[{\"path\":\"licenses/art.txt\","
+        "\"source\":\"art.txt\",\"displayName\":\"Game art\",\"contentHash\":\"sha256:" +
+            digest(project_text) + "\"}]}");
+    assets::AssetManager manager;
+    manager.mount("system", system);
+    manager.mount("project", project);
+    const auto catalog = ui::rmlui::RuntimeLicenseCatalog::load(manager);
+    REQUIRE_FALSE(catalog.invalid_inventory);
+    REQUIRE(catalog.notices.size() == 513);
+    CHECK(catalog.notices.back().group == "project");
+    CHECK(catalog.read_notice(manager, 512) == project_text);
 }
 
 TEST_CASE("engine notice pagination form feeds remain readable without relaxing Project notices")

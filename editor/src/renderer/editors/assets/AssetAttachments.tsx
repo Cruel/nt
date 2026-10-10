@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useTranslation } from 'react-i18next';
 import { createEditorFormatters } from '@/i18n/formatting';
 import { Button } from '@/components/ui/button';
@@ -47,6 +47,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
   );
   const attachments = useMemo(() => assetData?.attachments ?? [], [assetData]);
   const [files, setFiles] = useState<ProjectAttachmentFileInfo[]>([]);
+  const knownFilePaths = useRef(new Set<string>());
   const [status, setStatus] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [purpose, setPurpose] = useState<AssetAttachmentPurpose>('reference');
@@ -60,6 +61,14 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
   const [nameEdits, setNameEdits] = useState<Record<string, string>>({});
   const [inspections, setInspections] = useState<Record<string, ProjectAttachmentInspection>>({});
   const assetSourcePath = assetData?.source.path;
+  const trackedPaths = [
+    ...new Set([
+      ...attachments.map((item) => item.path),
+      ...(assetSourcePath && isSafeProjectAttachmentPath(assetSourcePath) ? [assetSourcePath] : []),
+    ]),
+  ];
+  // Stable across unrelated authoring edits, even when parsing creates new attachment arrays.
+  const trackedPathKey = trackedPaths.join('\u0000');
   const assetRevision = assetSourcePath
     ? (inspections[assetSourcePath]?.contentHash ??
       (/^sha256:[0-9a-f]{64}$/u.test(assetData?.contentHash ?? '')
@@ -74,6 +83,7 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
     if (!projectSessionId) return;
     try {
       const result = await window.noveltea.listProjectAttachmentFiles(projectSessionId);
+      knownFilePaths.current = new Set(result.files.map((file) => file.path));
       setFiles(result.files);
     } catch (error) {
       setStatus(error instanceof Error ? error.message : t('assetAttachments.unavailable'));
@@ -86,39 +96,56 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
   useEffect(() => {
     if (!projectSessionId) return;
     let active = true;
-    const check = async () => {
-      const results = await Promise.all(
-        [
-          ...new Set([
-            ...attachments.map((item) => item.path),
-            ...(assetSourcePath && isSafeProjectAttachmentPath(assetSourcePath)
-              ? [assetSourcePath]
-              : []),
-          ]),
-        ].map((filePath) =>
-          window.noveltea
-            .inspectProjectAttachmentFile(projectSessionId, filePath)
-            .catch((error) => ({
-              path: filePath,
-              exists: false,
-              error: String(error),
-            })),
+    const knownPaths = trackedPathKey ? trackedPathKey.split('\u0000') : [];
+    const check = async (paths: string[], replace = false) => {
+      const results: ProjectAttachmentInspection[] = [];
+      // A change to an unrelated Project file must never rehash every large attachment.
+      for (let index = 0; index < paths.length && active; index += 4) {
+        const batch = await Promise.all(
+          paths.slice(index, index + 4).map((filePath) =>
+            window.noveltea.inspectProjectAttachmentFile(projectSessionId, filePath).catch(
+              (error): ProjectAttachmentInspection => ({
+                path: filePath,
+                exists: false,
+                error: String(error),
+              }),
+            ),
+          ),
+        );
+        results.push(...batch);
+      }
+      if (active)
+        setInspections((current) => ({
+          ...(replace ? {} : current),
+          ...Object.fromEntries(results.map((value) => [value.path, value])),
+        }));
+    };
+    void check(knownPaths, true);
+    const stop = window.noveltea.onProjectWorkspaceChanged((event) => {
+      if (event.projectSessionId !== projectSessionId) return;
+      const changed = [...event.assetChangedPaths, ...(event.sourceChangedPaths ?? [])];
+      const affected = knownPaths.filter((filePath) =>
+        changed.some(
+          (item) =>
+            item === filePath || item.startsWith(`${filePath}/`) || filePath.startsWith(`${item}/`),
         ),
       );
-      if (active) setInspections(Object.fromEntries(results.map((value) => [value.path, value])));
-    };
-    void check();
-    const stop = window.noveltea.onProjectWorkspaceChanged((event) => {
-      if (event.projectSessionId === projectSessionId) {
-        void check();
+      if (affected.length) void check(affected);
+      // Listings need refreshing only when the known path set itself may have changed.
+      if (
+        changed.some(
+          (item) =>
+            (item.startsWith('assets/') || item.startsWith('support/')) &&
+            (!knownFilePaths.current.has(item) || event.assetFileRevisions?.[item] === 'absent'),
+        )
+      )
         void refresh();
-      }
     });
     return () => {
       active = false;
       stop();
     };
-  }, [attachments, assetSourcePath, projectSessionId, refresh]);
+  }, [trackedPathKey, projectSessionId, refresh]);
 
   const availableAssets = useMemo(
     () =>
@@ -212,6 +239,10 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
     );
     if (!inspected.exists) {
       setStatus(inspected.error ?? t('assetAttachments.missing'));
+      return;
+    }
+    if (purpose === 'distribution-notice' && inspected.noticeError) {
+      setStatus(inspected.noticeError);
       return;
     }
     const assetHash = purpose === 'authoring-source' ? await freshAssetRevision() : undefined;
@@ -338,6 +369,10 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
       setStatus(check.error ?? t('assetAttachments.missing'));
       return;
     }
+    if (item.purpose === 'distribution-notice' && check.noticeError) {
+      setStatus(check.noticeError);
+      return;
+    }
     if (
       apply(
         [assetId],
@@ -438,6 +473,16 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
   async function bulkAttach() {
     const item = attachments.find((attachment) => attachment.path === sharePath);
     if (!item || !shareTargets.length || !projectSessionId) return;
+    if (item.purpose === 'distribution-notice') {
+      const checked = await window.noveltea.inspectProjectAttachmentFile(
+        projectSessionId,
+        item.path,
+      );
+      if (!checked.exists || checked.noticeError) {
+        setStatus(checked.noticeError ?? checked.error ?? t('assetAttachments.missing'));
+        return;
+      }
+    }
     const latest =
       item.purpose === 'authoring-source'
         ? await window.noveltea.inspectProjectAttachmentFile(projectSessionId, item.path)
@@ -604,7 +649,19 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                     ) : null}
                     <Select
                       value={item.purpose}
-                      onValueChange={(value) =>
+                      onValueChange={async (value) => {
+                        if (value === 'distribution-notice' && projectSessionId) {
+                          const checked = await window.noveltea.inspectProjectAttachmentFile(
+                            projectSessionId,
+                            item.path,
+                          );
+                          if (!checked.exists || checked.noticeError) {
+                            setStatus(
+                              checked.noticeError ?? checked.error ?? t('assetAttachments.missing'),
+                            );
+                            return;
+                          }
+                        }
                         apply(
                           [assetId],
                           {
@@ -621,8 +678,8 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                             },
                           },
                           t('assetAttachments.history.changePurpose'),
-                        )
-                      }
+                        );
+                      }}
                     >
                       {categories.map((option) => (
                         <SelectItem key={option.value} value={option.value}>
@@ -711,14 +768,14 @@ export function AssetAttachments({ assetId, project, projectSessionId }: Props) 
                       size="sm"
                       variant="outline"
                       onClick={() => {
-                        const name = (nameEdits[item.path] ?? '').trim();
+                        const name = (nameEdits[item.path] ?? item.displayName ?? '').trim();
                         apply(
                           [assetId],
                           {
                             kind: 'replace',
                             attachment: {
-                              path: item.path,
-                              purpose: item.purpose,
+                              ...item,
+                              displayName: undefined,
                               ...(name ? { displayName: name } : {}),
                             },
                           },

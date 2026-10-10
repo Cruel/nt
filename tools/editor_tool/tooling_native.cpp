@@ -1686,6 +1686,15 @@ noveltea_tooling_validate_font_coverage_json(const std::uint8_t* request,
         response, response_capacity);
 }
 
+extern "C" std::uint64_t
+noveltea_tooling_inspect_font_json(const std::uint8_t* request, std::uint64_t request_size,
+                                  std::uint8_t* response, std::uint64_t response_capacity)
+{
+    return noveltea::tooling::copy_result(
+        noveltea::tooling::inspect_font(noveltea::tooling::request_view(request, request_size)),
+        response, response_capacity);
+}
+
 extern "C" std::int32_t noveltea_tooling_shaderc(std::int32_t argc, const char* const* argv)
 {
     return bgfx::compileShader(argc, const_cast<const char**>(argv));

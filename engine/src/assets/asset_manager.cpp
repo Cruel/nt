@@ -17,6 +17,7 @@
 #include <map>
 #include <span>
 #include <sstream>
+#include <system_error>
 #include <utility>
 
 namespace noveltea::assets {
@@ -603,13 +604,16 @@ AssetResult<AssetEntryMetadata> DirectoryAssetSource::stat(const AssetPath& path
     }
     std::error_code error;
     if (!std::filesystem::is_regular_file(physical, error)) {
+        // A missing file (including an absent parent directory) is not an I/O failure.
+        // Preserve not_found so subsequent mounted Asset sources can provide it.
+        const bool missing = !error || error == std::errc::no_such_file_or_directory;
         const auto code =
-            error ? asset_source_error_code::open_failed : asset_source_error_code::not_found;
+            missing ? asset_source_error_code::not_found : asset_source_error_code::open_failed;
         return source_fail<AssetEntryMetadata>(
             code,
-            error ? "directory source could not inspect '" + filesystem_path_to_utf8(physical) +
-                        "': " + error.message()
-                  : "directory source has no file at '" + filesystem_path_to_utf8(physical) + "'",
+            missing ? "directory source has no file at '" + filesystem_path_to_utf8(physical) + "'"
+                    : "directory source could not inspect '" + filesystem_path_to_utf8(physical) +
+                          "': " + error.message(),
             path, describe());
     }
     const auto size = std::filesystem::file_size(physical, error);
@@ -656,11 +660,11 @@ AssetResult<AssetBlob> DirectoryAssetSource::read_binary(const AssetPath& path) 
     if (!in) {
         std::error_code error;
         const bool exists = std::filesystem::is_regular_file(physical, error);
-        return source_fail<AssetBlob>(!error && !exists ? asset_source_error_code::not_found
-                                                        : asset_source_error_code::open_failed,
-                                      "directory source could not open '" +
-                                          filesystem_path_to_utf8(physical) + "'",
-                                      path, describe());
+        const bool missing = !exists && (!error || error == std::errc::no_such_file_or_directory);
+        return source_fail<AssetBlob>(
+            missing ? asset_source_error_code::not_found : asset_source_error_code::open_failed,
+            "directory source could not open '" + filesystem_path_to_utf8(physical) + "'", path,
+            describe());
     }
     AssetBlob result;
     result.logical_path = path;

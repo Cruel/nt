@@ -1,6 +1,7 @@
 #include <catch2/catch_test_macros.hpp>
 
 #include "noveltea/assets/asset_source.hpp"
+#include "noveltea/assets/asset_manager.hpp"
 
 #include <filesystem>
 #include <fstream>
@@ -39,5 +40,27 @@ TEST_CASE("DirectoryAssetSource reads files and exposes native metadata")
     CHECK(*(*opened.value)->tell().value == 1);
     CHECK_FALSE(source.open(*AssetPath::parse("project:/missing")));
 
+    std::filesystem::remove_all(root);
+}
+
+TEST_CASE("DirectoryAssetSource missing parent directories permit fallback to later mounts")
+{
+    const auto root = std::filesystem::temp_directory_path() / "noveltea-directory-mount-fallback";
+    std::filesystem::remove_all(root);
+    std::filesystem::create_directories(root / "partial");
+    std::filesystem::create_directories(root / "full" / "scripts");
+    std::ofstream(root / "full" / "scripts" / "bootstrap.lua", std::ios::binary) << "return true";
+
+    AssetManager manager;
+    manager.mount_directory("system", root / "partial", false);
+    manager.mount_directory("system", root / "full", false);
+    auto opened = manager.open("system:/scripts/bootstrap.lua");
+    REQUIRE(opened);
+    auto data = manager.read_text("system:/scripts/bootstrap.lua");
+    REQUIRE(data);
+    CHECK(*data.value == "return true");
+    const auto binary = manager.read_binary("system:/scripts/bootstrap.lua");
+    REQUIRE(binary);
+    CHECK(std::string(binary.value->bytes.begin(), binary.value->bytes.end()) == "return true");
     std::filesystem::remove_all(root);
 }

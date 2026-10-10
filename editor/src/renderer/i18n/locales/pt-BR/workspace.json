@@ -1020,6 +1020,19 @@
     "show": "Mostrar prévia"
   },
   "projectSettings": {
+    "distributionNotices": {
+      "categoryLabel": "Avisos de distribuição",
+      "categoryDescription": "Avisos em texto simples incluídos em cada pacote de execução.",
+      "title": "Avisos de distribuição do Projeto",
+      "description": "Selecione arquivos .txt ou .md existentes no Projeto. Os avisos do Projeto são distribuídos sempre; os avisos de Assets apenas quando os Assets são exportados.",
+      "displayNameFor": "Nome de exibição para {{path}}",
+      "displayName": "Nome de exibição (opcional)",
+      "remove": "Remover",
+      "path": "Caminho do aviso relativo ao Projeto",
+      "add": "Adicionar aviso",
+      "sessionMissing": "Nenhum Projeto ativo disponível para verificar este aviso.",
+      "invalid": "Este arquivo não é um aviso de distribuição válido."
+    },
     "cursors": {
       "categoryLabel": "Cursores",
       "categoryDescription": "Padrões semânticos de cursor e cursores nomeados globais do Projeto.",

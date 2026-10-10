@@ -103,6 +103,10 @@ constexpr std::array kSystemMessages{
     SystemMessageDefinition{kSystemMessageIdBase + 41, "noveltea.licenses.invalid",
                             "A license inventory or notice failed validation.",
                             "Falha na validação de licenças."},
+    SystemMessageDefinition{kSystemMessageIdBase + 42, "noveltea.licenses.scroll_up", "Scroll up",
+                            "Rolar para cima"},
+    SystemMessageDefinition{kSystemMessageIdBase + 43, "noveltea.licenses.scroll_down",
+                            "Scroll down", "Rolar para baixo"},
 };
 
 const SystemMessageDefinition* find_system_message(MessageId id) noexcept

@@ -23,6 +23,25 @@ const DEFAULT_DIRECTORIES: Record<AssetAttachmentPurpose, string> = {
 const MAX_LISTED_FILES = 10000;
 const MAX_FILE_SIZE = 512 * 1024 * 1024;
 const MAX_TEXT_PREVIEW = 128 * 1024;
+const MAX_NOTICE_SIZE = 1024 * 1024;
+
+function distributionNoticeError(relative: string, bytes: Uint8Array): string | undefined {
+  if (!/\.(?:txt|md)$/i.test(relative)) return 'Distribution Notices must be .txt or .md files.';
+  if (bytes.length === 0 || bytes.length > MAX_NOTICE_SIZE)
+    return 'Distribution Notices must contain between 1 byte and 1 MiB of text.';
+  let text: string;
+  try {
+    text = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
+  } catch {
+    return 'Distribution Notice content must be valid UTF-8.';
+  }
+  for (const character of text) {
+    const code = character.codePointAt(0)!;
+    if ((code < 32 && code !== 9 && code !== 10 && code !== 13) || (code >= 127 && code <= 159))
+      return 'Distribution Notice text contains prohibited control characters.';
+  }
+  return undefined;
+}
 
 async function projectFile(root: string, relative: string, mustExist: boolean) {
   if (!isSafeProjectAttachmentPath(relative)) throw new Error('Unsafe attachment path.');
@@ -84,6 +103,11 @@ export async function inspectProjectAttachmentFile(
       byteSize: stat.size,
       contentHash: `sha256:${hash.digest('hex')}`,
     };
+    if (/\.(?:txt|md)$/i.test(relative)) {
+      if (stat.size === 0 || stat.size > MAX_NOTICE_SIZE)
+        result.noticeError = 'Distribution Notices must contain between 1 byte and 1 MiB of text.';
+      else result.noticeError = distributionNoticeError(relative, await fs.readFile(absolute));
+    } else result.noticeError = 'Distribution Notices must be .txt or .md files.';
     if (/\.(txt|md|json|csv|toml|yaml|yml|rml|rcss|css|lua)$/i.test(relative)) {
       const handle = await fs.open(absolute, 'r');
       try {
@@ -151,7 +175,18 @@ export async function importProjectAttachmentFiles(
       const stat = await fs.stat(source);
       if (!stat.isFile() || stat.size > MAX_FILE_SIZE)
         throw new Error('Attachments must be regular files of at most 512 MiB.');
+      if (
+        request.purpose === 'distribution-notice' &&
+        (!/\.(?:txt|md)$/i.test(source) || stat.size === 0 || stat.size > MAX_NOTICE_SIZE)
+      )
+        throw new Error(
+          `${path.basename(source)}: Distribution Notices require a .txt or .md file of 1 byte to 1 MiB.`,
+        );
       const bytes = await fs.readFile(source);
+      if (request.purpose === 'distribution-notice') {
+        const error = distributionNoticeError(path.basename(source), bytes);
+        if (error) throw new Error(`${path.basename(source)}: ${error}`);
+      }
       const parsed = path.parse(source);
       const basename = parsed.base;
       if (!basename || basename === '.' || basename === '..' || basename.includes('\\'))

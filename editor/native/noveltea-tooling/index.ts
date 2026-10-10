@@ -22,6 +22,10 @@ declare function noveltea_tooling_validate_font_coverage_json(
   request: Uint8Array,
   response: Uint8Array,
 ): number;
+declare function noveltea_tooling_inspect_font_json(
+  request: Uint8Array,
+  response: Uint8Array,
+): number;
 declare function noveltea_tooling_shaderc_json(request: Uint8Array, response: Uint8Array): number;
 declare function noveltea_tooling_texturec_json(request: Uint8Array, response: Uint8Array): number;
 
@@ -101,6 +105,12 @@ export function validateFontCoverageNative<T>(request: unknown): T {
     noveltea_tooling_validate_font_coverage_json(bytes, response),
     response,
   );
+}
+
+export function inspectFontNative<T>(request: unknown): T {
+  const bytes = requestBytes(request);
+  const response = new Uint8Array(structuredResponseCapacity);
+  return decodeJsonResponse<T>(noveltea_tooling_inspect_font_json(bytes, response), response);
 }
 
 export function shadercNative(arguments_: readonly string[]): number {

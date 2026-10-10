@@ -1266,6 +1266,22 @@ struct RuntimeUiDataModel::Impl {
                     }
                 }
             });
+        ok &= c.BindEventCallback(
+            "shell_scroll_license",
+            [this](Rml::DataModelHandle, Rml::Event& event, const Rml::VariantList& args) {
+                if (!licenses_open || args.empty())
+                    return;
+                auto* target = event.GetCurrentElement();
+                auto* document = target ? target->GetOwnerDocument() : nullptr;
+                auto* scroller =
+                    document ? document->GetElementById("nt-license-text-scroll") : nullptr;
+                if (!scroller)
+                    return;
+                const auto direction = args[0].Get<int>();
+                const auto amount = std::max(160.0f, scroller->GetClientHeight() * 0.8f);
+                scroller->SetScrollTop(
+                    std::max(0.0f, scroller->GetScrollTop() + (direction == 0 ? -amount : amount)));
+            });
         ok &= c.BindEventCallback("shell_open_debug", callback([this](const auto&) {
                                       return gateway.dispatch_shell_command(
                                           core::RuntimeShellCommand{core::OpenDebugShellCommand{}});

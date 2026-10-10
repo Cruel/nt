@@ -220,11 +220,15 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
                 load_failure("content.runtime_notice_invalid",
                              "Notice index exceeds the size limit.", std::string(logical_path)));
         const auto index = nlohmann::json::parse(bytes.begin(), bytes.end(), nullptr, false);
-        bool valid = index.is_object() && index.size() == 2 &&
-                     index.value("schema", std::string{}) == "noveltea.project-notices" &&
+        bool valid = index.is_object() && index.size() == 2 && index.contains("schema") &&
+                     index["schema"].is_string() && index["schema"] == "noveltea.project-notices" &&
                      index.contains("notices") && index["notices"].is_array();
         std::set<std::string> declared_notices{"licenses/index.json"};
         std::string previous_source_path;
+        if (valid) {
+            // Keep package validation within the runtime viewer's bounded catalog contract.
+            valid = index["notices"].size() <= 512;
+        }
         if (valid) {
             for (const auto& notice : index["notices"]) {
                 if (!notice.is_object() || notice.size() != 4 || !notice.contains("path") ||

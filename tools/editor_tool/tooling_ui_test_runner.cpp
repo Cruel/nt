@@ -26,7 +26,13 @@
 #include "host/presentation_layout_reconciler.hpp"
 #include "text/text_engine.hpp"
 #include "ui/rmlui/runtime_ui.hpp"
+#include "ui/rmlui/runtime_license_catalog.hpp"
 #include "ui/rmlui/runtime_ui_playback_driver.hpp"
+
+#include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/Element.h>
+#include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Types.h>
 
 #include <algorithm>
 #include <cstdint>
@@ -1205,6 +1211,143 @@ std::string read_all(std::istream& stream)
     return buffer.str();
 }
 
+// Acceptance witness for the *actual exported* filesystem and Runtime Package. Use the
+// production AssetManager, catalog and built-in RmlUi Licenses document, not a copied
+// TypeScript catalog parser or a hand-constructed Project notice index.
+nlohmann::json inspect_exported_license_viewer(
+    const nlohmann::json& request,
+    const std::optional<std::filesystem::path>& bundled_system_asset_root)
+{
+    if (!request.contains("systemAssetsRoot") || !request["systemAssetsRoot"].is_string() ||
+        !request.contains("packagePath") || !request["packagePath"].is_string())
+        return fail("License acceptance requires systemAssetsRoot and packagePath.");
+    const auto system_root = std::filesystem::u8path(request["systemAssetsRoot"].get<std::string>());
+    const auto package = std::filesystem::u8path(request["packagePath"].get<std::string>());
+    if (!std::filesystem::is_directory(system_root) || !std::filesystem::is_regular_file(package))
+        return fail("Exported system Assets or Runtime Package are missing.");
+    if (!std::filesystem::is_regular_file(system_root / "licenses/index.json"))
+        return fail("Finalized export has no engine license index in its system Assets.");
+
+    noveltea::assets::AssetManager assets;
+    assets.mount_directory("system", system_root, false);
+    // Web exports preload their normal system Assets from player.data, but ship licensing
+    // outside that blob. Supply this native verifier's matching bootstrap/fonts/UI as a
+    // fallback, never as a source of engine notice evidence.
+    if (bundled_system_asset_root && *bundled_system_asset_root != system_root)
+        assets.mount_directory("system", *bundled_system_asset_root, false);
+    if (!assets.exists("system:/scripts/bootstrap.lua"))
+        return fail("License verifier bootstrap is unavailable after system Asset mounts.");
+    assets.mount("project", std::make_shared<noveltea::assets::ZipAssetSource>(package));
+    const auto catalog = noveltea::ui::rmlui::RuntimeLicenseCatalog::load(assets);
+    if (catalog.engine_inventory_missing || catalog.invalid_inventory || catalog.notices.empty())
+        return fail("Actual exported notice inventory is missing or malformed.");
+    for (const auto& notice : catalog.notices)
+        if (notice.group == "engine" &&
+            !std::filesystem::is_regular_file(
+                system_root / notice.path.substr(std::string("system:/").size())))
+            return fail("An indexed engine notice is missing from the finalized export: " +
+                        notice.path);
+
+    noveltea::jobs::InlineJobExecutor executor;
+    ExecutorShutdownGuard executor_shutdown(executor);
+    auto residency = std::make_shared<noveltea::assets::AssetResidencyManager>(
+        noveltea::assets::ResidencyBudget{.source_bytes = 64 * 1024 * 1024,
+                                         .prepared_cpu_bytes = 64 * 1024 * 1024,
+                                         .gpu_bytes = 64 * 1024 * 1024,
+                                         .audio_bytes = 64 * 1024 * 1024,
+                                         .temporary_bytes = 64 * 1024 * 1024});
+    if (!assets.configure_async_requests(executor, residency))
+        return fail("License acceptance could not prepare AssetManager.");
+    noveltea::text::TextEngine text_engine(assets);
+    noveltea::text::TextFontAssetLoader font_loader(assets, text_engine);
+    assets.bind_font_loader(&font_loader);
+    noveltea::script::ScriptRuntime scripts;
+    if (!scripts.initialize({&assets}))
+        return fail("License acceptance failed ScriptRuntime initialization.");
+    const auto bootstrap = scripts.execute_asset("system:/scripts/bootstrap.lua");
+    if (!bootstrap)
+        return fail("License acceptance failed system Lua bootstrap: " +
+                    bootstrap.error().message);
+
+    noveltea::RuntimeUI ui;
+    if (!ui.initialize(&assets, nullptr, &scripts, nullptr,
+                       [&](const noveltea::StyledText& value, float scale) {
+                           return text_engine.layout_text(value, scale);
+                       },
+                       true))
+        return fail("License acceptance could not initialize RmlUi.");
+    if (!executor.run_until_idle(64))
+        return fail("License acceptance Asset jobs did not settle.");
+    noveltea::core::RuntimeShellViewState shell;
+    shell.screen = noveltea::core::RuntimeShellScreen::Licenses;
+    ui.apply_runtime_shell_view(shell);
+    const noveltea::core::MountedLayoutPolicy policy{
+        .plane = noveltea::core::PresentationPlane::MenuOverlay,
+        .clock = noveltea::core::LayoutClockDomain::UnscaledPresentation,
+        .input = noveltea::core::LayoutInputMode::Modal,
+        .gameplay_pause = noveltea::core::GameplayPausePolicy::Continue,
+        .visibility = noveltea::core::LayoutVisibility::Visible,
+        .escape_dismissal = noveltea::core::EscapeDismissalPolicy::Ignore};
+    if (!ui.load_builtin_for_layout(
+            noveltea::presentation::RuntimeLayoutBuiltinDocument::Licenses, true, policy, 4,
+            noveltea::core::MountedLayoutOwner::Shell))
+        return fail("The actual built-in Licenses layout could not be opened.");
+    auto* driver = noveltea::ui::rmlui::RuntimeUiPlaybackDriver::from(ui);
+    auto* document = driver ? driver->document("runtime_licenses") : nullptr;
+    if (!document)
+        return fail("The built-in Licenses document did not mount.");
+    document->GetContext()->Update();
+    auto* list = document->GetElementById("nt-license-list");
+    auto* text = document->GetElementById("nt-license-text");
+    if (!list || !text)
+        return fail("The Licenses list or text panel is missing.");
+
+    Rml::ElementList buttons;
+    list->GetElementsByTagName(buttons, "button");
+    // RmlUi's data-for keeps hidden template buttons alongside its generated entries.
+    std::vector<Rml::Element*> rendered;
+    for (auto* button : buttons)
+        if (button && std::any_of(catalog.notices.begin(), catalog.notices.end(),
+                                  [&](const auto& notice) {
+                                      return button->GetInnerRML() == notice.label;
+                                  }))
+            rendered.push_back(button);
+    if (rendered.size() != catalog.notices.size())
+        return fail("The Licenses list does not render every exported notice.");
+    nlohmann::json entries = nlohmann::json::array();
+    for (std::size_t index = 0; index < catalog.notices.size(); ++index) {
+        const auto& notice = catalog.notices[index];
+        auto content = catalog.read_notice(assets, index);
+        if (!content || content->empty())
+            return fail("Exported notice bytes failed production catalog validation: " +
+                        notice.path);
+        if (rendered[index]->GetInnerRML() != notice.label ||
+            !rendered[index]->DispatchEvent("click", Rml::Dictionary{}))
+            return fail("Built-in Licenses navigation could not select: " + notice.label);
+        document->GetContext()->Update();
+        // Ensure the real data-model/action path projects the selected notice into the text
+        // pane; the catalog separately verifies the *exact* SHA-256 of the source bytes.
+        if (text->GetInnerRML().empty())
+            return fail("Selected license has an empty RmlUi text pane: " + notice.path);
+        const auto start = content->find_first_not_of(" \t\r\n");
+        if (start != std::string::npos) {
+            const auto end = content->find_first_of("\r\n<&>", start);
+            const auto size = std::min<std::size_t>(12, (end == std::string::npos ? content->size() : end) - start);
+            if (size >= 4 && text->GetInnerRML().find(content->substr(start, size)) == std::string::npos)
+                return fail("The Licenses text pane does not display the selected notice: " +
+                            notice.path);
+        }
+        entries.push_back({{"group", notice.group},
+                           {"label", notice.label},
+                           {"path", notice.path},
+                           {"sha256", notice.sha256},
+                           {"size", content->size()}});
+    }
+    ui.shutdown();
+    scripts.shutdown();
+    return {{"ok", true}, {"notices", std::move(entries)}, {"viewer", "runtime_licenses"}};
+}
+
 } // namespace
 
 int main(int argc, char** argv)
@@ -1220,6 +1363,9 @@ int main(int argc, char** argv)
     const auto system_asset_root = resolve_system_asset_root(std::filesystem::absolute(argv[0]));
     const auto response = request.is_discarded()
                               ? fail("Request JSON is malformed.")
+                              : request.is_object() && request.value("operation", std::string{}) ==
+                                    "license-export-acceptance"
+                                  ? inspect_exported_license_viewer(request, system_asset_root)
                               : !system_asset_root
                                     ? fail("Runtime UI Test system assets are unavailable.")
                                     : run_ui_test(request, *system_asset_root);
