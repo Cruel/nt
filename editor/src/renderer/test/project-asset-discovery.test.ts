@@ -3,6 +3,17 @@ import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+const mediaProbe = vi.hoisted(() => ({
+  validate: vi.fn(async (_absolutePath: string, _kind: 'audio' | 'video') => {}),
+}));
+vi.mock('../../main/services/media-import-validation-service', () => ({
+  validateImportedAudioVideo: mediaProbe.validate,
+}));
+vi.mock('../../main/services/font-import-validation-service', () => ({
+  validateImportedFont: vi.fn(async () => {
+    throw new Error('Cannot import font: FreeType rejected the font.');
+  }),
+}));
 import {
   auditProjectAssets,
   importUntrackedProjectAssets,
@@ -31,11 +42,16 @@ async function projectFixture() {
 
 afterEach(async () => {
   vi.restoreAllMocks();
+  mediaProbe.validate.mockReset();
   await Promise.all(roots.splice(0).map((root) => rm(root, { recursive: true, force: true })));
 });
 
 describe('Project Asset discovery', () => {
   it('suggests only lightly validated media, while leaving other files manually accessible', async () => {
+    mediaProbe.validate.mockImplementation(async (absolutePath) => {
+      if (/truncated\.(?:ogg|flac)$/u.test(absolutePath))
+        throw new Error(`FFmpeg rejected ${path.basename(absolutePath)}`);
+    });
     const { root, projectFilePath, project } = await projectFixture();
     await writeFile(path.join(root, 'assets/images/valid.png'), tinyPng);
     await writeFile(path.join(root, 'assets/images/header-only.png'), tinyPng.subarray(0, 8));
@@ -95,8 +111,50 @@ describe('Project Asset discovery', () => {
         `assets/audio/truncated.${extension}`,
       ]);
       expect(truncated.success).toBe(false);
-      expect(truncated.error).toMatch(/recognized audio format/);
+      expect(truncated.error).toMatch(/FFmpeg rejected/);
     }
+  });
+
+  it('rejects header-plausible but truncated media during explicit registration', async () => {
+    const { root, projectFilePath } = await projectFixture();
+    const font = Buffer.alloc(40);
+    font.writeUInt32BE(0x00010000, 0);
+    font.writeUInt16BE(1, 4);
+    font.write('head', 12);
+    font.writeUInt32BE(1024, 20);
+    font.writeUInt32BE(54, 24);
+    await writeFile(path.join(root, 'assets/images/truncated.ttf'), font);
+    const wav = Buffer.alloc(44);
+    wav.write('RIFF', 0);
+    wav.writeUInt32LE(400, 4);
+    wav.write('WAVE', 8);
+    wav.write('fmt ', 12);
+    await writeFile(path.join(root, 'assets/audio/truncated.wav'), wav);
+    const mp4 = Buffer.alloc(20);
+    mp4.writeUInt32BE(16, 0);
+    mp4.write('ftyp', 4);
+    mp4.writeUInt32BE(999, 16);
+    await writeFile(path.join(root, 'assets/video/truncated.mp4'), mp4);
+    mediaProbe.validate.mockImplementation(async (absolutePath) => {
+      throw new Error(`FFmpeg rejected ${path.basename(absolutePath)}`);
+    });
+    for (const [relative, detail] of [
+      ['assets/images/truncated.ttf', /Cannot import font/],
+      ['assets/audio/truncated.wav', /FFmpeg rejected truncated.wav/],
+      ['assets/video/truncated.mp4', /FFmpeg rejected truncated.mp4/],
+    ] as const) {
+      const result = await importUntrackedProjectAssets(projectFilePath, [relative]);
+      expect(result.success).toBe(false);
+      expect(result.error).toMatch(detail);
+    }
+    expect(mediaProbe.validate).toHaveBeenCalledWith(
+      path.join(root, 'assets/audio/truncated.wav'),
+      'audio',
+    );
+    expect(mediaProbe.validate).toHaveBeenCalledWith(
+      path.join(root, 'assets/video/truncated.mp4'),
+      'video',
+    );
   });
 
   it('excludes registered sources, temporary paths, and symbolic links', async () => {

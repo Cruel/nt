@@ -173,6 +173,33 @@ describe('first-class Asset attachment contract', () => {
 });
 
 describe('Project-owned attachment files', () => {
+  it('validates complete Distribution Notice bytes before permitting import or association', async () => {
+    const { root } = await fixture();
+    const external = await mkdtemp(path.join(os.tmpdir(), 'nt-invalid-notice-'));
+    roots.push(external);
+    const invalid = path.join(external, 'notice.txt');
+    for (const [contents, reason] of [
+      [Buffer.from([0xff, 0xfe]), /UTF-8/],
+      [Buffer.from('invalid\u0000notice'), /control/],
+      [Buffer.alloc(1024 * 1024 + 1, 65), /1 MiB/],
+    ] as const) {
+      await writeFile(invalid, contents);
+      picker.files = [invalid];
+      const imported = await importProjectAttachmentFiles({} as never, root, {
+        purpose: 'distribution-notice',
+      });
+      expect(imported.error).toMatch(reason);
+      await mkdir(path.join(root, 'support/licenses'), { recursive: true });
+      await writeFile(path.join(root, 'support/licenses/notice.txt'), contents);
+      const inspected = await inspectProjectAttachmentFile(root, 'support/licenses/notice.txt');
+      expect(inspected.noticeError).toMatch(reason);
+    }
+    await writeFile(invalid, 'Valid notice\n');
+    const valid = await importProjectAttachmentFiles({} as never, root, {
+      purpose: 'distribution-notice',
+    });
+    expect(valid.error).toBeUndefined();
+  });
   it('lists Project-contained files and offers bounded inspection without entering excluded trees', async () => {
     const { root } = await fixture();
     await writeFile(path.join(root, 'support/references/readme.md'), '# project notes');

@@ -55,6 +55,10 @@ export async function collectRuntimeDistributionNotices(
       if (notice.purpose === 'distribution-notice') add(notice);
   }
   const ordered = [...notices].sort(([a], [b]) => compareUnicodeCodePoints(a, b));
+  // Each collection has its own 512-entry runtime catalog limit. Fail during preparation
+  // instead of producing a package that the canonical reader or viewer cannot load.
+  if (ordered.length > 512)
+    throw new Error('Project distribution notices exceed the 512-entry runtime limit.');
   if (ordered.length > 0 && !paths.readProjectTextSources)
     throw new Error('Distribution notice bytes cannot be verified in this host.');
   const requests = ordered.map(([projectRelativePath], index) => ({

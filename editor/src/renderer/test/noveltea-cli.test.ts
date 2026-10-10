@@ -1361,6 +1361,127 @@ describe('NovelTea headless CLI', () => {
     }
   });
 
+  it('uses the native FreeType inspector before CLI font import and dry-run', async () => {
+    const value = fixture();
+    const source = '/imports/display.woff2';
+    await value.fileSystem.writeBytesAtomic(source, new Uint8Array([119, 79, 70, 50]));
+    const inspected: string[] = [];
+    const nativeTools = {
+      ...validationNativeTools(),
+      async inspectFont(absolutePath: string) {
+        inspected.push(absolutePath);
+        return { ok: true, glyphCount: 27 };
+      },
+    };
+    const dryRun = await runNovelTeaCli(
+      ['--json', 'asset', 'import', source, '--dry-run'],
+      options(value, root, nativeTools),
+    );
+    expect(dryRun.exitCode).toBe(0);
+    expect(inspected).toEqual([source]);
+    expect(await value.fileSystem.inspect(`${root}/assets/fonts/display.woff2`)).toBe('missing');
+
+    const imported = await runNovelTeaCli(
+      ['--json', 'asset', 'import', source],
+      options(value, root, nativeTools),
+    );
+    expect(imported.exitCode).toBe(0);
+    expect(inspected).toEqual([source, source]);
+    expect(JSON.parse(imported.stdout)).toMatchObject({
+      assets: [{ kind: 'font', projectRelativePath: 'assets/fonts/display.woff2' }],
+    });
+  });
+
+  it('does not register or copy fonts rejected by native FreeType inspection', async () => {
+    const value = fixture();
+    const source = '/imports/broken.ttf';
+    await value.fileSystem.writeBytesAtomic(source, new Uint8Array([0, 1, 0, 0]));
+    const nativeTools = {
+      ...validationNativeTools(),
+      async inspectFont() {
+        return { ok: false, error: 'FreeType could not parse the font face.' };
+      },
+    };
+    const result = await runNovelTeaCli(
+      ['--json', 'asset', 'import', source],
+      options(value, root, nativeTools),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(JSON.parse(result.stdout).diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'asset.import.failed',
+          message: expect.stringMatching(/FreeType/),
+        }),
+      ]),
+    );
+    expect(await value.fileSystem.inspect(`${root}/assets/fonts/broken.ttf`)).toBe('missing');
+  });
+
+  it('decodes an audio block and video frame before importing media through the CLI', async () => {
+    const value = fixture();
+    const audio = '/imports/voice.ogg';
+    const video = '/imports/scene.mp4';
+    await value.fileSystem.writeBytesAtomic(audio, new Uint8Array([1, 2, 3]));
+    await value.fileSystem.writeBytesAtomic(video, new Uint8Array([4, 5, 6]));
+    const inspected: Array<[string, string]> = [];
+    const nativeTools = {
+      ...validationNativeTools(),
+      async validateMedia(absolutePath: string, kind: 'audio' | 'video') {
+        inspected.push([absolutePath, kind]);
+      },
+    };
+    const dry = await runNovelTeaCli(
+      ['--json', 'asset', 'import', audio, video, '--dry-run'],
+      options(value, root, nativeTools),
+    );
+    expect(dry.exitCode).toBe(0);
+    expect(await value.fileSystem.inspect(`${root}/assets/audio/voice.ogg`)).toBe('missing');
+    const imported = await runNovelTeaCli(
+      ['--json', 'asset', 'import', audio, video],
+      options(value, root, nativeTools),
+    );
+    expect(imported.exitCode).toBe(0);
+    expect(inspected).toEqual([
+      [audio, 'audio'],
+      [video, 'video'],
+      [audio, 'audio'],
+      [video, 'video'],
+    ]);
+    expect(JSON.parse(imported.stdout).assets).toEqual([
+      expect.objectContaining({ kind: 'audio' }),
+      expect.objectContaining({ kind: 'video' }),
+    ]);
+  });
+
+  it('rejects undecodable CLI media before registering any file in a batch', async () => {
+    const value = fixture();
+    const good = '/imports/good.wav';
+    const bad = '/imports/bad.webm';
+    await value.fileSystem.writeBytesAtomic(good, new Uint8Array([1]));
+    await value.fileSystem.writeBytesAtomic(bad, new Uint8Array([2]));
+    const nativeTools = {
+      ...validationNativeTools(),
+      async validateMedia(absolutePath: string) {
+        if (absolutePath === bad) throw new Error('FFmpeg produced no decoded video frames.');
+      },
+    };
+    const imported = await runNovelTeaCli(
+      ['--json', 'asset', 'import', good, bad],
+      options(value, root, nativeTools),
+    );
+    expect(imported.exitCode).not.toBe(0);
+    expect(JSON.parse(imported.stdout).diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'asset.import.failed',
+          message: expect.stringMatching(/FFmpeg/),
+        }),
+      ]),
+    );
+    expect(await value.fileSystem.inspect(`${root}/assets/audio/good.wav`)).toBe('missing');
+  });
+
   it('registers an existing Asset-directory image in place and is idempotent', async () => {
     const value = fixture();
     const source = `${root}/assets/backgrounds/moon.png`;
@@ -3227,6 +3348,12 @@ describe('NovelTea headless CLI', () => {
           authoringUrl: 'system|/ui/menu/load-menu.rml',
           supportingFiles: ['ui/menu/system-menu.rcss'],
         },
+        licenses: {
+          builtinFallback: true,
+          document: 'ui/menu/licenses.rml',
+          authoringUrl: 'system|/ui/menu/licenses.rml',
+          supportingFiles: ['ui/menu/system-menu.rcss', 'ui/menu/licenses.rcss'],
+        },
         'settings-menu': {
           builtinFallback: true,
           document: 'ui/menu/settings-menu.rml',
@@ -3523,6 +3650,8 @@ describe('NovelTea headless CLI', () => {
     expect(Object.keys(loadAgentKitSystemLayoutSourceFiles())).toEqual([
       'ui/baseline/noveltea.rcss',
       'ui/baseline/rmlui-html4.rcss',
+      'ui/menu/licenses.rcss',
+      'ui/menu/licenses.rml',
       'ui/menu/load-menu.rml',
       'ui/menu/modal.rml',
       'ui/menu/pause-menu.rcss',
@@ -3601,6 +3730,9 @@ describe('NovelTea headless CLI', () => {
       'shell_open_save',
       'shell_open_load',
       'shell_open_text_log',
+      'shell_open_licenses',
+      'shell_select_license',
+      'shell_scroll_license',
       'shell_open_debug',
       'shell_close',
       'shell_return_to_title',
@@ -3697,6 +3829,16 @@ describe('NovelTea headless CLI', () => {
       SceneProjection: ['choices'],
       RoomProjection: ['available', 'has_enabled_exits', 'exits', 'objects'],
       InventoryProjection: ['items', 'presented_key', 'player_available'],
+      LicenseEntryProjection: ['label', 'index', 'selected'],
+      LicensesProjection: [
+        'engine',
+        'project',
+        'selected_title',
+        'selected_text',
+        'empty',
+        'engine_missing',
+        'invalid_inventory',
+      ],
       InteractionProjection: [
         'has_selection',
         'selected_subject_kind',
@@ -3804,6 +3946,7 @@ describe('NovelTea headless CLI', () => {
         'checkpoint',
         'save_slots',
         'confirmation',
+        'licenses',
       ],
     });
 
@@ -3906,7 +4049,7 @@ describe('NovelTea headless CLI', () => {
       [capabilityBindings, 'text_log', 'noveltea.text_log', 2],
       [capabilityBindings, 'game', 'Game', 4],
       [gameplayUiBindings, 'ui', 'Game.ui', 18],
-      [shellUiBindings, 'shell', 'Game.shell', 24],
+      [shellUiBindings, 'shell', 'Game.shell', 25],
       [shellUiBindings, 'game', 'Game', 4],
     ] as const;
     for (const [source, object, prefix, expectedCount] of groups) {

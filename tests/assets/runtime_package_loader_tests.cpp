@@ -729,6 +729,14 @@ TEST_CASE("runtime package validates Project distribution notice index and origi
     auto malformed = index;
     malformed["notices"][0].erase("source");
     CHECK_FALSE(run(malformed, notice, true, true, false));
+    malformed = index;
+    malformed["schema"] = 42;
+    CHECK_FALSE(run(malformed, notice, true, true, false));
+    malformed = index;
+    malformed["notices"] = nlohmann::json::array();
+    for (int i = 0; i < 513; ++i)
+        malformed["notices"].push_back(index["notices"][0]);
+    CHECK_FALSE(run(malformed, notice, true, true, false));
 }
 
 TEST_CASE("runtime package startup leaves an unrequested corrupt entry untouched")

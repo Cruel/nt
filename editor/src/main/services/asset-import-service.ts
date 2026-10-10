@@ -4,6 +4,8 @@ import path from 'node:path';
 import { dialog, type BrowserWindow } from 'electron';
 import sharp from 'sharp';
 import { importAnimationFiles } from './animation-import-service';
+import { validateImportedFont } from './font-import-validation-service';
+import { validateImportedAudioVideo } from './media-import-validation-service';
 import type {
   AssetImportOptions,
   AssetImportResponse,
@@ -112,6 +114,10 @@ async function copyAssetIntoProject(
   const destination = replacement
     ? path.join(targetDirectory, targetFilename)
     : await uniqueDestination(targetDirectory, targetFilename);
+  // Validate before the write transaction: a header-plausible but undecodable file
+  // must not become a registered runtime Asset through the file picker either.
+  if (kind === 'audio' || kind === 'video') await validateImportedAudioVideo(sourceAbsolute, kind);
+  if (kind === 'font') await validateImportedFont(sourceAbsolute, extension);
   const bytes = await fs.readFile(sourceAbsolute);
   assertAuthority?.();
   await writeProjectAssetFileTransaction(

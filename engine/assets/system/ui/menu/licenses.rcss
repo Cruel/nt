@@ -51,4 +51,7 @@
     font-size: 14px;
 }
 #nt-license-back { margin-top: 12px; }
+#nt-license-scroll-actions { display: flex; gap: 8px; margin-top: 8px; }
+#nt-license-scroll-actions button { flex: 1; }
+#nt-license-text-scroll:focus { border-color: #7dd3fc; }
 #nt-license-diagnostics { font-size: 12px; color: #c9d1d9; }

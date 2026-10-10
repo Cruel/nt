@@ -66,6 +66,13 @@ function profileFor(
   options: MaterializePlatformExportAcceptanceFixtureOptions,
 ): PlatformExportProfile {
   const flavor = options.buildFlavor ?? 'release';
+  // Platform export uses its own localization policy. Keep the representative French
+  // physical Asset variant in the *actual* canonical Runtime Package closure.
+  const localization = {
+    locales: ['en', 'fr'],
+    defaultLocale: 'en',
+    quality: 'development',
+  } as const;
   if (options.target === 'web') {
     return parsePlatformExportProfile({
       format: 'noveltea.platform-export-profile',
@@ -77,6 +84,7 @@ function profileFor(
       buildFlavor: flavor,
       compression: 'default',
       includeDebugSymbols: false,
+      localization,
       web: {
         artifact: 'directory-zip',
         threaded: options.webThreaded ?? true,
@@ -99,6 +107,7 @@ function profileFor(
       buildFlavor: flavor,
       compression: 'default',
       includeDebugSymbols: false,
+      localization,
       android: { artifact: options.androidArtifact ?? 'apk', abi, minSdk: 24 },
     });
   }
@@ -116,6 +125,7 @@ function profileFor(
     buildFlavor: flavor,
     compression: 'default',
     includeDebugSymbols: true,
+    localization,
     desktop: {
       artifact,
       executableName:

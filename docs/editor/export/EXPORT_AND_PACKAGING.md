@@ -257,10 +257,19 @@ project and structured Android descriptor while retaining precompiled native pla
 Project-wide Distribution Notices and the notices attached to included physical
 Assets (including localized variants) remain separate files inside `game.ntpkg`;
 they are not duplicated beside the game package in desktop/web exports.
+Engine and Project notice catalogs each have a 512-entry limit; Project preparation
+rejects an oversized catalog before creating a Runtime Package. The Licenses viewer
+can display both valid catalogs together without applying a shared 512-entry cap.
 The built-in **Licenses** menu lists verified engine/player notices under
 **Engine & Libraries** and Project notice entries under **Game Assets**. Android
 exports install the engine collection as player-readable assets, and final APK/AAB
 inspection checks its complete contents against the template before publication.
+The canonical desktop/Web export acceptance also opens each finalized export's actual
+engine notice directory and `game.ntpkg` with the native AssetManager and built-in
+RmlUi Licenses viewer. It exercises selection, verified bytes and SHA-256, shared
+font/Project-wide/localized notices, and rejection of a tampered notice. Platform
+certification requires this viewer evidence; Android's final player/device acceptance
+remains the responsibility of its target-specific CI.
 The exporter runs its declared build workflow with an already installed compatible toolchain; it
 never installs SDKs or silently builds NovelTea itself.
 

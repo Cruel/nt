@@ -18,7 +18,11 @@
                 </nav>
                 <section id="nt-license-content">
                     <h2>{{ shell.licenses.selected_title }}</h2>
-                    <div id="nt-license-text-scroll"><p id="nt-license-text">{{ shell.licenses.selected_text }}</p></div>
+                    <div id="nt-license-text-scroll" tabindex="0"><p id="nt-license-text">{{ shell.licenses.selected_text }}</p></div>
+                    <div id="nt-license-scroll-actions">
+                        <button data-event-click="shell_scroll_license(0)"><nt-tr key="noveltea.licenses.scroll_up"/></button>
+                        <button data-event-click="shell_scroll_license(1)"><nt-tr key="noveltea.licenses.scroll_down"/></button>
+                    </div>
                 </section>
             </div>
             <button id="nt-license-back" data-event-click="shell_close()"><nt-tr key="noveltea.shell.back"/></button>

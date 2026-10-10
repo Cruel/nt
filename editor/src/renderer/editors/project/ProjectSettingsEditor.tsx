@@ -1090,6 +1090,7 @@ const systemLayoutRoleLabels: Record<SystemLayoutRole, string> = {
 export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const [noticeValidationError, setNoticeValidationError] = useState<string | null>(null);
   const sourceEditors = useSourceEditorViewStateRefs<'startupInitScript'>();
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
@@ -1610,7 +1611,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
           label: t('projectSettings.cursors.categoryLabel'),
           description: t('projectSettings.cursors.categoryDescription'),
         }
-      : category,
+      : category.id === 'distribution-notices'
+        ? {
+            ...category,
+            label: t('projectSettings.distributionNotices.categoryLabel'),
+            description: t('projectSettings.distributionNotices.categoryDescription'),
+          }
+        : category,
   );
 
   return (
@@ -2807,11 +2814,9 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
       {activeCategory === 'distribution-notices' ? (
         <Card data-workbench-anchor="projectSettings.distributionNotices">
           <CardHeader>
-            <CardTitle>Project-wide Distribution Notices</CardTitle>
+            <CardTitle>{t('projectSettings.distributionNotices.title')}</CardTitle>
             <CardDescription>
-              Refer to existing Project files ending in .txt or .md. These notices ship
-              unconditionally; notices attached to individual Assets ship only when those Assets are
-              exported.
+              {t('projectSettings.distributionNotices.description')}
             </CardDescription>
           </CardHeader>
           <CardContent className="grid gap-3">
@@ -2823,8 +2828,10 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                 <div className="min-w-0 flex-1">
                   <div className="break-all text-sm">{notice.path}</div>
                   <Input
-                    aria-label={`Display name for ${notice.path}`}
-                    placeholder="Display name (optional)"
+                    aria-label={t('projectSettings.distributionNotices.displayNameFor', {
+                      path: notice.path,
+                    })}
+                    placeholder={t('projectSettings.distributionNotices.displayName')}
                     defaultValue={notice.displayName ?? ''}
                     onBlur={(event) => {
                       const displayName = event.currentTarget.value.trim() || undefined;
@@ -2847,13 +2854,13 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     )
                   }
                 >
-                  Remove
+                  {t('projectSettings.distributionNotices.remove')}
                 </Button>
               </div>
             ))}
             <div className="flex gap-2">
               <Input
-                aria-label="Project-relative notice path"
+                aria-label={t('projectSettings.distributionNotices.path')}
                 placeholder="support/licenses/NOTICE.txt"
                 value={noticePathDraft}
                 onChange={(event) => setNoticePathDraft(event.currentTarget.value)}
@@ -2866,7 +2873,33 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     (notice) => notice.path === noticePathDraft.trim(),
                   )
                 }
-                onClick={() => {
+                onClick={async () => {
+                  const projectSessionId = useProjectStore.getState().projectSessionId;
+                  if (!projectSessionId) {
+                    setNoticeValidationError(
+                      t('projectSettings.distributionNotices.sessionMissing'),
+                    );
+                    return;
+                  }
+                  let inspected;
+                  try {
+                    inspected = await window.noveltea.inspectProjectAttachmentFile(
+                      projectSessionId,
+                      noticePathDraft.trim(),
+                    );
+                  } catch (error) {
+                    setNoticeValidationError(String(error));
+                    return;
+                  }
+                  if (!inspected.exists || inspected.noticeError) {
+                    setNoticeValidationError(
+                      inspected.noticeError ??
+                        inspected.error ??
+                        t('projectSettings.distributionNotices.invalid'),
+                    );
+                    return;
+                  }
+                  setNoticeValidationError(null);
                   if (
                     setDistributionNotices([
                       ...settings.distributionNotices,
@@ -2876,9 +2909,14 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     setNoticePathDraft('');
                 }}
               >
-                Add notice
+                {t('projectSettings.distributionNotices.add')}
               </Button>
             </div>
+            {noticeValidationError ? (
+              <p role="alert" className="text-sm text-destructive">
+                {noticeValidationError}
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       ) : null}

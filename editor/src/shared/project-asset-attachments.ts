@@ -30,4 +30,6 @@ export interface ProjectAttachmentInspection {
   preview?: string;
   previewLimited?: boolean;
   error?: string;
+  /** File-specific Distribution Notice eligibility, independent of ordinary attachment use. */
+  noticeError?: string;
 }

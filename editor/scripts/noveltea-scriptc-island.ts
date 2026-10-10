@@ -348,6 +348,37 @@ function createNativeTools(
     async validateFontCoverage(request) {
       return call('font-coverage', request) as LocalizationFontCoverageResponse;
     },
+    async inspectFont(absolutePath) {
+      return call('font-inspect', { path: absolutePath }) as {
+        ok: boolean;
+        glyphCount?: number;
+        error?: string;
+      };
+    },
+    async validateMedia(absolutePath, kind) {
+      const [{ validateImportedAudioVideo }, { installedMediaTool }] = await Promise.all([
+        import('../src/main/services/media-import-validation-service'),
+        import('../src/main/services/media-preparation-service'),
+      ]);
+      await validateImportedAudioVideo(absolutePath, kind, {
+        tool: installedMediaTool(invoke('cli-executable-path', '')),
+        run: async (executable, args) => {
+          const response = JSON.parse(
+            invoke(
+              'run-process',
+              JSON.stringify({
+                command: executable,
+                args: [...args],
+                maxBuffer: 32768,
+                timeoutMs: 20000,
+              }),
+            ),
+          ) as { ok: boolean; stdout?: string; stderr?: string; error?: string };
+          if (!response.ok) throw new Error(response.error ?? 'Media decoding failed.');
+          return { stdout: response.stdout ?? '', stderr: response.stderr ?? '' };
+        },
+      });
+    },
     shaderc(arguments_) {
       const response = call('shaderc', arguments_) as { exitCode?: unknown };
       if (!Number.isSafeInteger(response.exitCode) || (response.exitCode as number) < 0)
@@ -463,6 +494,12 @@ async function runInternalCommand(
     response = await nativeTools.validateFontCoverage(
       input as unknown as LocalizationFontCoverageRequest,
     );
+  } else if (operation === 'font-inspect') {
+    if (nativeTools.inspectFont === undefined)
+      return result(1, '', 'Native font inspection is unavailable.\n');
+    if (typeof input.path !== 'string')
+      return result(2, '', 'Native font inspection requires a path.\n');
+    response = await nativeTools.inspectFont(input.path);
   } else return result(2, '', `Unknown internal editor native operation '${operation}'.\n`);
 
   const record =

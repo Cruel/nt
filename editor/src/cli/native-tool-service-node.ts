@@ -6,6 +6,7 @@ import {
   resolveNovelTeaCliPath,
 } from '../shared/noveltea-cli-subprocess';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
+import { validateImportedAudioVideo } from '../main/services/media-import-validation-service';
 
 function runRawNativeTool(command: 'shaderc' | 'texturec', arguments_: readonly string[]): number {
   // Raw tools preserve their native stdio contract, so they cannot use the JSON operation bridge.
@@ -23,6 +24,14 @@ function runRawNativeTool(command: 'shaderc' | 'texturec', arguments_: readonly 
 
 export function createNodeNovelTeaCliNativeToolService(): NovelTeaCliNativeToolService {
   return {
+    validateMedia: validateImportedAudioVideo,
+    async inspectFont(absolutePath) {
+      return (await invokeNovelTeaNativeOperation('font-inspect', { path: absolutePath })) as {
+        ok: boolean;
+        glyphCount?: number;
+        error?: string;
+      };
+    },
     async compileShaders(shaderProject, options) {
       return (await invokeNovelTeaNativeOperation('compile-shaders', {
         shaderProject,

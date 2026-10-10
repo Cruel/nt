@@ -254,6 +254,21 @@ async function importAssets(
         });
       }
 
+      if (kind === 'font') {
+        if (!context.nativeTools.inspectFont)
+          throw new Error('Native FreeType font inspection is unavailable.');
+        const inspected = await context.nativeTools.inspectFont(sourceAbsolute);
+        if (inspected.ok !== true)
+          throw new Error(
+            `Cannot import font: ${inspected.error ?? 'FreeType rejected the font'}.`,
+          );
+      }
+      if (kind === 'audio' || kind === 'video') {
+        if (!context.nativeTools.validateMedia)
+          throw new Error('FFmpeg media import validation is unavailable.');
+        await context.nativeTools.validateMedia(sourceAbsolute, kind);
+      }
+
       const metadata = await metadataForSource(
         sourceAbsolute,
         originalName,

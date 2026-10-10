@@ -56,6 +56,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_filesystem.cpp
     tooling_runtime_cache.cpp
     font_coverage_tool.cpp
+    font_inspection_tool.cpp
     tooling_archive.cpp
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_playback_expectations.cpp"
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp"
@@ -86,7 +87,8 @@ target_link_libraries(noveltea_tooling_native PUBLIC
     noveltea_script_lua
     noveltea_shader_tooling
     noveltea_text_tooling
-    PRIVATE noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz)
+    PRIVATE noveltea_bimg_texturec_embedded nlohmann_json::nlohmann_json miniz::miniz
+            noveltea_text_freetype)
 target_compile_definitions(noveltea_tooling_native PRIVATE ${NOVELTEA_NLOHMANN_JSON_COMPILE_DEFINITIONS})
 if(WIN32)
     target_link_libraries(noveltea_tooling_native PRIVATE advapi32)
@@ -124,6 +126,7 @@ target_include_directories(noveltea-ui-test-runner PRIVATE
     "${CMAKE_SOURCE_DIR}/engine/src")
 target_link_libraries(noveltea-ui-test-runner PRIVATE
     noveltea_engine
+    RmlUi::Core
     nlohmann_json::nlohmann_json)
 if(MINGW)
     target_link_options(noveltea-ui-test-runner PRIVATE -static -static-libgcc -static-libstdc++)

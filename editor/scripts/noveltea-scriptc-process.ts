@@ -8,6 +8,7 @@ export function runNovelTeaScriptcProcess(requestText: string): string {
       cwd?: string;
       env?: Record<string, string>;
       maxBuffer?: number;
+      timeoutMs?: number;
     };
     const maxBuffer =
       typeof request.maxBuffer === 'number' && Number.isSafeInteger(request.maxBuffer)
@@ -25,6 +26,12 @@ export function runNovelTeaScriptcProcess(requestText: string): string {
         encoding: 'utf8',
         stdio: 'pipe',
         windowsHide: true,
+        ...(typeof request.timeoutMs === 'number' &&
+        Number.isSafeInteger(request.timeoutMs) &&
+        request.timeoutMs > 0 &&
+        request.timeoutMs <= 60_000
+          ? { timeout: request.timeoutMs }
+          : {}),
       });
       if (result.error) throw result.error;
       const stdout = result.stdout ?? '';

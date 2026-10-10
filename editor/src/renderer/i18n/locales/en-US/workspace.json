@@ -977,6 +977,19 @@
     "show": "Show Preview"
   },
   "projectSettings": {
+    "distributionNotices": {
+      "categoryLabel": "Distribution Notices",
+      "categoryDescription": "Plain-text notices included with every Runtime Package.",
+      "title": "Project-wide Distribution Notices",
+      "description": "Choose existing Project .txt or .md files. Project-wide notices ship unconditionally; Asset notices ship only when their Assets are exported.",
+      "displayNameFor": "Display name for {{path}}",
+      "displayName": "Display name (optional)",
+      "remove": "Remove",
+      "path": "Project-relative notice path",
+      "add": "Add notice",
+      "sessionMissing": "No active Project is available to verify this notice.",
+      "invalid": "This file is not a valid Distribution Notice."
+    },
     "cursors": {
       "categoryLabel": "Cursors",
       "categoryDescription": "Semantic cursor defaults and Project-global named cursors.",

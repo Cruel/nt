@@ -244,6 +244,60 @@ describe('active Project session lifecycle', () => {
     );
   });
 
+  it('remaps Project-wide Distribution Notices along with a shared Asset attachment', async () => {
+    const root = await createWorkspace('shared-project-notice-move');
+    const source = 'support/licenses/shared.md';
+    const destination = 'support/licenses/renamed.md';
+    await fs.mkdir(path.join(root, 'support/licenses'), { recursive: true });
+    await fs.mkdir(path.join(root, 'records/assets'), { recursive: true });
+    await fs.writeFile(path.join(root, source), 'Shared attribution\n');
+    await fs.writeFile(path.join(root, 'assets/cover.bin'), 'image data');
+    await fs.writeFile(
+      path.join(root, 'records/assets/cover.json'),
+      JSON.stringify({
+        id: 'cover',
+        label: 'Cover',
+        data: {
+          kind: 'binary',
+          source: { type: 'project-file', path: 'assets/cover.bin' },
+          aliases: [],
+          imageMetadata: null,
+          attachments: [{ path: source, purpose: 'distribution-notice' }],
+        },
+      }),
+    );
+    const previous = await openProject(root);
+    if (!previous.success || !previous.contentProject)
+      throw new Error('Project fixture open failed.');
+    const authored = parseAuthoringProject(previous.contentProject);
+    authored.settings.distributionNotices = [{ path: source, displayName: 'Attribution' }];
+    for (const [relative, contents] of Object.entries(
+      projectWorkspaceFiles(authored, authored.editor, previous.scriptSourcePaths ?? {}),
+    )) {
+      await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
+      await fs.writeFile(path.join(root, relative), contents);
+    }
+    const service = new ActiveProjectSessionService();
+    const activation = service.beginProjectActivation();
+    const session = await service.attachToSuccessfulResult(await openProject(root), activation);
+    const changed = await service.mutateProjectSources({
+      projectSessionId: session.projectSessionId!,
+      operation: { kind: 'move-attachment', fromPath: source, toPath: destination },
+    });
+    expect(changed.success).toBe(true);
+    const after = await openProject(root);
+    if (!after.contentProject) throw new Error('Moved Project cannot be opened.');
+    const persisted = parseAuthoringProject(after.contentProject);
+    expect(persisted.settings.distributionNotices).toEqual([
+      { path: destination, displayName: 'Attribution' },
+    ]);
+    expect(persisted.assets.cover?.data.attachments).toEqual([
+      { path: destination, purpose: 'distribution-notice' },
+    ]);
+    await expect(fs.access(path.join(root, source))).rejects.toThrow();
+    expect(await fs.readFile(path.join(root, destination), 'utf8')).toBe('Shared attribution\n');
+  });
+
   it('activates a canonical Project root, refreshes it, and rotates for another Project', async () => {
     const projectA = await createWorkspace('a');
     const projectB = await createWorkspace('b');

@@ -256,6 +256,16 @@ audio, and video signatures; inspection is limited to six concurrent files and u
 file-stability settle interval per batch. This is a suggestion filter, not a substitute for
 validation when explicitly importing a file. Large originals are not embedded as discovery previews.
 
+Explicit Project-file registration and file-picker import/reimport validate before admitting an
+Asset. Fonts (`.ttf`, `.otf`, `.woff`, `.woff2`) are inspected through NovelTea's native
+FreeType tooling, requiring a Unicode character map and a loadable glyph; CLI Asset imports
+use the same inspection. Audio/video files are checked with the private FFmpeg tool used
+for media preparation: the editor asynchronously demuxes the file and decodes one audio block or
+video frame, requiring actual decoded output. The probe has a 20-second limit and provides an
+actionable error if the media tool is unavailable or the source is undecodable. This deliberately
+does not decode the whole stream; later corruption remains a runtime/preparation concern. Routine
+workspace discovery still performs only its cheap bounded signature inspection.
+
 Recognized media produces one dismissible, nonmodal notification. Dismissals are held in local
 editor storage by Project file path and file size/modified-time revision; unchanged candidates stay
 quiet on reopen, and changed/new revisions can prompt again. The status bar always offers manual

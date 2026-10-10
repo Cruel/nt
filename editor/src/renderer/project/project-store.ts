@@ -117,6 +117,17 @@ function remapProjectSourcePaths(
 ): JsonValue | null {
   if (!document || typeof document !== 'object' || Array.isArray(document)) return document;
   const next = cloneJsonValue(document) as Record<string, JsonValue>;
+  const settings = next.settings;
+  if (settings && typeof settings === 'object' && !Array.isArray(settings)) {
+    const notices = (settings as Record<string, JsonValue>).distributionNotices;
+    if (Array.isArray(notices))
+      for (const notice of notices) {
+        if (!notice || typeof notice !== 'object' || Array.isArray(notice)) continue;
+        const entry = notice as Record<string, JsonValue>;
+        if (typeof entry.path === 'string' && pathRemap[entry.path])
+          entry.path = pathRemap[entry.path];
+      }
+  }
   const assets = next.assets;
   if (assets && typeof assets === 'object' && !Array.isArray(assets)) {
     for (const record of Object.values(assets)) {
