@@ -1394,7 +1394,7 @@ TEST_CASE("opaque video Animation uses prepared frames through mandatory world r
     gate.clear_package_on_owner();
 }
 
-TEST_CASE("finite video motion prepares all required frames before causal startup",
+TEST_CASE("finite video motion prepares only its initial sample before causal startup",
           "[assets][mandatory-assets][animation][video][presentation-operation]")
 {
     PlannerFixture fixture;
@@ -1446,27 +1446,53 @@ TEST_CASE("finite video motion prepares all required frames before causal startu
         id<core::AnimationMotionId>("idle"),
         playback,
         std::nullopt}};
-    SECTION("all frames are resident before the finite operation may start")
+    SECTION("startup does not request or pin later samples")
     {
         REQUIRE(gate.include_presentation_operation_on_owner(operation));
-        CHECK(gate.active_on_owner());
+        fixture.run_until_idle();
+        REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+        auto ready = gate.take_ready_transaction_on_owner();
+        REQUIRE(ready);
         CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
+        REQUIRE(ready->commit_on_owner(false));
+        CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
+    }
+    SECTION("a missing later sample does not fail startup")
+    {
+        fixture.textures.rejected_path = std::string(last_frame);
+        REQUIRE(gate.include_presentation_operation_on_owner(operation));
+        fixture.run_until_idle();
+        REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
+        auto ready = gate.take_ready_transaction_on_owner();
+        REQUIRE(ready);
+        REQUIRE(ready->commit_on_owner(false));
+        CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
+    }
+    SECTION("the operation marker selects its own mandatory initial sample")
+    {
+        auto marked_operation = operation;
+        std::get<core::PlayMotionOperation>(marked_operation).playback.initial_marker = "middle";
+        REQUIRE(gate.include_presentation_operation_on_owner(marked_operation));
+        CHECK(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Pending);
         fixture.run_until_idle();
         REQUIRE(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Ready);
         auto ready = gate.take_ready_transaction_on_owner();
         REQUIRE(ready);
         REQUIRE(fixture.manager.leased_texture_on_owner(final_request));
+        REQUIRE(fixture.manager.leased_material_on_owner({.id = "sprite-material"}));
         REQUIRE(ready->commit_on_owner(false));
-        REQUIRE(fixture.manager.leased_texture_on_owner(final_request));
     }
-    SECTION("a missing final frame fails the entire causal gate")
+    SECTION("an unavailable operation initial sample still fails startup atomically")
     {
+        auto marked_operation = operation;
+        std::get<core::PlayMotionOperation>(marked_operation).playback.initial_marker = "middle";
         fixture.textures.rejected_path = std::string(last_frame);
-        REQUIRE(gate.include_presentation_operation_on_owner(operation));
+        REQUIRE(gate.include_presentation_operation_on_owner(marked_operation));
         fixture.run_until_idle();
         CHECK(gate.poll_on_owner().disposition == assets::MandatoryAssetGateDisposition::Failed);
         CHECK_FALSE(gate.take_ready_transaction_on_owner());
         CHECK(fixture.manager.leased_texture_on_owner(final_request) == nullptr);
+        CHECK(fixture.manager.leased_material_on_owner({.id = "sprite-material"}));
     }
     gate.clear_package_on_owner();
 }
@@ -1487,8 +1513,7 @@ TEST_CASE("native finite video play and transition realize prepared endpoints",
     source.revision = core::PresentationSnapshotRevision::from_number(1);
     const core::MotionPlaybackPolicy desired_policy{.repeat = core::MotionRepeat::Loop,
                                                     .rate = 1.0,
-                                                    .clock = core::LayoutClockDomain::Gameplay,
-                                                    .initial_marker = "middle"};
+                                                    .clock = core::LayoutClockDomain::Gameplay};
     source.interactables.push_back(
         {id<core::InteractableInstanceId>("key"),
          {id<core::RoomId>("hall"), id<core::RoomPlacementId>("placement")},
@@ -1523,8 +1548,10 @@ TEST_CASE("native finite video play and transition realize prepared endpoints",
     const auto motion = id<core::AnimationMotionId>("idle");
 
     bool transition_motion = false;
+    bool terminal_failure = false;
     SECTION("temporary play-motion returns to desired video") { transition_motion = false; }
     SECTION("transition-motion binds the committed video revision") { transition_motion = true; }
+    SECTION("a terminal sample failure fails the running operation") { terminal_failure = true; }
     {
         const core::PresentationOperation operation =
             transition_motion
@@ -1561,8 +1588,28 @@ TEST_CASE("native finite video play and transition realize prepared endpoints",
         CHECK(first_path.ends_with("frame-000000.png"));
 
         core::RuntimeClockUpdate clocks;
+        auto acknowledged = transitions.take_acknowledgements();
+        REQUIRE(acknowledged.size() == 1);
+        CHECK(std::holds_alternative<core::BackendOperationRunning>(acknowledged.front().fact));
+        if (terminal_failure)
+            fixture.textures.rejected_path =
+                "project:/assets/.prepared-media/video-loop/idle/aaaaaaaaaaaaaaaa/frame-000001.png";
         clocks.gameplay_delta = std::chrono::milliseconds{150};
         transitions.advance(clocks);
+        if (terminal_failure) {
+            acknowledged = transitions.take_acknowledgements();
+            REQUIRE(acknowledged.size() == 1);
+            const auto* failed = std::get_if<core::BackendOperationFailed>(&acknowledged.front().fact);
+            REQUIRE(failed);
+            CHECK(failed->diagnostic.code == "presentation.finite_motion_media_failed");
+            CHECK(transitions.targeted_render_states().empty());
+            gate.clear_package_on_owner();
+            return;
+        }
+        composed = transitions.compose_targeted_world_batch();
+        REQUIRE(composed);
+        CHECK(transitions.take_acknowledgements().empty());
+        CHECK((*world.frame()->draws.front().texture_lease)->path == first_path);
         fixture.run_until_idle();
         clocks.gameplay_delta = std::chrono::milliseconds{0};
         transitions.advance(clocks);
@@ -1573,8 +1620,8 @@ TEST_CASE("native finite video play and transition realize prepared endpoints",
         CHECK(final_path.ends_with("frame-000001.png"));
         CHECK(final_path != first_path);
         transitions.advance(clocks);
-        auto acknowledged = transitions.take_acknowledgements();
-        REQUIRE(acknowledged.size() == 2);
+        acknowledged = transitions.take_acknowledgements();
+        REQUIRE(acknowledged.size() == 1);
         CHECK(std::holds_alternative<core::BackendOperationCompleted>(acknowledged.back().fact));
         REQUIRE(world.frame()->draws.front().texture_lease);
         CHECK((*world.frame()->draws.front().texture_lease)->path == final_path);

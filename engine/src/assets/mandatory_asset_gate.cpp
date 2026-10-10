@@ -1,5 +1,4 @@
 #include "noveltea/assets/mandatory_asset_gate.hpp"
-#include "noveltea/assets/prepared_video_texture.hpp"
 #include "noveltea/runtime/flow_prediction.hpp"
 
 #include "noveltea/assets/asset_cache_keys.hpp"
@@ -1752,26 +1751,6 @@ core::Result<void, core::Diagnostics> MandatoryAssetGate::include_presentation_o
     if (!operation_dependencies.diagnostics.empty())
         return core::Result<void, core::Diagnostics>::failure(
             std::move(operation_dependencies.diagnostics));
-
-    // A finite video is causal: prepare every required raster sample before accepting startup,
-    // not just the initial drawable seed used by ordinary looping video publication.
-    const auto& selected_animation = animation->animation;
-    const auto prepared_video =
-        std::ranges::find_if(m_impl->package->prepared_media().motions, [&](const auto& prepared) {
-            return prepared.animation == selected_animation && prepared.motion == *motion;
-        });
-    if (prepared_video != m_impl->package->prepared_media().motions.end()) {
-        for (std::size_t index = 0; index < prepared_video->frames.size(); ++index) {
-            auto request = prepared_video_texture_request(*prepared_video, index);
-            const auto key =
-                make_texture_cache_key(request, m_impl->dependency_index->source_generation());
-            const bool already_included =
-                std::ranges::any_of(operation_dependencies.requests,
-                                    [&](const auto& entry) { return entry.cache_key == key; });
-            if (!already_included)
-                operation_dependencies.requests.push_back({std::move(request), key});
-        }
-    }
 
     if (!m_impl->group) {
         m_impl->dependencies =

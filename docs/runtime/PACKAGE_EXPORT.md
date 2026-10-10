@@ -73,9 +73,11 @@ while also generating deterministic private opaque raster frames through the pin
 Embedded audio is omitted from that representation and yields an authoring warning because generic
 Animation is visual-only. The prepared representation is packaged as ordinary image payloads so
 mandatory seed readiness and native texture residency use existing transactions and asynchronous
-requests. Ordinary looping publication pins only the initial sample, not the entire decoded video;
-causal finite named-motion operations prepare every required raster sample as one failure-atomic
-mandatory transaction before operation startup. The native media
+requests. Ordinary publication and causal finite named-motion startup require only the selected
+initial sample (including the operation's initial marker) and Material closure, not every video
+sample. The mandatory transaction remains failure-atomic for those startup resources. Later samples
+stream on demand; a late final sample delays finite completion until realized, and terminal sample
+failure fails the running operation through the typed presentation diagnostic path. The native media
 stream requests frames at NovelTea-owned presentation times, with bounded current/pending decode
 interest and explicit hidden-occurrence cancellation. This representation is intentionally
 replaceable by later target-specific media encodings without changing authored or compiled Animation
