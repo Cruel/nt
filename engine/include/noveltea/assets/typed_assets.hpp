@@ -18,6 +18,10 @@
 namespace noveltea::assets {
 
 template<class T> class AssetPreparationTask;
+class VideoTextureSource;
+class VideoTextureSession;
+class VideoTextureResidencyPin;
+template<class T> class AssetLease;
 
 inline constexpr uint16_t invalid_typed_asset_handle = std::numeric_limits<uint16_t>::max();
 
@@ -64,6 +68,7 @@ struct PreparedVideoTextureSample {
     double time_ms = 0;
     std::uint16_t width = 0;
     std::uint16_t height = 0;
+    std::uint64_t revision = 0;
 };
 
 struct TextureAssetRequest {
@@ -71,6 +76,7 @@ struct TextureAssetRequest {
     MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
     bool retain_alpha_coverage = false;
     std::optional<PreparedVideoTextureSample> video_sample = std::nullopt;
+    std::shared_ptr<VideoTextureSession> video_session = nullptr;
 };
 
 struct TextureAlphaCoverage {
@@ -88,6 +94,32 @@ struct TextureAsset {
     MaterialTextureSampler sampler = MaterialTextureSampler::ClampLinear;
     uint8_t mip_count = 1;
     std::optional<TextureAlphaCoverage> alpha_coverage;
+    std::shared_ptr<VideoTextureSource> video_source = nullptr;
+    std::shared_ptr<VideoTextureSession> video_session = nullptr;
+    std::shared_ptr<VideoTextureResidencyPin> video_residency_pin = nullptr;
+};
+
+class VideoTextureResidencyPin {
+public:
+    virtual ~VideoTextureResidencyPin() = default;
+};
+
+class VideoTextureSession {
+public:
+    virtual ~VideoTextureSession() = default;
+    [[nodiscard]] virtual std::uint64_t identity() const noexcept = 0;
+    [[nodiscard]] virtual const char* backend() const noexcept = 0;
+    [[nodiscard]] virtual std::uint64_t uploads_on_owner() const noexcept = 0;
+    [[nodiscard]] virtual std::shared_ptr<VideoTextureResidencyPin>
+    retain_residency(const AssetLease<TextureAsset>& lease) = 0;
+    [[nodiscard]] virtual std::unique_ptr<AssetPreparationTask<TextureAsset>>
+    create_texture_preparation_task(TextureAssetRequest request) = 0;
+};
+
+class VideoTextureSource {
+public:
+    virtual ~VideoTextureSource() = default;
+    [[nodiscard]] virtual std::shared_ptr<VideoTextureSession> create_session() = 0;
 };
 
 struct HotspotMaskRegionInput {

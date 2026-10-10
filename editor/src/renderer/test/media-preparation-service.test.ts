@@ -152,16 +152,14 @@ describe('private media preparation tool', () => {
         tool,
         (_exe, args) => {
           if (args.at(-1)?.endsWith('.webm')) {
+            expect(readFileSync(args[args.indexOf('-i') + 1]!)).toEqual(bytes);
             writeFileSync(args.at(-1)!, 'browser video');
-            return { stdout: '', stderr: '' };
+            return { stdout: 'frame=1\nprogress=end\n', stderr: '' };
           }
-          if (!args.includes('-vf')) return run(_exe, args);
-          expect(readFileSync(args[args.indexOf('-i') + 1]!)).toEqual(bytes);
-          writeFileSync(args.at(-1)!.replace('%06d', '000000'), 'frame');
-          return { stdout: '', stderr: '' };
+          return run(_exe, args);
         },
       );
-      expect(result.frames).toHaveLength(1);
+      expect(result.frameDurationsMs).toEqual([33]);
       sessions.closeActiveProject();
       await expect(
         prepareProjectOpaqueVideo(sessions, session, request, tool, run),
@@ -207,7 +205,7 @@ describe('private media preparation tool', () => {
     }
   });
 
-  it('prepares deterministic opaque Animation frames and strips embedded audio', async () => {
+  it('prepares deterministic opaque Animation WebM without PNGs and strips embedded audio', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-video-preparation-'));
     try {
       await writeFile(path.join(root, 'source.mov'), Buffer.from('creator source bytes'));
@@ -217,15 +215,11 @@ describe('private media preparation tool', () => {
         if (args.includes('-version')) return run(_executable, args);
         if (args.includes('-encoders')) return run(_executable, args);
         if (args.includes('-protocols')) return run(_executable, args);
-        const pattern = args.at(-1)!;
-        if (pattern.endsWith('.webm')) {
-          writeFileSync(pattern, Buffer.from('browser video'));
-          return { stdout: '', stderr: '' };
-        }
-        writeFileSync(pattern.replace('%06d', '000000'), Buffer.from('frame one'));
-        writeFileSync(pattern.replace('%06d', '000001'), Buffer.from('frame two'));
+        const video = args.at(-1)!;
+        expect(video).toMatch(/opaque\.webm$/u);
+        writeFileSync(video, Buffer.from('browser video'));
         return {
-          stdout: '',
+          stdout: 'frame=1\nprogress=continue\nframe=2\nprogress=end\n',
           stderr: 'Stream #0:0[0x1](und): Video: vp9\nStream #0:1[0x2](und): Audio: opus',
         };
       };
@@ -255,20 +249,22 @@ describe('private media preparation tool', () => {
         },
       });
       expect(result.contentHash).toMatch(/^[0-9a-f]{64}$/u);
-      expect(result.frames.map((frame) => frame.durationMs)).toEqual([33, 967]);
-      expect(result.frames.reduce((total, frame) => total + frame.durationMs, 0)).toBe(1000);
-      expect(
-        result.frames.every((frame) => frame.projectRelativePath.includes(result.contentHash)),
-      ).toBe(true);
+      expect(result.frameDurationsMs).toEqual([33, 967]);
+      expect(result.frameDurationsMs.reduce((total, duration) => total + duration, 0)).toBe(1000);
       const job = calls.find((args) => args.includes('-an') && args.includes('-vf'));
       expect(job).toEqual(
         expect.arrayContaining(['-map', '0:v:0', '-an', '-ss', '0.25', '-t', '1']),
       );
       expect(job?.join(' ')).toContain('fps=30');
       expect(job?.join(' ')).toContain('scale=320:180');
+      expect(job).toContain('pipe:1');
+      expect(calls.filter((args) => args.at(-1)?.endsWith('.webm'))).toHaveLength(1);
       expect(opaqueVideoPreparationResultSchema.parse(result)).toEqual(result);
 
-      const staleFrame = path.join(path.dirname(result.frames[0]!.sourcePath), 'frame-999999.png');
+      const staleFrame = path.join(
+        path.dirname(result.browserVideo.sourcePath),
+        'frame-999999.png',
+      );
       writeFileSync(staleFrame, Buffer.from('stale frame'));
       const repeated = await prepareOpaqueVideoMotion(
         root,
@@ -285,6 +281,9 @@ describe('private media preparation tool', () => {
       );
       expect(repeated).toEqual(result);
       expect(existsSync(staleFrame)).toBe(false);
+      expect(
+        existsSync(path.join(path.dirname(result.browserVideo.sourcePath), 'frame-000000.png')),
+      ).toBe(false);
     } finally {
       await rm(root, { recursive: true, force: true });
     }

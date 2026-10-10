@@ -361,22 +361,7 @@ describe('graph-driven Room builder', () => {
         width: 320,
         height: 180,
       },
-      frames: [
-        {
-          sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000000.png',
-          projectRelativePath: '.noveltea/build/prepared-media/a/frame-000000.png',
-          contentHash: 'b'.repeat(64),
-          byteSize: 11,
-          durationMs: 500,
-        },
-        {
-          sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000001.png',
-          projectRelativePath: '.noveltea/build/prepared-media/a/frame-000001.png',
-          contentHash: 'c'.repeat(64),
-          byteSize: 12,
-          durationMs: 500,
-        },
-      ],
+      frameDurationsMs: [500, 500],
     });
 
     const result = await build(project);
@@ -402,8 +387,8 @@ describe('graph-driven Room builder', () => {
             kind: 'sprite-sequence',
             markers: [],
             frames: [
-              { assetId: 'prepared-video-aaaaaaaaaaaaaaaa-0', durationMs: 500 },
-              { assetId: 'prepared-video-aaaaaaaaaaaaaaaa-1', durationMs: 500 },
+              { assetId: 'prepared-video-aaaaaaaaaaaaaaaa-stream', durationMs: 500 },
+              { assetId: 'prepared-video-aaaaaaaaaaaaaaaa-stream', durationMs: 500 },
             ],
           },
         ],
@@ -413,13 +398,11 @@ describe('graph-driven Room builder', () => {
       expect.arrayContaining([
         expect.objectContaining({
           sourceKind: 'prepared-media',
-          assetId: 'prepared-video-aaaaaaaaaaaaaaaa-0',
-          kind: 'image',
-        }),
-        expect.objectContaining({
-          sourceKind: 'prepared-media',
-          assetId: 'prepared-video-aaaaaaaaaaaaaaaa-1',
-          kind: 'image',
+          assetId: 'prepared-video-aaaaaaaaaaaaaaaa-stream',
+          kind: 'video',
+          width: 320,
+          height: 180,
+          fetchProjectRelativePath: '.noveltea/build/prepared-media/a/opaque.webm',
         }),
       ]),
     );

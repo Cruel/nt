@@ -397,10 +397,6 @@ make_running_game_input(nlohmann::json gameplay, std::optional<nlohmann::json> s
     }
 
     for (const auto& motion : prepared_media.motions) {
-        for (const auto& frame : motion.frames) {
-            entries.push_back({{"path", frame.path}, {"size", 0}});
-            files.push_back({frame.path, 0, std::nullopt});
-        }
         if (motion.browser_video) {
             entries.push_back({{"path", motion.browser_video->path}, {"size", 0}});
             files.push_back({motion.browser_video->path, 0, std::nullopt});

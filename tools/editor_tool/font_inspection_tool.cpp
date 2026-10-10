@@ -48,7 +48,7 @@ NativeOperationResult inspect_font(std::string_view request_json)
         return failure("Font inspection requires an absolute file path.");
 
     const auto path_text = request["path"].get<std::string>();
-    const auto filename = std::filesystem::u8path(path_text);
+    const auto filename = std::filesystem::path(std::u8string(path_text.begin(), path_text.end()));
     if (!filename.is_absolute())
         return failure("Font inspection requires an absolute file path.");
 

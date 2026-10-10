@@ -36,7 +36,7 @@ addToLibrary({
           NTVideoTextures.release(task);
         };
         const capture = () => {
-          if (task.state !== 0 || !task.seekStarted || video.seeking || video.readyState < 2) return;
+          if (task.state !== 0 || !task.seekCompleted || video.seeking || video.readyState < 2) return;
           try {
             if (video.videoWidth !== task.width || video.videoHeight !== task.height)
               throw new Error('Prepared browser video dimensions do not match its Animation canvas.');
@@ -58,11 +58,13 @@ addToLibrary({
             return;
           }
           // Seek inside the final coded sample if container duration rounds below semantic end.
-          task.seekStarted = true;
-          video.currentTime = Math.min(task.time, Math.max(0, video.duration - 0.001));
+          const time = Math.min(task.time, Math.max(0, video.duration - 0.001));
+          // loadeddata may fire for the initial frame before a requested seek has completed.
+          task.seekCompleted = time === 0;
+          video.currentTime = time;
         };
         video.onloadeddata = capture;
-        video.onseeked = capture;
+        video.onseeked = () => { task.seekCompleted = true; capture(); };
         video.onerror = () => fail('Browser cannot decode the packaged opaque video representation.');
         task.timer = setTimeout(() => fail('Browser video sample preparation timed out.'), 15000);
         task.url = URL.createObjectURL(task.blob);

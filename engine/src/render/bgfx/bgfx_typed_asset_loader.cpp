@@ -1,4 +1,5 @@
 #include "render/bgfx/bgfx_typed_asset_loader.hpp"
+#include "render/bgfx/native_video_texture.hpp"
 #include "render/bgfx/web_video_texture.hpp"
 
 #include "assets/asset_preparation_io.hpp"
@@ -1158,7 +1159,8 @@ ShaderMaterialPreparationTask<assets::MaterialAsset>::finalize_on_owner() noexce
 
 BgfxTypedAssetLoader::BgfxTypedAssetLoader(const assets::AssetManager& assets,
                                            BgfxShaderProgramCache& programs)
-    : m_assets(assets), m_programs(programs)
+    : m_assets(assets), m_programs(programs),
+      m_native_video(std::make_unique<NativeVideoTextureLoader>(assets))
 {
 }
 
@@ -1212,8 +1214,13 @@ std::unique_ptr<assets::AssetPreparationTask<assets::TextureAsset>>
 BgfxTypedAssetLoader::create_texture_preparation_task(const assets::TextureAssetRequest& request)
 {
     auto& owner = static_cast<TexturePreparationOwner&>(*this);
-    if (request.video_sample)
+    if (request.video_sample) {
+#ifdef __EMSCRIPTEN__
         return make_web_video_texture_task(m_assets, owner, request);
+#else
+        return m_native_video->create_task(request);
+#endif
+    }
     return std::make_unique<TexturePreparationTask>(m_assets, owner, request);
 }
 

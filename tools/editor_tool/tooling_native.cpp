@@ -220,10 +220,6 @@ Result<HeadlessRuntimeInput, Diagnostics> make_headless_running_game_input(
     }
 
     for (const auto& motion : prepared_media.motions) {
-        for (const auto& frame : motion.frames) {
-            entries.push_back({{"path", frame.path}, {"size", 0}});
-            files.push_back({frame.path, 0, std::nullopt});
-        }
         if (motion.browser_video) {
             entries.push_back({{"path", motion.browser_video->path}, {"size", 0}});
             files.push_back({motion.browser_video->path, 0, std::nullopt});
@@ -624,12 +620,8 @@ Result<void, Diagnostics> certify_compiled_export(const nlohmann::json& project,
         prepared_media = std::move(decoded).value();
     }
     for (const auto& motion : prepared_media.motions) {
-        std::vector<std::string> required_paths;
-        for (const auto& frame : motion.frames)
-            required_paths.push_back(frame.path);
-        if (motion.browser_video)
-            required_paths.push_back(motion.browser_video->path);
-        for (const auto& path : required_paths) {
+        if (motion.browser_video) {
+            const auto& path = motion.browser_video->path;
             if (std::none_of(options.file_entries.begin(), options.file_entries.end(),
                              [&](const auto& entry) { return entry.package_path == path; }))
                 return Result<void, Diagnostics>::failure(

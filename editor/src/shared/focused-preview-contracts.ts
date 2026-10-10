@@ -129,7 +129,7 @@ const authoringManifestEntrySchema = z
       context.addIssue({
         code: 'custom',
         path: ['sourceKind'],
-        message: 'Private video frames require prepared-media authority.',
+        message: 'Private video streams require prepared-media authority.',
       });
     if (entry.resourceId !== `asset:${entry.assetId}`)
       context.addIssue({
@@ -189,8 +189,10 @@ const preparedMediaManifestEntrySchema = strict({
   resourceId: z.string().regex(/^asset:.+$/),
   sourceKind: z.literal('prepared-media'),
   assetId: z.string().min(1),
-  kind: z.literal('image'),
+  kind: z.literal('video'),
   sampling: z.literal('linear'),
+  width: z.number().int().min(1).max(8192),
+  height: z.number().int().min(1).max(8192),
 }).superRefine((entry, context) => {
   if (
     !entry.assetId.startsWith('prepared-video-') ||
@@ -200,7 +202,7 @@ const preparedMediaManifestEntrySchema = strict({
     context.addIssue({
       code: 'custom',
       path: ['logicalPath'],
-      message: 'Prepared video frames require a canonical private Project path.',
+      message: 'Prepared video streams require a canonical private Project path.',
     });
   if (entry.resourceId !== `asset:${entry.assetId}`)
     context.addIssue({
@@ -248,7 +250,7 @@ export const nativePreviewResourceManifestEntrySchema = z.union([
         context.addIssue({
           code: 'custom',
           path: ['sourceKind'],
-          message: 'Private video frames require prepared-media authority.',
+          message: 'Private video streams require prepared-media authority.',
         });
       if (entry.resourceId !== `asset:${entry.assetId}`)
         context.addIssue({
@@ -262,8 +264,10 @@ export const nativePreviewResourceManifestEntrySchema = z.union([
     resourceId: z.string().regex(/^asset:prepared-video-.+$/),
     sourceKind: z.literal('prepared-media'),
     assetId: z.string().startsWith('prepared-video-'),
-    kind: z.literal('image'),
+    kind: z.literal('video'),
     sampling: z.literal('linear'),
+    width: z.number().int().min(1).max(8192),
+    height: z.number().int().min(1).max(8192),
   }).refine(
     (entry) =>
       entry.resourceId === `asset:${entry.assetId}` &&
@@ -339,6 +343,8 @@ export const projectNativeManifest = (
         byteSize: entry.byteSize,
         kind: entry.kind,
         sampling: entry.sampling,
+        width: entry.width,
+        height: entry.height,
       };
     return {
       resourceId: entry.resourceId,

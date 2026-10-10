@@ -317,22 +317,7 @@ describe('Prepared Runtime Artifact module', () => {
               width: 320,
               height: 180,
             },
-            frames: [
-              {
-                sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000000.png',
-                projectRelativePath: '.noveltea/build/prepared-media/a/frame-000000.png',
-                contentHash: 'b'.repeat(64),
-                byteSize: 11,
-                durationMs: 500,
-              },
-              {
-                sourcePath: '/project/.noveltea/build/prepared-media/a/frame-000001.png',
-                projectRelativePath: '.noveltea/build/prepared-media/a/frame-000001.png',
-                contentHash: 'c'.repeat(64),
-                byteSize: 12,
-                durationMs: 500,
-              },
-            ],
+            frameDurationsMs: [500, 500],
           };
         },
       },
@@ -351,11 +336,7 @@ describe('Prepared Runtime Artifact module', () => {
       expect.arrayContaining([
         expect.objectContaining({
           kind: 'prepared-media',
-          packagePath: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/frame-000000.png',
-        }),
-        expect.objectContaining({
-          kind: 'prepared-media',
-          packagePath: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/frame-000001.png',
+          packagePath: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/opaque.webm',
         }),
       ]),
     );
@@ -370,13 +351,14 @@ describe('Prepared Runtime Artifact module', () => {
         {
           animationId: 'portrait',
           motionId: 'idle',
-          representation: 'opaque-raster-frames',
+          representation: 'opaque-vp9-webm',
           contentHash: 'a'.repeat(64),
           browserVideo: {
             path: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/opaque.webm',
             width: 320,
             height: 180,
           },
+          frames: [{ durationMs: 500 }, { durationMs: 500 }],
         },
       ],
     });

@@ -1322,20 +1322,20 @@ export async function buildFocusedRoomPreview(
           message: `Video motion '${motion.id}' contains audio. Generic Animation is visual-only; embedded audio is ignored.`,
           code: 'focused-room.video-audio-ignored',
         });
-      prepared.frames.forEach((frame, frameIndex) => {
-        const preparedAssetId = `prepared-video-${prepared.contentHash.slice(0, 16)}-${frameIndex}`;
-        preparedVideoResources.push({
-          resourceId: `asset:${preparedAssetId}`,
-          sourceKind: 'prepared-media',
-          assetId: preparedAssetId,
-          usageRoles: ['room-preview'],
-          fetchProjectRelativePath: frame.projectRelativePath,
-          logicalPath: `project:/${frame.projectRelativePath}`,
-          contentHash: frame.contentHash,
-          byteSize: frame.byteSize,
-          kind: 'image',
-          sampling: 'linear',
-        });
+      const preparedAssetId = `prepared-video-${prepared.contentHash.slice(0, 16)}-stream`;
+      preparedVideoResources.push({
+        resourceId: `asset:${preparedAssetId}`,
+        sourceKind: 'prepared-media',
+        assetId: preparedAssetId,
+        usageRoles: ['room-preview'],
+        fetchProjectRelativePath: prepared.browserVideo.projectRelativePath,
+        logicalPath: `project:/${prepared.browserVideo.projectRelativePath}`,
+        contentHash: prepared.browserVideo.contentHash,
+        byteSize: prepared.browserVideo.byteSize,
+        kind: 'video',
+        sampling: 'linear',
+        width: prepared.browserVideo.width,
+        height: prepared.browserVideo.height,
       });
     }
   }
@@ -1366,9 +1366,9 @@ export async function buildFocusedRoomPreview(
               markers: motion.markers,
               id: motion.id,
               kind: 'sprite-sequence' as const,
-              frames: prepared.frames.map((frame, frameIndex) => ({
-                assetId: `prepared-video-${prepared.contentHash.slice(0, 16)}-${frameIndex}`,
-                durationMs: frame.durationMs,
+              frames: prepared.frameDurationsMs.map((durationMs) => ({
+                assetId: `prepared-video-${prepared.contentHash.slice(0, 16)}-stream`,
+                durationMs,
               })),
             };
           }),

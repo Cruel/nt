@@ -103,9 +103,8 @@ describe('runtime video media-tool discovery', () => {
           if (args.includes('-encoders')) return { stdout: 'libaom-av1 libvpx-vp9', stderr: '' };
           if (args.includes('-protocols')) return { stdout: 'file pipe', stderr: '' };
           const output = args.at(-1)!;
-          if (output.endsWith('.webm')) writeFileSync(output, 'browser video');
-          else writeFileSync(output.replace('%06d', '000000'), 'frame');
-          return { stdout: '', stderr: '' };
+          writeFileSync(output, 'browser video');
+          return { stdout: 'frame=1\r\nprogress=end\r\n', stderr: '' };
         },
       );
       const result = await paths.prepareOpaqueVideo!(project, {
@@ -115,9 +114,9 @@ describe('runtime video media-tool discovery', () => {
         sourcePath: 'source.mp4',
         canvas: { width: 16, height: 16 },
       });
-      expect(result.frames).toHaveLength(1);
+      expect(result.frameDurationsMs).toHaveLength(1);
       expect(result.browserVideo.byteSize).toBeGreaterThan(0);
-      expect(calls).toHaveLength(8);
+      expect(calls).toHaveLength(4);
       expect(new Set(calls)).toEqual(
         new Set([
           path.join(

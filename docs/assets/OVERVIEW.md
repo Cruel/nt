@@ -11,6 +11,8 @@ Use this entrypoint before changing asset loading, asset metadata, project asset
 
 - `docs/engine/ASSET.md` describes the authoring asset entity, editor behavior, validation, runtime/export status, and implementation files.
 - `docs/runtime/PACKAGE_EXPORT.md` describes runtime package layout and manifest shape.
+- `docs/assets/NATIVE_VIDEO.md` describes native VP9/WebM decoder ownership, GPU sampling,
+  readiness, resource limits, and platform verification.
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` describes the editor export workflow and asset packaging surface.
 - `docs/assets/ASSET_MEMORY_PROFILES.md` records measured residency units, target presets, Custom
   validation, and runtime pressure semantics.

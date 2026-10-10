@@ -280,12 +280,12 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
       "motions":[{
         "animationId":"video-animation",
         "motionId":"idle",
-        "representation":"opaque-raster-frames",
+        "representation":"opaque-vp9-webm",
         "contentHash":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
         "browserVideo":{"path":"assets/.prepared-media/video-animation/idle/a/opaque.webm","width":320,"height":180},
         "frames":[
-          {"path":"assets/.prepared-media/video-animation/idle/a/frame-000000.png","durationMs":500},
-          {"path":"assets/.prepared-media/video-animation/idle/a/frame-000001.png","durationMs":500}
+          {"durationMs":500},
+          {"durationMs":500}
         ]
       }]
     })json";
@@ -315,8 +315,6 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
     auto manifest_json = package_manifest_for(project, false);
     const auto prepared = decoded.value();
     CHECK(prepared.motions.front().browser_video->width == 320);
-    for (const auto& frame : prepared.motions.front().frames)
-        manifest_json["entries"].push_back({{"path", frame.path}, {"size", 10}});
     manifest_json["entries"].push_back(
         {{"path", prepared.motions.front().browser_video->path}, {"size", 10}});
     auto manifest = decode_runtime_package_manifest(manifest_json);

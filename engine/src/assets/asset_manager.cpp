@@ -1508,7 +1508,7 @@ AssetManager::request_font(const FontAssetRequest& request, AssetRequestReason r
 
 core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>
 AssetManager::request_texture(const TextureAssetRequest& request, AssetRequestReason reason,
-                              AssetRequestUrgency urgency) noexcept
+                              AssetRequestUrgency urgency) const noexcept
 {
     if (m_async == nullptr || m_texture_loader == nullptr) {
         return core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>::failure(
@@ -1517,7 +1517,9 @@ AssetManager::request_texture(const TextureAssetRequest& request, AssetRequestRe
                                            : "no typed texture loader is bound"});
     }
     const auto key = make_texture_cache_key(request, m_source_generation);
-    auto task = m_texture_loader->create_texture_preparation_task(request);
+    auto task = request.video_session
+                    ? request.video_session->create_texture_preparation_task(request)
+                    : m_texture_loader->create_texture_preparation_task(request);
     if (task == nullptr) {
         return core::Result<AssetRequestHandle<TextureAsset>, core::Diagnostic>::failure(
             {.code = "assets.texture_preparation_unavailable",
@@ -1637,7 +1639,7 @@ AssetManager::prefetch_font(const FontAssetRequest& request,
 
 core::Result<PrefetchTicket, core::Diagnostic>
 AssetManager::prefetch_texture(const TextureAssetRequest& request,
-                               PrefetchGenerationId generation) noexcept
+                               PrefetchGenerationId generation) const noexcept
 {
     if (m_async == nullptr || m_texture_loader == nullptr) {
         return core::Result<PrefetchTicket, core::Diagnostic>::failure(

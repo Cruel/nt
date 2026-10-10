@@ -74,6 +74,12 @@ file(COPY_FILE
     "${_compiled_package_notification_source}"
     "${_compiled_package_tmp}/audio/notification.mp3")
 
+# The compiled-world smoke package is a real runtime fixture: even a project
+# without third-party notices must supply its explicit empty notice catalog.
+file(MAKE_DIRECTORY "${_compiled_package_tmp}/licenses")
+file(WRITE "${_compiled_package_tmp}/licenses/index.json"
+    "{\"schema\":\"noveltea.project-notices\",\"notices\":[]}")
+
 file(GLOB_RECURSE _compiled_package_files RELATIVE "${_compiled_package_tmp}" "${_compiled_package_tmp}/*")
 list(SORT _compiled_package_files)
 set(_compiled_package_entries_json "")

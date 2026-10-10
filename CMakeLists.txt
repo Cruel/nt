@@ -369,6 +369,9 @@ if(NOVELTEA_FETCH_BGFX)
     endif()
 
     FetchContent_MakeAvailable(bgfx.cmake)
+    if(NOT EMSCRIPTEN)
+        target_compile_definitions(bgfx PRIVATE BGFX_CONFIG_MAX_VIEWS=512)
+    endif()
     FetchContent_GetProperties(bgfx.cmake SOURCE_DIR NOVELTEA_BGFX_SOURCE_DIR)
     if(NOVELTEA_BUILD_HOST_TOOLS AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android" AND
        NOT TARGET texturec)

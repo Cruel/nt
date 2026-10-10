@@ -49,17 +49,7 @@ export const opaqueVideoPreparationResultSchema = strict({
     width: z.number().int().positive().max(10_000),
     height: z.number().int().positive().max(10_000),
   }),
-  frames: z
-    .array(
-      strict({
-        sourcePath: z.string().min(1),
-        projectRelativePath: z.string().min(1),
-        contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
-        byteSize: z.number().int().nonnegative(),
-        durationMs: z.number().int().positive(),
-      }),
-    )
-    .min(1),
+  frameDurationsMs: z.array(z.number().int().positive()).min(1),
 });
 
 export const preparedMediaManifestSchema = strict({
@@ -69,32 +59,24 @@ export const preparedMediaManifestSchema = strict({
     strict({
       animationId: z.string().min(1),
       motionId: z.string().min(1),
-      representation: z.literal('opaque-raster-frames'),
+      representation: z.literal('opaque-vp9-webm'),
       contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
       browserVideo: strict({
         path: z.string().min(1),
         width: z.number().int().positive().max(10_000),
         height: z.number().int().positive().max(10_000),
-      }).nullable(),
-      frames: z
-        .array(
-          strict({
-            path: z.string().min(1),
-            durationMs: z.number().int().positive(),
-          }),
-        )
-        .min(1),
+      }),
+      frames: z.array(strict({ durationMs: z.number().int().positive() })).min(1),
     }),
   ),
 });
 export type PreparedMediaManifest = z.infer<typeof preparedMediaManifestSchema>;
 
-export function preparedVideoFramePackagePath(
+export function preparedVideoPackagePath(
   animationId: string,
   motionId: string,
   contentHash: string,
-  frameIndex: number,
 ): string {
   const segment = (value: string) => value.replace(/[^a-zA-Z0-9._-]+/gu, '-');
-  return `assets/.prepared-media/${segment(animationId)}/${segment(motionId)}/${contentHash.slice(0, 16)}/frame-${String(frameIndex).padStart(6, '0')}.png`;
+  return `assets/.prepared-media/${segment(animationId)}/${segment(motionId)}/${contentHash.slice(0, 16)}/opaque.webm`;
 }

@@ -50,7 +50,7 @@ import {
   PREPARED_MEDIA_SCHEMA,
   PREPARED_MEDIA_VERSION,
   preparedMediaManifestSchema,
-  preparedVideoFramePackagePath,
+  preparedVideoPackagePath,
   type OpaqueVideoPreparationRequest,
   type OpaqueVideoPreparationResult,
   type PreparedMediaManifest,
@@ -1166,23 +1166,11 @@ async function prepareOpaqueVideoRepresentations(
   for (const entry of requests) {
     try {
       const prepared = await paths.prepareOpaqueVideo(projectRoot, entry.request);
-      const frames = prepared.frames.map((frame, frameIndex) => {
-        const packagePath = preparedVideoFramePackagePath(
-          entry.animationId,
-          entry.motionId,
-          prepared.contentHash,
-          frameIndex,
-        );
-        fileEntries.push({
-          source: frame.sourcePath,
-          packagePath,
-          storage: 'auto',
-          assetId: `prepared-media:${entry.animationId}:${entry.motionId}:${frameIndex}`,
-          kind: 'prepared-media',
-        });
-        return { path: packagePath, durationMs: frame.durationMs };
-      });
-      const browserPath = frames[0]!.path.replace(/frame-000000\.png$/u, 'opaque.webm');
+      const browserPath = preparedVideoPackagePath(
+        entry.animationId,
+        entry.motionId,
+        prepared.contentHash,
+      );
       fileEntries.push({
         source: prepared.browserVideo.sourcePath,
         packagePath: browserPath,
@@ -1193,14 +1181,14 @@ async function prepareOpaqueVideoRepresentations(
       manifest.motions.push({
         animationId: entry.animationId,
         motionId: entry.motionId,
-        representation: 'opaque-raster-frames',
+        representation: 'opaque-vp9-webm',
         contentHash: prepared.contentHash,
         browserVideo: {
           path: browserPath,
           width: prepared.browserVideo.width,
           height: prepared.browserVideo.height,
         },
-        frames,
+        frames: prepared.frameDurationsMs.map((durationMs) => ({ durationMs })),
       });
       if (prepared.hadAudio)
         diagnostics.push(
@@ -1883,23 +1871,20 @@ export async function verifyPreparedRuntimeArtifact(
         '/artifact/packageOptions/textEntries',
       );
     const referencedPreparedPaths = new Set<string>();
-    for (const motion of parsedPreparedMedia.data.motions)
-      for (const frame of [
-        ...motion.frames,
-        ...(motion.browserVideo ? [motion.browserVideo] : []),
-      ]) {
-        if (!referencedPreparedPaths.add(frame.path))
-          return rejectedEvidence(
-            'Prepared-media manifest contains a duplicate frame path.',
-            '/artifact/packageOptions/textEntries',
-          );
-        const entry = actualFileEntriesByPath.get(frame.path);
-        if (!entry || entry.kind !== 'prepared-media')
-          return rejectedEvidence(
-            'Prepared-media manifest references a frame absent from the prepared file inventory.',
-            '/artifact/fileEntries',
-          );
-      }
+    for (const motion of parsedPreparedMedia.data.motions) {
+      const path = motion.browserVideo.path;
+      if (!referencedPreparedPaths.add(path))
+        return rejectedEvidence(
+          'Prepared-media manifest contains a duplicate video path.',
+          '/artifact/packageOptions/textEntries',
+        );
+      const entry = actualFileEntriesByPath.get(path);
+      if (!entry || entry.kind !== 'prepared-media')
+        return rejectedEvidence(
+          'Prepared-media manifest references a video absent from the prepared file inventory.',
+          '/artifact/fileEntries',
+        );
+    }
     if (
       actualFileEntries.some(
         (entry) =>
@@ -1907,7 +1892,7 @@ export async function verifyPreparedRuntimeArtifact(
       )
     )
       return rejectedEvidence(
-        'Prepared file inventory contains an unreferenced private media frame.',
+        'Prepared file inventory contains an unreferenced private video.',
         '/artifact/fileEntries',
       );
     preparedMediaTextEntriesForVerification = preparedMediaTextEntries;
