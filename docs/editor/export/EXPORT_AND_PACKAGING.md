@@ -272,7 +272,11 @@ certification requires this viewer evidence; Android's final player/device accep
 remains the responsibility of its target-specific CI.
 Web release certification additionally launches the finalized browser player and requires
 `player_pre.js` to fetch each indexed engine notice and its index from the distribution's
-actual URLs, verifying response checksums at root and nested base paths. This supplements,
+actual URLs, independently verify the downloaded bytes, and mount the exact notice inventory
+into Emscripten's system filesystem. The browser verifier requires a player-side successful
+staging signal and hashes the mounted bytes after initialization. HTTP traffic is supporting
+evidence only: PWA worker precaching may duplicate requests or serve responses from cache.
+Certification checks this behavior at root and nested base paths. This supplements,
 but does not replace, an end-to-end browser-rendered Licenses-viewer interaction witness;
 that target-player acceptance remains tracked by #418.
 The exporter runs its declared build workflow with an already installed compatible toolchain; it

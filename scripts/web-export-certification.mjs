@@ -5,6 +5,7 @@ import fs from 'node:fs/promises';
 import http from 'node:http';
 import path from 'node:path';
 import process from 'node:process';
+import { verifyWebLicensePreloadEvidence } from './web-license-preload-evidence.mjs';
 
 function fail(message) {
   throw new Error(`[web-export-certification] ${message}`);
@@ -135,19 +136,40 @@ try {
     const failure = await page.locator('#failure').isVisible();
     if (failure) fail(`case '${item.label}' startup failed: ${await page.locator('#failure-message').textContent()}; recent console: ${consoleLines.slice(-20).join(' | ')}`);
     if (!consoleLines.some((line) => line.includes('NOVELTEA_PLAYER_READY'))) fail(`case '${item.label}' did not reach the player-ready marker; recent console: ${consoleLines.slice(-20).join(' | ')}`);
-    const engineFetches = [{ path: item.engineCatalog, sha256: item.engineCatalogSha256 },
-      ...item.notices.map((notice) => ({ path: `assets/system/${notice.path}`, sha256: notice.sha256 }))];
-    for (const expected of engineFetches) {
-      const url = `${item.basePath}${expected.path}`;
-      const matching = requests.filter((entry) => entry.case === item.label &&
-        entry.path === url && entry.status === 200 && entry.sha256 === expected.sha256);
-      if (matching.length !== 1)
-        fail(`case '${item.label}' player_pre.js did not fetch exactly one verified '${url}'`);
-    }
+    // The shipped player (not the server or PWA worker) must prove that its
+    // async preRun finished and that Emscripten FS still contains the exact
+    // indexed bytes *after* native initialization.
+    const player = await page.evaluate(async (expected) => {
+      const module = globalThis.Module;
+      const preload = module?.novelteaLicensePreload;
+      if (!preload || preload.status !== 'verified')
+        return { status: preload?.status ?? 'missing', error: preload?.error };
+      if (!module.FS?.readFile)
+        return { status: 'failed', error: 'Player FS.readFile is unavailable after startup.' };
+      const hexDigest = async (bytes) => {
+        const digest = new Uint8Array(await crypto.subtle.digest('SHA-256', bytes));
+        return Array.from(digest, (byte) => byte.toString(16).padStart(2, '0')).join('');
+      };
+      const index = module.FS.readFile('/assets/system/licenses/index.json');
+      const mountedNotices = [];
+      for (const notice of expected) {
+        const bytes = module.FS.readFile(`/assets/system/${notice.path}`);
+        mountedNotices.push({
+          path: notice.path,
+          size: bytes.byteLength,
+          sha256: await hexDigest(bytes),
+        });
+      }
+      return {
+        ...preload,
+        mountedIndexSha256: await hexDigest(index),
+        mountedNotices,
+      };
+    }, item.notices);
+    const licensePreload = verifyWebLicensePreloadEvidence(item, player, requests);
     results.push({ label: item.label, basePath: item.basePath, packagePath: item.packagePath,
       packageSha256: item.packageSha256, packageRequest: expectedPackageUrl,
-      launchGestureGated: true, engineNoticePreloadCount: item.notices.length,
-      engineCatalogSha256: item.engineCatalogSha256, consoleLines });
+      launchGestureGated: true, ...licensePreload, consoleLines });
     await page.close();
   }
 } finally {

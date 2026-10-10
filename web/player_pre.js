@@ -9,12 +9,23 @@ Module.preRun.push(function () {
   // Stage those bytes into Emscripten's existing system:/ mount before the native player
   // starts; RuntimeUI still reads only through AssetManager and verifies every notice.
   var noticeDependency = 'noveltea-player-license-assets';
+  Module.novelteaLicensePreload = { status: 'pending' };
   addRunDependency(noticeDependency);
+  function hexDigest(buffer) {
+    return crypto.subtle.digest('SHA-256', buffer).then(function (digest) {
+      return Array.from(new Uint8Array(digest), function (byte) {
+        return byte.toString(16).padStart(2, '0');
+      }).join('');
+    });
+  }
   (async function stageTargetNotices() {
     var root = new URL('assets/system/', document.baseURI);
     var indexUrl = new URL('licenses/index.json', root);
     var indexResponse = await fetch(indexUrl, { cache: 'no-store' });
-    if (indexResponse.status === 404) return; // This target has no engine notice inventory.
+    if (indexResponse.status === 404) {
+      Module.novelteaLicensePreload = { status: 'absent' };
+      return; // This target has no engine notice inventory.
+    }
     if (!indexResponse.ok) throw new Error('Engine license index could not be downloaded.');
     var indexBuffer = await indexResponse.arrayBuffer();
     if (indexBuffer.byteLength > 1024 * 1024) throw new Error('Engine license index exceeds 1 MiB.');
@@ -48,8 +59,7 @@ Module.preRun.push(function () {
       var buffer = await response.arrayBuffer();
       if (buffer.byteLength !== entry.size || buffer.byteLength > 1024 * 1024)
         throw new Error('Engine license notice length differs from the inventory.');
-      var digest = new Uint8Array(await crypto.subtle.digest('SHA-256', buffer));
-      var hash = Array.from(digest, function (byte) { return byte.toString(16).padStart(2, '0'); }).join('');
+      var hash = await hexDigest(buffer);
       if (hash !== entry.sha256) throw new Error('Engine license notice checksum differs from the inventory.');
       verified.push({ path: entry.path, bytes: new Uint8Array(buffer) });
     }
@@ -60,8 +70,33 @@ Module.preRun.push(function () {
       FS.writeFile(target, item.bytes);
     }
     FS.writeFile('/assets/system/licenses/index.json', new Uint8Array(indexBuffer));
+    // Do not attest successful transport on download/HTTP status alone. Verify that
+    // the exact bytes survived the Emscripten filesystem write and can be read back
+    // through the player-visible system mount before releasing the startup dependency.
+    var indexHash = await hexDigest(indexBuffer);
+    var mountedIndex = FS.readFile('/assets/system/licenses/index.json');
+    if (await hexDigest(mountedIndex) !== indexHash)
+      throw new Error('Mounted engine license index checksum differs from the download.');
+    for (var staged of verified) {
+      var mounted = FS.readFile('/assets/system/' + staged.path);
+      var actualHash = await hexDigest(mounted);
+      var expected = entries.find(function (entry) { return entry.path === staged.path; });
+      if (mounted.byteLength !== expected.size || actualHash !== expected.sha256)
+        throw new Error('Mounted engine license notice differs from the verified download.');
+    }
+    Module.novelteaLicensePreload = {
+      status: 'verified',
+      indexSha256: indexHash,
+      notices: entries.map(function (entry) {
+        return { path: entry.path, sha256: entry.sha256, size: entry.size };
+      }),
+    };
   })().catch(function (error) {
     // A corrupted/missing index never silently substitutes another platform's notices.
+    Module.novelteaLicensePreload = {
+      status: 'failed',
+      error: error instanceof Error ? error.message : String(error),
+    };
     console.warn('[player] target license inventory unavailable:', error);
   }).finally(function () {
     removeRunDependency(noticeDependency);

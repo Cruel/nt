@@ -202,7 +202,10 @@ function setup(corruptLicenseIndex = false) {
           packageSha256: packageSha,
           launchGestureGated: true,
           engineNoticePreloadCount: 2,
+          engineNoticeMountedCount: 2,
           engineCatalogSha256: '9'.repeat(64),
+          mountedIndexSha256: '9'.repeat(64),
+          status: 'verified',
         },
         {
           label: 'single-nested',
@@ -210,7 +213,10 @@ function setup(corruptLicenseIndex = false) {
           packageSha256: nestedPackageSha,
           launchGestureGated: true,
           engineNoticePreloadCount: 2,
+          engineNoticeMountedCount: 2,
           engineCatalogSha256: '9'.repeat(64),
+          mountedIndexSha256: '9'.repeat(64),
+          status: 'verified',
         },
       ],
     })}\n`,
@@ -479,6 +485,24 @@ describe('platform certification results producer', () => {
     const result = run(value.collectArgs);
     expect(result.status).not.toBe(0);
     expect(result.stderr).toContain("missing passing 'single-nested'");
+  });
+
+  it('rejects HTTP-looking browser evidence without successful player staging and mounted bytes', () => {
+    for (const mismatch of [
+      { status: 'failed' },
+      { engineNoticeMountedCount: 0 },
+      { mountedIndexSha256: '0'.repeat(64) },
+    ]) {
+      const value = setup();
+      const browser = JSON.parse(readFileSync(value.browser, 'utf8')) as {
+        results: Array<Record<string, unknown>>;
+      };
+      Object.assign(browser.results[0]!, mismatch);
+      writeFileSync(value.browser, JSON.stringify(browser));
+      const result = run(value.collectArgs);
+      expect(result.status).not.toBe(0);
+      expect(result.stderr).toContain('lacks verified player_pre.js notice mounts');
+    }
   });
 
   it('rejects a license index inconsistent with the real text despite matching descriptor file hashes', () => {
