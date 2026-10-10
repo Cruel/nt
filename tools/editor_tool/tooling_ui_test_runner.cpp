@@ -1221,8 +1221,11 @@ nlohmann::json inspect_exported_license_viewer(
     if (!request.contains("systemAssetsRoot") || !request["systemAssetsRoot"].is_string() ||
         !request.contains("packagePath") || !request["packagePath"].is_string())
         return fail("License acceptance requires systemAssetsRoot and packagePath.");
-    const auto system_root = std::filesystem::u8path(request["systemAssetsRoot"].get<std::string>());
-    const auto package = std::filesystem::u8path(request["packagePath"].get<std::string>());
+    const auto system_root_text = request["systemAssetsRoot"].get<std::string>();
+    const auto package_text = request["packagePath"].get<std::string>();
+    const auto system_root = std::filesystem::path(
+        std::u8string(system_root_text.begin(), system_root_text.end()));
+    const auto package = std::filesystem::path(std::u8string(package_text.begin(), package_text.end()));
     if (!std::filesystem::is_directory(system_root) || !std::filesystem::is_regular_file(package))
         return fail("Exported system Assets or Runtime Package are missing.");
     if (!std::filesystem::is_regular_file(system_root / "licenses/index.json"))
