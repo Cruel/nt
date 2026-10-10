@@ -6,6 +6,7 @@
 #include "noveltea/core/player_bootstrap.hpp"
 #include "noveltea/core/package_export.hpp"
 #include "noveltea/core/save_state_codec.hpp"
+#include "noveltea/core/json_access.hpp"
 #include "noveltea/presentation/runtime_presentation_model.hpp"
 
 #include <algorithm>
@@ -239,9 +240,9 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
                     valid = false;
                     break;
                 }
-                const auto entry_path = notice["path"].get<std::string>();
-                const auto source_path = notice["source"].get<std::string>();
-                const auto hash = notice["contentHash"].get<std::string>();
+                const auto entry_path = core::json_access::value_or<std::string>(notice, "path", "");
+                const auto source_path = core::json_access::value_or<std::string>(notice, "source", "");
+                const auto hash = core::json_access::value_or<std::string>(notice, "contentHash", "");
                 auto extension = std::filesystem::path(source_path).extension().string();
                 std::transform(
                     extension.begin(), extension.end(), extension.begin(),
@@ -250,7 +251,7 @@ decode_indexed_runtime_package(const assets::ZipAssetSource& source, std::string
                     !core::ProjectPackageWriter::is_safe_package_path(source_path) ||
                     (extension != ".txt" && extension != ".md") ||
                     (!previous_source_path.empty() && source_path <= previous_source_path) ||
-                    notice["displayName"].get<std::string>().empty() || hash.size() != 71 ||
+                    core::json_access::value_or<std::string>(notice, "displayName", "").empty() || hash.size() != 71 ||
                     !hash.starts_with("sha256:") || !declared_notices.insert(entry_path).second) {
                     valid = false;
                     break;

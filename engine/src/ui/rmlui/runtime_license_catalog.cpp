@@ -3,6 +3,7 @@
 #include "noveltea/assets/asset_manager.hpp"
 #include "noveltea/core/package_export.hpp"
 #include "noveltea/core/player_bootstrap.hpp"
+#include "noveltea/core/json_access.hpp"
 
 #include <algorithm>
 #include <cctype>
@@ -114,9 +115,9 @@ bool append_engine(const nlohmann::json& index, std::vector<RuntimeLicenseNotice
             !component["version"].is_string() || !component.contains("files") ||
             !component["files"].is_array())
             return false;
-        const auto name = component["component"].get<std::string>();
-        const auto label = component["displayName"].get<std::string>();
-        const auto version = component["version"].get<std::string>();
+        const auto name = core::json_access::value_or<std::string>(component, "component", "");
+        const auto label = core::json_access::value_or<std::string>(component, "displayName", "");
+        const auto version = core::json_access::value_or<std::string>(component, "version", "");
         if (name.empty() || label.empty() || version.empty() ||
             (!previous.empty() && name <= previous) || component["files"].empty())
             return false;
@@ -127,9 +128,9 @@ bool append_engine(const nlohmann::json& index, std::vector<RuntimeLicenseNotice
                 !file["size"].is_number_unsigned() || !file.contains("sha256") ||
                 !file["sha256"].is_string())
                 return false;
-            const auto path = file["path"].get<std::string>();
-            const auto hash = file["sha256"].get<std::string>();
-            const auto size = file["size"].get<std::size_t>();
+            const auto path = core::json_access::value_or<std::string>(file, "path", "");
+            const auto hash = core::json_access::value_or<std::string>(file, "sha256", "");
+            const auto size = core::json_access::value_or<std::size_t>(file, "size", 0);
             if (!safe_notice_path(path) || !path.ends_with(".txt") || !valid_sha256(hash) ||
                 size == 0 || size > kMaxNoticeBytes || !paths.insert(path).second ||
                 out.size() >= kMaxNotices)
@@ -157,10 +158,10 @@ bool append_project(const nlohmann::json& index, std::vector<RuntimeLicenseNotic
             !notice["displayName"].is_string() || !notice.contains("contentHash") ||
             !notice["contentHash"].is_string())
             return false;
-        const auto path = notice["path"].get<std::string>();
-        const auto source = notice["source"].get<std::string>();
-        const auto label = notice["displayName"].get<std::string>();
-        const auto hash = notice["contentHash"].get<std::string>();
+        const auto path = core::json_access::value_or<std::string>(notice, "path", "");
+        const auto source = core::json_access::value_or<std::string>(notice, "source", "");
+        const auto label = core::json_access::value_or<std::string>(notice, "displayName", "");
+        const auto hash = core::json_access::value_or<std::string>(notice, "contentHash", "");
         const auto dot = path.find_last_of('.');
         if (dot == std::string::npos)
             return false;

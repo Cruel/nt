@@ -4,3 +4,9 @@
 # The current tree needs no exceptions: all JSON-visible shipped headers are in the explicit,
 # structurally approved codec and adapter paths in CheckJsonBoundaryPolicy.cmake. Add an entry only
 # when a legitimate external boundary cannot live in one of those paths.
+engine/src/boundary/running_game_loader.cpp|#include <nlohmann/|runtime package import|package-manifest-codec|Validates the distribution notice index while mounting immutable package entries|Extract to a dedicated runtime package notice codec
+engine/src/boundary/running_game_loader.cpp|nlohmann::json|runtime package import|package-manifest-codec|Validates the distribution notice index while mounting immutable package entries|Extract to a dedicated runtime package notice codec
+engine/src/ui/rmlui/runtime_license_catalog.cpp|#include <nlohmann/|runtime licensing|external-boundary-codec|Parses untrusted engine and project notice catalogs into typed UI notices|Extract catalog parsing into a separate codec
+engine/src/ui/rmlui/runtime_license_catalog.cpp|nlohmann::json|runtime licensing|external-boundary-codec|Parses untrusted engine and project notice catalogs into typed UI notices|Extract catalog parsing into a separate codec
+tools/editor_tool/font_inspection_tool.cpp|#include <nlohmann/|font inspection tooling|editor-tool-protocol-adapter|Parses the native tooling JSON request and builds its response|Move transport into the native tooling protocol adapter
+tools/editor_tool/font_inspection_tool.cpp|nlohmann::json|font inspection tooling|editor-tool-protocol-adapter|Parses the native tooling JSON request and builds its response|Move transport into the native tooling protocol adapter
