@@ -1091,6 +1091,8 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
   const { t } = useTranslation('workspace');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const [noticeValidationError, setNoticeValidationError] = useState<string | null>(null);
+  const [noticeAddPending, setNoticeAddPending] = useState(false);
+  const noticeAddInFlight = useRef(false);
   const sourceEditors = useSourceEditorViewStateRefs<'startupInitScript'>();
   const projectDocument = useProjectStore((state) => state.document);
   const projectFilePath = useProjectStore((state) => state.projectFilePath);
@@ -2862,35 +2864,58 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
               <Input
                 aria-label={t('projectSettings.distributionNotices.path')}
                 placeholder="support/licenses/NOTICE.txt"
+                disabled={noticeAddPending}
                 value={noticePathDraft}
                 onChange={(event) => setNoticePathDraft(event.currentTarget.value)}
               />
               <Button
                 type="button"
                 disabled={
+                  noticeAddPending ||
                   !noticePathDraft.trim() ||
                   settings.distributionNotices.some(
                     (notice) => notice.path === noticePathDraft.trim(),
                   )
                 }
                 onClick={async () => {
-                  const projectSessionId = useProjectStore.getState().projectSessionId;
+                  if (noticeAddInFlight.current) return;
+                  const initial = useProjectStore.getState();
+                  const projectSessionId = initial.projectSessionId;
                   if (!projectSessionId) {
                     setNoticeValidationError(
                       t('projectSettings.distributionNotices.sessionMissing'),
                     );
                     return;
                   }
+                  const instanceId = initial.projectInstanceId;
+                  const relativePath = noticePathDraft.trim();
+                  noticeAddInFlight.current = true;
+                  setNoticeAddPending(true);
                   let inspected;
                   try {
                     inspected = await window.noveltea.inspectProjectAttachmentFile(
                       projectSessionId,
-                      noticePathDraft.trim(),
+                      relativePath,
                     );
                   } catch (error) {
-                    setNoticeValidationError(String(error));
+                    if (useProjectStore.getState().projectInstanceId === instanceId)
+                      setNoticeValidationError(String(error));
                     return;
+                  } finally {
+                    noticeAddInFlight.current = false;
+                    setNoticeAddPending(false);
                   }
+                  const current = useProjectStore.getState();
+                  if (
+                    current.projectInstanceId !== instanceId ||
+                    current.projectSessionId !== projectSessionId ||
+                    !current.document
+                  )
+                    return;
+                  const decoded = decodeAuthoringProject(stripEditorProjectState(current.document));
+                  if (!decoded.project) return;
+                  const notices = projectSettingsForEditing(decoded.project).distributionNotices;
+                  if (notices.some((notice) => notice.path === relativePath)) return;
                   if (!inspected.exists || inspected.noticeError) {
                     setNoticeValidationError(
                       inspected.noticeError ??
@@ -2900,12 +2925,7 @@ export function ProjectSettingsEditor({ tab }: WorkbenchEditorProps) {
                     return;
                   }
                   setNoticeValidationError(null);
-                  if (
-                    setDistributionNotices([
-                      ...settings.distributionNotices,
-                      { path: noticePathDraft.trim() },
-                    ])
-                  )
+                  if (setDistributionNotices([...notices, { path: relativePath }]))
                     setNoticePathDraft('');
                 }}
               >

@@ -720,6 +720,10 @@ TEST_CASE("runtime package validates Project distribution notice index and origi
     auto wrong_hash = index;
     wrong_hash["notices"][0]["contentHash"] = "sha256:" + std::string(64, '0');
     CHECK_FALSE(run(wrong_hash, notice, true, true, false));
+    auto empty_index = index;
+    empty_index["notices"][0]["contentHash"] =
+        "sha256:" + core::sha256_hex(std::span<const std::byte>{});
+    CHECK_FALSE(run(empty_index, "", true, true, false));
     CHECK_FALSE(run(index, "invalid\xFF", true, true, false));
     auto control_text_index = index;
     const std::string control_text("illegal\0control", 15);

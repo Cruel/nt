@@ -54,7 +54,24 @@ async function inspectCase(item) {
   const manifest = JSON.parse(await fs.readFile(path.join(item.directory, 'manifest.webmanifest'), 'utf8'));
   if (config.package?.path !== packages[0]) fail(`case '${item.label}' player.json does not identify its only package`);
   if (manifest.start_url !== item.basePath || manifest.scope !== item.basePath) fail(`case '${item.label}' manifest base path does not match ${item.basePath}`);
-  return { ...item, files, packagePath: packages[0], packageSha256: config.package.sha256 };
+  const engineCatalog = 'assets/system/licenses/index.json';
+  if (!files.includes(engineCatalog)) fail(`case '${item.label}' has no exported engine notice inventory`);
+  const catalogBytes = await fs.readFile(path.join(item.directory, engineCatalog));
+  const catalog = JSON.parse(catalogBytes.toString('utf8'));
+  if (catalog.format !== 'noveltea.engine-licenses' || !Array.isArray(catalog.components))
+    fail(`case '${item.label}' has an invalid engine notice inventory`);
+  const notices = catalog.components.flatMap((component) => component.files ?? []);
+  if (!notices.length) fail(`case '${item.label}' has no engine notices`);
+  for (const notice of notices) {
+    const relative = `assets/system/${notice.path}`;
+    if (!/^licenses\/[a-z0-9-]+--[a-z0-9-]+\.txt$/.test(notice.path) || !files.includes(relative))
+      fail(`case '${item.label}' is missing exported engine notice '${relative}'`);
+    const bytes = await fs.readFile(path.join(item.directory, relative));
+    if (bytes.length !== notice.size || createHash('sha256').update(bytes).digest('hex') !== notice.sha256)
+      fail(`case '${item.label}' has mismatched notice bytes '${relative}'`);
+  }
+  return { ...item, files, packagePath: packages[0], packageSha256: config.package.sha256,
+    engineCatalog, engineCatalogSha256: createHash('sha256').update(catalogBytes).digest('hex'), notices };
 }
 
 async function startServer(cases, requests) {
@@ -71,7 +88,8 @@ async function startServer(cases, requests) {
     if (file !== item.directory && !file.startsWith(`${item.directory}${path.sep}`)) { response.writeHead(403).end('forbidden'); return; }
     try {
       const body = await fs.readFile(file);
-      requests.push({ case: item.label, path: pathname, status: 200 });
+      requests.push({ case: item.label, path: pathname, status: 200,
+        sha256: createHash('sha256').update(body).digest('hex') });
       response.writeHead(200, { 'content-type': contentType(file), 'cache-control': 'no-store' });
       response.end(body);
     } catch {
@@ -105,18 +123,31 @@ try {
     const expectedPackageUrl = `${item.basePath}${item.packagePath}`;
     const deadline = Date.now() + 120_000;
     while (!consoleLines.some((line) => line.includes('NOVELTEA_PLAYER_READY')) &&
-           !(await page.locator('#failure').isVisible()) && Date.now() < deadline) {
+           !(await page.locator('#failure').isVisible()) && pageErrors.length === 0 &&
+           Date.now() < deadline) {
       await page.waitForTimeout(250);
     }
     const packageRequests = requests.filter((entry) => entry.case === item.label && entry.path === expectedPackageUrl && entry.status === 200);
     if (packageRequests.length < 1) fail(`case '${item.label}' did not fetch ${expectedPackageUrl}`);
     const unexpectedPackageRequests = requests.filter((entry) => entry.case === item.label && entry.path.endsWith('.ntpkg') && entry.path !== expectedPackageUrl);
     if (unexpectedPackageRequests.length) fail(`case '${item.label}' requested an undeclared package path`);
-    if (pageErrors.length) fail(`case '${item.label}' page errors: ${pageErrors.join(' | ')}`);
+    if (pageErrors.length) fail(`case '${item.label}' page errors: ${pageErrors.join(' | ')}; recent console: ${consoleLines.slice(-20).join(' | ')}`);
     const failure = await page.locator('#failure').isVisible();
     if (failure) fail(`case '${item.label}' startup failed: ${await page.locator('#failure-message').textContent()}; recent console: ${consoleLines.slice(-20).join(' | ')}`);
     if (!consoleLines.some((line) => line.includes('NOVELTEA_PLAYER_READY'))) fail(`case '${item.label}' did not reach the player-ready marker; recent console: ${consoleLines.slice(-20).join(' | ')}`);
-    results.push({ label: item.label, basePath: item.basePath, packagePath: item.packagePath, packageSha256: item.packageSha256, packageRequest: expectedPackageUrl, launchGestureGated: true, consoleLines });
+    const engineFetches = [{ path: item.engineCatalog, sha256: item.engineCatalogSha256 },
+      ...item.notices.map((notice) => ({ path: `assets/system/${notice.path}`, sha256: notice.sha256 }))];
+    for (const expected of engineFetches) {
+      const url = `${item.basePath}${expected.path}`;
+      const matching = requests.filter((entry) => entry.case === item.label &&
+        entry.path === url && entry.status === 200 && entry.sha256 === expected.sha256);
+      if (matching.length !== 1)
+        fail(`case '${item.label}' player_pre.js did not fetch exactly one verified '${url}'`);
+    }
+    results.push({ label: item.label, basePath: item.basePath, packagePath: item.packagePath,
+      packageSha256: item.packageSha256, packageRequest: expectedPackageUrl,
+      launchGestureGated: true, engineNoticePreloadCount: item.notices.length,
+      engineCatalogSha256: item.engineCatalogSha256, consoleLines });
     await page.close();
   }
 } finally {

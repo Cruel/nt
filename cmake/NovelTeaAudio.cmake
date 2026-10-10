@@ -27,6 +27,7 @@ function(noveltea_provide_miniaudio out_var)
         FetchContent_Declare(
             miniaudio
             URL https://github.com/mackron/miniaudio/archive/refs/tags/0.11.25.tar.gz
+            URL_HASH SHA256=b900edcffe979816e2560a0580b9b1216d674b4f17fbadeca8f777a7f8ab0274
             DOWNLOAD_EXTRACT_TIMESTAMP TRUE
         )
         FetchContent_MakeAvailable(miniaudio)

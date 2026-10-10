@@ -139,6 +139,80 @@ beforeEach(() => {
 });
 
 describe('ProjectSettingsEditor', () => {
+  it('merges asynchronously verified notices into current Project settings without restoring removed entries', async () => {
+    const source = project();
+    source.settings.distributionNotices = [{ path: 'support/licenses/old.txt' }];
+    useProjectStore.getState().loadProjectDocument({
+      document: source,
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+      projectSessionId: 'project-a',
+    });
+    let finishInspection!: (value: { path: string; exists: boolean }) => void;
+    vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishInspection = resolve;
+        }),
+    );
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Distribution Notices');
+    fireEvent.change(screen.getByLabelText('Project-relative notice path'), {
+      target: { value: 'support/licenses/new.txt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add notice' }));
+    expect(screen.getByRole('button', { name: 'Add notice' })).toBeDisabled();
+    fireEvent.click(screen.getByRole('button', { name: 'Remove' }));
+    await waitFor(() => {
+      const current = useProjectStore.getState().document as ReturnType<typeof project>;
+      expect(current.settings.distributionNotices).toEqual([]);
+    });
+    await act(async () => {
+      finishInspection({ path: 'support/licenses/new.txt', exists: true });
+    });
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof project>).settings
+        .distributionNotices,
+    ).toEqual([{ path: 'support/licenses/new.txt' }]);
+  });
+
+  it('discards an inspected notice when the Project instance changes before completion', async () => {
+    useProjectStore.getState().loadProjectDocument({
+      document: project(),
+      projectPath: '/mock',
+      projectFilePath: '/mock/project.json',
+      projectSessionId: 'project-a',
+    });
+    let finishInspection!: (value: { path: string; exists: boolean }) => void;
+    vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
+      () =>
+        new Promise((resolve) => {
+          finishInspection = resolve;
+        }),
+    );
+    render(<ProjectSettingsEditor tab={tab} />);
+    selectProjectSettingsCategory('Distribution Notices');
+    fireEvent.change(screen.getByLabelText('Project-relative notice path'), {
+      target: { value: 'support/licenses/stale.txt' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: 'Add notice' }));
+    act(() =>
+      useProjectStore.getState().loadProjectDocument({
+        document: project(),
+        projectPath: '/other',
+        projectFilePath: '/other/project.json',
+        projectSessionId: 'project-b',
+      }),
+    );
+    await act(async () => {
+      finishInspection({ path: 'support/licenses/stale.txt', exists: true });
+    });
+    expect(
+      (useProjectStore.getState().document as ReturnType<typeof project>).settings
+        .distributionNotices,
+    ).toEqual([]);
+  });
+
   it('authors reusable asset-memory policies and blocks deleting referenced policies', async () => {
     const source = project();
     source.export.assetMemoryPolicies = [

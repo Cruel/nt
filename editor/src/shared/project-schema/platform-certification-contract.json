@@ -11,7 +11,7 @@
     "sbom"
   ],
   "targetChecks": {
-    "web": ["web-browser-launch", "web-root-path", "web-subdirectory-path"],
+    "web": ["web-browser-launch", "web-engine-notice-preload", "web-root-path", "web-subdirectory-path"],
     "windows": ["windows-native-launch", "windows-dependency-closure", "windows-resource-metadata"],
     "linux": [
       "linux-native-launch",
