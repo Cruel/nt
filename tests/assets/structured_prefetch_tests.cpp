@@ -1599,7 +1599,8 @@ TEST_CASE("native finite video play and transition realize prepared endpoints",
         if (terminal_failure) {
             acknowledged = transitions.take_acknowledgements();
             REQUIRE(acknowledged.size() == 1);
-            const auto* failed = std::get_if<core::BackendOperationFailed>(&acknowledged.front().fact);
+            const auto* failed =
+                std::get_if<core::BackendOperationFailed>(&acknowledged.front().fact);
             REQUIRE(failed);
             CHECK(failed->diagnostic.code == "presentation.finite_motion_media_failed");
             CHECK(transitions.targeted_render_states().empty());
