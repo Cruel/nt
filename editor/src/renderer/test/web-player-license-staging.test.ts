@@ -6,7 +6,14 @@ import { describe, expect, it } from 'vite-plus/test';
 
 const playerBootstrap = readFileSync(path.resolve('../web/player_pre.js'), 'utf8');
 
-async function runLicensePreload(options: { absent?: boolean; tampered?: boolean } = {}) {
+async function runLicensePreload(
+  options: {
+    absent?: boolean;
+    tampered?: boolean;
+    corruptMounted?: boolean;
+    failWrite?: boolean;
+  } = {},
+) {
   const notice = 'MIT License\nCopyright 2026 Example\n';
   const hash = createHash('sha256').update(notice).digest('hex');
   const index = JSON.stringify({
@@ -36,7 +43,11 @@ async function runLicensePreload(options: { absent?: boolean; tampered?: boolean
     return null;
   };
   const context = {
-    Module: { preRun: [] as Array<() => void>, onNovelTeaLoadingProgress: () => {} },
+    Module: {
+      preRun: [] as Array<() => void>,
+      onNovelTeaLoadingProgress: () => {},
+      novelteaLicensePreload: null as unknown,
+    },
     document: { baseURI: 'https://example.test/game/index.html' },
     URL,
     TextDecoder,
@@ -55,7 +66,15 @@ async function runLicensePreload(options: { absent?: boolean; tampered?: boolean
     FS: {
       mkdirTree() {},
       writeFile(file: string, bytes: Uint8Array) {
+        if (options.failWrite) throw new Error('Mock Emscripten filesystem write failed');
         staged.set(file, bytes);
+      },
+      readFile(file: string) {
+        const bytes = staged.get(file);
+        if (!bytes) throw new Error('File is not mounted: ' + file);
+        if (options.corruptMounted && file.endsWith('example--license.txt'))
+          return new TextEncoder().encode('tampered mounted bytes');
+        return bytes;
       },
     },
     addRunDependency() {},
@@ -68,7 +87,14 @@ async function runLicensePreload(options: { absent?: boolean; tampered?: boolean
   vm.runInNewContext(playerBootstrap, context);
   context.Module.preRun[0]!();
   await finished;
-  return { staged, requested, warnings, index, notice };
+  return {
+    staged,
+    requested,
+    warnings,
+    index,
+    notice,
+    status: context.Module.novelteaLicensePreload,
+  };
 }
 
 describe('Web player target-license asset transport', () => {
@@ -85,13 +111,35 @@ describe('Web player target-license asset transport', () => {
     expect(
       new TextDecoder().decode(result.staged.get('/assets/system/licenses/example--license.txt')),
     ).toBe(result.notice);
+    expect(result.status).toEqual({
+      status: 'verified',
+      indexSha256: createHash('sha256').update(result.index).digest('hex'),
+      notices: [
+        {
+          path: 'licenses/example--license.txt',
+          size: Buffer.byteLength(result.notice),
+          sha256: createHash('sha256').update(result.notice).digest('hex'),
+        },
+      ],
+    });
   });
 
   it('fails closed for absent or tampered target catalogs without substituting other targets', async () => {
     const missing = await runLicensePreload({ absent: true });
     expect(missing.staged.size).toBe(0);
+    expect(missing.status).toEqual({ status: 'absent' });
     const corrupt = await runLicensePreload({ tampered: true });
     expect(corrupt.staged.size).toBe(0);
     expect(corrupt.warnings.join(' ')).toContain('target license inventory unavailable');
+    expect(corrupt.status).toMatchObject({ status: 'failed' });
+  });
+
+  it('never signals success if verified downloads fail to mount or fail filesystem readback', async () => {
+    for (const options of [{ failWrite: true }, { corruptMounted: true }]) {
+      const result = await runLicensePreload(options);
+      expect(result.requested).toHaveLength(2);
+      expect(result.status).toMatchObject({ status: 'failed' });
+      expect(result.warnings.join(' ')).toContain('target license inventory unavailable');
+    }
   });
 });

@@ -417,14 +417,18 @@ async function main() {
       if (nestedCase.packageSha256 !== nestedCanonical.runtimePackageSha256)
         throw new Error('Nested browser package hash does not match nested canonical export evidence.');
       for (const item of [rootCase, nestedCase]) {
-        if (!Number.isSafeInteger(item.engineNoticePreloadCount) ||
+        if (item.status !== 'verified' ||
+            !Number.isSafeInteger(item.engineNoticeMountedCount) ||
+            item.engineNoticeMountedCount !== item.engineNoticePreloadCount ||
+            item.mountedIndexSha256 !== item.engineCatalogSha256 ||
+            !Number.isSafeInteger(item.engineNoticePreloadCount) ||
             item.engineNoticePreloadCount < 1 ||
             !/^[0-9a-f]{64}$/.test(item.engineCatalogSha256 ?? ''))
-          throw new Error(`Browser evidence for '${item.label}' lacks verified player_pre.js notice preloads.`);
+          throw new Error(`Browser evidence for '${item.label}' lacks verified player_pre.js notice mounts.`);
       }
       await addProof({
         check: 'web-engine-notice-preload',
-        detail: `The shipped Chromium player fetched the exact indexed engine notice bytes under root and nested paths for ${casePrefix}.`,
+        detail: `The shipped Chromium player verified and mounted the exact indexed engine notice bytes under root and nested paths for ${casePrefix}.`,
         verifier: 'scripts/web-export-certification.mjs',
         sources: [browserPath, canonicalEvidencePath, nestedCanonicalPath],
       });
