@@ -1188,7 +1188,7 @@ export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string
     scenes: '6650b472',
     schema: '63fb9bb9',
     scripts: '278134b5',
-    settings: '7ffea374',
+    settings: 'f5056147',
     tests: 'ae849747',
     traits: '371bbceb',
     undefinedInteractionProgram: 'da7c64b8',

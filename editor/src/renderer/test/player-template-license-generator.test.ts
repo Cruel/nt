@@ -1,6 +1,14 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
+import {
+  cpSync,
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
@@ -50,7 +58,9 @@ function generate(root: string, android = false) {
   const result = spawnSync(
     process.execPath,
     [
-      generator,
+      existsSync(path.join(root, 'repository/cmake/generate-player-template-metadata.mjs'))
+        ? path.join(root, 'repository/cmake/generate-player-template-metadata.mjs')
+        : generator,
       path.join(build, 'vcpkg_installed'),
       stage,
       'v0.1.0',
@@ -62,11 +72,59 @@ function generate(root: string, android = false) {
   return { result, stage };
 }
 
+function pinDownloadedSource(root: string, name: string, version: string) {
+  const build = path.join(root, 'build');
+  const source = path.join(build, '_deps', `${name}-src`);
+  const prefix = path.join(build, '_deps', `${name}-subbuild`, `${name}-populate-prefix`, 'src');
+  mkdirSync(prefix, { recursive: true });
+  const archiveName = `${name}-${version}.tar.gz`;
+  const archive = path.join(prefix, archiveName);
+  execFileSync('tar', ['-czf', archive, '-C', source, '.']);
+  const url = `https://fixture.invalid/${archiveName}`;
+  const checksum = hash(readFileSync(archive));
+  write(
+    root,
+    `repository/cmake/${name}.cmake`,
+    `FetchContent_Declare(\n  ${name}\n  URL ${url}\n  URL_HASH SHA256=${checksum}\n)\n`,
+  );
+  write(
+    prefix,
+    `${name}-populate-stamp/${name}-populate-urlinfo.txt`,
+    `method=url\nsource_dir=${source}\nurl(s)=${url}\nhash=SHA256=${checksum}\n`,
+  );
+}
+
 function webFixture() {
   const root = directory();
   const build = path.join(root, 'build');
   const emsdk = path.join(root, 'emsdk');
-  write(build, 'CMakeCache.txt', `EMSDK:PATH=${emsdk}\n`);
+  const repository = path.join(root, 'repository');
+  mkdirSync(path.join(repository, 'cmake'), { recursive: true });
+  cpSync(generator, path.join(repository, 'cmake/generate-player-template-metadata.mjs'), {
+    recursive: true,
+  });
+  cpSync(
+    path.resolve(process.cwd(), '../cmake/player-license-sources.json'),
+    path.join(repository, 'cmake/player-license-sources.json'),
+  );
+  cpSync(
+    path.resolve(process.cwd(), '../cmake/licenses'),
+    path.join(repository, 'cmake/licenses'),
+    { recursive: true },
+  );
+  write(repository, 'CMakeLists.txt', '');
+  write(repository, 'engine/CMakeLists.txt', '');
+  write(repository, 'cmake/NovelTeaBgfxVersion.cmake', '');
+  write(
+    repository,
+    'engine/assets/system/fonts/LiberationSans.ttf',
+    readFileSync(path.resolve(process.cwd(), '../engine/assets/system/fonts/LiberationSans.ttf')),
+  );
+  write(
+    build,
+    'CMakeCache.txt',
+    `EMSDK:PATH=${emsdk}\nCMAKE_TOOLCHAIN_FILE:FILEPATH=${emsdk}/upstream/emscripten/cmake/Modules/Platform/Emscripten.cmake\n`,
+  );
   write(
     build,
     'runtime-assets/system/fonts/LiberationSans.ttf',
@@ -86,6 +144,17 @@ function webFixture() {
       write(sourceRoot, rule.evidence, 'Permission is hereby granted; Lua.org, PUC-Rio');
     if (!rule.version) {
       execFileSync('git', ['init', '-q', sourceRoot]);
+      execFileSync('git', ['-C', sourceRoot, 'config', 'core.autocrlf', 'false']);
+      execFileSync('git', [
+        '-C',
+        sourceRoot,
+        '-c',
+        'user.name=Fixture',
+        '-c',
+        'user.email=fixture@example.test',
+        'add',
+        '.',
+      ]);
       execFileSync('git', [
         '-C',
         sourceRoot,
@@ -94,10 +163,24 @@ function webFixture() {
         '-c',
         'user.email=fixture@example.test',
         'commit',
-        '--allow-empty',
         '-qm',
         'pinned test revision',
       ]);
+      const revision = execFileSync('git', ['-C', sourceRoot, 'rev-parse', 'HEAD'], {
+        encoding: 'utf8',
+      }).trim();
+      write(
+        repository,
+        `cmake/${name}.cmake`,
+        `FetchContent_Declare(\n  ${name}\n  GIT_TAG ${revision}\n)\n`,
+      );
+      write(
+        build,
+        `_deps/${name}-subbuild/${name}-populate-prefix/src/${name}-populate-stamp/${name}-populate-gitinfo.txt`,
+        `method=git\nsource_dir=${sourceRoot}\n`,
+      );
+    } else {
+      pinDownloadedSource(root, name, rule.version);
     }
   }
   write(
@@ -128,6 +211,8 @@ function webFixture() {
 
 function androidFixture() {
   const fixture = webFixture();
+  write(fixture.build, 'CMakeCache.txt', '');
+  rmSync(path.join(fixture.build, '_deps/libva_headers-src'), { recursive: true });
   const stage = path.join(fixture.root, 'stage');
   const sdlAar = 'source/android/app/libs/SDL3-3.4.10.aar';
   const prefabRoot = path.join(fixture.root, 'sdl-prefab');
@@ -241,6 +326,7 @@ describe('resolved player-template license generation', () => {
     rmSync(target);
     expect(generate(fixture.root).result.stderr).toContain('Required bimg license source missing');
     writeFileSync(target, 'No dependency notice file was found in the resolved source tree.');
+    pinDownloadedSource(fixture.root, 'bgfx.cmake', rules.fetched['bgfx.cmake']!.version!);
     expect(generate(fixture.root).result.stderr).toContain('placeholder text');
   });
 
@@ -248,17 +334,67 @@ describe('resolved player-template license generation', () => {
     const fixture = webFixture();
     const source = path.join(fixture.build, '_deps/bgfx.cmake-src/bimg/LICENSE');
     writeFileSync(source, `License\n${'x'.repeat(1024 * 1024)}`);
+    pinDownloadedSource(fixture.root, 'bgfx.cmake', rules.fetched['bgfx.cmake']!.version!);
     expect(generate(fixture.root).result.stderr).toContain('empty or placeholder text');
 
     writeFileSync(source, 'License\u0085invalid control');
+    pinDownloadedSource(fixture.root, 'bgfx.cmake', rules.fetched['bgfx.cmake']!.version!);
     expect(generate(fixture.root).result.stderr).toContain('empty or placeholder text');
 
     const original = 'License\fPage two\n';
     writeFileSync(source, original);
+    pinDownloadedSource(fixture.root, 'bgfx.cmake', rules.fetched['bgfx.cmake']!.version!);
     const output = generate(fixture.root);
     expect(output.result.status, output.result.stderr).toBe(0);
     const component = getIndex(output.stage).components.find((item) => item.component === 'bimg')!;
     expect(readFileSync(path.join(output.stage, component.files[0]!.path), 'utf8')).toBe(original);
+  });
+
+  it('rejects missing download metadata, mismatched pins, corrupt archives, and modified extracted notices', () => {
+    const fixture = webFixture();
+    const prefix = path.join(
+      fixture.build,
+      '_deps/bgfx.cmake-subbuild/bgfx.cmake-populate-prefix/src',
+    );
+    const metadata = path.join(prefix, 'bgfx.cmake-populate-stamp/bgfx.cmake-populate-urlinfo.txt');
+    const originalMetadata = readFileSync(metadata, 'utf8');
+    rmSync(metadata);
+    expect(generate(fixture.root).result.stderr).toContain(
+      'Missing resolved FetchContent download metadata',
+    );
+    writeFileSync(
+      metadata,
+      originalMetadata.replace(/hash=SHA256=[a-f0-9]+/, `hash=SHA256=${'0'.repeat(64)}`),
+    );
+    expect(generate(fixture.root).result.stderr).toContain('disagrees with CMake URL/hash pin');
+    writeFileSync(metadata, originalMetadata);
+    const archive = path.join(prefix, `bgfx.cmake-${rules.fetched['bgfx.cmake']!.version!}.tar.gz`);
+    const originalArchive = readFileSync(archive);
+    writeFileSync(archive, 'corrupt archive');
+    expect(generate(fixture.root).result.stderr).toContain('archive checksum mismatch');
+    writeFileSync(archive, originalArchive);
+    write(fixture.build, '_deps/bgfx.cmake-src/bimg/LICENSE', 'MIT License\nModified notice\n');
+    expect(generate(fixture.root).result.stderr).toContain('modified license bytes');
+  });
+
+  it('rejects a Git source moved away from its pin or carrying modified notice bytes', () => {
+    const fixture = webFixture();
+    const source = path.join(fixture.build, '_deps/sol2-src');
+    write(source, 'LICENSE.txt', 'MIT License\nModified notice\n');
+    expect(generate(fixture.root).result.stderr).toContain('modified license bytes');
+    execFileSync('git', ['-C', source, 'add', '.']);
+    execFileSync('git', [
+      '-C',
+      source,
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.test',
+      'commit',
+      '-qm',
+      'unpinned revision',
+    ]);
+    expect(generate(fixture.root).result.stderr).toContain('not its FetchContent pin');
   });
 
   it('fails if Emscripten port version resolution is ambiguous', () => {

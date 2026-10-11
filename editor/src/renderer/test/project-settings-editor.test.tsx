@@ -196,7 +196,7 @@ describe('ProjectSettingsEditor', () => {
       target: { value: 'support/licenses/stale.txt' },
     });
     fireEvent.click(screen.getByRole('button', { name: 'Add notice' }));
-    act(() =>
+    await act(() =>
       useProjectStore.getState().loadProjectDocument({
         document: project(),
         projectPath: '/other',
