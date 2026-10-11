@@ -40,11 +40,13 @@ class ProbePreparationTask final : public assets::AssetPreparationTask<TestAsset
 public:
     ProbePreparationTask(std::shared_ptr<TaskProbe> probe, int value, assets::ResidencyCost cost,
                          std::shared_ptr<std::atomic<bool>> release = {},
-                         std::uint64_t yielded_steps = 0)
+                         std::uint64_t yielded_steps = 0, bool cache_after_release = true)
         : m_probe(std::move(probe)), m_value(value), m_cost(cost), m_release(std::move(release)),
-          m_yielded_steps(yielded_steps)
+          m_yielded_steps(yielded_steps), m_cache_after_release(cache_after_release)
     {
     }
+
+    bool cache_after_release_on_owner() const noexcept override { return m_cache_after_release; }
 
     [[nodiscard]] assets::ResidencyCost estimated_cost_on_owner() const noexcept override
     {
@@ -95,6 +97,7 @@ private:
     assets::ResidencyCost m_cost;
     std::shared_ptr<std::atomic<bool>> m_release;
     std::uint64_t m_yielded_steps = 0;
+    bool m_cache_after_release = true;
 };
 
 class StatePublishingPreparationTask final : public assets::AssetPreparationTask<TestAsset> {
@@ -255,6 +258,51 @@ assets::AssetCacheKey key(std::string identity, std::uint64_t generation)
 }
 
 void shutdown_executor(jobs::InlineJobExecutor& executor);
+
+TEST_CASE("Lease-bound samples retire residency and cache metadata after release",
+          "[assets][residency-matrix][video]")
+{
+    jobs::InlineJobExecutor executor;
+    auto residency = std::make_shared<assets::AssetResidencyManager>(generous_budget());
+    assets::AssetRequestOrchestrator<TestAsset> orchestrator(executor, residency);
+    auto probe = std::make_shared<TaskProbe>();
+    probe->owner_thread = std::this_thread::get_id();
+    for (unsigned revision = 0; revision < 128; ++revision) {
+        const auto cache_key = key("occurrence-sample-" + std::to_string(revision), 1);
+        auto requested = orchestrator.request_on_owner(
+            cache_key, assets::AssetRequestReason::Demand,
+            std::make_unique<ProbePreparationTask>(probe, 7, assets::ResidencyCost{}, nullptr, 0,
+                                                   false));
+        REQUIRE(requested);
+        auto handle = std::move(requested).value();
+        REQUIRE(executor.advance_one_step());
+        REQUIRE(executor.dispatch_owner_completions(64) == 1);
+        auto lease = std::move(handle).take_ready();
+        REQUIRE(lease);
+        auto retained = *lease;
+        lease->reset();
+        CHECK(probe->destructions == revision);
+        CHECK(retained->value == 7);
+        retained.reset();
+        CHECK(probe->destructions == revision + 1);
+        (void)orchestrator.retry_deferred_requests_on_owner();
+        CHECK_FALSE(orchestrator.contains_key_on_owner(cache_key));
+    }
+    const auto canceled_key = key("canceled-occurrence-sample", 1);
+    auto canceled =
+        orchestrator.request_on_owner(canceled_key, assets::AssetRequestReason::Demand,
+                                      std::make_unique<ProbePreparationTask>(
+                                          probe, 7, assets::ResidencyCost{}, nullptr, 2, false));
+    REQUIRE(canceled);
+    canceled.value().reset();
+    while (executor.advance_one_step()) {}
+    (void)executor.dispatch_owner_completions(64);
+    (void)orchestrator.retry_deferred_requests_on_owner();
+    CHECK_FALSE(orchestrator.contains_key_on_owner(canceled_key));
+    CHECK(probe->finalizations == 128);
+    CHECK_FALSE(probe->wrong_owner_thread);
+    shutdown_executor(executor);
+}
 
 TEST_CASE("Active asset jobs publish queued reading preparing and finalization cache states",
           "[assets][residency-matrix]")

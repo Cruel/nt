@@ -69,7 +69,7 @@ struct Surfaces {
     std::array<bgfx::FrameBufferHandle, 2> output{{BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
     std::array<bgfx::TextureHandle, 3> planes{
         {BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE, BGFX_INVALID_HANDLE}};
-    unsigned next = 0;
+    unsigned last_output = 0;
     std::uint64_t last_time = std::numeric_limits<std::uint64_t>::max();
 };
 
@@ -106,6 +106,10 @@ public:
         return selected_backend.load(std::memory_order_acquire);
     }
     std::uint64_t uploads_on_owner() const noexcept override { return uploads; }
+    void set_presented_texture_on_owner(std::uint16_t handle) noexcept override
+    {
+        presented_texture = handle;
+    }
     std::unique_ptr<Task> create_texture_preparation_task(Request request) override;
     std::shared_ptr<assets::VideoTextureResidencyPin>
     retain_residency(const assets::AssetLease<Texture>& lease) override
@@ -134,6 +138,7 @@ public:
     bool admitted = false;
     const bool seed_only;
     std::uint64_t uploads = 0;
+    std::uint16_t presented_texture = assets::invalid_typed_asset_handle;
 };
 
 std::shared_ptr<assets::VideoTextureSession> SourceFactory::create_session()
@@ -153,7 +158,7 @@ core::Result<Texture, core::Diagnostics> upload(Session& session, const Request&
             error("unsupported_gpu", "Video extent exceeds the renderer texture limit."));
     if (session.surfaces && session.surfaces->last_time == frame.time_ns) {
         const auto& surfaces = *session.surfaces;
-        const auto index = session.seed_only ? 0u : 1u - surfaces.next;
+        const auto index = surfaces.last_output;
         return core::Result<Texture, core::Diagnostics>::success(
             {.handle = bgfx::getTexture(surfaces.output[index]).idx,
              .path = request.path,
@@ -225,8 +230,12 @@ core::Result<Texture, core::Diagnostics> upload(Session& session, const Request&
     std::memcpy(vertices.data, quad.data(), sizeof(quad));
     std::memcpy(indices.data, triangles.data(), sizeof(triangles));
     const auto view = next_upload_view++;
-    const auto output = surfaces.output[surfaces.next];
-    surfaces.next = (surfaces.next + 1) % (session.seed_only ? 1u : 2u);
+    // A discarded seek result does not release the surface still held by presentation.
+    surfaces.last_output =
+        !session.seed_only && bgfx::getTexture(surfaces.output[0]).idx == session.presented_texture
+            ? 1u
+            : 0u;
+    const auto output = surfaces.output[surfaces.last_output];
     bgfx::setViewName(view, "Native video YUV conversion");
     bgfx::setViewRect(view, 0, 0, frame.width, frame.height);
     bgfx::setViewFrameBuffer(view, output);
@@ -270,6 +279,7 @@ public:
           m_source_pinned(source_owner == nullptr)
     {
     }
+    bool cache_after_release_on_owner() const noexcept override { return m_session->seed_only; }
     ~SampleTask() override
     {
         if (m_claimed && !m_session->admitted &&

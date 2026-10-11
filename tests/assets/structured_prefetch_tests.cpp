@@ -802,6 +802,7 @@ public:
     std::uint64_t identity() const noexcept override { return m_id; }
     const char* backend() const noexcept override { return "recording-video"; }
     std::uint64_t uploads_on_owner() const noexcept override { return m_uploads; }
+    void set_presented_texture_on_owner(std::uint16_t) noexcept override {}
     std::shared_ptr<assets::VideoTextureResidencyPin>
     retain_residency(const assets::AssetLease<assets::TextureAsset>&) override
     {

@@ -111,6 +111,8 @@ struct AssetOrchestratorProfilerEntry {
 template<class T> class AssetPreparationTask {
 public:
     virtual ~AssetPreparationTask() = default;
+    // Occurrence-owned samples cannot be reused once their last lease is released.
+    [[nodiscard]] virtual bool cache_after_release_on_owner() const noexcept { return true; }
     // Dependency handles are owner-only; implementations must not mutate worker-read state here.
     virtual void refresh_dependencies_on_owner(AssetRequestReason,
                                                std::optional<PrefetchGenerationId>) noexcept
@@ -222,6 +224,7 @@ template<class T> struct AsyncAssetEntry {
     std::vector<std::weak_ptr<AsyncAssetTicket<T>>> tickets;
     bool invalidated = false;
     bool retire_when_unpinned = false;
+    bool cache_after_release = true;
     bool policy_evicted = false;
     std::uint64_t reload_count = 0;
     bool source_read_completed_recorded = false;
@@ -590,8 +593,25 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
                consumer->reason, std::nullopt, {}, nullptr, {}, {}, std::nullopt, generation);
     }
 
+    void prune_released_entries() noexcept
+    {
+        std::erase_if(lease_bound_entries, [&](const auto& weak) {
+            const auto entry = weak.lock();
+            if (!entry)
+                return true;
+            if (entry->asset || entry->job_id.valid() || entry->deferred_task ||
+                entry->deferred_enrichment_task || has_live_interest(*entry))
+                return false;
+            const auto found = entries.find(entry->key);
+            if (found != entries.end() && found->second == entry)
+                entries.erase(found);
+            return true;
+        });
+    }
+
     [[nodiscard]] std::shared_ptr<AsyncAssetEntry<T>> entry_for(const AssetCacheKey& key)
     {
+        prune_released_entries();
         const auto found = entries.find(key);
         if (found != entries.end())
             return found->second;
@@ -1513,6 +1533,9 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
         entry->admission_reason = reason;
         entry->request_origin = reason;
         entry->estimated_cost = task->estimated_cost_on_owner();
+        entry->cache_after_release = task->cache_after_release_on_owner();
+        if (!entry->cache_after_release)
+            lease_bound_entries.push_back(entry);
         entry->accumulated_preparation = {};
         entry->source_read_completed_recorded = false;
         entry->demand_prefetch_classified = false;
@@ -1603,12 +1626,15 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
 
     void retire_if_possible(const std::shared_ptr<AsyncAssetEntry<T>>& entry) noexcept
     {
-        if (!entry->retire_when_unpinned || entry->state != AssetCacheState::Resident)
+        if ((!entry->retire_when_unpinned && entry->cache_after_release) ||
+            entry->state != AssetCacheState::Resident)
             return;
         const auto classification = residency->classification_on_owner(entry->key);
         if (classification && *classification != ResidencyClass::Pinned)
             (void)residency->evict_on_owner(entry->key,
-                                            ResidencyEvictionReason::GenerationInvalidated);
+                                            entry->retire_when_unpinned
+                                                ? ResidencyEvictionReason::GenerationInvalidated
+                                                : ResidencyEvictionReason::ExplicitRelease);
     }
 
     void destroy_resident(const std::shared_ptr<AsyncAssetEntry<T>>& entry,
@@ -1749,6 +1775,7 @@ template<class T> struct AsyncAssetState : std::enable_shared_from_this<AsyncAss
     core::AssetTelemetrySink* telemetry = nullptr;
     std::function<void()> capacity_released;
     std::map<AssetCacheKey, std::shared_ptr<AsyncAssetEntry<T>>> entries;
+    std::vector<std::weak_ptr<AsyncAssetEntry<T>>> lease_bound_entries;
     bool accepting = true;
 };
 
@@ -2006,6 +2033,7 @@ public:
     std::size_t retry_deferred_on_owner() noexcept
     {
         m_state->assert_owner();
+        m_state->prune_released_entries();
         std::size_t started = 0;
         for (auto& [_, entry] : m_state->entries) {
             if (entry->job_id.valid())
@@ -2023,6 +2051,7 @@ public:
     std::size_t retry_deferred_requests_on_owner() noexcept
     {
         m_state->assert_owner();
+        m_state->prune_released_entries();
         std::size_t started = 0;
         for (const auto& [_, entry] : m_state->entries) {
             if (entry->job_id.valid() ||

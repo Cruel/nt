@@ -590,6 +590,10 @@ public:
                             "Video stream source generation changed; reconstruct presentation.",
                             m_representation.animation.text())});
         const auto index = core::prepared_video_frame_at(m_representation, time_ms);
+        // A late forward sample is useful; a sample from before a loop/rewind is not.
+        if (m_pending && m_last_requested_time && time_ms < *m_last_requested_time)
+            m_pending_obsolete = true;
+        m_last_requested_time = time_ms;
         if (m_pending) {
             const auto pending_state = m_pending.state();
             if (pending_state == assets::AssetRequestState::Failed ||
@@ -605,15 +609,12 @@ public:
                     m_session_anchor = *ready;
                     m_session_pin = m_session->retain_residency(*ready);
                 }
-                if (!m_session || m_pending_index == index) {
-                    m_current = std::move(*ready);
-                    m_current_index = m_pending_index;
-                }
+                if (!m_session || !m_pending_obsolete)
+                    present_sample(std::move(*ready), m_pending_index);
             }
         }
         if (m_session && index == m_seed_index) {
-            m_current = m_seed;
-            m_current_index = m_seed_index;
+            present_sample(m_seed, m_seed_index);
         }
         if (index == m_current_index) {
             // Loop wrap must not cancel a slow seek before it can ever produce a sample.
@@ -637,6 +638,7 @@ public:
                 return fail({std::move(requested).error()});
             m_pending = std::move(*requested.value_if());
             m_pending_index = index;
+            m_pending_obsolete = false;
         }
         m_state = m_pending.state();
         if (m_state == assets::AssetRequestState::Failed ||
@@ -652,10 +654,8 @@ public:
                 m_session_anchor = *ready;
                 m_session_pin = m_session->retain_residency(*ready);
             }
-            if (!m_session || m_pending_index == index) {
-                m_current = std::move(*ready);
-                m_current_index = m_pending_index;
-            }
+            if (!m_session || !m_pending_obsolete)
+                present_sample(std::move(*ready), m_pending_index);
         }
         m_current.mark_used_on_owner();
         return Sample::success(m_current);
@@ -690,6 +690,14 @@ public:
     }
 
 private:
+    void present_sample(assets::AssetLease<assets::TextureAsset> sample, std::size_t index)
+    {
+        m_current = std::move(sample);
+        m_current_index = index;
+        if (m_session)
+            m_session->set_presented_texture_on_owner(m_current->handle);
+    }
+
     assets::AssetManager& m_assets;
     core::PreparedVideoMotion m_representation;
     assets::AssetSourceGeneration m_generation;
@@ -702,6 +710,8 @@ private:
     std::shared_ptr<assets::VideoTextureResidencyPin> m_session_pin;
     std::uint64_t m_sample_revision = 0;
     std::size_t m_pending_index = 0;
+    bool m_pending_obsolete = false;
+    std::optional<std::uint64_t> m_last_requested_time;
     assets::AssetRequestHandle<assets::TextureAsset> m_pending;
     assets::AssetRequestState m_state = assets::AssetRequestState::Ready;
 };

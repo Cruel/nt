@@ -30,10 +30,17 @@ encoded media fails through typed asset/presentation diagnostics.
   realization. Each active occurrence owns its own persistent decoder, three YUV textures, and two
   RGBA render surfaces. The first admitted occurrence allocation carries the cost; later sample
   aliases retain its allocation lease so neither source nor surfaces can outlive accounting.
+  Occurrence samples are lease-bound, not reusable cache residents: their last pin release retires
+  the alias immediately, and request/progress servicing prunes terminal sample cache entries.
+  Unique request revisions therefore do not accumulate history across loops. Immutable source and
+  initial-seed assets retain normal cache residency.
 - Hardware output is mapped/copied as YUV, not converted to CPU RGBA. bgfx uploads the planes and
   converts to opaque RGBA with `video_yuv`; ordinary quad/Material rendering consumes the result.
   This is not a zero-copy hardware-surface import. The previously complete sample remains visible
-  until the requested sample is ready.
+  until a replacement sample is published. A completed late forward sample is published while the
+  next request catches up to semantic time; loop/rewind invalidates pending results from the prior
+  timeline. Uploads always avoid the currently presented surface, including when a completed
+  result is discarded. Readiness still requires the exact semantic sample, not merely a late one.
 - A held semantic sample reuses its GPU texture. A repeated request for the session's already
   converted packet also reuses the output, without pixel comparison, hashing, or duplicate-frame
   provenance. GPU plane updates are serialized per session and bgfx frame. Native conversion views
@@ -68,7 +75,10 @@ exclusive temporary-memory arbitration; speculative interest cannot masquerade a
   hidden suspension, finite play/transition endpoints, pending holds, terminal operation failure.
 - `noveltea_native_video_texture_smoke` (CTest uses `xvfb-run` when available): real native YUV GPU
   conversion and red/blue readback, independent occurrences, no held uploads, bounded reused
-  surfaces, canceled hidden work, source sharing, prefetch-budget promotion, and source expiry.
+  surfaces, late-sample progress under an advancing playhead, held-pixel readback across discarded
+  seeks, canceled hidden work, source sharing, prefetch-budget promotion, and source expiry.
+- Asset request/residency tests cover lease-bound sample destruction, retained pins, cancellation,
+  and bounded cache metadata across repeated revisions.
 - Feature Lab **already covers** authorable video behavior in `world-composition`:
   `opaque-color-loop`, `video-gameplay`, and `video-unscaled`. Decoder allocation, hardware choice,
   and held-upload invariants are automation/diagnostic checks, not new authored semantics.
