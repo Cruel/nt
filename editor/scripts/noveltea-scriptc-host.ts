@@ -2096,7 +2096,7 @@ async function runHiddenDaemonOwner(invocation: HiddenDaemonOwnerInvocation): Pr
           invocation,
           invocation.ownerWorkerId,
           token,
-          JSON.stringify(mutationResult as unknown),
+          JSON.stringify(mutationResult),
         );
         continue;
       }

@@ -1,6 +1,24 @@
 # scriptc CLI Compatibility
 
-NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.1.4. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
+NovelTea's standalone `noveltea` CLI is built with pinned `scriptc` 0.2.8. The release architecture intentionally uses scriptc's dynamic tier for the shared TypeScript authoring implementation and a very small statically compiled host for capabilities that require exact host/native behavior.
+
+## ScriptC compiler investigations (0.2.8)
+
+The release build keeps ScriptC's default `release` optimization. On Linux, a
+comparison with `--optimization=speed` showed no meaningful improvement in the
+static `--version`/`--help` commands or the `platform template list` fallback;
+speed mode slightly increased the executable size. Do not make it the default
+without a workload-specific benchmark. For controlled experiments, set
+`NOVELTEA_SCRIPTC_OPTIMIZATION=speed` when running the CLI build script.
+
+Set `NOVELTEA_SCRIPTC_INSPECT=1` during the CLI build to save ScriptC's
+`coverage --dynamic --print diagnostics` report to
+`build/host-tools/scriptc/v0.2.8/coverage-diagnostics.json`. The report runs
+against the generated host staging tree, not the raw source files, which lack
+release-time substitutions. With 0.2.8 the host reports 1,087/1,208 statements
+static (89%) and no blockers; the remaining statements use the dynamic island.
+Do not infer that the larger disposable Project workloads are static from this
+host-only report.
 
 ## Release architecture
 
@@ -85,9 +103,9 @@ Built-in ComfyUI packages are handled the same way. The checked-in manifests and
 
 ## Build pin and admitted host
 
-- scriptc: exact `0.1.4`; the resident-owner GC adapter also pins the runtime exports `scr_island_lre_opaque`, `JS_GetRuntime`, `JS_RunGC`, and `JS_SetGCThreshold`, so a scriptc upgrade must re-certify that ABI rather than silently falling back to foreground collection
+- scriptc: exact `0.2.8`; the resident-owner GC adapter also pins the runtime exports `scr_island_lre_opaque`, `JS_GetRuntime`, `JS_RunGC`, and `JS_SetGCThreshold`, so a scriptc upgrade must re-certify that ABI rather than silently falling back to foreground collection
 - Node used to drive release builds/reference certification: exact `24.18.0`
-- Linux authoring releases are built inside the pinned Debian 12/glibc 2.36 environment. The produced CLI is audited for `GLIBC <= 2.36` and `GLIBCXX <= 3.4.30`, matching the official ScriptC 0.1.4 GNU compatibility floor instead of inheriting the GitHub runner's userspace.
+- Linux authoring releases are built inside the pinned Debian 12/glibc 2.36 environment. The produced CLI is audited for `GLIBC <= 2.36` and `GLIBCXX <= 3.4.30` rather than inheriting the GitHub runner's userspace; this is NovelTea's build floor, independent of ScriptC's upstream minimum.
 - macOS authoring builds use the dedicated `macos-authoring-release` CMake/vcpkg target at macOS 14.0. The newer macOS/Xcode release runner is a build-host requirement and does not raise the shipped authoring minimum.
 - Windows release builds require MinGW `gcc`/`g++` plus Zig 0.16.0 and target ScriptC as `x86_64-windows-gnu`; the upstream compatibility contract is Windows 10, with the exact Windows 10 build still provisional.
 - fully differential-certified standalone targets: Linux x64 and Windows x64; macOS arm64 is built as the editor's host CLI at a macOS 14 floor and is package-smoked with the editor, but does not yet claim the complete standalone differential-certification gate
@@ -95,11 +113,11 @@ Built-in ComfyUI packages are handled the same way. The checked-in manifests and
 `editor/scripts/build-noveltea-cli.mjs` verifies the installed scriptc version, builds the native
 tooling archive closure for the current admitted host, produces the minified/no-sourcemap code-split
 QuickJS package. During packing, `editor/scripts/cli-startup-policy.ts` walks the bundler's transitive static chunk-import metadata for both the ScriptC island entry and Node CLI entry, including static re-exports but excluding dynamic imports. Packing rejects either startup closure when it exceeds the lightweight budget, contains known heavy authoring/Workspace/platform/native-image source modules, or imports any external dependency other than a Node built-in. The guard uses chunk sizes and original source-module identities rather than parsing emitted JavaScript or relying on chunk names, so minification and shared-chunk factoring do not hide eager dependencies. It then stages the complete private island module graph plus agent-kit-source and ComfyUI-workflow packages under `build/host-tools/scriptc/`, invokes scriptc with
-`--dynamic` and the platform-specific FFI manifest, strips the resulting ELF or PE executable, and
+`--dynamic` and the platform-specific FFI manifest using ScriptC's packaged native `bin/scriptc.exe` launcher, strips the resulting ELF or PE executable, and
 removes the staging directory. Windows deliberately uses the dedicated `windows-cli-gnu` CMake
 preset and `x64-mingw-static-noveltea` target triplet so every FFI archive shares ScriptC's supported
 GNU ABI instead of mixing MSVC objects into the Zig/MinGW final link. MinGW's static libstdc++ uses
-winpthreads, while ScriptC 0.1.4 also provides the public `clock_gettime32`, `clock_gettime64`,
+winpthreads, while ScriptC also provides the public `clock_gettime32`, `clock_gettime64`,
 `nanosleep32`, and `nanosleep64` Windows shims. The release build therefore stages a private copy of
 `libwinpthread.a` with only those four definitions renamed before passing the archive to ScriptC; this
 keeps the static pthread closure without allowing duplicate public symbols or modifying ScriptC.
@@ -111,8 +129,8 @@ The final executable must not depend on Node, a separate shaderc executable, or 
 The static media-preparation service consumes the dependency-free `prepared-media-contracts.ts`
 module, which release staging copies alongside it. Zod admission schemas remain in `prepared-media.ts`
 on the shared authoring side; they must not enter the static host's import closure. Recursive scratch
-cleanup uses `rmSync`: ScriptC 0.1.4's static async `rm` accepts no options and cannot express the
-required recursive/force behavior.
+cleanup uses `rmSync` to retain the required recursive/force semantics without depending on
+ScriptC's async `rm` options support.
 
 The QuickJS island provides enough Node-compatible filesystem/path/crypto behavior for the current public authoring CLI, but its Node compatibility is not assumed to be exact for operating-system primitives. Process liveness therefore remains in the static host. Similar OS-level capabilities should be added to the host deliberately when needed rather than relying on an unverified island shim.
 

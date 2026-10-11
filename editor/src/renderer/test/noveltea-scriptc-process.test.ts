@@ -24,4 +24,19 @@ describe('NovelTea scriptc process host', () => {
       stderr: 'err',
     });
   });
+
+  it('enforces an admitted child-process timeout', () => {
+    const response = JSON.parse(
+      runNovelTeaScriptcProcess(
+        JSON.stringify({
+          command: process.execPath,
+          args: ['-e', 'setTimeout(() => {}, 5000)'],
+          timeoutMs: 100,
+        }),
+      ),
+    );
+
+    expect(response.ok).toBe(false);
+    expect(response.error).toContain('ETIMEDOUT');
+  });
 });
