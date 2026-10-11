@@ -281,6 +281,7 @@ elseif(CMAKE_SYSTEM_NAME STREQUAL "Android")
     FetchContent_Declare(
         libpng
         URL https://github.com/pnggroup/libpng/archive/refs/tags/v1.6.58.tar.gz
+        URL_HASH SHA256=a9d4df463d36a6e5f9c29bd6f4967312d17e996c1854f3511f833924eb1993cf
         DOWNLOAD_EXTRACT_TIMESTAMP TRUE
     )
     FetchContent_MakeAvailable(libpng)

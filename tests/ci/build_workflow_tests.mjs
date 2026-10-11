@@ -334,8 +334,37 @@ test('CI keeps shared-display CTest runs serial until their isolation is establi
   assert.doesNotMatch(workflow, /CTEST_PARALLEL_LEVEL:/);
   for (const name of ['linux', 'linux-sanitize']) {
     const commands = job(name).split('\n').filter((line) => line.includes('ctest --test-dir'));
-    assert.equal(commands.length, 1);
-    assert.doesNotMatch(commands[0], /--parallel|\s-j/);
+    assert.equal(commands.length, name === 'linux-sanitize' ? 2 : 1);
+    for (const command of commands) assert.doesNotMatch(command, /--parallel|\s-j/);
+  }
+});
+
+test('Android libpng source is checksum-pinned for player-template provenance', () => {
+  const declaration = [...rootCmake.matchAll(/FetchContent_Declare\(\s*([\w.]+)([\s\S]*?)\n\s*\)/gi)]
+    .find((match) => match[1] === 'libpng');
+  assert.ok(declaration, 'Missing libpng source declaration');
+  assert.match(declaration[2], /\bURL_HASH SHA256=[a-f0-9]{64}\b/);
+});
+
+test('sanitizer passes partition GPU smoke tests without disabling engine leak checks', () => {
+  const sanitizer = job('linux-sanitize');
+  const strict = step(sanitizer, 'Run strict ASan, LeakSanitizer, UBSan, and parser fuzz smoke tests');
+  const gpu = step(sanitizer, 'Run GPU smoke tests under ASan and UBSan');
+  assert.equal(field(strict, 'ASAN_OPTIONS'), 'detect_leaks=1:halt_on_error=1');
+  assert.equal(field(gpu, 'ASAN_OPTIONS'), 'detect_leaks=0:halt_on_error=1');
+  assert.equal(field(gpu, 'UBSAN_OPTIONS'), 'halt_on_error=1:print_stacktrace=1');
+  const excluded = /-E '([^']+)'/.exec(strict)?.[1];
+  const included = /-R '([^']+)'/.exec(gpu)?.[1];
+  assert.ok(excluded && included, 'Both sanitizer partitions must select tests explicitly');
+  assert.equal(included, excluded, 'GPU pass must run every test excluded from strict leak checks');
+  const selection = new RegExp(included);
+  for (const name of ['noveltea_native_video_texture_smoke', 'noveltea_presentation_readback_capture',
+    'noveltea_rmlui_readback_verify', 'noveltea_sandbox_runtime_video_smoke']) {
+    assert.ok(selection.test(name), `${name} must run in the GPU pass`);
+  }
+  for (const name of ['noveltea_asset_residency_matrix', 'noveltea_parser_fuzz_smoke',
+    'noveltea_structured_prefetch']) {
+    assert.ok(!selection.test(name), `${name} must retain strict leak detection`);
   }
 });
 

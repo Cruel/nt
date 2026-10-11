@@ -684,7 +684,15 @@ jobs:
           UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
         run: |
           xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
-            -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke)'
+            -E 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke|native_video_texture_smoke)'
+
+      - name: Run GPU smoke tests under ASan and UBSan
+        env:
+          ASAN_OPTIONS: detect_leaks=0:halt_on_error=1
+          UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+        run: |
+          xvfb-run -a ctest --test-dir build/linux-sanitize --output-on-failure \
+            -R 'noveltea_(rmlui_(readback|feature_fixtures|resize_readback)_(capture|verify)|presentation_readback_(capture|verify)|world_(presentation|transition)_readback_(capture|verify)|(layout_scale|postprocess_scope|texture_sampling)_readback_(capture|verify)|sandbox_runtime_.*_smoke|native_video_texture_smoke)'
 
   windows:
     name: Windows C++ policy
