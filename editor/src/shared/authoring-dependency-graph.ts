@@ -34,7 +34,10 @@ import type {
   ReferenceTarget,
 } from './project-schema/authoring-project';
 import { resolveMessage } from './message-resolution';
-import { localizationMessageWorkflowView } from './authoring-localization-workflow';
+import {
+  localizationMessageWorkflowView,
+  localizationMessageWorkflowViews,
+} from './authoring-localization-workflow';
 import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
 import { systemCursorNames } from './project-schema/authoring-cursor-vocabulary';
 import { isVariableRef } from './project-schema/authoring-variables';
@@ -2215,6 +2218,10 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
 function deriveStructuralContributionByKey(
   project: AuthoringProject,
   contributionKey: string,
+  workflowMessages?: ReadonlyMap<
+    string,
+    ReturnType<typeof localizationMessageWorkflowViews>[number]
+  >,
 ): AuthoringDependencyGraphContribution | null {
   if (contributionKey.startsWith('record:')) {
     const parsed = JSON.parse(contributionKey.slice('record:'.length)) as unknown;
@@ -2265,7 +2272,9 @@ function deriveStructuralContributionByKey(
     )
       return null;
     const [locale, messageId] = parsed;
-    const workflowMessage = localizationMessageWorkflowView(project, messageId);
+    const workflowMessage = workflowMessages
+      ? (workflowMessages.get(messageId) ?? null)
+      : localizationMessageWorkflowView(project, messageId);
     const exists =
       locale === project.localization.sourceLocale
         ? workflowMessage !== null
@@ -2420,9 +2429,16 @@ export async function deriveAuthoringDependencyContribution(
 export function deriveAuthoringStructuralDependencyGraphContributions(
   project: AuthoringProject,
 ): readonly AuthoringDependencyGraphContribution[] {
+  let workflowMessages:
+    | Map<string, ReturnType<typeof localizationMessageWorkflowViews>[number]>
+    | undefined;
   return Object.freeze(
     enumerateAuthoringDependencyContributionKeys(project).map((key) => {
-      const contribution = deriveStructuralContributionByKey(project, key);
+      if (key.startsWith('localization-message:') && !workflowMessages)
+        workflowMessages = new Map(
+          localizationMessageWorkflowViews(project).map((message) => [message.id, message]),
+        );
+      const contribution = deriveStructuralContributionByKey(project, key, workflowMessages);
       if (!contribution) throw new Error(`Unable to derive graph contribution '${key}'.`);
       return contribution;
     }),

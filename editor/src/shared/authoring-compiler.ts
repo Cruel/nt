@@ -34,6 +34,7 @@ import { lowerSceneAndRoomPrograms } from './authoring-compiler-scene-room-lower
 import { lowerDialogueAndInteractionPrograms } from './authoring-compiler-dialogue-interaction-lowering';
 import { compileFlowPredictionIndex } from './flow-prediction-index-compiler';
 import { lowerManagedLuaLocalization } from './authoring-lua-localization-lowering';
+import { withPackageMessageIds } from './authoring-message-lowering';
 
 export const compilerStageNames = [
   'normalize',
@@ -581,7 +582,11 @@ function linkAuthoringProject(context: CompilerContext): void {
     return;
   }
   const symbols = buildAuthoringSymbolTables(context.normalizedProject);
+  if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
+    console.error('[export-profile] linker symbols built');
   const graph = buildAuthoringStructuralDependencyGraph(context.normalizedProject);
+  if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
+    console.error('[export-profile] linker graph built');
   for (const [, edge] of graph.edgesById) {
     if (!edge.facets.includes('reference-integrity')) continue;
     if (graph.nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target))) continue;
@@ -607,38 +612,49 @@ function lowerAuthoringProject(
   project: AuthoringProject,
   _symbols: AuthoringSymbolTables,
 ): LoweringResult {
+  const started = Date.now();
+  const mark = (stage: string) => {
+    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
+      console.error(`[export-profile] lower ${stage} ${Date.now() - started}ms`);
+  };
   const managedLua = lowerManagedLuaLocalization(project);
+  mark('managed-lua');
   const loweringProject = managedLua.project;
-  const shared = lowerSharedAuthoringProject(loweringProject);
-  const diagnostics = managedLua.diagnostics.map((diagnostic) =>
-    makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
-  );
-  diagnostics.push(
-    ...shared.diagnostics.map((diagnostic) =>
+  return withPackageMessageIds(loweringProject, () => {
+    const shared = lowerSharedAuthoringProject(loweringProject);
+    mark('shared');
+    const diagnostics = managedLua.diagnostics.map((diagnostic) =>
       makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
-    ),
-  );
-  if (shared.draft) {
-    const programs = lowerSceneAndRoomPrograms(loweringProject, shared.draft);
+    );
     diagnostics.push(
-      ...programs.diagnostics.map((diagnostic) =>
+      ...shared.diagnostics.map((diagnostic) =>
         makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
       ),
     );
-    if (programs.draft) {
-      const remainingPrograms = lowerDialogueAndInteractionPrograms(
-        loweringProject,
-        programs.draft,
-      );
+    if (shared.draft) {
+      const programs = lowerSceneAndRoomPrograms(loweringProject, shared.draft);
+      mark('scene-room');
       diagnostics.push(
-        ...remainingPrograms.diagnostics.map((diagnostic) =>
+        ...programs.diagnostics.map((diagnostic) =>
           makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
         ),
       );
-      if (remainingPrograms.draft) return { diagnostics, project: remainingPrograms.draft };
+      if (programs.draft) {
+        const remainingPrograms = lowerDialogueAndInteractionPrograms(
+          loweringProject,
+          programs.draft,
+        );
+        mark('dialogue-interaction');
+        diagnostics.push(
+          ...remainingPrograms.diagnostics.map((diagnostic) =>
+            makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
+          ),
+        );
+        if (remainingPrograms.draft) return { diagnostics, project: remainingPrograms.draft };
+      }
     }
-  }
-  return { diagnostics };
+    return { diagnostics };
+  });
 }
 
 function finish(context: CompilerContext): CompileFailure {
@@ -696,8 +712,14 @@ export function compileAuthoringProject(
   validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[] = (project) =>
     validateAdmittedAuthoringProject(project).diagnostics,
 ): CompileResult<CompiledProjectWire> {
+  const started = Date.now();
+  const mark = (stage: string) => {
+    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
+      console.error(`[export-profile] compiler ${stage} ${Date.now() - started}ms`);
+  };
   const context: CompilerContext = { diagnostics: [], stages: [] };
   normalizeAuthoringProject(project, context);
+  mark('normalize');
   if (!context.normalizedProject) {
     addSkippedStages(context, [
       'semantic-validation',
@@ -712,6 +734,7 @@ export function compileAuthoringProject(
   }
 
   validateSemantics(context, validate);
+  mark('semantic-validation');
   if (hasErrors(context.diagnostics)) {
     addSkippedStages(context, [
       'link',
@@ -725,6 +748,7 @@ export function compileAuthoringProject(
   }
 
   linkAuthoringProject(context);
+  mark('link');
   if (!context.symbols) {
     addSkippedStages(context, [
       'lower',
@@ -737,6 +761,7 @@ export function compileAuthoringProject(
   }
 
   const lowered = lowerAuthoringProject(context.normalizedProject, context.symbols);
+  mark('lower');
   context.diagnostics.push(...lowered.diagnostics);
   addStage(context, 'lower', hasErrors(lowered.diagnostics) ? 'failed' : 'completed');
   if (!lowered.project || hasErrors(context.diagnostics)) {
@@ -745,6 +770,7 @@ export function compileAuthoringProject(
   }
 
   const resourceDiagnostics = validateResourceClosure(lowered.project);
+  mark('resource-closure');
   context.diagnostics.push(...resourceDiagnostics);
   addStage(context, 'collect-resources', hasErrors(resourceDiagnostics) ? 'failed' : 'completed');
   if (hasErrors(context.diagnostics)) {
@@ -760,8 +786,10 @@ export function compileAuthoringProject(
   // semantically ordered authored array. Assembly binds the complete value to the
   // compiler-produced persistent Save Contract before publication.
   lowered.project.saveContract = computeCompiledProjectSaveContract(lowered.project);
+  mark('flow-and-save-contract');
   addStage(context, 'assemble', 'completed');
   const validated = compiledProjectWireSchema.safeParse(lowered.project);
+  mark('validate-wire');
   if (!validated.success) {
     validated.error.issues.forEach((issue) =>
       context.diagnostics.push(
@@ -785,10 +813,12 @@ export function compileAuthoringProject(
     return { ok: false, diagnostics, stages: context.stages };
   }
   addStage(context, 'serialize', 'completed');
+  const canonicalJson = serializeCompiledProjectWire(validated.data);
+  mark('serialize');
   return {
     ok: true,
     project: validated.data,
-    canonicalJson: serializeCompiledProjectWire(validated.data),
+    canonicalJson,
     diagnostics,
     stages: context.stages,
   };

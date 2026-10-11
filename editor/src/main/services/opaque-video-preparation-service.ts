@@ -139,6 +139,10 @@ export async function prepareOpaqueVideoMotion(
       '30',
       '-flags:v',
       '+bitexact',
+      // The Matroska/WebM muxer otherwise generates random SegmentUID values,
+      // changing package bytes and checksums even with identical encoded frames.
+      '-fflags',
+      '+bitexact',
       '-progress',
       'pipe:1',
       videoPath,

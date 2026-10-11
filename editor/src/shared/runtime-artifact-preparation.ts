@@ -70,6 +70,14 @@ interface RuntimeArtifactAssemblyOptions {
   recoveryFingerprint?: unknown;
   shaderOutputs?: readonly ShaderCompileOutput[];
   paths: RuntimeArtifactPathAdapter;
+  memo?: RuntimeArtifactAssemblyMemo;
+}
+
+interface RuntimeArtifactAssemblyMemo {
+  authoringDiagnostics?: ReturnType<typeof validateAuthoringProject>;
+  runtimeProject?: AuthoringProject;
+  published?: ReturnType<typeof publishCompiledArtifact>;
+  sourceGraph?: Awaited<ReturnType<typeof runtimeSourceGraphAssessment>>;
 }
 
 export interface RuntimeArtifactAssessment {
@@ -626,9 +634,21 @@ async function assembleRuntimeArtifact(
   project: AuthoringProject,
   options: RuntimeArtifactAssemblyOptions,
 ): Promise<RuntimeArtifactAssessment> {
-  const authoringDiagnostics = validateAuthoringProject(project);
-  const runtimeProject = runtimeCompilationProject(project);
-  const published = publishCompiledArtifact(runtimeProject);
+  const started = Date.now();
+  const mark = (stage: string) => {
+    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
+      console.error(`[export-profile] assemble ${stage} ${Date.now() - started}ms`);
+  };
+  const authoringDiagnostics =
+    options.memo?.authoringDiagnostics ?? validateAuthoringProject(project);
+  if (options.memo) options.memo.authoringDiagnostics = authoringDiagnostics;
+  mark('authoring-validation');
+  const runtimeProject = options.memo?.runtimeProject ?? runtimeCompilationProject(project);
+  if (options.memo) options.memo.runtimeProject = runtimeProject;
+  mark('runtime-project');
+  const published = options.memo?.published ?? publishCompiledArtifact(runtimeProject);
+  if (options.memo) options.memo.published = published;
+  mark('published');
   const compilerDiagnostics = compilerDiagnosticsFor(published);
 
   const compiledSettings = published.ok
@@ -664,11 +684,11 @@ async function assembleRuntimeArtifact(
     },
   };
 
-  const sourceGraph = await runtimeSourceGraphAssessment(
-    project,
-    options.projectRoot ?? null,
-    options.paths,
-  );
+  const sourceGraph =
+    options.memo?.sourceGraph ??
+    (await runtimeSourceGraphAssessment(project, options.projectRoot ?? null, options.paths));
+  if (options.memo) options.memo.sourceGraph = sourceGraph;
+  mark('source-graph');
   const runtimeReferencedAssetIds = sourceGraph?.referencedAssetIds ?? null;
   const referencedAssetIds = options.profile.excludeUnusedAssets ? runtimeReferencedAssetIds : null;
   const localizationClosure = published.ok
@@ -679,6 +699,7 @@ async function assembleRuntimeArtifact(
         runtimeReferencedAssetIds,
       )
     : null;
+  mark('localization-closure');
   const localizedCompiledProject = localizationClosure?.project;
   const compiledAssets = localizedCompiledProject?.resources.assets ?? [];
   const excludedUnusedAssetCount = referencedAssetIds
@@ -1287,15 +1308,23 @@ function withPreparedMedia(
 export async function prepareRuntimeArtifact(
   options: PrepareRuntimeArtifactOptions,
 ): Promise<PrepareRuntimeArtifactResult> {
+  const profileStart = Date.now();
+  const profileMark = (stage: string) => {
+    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
+      console.error(`[export-profile] preparation ${stage} ${Date.now() - profileStart}ms`);
+  };
   const cancelled = () => options.isCancelled?.() === true;
   if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
   options.onStage?.('compiling-project');
+  const assemblyMemo: RuntimeArtifactAssemblyMemo = {};
   let assessment = await assembleRuntimeArtifact(options.project, {
     projectRoot: options.projectRoot,
     profile: options.profile,
     recoveryFingerprint: options.recoveryFingerprint,
     paths: options.paths,
+    memo: assemblyMemo,
   });
+  profileMark('first-assembly');
   let shaderDiagnostics: ProjectValidationDiagnostic[] = [];
   let shaderOutputs: ShaderCompileOutput[] = [];
   const shouldCompile =
@@ -1322,12 +1351,14 @@ export async function prepareRuntimeArtifact(
       const shaderProject = await buildShaderMaterialProject(options.project, [], {
         certifyPresetPrograms: true,
       });
+      profileMark('shader-project');
       const response = await options.shaderCompiler.compile(shaderProject.compilation, {
         projectRoot: options.projectRoot ?? '',
         outputRoot: options.projectRoot ? `${options.projectRoot}/.noveltea/build` : '',
         cacheRoot: options.projectRoot ? `${options.projectRoot}/.noveltea/cache` : '',
         shaderVariants: options.profile.shaderVariants,
       });
+      profileMark('shader-compiled');
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
       const verified = await validateShaderOutputs(
         shaderProject.compilation.programs,
@@ -1362,7 +1393,9 @@ export async function prepareRuntimeArtifact(
           recoveryFingerprint: options.recoveryFingerprint,
           shaderOutputs: verified.outputs,
           paths: options.paths,
+          memo: assemblyMemo,
         });
+        profileMark('second-assembly');
       }
     }
   }
@@ -1372,6 +1405,7 @@ export async function prepareRuntimeArtifact(
       assessment,
       await prepareOpaqueVideoRepresentations(options.project, options.projectRoot, options.paths),
     );
+    profileMark('media-prepared');
   }
   if (assessment.compiledArtifactAvailable) {
     try {
@@ -1390,6 +1424,7 @@ export async function prepareRuntimeArtifact(
         options.projectRoot,
         options.paths,
       );
+      profileMark('notices');
       assessment = {
         ...assessment,
         manifestPreview: {
