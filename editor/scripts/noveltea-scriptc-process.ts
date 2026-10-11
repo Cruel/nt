@@ -14,6 +14,14 @@ export function runNovelTeaScriptcProcess(requestText: string): string {
       typeof request.maxBuffer === 'number' && Number.isSafeInteger(request.maxBuffer)
         ? request.maxBuffer
         : 64 * 1024 * 1024;
+    // Keep the spawnSync option shape stable; zero disables the child timeout.
+    const timeout =
+      typeof request.timeoutMs === 'number' &&
+      Number.isSafeInteger(request.timeoutMs) &&
+      request.timeoutMs > 0 &&
+      request.timeoutMs <= 60_000
+        ? request.timeoutMs
+        : 0;
     const previousCwd = process.cwd();
     const previousEnvironment: Array<[key: string, value: string | undefined]> = [];
     try {
@@ -26,12 +34,7 @@ export function runNovelTeaScriptcProcess(requestText: string): string {
         encoding: 'utf8',
         stdio: 'pipe',
         windowsHide: true,
-        ...(typeof request.timeoutMs === 'number' &&
-        Number.isSafeInteger(request.timeoutMs) &&
-        request.timeoutMs > 0 &&
-        request.timeoutMs <= 60_000
-          ? { timeout: request.timeoutMs }
-          : {}),
+        timeout,
       });
       if (result.error) throw result.error;
       const stdout = result.stdout ?? '';

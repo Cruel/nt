@@ -8,6 +8,7 @@ import { parseAssetData } from '../project-schema/authoring-assets';
 import { parseLayoutData } from '../project-schema/authoring-layouts';
 import { parseMaterialData } from '../project-schema/authoring-materials';
 import type { AuthoringProject } from '../project-schema/authoring-project';
+import { projectSettingsFromProject } from '../project-schema/authoring-project-settings';
 import { parseScriptModuleData } from '../project-schema/authoring-script-modules';
 import {
   stripEditorProjectState,
@@ -274,6 +275,13 @@ export type PinnedPortableResidentProjectInputs = Readonly<{
 
 function portableProjectTextSourcePaths(project: AuthoringProject): readonly string[] {
   const paths = new Set<string>();
+  for (const notice of projectSettingsFromProject(project).distributionNotices)
+    paths.add(notice.path);
+  for (const record of Object.values(project.assets)) {
+    const asset = parseAssetData(record.data);
+    for (const attachment of asset?.attachments ?? [])
+      if (attachment.purpose === 'distribution-notice') paths.add(attachment.path);
+  }
   for (const record of Object.values(project.scripts)) {
     const data = parseScriptModuleData(record.data);
     if (data?.source.kind === 'project-file') paths.add(data.source.path);

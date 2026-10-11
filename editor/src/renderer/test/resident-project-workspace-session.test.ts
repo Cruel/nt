@@ -2262,6 +2262,31 @@ describe('ResidentProjectWorkspaceSession', () => {
     });
   });
 
+  it('pins distribution notice text in portable generations', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.settings.distributionNotices = [{ path: 'support/licenses/global.md' }];
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    files[`${ROOT}/support/licenses/global.md`] = 'Original license notice';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const owner = new ResidentProjectWorkspaceService(fileSystem);
+    expect((await owner.open(ROOT)).ok).toBe(true);
+    const prepared = await owner.preparePortableSnapshot(ROOT);
+    expect(prepared).not.toBeNull();
+    if (!prepared) return;
+    await fileSystem.writeTextAtomic(`${ROOT}/support/licenses/global.md`, 'Later notice text');
+    const disposable = new ResidentProjectWorkspaceService(fileSystem);
+    expect(await disposable.hydratePortableSnapshot(ROOT, prepared.snapshotText)).toBe(true);
+    const inputs = await disposable.pinnedPortableInputs(ROOT);
+    expect(inputs?.projectTextSources['support/licenses/global.md']?.text).toBe(
+      'Original license notice',
+    );
+  });
+
   it('retains all observed Project shader source bytes in the pinned generation', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.materials.basic = {

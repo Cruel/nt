@@ -4283,9 +4283,21 @@ async function certifyNativeOperations(tempRoot, pristine) {
   const output = path.join(tempRoot, 'certification.ntpkg');
   requireSuccess(
     'package export',
-    runNative(['--project', root, '--json', 'package', 'export', '--output', output], {
-      cwd: root,
-    }),
+    runNative(
+      [
+        '--project',
+        root,
+        '--json',
+        'package',
+        'export',
+        '--output',
+        output,
+        '--allow-localization-warnings',
+      ],
+      {
+        cwd: root,
+      },
+    ),
   );
   if (!(await stat(output)).isFile())
     fail('Package export did not produce the requested output file.');

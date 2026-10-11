@@ -1,4 +1,4 @@
-import { existsSync, realpathSync } from 'node:fs';
+import { existsSync } from 'node:fs';
 import {
   chmod,
   cp,
@@ -12,7 +12,6 @@ import {
   writeFile,
 } from 'node:fs/promises';
 import path from 'node:path';
-import { createRequire } from 'node:module';
 import { spawnSync } from 'node:child_process';
 import { fileURLToPath } from 'node:url';
 import { tmpdir } from 'node:os';
@@ -23,7 +22,7 @@ const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '.
 const repositoryRoot = path.resolve(editorRoot, '..');
 const { version: productVersion } = readNovelTeaVersion(repositoryRoot);
 const buildIdentity = readNovelTeaBuildIdentity(repositoryRoot);
-const scriptcVersion = '0.1.4';
+const scriptcVersion = '0.2.8';
 const targetOverride = process.env.NOVELTEA_CLI_TARGET;
 if (targetOverride && targetOverride !== 'windows')
   throw new Error(`Unsupported NOVELTEA_CLI_TARGET '${targetOverride}'.`);
@@ -47,7 +46,7 @@ const releaseTriplet = isWindows
 const buildRoot = path.join(repositoryRoot, 'build', releasePreset);
 const executableName = isWindows ? 'noveltea.exe' : 'noveltea';
 const uiTestRunnerName = isWindows ? 'noveltea-ui-test-runner.exe' : 'noveltea-ui-test-runner';
-const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'dist', 'main.js');
+const scriptcEntrypoint = path.join(editorRoot, 'node_modules', 'scriptc', 'bin', 'scriptc.exe');
 const vitePlusEntrypoint = path.join(editorRoot, 'node_modules', 'vite-plus', 'bin', 'vp');
 const scriptcRoot = path.join(
   repositoryRoot,
@@ -171,25 +170,7 @@ if (isWindows) {
   if (clangCheck.error) throw clangCheck.error;
 }
 
-async function ensureScriptcNativeHelperExecutable() {
-  if (isWindows) return;
-  const scriptcRequire = createRequire(realpathSync(scriptcEntrypoint));
-  const compilerEntrypoint = scriptcRequire.resolve('@scriptc/compiler');
-  const compilerRequire = createRequire(compilerEntrypoint);
-  const helperPackage = isMac ? '@scriptc/llvm-darwin-arm64' : '@scriptc/llvm-linux-x64-gnu';
-  let helperPackageJson;
-  try {
-    helperPackageJson = compilerRequire.resolve(`${helperPackage}/package.json`);
-  } catch {
-    throw new Error(
-      `Pinned scriptc LLVM helper ${helperPackage} is not installed. Run pnpm install with optional dependencies enabled.`,
-    );
-  }
-  const helperBinary = path.join(path.dirname(helperPackageJson), 'bin', 'scriptc-llvm-codegen');
-  await chmod(helperBinary, 0o755);
-}
-
-const versionCheck = spawnSync(process.execPath, [scriptcEntrypoint, '--version'], {
+const versionCheck = spawnSync(scriptcEntrypoint, ['--version'], {
   cwd: editorRoot,
   encoding: 'utf8',
 });
@@ -198,7 +179,6 @@ if (versionCheck.status !== 0 || versionCheck.stdout.trim() !== scriptcVersion)
   throw new Error(
     `NovelTea CLI requires scriptc ${scriptcVersion}; received '${versionCheck.stdout.trim() || 'unknown'}'.`,
   );
-await ensureScriptcNativeHelperExecutable();
 
 const buildEnv = {
   ...process.env,
@@ -354,7 +334,7 @@ async function stageScriptcCompatibleWinpthread() {
   if (!crossCompilingWindows && collidingSymbols.length !== scriptcTimeSymbols.length)
     throw new Error('MinGW winpthreads archive is missing the expected ScriptC time shim symbols.');
 
-  // ScriptC 0.1.4 supplies these public Windows time shims itself. Keep the rest
+  // ScriptC supplies these public Windows time shims. Keep the rest
   // of static winpthreads for MinGW libstdc++, but make any colliding definitions
   // private to the archive rather than asking the linker to accept duplicates.
   if (collidingSymbols.length > 0) {
@@ -645,10 +625,26 @@ try {
     )}\n`,
   );
 
-  run(
-    process.execPath,
-    [
+  if (process.env.NOVELTEA_SCRIPTC_INSPECT === '1') {
+    const coverage = spawnSync(
       scriptcEntrypoint,
+      ['coverage', stagedHost, '--dynamic', '--print', 'diagnostics'],
+      { cwd: stageRoot, env: scriptcBuildEnv, encoding: 'utf8' },
+    );
+    const reportPath = path.join(scriptcRoot, 'coverage-diagnostics.json');
+    if (coverage.error) throw coverage.error;
+    if (!coverage.stdout.trim())
+      throw new Error(`ScriptC coverage produced no diagnostics: ${coverage.stderr}`);
+    await writeFile(reportPath, coverage.stdout);
+    console.log(`ScriptC static coverage report: ${reportPath}`);
+  }
+
+  const scriptcOptimization = process.env.NOVELTEA_SCRIPTC_OPTIMIZATION;
+  if (scriptcOptimization && !['release', 'speed'].includes(scriptcOptimization))
+    throw new Error('NOVELTEA_SCRIPTC_OPTIMIZATION must be release or speed.');
+  run(
+    scriptcEntrypoint,
+    [
       'build',
       stagedHost,
       '--dynamic',
@@ -656,7 +652,8 @@ try {
       ffiPath,
       '--out',
       outputPath,
-      '--no-keep-c',
+      '--no-keep-llvm',
+      ...(scriptcOptimization ? [`--optimization=${scriptcOptimization}`] : []),
     ],
     { cwd: stageRoot, env: scriptcBuildEnv },
   );
