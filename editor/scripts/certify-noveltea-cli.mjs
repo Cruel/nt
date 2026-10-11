@@ -4553,6 +4553,7 @@ async function certifyPlatformHost(tempRoot, projectRoot) {
         '--template',
         'certification-web-template@build-1',
         '--allow-untrusted-template',
+        '--allow-localization-warnings',
       ],
       { cwd: projectRoot, env },
     ),

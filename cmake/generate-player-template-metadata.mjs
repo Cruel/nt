@@ -65,8 +65,13 @@ function addComponent(name, componentVersion, sources, provenance) {
 }
 
 function pickSources(source, rules, label) {
-  if (rules) return rules.map((relative) => relative.startsWith('@repo/')
-    ? path.join(root, relative.slice('@repo/'.length)) : path.join(source, relative));
+  if (rules) return rules.map((relative) => {
+    const file = relative.startsWith('@repo/')
+      ? path.join(root, relative.slice('@repo/'.length)) : path.join(source, relative);
+    if (!existsSync(file) || !statSync(file).isFile())
+      throw new Error(`Required ${label} license source missing: ${file}`);
+    return file;
+  });
   if (!existsSync(source)) throw new Error(`Missing dependency source tree for ${label}: ${source}`);
   const candidates = readdirSync(source).filter((name) => licenseName.test(name) && statSync(path.join(source, name)).isFile()).sort();
   if (candidates.length === 0)

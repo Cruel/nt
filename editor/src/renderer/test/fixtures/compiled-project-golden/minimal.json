@@ -445,6 +445,10 @@
       {
         "layout": null,
         "role": "scene-choice"
+      },
+      {
+        "layout": null,
+        "role": "licenses"
       }
     ],
     "text": {

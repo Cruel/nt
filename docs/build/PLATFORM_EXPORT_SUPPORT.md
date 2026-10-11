@@ -69,6 +69,13 @@ points to that index; `<templateId>.licenses.index.json` is the independent
 release sidecar, while the indexed texts remain in the template archive.
 The SBOM covers exactly the same component/version pairs.
 
+FetchContent notices are attested against resolved download metadata and the declared
+URL/checksum or Git revision. Extracted notice bytes must match the verified archive or
+pinned commit; missing metadata, stale pins, and modified notices abort generation.
+The editor's `player-template-license-generator.test.ts` exercises this boundary with
+hermetic source archives and Git repositories plus matching synthetic CMake declarations,
+without network downloads or a pre-existing native build.
+
 `cmake/player-license-sources.json` records target applicability and targeted
 exceptions for composite bgfx/bx/bimg, upstream license locations, Emscripten
 ports, and the hash-pinned legacy Liberation Sans system font. The font's
