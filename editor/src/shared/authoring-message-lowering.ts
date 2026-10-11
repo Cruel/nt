@@ -135,6 +135,8 @@ function allMessageIds(project: AuthoringProject): string[] {
 }
 
 export function packageMessageIds(project: AuthoringProject): ReadonlyMap<string, number> {
+  const cached = activeMessageIdCache.get(project);
+  if (cached) return cached;
   const ids = new Map<string, number>();
   let nextProjectId = 0;
   for (const stableId of allMessageIds(project)) {
@@ -143,6 +145,22 @@ export function packageMessageIds(project: AuthoringProject): ReadonlyMap<string
     ids.set(stableId, system?.id ?? nextProjectId++);
   }
   return ids;
+}
+
+// Lowerers share a single immutable Project during one synchronous compile.
+// Keep this cache scoped to that pass so subsequent authoring mutations never
+// reuse an obsolete set of message IDs.
+const activeMessageIdCache = new WeakMap<AuthoringProject, ReadonlyMap<string, number>>();
+
+export function withPackageMessageIds<T>(project: AuthoringProject, lower: () => T): T {
+  const existing = activeMessageIdCache.get(project);
+  if (existing) return lower();
+  activeMessageIdCache.set(project, packageMessageIds(project));
+  try {
+    return lower();
+  } finally {
+    activeMessageIdCache.delete(project);
+  }
 }
 
 export function packageMessageIdForNamedKey(project: AuthoringProject, key: string): number | null {
