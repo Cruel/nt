@@ -210,6 +210,57 @@ bool run(Fixture& fixture)
     }
     if (!check(reused_surfaces.size() <= 2, "GPU media surfaces are reused across seeks and loops"))
         return false;
+    if (!check(sample(left, 75, left_sample), "late-frame setup"))
+        return false;
+    for (unsigned tick = 0; tick < 128 && !left->sample_ready(75); ++tick) {
+        fixture.progress();
+        if (!check(sample(left, 75, left_sample), "late-frame setup progress"))
+            return false;
+        fixture.draw(&left_sample, &right_sample);
+    }
+    if (!check(left->sample_ready(75), "late-frame setup readiness"))
+        return false;
+    const auto left_session = left_sample->video_session;
+    const auto finish_upload = [&](std::uint64_t before) {
+        for (unsigned tick = 0; tick < 128 && left_session->uploads_on_owner() == before; ++tick) {
+            fixture.progress();
+            fixture.draw(&left_sample, &right_sample);
+        }
+        return left_session->uploads_on_owner() > before;
+    };
+    auto before = left_session->uploads_on_owner();
+    if (!check(sample(left, 125, left_sample) && finish_upload(before), "late sample upload"))
+        return false;
+    if (!check(sample(left, 175, left_sample) && left->sample_ready(125),
+               "advancing playhead publishes a completed late sample"))
+        return false;
+    const auto held_blue = left_sample->handle;
+    before = left_session->uploads_on_owner();
+    if (!check(sample(left, 125, left_sample) && finish_upload(before) &&
+                   sample(left, 125, left_sample) && left_sample->handle == held_blue,
+               "rewind discards the obsolete pending result"))
+        return false;
+    before = left_session->uploads_on_owner();
+    if (!check(sample(left, 75, left_sample) && finish_upload(before) &&
+                   left_sample->handle == held_blue,
+               "unpublished upload preserves the held surface"))
+        return false;
+    if (!check(fixture.renderer.request_screenshot_capture({2, 64, 16}), "held GPU capture"))
+        return false;
+    capture.reset();
+    for (unsigned tick = 0; tick < 32 && !capture; ++tick) {
+        fixture.draw(&left_sample, &right_sample);
+        capture = fixture.renderer.take_screenshot_capture();
+    }
+    if (!check(capture.has_value(), "held GPU readback completed"))
+        return false;
+    const auto held_color = color_at(8);
+    if (!check(held_color[2] > 220 && held_color[0] < 30 && held_color[1] < 30,
+               "discarded and unpublished conversions do not overwrite held blue pixels"))
+        return false;
+    if (!check(sample(left, 75, left_sample) && left->sample_ready(75), "publish completed rewind"))
+        return false;
+
     const auto before_hidden = occurrence_session->uploads_on_owner();
     if (!check(sample(right, 175, right_sample), "pending hidden decode"))
         return false;

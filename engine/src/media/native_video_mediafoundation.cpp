@@ -102,14 +102,16 @@ public:
         Com<IMFAttributes> attributes;
         UINT32 asynchronous = 0, aware = 0;
         if (FAILED(m_transform->GetAttributes(attributes.put())) ||
-            FAILED(attributes->GetUINT32(MF_SA_D3D11_AWARE, &aware)) || !aware ||
-            FAILED(m_transform->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
-                                               reinterpret_cast<ULONG_PTR>(m_manager.get()))))
+            FAILED(attributes->GetUINT32(MF_SA_D3D11_AWARE, &aware)) || !aware)
             return false;
         (void)attributes->GetUINT32(MF_TRANSFORM_ASYNC, &asynchronous);
         m_async = asynchronous != 0;
+        // Async MFTs reject transform messages until explicitly unlocked.
         if (m_async && (FAILED(attributes->SetUINT32(MF_TRANSFORM_ASYNC_UNLOCK, TRUE)) ||
                         FAILED(m_transform->QueryInterface(IID_PPV_ARGS(m_events.put())))))
+            return false;
+        if (FAILED(m_transform->ProcessMessage(MFT_MESSAGE_SET_D3D_MANAGER,
+                                               reinterpret_cast<ULONG_PTR>(m_manager.get()))))
             return false;
         const auto ids = m_transform->GetStreamIDs(1, &m_input, 1, &m_output);
         if (FAILED(ids) && ids != E_NOTIMPL)
