@@ -1182,7 +1182,8 @@ jobs:
               --profile canonical-android-debug \
               --output "$output" \
               --config "$config" \
-              --allow-untrusted-template
+              --allow-untrusted-template \
+              --allow-localization-warnings
           done
 
       - name: Upload immutable debug template and export reports
