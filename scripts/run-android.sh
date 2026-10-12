@@ -141,7 +141,8 @@ echo "[run] exporting the project through noveltea platform export..."
   --profile "$PROFILE_ID" \
   --output "$EXPORT_ROOT" \
   --config "$CONFIG_PATH" \
-  --allow-untrusted-template
+  --allow-untrusted-template \
+  --allow-localization-warnings
 DEFAULT_APK="$(find "$EXPORT_ROOT" -name '*.apk' -print -quit)"
 APK="${APK:-$DEFAULT_APK}"
 

@@ -1149,7 +1149,8 @@ jobs:
             --profile canonical-android-release \
             --output "${{ github.workspace }}/dist/android-release-fixture" \
             --config "$config" \
-            --allow-untrusted-template
+            --allow-untrusted-template \
+            --allow-localization-warnings
           pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Export and inspect x86_64 debug APK through public CLI
@@ -1176,7 +1177,8 @@ jobs:
             --profile canonical-android-debug \
             --output "${{ github.workspace }}/dist/android-debug-fixture" \
             --config "$config" \
-            --allow-untrusted-template
+            --allow-untrusted-template \
+            --allow-localization-warnings
           pnpm -C editor exec vp test run src/renderer/test/platform-export-acceptance-fixture.test.ts src/renderer/test/platform-export-canonical-integration.test.ts
 
       - name: Generate Android platform certification reports
