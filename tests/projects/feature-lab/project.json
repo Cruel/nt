@@ -94,6 +94,38 @@
     "profiles": [
       {
         "format": "noveltea.platform-export-profile",
+        "id": "android-arm64-debug",
+        "label": "Android ARM64 Debug",
+        "buildFlavor": "debug",
+        "compression": "default",
+        "includeDebugSymbols": true,
+        "excludeUnusedAssets": true,
+        "includeShaderSources": false,
+        "assetMemory": { "kind": "builtin", "preset": "balanced" },
+        "localization": { "locales": ["en", "fr", "fr-CA", "ja", "ar"], "defaultLocale": "en", "quality": "development" },
+        "target": "android",
+        "architecture": "arm64",
+        "packageAccess": "android-private-copy",
+        "android": { "artifact": "apk", "abi": "arm64-v8a", "minSdk": 24 }
+      },
+      {
+        "format": "noveltea.platform-export-profile",
+        "id": "android-emulator-debug",
+        "label": "Android Emulator Debug",
+        "buildFlavor": "debug",
+        "compression": "default",
+        "includeDebugSymbols": true,
+        "excludeUnusedAssets": true,
+        "includeShaderSources": false,
+        "assetMemory": { "kind": "builtin", "preset": "balanced" },
+        "localization": { "locales": ["en", "fr", "fr-CA", "ja", "ar"], "defaultLocale": "en", "quality": "development" },
+        "target": "android",
+        "architecture": "x86_64",
+        "packageAccess": "android-private-copy",
+        "android": { "artifact": "apk", "abi": "x86_64", "minSdk": 24 }
+      },
+      {
+        "format": "noveltea.platform-export-profile",
         "id": "web-threaded",
         "label": "Web Threaded",
         "buildFlavor": "release",

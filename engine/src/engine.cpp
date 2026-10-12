@@ -2601,13 +2601,19 @@ void Engine::Impl::handle_events()
         const auto normalized = host::normalize_host_event(event, m_platform.surface());
         auto routed = m_input_router.route(
             normalized,
-            {.presentation = &m_presentation,
-             .layout_admission = layout_input,
-             .effective_pause = current_effective_gameplay_pause(),
-             .escape_dismissal = m_game_host.runtime_layouts().escape_dismissal_target(),
-             .mode = m_preview_widget ? host::HostInputMode::Preview : host::HostInputMode::Runtime,
-             .preview_visible = m_preview_running,
-             .devtools_enabled = m_debug_ui_enabled},
+            {
+                .presentation = &m_presentation,
+                .layout_admission = layout_input,
+                .effective_pause = current_effective_gameplay_pause(),
+                .escape_dismissal = m_game_host.runtime_layouts().escape_dismissal_target(),
+                .mode =
+                    m_preview_widget ? host::HostInputMode::Preview : host::HostInputMode::Runtime,
+                .preview_visible = m_preview_running,
+                .devtools_enabled = m_debug_ui_enabled,
+#if defined(SDL_PLATFORM_ANDROID)
+                .devtools_touch_gestures = m_debug_ui_enabled,
+#endif
+            },
             {.debug =
                  [this, &event] {
                      return host::DebugInputResult{
@@ -2624,6 +2630,29 @@ void Engine::Impl::handle_events()
                          .runtime_inputs = std::move(processed.runtime_inputs),
                          .shell_commands = std::move(processed.shell_commands)};
                  }});
+
+        if (routed.canceled_touch) {
+            SDL_Event canceled = event;
+            canceled.type = SDL_EVENT_FINGER_CANCELED;
+            canceled.tfinger.fingerID = static_cast<SDL_FingerID>(routed.canceled_touch->touch_id);
+            (void)m_runtime_ui.process_event(canceled);
+            m_runtime_ui.cancel_mouse_input();
+            // Cancel the first finger's synthesized mouse press without clicking its old target.
+            SDL_Event mouse{};
+            mouse.type = SDL_EVENT_MOUSE_MOTION;
+            mouse.motion.which = SDL_TOUCH_MOUSEID;
+            mouse.motion.x = -1.0f;
+            mouse.motion.y = -1.0f;
+            (void)m_debug_ui.process_event(mouse, m_platform.surface());
+            mouse = {};
+            mouse.type = SDL_EVENT_MOUSE_BUTTON_UP;
+            mouse.button.which = SDL_TOUCH_MOUSEID;
+            mouse.button.button = SDL_BUTTON_LEFT;
+            mouse.button.x = -1.0f;
+            mouse.button.y = -1.0f;
+            (void)m_debug_ui.process_event(mouse, m_platform.surface());
+            m_world_hotspots.cancel();
+        }
 
         for (const auto& action : routed.lifecycle_actions) {
             std::visit(
@@ -2819,6 +2848,11 @@ void Engine::Impl::handle_events()
                     } else if constexpr (std::is_same_v<
                                              T, host::ResetNativeDebugUiRectToolingAction>) {
                         m_debug_ui.reset_window_rect();
+                    } else if constexpr (std::is_same_v<
+                                             T, host::ResetAndShowNativeDebugUiToolingAction>) {
+                        m_debug_ui.reset_window_rect();
+                        if (!m_debug_ui.is_visible())
+                            m_debug_ui.toggle_visibility();
                     }
                 },
                 action);
@@ -2865,6 +2899,11 @@ void Engine::Impl::handle_events()
             m_game_host.report_runtime_diagnostics(host::HostFrameStage::RouteInput,
                                                    std::move(routed.diagnostics));
         }
+    }
+    if (m_debug_ui_enabled && m_input_router.advance_devtools_touch_hold(SDL_GetTicks())) {
+        m_debug_ui.reset_window_rect();
+        if (!m_debug_ui.is_visible())
+            m_debug_ui.toggle_visibility();
     }
 }
 

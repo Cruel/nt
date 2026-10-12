@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import { chmod, cp, mkdir, readFile, readdir, rm, stat, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { spawnSync } from 'node:child_process';
+import { resolveAndroidPlayerBuild } from './android-player-build.mjs';
 
 const [rootArg, stageArg, releaseTag, abi, flavor, bundletoolArg, bgfxVersion] = process.argv.slice(2);
 if (!rootArg || !stageArg || !releaseTag || !abi || !flavor || !bundletoolArg || !bgfxVersion) throw new Error('Expected root, stage, release tag, ABI, flavor, bundletool JAR, and bgfx version.');
@@ -11,28 +12,7 @@ await rm(stage, { recursive: true, force: true }); await mkdir(source, { recursi
 const ignored = (sourcePath) => !/(?:^|[/\\])(?:build|\.gradle|\.cxx|\.idea|local\.properties|\.DS_Store)(?:$|[/\\])/.test(sourcePath);
 await cp(path.join(root, 'android'), path.join(source, 'android'), { recursive: true, filter: ignored });
 
-async function findDirectoriesContaining(directory, fileName, output = []) {
-  let entries;
-  try { entries = await readdir(directory, { withFileTypes: true }); }
-  catch { return output; }
-  if (entries.some((entry) => entry.isFile() && entry.name === fileName)) output.push(directory);
-  for (const entry of entries)
-    if (entry.isDirectory()) await findDirectoriesContaining(path.join(directory, entry.name), fileName, output);
-  return output;
-}
-
-const nativeSearchRoot = path.join(root, 'android', 'app', 'build', 'intermediates');
-const nativeCandidates = (await findDirectoriesContaining(nativeSearchRoot, 'libnoveltea-player.so'))
-  .filter((candidate) => candidate.split(path.sep).includes(abi))
-  .filter((candidate) => candidate.toLowerCase().includes(flavor.toLowerCase()))
-  .sort((left, right) => {
-    const leftMerged = left.includes(`${path.sep}merged_native_libs${path.sep}`) ? 1 : 0;
-    const rightMerged = right.includes(`${path.sep}merged_native_libs${path.sep}`) ? 1 : 0;
-    return rightMerged - leftMerged || left.localeCompare(right);
-  });
-if (nativeCandidates.length === 0)
-  throw new Error(`Build the Android ${flavor} APK for ${abi} before packaging its prebuilt native template.`);
-const nativeRoot = nativeCandidates[0];
+const { nativeRoot, buildRoot, nativeLibraryPath } = await resolveAndroidPlayerBuild(root, abi, flavor);
 const nativeDestination = path.join(source, 'android', 'prebuilt-native', abi);
 await mkdir(nativeDestination, { recursive: true });
 for (const entry of await readdir(nativeRoot, { withFileTypes: true }))
@@ -73,25 +53,9 @@ await mkdir(path.join(source, 'android', 'tools'), { recursive: true });
 await cp(path.resolve(bundletoolArg), path.join(source, 'android', 'tools', 'bundletool-1.18.1.jar'));
 await chmod(path.join(source, 'android', 'gradlew'), 0o755);
 // Use the same resolved license generator and SBOM contract as desktop and Web.
-// The ABI/flavor-specific CMake cache owns the source dependency inventory.
-const androidCxx = path.join(root, 'android', 'app', '.cxx');
-const cmakeRoots = await findDirectoriesContaining(androidCxx, 'CMakeCache.txt');
-const matchingRoots = [];
-for (const candidate of cmakeRoots) {
-  // Gradle owns .cxx/<variant>/<configuration-hash>/<abi>; fetched dependency
-  // sub-builds may have their own CMakeCache.txt and are not player builds.
-  const parts = path.relative(androidCxx, candidate).split(path.sep);
-  if (parts.length !== 3 || parts[2] !== abi || parts[0].toLowerCase() !== flavor.toLowerCase()) continue;
-  const cache = await readFile(path.join(candidate, 'CMakeCache.txt'), 'utf8');
-  const config = /^CMAKE_BUILD_TYPE:[^=]*=(.*)$/m.exec(cache)?.[1]?.toLowerCase();
-  if ((flavor === 'debug' ? config === 'debug' :
-    ['release', 'relwithdebinfo', 'minsizerel'].includes(config)))
-    matchingRoots.push(candidate);
-}
-if (matchingRoots.length !== 1)
-  throw new Error(`Expected one Android ${flavor}/${abi} CMake build root, found ${matchingRoots.length}.`);
+// Use the cache that produced the merged player, not another retained Gradle configuration.
 const metadata = spawnSync('node', [path.join(root, 'cmake/generate-player-template-metadata.mjs'),
-  path.join(matchingRoots[0], 'vcpkg_installed'), stage, releaseTag, matchingRoots[0], '--android'], { encoding: 'utf8' });
+  path.join(buildRoot, 'vcpkg_installed'), stage, releaseTag, buildRoot, '--android'], { encoding: 'utf8' });
 if (metadata.status !== 0) throw new Error(`Android license generation failed: ${metadata.stderr || metadata.stdout}`);
 
 async function files(directory, prefix = '') { const output = []; for (const entry of await readdir(path.join(directory, prefix), { withFileTypes: true })) { const relative = path.posix.join(prefix, entry.name); if (entry.isDirectory()) output.push(...await files(directory, relative)); else if (entry.isFile()) output.push(relative); } return output.sort(); }
@@ -124,3 +88,4 @@ const descriptor = {
 await writeFile(path.join(stage, 'template.json'), `${JSON.stringify(descriptor, null, 2)}\n`);
 const parsed = spawnSync('node', ['-e', `JSON.parse(require('fs').readFileSync(${JSON.stringify(path.join(stage, 'template.json'))},'utf8'))`]);
 if (parsed.status !== 0) throw new Error('Generated descriptor is not valid JSON.');
+process.stdout.write(JSON.stringify({ nativeLibraryPath }));

@@ -13,6 +13,7 @@ set(stage "${root}/build/package/${template_id}")
 execute_process(COMMAND "${NODE_EXECUTABLE}" "${root}/cmake/package-android-player-template.mjs"
     "${root}" "${stage}" "${NOVELTEA_RELEASE_TAG}" "${NOVELTEA_ANDROID_ABI}"
     "${NOVELTEA_ANDROID_FLAVOR}" "${NOVELTEA_BUNDLETOOL_JAR}" "${NOVELTEA_BGFX_VERSION}"
+    OUTPUT_VARIABLE package_result
     COMMAND_ERROR_IS_FATAL ANY)
 file(MAKE_DIRECTORY "${root}/dist")
 if(WIN32)
@@ -29,30 +30,7 @@ endif()
 file(COPY_FILE "${stage}/template.json" "${root}/dist/${template_id}.template.json")
 file(COPY_FILE "${stage}/SBOM.cdx.json" "${root}/dist/${template_id}.SBOM.cdx.json")
 file(COPY_FILE "${stage}/licenses/index.json" "${root}/dist/${template_id}.licenses.index.json")
-file(GLOB_RECURSE symbol_candidates
-    "${root}/android/app/.cxx/*/*/${NOVELTEA_ANDROID_ABI}/libnoveltea-player.so"
-    "${root}/android/app/build/intermediates/cxx/*/*/obj/${NOVELTEA_ANDROID_ABI}/libnoveltea-player.so")
-set(symbol_input "")
-string(TOLOWER "${NOVELTEA_ANDROID_FLAVOR}" flavor_lower)
-if(flavor_lower STREQUAL "release")
-    # Android Gradle Plugin configures CMake release variants as
-    # RelWithDebInfo so native symbols remain available for publishing.
-    set(symbol_configuration_pattern "/(release|relwithdebinfo|minsizerel)/")
-elseif(flavor_lower STREQUAL "debug")
-    set(symbol_configuration_pattern "/debug/")
-else()
-    message(FATAL_ERROR "Unsupported Android flavor for symbol packaging: ${NOVELTEA_ANDROID_FLAVOR}")
-endif()
-foreach(candidate IN LISTS symbol_candidates)
-    string(TOLOWER "${candidate}" candidate_lower)
-    if(candidate_lower MATCHES "${symbol_configuration_pattern}")
-        set(symbol_input "${candidate}")
-        break()
-    endif()
-endforeach()
-if(symbol_input STREQUAL "")
-    message(FATAL_ERROR "Build ${NOVELTEA_ANDROID_FLAVOR} for ${NOVELTEA_ANDROID_ABI} before packaging its symbols")
-endif()
+string(JSON symbol_input GET "${package_result}" nativeLibraryPath)
 set(symbol_stage "${root}/build/package/${template_id}-symbols")
 file(REMOVE_RECURSE "${symbol_stage}")
 file(MAKE_DIRECTORY "${symbol_stage}/${NOVELTEA_ANDROID_ABI}")

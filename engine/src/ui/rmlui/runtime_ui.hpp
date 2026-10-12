@@ -81,6 +81,7 @@ public:
                               std::optional<std::uint32_t> hotspot_y) override;
     void clear_gameplay_cursor() noexcept override;
     [[nodiscard]] RuntimeUiEventResult process_event(const SDL_Event& event);
+    void cancel_mouse_input();
     void resize(const PresentationMetrics& presentation);
     void begin_frame(const core::RuntimeClockUpdate& clocks);
     void set_final_output_framebuffer(std::uint16_t framebuffer);

@@ -140,6 +140,24 @@ bool RmlUiHost::dispatch_transformed_event(const SDL_Event& event,
     return consumed;
 }
 
+void RmlUiHost::cancel_mouse_input()
+{
+    for (auto& record : m_contexts) {
+        if (!record.context)
+            continue;
+        // Leave must precede release, without reprojection onto the old captured button.
+        record.context->ProcessMouseLeave();
+        for (const auto button : m_active_mouse_buttons)
+            record.context->ProcessMouseButtonUp(static_cast<int>(button) - 1, 0);
+    }
+    SDL_CaptureMouse(false);
+    m_active_mouse_buttons.clear();
+    m_mouse_capture_reference.reset();
+    m_reference_pointer.reset();
+    m_pointer_inside = false;
+    resolve_cursor_requests({});
+}
+
 bool RmlUiHost::process_event(const SDL_Event& event,
                               const VisibleDocumentPredicate& has_visible_document,
                               const LayoutEventDispatch& dispatch_layout_event)

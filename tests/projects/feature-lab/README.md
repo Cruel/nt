@@ -28,6 +28,29 @@ are permitted. `ready` means the workflow exists, not that perceptual acceptance
 
 Feature Lab is one example in the [unified publication pipeline](../../../docs/build/DEVELOPMENT_EXAMPLES.md), regardless of scenario/check count. Its ordinary `web-threaded` profile preserves all authored locales at development localization quality; platform export uses the existing reference button image as the application icon. Project export/import/validate is required before publication, just like the external examples. This adds no engine-only behavior or separate development/release mode. Public Play and Project actions are available; private source provenance stays in the qualification artifact rather than becoming a Source link.
 
+## Android phone or emulator
+
+From the repository root, build, export, install, and launch Feature Lab with:
+
+```sh
+./scripts/run-android.sh --project tests/projects/feature-lab/project.json
+```
+
+Before building, the script uses the only online ADB target, asks which to use when there are
+multiple, or asks permission to launch an emulator when none are connected. Network ADB is supported.
+Pass `--device SERIAL` to bypass selection. It detects the target ABI and selects
+`android-arm64-debug` for arm64 phones (including Pixel 6a) or `android-emulator-debug` for x86_64
+emulators. Both debug APK profiles preserve all authored locales at development localization quality.
+It uses the same platform-export pipeline as other Projects; Android SDK/emulator setup is documented in
+[Build and Verification](../../../docs/build/BUILD_AND_VERIFY.md).
+
+In an Android devtools build, place two fingers together within 200 ms and hold still. Release after
+one second to toggle ImGui; hold for three seconds to reset its positioning and show it. Lift both
+fingers before repeating. Check opening/closing while the debugger covers the game, resetting while
+hidden, and canceling by dragging or releasing early. Gesture input after the second finger must not
+activate game controls; the first press can still reach gameplay before that second finger arrives.
+See [Developer Debugging](../../../docs/runtime/DEVELOPER_DEBUGGING.md) for the full host shortcut rules.
+
 ## Catalog contract
 
 The project-specific validator is `tools/feature-lab/validate.mjs`. It checks stable IDs and references, `ready` / `provisional` / `blocked` statuses, valid UTC calendar timestamps, automation targets, Asset Requirement realizations, and derived scenario metadata. Reference collections must be arrays, including when empty. The catalog inherits Project Workspace Format; it has no independent `schemaVersion`, and the replaced versioned shape is rejected. Automation references resolve actual authored Test identities/kinds or stable IDs declared in the manifest's `visualCheckpoints` registry. Launch Rooms and Asset realizations resolve record identities; requirement kinds and Project-file source existence are checked. Synthetic/curated describes acceptance intent, not a ban on documented cross-use of reference art. Blocked/provisional scenarios and checks require an explicit `statusReason`.

@@ -1380,6 +1380,66 @@ assert(LayoutClampResults.invalid_x and LayoutClampResults.invalid_padding)
 )LUA");
 }
 
+TEST_CASE("Devtools gesture cancellation releases a captured RmlUi mouse press without clicking",
+          "[devtools-touch]")
+{
+    noveltea::test::RuntimeUiLifecycleFixture fixture({.mount_system_assets = true});
+    REQUIRE(fixture.initialize_scripts_only());
+    const auto presentation = noveltea::make_presentation_metrics(
+        noveltea::make_host_surface_metrics(1000, 700, 1000, 700),
+        {.reference = {.size = {1000, 700}}});
+    REQUIRE(presentation);
+    noveltea::ui::rmlui::RmlUiHost host;
+    REQUIRE(host.initialize({.assets = &fixture.assets(),
+                             .lua_state = fixture.lua_state(),
+                             .presentation = presentation.value(),
+                             .headless_render = true}));
+    auto* document = host.primary_context()->LoadDocumentFromMemory(
+        "<rml><head><style>body { width: 1000px; height: 700px; font-family: Liberation Sans; }"
+        "button { display: block; tab-index: auto; width: 200px; height: 100px; }</style></head>"
+        "<body><button id='target'>Target</button></body></rml>");
+    REQUIRE(document);
+    document->Show();
+    host.update_contexts();
+    auto* button = document->GetElementById("target");
+    REQUIRE(button);
+    struct Listener final : Rml::EventListener {
+        int clicks = 0;
+        void ProcessEvent(Rml::Event&) override { ++clicks; }
+    } listener;
+    button->AddEventListener("click", &listener);
+    const auto position = button->GetAbsoluteOffset(Rml::BoxArea::Border);
+    const auto visible = [&host](Rml::Context* context) {
+        return context == host.primary_context();
+    };
+    SDL_Event event{};
+    event.type = SDL_EVENT_MOUSE_MOTION;
+    event.motion.x = position.x + 10;
+    event.motion.y = position.y + 10;
+    (void)host.process_event(event, visible, {});
+    REQUIRE(host.primary_context()->GetHoverElement() == button);
+    event = {};
+    event.type = SDL_EVENT_MOUSE_BUTTON_DOWN;
+    event.button.button = SDL_BUTTON_LEFT;
+    event.button.x = position.x + 10;
+    event.button.y = position.y + 10;
+    (void)host.process_event(event, visible, {});
+    host.cancel_mouse_input();
+    CHECK(listener.clicks == 0);
+    // A later ordinary tap still works; cancellation must not leave the button pressed.
+    SDL_Event moved{};
+    moved.type = SDL_EVENT_MOUSE_MOTION;
+    moved.motion.x = position.x + 10;
+    moved.motion.y = position.y + 10;
+    (void)host.process_event(moved, visible, {});
+    (void)host.process_event(event, visible, {});
+    event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    (void)host.process_event(event, visible, {});
+    CHECK(listener.clicks == 1);
+    button->RemoveEventListener("click", &listener);
+    document->Close();
+}
+
 #if NOVELTEA_ENABLE_DEVTOOLS
 TEST_CASE("RmlUi debugger uses a fixed-scale debug host and routes input without Layout documents")
 {

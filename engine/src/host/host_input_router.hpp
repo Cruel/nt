@@ -75,6 +75,8 @@ struct NormalizedHostEvent {
     bool has_host_position = false;
     bool repeat = false;
     bool shift = false;
+    bool touch_generated_mouse = false;
+    std::uint64_t timestamp_ms = 0;
     std::optional<core::RuntimeInputMessage> proposed_runtime_input;
 };
 
@@ -106,6 +108,7 @@ struct HostInputRoutingContext {
     HostInputMode mode = HostInputMode::Runtime;
     bool preview_visible = true;
     bool devtools_enabled = false;
+    bool devtools_touch_gestures = false;
 };
 
 struct RequestQuitHostAction {};
@@ -138,11 +141,13 @@ struct RuntimeShellCommandToolingAction {
 struct FastForwardPresentationToolingAction {};
 struct ToggleNativeDebugUiToolingAction {};
 struct ResetNativeDebugUiRectToolingAction {};
+struct ResetAndShowNativeDebugUiToolingAction {};
 
 using HostToolingAction =
     std::variant<RouteSystemEscapeAction, DismissLayoutEscapeAction, RequestQuitFallbackAction,
                  RuntimeShellCommandToolingAction, FastForwardPresentationToolingAction,
-                 ToggleNativeDebugUiToolingAction, ResetNativeDebugUiRectToolingAction>;
+                 ToggleNativeDebugUiToolingAction, ResetNativeDebugUiRectToolingAction,
+                 ResetAndShowNativeDebugUiToolingAction>;
 
 struct HostPointerStateUpdate {
     Vec2 reference_position{};
@@ -180,6 +185,7 @@ struct HostInputRouteResult {
     std::vector<core::RuntimeInputMessage> runtime_inputs;
     std::vector<HostToolingAction> tooling_actions;
     std::optional<HostPointerStateUpdate> pointer_update;
+    std::optional<NormalizedHostEvent> canceled_touch;
     DebugInputResult debug_result;
     RuntimeUiInputResult runtime_ui_result;
     HostInputRouteDiagnostics route_diagnostics;
@@ -201,11 +207,26 @@ public:
                                              const HostInputRoutingContext& context,
                                              const HostInputConsumers& consumers);
 
+    // Holds must advance even when stationary fingers produce no SDL events.
+    [[nodiscard]] bool advance_devtools_touch_hold(std::uint64_t now_ms) noexcept;
     void reset() noexcept;
 
 private:
     [[nodiscard]] std::optional<Vec2> project_pointer(const NormalizedHostEvent& event,
                                                       const HostInputRoutingContext& context) const;
+
+    bool route_devtools_touch(const NormalizedHostEvent& event, HostInputRouteResult& result);
+
+    struct GestureTouch {
+        NormalizedHostEvent down;
+        bool moved = false;
+    };
+    std::vector<GestureTouch> m_gesture_touches;
+    std::uint64_t m_gesture_started_ms = 0;
+    bool m_gesture_captured = false;
+    bool m_gesture_eligible = false;
+    bool m_gesture_reset_fired = false;
+    bool m_suppress_touch_mouse = false;
 
     Vec2 m_pointer_position{};
     bool m_pointer_valid = false;

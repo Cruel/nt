@@ -543,5 +543,153 @@ TEST_CASE("HostInputRouter emits deterministic Escape fallback actions")
     CHECK(result.disposition == HostInputDisposition::Consumed);
 }
 
+TEST_CASE("SDL normalization preserves touch clock and synthetic mouse identity",
+          "[devtools-touch]")
+{
+    SDL_Event event{};
+    event.type = SDL_EVENT_FINGER_DOWN;
+    event.tfinger.timestamp = 1234000000;
+    event.tfinger.fingerID = 42;
+    event.tfinger.x = 0.25f;
+    event.tfinger.y = 0.5f;
+    const auto normalized =
+        normalize_host_event(event, make_host_surface_metrics(1000, 1000, 1000, 1000));
+    CHECK(normalized.timestamp_ms == 1234);
+    CHECK(normalized.touch_id == 42);
+    CHECK(normalized.host_position.x == 250);
+    event = {};
+    event.type = SDL_EVENT_MOUSE_BUTTON_UP;
+    event.button.which = SDL_TOUCH_MOUSEID;
+    CHECK(normalize_host_event(event, {}).touch_generated_mouse);
+}
+
+TEST_CASE("Android devtools two-finger holds toggle on release and reset while stationary",
+          "[devtools-touch]")
+{
+    HostInputRouter router;
+    const auto presentation = test_presentation();
+    const HostInputRoutingContext context{
+        .presentation = &presentation, .devtools_enabled = true, .devtools_touch_gestures = true};
+    int debug_calls = 0;
+    int ui_calls = 0;
+    const auto send = [&](NormalizedHostEventKind kind, std::uint64_t id, std::uint64_t time,
+                          Vec2 position = {100, 100}) {
+        return router.route({.kind = kind,
+                             .touch_id = id,
+                             .host_position = position,
+                             .has_host_position = true,
+                             .timestamp_ms = time},
+                            context, passive_consumers(&debug_calls, &ui_calls));
+    };
+    (void)send(NormalizedHostEventKind::TouchDown, 1, 100);
+    const auto captured = send(NormalizedHostEventKind::TouchDown, 2, 200);
+    REQUIRE(captured.canceled_touch);
+    CHECK(captured.canceled_touch->touch_id == 1);
+    CHECK(captured.route_diagnostics.block_reason ==
+          HostGameplayInputBlockReason::DevtoolsShortcut);
+    CHECK(debug_calls == 1);
+    CHECK(ui_calls == 1);
+    CHECK_FALSE(router.advance_devtools_touch_hold(1199));
+
+    SECTION("one second arms toggle but does not toggle before release")
+    {
+        CHECK_FALSE(router.advance_devtools_touch_hold(1200));
+        const auto release = send(NormalizedHostEventKind::TouchUp, 1, 1200);
+        REQUIRE(release.tooling_actions.size() == 1);
+        CHECK(std::holds_alternative<ToggleNativeDebugUiToolingAction>(release.tooling_actions[0]));
+        CHECK(send(NormalizedHostEventKind::TouchUp, 2, 1250).tooling_actions.empty());
+    }
+    SECTION("three seconds resets without any motion events and fires once")
+    {
+        CHECK_FALSE(router.advance_devtools_touch_hold(3199));
+        CHECK(router.advance_devtools_touch_hold(3200));
+        CHECK_FALSE(router.advance_devtools_touch_hold(5000));
+        CHECK(send(NormalizedHostEventKind::TouchUp, 1, 5100).tooling_actions.empty());
+        CHECK(send(NormalizedHostEventKind::TouchUp, 2, 5200).tooling_actions.empty());
+    }
+    SECTION("release at three seconds resets and shows instead of toggling")
+    {
+        const auto release = send(NormalizedHostEventKind::TouchUp, 1, 3200);
+        REQUIRE(release.tooling_actions.size() == 1);
+        CHECK(std::holds_alternative<ResetAndShowNativeDebugUiToolingAction>(
+            release.tooling_actions[0]));
+    }
+    SECTION("both fingers must lift before rearming")
+    {
+        (void)send(NormalizedHostEventKind::TouchUp, 1, 1500);
+        CHECK_FALSE(send(NormalizedHostEventKind::TouchDown, 3, 1550).canceled_touch);
+        CHECK_FALSE(router.advance_devtools_touch_hold(5000));
+        (void)send(NormalizedHostEventKind::TouchUp, 2, 5100);
+        (void)send(NormalizedHostEventKind::TouchUp, 3, 5101);
+        (void)send(NormalizedHostEventKind::TouchDown, 4, 5200);
+        REQUIRE(send(NormalizedHostEventKind::TouchDown, 5, 5250).canceled_touch);
+        const auto release = send(NormalizedHostEventKind::TouchUp, 4, 6250);
+        REQUIRE(release.tooling_actions.size() == 1);
+        CHECK(std::holds_alternative<ToggleNativeDebugUiToolingAction>(release.tooling_actions[0]));
+    }
+    SECTION("early release cancels")
+    {
+        CHECK(send(NormalizedHostEventKind::TouchUp, 1, 1199).tooling_actions.empty());
+    }
+    SECTION("movement cancels and remaining touches stay consumed")
+    {
+        const auto moved = send(NormalizedHostEventKind::TouchMotion, 1, 1100, {113, 100});
+        CHECK(moved.disposition == HostInputDisposition::Consumed);
+        CHECK_FALSE(router.advance_devtools_touch_hold(4000));
+        CHECK(send(NormalizedHostEventKind::TouchUp, 1, 4100).tooling_actions.empty());
+    }
+    SECTION("OS cancellation never toggles")
+    {
+        CHECK(send(NormalizedHostEventKind::TouchCanceled, 1, 1500).tooling_actions.empty());
+        CHECK_FALSE(router.advance_devtools_touch_hold(4000));
+    }
+    SECTION("third finger cancels")
+    {
+        (void)send(NormalizedHostEventKind::TouchDown, 3, 250);
+        CHECK_FALSE(router.advance_devtools_touch_hold(4000));
+        CHECK(send(NormalizedHostEventKind::TouchUp, 1, 4100).tooling_actions.empty());
+    }
+    SECTION("focus loss cancels")
+    {
+        (void)router.route({.kind = NormalizedHostEventKind::FocusLost}, context,
+                           passive_consumers());
+        CHECK_FALSE(router.advance_devtools_touch_hold(4000));
+    }
+    SECTION("SDL synthesized mouse events cannot leak a gesture click")
+    {
+        (void)send(NormalizedHostEventKind::TouchUp, 1, 1500);
+        (void)send(NormalizedHostEventKind::TouchUp, 2, 1501);
+        const auto mouse = router.route(
+            {.kind = NormalizedHostEventKind::MouseButtonUp, .touch_generated_mouse = true},
+            context, passive_consumers(&debug_calls, &ui_calls));
+        CHECK(mouse.disposition == HostInputDisposition::Consumed);
+        CHECK_FALSE(mouse.route_diagnostics.runtime_ui_processed);
+        CHECK(debug_calls == 1);
+    }
+}
+
+TEST_CASE("Devtools touch gestures require enabled Android routing and near-simultaneous fingers",
+          "[devtools-touch]")
+{
+    HostInputRouter router;
+    HostInputRoutingContext context{.devtools_enabled = true, .devtools_touch_gestures = true};
+    std::uint64_t second_time = 200;
+    SECTION("devtools disabled") { context.devtools_enabled = false; }
+    SECTION("non-Android host") { context.devtools_touch_gestures = false; }
+    SECTION("second finger too late") { second_time = 301; }
+    (void)router.route({.kind = NormalizedHostEventKind::TouchDown,
+                        .touch_id = 1,
+                        .has_host_position = true,
+                        .timestamp_ms = 100},
+                       context, passive_consumers());
+    const auto second = router.route({.kind = NormalizedHostEventKind::TouchDown,
+                                      .touch_id = 2,
+                                      .has_host_position = true,
+                                      .timestamp_ms = second_time},
+                                     context, passive_consumers());
+    CHECK_FALSE(second.canceled_touch);
+    CHECK_FALSE(router.advance_devtools_touch_hold(4000));
+}
+
 } // namespace
 } // namespace noveltea::host

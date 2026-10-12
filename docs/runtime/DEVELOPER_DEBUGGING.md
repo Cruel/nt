@@ -87,7 +87,18 @@ continue to use the stable internal RmlUi context name.
 
 On a native developer host, `F10` toggles the NovelTea Dear ImGui debugger frontend and
 `Shift+F10` resets its window layout. These shortcuts are intercepted at the host-input layer before
-RmlUi, Layout, or gameplay admission. A **Developer UI** section exposes independent 50–250% scales
+RmlUi, Layout, or gameplay admission. Android devtools builds additionally recognize a two-finger
+hold anywhere on the host surface: place the second finger within 200 ms, hold both still for one
+second, then release to toggle ImGui. Holding for three seconds instead resets its window positioning
+and shows it immediately, even with no motion events; releasing afterward does not toggle it again.
+Movement beyond 12 host-logical pixels, a third finger, touch cancellation, focus loss, backgrounding,
+or surface resize cancels the gesture. Both fingers must lift before another gesture can begin.
+Recognition precedes both developer overlays and runtime input, so the same gesture can close ImGui
+or recover an off-screen window. Once the second finger captures the gesture, the first finger's
+pending UI press is canceled and subsequent gesture/synthesized-mouse events are consumed. The first
+press may already have reached gameplay before the second finger arrives; ordinary single-touch
+input is intentionally not delayed. Production/devtools-off builds do not recognize this shortcut.
+A **Developer UI** section exposes independent 50–250% scales
 for ImGui and the embedded RmlUi debugger. Both are absolute scales rather than cumulative style
 multipliers, and they persist through ImGui's normal ini settings. The Dear ImGui frontend consumes
 the same Devtools Snapshot, Console, and Trace contracts as editor tooling. Its Console and Trace
