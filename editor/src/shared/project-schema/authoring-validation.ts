@@ -1,7 +1,7 @@
 import type { ToolDiagnostic, ToolSeverity } from '../editor-tooling';
 import { collectAuthoringLuaSources } from '../authoring-source-analysis';
 import { recordContributionKey } from '../authoring-dependency-graph';
-import { localizationMessageWorkflowViews } from '../authoring-localization-workflow';
+import { localizationMessageSourceViews } from '../authoring-localization-workflow';
 import { isLocalizableAssetKind } from '../authoring-localized-assets';
 import { dialogueMessageCueUsages, structuredMessages } from '../authoring-structured-messages';
 import { analyzeHookRegistry } from '../hook-registry-analysis';
@@ -121,75 +121,270 @@ function escapePathSegment(segment: string): string {
 function validateLocalizationReferences(
   project: AuthoringProject,
   diagnostics: ProjectValidationDiagnosticLike[],
+  onSourceViews?: (views: ReturnType<typeof localizationMessageSourceViews>) => void,
+  phase: 'references' | 'identities' | 'translations' = 'references',
+  sourceViewsOverride?: ReturnType<typeof localizationMessageSourceViews>,
+  sourceDescriptorsOverride?: readonly import('../authoring-source-analysis').AuthoringLuaSourceDescriptor[],
 ): void {
-  const namedKeys = new Set(
-    Object.values(project.localization.messages)
-      .filter((message) => message.kind === 'named')
-      .map((message) => message.key),
-  );
-  for (const [locale, definition] of Object.entries(project.localization.locales)) {
-    definition.fontStack?.forEach((ref, index) => {
-      const asset = project.assets[ref.$ref.id];
-      const data = asset ? parseAssetData(asset.data) : null;
-      const path = `/localization/locales/${escapePathSegment(locale)}/fontStack/${index}/$ref`;
-      if (!asset)
-        diagnostics.push(
-          diagnostic(
-            'error',
-            path,
-            `Missing font Asset '${ref.$ref.id}'.`,
-            'Localization',
-            'localization.font-stack.asset-missing',
-          ),
-        );
-      else if (data?.kind !== 'font')
-        diagnostics.push(
-          diagnostic(
-            'error',
-            path,
-            `Locale font stack entry '${ref.$ref.id}' must reference a font Asset.`,
-            'Localization',
-            'localization.font-stack.asset-kind',
-          ),
-        );
-    });
-  }
-  const visit = (value: unknown, path: string): void => {
-    if (Array.isArray(value)) {
-      value.forEach((child, index) => visit(child, `${path}/${index}`));
-      return;
+  if (phase === 'references') {
+    const namedKeys = new Set(
+      Object.values(project.localization.messages)
+        .filter((message) => message.kind === 'named')
+        .map((message) => message.key),
+    );
+    for (const [locale, definition] of Object.entries(project.localization.locales)) {
+      definition.fontStack?.forEach((ref, index) => {
+        const asset = project.assets[ref.$ref.id];
+        const data = asset ? parseAssetData(asset.data) : null;
+        const path = `/localization/locales/${escapePathSegment(locale)}/fontStack/${index}/$ref`;
+        if (!asset)
+          diagnostics.push(
+            diagnostic(
+              'error',
+              path,
+              `Missing font Asset '${ref.$ref.id}'.`,
+              'Localization',
+              'localization.font-stack.asset-missing',
+            ),
+          );
+        else if (data?.kind !== 'font')
+          diagnostics.push(
+            diagnostic(
+              'error',
+              path,
+              `Locale font stack entry '${ref.$ref.id}' must reference a font Asset.`,
+              'Localization',
+              'localization.font-stack.asset-kind',
+            ),
+          );
+      });
     }
-    if (value === null || typeof value !== 'object') return;
-    const record = value as Record<string, unknown>;
-    if (record.kind === 'localized' && typeof record.key === 'string' && !namedKeys.has(record.key))
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${path}/key`,
-          `Named Message '${record.key}' does not exist.`,
-          'Localization',
-          'localization.message-reference.missing',
-        ),
-      );
-    if (
-      Object.keys(record).length === 1 &&
-      typeof record.$message === 'string' &&
-      !namedKeys.has(record.$message)
-    )
-      diagnostics.push(
-        diagnostic(
-          'error',
-          `${path}/$message`,
-          `Named Message '${record.$message}' does not exist.`,
-          'Localization',
-          'localization.message-reference.missing',
-        ),
-      );
-    for (const [key, child] of Object.entries(record))
-      visit(child, `${path}/${escapePathSegment(key)}`);
-  };
-  visit(project, '');
+    const visit = (value: unknown, path: string): void => {
+      if (Array.isArray(value)) {
+        value.forEach((child, index) => visit(child, `${path}/${index}`));
+        return;
+      }
+      if (value === null || typeof value !== 'object') return;
+      const record = value as Record<string, unknown>;
+      if (
+        record.kind === 'localized' &&
+        typeof record.key === 'string' &&
+        !namedKeys.has(record.key)
+      )
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${path}/key`,
+            `Named Message '${record.key}' does not exist.`,
+            'Localization',
+            'localization.message-reference.missing',
+          ),
+        );
+      if (
+        Object.keys(record).length === 1 &&
+        typeof record.$message === 'string' &&
+        !namedKeys.has(record.$message)
+      )
+        diagnostics.push(
+          diagnostic(
+            'error',
+            `${path}/$message`,
+            `Named Message '${record.$message}' does not exist.`,
+            'Localization',
+            'localization.message-reference.missing',
+          ),
+        );
+      for (const [key, child] of Object.entries(record))
+        visit(child, `${path}/${escapePathSegment(key)}`);
+    };
+    visit(project, '');
+    return;
+  }
 
+  if (phase === 'translations') {
+    // The identities contribution already validates structured ownership,
+    // tracking collisions and Dialogue cue contracts. Running it again here
+    // performs expensive graph/source scans without contributing diagnostics.
+    if (sourceDescriptorsOverride && !sourceViewsOverride) {
+      // Descriptor extraction happened at workspace admission, outside the
+      // validation input-tracking proxy. Replay its lightweight registry
+      // reads so cold contribution contracts retain the same source owners
+      // and invalidation scope as the uncached extractor.
+      for (const collection of [
+        'scripts',
+        'layouts',
+        'rooms',
+        'scenes',
+        'dialogues',
+        'verbs',
+        'interactions',
+        'maps',
+        'tests',
+      ] as const)
+        for (const id of Object.keys(project[collection])) void project[collection][id];
+      for (const descriptor of sourceDescriptorsOverride)
+        if (descriptor.sourceAssetId) void project.assets[descriptor.sourceAssetId];
+    }
+    const sourceViews =
+      sourceViewsOverride ?? localizationMessageSourceViews(project, sourceDescriptorsOverride);
+    onSourceViews?.(sourceViews);
+    const knownMessageIds = new Set([
+      ...Object.keys(project.localization.messages),
+      ...sourceViews.map((message) => message.id),
+      ...Object.values(project.localization.sourceMessageTracking).flatMap((entry) =>
+        entry.occurrences.map((occurrence) => occurrence.messageId),
+      ),
+    ]);
+    const sourceMessages = new Map(sourceViews.map((message) => [message.id, message] as const));
+    for (const [locale, translations] of Object.entries(project.localization.translations)) {
+      for (const [messageId, translation] of Object.entries(translations)) {
+        const translationPath = `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`;
+        if (!knownMessageIds.has(messageId)) {
+          diagnostics.push(
+            diagnostic(
+              'error',
+              translationPath,
+              `Translation references unknown Message '${messageId}'.`,
+              'Localization',
+              'localization.translation.message-missing',
+            ),
+          );
+          continue;
+        }
+        const message = sourceMessages.get(messageId);
+        if (!message || translation.useSource) continue;
+        if (!!message.pattern !== !!translation.pattern) {
+          diagnostics.push(
+            diagnostic(
+              'error',
+              translationPath,
+              message.pattern
+                ? 'Translation must provide the Message selector pattern.'
+                : 'Translation cannot introduce selector grammar absent from the source Message.',
+              'Localization',
+              'localization.translation.pattern-mismatch',
+            ),
+          );
+        }
+        if (translation.pattern)
+          for (const gap of messagePatternPluralCategoryGaps(translation.pattern, locale))
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${translationPath}/pattern`,
+                `Plural selector '${gap.argument}' requires '${gap.category}' for locale '${locale}'.`,
+                'Localization',
+                'localization.translation.plural-category-missing',
+              ),
+            );
+        if (
+          message.pattern &&
+          translation.pattern &&
+          JSON.stringify(messagePatternSelectorSignatures(message.pattern)) !==
+            JSON.stringify(messagePatternSelectorSignatures(translation.pattern))
+        )
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${translationPath}/pattern`,
+              'Translation must preserve the source Message selector contract.',
+              'Localization',
+              'localization.translation.selector-contract-mismatch',
+            ),
+          );
+        const sourcePlaceholders = new Set(
+          message.pattern
+            ? messagePatternPlaceholderNames(message.pattern)
+            : messagePlaceholderNames(message.source),
+        );
+        const targetPlaceholders = new Set(
+          translation.pattern
+            ? messagePatternPlaceholderNames(translation.pattern)
+            : messagePlaceholderNames(translation.text),
+        );
+        for (const placeholder of sourcePlaceholders)
+          if (!targetPlaceholders.has(placeholder))
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${translationPath}/text`,
+                `Translation must preserve required placeholder '{${placeholder}}'.`,
+                'Localization',
+                'localization.translation.placeholder-missing',
+              ),
+            );
+        for (const placeholder of targetPlaceholders)
+          if (!sourcePlaceholders.has(placeholder))
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${translationPath}/text`,
+                `Translation introduces undeclared placeholder '{${placeholder}}'.`,
+                'Localization',
+                'localization.translation.placeholder-undeclared',
+              ),
+            );
+
+        if (message.dialogueCues !== undefined) {
+          const targetCues = translation.dialogueCues ?? [];
+          const requiredIds = message.dialogueCues.map((cue) => cue.id);
+          const targetIds = targetCues.map((cue) => cue.id);
+          if (JSON.stringify(targetIds) !== JSON.stringify(requiredIds))
+            diagnostics.push(
+              diagnostic(
+                'error',
+                `${translationPath}/dialogueCues`,
+                'Translation must preserve every required Dialogue Cue exactly once and in semantic order.',
+                'Localization',
+                'localization.translation.dialogue-cue-contract-mismatch',
+              ),
+            );
+          const textLength = Array.from(translation.text).length;
+          let previous: { offset: number; order: number } | null = null;
+          for (let index = 0; index < targetCues.length; index += 1) {
+            const placement = targetCues[index]!;
+            if (placement.position.offset > textLength)
+              diagnostics.push(
+                diagnostic(
+                  'error',
+                  `${translationPath}/dialogueCues/${index}/position/offset`,
+                  `Dialogue Cue offset ${placement.position.offset} exceeds translated text length ${textLength}.`,
+                  'Localization',
+                  'localization.translation.dialogue-cue-offset-out-of-range',
+                ),
+              );
+            if (
+              previous &&
+              (placement.position.offset < previous.offset ||
+                (placement.position.offset === previous.offset &&
+                  placement.position.order <= previous.order))
+            )
+              diagnostics.push(
+                diagnostic(
+                  'error',
+                  `${translationPath}/dialogueCues/${index}/position`,
+                  'Dialogue Cue placements must remain strictly ordered by offset and order.',
+                  'Localization',
+                  'localization.translation.dialogue-cue-placement-order',
+                ),
+              );
+            previous = placement.position;
+          }
+        } else if (translation.dialogueCues !== undefined) {
+          diagnostics.push(
+            diagnostic(
+              'error',
+              `${translationPath}/dialogueCues`,
+              'Translation cannot introduce Dialogue Cue placements for a Message without semantic Cues.',
+              'Localization',
+              'localization.translation.dialogue-cue-unexpected',
+            ),
+          );
+        }
+      }
+    }
+    return;
+  }
   const explicitMessageIds = new Set(Object.keys(project.localization.messages));
   const structured = structuredMessages(project);
   const structuredOwners = new Map<string, string>();
@@ -269,157 +464,6 @@ function validateLocalizationReferences(
         ),
       );
     else dialogueCueContracts.set(usage.messageId, contract);
-  }
-
-  const sourceMessages = new Map(
-    localizationMessageWorkflowViews(project).map((message) => [message.id, message] as const),
-  );
-  for (const [locale, translations] of Object.entries(project.localization.translations)) {
-    for (const [messageId, translation] of Object.entries(translations)) {
-      const translationPath = `/localization/translations/${escapePathSegment(locale)}/${escapePathSegment(messageId)}`;
-      if (!knownMessageIds.has(messageId)) {
-        diagnostics.push(
-          diagnostic(
-            'error',
-            translationPath,
-            `Translation references unknown Message '${messageId}'.`,
-            'Localization',
-            'localization.translation.message-missing',
-          ),
-        );
-        continue;
-      }
-      const message = sourceMessages.get(messageId);
-      if (!message || translation.useSource) continue;
-      if (!!message.pattern !== !!translation.pattern) {
-        diagnostics.push(
-          diagnostic(
-            'error',
-            translationPath,
-            message.pattern
-              ? 'Translation must provide the Message selector pattern.'
-              : 'Translation cannot introduce selector grammar absent from the source Message.',
-            'Localization',
-            'localization.translation.pattern-mismatch',
-          ),
-        );
-      }
-      if (translation.pattern)
-        for (const gap of messagePatternPluralCategoryGaps(translation.pattern, locale))
-          diagnostics.push(
-            diagnostic(
-              'error',
-              `${translationPath}/pattern`,
-              `Plural selector '${gap.argument}' requires '${gap.category}' for locale '${locale}'.`,
-              'Localization',
-              'localization.translation.plural-category-missing',
-            ),
-          );
-      if (
-        message.pattern &&
-        translation.pattern &&
-        JSON.stringify(messagePatternSelectorSignatures(message.pattern)) !==
-          JSON.stringify(messagePatternSelectorSignatures(translation.pattern))
-      )
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${translationPath}/pattern`,
-            'Translation must preserve the source Message selector contract.',
-            'Localization',
-            'localization.translation.selector-contract-mismatch',
-          ),
-        );
-      const sourcePlaceholders = new Set(
-        message.pattern
-          ? messagePatternPlaceholderNames(message.pattern)
-          : messagePlaceholderNames(message.source),
-      );
-      const targetPlaceholders = new Set(
-        translation.pattern
-          ? messagePatternPlaceholderNames(translation.pattern)
-          : messagePlaceholderNames(translation.text),
-      );
-      for (const placeholder of sourcePlaceholders)
-        if (!targetPlaceholders.has(placeholder))
-          diagnostics.push(
-            diagnostic(
-              'error',
-              `${translationPath}/text`,
-              `Translation must preserve required placeholder '{${placeholder}}'.`,
-              'Localization',
-              'localization.translation.placeholder-missing',
-            ),
-          );
-      for (const placeholder of targetPlaceholders)
-        if (!sourcePlaceholders.has(placeholder))
-          diagnostics.push(
-            diagnostic(
-              'error',
-              `${translationPath}/text`,
-              `Translation introduces undeclared placeholder '{${placeholder}}'.`,
-              'Localization',
-              'localization.translation.placeholder-undeclared',
-            ),
-          );
-
-      if (message.dialogueCues !== undefined) {
-        const targetCues = translation.dialogueCues ?? [];
-        const requiredIds = message.dialogueCues.map((cue) => cue.id);
-        const targetIds = targetCues.map((cue) => cue.id);
-        if (JSON.stringify(targetIds) !== JSON.stringify(requiredIds))
-          diagnostics.push(
-            diagnostic(
-              'error',
-              `${translationPath}/dialogueCues`,
-              'Translation must preserve every required Dialogue Cue exactly once and in semantic order.',
-              'Localization',
-              'localization.translation.dialogue-cue-contract-mismatch',
-            ),
-          );
-        const textLength = Array.from(translation.text).length;
-        let previous: { offset: number; order: number } | null = null;
-        for (let index = 0; index < targetCues.length; index += 1) {
-          const placement = targetCues[index]!;
-          if (placement.position.offset > textLength)
-            diagnostics.push(
-              diagnostic(
-                'error',
-                `${translationPath}/dialogueCues/${index}/position/offset`,
-                `Dialogue Cue offset ${placement.position.offset} exceeds translated text length ${textLength}.`,
-                'Localization',
-                'localization.translation.dialogue-cue-offset-out-of-range',
-              ),
-            );
-          if (
-            previous &&
-            (placement.position.offset < previous.offset ||
-              (placement.position.offset === previous.offset &&
-                placement.position.order <= previous.order))
-          )
-            diagnostics.push(
-              diagnostic(
-                'error',
-                `${translationPath}/dialogueCues/${index}/position`,
-                'Dialogue Cue placements must remain strictly ordered by offset and order.',
-                'Localization',
-                'localization.translation.dialogue-cue-placement-order',
-              ),
-            );
-          previous = placement.position;
-        }
-      } else if (translation.dialogueCues !== undefined) {
-        diagnostics.push(
-          diagnostic(
-            'error',
-            `${translationPath}/dialogueCues`,
-            'Translation cannot introduce Dialogue Cue placements for a Message without semantic Cues.',
-            'Localization',
-            'localization.translation.dialogue-cue-unexpected',
-          ),
-        );
-      }
-    }
   }
 }
 
@@ -1846,9 +1890,26 @@ export function validateAdmittedAuthoringProject(
   project: AuthoringProject,
   reuse?: AuthoringValidationReuse,
   scope = 'workspace',
+  onLocalizationSourceViews?: (views: ReturnType<typeof localizationMessageSourceViews>) => void,
 ) {
   const diagnostics: ProjectValidationDiagnosticLike[] = [];
   const checks = authoringValidationChecks(reuse, scope);
+  const profileCosts = new Map<string, number>();
+  const profiling =
+    process.env.NOVELTEA_EXPORT_PROFILE === '1' ||
+    process.env.NOVELTEA_CLI_VALIDATION_PROFILE === '1';
+  const profiled = <T>(key: string, action: () => T): T => {
+    if (!profiling) return action();
+    const start = performance.now();
+    try {
+      return action();
+    } finally {
+      const family = key.startsWith('record:')
+        ? key.split(':').slice(0, 2).join(':')
+        : key.split(':')[0]!;
+      profileCosts.set(family, (profileCosts.get(family) ?? 0) + performance.now() - start);
+    }
+  };
   const pendingKeys = checks.pendingKeys();
   const idsForKeyPrefix = (
     prefix: string,
@@ -1863,8 +1924,38 @@ export function validateAdmittedAuthoringProject(
   const run = (
     key: string,
     validate: (project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) => void,
-  ) => diagnostics.push(...checks.run(key, project, validate));
-  run('localization', validateLocalizationReferences);
+  ) => diagnostics.push(...profiled(key, () => checks.run(key, project, validate)));
+  run('localization-references', (candidate, diagnostics) =>
+    validateLocalizationReferences(candidate, diagnostics, undefined, 'references'),
+  );
+  run('localization-identities', (candidate, diagnostics) =>
+    validateLocalizationReferences(candidate, diagnostics, undefined, 'identities'),
+  );
+  run('localization-translations', (candidate, diagnostics) =>
+    validateLocalizationReferences(
+      candidate,
+      diagnostics,
+      onLocalizationSourceViews,
+      'translations',
+      reuse?.localizationSourceViews,
+      reuse?.luaSourceDescriptors,
+    ),
+  );
+  const fallbackOwners: Array<{
+    key: string;
+    contributionKey: ReturnType<typeof recordContributionKey>;
+    collection:
+      | 'scripts'
+      | 'layouts'
+      | 'rooms'
+      | 'scenes'
+      | 'dialogues'
+      | 'verbs'
+      | 'interactions'
+      | 'maps'
+      | 'tests';
+    id: string;
+  }> = [];
   for (const collection of [
     'scripts',
     'layouts',
@@ -1877,22 +1968,46 @@ export function validateAdmittedAuthoringProject(
     'tests',
   ] as const)
     for (const id of idsForKeyPrefix(`lua-fallback-owner:${collection}:`, project[collection]))
-      run(`lua-fallback-owner:${collection}:${id}`, (project, diagnostics) => {
-        const contributionKey = recordContributionKey(collection, id);
-        for (const source of collectAuthoringLuaSources(project, new Set([contributionKey]))) {
-          if ((source.explicitDependencies?.length ?? 0) === 0 || source.supportsExplicitFallback)
-            continue;
-          diagnostics.push(
-            diagnostic(
-              'warning',
-              source.explicitDependenciesPath ?? source.sourcePath,
-              'Additional Lua dependencies are not supported for this authoring location.',
-              'Lua analysis',
-              'authoring.lua.unsupported_explicit_fallback_owner',
-            ),
-          );
-        }
+      fallbackOwners.push({
+        key: `lua-fallback-owner:${collection}:${id}`,
+        contributionKey: recordContributionKey(collection, id),
+        collection,
+        id,
       });
+  // A focused descriptor extraction for every record repeats parser/registry
+  // setup hundreds of times on cold admission. One extraction retains the
+  // same per-owner diagnostics and incremental contribution boundaries.
+  const fallbackByOwner = new Map<string, ReturnType<typeof collectAuthoringLuaSources>>();
+  if (fallbackOwners.length) {
+    const keys = new Set(fallbackOwners.map((owner) => owner.contributionKey));
+    const descriptors = reuse?.luaSourceDescriptors
+      ? reuse.luaSourceDescriptors.filter((descriptor) => keys.has(descriptor.contributionKey))
+      : collectAuthoringLuaSources(project, keys);
+    for (const descriptor of descriptors) {
+      const existing = fallbackByOwner.get(descriptor.contributionKey) ?? [];
+      fallbackByOwner.set(descriptor.contributionKey, [...existing, descriptor]);
+    }
+  }
+  for (const owner of fallbackOwners)
+    run(owner.key, (candidate, diagnostics) => {
+      // Preserve source revision attribution for the per-owner contribution.
+      // Descriptor preparation above intentionally happens outside the
+      // individual checks, where proxy input tracking cannot observe it.
+      void candidate[owner.collection][owner.id];
+      for (const source of fallbackByOwner.get(owner.contributionKey) ?? []) {
+        if ((source.explicitDependencies?.length ?? 0) === 0 || source.supportsExplicitFallback)
+          continue;
+        diagnostics.push(
+          diagnostic(
+            'warning',
+            source.explicitDependenciesPath ?? source.sourcePath,
+            'Additional Lua dependencies are not supported for this authoring location.',
+            'Lua analysis',
+            'authoring.lua.unsupported_explicit_fallback_owner',
+          ),
+        );
+      }
+    });
   run('entrypoint', (project, diagnostics) => {
     if (!project.entrypoint) {
       diagnostics.push(
@@ -2001,7 +2116,9 @@ export function validateAdmittedAuthoringProject(
     validate: (project: AuthoringProject, diagnostics: ProjectValidationDiagnosticLike[]) => void,
   ) =>
     diagnostics.push(
-      ...checks.run(key, resolveEffectiveProject, validate, ['/archetypes', '/traits']),
+      ...profiled(key, () =>
+        checks.run(key, resolveEffectiveProject, validate, ['/archetypes', '/traits']),
+      ),
     );
   for (const id of idsForKeyPrefix('archetype-definition:', project.archetypes))
     run(`archetype-definition:${id}`, (project, diagnostics) =>
@@ -2257,7 +2374,14 @@ export function validateAdmittedAuthoringProject(
       classifyProjectValidationDiagnostics(diagnostics, { producer: 'authoring' }),
     ),
     contributions: completed.contributions,
-    work: checks.work,
+    work: profiling
+      ? {
+          ...checks.work,
+          checkFamilyMs: [...profileCosts]
+            .sort((a, b) => b[1] - a[1])
+            .map(([family, ms]) => [family, Math.round(ms)] as const),
+        }
+      : checks.work,
   };
 }
 

@@ -120,6 +120,153 @@ function validationNativeTools(): NovelTeaCliNativeToolService {
   };
 }
 
+describe('exact native validation stage reuse', () => {
+  it('validates only changed messages with unchanged font revisions', async () => {
+    const project = validProject();
+    const id = '11111111-1111-4111-8111-111111111111';
+    project.localization.messages[id] = { kind: 'local', source: 'Hello world!' };
+    const value = fixture(project, true);
+    let calls = 0;
+    const requests: string[][] = [];
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      validationCacheIdentity: 'test-font-message-delta-reuse',
+      async validateFontCoverage(request) {
+        calls++;
+        requests.push(
+          request.locales.flatMap((locale) => locale.messages.map((message) => message.text)),
+        );
+        return { ok: true, success: true, diagnostics: [] };
+      },
+    };
+    const validate = () =>
+      runNovelTeaCli(['--json', 'validate'], {
+        ...options(value, root, nativeTools),
+        skipAuthoringWholeResultCache: true,
+      });
+    expect((await validate()).exitCode).toBe(0);
+    expect(calls).toBe(1);
+    const update = async (source: string) => {
+      project.localization.messages[id] = { kind: 'local', source };
+      const files = projectWorkspaceFiles(project, project.editor);
+      await value.fileSystem.writeTextAtomic(
+        `${root}/i18n/messages.json`,
+        files['i18n/messages.json']!,
+      );
+    };
+    await update('Hello!');
+    expect((await validate()).exitCode).toBe(0);
+    expect(calls).toBe(2);
+    expect(requests[1]).toEqual(['Hello!']);
+    expect(requests[0]!.length).toBeGreaterThan(requests[1]!.length);
+    await update('Hello Ω!');
+    expect((await validate()).exitCode).toBe(0);
+    expect(calls).toBe(3);
+    expect(requests[2]).toEqual(['Hello Ω!']);
+  });
+
+  it('reuses shaders and font coverage across unrelated edits, but invalidates changed physical inputs', async () => {
+    const project = validProject();
+    project.materials.paper = {
+      id: 'paper',
+      label: 'Paper',
+      data: defaultMaterialData('Paper'),
+    };
+    project.assets.font = {
+      id: 'font',
+      label: 'Font',
+      data: {
+        kind: 'font',
+        source: { type: 'project-file', path: 'assets/fonts/paper.ttf' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    project.settings.text.fontStack = [{ $ref: { collection: 'assets', id: 'font' } }];
+    const value = fixture(project, true);
+    await value.fileSystem.writeTextAtomic(`${root}/assets/fonts/paper.ttf`, 'font-v1');
+    await value.fileSystem.writeTextAtomic(`${root}/shaders/paper.fs.sc`, '// shader-v1\n');
+    let shaders = 0;
+    let fonts = 0;
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      validationCacheIdentity: 'test-exact-native-stages',
+      async compileShaders() {
+        shaders++;
+        return { ok: true, success: true, diagnostics: [], outputs: [] };
+      },
+      async validateFontCoverage() {
+        fonts++;
+        return { ok: true, success: true, diagnostics: [] };
+      },
+    };
+    const validate = () =>
+      runNovelTeaCli(['--json', 'validate'], {
+        ...options(value, root, nativeTools),
+        skipAuthoringWholeResultCache: true,
+      });
+    expect((await validate()).exitCode).toBe(0);
+    expect([shaders, fonts]).toEqual([1, 1]);
+    expect((await validate()).exitCode).toBe(0);
+    expect([shaders, fonts]).toEqual([1, 1]);
+
+    const edited = structuredClone(project);
+    edited.rooms.start.label = 'New room label';
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/rooms/start.json`,
+      projectWorkspaceFiles(edited, edited.editor)['records/rooms/start.json']!,
+    );
+    expect((await validate()).exitCode).toBe(0);
+    expect([shaders, fonts]).toEqual([1, 1]);
+
+    await value.fileSystem.writeTextAtomic(`${root}/shaders/paper.fs.sc`, '// shader-v2\n');
+    expect((await validate()).exitCode).toBe(0);
+    expect([shaders, fonts]).toEqual([2, 1]);
+    await value.fileSystem.writeTextAtomic(`${root}/assets/fonts/paper.ttf`, 'font-v2');
+    expect((await validate()).exitCode).toBe(0);
+    expect([shaders, fonts]).toEqual([2, 2]);
+  });
+});
+
+describe('validate physical Asset authority', () => {
+  it('diagnoses missing registered Asset sources and clears the diagnostics when restored', async () => {
+    const project = validProject();
+    for (const kind of ['font', 'audio', 'image'] as const)
+      project.assets[`sample-${kind}`] = {
+        id: `sample-${kind}`,
+        label: `Sample ${kind}`,
+        data: {
+          kind,
+          source: { type: 'project-file', path: `assets/sample-${kind}.bin` },
+          aliases: [],
+          imageMetadata:
+            kind === 'image' ? { width: 1, height: 1, hasAlpha: true, orientation: 1 } : null,
+        },
+      };
+    const value = fixture(project, true);
+    const command = () =>
+      runNovelTeaCli(['--json', 'validate'], options(value, root, validationNativeTools()));
+    const missing = JSON.parse((await command()).stdout) as {
+      success: boolean;
+      diagnostics: { code: string; path: string }[];
+    };
+    expect(missing.success).toBe(false);
+    expect(
+      missing.diagnostics.filter((d) => d.code === 'authoring.asset.source_unavailable'),
+    ).toHaveLength(3);
+    for (const kind of ['font', 'audio', 'image'])
+      await value.fileSystem.writeTextAtomic(`${root}/assets/sample-${kind}.bin`, 'content');
+    const repaired = JSON.parse((await command()).stdout) as {
+      success: boolean;
+      diagnostics: { code: string }[];
+    };
+    expect(repaired.success).toBe(true);
+    expect(repaired.diagnostics.some((d) => d.code === 'authoring.asset.source_unavailable')).toBe(
+      false,
+    );
+  });
+});
+
 function platformTools(
   patch: Partial<NovelTeaCliPlatformToolService> = {},
 ): NovelTeaCliPlatformToolService {

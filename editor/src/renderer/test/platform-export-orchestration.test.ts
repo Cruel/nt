@@ -138,6 +138,47 @@ function installLinuxTemplate(root: string, shaderVariants: string[]) {
 }
 
 describe('platform export main-process trust boundary', () => {
+  it('accepts trusted admitted validation separately from the parsed export request', async () => {
+    const project = exportableProject();
+    const preparation = await prepared(project);
+    const issue = createPlatformExportValidationDiagnostic({
+      severity: 'error',
+      code: 'platform-export.admission-reuse-proof',
+      path: '/entrypoint',
+      message: 'Admission evidence was consumed.',
+    });
+    const request = {
+      operationId: 'admission-evidence',
+      project,
+      projectRoot: '/project',
+      profileId: preparation.profile.id,
+      outputDirectory: '/dist',
+      preparedRuntimeArtifact: preparation.runtime,
+    };
+    const result = await exportProjectToPlatform(
+      request,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { project, diagnostics: [issue], contributions: [] },
+    );
+    expect(result.success).toBe(false);
+    expect(result.diagnostics).toContainEqual(issue);
+
+    // Evidence associated with another Project instance must not be used.
+    const mismatch = await exportProjectToPlatform(
+      request,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      undefined,
+      { project: structuredClone(project), diagnostics: [issue], contributions: [] },
+    );
+    expect(mismatch.diagnostics).not.toContainEqual(issue);
+  });
   it('rejects malformed serialized requests before orchestration', async () => {
     const result = await exportProjectToPlatform({
       profileId: 'linux-release',

@@ -303,6 +303,23 @@ export function ruleRelation(
   if (leftSlots.size !== rightSlots.size || [...leftSlots.keys()].some((id) => !rightSlots.has(id)))
     return { left, right, overlap: 'no', leftContainedByRight: 'no', rightContainedByLeft: 'no' };
   const slotIds = [...leftSlots.keys()];
+  // Exact single-subject selectors for the same slot cannot intersect when
+  // their canonical identities differ. This is especially important for large
+  // authored interaction grids, which otherwise do repeated generic set logic
+  // for every pair of unrelated cells.
+  for (const id of slotIds) {
+    const a = leftSlots.get(id)!;
+    const b = rightSlots.get(id)!;
+    if (
+      a.length === 1 &&
+      b.length === 1 &&
+      a[0]?.kind === 'exact' &&
+      b[0]?.kind === 'exact' &&
+      (a[0].subject.kind !== b[0].subject.kind ||
+        exactIdentity(a[0].subject) !== exactIdentity(b[0].subject))
+    )
+      return { left, right, overlap: 'no', leftContainedByRight: 'no', rightContainedByLeft: 'no' };
+  }
   const overlap = truthAll(
     slotIds.map((id) => selectorUnionOverlap(project, leftSlots.get(id)!, rightSlots.get(id)!)),
   );
@@ -723,32 +740,71 @@ export function analyzeInteractionRules(
   project: AuthoringProject,
   rules: readonly InteractionRule[],
 ): RuleAnalysis[] {
-  return rules.map((rule) => {
-    const broader: string[] = [];
-    const narrower: string[] = [];
-    const overlaps: RuleAnalysis['overlaps'] = [];
-    const conflicts: RuleAnalysis['conflicts'] = [];
-    let unreachable: AnalysisTruth = 'no';
-    let uncertainty = rule.guard.kind !== 'always';
-    for (const other of rules) {
-      if (other === rule) continue;
-      const relation = ruleRelation(project, rule, other);
+  const results: RuleAnalysis[] = rules.map((rule) => ({
+    rule,
+    broader: [],
+    narrower: [],
+    overlaps: [],
+    conflicts: [],
+    unreachable: 'no',
+    uncertainty: rule.guard.kind !== 'always',
+  }));
+  // Output arrays must remain in authored-rule order even though each pair is
+  // analyzed once. Store only matches, not the quadratic relation matrix.
+  const related: Array<Array<{ index: number; relation: RuleRelation }>> = rules.map(() => []);
+  const byVerb = new Map<string, number[]>();
+  rules.forEach((rule, index) => {
+    const indices = byVerb.get(rule.verb.$ref.id) ?? [];
+    indices.push(index);
+    byVerb.set(rule.verb.$ref.id, indices);
+  });
+  for (const indices of byVerb.values())
+    for (let a = 0; a < indices.length; a += 1)
+      for (let b = a + 1; b < indices.length; b += 1) {
+        const i = indices[a]!;
+        const j = indices[b]!;
+        if (rules[i] === rules[j]) continue;
+        const relation = ruleRelation(project, rules[i]!, rules[j]!);
+        if (
+          relation.overlap === 'no' &&
+          relation.leftContainedByRight === 'no' &&
+          relation.rightContainedByLeft === 'no'
+        )
+          continue;
+        related[i]!.push({ index: j, relation });
+        related[j]!.push({
+          index: i,
+          relation: {
+            left: rules[j]!,
+            right: rules[i]!,
+            overlap: relation.overlap,
+            leftContainedByRight: relation.rightContainedByLeft,
+            rightContainedByLeft: relation.leftContainedByRight,
+          },
+        });
+      }
+  for (let i = 0; i < rules.length; i += 1) {
+    const result = results[i]!;
+    const rule = rules[i]!;
+    related[i]!.sort((a, b) => a.index - b.index);
+    for (const { index, relation } of related[i]!) {
+      const other = rules[index]!;
       if (relation.overlap !== 'no')
-        overlaps.push({ ruleId: other.id, certainty: relation.overlap });
+        result.overlaps.push({ ruleId: other.id, certainty: relation.overlap });
       if (relation.leftContainedByRight === 'yes' && relation.rightContainedByLeft === 'no')
-        broader.push(other.id);
+        result.broader.push(other.id);
       if (relation.rightContainedByLeft === 'yes' && relation.leftContainedByRight === 'no')
-        narrower.push(other.id);
+        result.narrower.push(other.id);
       if (
         relation.overlap === 'unknown' ||
         relation.leftContainedByRight === 'unknown' ||
         relation.rightContainedByLeft === 'unknown'
       )
-        uncertainty = true;
+        result.uncertainty = true;
       const sameTier = relation.leftContainedByRight === relation.rightContainedByLeft;
       if (relation.overlap !== 'no' && sameTier && rule.priority === other.priority) {
         const bothAlways = rule.guard.kind === 'always' && other.guard.kind === 'always';
-        conflicts.push({
+        result.conflicts.push({
           ruleId: other.id,
           certainty: bothAlways && relation.overlap === 'yes' ? 'yes' : 'unknown',
           reason: bothAlways
@@ -762,16 +818,16 @@ export function analyzeInteractionRules(
         other.guard.kind === 'always' &&
         other.priority > rule.priority
       )
-        unreachable = 'yes';
+        result.unreachable = 'yes';
       else if (
-        unreachable !== 'yes' &&
+        result.unreachable !== 'yes' &&
         relation.leftContainedByRight !== 'no' &&
         relation.rightContainedByLeft !== 'no' &&
         other.priority >= rule.priority &&
         other.guard.kind !== 'always'
       )
-        unreachable = 'unknown';
+        result.unreachable = 'unknown';
     }
-    return { rule, broader, narrower, overlaps, conflicts, unreachable, uncertainty };
-  });
+  }
+  return results;
 }

@@ -18,6 +18,12 @@ export interface AuthoringValidationContribution {
 }
 
 export interface AuthoringValidationReuse {
+  /** Descriptors prepared by workspace admission for the exact admitted project. */
+  readonly luaSourceDescriptors?: readonly import('../authoring-source-analysis').AuthoringLuaSourceDescriptor[];
+  /** Authoritative source views for this Project generation, proven by the resident workspace. */
+  readonly localizationSourceViews?: ReturnType<
+    typeof import('../authoring-localization-workflow').localizationMessageSourceViews
+  >;
   readonly contributions: readonly AuthoringValidationContribution[];
   /** Resident-only key index so an incremental generation need not remap every prior check. */
   readonly contributionsByKey?: ReadonlyMap<string, AuthoringValidationContribution>;
@@ -42,6 +48,8 @@ export interface AuthoringValidationReuse {
 export interface AuthoringValidationWork {
   executed: number;
   reused: number;
+  /** Optional per-family timing details for validation profiling. */
+  checkFamilyMs?: readonly (readonly [string, number])[];
 }
 
 function validationDiagnosticKey(diagnostic: ProjectValidationDiagnostic): string {

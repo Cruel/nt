@@ -17,6 +17,8 @@ import {
 } from '@noveltea/tooling-native';
 
 export interface NovelTeaCliNativeToolService {
+  /** Stable executable/toolchain identity enabling exact native-stage result reuse. */
+  readonly validationCacheIdentity?: string;
   inspectFont?(absolutePath: string): Promise<{ ok: boolean; glyphCount?: number; error?: string }>;
   validateMedia?(absolutePath: string, kind: 'audio' | 'video'): Promise<void>;
   compileShaders(
@@ -38,6 +40,7 @@ export interface NovelTeaCliNativeToolService {
 
 export function createInProcessNovelTeaCliNativeToolService(): NovelTeaCliNativeToolService {
   return {
+    validationCacheIdentity: 'noveltea-inprocess-native',
     validateMedia: validateImportedAudioVideo,
     async inspectFont(absolutePath) {
       return inspectFontNative({ path: absolutePath });

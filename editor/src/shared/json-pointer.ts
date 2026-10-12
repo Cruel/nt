@@ -8,6 +8,9 @@ export class JsonPointerError extends Error {
 }
 
 export function escapeJsonPointerSegment(segment: string): string {
+  // Most schema keys and UUIDs are already valid pointer segments. Avoid
+  // allocating replacement strings on hot structural graph walks.
+  if (!segment.includes('~') && !segment.includes('/')) return segment;
   return segment.replaceAll('~', '~0').replaceAll('/', '~1');
 }
 

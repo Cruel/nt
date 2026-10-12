@@ -259,9 +259,15 @@ export default defineConfig({
         ],
         output: [],
       },
+      'check:graph-field-metadata': {
+        command: 'node scripts/generate-authoring-graph-field-metadata.mjs --check',
+        cache: true,
+        input: ['src/shared/**/*', 'scripts/generate-authoring-graph-field-metadata.mjs'],
+        output: [],
+      },
       'check:all': {
         command: 'node -e "process.exit(0)"',
-        dependsOn: ['check:types', 'check:schema-version-policy:run'],
+        dependsOn: ['check:types', 'check:schema-version-policy:run', 'check:graph-field-metadata'],
         cache: true,
         input: [],
         output: [],
@@ -278,6 +284,7 @@ export default defineConfig({
       },
       'compile:electron': {
         command: 'vp pack',
+        dependsOn: ['check:graph-field-metadata'],
         cache: true,
         output: [
           'dist-electron/main/**',

@@ -66,10 +66,18 @@ export interface AuthoringValidationInstrumentation {
     wholeProjectSchemaParses: number;
   }>;
   readonly preflightMs: number;
+  readonly distributionNoticeMs: number;
   readonly dependencyMs: number;
   readonly nativeMs: number;
   readonly fontCoveragePreparationMs: number;
   readonly fontCoverageNativeMs: number;
+  readonly shaderPreparationMs: number;
+  readonly shaderNativeMs: number;
+  readonly shaderReflectionMs: number;
+  readonly validationStageCacheReadMs: number;
+  readonly fontRevisionProofMs: number;
+  readonly shaderRevisionProofMs: number;
+  readonly shaderOutputProofMs: number;
   readonly dependencyWork: Readonly<{
     derivedContributions: number;
     reusedContributions: number;

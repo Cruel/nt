@@ -18,6 +18,13 @@ export interface ProjectWorkspaceFileSystem {
   readPathMetadata?(path: string): Promise<ProjectWorkspacePathMetadata>;
   listDirectory(path: string): Promise<readonly string[]>;
   readText(path: string): Promise<string>;
+  /** Assembly-only text and exact-byte revision from one read; not a later freshness proof. */
+  readTextWithRevision?(path: string): Promise<
+    Readonly<{
+      text: string;
+      revision: { contentHash: `sha256:${string}`; byteSize: number };
+    }>
+  >;
   /** Exact on-disk bytes; revisions must never be derived from decoded text. */
   readBytes(path: string): Promise<Uint8Array>;
   /** Exact on-disk SHA-256 revision and byte size for authoritative workspace files. */

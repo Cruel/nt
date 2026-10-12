@@ -3,6 +3,7 @@ import path from 'node:path';
 import { buildShaderMaterialProject } from '../../shared/project-schema/shader-material-project';
 import { selectedExportProfile } from '../../shared/project-schema/authoring-export';
 import { prepareRuntimeArtifact } from '../../shared/runtime-artifact-preparation';
+import { compileWithVerifiedValidationCache } from '../validation-stage-cache';
 import { PREPARED_MEDIA_MANIFEST_PATH } from '../../shared/prepared-media';
 import type { PreparedRuntimeArtifact } from '../../shared/project-schema/prepared-runtime-artifact';
 import {
@@ -717,6 +718,14 @@ export const packageExportCommand: CliCommandDefinition = {
           await context.fileSystem.writeBytesAtomic(stagedPath, new Uint8Array());
           const prepared = await prepareRuntimeArtifact({
             project: context.snapshot.project,
+            admittedSourceGraph: {
+              ...(await context.workspace.buildDependencyGraphAnalysis(context.snapshot)),
+              project: context.snapshot.project,
+            },
+            admittedAuthoringDiagnostics:
+              context.workspace.admittedAuthoringDiagnostics(context.snapshot) ?? undefined,
+            admittedValidationContributions:
+              context.workspace.admittedValidationContributions(context.snapshot) ?? undefined,
             projectRoot: context.snapshot.projectRoot,
             profile: {
               ...profile,
@@ -727,7 +736,14 @@ export const packageExportCommand: CliCommandDefinition = {
             },
             intent: 'runtime-package-export',
             shaderCompiler: nodeShaderCompilerAdapter((shaderProject, options) =>
-              context.nativeTools.compileShaders(shaderProject, options),
+              compileWithVerifiedValidationCache(
+                context.fileSystem,
+                context.snapshot.projectRoot,
+                context.nativeTools.validationCacheIdentity,
+                shaderProject,
+                options,
+                () => context.nativeTools.compileShaders(shaderProject, options),
+              ),
             ),
             paths: context.runtimeArtifactPaths ?? nodeRuntimeArtifactPaths,
           });

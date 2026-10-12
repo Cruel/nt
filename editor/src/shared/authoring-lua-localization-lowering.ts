@@ -51,6 +51,7 @@ export interface ManagedLuaLocalizationSource {
   readonly sourceKey: string;
   readonly source: LocalizationSourceCandidate;
   readonly text: string;
+  readonly diagnostics: ReturnType<typeof analyzeManagedLuaLocalization>['diagnostics'];
   readonly occurrences: readonly ReturnType<
     typeof analyzeManagedLuaLocalization
   >['occurrences'][number][];
@@ -66,14 +67,19 @@ function normalizeLuaTrackingText(value: string): string {
 export function collectManagedLuaLocalizationSources(
   project: AuthoringProject,
   sourceDescriptors: readonly AuthoringLuaSourceDescriptor[] = collectAuthoringLuaSources(project),
+  includeSourcesWithoutMessages = true,
 ): readonly ManagedLuaLocalizationSource[] {
   const result: ManagedLuaLocalizationSource[] = [];
   const seenPaths = new Set<string>();
   for (const descriptor of sourceDescriptors) {
     if (descriptor.sourceKind !== 'lua' || descriptor.inlineText === undefined) continue;
+    // The source-view consumer only needs actual managed messages; avoid hashing
+    // unrelated Lua sources, while localization sync retains its full inventory.
+    if (!includeSourcesWithoutMessages && !descriptor.inlineText.includes('Text')) continue;
     if (seenPaths.has(descriptor.sourcePath)) continue;
     seenPaths.add(descriptor.sourcePath);
     const analyzed = analyzeManagedLuaLocalization(descriptor.inlineText);
+    if (!includeSourcesWithoutMessages && analyzed.occurrences.length === 0) continue;
     const ownerKey = localizationOwnerKey(descriptor.semanticOwner);
     const occurrenceCandidates: LocalizationSourceOccurrenceCandidate[] = analyzed.occurrences.map(
       (occurrence, ordinal) => {
@@ -137,6 +143,7 @@ export function collectManagedLuaLocalizationSources(
       sourceKey: localizationSourceKey('lua', ownerKey, descriptor.sourcePath),
       source,
       text: descriptor.inlineText,
+      diagnostics: analyzed.diagnostics,
       occurrences: analyzed.occurrences,
     });
   }
@@ -186,8 +193,9 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
   const diagnostics: ManagedLuaLoweringDiagnostic[] = [];
   const pending: PendingOccurrence[] = [];
   const seenPaths = new Set<string>();
+  const sourceDescriptors = collectAuthoringLuaSources(project);
   const trackingSources = new Map(
-    collectManagedLuaLocalizationSources(project).map((source) => [
+    collectManagedLuaLocalizationSources(project, sourceDescriptors).map((source) => [
       source.source.sourcePath,
       source,
     ]),
@@ -196,14 +204,14 @@ export function lowerManagedLuaLocalization(project: AuthoringProject): {
   for (const [messageId, message] of Object.entries(project.localization.messages))
     if (message.kind === 'named') namedMessageIds.set(message.key, messageId);
 
-  for (const descriptor of collectAuthoringLuaSources(project)) {
+  for (const descriptor of sourceDescriptors) {
     if (descriptor.sourceKind !== 'lua' || descriptor.inlineText === undefined) continue;
     if (seenPaths.has(descriptor.sourcePath)) continue;
     const current = valueAtPointer(project, descriptor.sourcePath);
     if (typeof current !== 'string' || current !== descriptor.inlineText) continue;
     seenPaths.add(descriptor.sourcePath);
 
-    const analyzed = analyzeManagedLuaLocalization(current);
+    const analyzed = trackingSources.get(descriptor.sourcePath)!;
     diagnostics.push(
       ...analyzed.diagnostics.map((diagnostic) => ({
         code: diagnostic.code,

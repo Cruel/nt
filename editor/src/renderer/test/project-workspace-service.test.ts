@@ -24,6 +24,23 @@ function filesFor(project = createAuthoringProject({ id: 'headless', name: 'Head
 }
 
 describe('ProjectWorkspaceService', () => {
+  it('shares localization source views only within the admitted workspace generation', async () => {
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    const service = new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(filesFor(project)),
+    );
+    const first = await service.open('/projects/headless');
+    expect(first.ok).toBe(true);
+    if (!first.ok) return;
+    const views = service.localizationSourceViews(first.snapshot);
+    expect(service.localizationSourceViews(first.snapshot)).toBe(views);
+    const second = await service.open('/projects/headless');
+    expect(second.ok).toBe(true);
+    if (!second.ok) return;
+    expect(service.localizationSourceViews(second.snapshot)).not.toBe(views);
+    expect(service.localizationSourceViews(second.snapshot)).toEqual(views);
+  });
+
   it('uses Unicode code-point ordering for deterministic snapshot maps', () => {
     expect(['ä', 'z', 'Z'].sort(compareProjectWorkspaceUnicodeCodePoints)).toEqual(['Z', 'z', 'ä']);
     expect(['\u{10000}', '\u{e000}'].sort(compareProjectWorkspaceUnicodeCodePoints)).toEqual([

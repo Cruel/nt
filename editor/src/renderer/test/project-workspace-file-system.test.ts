@@ -4,8 +4,12 @@ import path from 'node:path';
 import { afterEach, describe, expect, it } from 'vite-plus/test';
 import {
   createNodeProjectWorkspaceFileSystem,
+  ProjectWorkspaceService,
+  projectWorkspaceFiles,
   type ProjectWorkspaceFileSystem,
 } from '../../shared/project-workspace';
+
+import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
 
 const temporaryRoots: string[] = [];
 
@@ -54,6 +58,45 @@ describe.each(implementations)('%s workspace filesystem contract', (_name, creat
     expect(await fileSystem.inspect(child)).toBe('file');
     await fileSystem.removeDirectory(nested);
     expect(await fileSystem.inspect(nested)).toBe('missing');
+  });
+
+  it('binds decoded text to exact source bytes without caching later freshness proofs', async () => {
+    const fileSystem = createFileSystem();
+    const root = await temporaryRoot();
+    const target = fileSystem.joinPath(root, 'text.lua');
+    await fileSystem.writeBytesAtomic(
+      target,
+      new Uint8Array([0xef, 0xbb, 0xbf, 0xc3, 0xa9, 0xff, 0x0d, 0x0a]),
+    );
+    const observed = await fileSystem.readTextWithRevision!(target);
+    expect(observed).toEqual({
+      text: '\uFEFFé\uFFFD\r\n',
+      revision: {
+        contentHash: 'sha256:59572212b8c2d4fb3de2a5bcbbb33075195edd024bc26f365a27b65c6bb4bfbd',
+        byteSize: 8,
+      },
+    });
+    expect(observed.text).toBe(await fileSystem.readText(target));
+    await fileSystem.writeTextAtomic(target, 'changed');
+    expect(await fileSystem.readFileRevision(target)).not.toEqual(observed.revision);
+  });
+
+  it('admits the same source revisions and Project through combined text reads', async () => {
+    const fileSystem = createFileSystem();
+    const root = await temporaryRoot();
+    const project = createAuthoringProject({ id: 'read-once', name: 'Read once' });
+    for (const [file, text] of Object.entries(projectWorkspaceFiles(project, project.editor)))
+      await fileSystem.writeTextAtomic(fileSystem.joinPath(root, file), text);
+    const combined = await new ProjectWorkspaceService(fileSystem).open(root);
+    // The optional adapter method changes admission work, not the admitted generation contract.
+    Object.defineProperty(fileSystem, 'readTextWithRevision', { value: undefined });
+    const separate = await new ProjectWorkspaceService(fileSystem).open(root);
+    expect(combined.ok).toBe(true);
+    expect(separate.ok).toBe(true);
+    if (!combined.ok || !separate.ok) return;
+    expect(combined.snapshot.project).toEqual(separate.snapshot.project);
+    expect(combined.snapshot.fileRevisions).toEqual(separate.snapshot.fileRevisions);
+    expect(combined.diagnostics).toEqual(separate.diagnostics);
   });
 
   it('reports exact nanosecond metadata for regular Node filesystem paths', async () => {

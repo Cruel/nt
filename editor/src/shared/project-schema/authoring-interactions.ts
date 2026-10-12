@@ -12,7 +12,11 @@ import { parseVerbData, subjectSelectorSchema, verbOfferSchema } from './authori
 import { validateVariableRuntimeValue } from './authoring-variable-usage';
 import { validateCondition } from './authoring-condition-validation';
 import type { AuthoringProject, AuthoringRecordBase } from './authoring-project';
-import { analyzeInteractionRules, selectorUnionOverlap } from '../interaction-resolver-analysis';
+import {
+  analyzeInteractionRules,
+  ruleRelation,
+  selectorUnionOverlap,
+} from '../interaction-resolver-analysis';
 import { withSchemaDocumentation } from './schema-documentation';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
@@ -143,13 +147,19 @@ function validateFeatureRef(
   feature: FeatureRefData,
   path: string,
   diagnostics: InteractionSchemaDiagnostic[],
+  roomFeatures: Map<string, ReadonlySet<string> | null>,
+  interactableFeatures: Map<string, ReadonlySet<string> | null>,
 ) {
   if (feature.ownerKind === 'room') {
     const roomId = feature.room.$ref.id;
-    const room = parseRoomData(project.rooms[roomId]?.data);
-    if (!room)
+    if (!roomFeatures.has(roomId)) {
+      const room = parseRoomData(project.rooms[roomId]?.data);
+      roomFeatures.set(roomId, room ? new Set(room.features.map((item) => item.id)) : null);
+    }
+    const features = roomFeatures.get(roomId);
+    if (!features)
       diagnostics.push(diagnostic(`${path}/room/$ref`, `Missing or invalid Room '${roomId}'.`));
-    else if (!room.features.some((candidate) => candidate.id === feature.featureId))
+    else if (!features.has(feature.featureId))
       diagnostics.push(
         diagnostic(
           `${path}/featureId`,
@@ -160,17 +170,24 @@ function validateFeatureRef(
   }
   const interactableId = feature.interactable.$ref.id;
   const instance = project.interactableInstances[interactableId];
-  const interactable = instance
-    ? parseInteractableData(project.interactables[instance.definition.$ref.id]?.data)
-    : null;
-  if (!interactable)
+  if (!interactableFeatures.has(interactableId)) {
+    const interactable = instance
+      ? parseInteractableData(project.interactables[instance.definition.$ref.id]?.data)
+      : null;
+    interactableFeatures.set(
+      interactableId,
+      interactable ? new Set(interactable.features.map((item) => item.id)) : null,
+    );
+  }
+  const features = interactableFeatures.get(interactableId);
+  if (!features)
     diagnostics.push(
       diagnostic(
         `${path}/interactable/$ref`,
         `Missing or invalid Interactable Instance '${interactableId}'.`,
       ),
     );
-  else if (!interactable.features.some((candidate) => candidate.id === feature.featureId))
+  else if (!features.has(feature.featureId))
     diagnostics.push(
       diagnostic(
         `${path}/featureId`,
@@ -279,6 +296,8 @@ function validateSubjectSelector(
   selector: InteractionRule['slots'][number]['selectors'][number],
   path: string,
   diagnostics: InteractionSchemaDiagnostic[],
+  roomFeatures: Map<string, ReadonlySet<string> | null>,
+  interactableFeatures: Map<string, ReadonlySet<string> | null>,
 ) {
   if (selector.kind === 'trait') {
     if (!project.traits[selector.trait.$ref.id])
@@ -336,7 +355,14 @@ function validateSubjectSelector(
       ),
     );
   else if (subject.kind === 'feature')
-    validateFeatureRef(project, subject.feature, `${path}/subject/feature`, diagnostics);
+    validateFeatureRef(
+      project,
+      subject.feature,
+      `${path}/subject/feature`,
+      diagnostics,
+      roomFeatures,
+      interactableFeatures,
+    );
 }
 
 export function validateInteractionData(
@@ -352,13 +378,21 @@ export function validateInteractionData(
     );
   const diagnostics: InteractionSchemaDiagnostic[] = [];
   const seen = new Set<string>();
+  const verbDataById = new Map<string, ReturnType<typeof parseVerbData>>();
+  const roomFeatures = new Map<string, ReadonlySet<string> | null>();
+  const interactableFeatures = new Map<string, ReadonlySet<string> | null>();
+  const ruleIndices = new Map(parsed.data.rules.map((rule, index) => [rule.id, index] as const));
   for (const [index, rule] of parsed.data.rules.entries()) {
     const path = `${base}/rules/${index}`;
     if (seen.has(rule.id))
       diagnostics.push(diagnostic(`${path}/id`, `Duplicate interaction rule ID '${rule.id}'.`));
     seen.add(rule.id);
     const verb = project.verbs[rule.verb.$ref.id];
-    const verbData = verb ? parseVerbData(verb.data) : null;
+    let verbData = verbDataById.get(rule.verb.$ref.id);
+    if (verbData === undefined) {
+      verbData = verb ? parseVerbData(verb.data) : null;
+      verbDataById.set(rule.verb.$ref.id, verbData);
+    }
     if (!verbData)
       diagnostics.push(
         diagnostic(`${path}/verb/$ref`, `Missing or invalid verb '${rule.verb.$ref.id}'.`),
@@ -412,6 +446,8 @@ export function validateInteractionData(
           selector,
           `${path}/slots/${slotIndex}/selectors/${selectorIndex}`,
           diagnostics,
+          roomFeatures,
+          interactableFeatures,
         );
     diagnostics.push(
       ...validateCondition(project, rule.guard, `${path}/guard`, {
@@ -447,7 +483,7 @@ export function validateInteractionData(
         ),
       );
     for (const conflict of analysis.conflicts) {
-      const otherIndex = parsed.data.rules.findIndex((rule) => rule.id === conflict.ruleId);
+      const otherIndex = ruleIndices.get(conflict.ruleId) ?? -1;
       if (otherIndex < 0 || otherIndex >= index) continue;
       diagnostics.push(
         diagnostic(
@@ -471,35 +507,58 @@ export function validateInteractionResolverProject(
     const data = parseInteractionData(record.data);
     return (data?.rules ?? []).map((rule, ruleIndex) => ({ interactionId, rule, ruleIndex }));
   });
+  const indicesByVerb = new Map<string, number[]>();
+  for (const [index, entry] of entries.entries()) {
+    const verb = entry.rule.verb.$ref.id;
+    const indices = indicesByVerb.get(verb) ?? [];
+    indices.push(index);
+    indicesByVerb.set(verb, indices);
+  }
   for (let leftIndex = 0; leftIndex < entries.length; leftIndex += 1) {
     const left = entries[leftIndex]!;
-    for (let rightIndex = leftIndex + 1; rightIndex < entries.length; rightIndex += 1) {
+    // Rules for distinct Verbs have disjoint match spaces. Preserve original
+    // pair order, but never construct analysis products for those pairs.
+    for (const rightIndex of indicesByVerb.get(left.rule.verb.$ref.id) ?? []) {
+      if (rightIndex <= leftIndex) continue;
       const right = entries[rightIndex]!;
       if (left.interactionId === right.interactionId) continue;
-      const analysis = analyzeInteractionRules(project, [left.rule, right.rule]);
-      const leftAnalysis = analysis[0]!;
-      const rightAnalysis = analysis[1]!;
+      const relation = ruleRelation(project, left.rule, right.rule);
       const rightPath = `/interactions/${right.interactionId}/data/rules/${right.ruleIndex}`;
       const leftPath = `/interactions/${left.interactionId}/data/rules/${left.ruleIndex}`;
-      const conflict = rightAnalysis.conflicts.find((item) => item.ruleId === left.rule.id);
-      if (conflict)
+      const sameTier = relation.leftContainedByRight === relation.rightContainedByLeft;
+      if (relation.overlap !== 'no' && sameTier && left.rule.priority === right.rule.priority) {
+        const bothAlways = left.rule.guard.kind === 'always' && right.rule.guard.kind === 'always';
+        const reason = bothAlways
+          ? `equal structural tier and priority ${left.rule.priority}`
+          : `equal structural tier and priority ${left.rule.priority}; Guard outcome is runtime-dependent`;
         diagnostics.push(
           diagnostic(
             rightPath,
-            conflict.certainty === 'yes'
-              ? `Rule conflicts with unconditional rule '${left.interactionId}:${left.rule.id}' at ${conflict.reason}.`
-              : `Rule may be ambiguous with rule '${left.interactionId}:${left.rule.id}' at ${conflict.reason}.`,
-            conflict.certainty === 'yes' ? 'error' : 'warning',
+            bothAlways && relation.overlap === 'yes'
+              ? `Rule conflicts with unconditional rule '${left.interactionId}:${left.rule.id}' at ${reason}.`
+              : `Rule may be ambiguous with rule '${left.interactionId}:${left.rule.id}' at ${reason}.`,
+            bothAlways && relation.overlap === 'yes' ? 'error' : 'warning',
           ),
         );
-      if (leftAnalysis.unreachable === 'yes')
+      }
+      const equivalentMatchSpace =
+        relation.leftContainedByRight === 'yes' && relation.rightContainedByLeft === 'yes';
+      if (
+        equivalentMatchSpace &&
+        right.rule.guard.kind === 'always' &&
+        right.rule.priority > left.rule.priority
+      )
         diagnostics.push(
           diagnostic(
             leftPath,
             `Rule '${left.rule.id}' is unreachable because rule '${right.interactionId}:${right.rule.id}' has the same match space, an unconditional Guard, and higher priority.`,
           ),
         );
-      if (rightAnalysis.unreachable === 'yes')
+      if (
+        equivalentMatchSpace &&
+        left.rule.guard.kind === 'always' &&
+        left.rule.priority > right.rule.priority
+      )
         diagnostics.push(
           diagnostic(
             rightPath,

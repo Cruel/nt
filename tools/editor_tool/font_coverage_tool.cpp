@@ -12,7 +12,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <map>
 #include <mutex>
+#include <tuple>
 #include <optional>
 #include <set>
 #include <string>
@@ -302,6 +304,12 @@ nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
     engine.set_default_font_family(system_handle);
 
     nlohmann::json diagnostics = nlohmann::json::array();
+    // Different locales frequently share the same font stack. A family only
+    // depends on its font source, not the locale requesting it; reuse the
+    // loaded FreeType/HarfBuzz faces within this coverage request.
+    std::map<std::string, std::optional<std::string>> shared_font_aliases;
+    using CoverageKey = std::tuple<std::string, std::vector<std::string>, std::string>;
+    std::map<CoverageKey, std::vector<noveltea::text::TextCoverageGap>> shaped_text_cache;
     for (const auto& locale_request : *locales) {
         if (!locale_request.is_object())
             continue;
@@ -313,18 +321,26 @@ nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
         std::vector<std::string> effective_stack;
         if (const auto fonts = locale_request.find("fonts");
             fonts != locale_request.end() && fonts->is_array()) {
-            std::size_t index = 0;
             for (const auto& font : *fonts) {
                 if (!font.is_string())
                     continue;
                 const auto logical_path = font.get<std::string>();
-                const auto alias = "coverage-" + locale + "-" + std::to_string(index++);
-                noveltea::FontFamilyDesc family;
-                family.alias = alias;
-                family.regular = noveltea::FontDesc{logical_path};
                 effective_stack.push_back(logical_path);
-                if (engine.register_font_family(family))
-                    aliases.push_back(alias);
+                auto cached = shared_font_aliases.find(logical_path);
+                if (cached == shared_font_aliases.end()) {
+                    const auto alias =
+                        "coverage-shared-" + std::to_string(shared_font_aliases.size());
+                    noveltea::FontFamilyDesc family;
+                    family.alias = alias;
+                    family.regular = noveltea::FontDesc{logical_path};
+                    const bool loaded = static_cast<bool>(engine.register_font_family(family));
+                    cached = shared_font_aliases
+                                 .emplace(logical_path,
+                                          loaded ? std::optional<std::string>{alias} : std::nullopt)
+                                 .first;
+                }
+                if (cached->second)
+                    aliases.push_back(*cached->second);
             }
         }
         aliases.push_back(std::string(noveltea::kSystemFontAlias));
@@ -359,17 +375,22 @@ nlohmann::json validate_font_coverage_request(const nlohmann::json& request)
                 .source_path = source_path,
                 .effective_font_stack = effective_stack,
             };
-            for (const auto& diagnostic : engine.coverage_diagnostics(styled, coverage_context)) {
+            const CoverageKey coverage_key{locale, effective_stack, text};
+            auto shaped = shaped_text_cache.find(coverage_key);
+            if (shaped == shaped_text_cache.end())
+                shaped = shaped_text_cache.emplace(coverage_key, engine.unresolved_clusters(styled))
+                             .first;
+            for (const auto& gap : shaped->second) {
                 diagnostics.push_back(nlohmann::json::object({
                     {"code", "localization.font_coverage"},
                     {"severity", bool_value(locale_request, "supported") ? "error" : "warning"},
                     {"path", source_path},
                     {"messageId", message_id},
                     {"locale", locale},
-                    {"cluster", diagnostic.gap.text},
-                    {"fontStack", diagnostic.context.effective_font_stack},
-                    {"message", "Locale '" + locale + "' cannot shape cluster '" +
-                                    diagnostic.gap.text + "' with its effective font stack."},
+                    {"cluster", gap.text},
+                    {"fontStack", coverage_context.effective_font_stack},
+                    {"message", "Locale '" + locale + "' cannot shape cluster '" + gap.text +
+                                    "' with its effective font stack."},
                 }));
             }
         }

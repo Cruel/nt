@@ -192,6 +192,13 @@ const scriptcBuildEnv = isWindows
       SCRIPTC_TARGET: 'x86_64-windows-gnu',
     }
   : buildEnv;
+// Reject stale schema-derived graph metadata before running native build steps.
+// Normal CLI startup only loads the generated table and does no schema walk.
+run(
+  process.execPath,
+  [path.join(editorRoot, 'scripts/generate-authoring-graph-field-metadata.mjs'), '--check'],
+  { cwd: editorRoot, env: buildEnv },
+);
 if (isWindows) {
   const zigCheck = spawnSync('zig', ['version'], { encoding: 'utf8' });
   if (zigCheck.error?.code === 'ENOENT' || zigCheck.status !== 0)

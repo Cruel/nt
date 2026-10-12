@@ -1,6 +1,9 @@
 import { lstat, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import type { NovelTeaCliPlatformToolService } from './platform-tool-service';
+import type { AdmittedPlatformExportValidation } from './platform-tool-service';
+import { compileWithVerifiedValidationCache } from './validation-stage-cache';
+import { createNodeProjectWorkspaceFileSystem } from '../shared/project-workspace/node-project-workspace-file-system';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
 import type { RuntimeArtifactPathAdapter } from '../shared/runtime-artifact-preparation';
 import type { PreparedRuntimePackageOptions } from '../shared/project-schema/prepared-runtime-artifact';
@@ -58,7 +61,13 @@ export function createNovelTeaCliPlatformToolService(
       const [templateId, buildId] = internalToken(token).split('/');
       return removePlayerTemplate(templateId!, buildId!);
     },
-    async exportProject(request, onProgress, abortSignal, beforePublish) {
+    async exportProject(
+      request,
+      onProgress,
+      abortSignal,
+      beforePublish,
+      admitted?: AdmittedPlatformExportValidation,
+    ) {
       const [{ exportProjectToPlatform }, { cancelPlatformExport }] = await Promise.all([
         import('../main/services/platform-export-orchestration-service'),
         import('../main/services/platform-staging-service'),
@@ -77,13 +86,23 @@ export function createNovelTeaCliPlatformToolService(
             ? {
                 compileShaders: (shaderProject, compileOptions) => {
                   const shaderOptions = (compileOptions ?? {}) as ShaderCompileOptions;
-                  return nativeTools.compileShaders(shaderProject, {
+                  const optionsWithOverlays = {
                     ...shaderOptions,
                     sourceOverlays: {
                       ...shaderOptions.sourceOverlays,
                       ...pinnedShaderSourceOverlays(options.pinnedProjectTextSources),
                     },
-                  });
+                  };
+                  return request.projectRoot
+                    ? compileWithVerifiedValidationCache(
+                        createNodeProjectWorkspaceFileSystem(),
+                        request.projectRoot,
+                        nativeTools.validationCacheIdentity,
+                        shaderProject,
+                        optionsWithOverlays,
+                        () => nativeTools.compileShaders(shaderProject, optionsWithOverlays),
+                      )
+                    : nativeTools.compileShaders(shaderProject, optionsWithOverlays);
                 },
                 exportPackage: (project, outputPath, packageOptions) =>
                   nativeTools.exportPackage({
@@ -101,6 +120,7 @@ export function createNovelTeaCliPlatformToolService(
             ? (recoveryPath) => nativeTools.registerStagedOutput!(recoveryPath)
             : undefined,
           options.runtimeArtifactPaths,
+          admitted,
         );
       } finally {
         process.off('SIGINT', cancel);

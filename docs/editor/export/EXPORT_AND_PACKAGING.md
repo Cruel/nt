@@ -16,7 +16,17 @@ Current AuthoringProject
 `prepareRuntimeArtifact` is the single host-neutral preparation interface used by Play, test
 playback, `.ntpkg`, platform export, and the CLI. It returns `prepared`, `blocked`, or `cancelled`;
 only `prepared` carries a current `noveltea.prepared-runtime-artifact` version-1 value. The module
-does not lower gameplay fields. It attaches package file entries,
+does not lower gameplay fields. Preparation first obtains the compiler's validated value without
+serializing an intermediate Compiled Project. When the intent permits shader effects, it discovers,
+compiles, and verifies those outputs before assembling the package once. Localization partitioning,
+Material interface reconciliation, package planning, and source fingerprinting belong to that final
+assembly; canonical gameplay serialization validates the finalized value. Public compiled-artifact
+publication still returns canonical bytes for callers that consume them. Preparation does not build a
+provisional package merely to determine whether compilation succeeded. Compiler linking checks target
+existence through the graph module's reference-integrity-only traversal; editor graph indexes,
+localization workflow data, and compiler symbol tables are not required for this check or lowering.
+
+It attaches package file entries,
 per-entry storage policy, required-seekable audio paths, display/platform options, shader/material
 metadata, required shader binaries, normalized diagnostics, and a content/recovery source fingerprint
 at their separate boundaries.
@@ -73,6 +83,11 @@ payload may disappear entirely. `Use source intentionally`
 retains only that realization and does not make the authoring source locale player-selectable.
 Missing selected content retains only the source fallback closure actually required and records its
 Message/Asset counts on the Prepared Runtime Artifact.
+
+Translation validation consumes source Message contracts without computing workflow freshness or
+attention fingerprints. Export quality checks still derive those fingerprints when assessing
+Current/Outdated and review state. Managed Lua lowering reuses source enumeration and analysis within
+its operation; it does not retain identity-based analysis across mutable Project generations.
 
 Localization quality findings are warnings rather than Compiled Project invalidity. Development
 reports missing selected content, Release additionally reports outdated translations/variants, and

@@ -26,6 +26,13 @@ the structural compatibility graph while adding supported explicit tooling fallb
 adds warning-level lexical evidence and source diagnostics without adding `reference-integrity`
 facets or changing compiled gameplay bytes.
 
+Compiler linking uses `missingAuthoringStructuralReferences(project)`, a reference-integrity-only
+projection of the same structural traversal. It retains top-level, project-field, Trait, and nested
+target checks without building editor indexes, localization workflow nodes, source-occurrence
+metadata, or incremental impact dependencies. Localization realization edges do not carry the
+`reference-integrity` facet; translation/source contracts remain owned by semantic validation.
+Full graph construction remains authoritative for editor and source-analysis consumers.
+
 Each record, property definition, localization Message realization, or fixed project field owns one
 complete `AuthoringDependencyGraphContribution`. Replacing a contribution replaces its nodes,
 outgoing edges, diagnostics, derivation dependencies, and literal-occurrence storage as one unit.
@@ -159,6 +166,12 @@ root changes fail safe to full rebuild. Layout declaration resolution uses the d
 source read/hash changes use `source-asset`.
 
 ## Incremental graph runtime
+
+An existing semantic binding can change without adding or removing a record. In particular,
+renaming a named localization Message key or a Project cursor ID can resolve a previously missing
+source reference. Such references have no prior dependency edge to traverse, so resident admission
+widens semantic derivation when these lookup identities change, even with unchanged registry
+cardinality. Ordinary edits to the target content continue to use bounded dependency invalidation.
 
 `authoring-dependency-graph-runtime.ts` subscribes to authoritative mutation publications and
 publishes revision-matched immutable graph snapshots. Persistent content-analysis artifacts are

@@ -11,10 +11,17 @@ import {
 } from '../shared/project-schema/authoring-collections';
 import type { AuthoringProject, ReferenceTarget } from '../shared/project-schema/authoring-project';
 import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-validation';
+import { isSafeProjectAssetPath, parseAssetData } from '../shared/project-schema/authoring-assets';
+import { sha256HexUtf8 } from '../shared/web-crypto';
+import type { ProjectWorkspaceFileSystem } from '../shared/project-workspace/project-workspace-file-system';
 import { authoringProjectSchema } from '../shared/project-schema/authoring-project';
 import { buildShaderMaterialProject } from '../shared/project-schema/shader-material-project';
 import {
   localizationFontCoverageLocales,
+  fontCoverageMessageIdentities,
+  fontCoverageStackIdentity,
+  fontCoverageUnverifiedMessages,
+  updateFontCoverageForMessageEdits,
   type LocalizationFontCoverageLocale,
 } from '../shared/localization-font-coverage';
 import {
@@ -44,6 +51,13 @@ import {
 import { generateAuthoringRepairPlan, recordTarget } from '../renderer/project/authoring-repair';
 import { hasJsonAtPointer } from '../renderer/project/json-pointer';
 import type { NovelTeaCliNativeToolService } from './native-tool-service';
+import {
+  activeFontRevisions,
+  publishValidationStageCache,
+  readValidationStageCache,
+  shaderOutputsStillValid,
+  shaderSourceRevisions,
+} from './validation-stage-cache';
 import { cliDiagnostic, type NovelTeaCliDiagnostic } from './contracts';
 import type { NovelTeaCliExitCode } from './contracts';
 
@@ -66,10 +80,18 @@ export interface CliMutationPlan {
 
 export interface CliAuthoringValidationMetrics {
   readonly preflightMs: number;
+  readonly distributionNoticeMs: number;
   readonly dependencyMs: number;
   readonly nativeMs: number;
   readonly fontCoveragePreparationMs: number;
   readonly fontCoverageNativeMs: number;
+  readonly shaderPreparationMs: number;
+  readonly shaderNativeMs: number;
+  readonly shaderReflectionMs: number;
+  readonly validationStageCacheReadMs: number;
+  readonly fontRevisionProofMs: number;
+  readonly shaderRevisionProofMs: number;
+  readonly shaderOutputProofMs: number;
   readonly dependencyWork: ProjectWorkspaceDependencyAnalysis['work'];
   readonly compilerWork: Readonly<{
     wholeProjectNormalizations: number;
@@ -96,6 +118,7 @@ const localizationCoveragePreparationCache = new WeakMap<
     Readonly<{
       dependencyRevision: `sha256:${string}`;
       locales: readonly LocalizationFontCoverageLocale[];
+      snapshot: LoadedProjectWorkspaceSnapshot;
     }>
   >
 >();
@@ -113,10 +136,29 @@ function preparedLocalizationCoverageLocales(
   const cached = byProject.get(snapshot.projectRoot);
   if (cached?.dependencyRevision === sourceWork.localizationCoverageDependencyRevision)
     return cached.locales;
-  const prepared = localizationFontCoverageLocales(snapshot.project);
+  const before = cached?.snapshot.fileRevisions;
+  const after = snapshot.fileRevisions;
+  const physicalPaths = before ? new Set([...Object.keys(before), ...Object.keys(after)]) : null;
+  const changed = physicalPaths
+    ? [...physicalPaths].filter(
+        (path) =>
+          before?.[path]?.contentHash !== after[path]?.contentHash ||
+          before?.[path]?.byteSize !== after[path]?.byteSize,
+      )
+    : [];
+  const messageOnlyChange =
+    changed.length === 1 && changed[0] === 'i18n/messages.json' && sourceWork.readTextSources === 0;
+  const incremental =
+    cached && messageOnlyChange
+      ? updateFontCoverageForMessageEdits(cached.snapshot.project, snapshot.project, cached.locales)
+      : null;
+  const prepared =
+    incremental ??
+    localizationFontCoverageLocales(snapshot.project, workspace.localizationSourceViews(snapshot));
   byProject.set(snapshot.projectRoot, {
     dependencyRevision: sourceWork.localizationCoverageDependencyRevision,
     locales: prepared,
+    snapshot,
   });
   return prepared;
 }
@@ -308,12 +350,56 @@ export async function validateCliProject(
   snapshot: LoadedProjectWorkspaceSnapshot,
   sourceWork: ProjectWorkspaceSourceWork,
   nativeTools: NovelTeaCliNativeToolService,
+  fileSystem?: ProjectWorkspaceFileSystem,
 ): Promise<CliSemanticResult> {
   const preflightStarted = Date.now();
   const preflight = workspace.preflightCompiledArtifact(snapshot);
   const diagnostics: NovelTeaCliDiagnostic[] = preflight.diagnostics.map((item) =>
     cliDiagnostic(item.code, item.jsonPointer, item.message, item.severity),
   );
+  // Registered physical Assets are not workspace record fragments. A missing
+  // payload must nevertheless invalidate validate, including cold/no-daemon
+  // runs that have no native resident Asset authority installed.
+  if (fileSystem) {
+    const sources = new Map<string, string[]>();
+    for (const [id, record] of Object.entries(snapshot.project.assets)) {
+      const asset = parseAssetData(record.data);
+      if (!asset || !isSafeProjectAssetPath(asset.source.path)) continue;
+      const owners = sources.get(asset.source.path) ?? [];
+      owners.push(id);
+      sources.set(asset.source.path, owners);
+    }
+    const ordered = [...sources].sort(([a], [b]) => a.localeCompare(b));
+    // Bound concurrency rather than serially issuing a filesystem round trip
+    // for every physical Asset. The complete sorted result and missing-source
+    // diagnostics are preserved, including for cold/no-daemon validation.
+    for (let start = 0; start < ordered.length; start += 16) {
+      const statuses = await Promise.all(
+        ordered.slice(start, start + 16).map(async ([relative, owners]) => {
+          const absolute = fileSystem.joinPath(snapshot.projectRoot, relative);
+          try {
+            const kind = fileSystem.readPathMetadata
+              ? (await fileSystem.readPathMetadata(absolute)).kind
+              : await fileSystem.inspect(absolute);
+            return { relative, owners, kind };
+          } catch {
+            return { relative, owners, kind: 'missing' as const };
+          }
+        }),
+      );
+      for (const { relative, owners, kind } of statuses)
+        if (kind !== 'file')
+          for (const id of owners)
+            diagnostics.push(
+              cliDiagnostic(
+                'authoring.asset.source_unavailable',
+                `/assets/${id.replaceAll('~', '~0').replaceAll('/', '~1')}/data/source/path`,
+                `Asset '${id}' source '${relative}' is ${kind === 'missing' ? 'missing' : 'not a regular file'}.`,
+              ),
+            );
+    }
+  }
+  const noticeStarted = Date.now();
   try {
     await collectRuntimeDistributionNotices(
       snapshot.project,
@@ -330,13 +416,31 @@ export async function validateCliProject(
       ),
     );
   }
+  const distributionNoticeMs = Date.now() - noticeStarted;
   const preflightMs = Date.now() - preflightStarted;
   const dependencyStarted = Date.now();
   const dependencyAnalysis = await workspace.buildDependencyGraphAnalysis(snapshot);
   const dependencyMs = Date.now() - dependencyStarted;
   const nativeStarted = Date.now();
+  const cacheReadStarted = Date.now();
+  const stageCache =
+    fileSystem && nativeTools.validationCacheIdentity
+      ? await readValidationStageCache(
+          fileSystem,
+          snapshot.projectRoot,
+          nativeTools.validationCacheIdentity,
+        )
+      : null;
+  const validationStageCacheReadMs = Date.now() - cacheReadStarted;
+  let stageCacheChanged = false;
   let fontCoveragePreparationMs = 0;
   let fontCoverageNativeMs = 0;
+  let shaderPreparationMs = 0;
+  let shaderNativeMs = 0;
+  let shaderReflectionMs = 0;
+  let fontRevisionProofMs = 0;
+  let shaderRevisionProofMs = 0;
+  let shaderOutputProofMs = 0;
   diagnostics.push(
     ...dependencyAnalysis.graph.diagnostics.map((item) =>
       cliDiagnostic(item.code, item.path, item.message, item.severity, {
@@ -348,15 +452,93 @@ export async function validateCliProject(
   );
   if (nativeTools.validateFontCoverage && !diagnostics.some((item) => item.severity === 'error')) {
     try {
-      const preparationStarted = Date.now();
-      const locales = preparedLocalizationCoverageLocales(workspace, snapshot, sourceWork);
-      fontCoveragePreparationMs = Date.now() - preparationStarted;
-      const coverageStarted = Date.now();
-      const response = await nativeTools.validateFontCoverage({
-        projectRoot: snapshot.projectRoot,
-        locales,
-      });
-      fontCoverageNativeMs = Date.now() - coverageStarted;
+      const proofStarted = Date.now();
+      const fontRevisions =
+        stageCache && fileSystem ? await activeFontRevisions(fileSystem, snapshot) : null;
+      fontRevisionProofMs = Date.now() - proofStarted;
+      const cachedFont = stageCache?.font;
+      let response;
+      if (
+        fontRevisions !== null &&
+        cachedFont?.dependencyRevision === sourceWork.localizationCoverageDependencyRevision &&
+        cachedFont.fontRevisions === fontRevisions
+      ) {
+        response = cachedFont.response;
+      } else {
+        const preparationStarted = Date.now();
+        const locales = preparedLocalizationCoverageLocales(workspace, snapshot, sourceWork);
+        fontCoveragePreparationMs = Date.now() - preparationStarted;
+        const localeFingerprint = await sha256HexUtf8(
+          JSON.stringify(
+            locales.map(({ locale, supported, fonts, fingerprint }) => [
+              locale,
+              supported,
+              fonts,
+              fingerprint,
+            ]),
+          ),
+        );
+        const stackIdentities = Object.fromEntries(
+          locales.map((locale) => [locale.locale, fontCoverageStackIdentity(locale)]),
+        );
+        // Native shaping is contextual: an unchanged character set does not
+        // prove that a newly composed string can be shaped. Only reuse exact
+        // complete message texts from a previously clean native result.
+        const deltaAllowed = Boolean(
+          fontRevisions !== null &&
+          cachedFont?.fontRevisions === fontRevisions &&
+          cachedFont.response.diagnostics.length === 0 &&
+          cachedFont.provenMessages &&
+          cachedFont.stackIdentities,
+        );
+        const changedLocales = deltaAllowed
+          ? locales.flatMap((locale) => {
+              const known = cachedFont!.provenMessages?.[locale.locale];
+              const delta = known
+                ? fontCoverageUnverifiedMessages(locale, {
+                    stackIdentity: cachedFont!.stackIdentities?.[locale.locale] ?? '',
+                    messageIdentities: known,
+                    diagnosticCount: 0,
+                  })
+                : null;
+              const request = delta ?? locale;
+              return request.messages.length ? [request] : [];
+            })
+          : locales;
+        if (
+          fontRevisions !== null &&
+          cachedFont?.fontRevisions === fontRevisions &&
+          cachedFont.localeFingerprint === localeFingerprint
+        ) {
+          response = cachedFont.response;
+        } else if (deltaAllowed && changedLocales.length === 0) {
+          response = cachedFont!.response;
+        } else {
+          const coverageStarted = Date.now();
+          response = await nativeTools.validateFontCoverage({
+            projectRoot: snapshot.projectRoot,
+            locales: changedLocales,
+          });
+          fontCoverageNativeMs = Date.now() - coverageStarted;
+        }
+        if (stageCache && fontRevisions !== null && response.ok && response.success) {
+          stageCache.font = {
+            dependencyRevision: sourceWork.localizationCoverageDependencyRevision,
+            fontRevisions,
+            localeFingerprint,
+            response,
+            ...(response.diagnostics.length === 0
+              ? {
+                  provenMessages: Object.fromEntries(
+                    locales.map((locale) => [locale.locale, fontCoverageMessageIdentities(locale)]),
+                  ),
+                  stackIdentities,
+                }
+              : {}),
+          };
+          stageCacheChanged = true;
+        }
+      }
       diagnostics.push(
         ...response.diagnostics.map((item) =>
           cliDiagnostic(
@@ -387,9 +569,11 @@ export async function validateCliProject(
   }
   const hasShaders = Object.keys(snapshot.project.materials).length > 0;
   if (hasShaders && !diagnostics.some((item) => item.severity === 'error')) {
+    const shaderPreparationStarted = Date.now();
     const shaderProject = await buildShaderMaterialProject(snapshot.project, [], {
       certifyPresetPrograms: true,
     });
+    shaderPreparationMs = Date.now() - shaderPreparationStarted;
     diagnostics.push(
       ...shaderProject.diagnostics.map((item) =>
         cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
@@ -397,12 +581,49 @@ export async function validateCliProject(
     );
     if (!diagnostics.some((item) => item.severity === 'error')) {
       try {
-        const response = await nativeTools.compileShaders(shaderProject.compilation, {
-          projectRoot: snapshot.projectRoot,
-          outputRoot: path.join(snapshot.projectRoot, '.noveltea', 'build'),
-          cacheRoot: path.join(snapshot.projectRoot, '.noveltea', 'cache'),
-          shaderVariants: ['glsl-330', 'essl-300', 'metal'],
-        });
+        const proofStarted = Date.now();
+        const shaderRevisions =
+          stageCache && fileSystem ? await shaderSourceRevisions(fileSystem, snapshot) : null;
+        shaderRevisionProofMs = Date.now() - proofStarted;
+        const inputKey =
+          shaderRevisions === null
+            ? null
+            : JSON.stringify([shaderProject.compilation, shaderRevisions]);
+        let response;
+        const outputProofStarted = Date.now();
+        if (
+          inputKey !== null &&
+          stageCache?.shader?.inputKey === inputKey &&
+          fileSystem &&
+          (await shaderOutputsStillValid(
+            fileSystem,
+            snapshot.projectRoot,
+            stageCache.shader.response,
+          ))
+        ) {
+          response = stageCache.shader.response;
+        } else {
+          const shaderNativeStarted = Date.now();
+          response = await nativeTools.compileShaders(shaderProject.compilation, {
+            projectRoot: snapshot.projectRoot,
+            outputRoot: path.join(snapshot.projectRoot, '.noveltea', 'build'),
+            cacheRoot: path.join(snapshot.projectRoot, '.noveltea', 'cache'),
+            shaderVariants: ['glsl-330', 'essl-300', 'metal'],
+          });
+          shaderNativeMs = Date.now() - shaderNativeStarted;
+          if (
+            inputKey !== null &&
+            stageCache &&
+            fileSystem &&
+            response.ok &&
+            response.success &&
+            (await shaderOutputsStillValid(fileSystem, snapshot.projectRoot, response))
+          ) {
+            stageCache.shader = { inputKey, response };
+            stageCacheChanged = true;
+          }
+        }
+        shaderOutputProofMs += Math.max(0, Date.now() - outputProofStarted - shaderNativeMs);
         diagnostics.push(
           ...(response.diagnostics ?? []).map((item) =>
             cliDiagnostic(
@@ -414,10 +635,12 @@ export async function validateCliProject(
           ),
         );
         if (response.success) {
+          const shaderReflectionStarted = Date.now();
           const reflectedProject = await buildShaderMaterialProject(
             snapshot.project,
             response.outputs ?? [],
           );
+          shaderReflectionMs = Date.now() - shaderReflectionStarted;
           diagnostics.push(
             ...reflectedProject.diagnostics.map((item) =>
               cliDiagnostic('shader.material_project', item.path, item.message, item.severity),
@@ -442,6 +665,8 @@ export async function validateCliProject(
       }
     }
   }
+  if (stageCache && fileSystem && stageCacheChanged)
+    await publishValidationStageCache(fileSystem, stageCache);
   return {
     ok: !diagnostics.some((item) => item.severity === 'error'),
     diagnostics,
@@ -449,10 +674,18 @@ export async function validateCliProject(
     authoringDependencyAnalysis: dependencyAnalysis,
     authoringValidationMetrics: {
       preflightMs,
+      distributionNoticeMs,
       dependencyMs,
       nativeMs: Date.now() - nativeStarted,
       fontCoveragePreparationMs,
       fontCoverageNativeMs,
+      shaderPreparationMs,
+      shaderNativeMs,
+      shaderReflectionMs,
+      validationStageCacheReadMs,
+      fontRevisionProofMs,
+      shaderRevisionProofMs,
+      shaderOutputProofMs,
       dependencyWork: dependencyAnalysis.work,
       compilerWork: {
         wholeProjectNormalizations: preflight.stages.some(
