@@ -55,8 +55,7 @@ import {
   activeFontRevisions,
   publishValidationStageCache,
   readValidationStageCache,
-  shaderOutputsStillValid,
-  shaderSourceRevisions,
+  compileWithVerifiedValidationCache,
 } from './validation-stage-cache';
 import { cliDiagnostic, type NovelTeaCliDiagnostic } from './contracts';
 import type { NovelTeaCliExitCode } from './contracts';
@@ -581,49 +580,30 @@ export async function validateCliProject(
     );
     if (!diagnostics.some((item) => item.severity === 'error')) {
       try {
-        const proofStarted = Date.now();
-        const shaderRevisions =
-          stageCache && fileSystem ? await shaderSourceRevisions(fileSystem, snapshot) : null;
-        shaderRevisionProofMs = Date.now() - proofStarted;
-        const inputKey =
-          shaderRevisions === null
-            ? null
-            : JSON.stringify([shaderProject.compilation, shaderRevisions]);
-        let response;
-        const outputProofStarted = Date.now();
-        if (
-          inputKey !== null &&
-          stageCache?.shader?.inputKey === inputKey &&
-          fileSystem &&
-          (await shaderOutputsStillValid(
-            fileSystem,
-            snapshot.projectRoot,
-            stageCache.shader.response,
-          ))
-        ) {
-          response = stageCache.shader.response;
-        } else {
-          const shaderNativeStarted = Date.now();
-          response = await nativeTools.compileShaders(shaderProject.compilation, {
-            projectRoot: snapshot.projectRoot,
-            outputRoot: path.join(snapshot.projectRoot, '.noveltea', 'build'),
-            cacheRoot: path.join(snapshot.projectRoot, '.noveltea', 'cache'),
-            shaderVariants: ['glsl-330', 'essl-300', 'metal'],
-          });
-          shaderNativeMs = Date.now() - shaderNativeStarted;
-          if (
-            inputKey !== null &&
-            stageCache &&
-            fileSystem &&
-            response.ok &&
-            response.success &&
-            (await shaderOutputsStillValid(fileSystem, snapshot.projectRoot, response))
-          ) {
-            stageCache.shader = { inputKey, response };
-            stageCacheChanged = true;
-          }
-        }
-        shaderOutputProofMs += Math.max(0, Date.now() - outputProofStarted - shaderNativeMs);
+        const options = {
+          projectRoot: snapshot.projectRoot,
+          outputRoot: path.join(snapshot.projectRoot, '.noveltea', 'build'),
+          cacheRoot: path.join(snapshot.projectRoot, '.noveltea', 'cache'),
+          shaderVariants: ['glsl-330', 'essl-300', 'metal'],
+        };
+        const previousShader = stageCache?.shader;
+        const response = await compileWithVerifiedValidationCache(
+          fileSystem,
+          snapshot.projectRoot,
+          nativeTools.validationCacheIdentity,
+          shaderProject.compilation,
+          options,
+          () => nativeTools.compileShaders(shaderProject.compilation, options),
+          {
+            cache: stageCache ?? undefined,
+            onTiming(stage, milliseconds) {
+              if (stage === 'revision') shaderRevisionProofMs += milliseconds;
+              else if (stage === 'outputs') shaderOutputProofMs += milliseconds;
+              else shaderNativeMs += milliseconds;
+            },
+          },
+        );
+        stageCacheChanged ||= stageCache?.shader !== previousShader;
         diagnostics.push(
           ...(response.diagnostics ?? []).map((item) =>
             cliDiagnostic(

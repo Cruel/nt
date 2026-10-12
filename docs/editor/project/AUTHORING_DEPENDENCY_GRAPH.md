@@ -131,15 +131,18 @@ without making Room placement IDs project-wide record nodes.
 
 ## Field metadata and audits
 
-`editor/src/shared/project-schema/authoring-graph-field-metadata.ts` derives the complete authoring
-field-path set from `authoringProjectSchema` and assigns every leaf an explicit intrinsic graph
-effect. A per-schema-root fingerprint is pinned in source. Adding, removing, or reshaping an
+`editor/src/shared/project-schema/authoring-graph-field-metadata-review.ts` derives the complete
+authoring field-path set from `authoringProjectSchema` and assigns every leaf an explicit intrinsic
+graph effect. Build-time generation emits the checked runtime table; `authoring-graph-field-metadata.ts`
+queries it through lazy root/depth indexes rather than walking schemas at startup. A per-schema-root fingerprint is pinned in source. Adding, removing, or reshaping an
 authoring field therefore fails the graph metadata audit until its effect is reviewed and the
 fingerprint is deliberately updated. There is no implicit graph-stable default for new schema
 fields.
 
 The generated classifier supports concrete wildcard matching and conservative structural fallback
-for known parent paths. `assertGraphInputRegistryComplete()` compares fresh full construction,
+for known parent paths. Workspace edit batches share one semantic/localization/graph classification
+through `project-workspace/workspace-edit-effects.ts`; source authority and conservative graph closure
+remain workspace-owned. See [incremental validation contracts](VALIDATION_INCREMENTAL_AUDIT.md). `assertGraphInputRegistryComplete()` compares fresh full construction,
 contribution-set assembly, and incremental contribution replacement for representative mutations.
 It also proves declared `none` fields leave graph output unchanged.
 

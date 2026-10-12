@@ -46,42 +46,50 @@ export const CURRENT_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string,
 export const EXPECTED_AUTHORING_GRAPH_FIELD_FINGERPRINTS: Readonly<Record<string, string>> =
   REVIEWED_GRAPH_FIELD_FINGERPRINTS;
 
-function patternSegmentMatches(pattern: string, actual: string): boolean {
-  return pattern === '*' || pattern === actual;
+interface IndexedField {
+  readonly field: AuthoringGraphFieldMetadata;
+  readonly segments: readonly string[];
 }
 
-function patternMatchesConcretePath(pattern: JsonPointer, path: JsonPointer): boolean {
-  const patternSegments = parseJsonPointer(pattern);
-  const pathSegments = parseJsonPointer(path);
-  if (patternSegments.length !== pathSegments.length) return false;
-  return patternSegments.every((segment, index) =>
-    patternSegmentMatches(segment, pathSegments[index]!),
-  );
+const fieldsByRoot = new Map<string, AuthoringGraphFieldMetadata[]>();
+for (const field of AUTHORING_GRAPH_FIELD_METADATA) {
+  const fields = fieldsByRoot.get(field.schemaRoot) ?? [];
+  fields.push(field);
+  fieldsByRoot.set(field.schemaRoot, fields);
 }
+const indexesByRoot = new Map<string, ReadonlyMap<number, readonly IndexedField[]>>();
 
-function concretePathIsSchemaAncestor(path: JsonPointer, pattern: JsonPointer): boolean {
-  const pathSegments = parseJsonPointer(path);
-  const patternSegments = parseJsonPointer(pattern);
-  if (pathSegments.length >= patternSegments.length) return false;
-  return pathSegments.every((segment, index) =>
-    patternSegmentMatches(patternSegments[index]!, segment),
-  );
+function rootIndex(root: string): ReadonlyMap<number, readonly IndexedField[]> {
+  const cached = indexesByRoot.get(root);
+  if (cached) return cached;
+  // Only parse roots that are queried; cold CLI startup needs no field lookup.
+  const byDepth = new Map<number, IndexedField[]>();
+  for (const field of fieldsByRoot.get(root) ?? []) {
+    const segments = parseJsonPointer(field.path);
+    const fields = byDepth.get(segments.length) ?? [];
+    fields.push({ field, segments });
+    byDepth.set(segments.length, fields);
+  }
+  indexesByRoot.set(root, byDepth);
+  return byDepth;
 }
 
 export function classifyAuthoringGraphInputPath(
   path: JsonPointer,
 ): AuthoringGraphInputClassification | undefined {
-  const direct = AUTHORING_GRAPH_FIELD_METADATA.filter((field) =>
-    patternMatchesConcretePath(field.path, path),
-  ).sort(
-    (left, right) => parseJsonPointer(right.path).length - parseJsonPointer(left.path).length,
-  )[0];
-  if (direct) return Object.freeze({ path, effect: direct.effect });
-  if (
-    AUTHORING_GRAPH_FIELD_METADATA.some((field) => concretePathIsSchemaAncestor(path, field.path))
-  ) {
+  const segments = parseJsonPointer(path);
+  if (segments.length === 0)
     return Object.freeze({ path, effect: { kind: 'structural' as const } });
-  }
+  const matches = (field: IndexedField) =>
+    segments.every(
+      (segment, index) => field.segments[index] === '*' || field.segments[index] === segment,
+    );
+  const index = rootIndex(segments[0] ?? '');
+  const direct = index.get(segments.length)?.find(matches);
+  if (direct) return Object.freeze({ path, effect: direct.field.effect });
+  for (const [depth, fields] of index)
+    if (depth > segments.length && fields.some(matches))
+      return Object.freeze({ path, effect: { kind: 'structural' as const } });
   return undefined;
 }
 

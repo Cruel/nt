@@ -49,8 +49,11 @@ sources, rather than silently pruning dependencies.
 
 ### Native shaders
 
-Both export paths can reuse the exact native shader validation cache shared
-with CLI `validate`. Reuse requires matching native identity, shader
+CLI `validate` and both export paths use the same
+`compileWithVerifiedValidationCache` operation in `cli/validation-stage-cache.ts`.
+Validation supplies its current cache for batched font/shader publication and
+stage timings; export uses independent publication. Both paths therefore share
+input proof, output verification, cache misses, and compiler invocation. Reuse requires matching native identity, shader
 declarations, source hashes, default three-variant target, and verified
 compiled output bytes. Custom target variants, forced rebuilds, pinned
 source overlays and nonstandard compiler roots bypass the cache.

@@ -282,15 +282,29 @@ export async function shaderOutputsStillValid(
  * Bypass on forced rebuilds, source overlays or target-specific compiler roots.
  */
 export async function compileWithVerifiedValidationCache(
-  fileSystem: ProjectWorkspaceFileSystem,
+  fileSystem: ProjectWorkspaceFileSystem | undefined,
   root: string,
   identity: string | undefined,
   compilation: unknown,
   options: ShaderCompileOptions,
   compile: () => Promise<ShaderCompileResponse>,
+  observation?: {
+    /** A validation invocation batches font and shader cache publication. */
+    cache?: StageCache;
+    onTiming?: (stage: 'revision' | 'outputs' | 'native', milliseconds: number) => void;
+  },
 ): Promise<ShaderCompileResponse> {
+  const timed = async <T>(stage: 'revision' | 'outputs' | 'native', action: () => Promise<T>) => {
+    const start = Date.now();
+    try {
+      return await action();
+    } finally {
+      observation?.onTiming?.(stage, Date.now() - start);
+    }
+  };
   const standardVariants = ['glsl-330', 'essl-300', 'metal'];
   if (
+    !fileSystem ||
     !identity ||
     options.forceRebuild ||
     Object.keys(options.sourceOverlays ?? {}).length > 0 ||
@@ -303,26 +317,24 @@ export async function compileWithVerifiedValidationCache(
     (options.cacheRoot && options.cacheRoot !== fileSystem.joinPath(root, '.noveltea', 'cache')) ||
     options.engineShaderRoot
   )
-    return compile();
+    return timed('native', compile);
 
-  const revisions = await shaderSourceRevisions(fileSystem, { projectRoot: root });
-  if (revisions === null) return compile();
+  const revisions = await timed('revision', () =>
+    shaderSourceRevisions(fileSystem, { projectRoot: root }),
+  );
+  if (revisions === null) return timed('native', compile);
   const key = JSON.stringify([compilation, revisions]);
-  const existing = await readValidationStageCache(fileSystem, root, identity);
-  if (
-    existing.shader?.inputKey === key &&
-    (await shaderOutputsStillValid(fileSystem, root, existing.shader.response))
-  )
+  const existing =
+    observation?.cache ?? (await readValidationStageCache(fileSystem, root, identity));
+  const outputsValid = (response: ShaderCompileResponse) =>
+    timed('outputs', () => shaderOutputsStillValid(fileSystem, root, response));
+  if (existing.shader?.inputKey === key && (await outputsValid(existing.shader.response)))
     return existing.shader.response;
 
-  const response = await compile();
-  if (
-    response.ok &&
-    response.success &&
-    (await shaderOutputsStillValid(fileSystem, root, response))
-  ) {
+  const response = await timed('native', compile);
+  if (response.ok && response.success && (await outputsValid(response))) {
     existing.shader = { inputKey: key, response };
-    await publishValidationStageCache(fileSystem, existing);
+    if (!observation?.cache) await publishValidationStageCache(fileSystem, existing);
   }
   return response;
 }
