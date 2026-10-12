@@ -30,6 +30,7 @@ public:
     virtual void suspend() noexcept = 0;
     [[nodiscard]] virtual assets::AssetRequestState state() const noexcept = 0;
     [[nodiscard]] virtual const char* backend() const noexcept { return "unknown"; }
+    [[nodiscard]] virtual std::string fallback_reason() const { return {}; }
     [[nodiscard]] virtual bool frame_addressable() const noexcept { return false; }
     [[nodiscard]] virtual bool sample_ready(std::uint64_t) const noexcept { return false; }
 };

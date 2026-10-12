@@ -10,8 +10,12 @@
 #include <SDL3/SDL.h>
 
 #include <bgfx/bgfx.h>
+#if defined(__EMSCRIPTEN__) && NOVELTEA_ENABLE_DEVTOOLS
+#include <GLES2/gl2.h>
+#endif
 
 #include <algorithm>
+#include <array>
 #include <cstdarg>
 #include <cstdint>
 #include <cstdio>
@@ -64,6 +68,75 @@ namespace {
 }
 
 } // namespace
+
+#if NOVELTEA_ENABLE_DEVTOOLS
+namespace {
+RendererDeviceDiagnostics capture_device_diagnostics()
+{
+    RendererDeviceDiagnostics result;
+    const auto capture = [&](auto get_string) {
+        if (const auto* vendor = get_string(0x1f00))
+            result.vendor = reinterpret_cast<const char*>(vendor);
+        if (const auto* device = get_string(0x1f01))
+            result.device = reinterpret_cast<const char*>(device);
+    };
+    const auto renderer = bgfx::getRendererType();
+    if (renderer == bgfx::RendererType::OpenGL || renderer == bgfx::RendererType::OpenGLES) {
+#if defined(__EMSCRIPTEN__)
+        capture(glGetString);
+#else
+        // Query only bgfx's current context; never create a second context to infer its device.
+#if defined(_WIN32)
+        const std::array libraries{"opengl32.dll"};
+        constexpr const char* current_name = "wglGetCurrentContext";
+#elif defined(__ANDROID__)
+        const std::array libraries{"libEGL.so"};
+        constexpr const char* current_name = "eglGetCurrentContext";
+#else
+        const std::array libraries{"libEGL.so.1", "libGL.so.1"};
+        constexpr const char* current_name = "eglGetCurrentContext";
+#endif
+        for (const auto* name : libraries) {
+            auto* library = SDL_LoadObject(name);
+            if (!library)
+                continue;
+            using Current = void* (*)();
+            using GetString = const unsigned char* (*)(unsigned);
+            using GetProc = SDL_FunctionPointer (*)(const char*);
+            auto current = reinterpret_cast<Current>(SDL_LoadFunction(library, current_name));
+            if (!current)
+                current =
+                    reinterpret_cast<Current>(SDL_LoadFunction(library, "glXGetCurrentContext"));
+            if (current && current()) {
+                auto get_string =
+                    reinterpret_cast<GetString>(SDL_LoadFunction(library, "glGetString"));
+                if (!get_string) {
+                    auto get_proc =
+                        reinterpret_cast<GetProc>(SDL_LoadFunction(library, "eglGetProcAddress"));
+                    if (get_proc)
+                        get_string = reinterpret_cast<GetString>(get_proc("glGetString"));
+                }
+                if (get_string)
+                    capture(get_string);
+            }
+            SDL_UnloadObject(library);
+            if (!result.device.empty())
+                break;
+        }
+#endif
+    }
+    result.acceleration = renderer_acceleration(result.vendor, result.device);
+    if (result.device.empty()) {
+        const auto* caps = bgfx::getCaps();
+        char identity[64];
+        std::snprintf(identity, sizeof(identity), "PCI vendor 0x%04x / device 0x%04x",
+                      caps->vendorId, caps->deviceId);
+        result.device = identity;
+    }
+    return result;
+}
+} // namespace
+#endif
 
 class RendererCallback final : public bgfx::CallbackI {
 public:
@@ -180,6 +253,9 @@ bool Renderer::initialize(const RendererConfig& config)
     m_vsync = config.vsync;
     m_assets = config.assets;
     m_initialized = true;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    m_device_diagnostics = capture_device_diagnostics();
+#endif
 
     bgfx::setDebug(BGFX_DEBUG_TEXT);
     bgfx::setViewClear(ViewPresentationClear, BGFX_CLEAR_COLOR | BGFX_CLEAR_DEPTH, m_bar_color_rgba,
@@ -424,6 +500,7 @@ void Renderer::shutdown()
         m_bgfx_frame = 0;
         m_backbuffer_size = {};
         m_initialized = false;
+        m_device_diagnostics = {};
         std::printf("[renderer] bgfx shutdown\n");
     }
 }

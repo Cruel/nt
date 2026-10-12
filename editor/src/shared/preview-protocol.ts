@@ -429,6 +429,22 @@ export interface DevtoolsHostSurfaceSnapshot {
 export interface DevtoolsHostSnapshot {
   platform: string;
   renderer: string;
+  gpu: {
+    vendor: string;
+    device: string;
+    acceleration: 'hardware' | 'software' | 'unknown';
+  };
+  videoHardware: {
+    backend: string;
+    status: 'not-probed' | 'unconfirmed' | 'unavailable' | 'confirmed' | 'browser-managed';
+    reason: string;
+  };
+  videoOccurrences: Array<{
+    identity: string;
+    backend: string;
+    mode: 'hardware' | 'software' | 'pending' | 'browser-managed' | 'unknown';
+    fallbackReason: string;
+  }>;
   hostGeneration: number | null;
   surface: DevtoolsHostSurfaceSnapshot;
 }
@@ -1582,7 +1598,45 @@ export function isDevtoolsSnapshot(value: unknown): value is DevtoolsSnapshot {
     return false;
   if (
     !Object.keys(value.host).every((key) =>
-      ['platform', 'renderer', 'hostGeneration', 'surface'].includes(key),
+      [
+        'platform',
+        'renderer',
+        'gpu',
+        'videoHardware',
+        'videoOccurrences',
+        'hostGeneration',
+        'surface',
+      ].includes(key),
+    )
+  )
+    return false;
+  const { gpu, videoHardware, videoOccurrences } = value.host;
+  if (
+    !isRecord(gpu) ||
+    typeof gpu.vendor !== 'string' ||
+    typeof gpu.device !== 'string' ||
+    !['hardware', 'software', 'unknown'].includes(gpu.acceleration as string) ||
+    !Object.keys(gpu).every((key) => ['vendor', 'device', 'acceleration'].includes(key)) ||
+    !isRecord(videoHardware) ||
+    typeof videoHardware.backend !== 'string' ||
+    typeof videoHardware.reason !== 'string' ||
+    !['not-probed', 'unconfirmed', 'unavailable', 'confirmed', 'browser-managed'].includes(
+      videoHardware.status as string,
+    ) ||
+    !Object.keys(videoHardware).every((key) => ['backend', 'status', 'reason'].includes(key)) ||
+    !Array.isArray(videoOccurrences) ||
+    !videoOccurrences.every(
+      (entry) =>
+        isRecord(entry) &&
+        typeof entry.identity === 'string' &&
+        typeof entry.backend === 'string' &&
+        typeof entry.fallbackReason === 'string' &&
+        ['hardware', 'software', 'pending', 'browser-managed', 'unknown'].includes(
+          entry.mode as string,
+        ) &&
+        Object.keys(entry).every((key) =>
+          ['identity', 'backend', 'mode', 'fallbackReason'].includes(key),
+        ),
     )
   )
     return false;

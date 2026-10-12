@@ -1032,6 +1032,16 @@ describe('preview protocol validation', () => {
       host: {
         platform: 'SDL3',
         renderer: 'OpenGL',
+        gpu: { vendor: 'Microsoft', device: 'D3D12 (NVIDIA)', acceleration: 'hardware' },
+        videoHardware: { backend: 'va-api-vp9', status: 'unavailable', reason: 'No DRM device' },
+        videoOccurrences: [
+          {
+            identity: 'video',
+            backend: 'libvpx-vp9',
+            mode: 'software',
+            fallbackReason: 'No usable hardware decoder',
+          },
+        ],
         hostGeneration: 12,
         surface: {
           logicalWidth: 1280,
@@ -1384,6 +1394,24 @@ describe('preview protocol validation', () => {
       }),
     ).toBe(false);
     expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, runtime: {} })).toBe(false);
+    const { gpu: _gpu, ...oldHost } = devtoolsSnapshot.host;
+    expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, host: oldHost })).toBe(false);
+    for (const host of [
+      {
+        ...devtoolsSnapshot.host,
+        gpu: { ...devtoolsSnapshot.host.gpu, acceleration: 'available' },
+      },
+      {
+        ...devtoolsSnapshot.host,
+        videoHardware: { ...devtoolsSnapshot.host.videoHardware, status: 'supported' },
+      },
+      {
+        ...devtoolsSnapshot.host,
+        videoOccurrences: [{ ...devtoolsSnapshot.host.videoOccurrences[0], mode: 'gpu' }],
+      },
+      { ...devtoolsSnapshot.host, gpu: { ...devtoolsSnapshot.host.gpu, unexpected: true } },
+    ])
+      expect(isDevtoolsSnapshot({ ...devtoolsSnapshot, host })).toBe(false);
     expect(
       isDevtoolsSnapshot({
         ...devtoolsSnapshot,

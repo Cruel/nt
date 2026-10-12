@@ -260,10 +260,25 @@ nlohmann::json devtools_snapshot_json(const noveltea::devtools::DevtoolsSnapshot
              {"hovered", hotspot.hovered},
              {"pressed", hotspot.pressed}});
     }
+    auto video_occurrences = nlohmann::json::array();
+    for (const auto& occurrence : value.host.video_occurrences)
+        video_occurrences.push_back({{"identity", occurrence.identity},
+                                     {"backend", occurrence.backend},
+                                     {"mode", occurrence.mode},
+                                     {"fallbackReason", occurrence.fallback_reason}});
     return {
         {"host",
          {{"platform", value.host.platform},
           {"renderer", value.host.renderer},
+          {"gpu",
+           {{"vendor", value.host.gpu.vendor},
+            {"device", value.host.gpu.device},
+            {"acceleration", value.host.gpu.acceleration}}},
+          {"videoHardware",
+           {{"backend", value.host.video_hardware.backend},
+            {"status", value.host.video_hardware.status},
+            {"reason", value.host.video_hardware.reason}}},
+          {"videoOccurrences", std::move(video_occurrences)},
           {"hostGeneration", value.host.host_generation
                                  ? nlohmann::json(*value.host.host_generation)
                                  : nlohmann::json(nullptr)},

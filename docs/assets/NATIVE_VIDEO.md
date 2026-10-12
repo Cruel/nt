@@ -16,7 +16,10 @@ encoded media fails through typed asset/presentation diagnostics.
   on DRM render nodes; macOS uses hardware-required VideoToolbox; Windows uses hardware MFTs with
   D3D11 NV12 staging; Android selects hardware MediaCodec entries and accepts supported mapped YUV
   layouts. Native interfaces are private and use platform status/error returns, not C++ exceptions
-  or compiler RTTI. Backend names are logged at admission and exposed by the stream.
+  or compiler RTTI. Backend names are logged at admission and exposed by the stream. Software
+  fallback reasons are retained with decoder/session diagnostics. The shared Devtools Snapshot and
+  native ImGui Render section separate GPU rendering acceleration, hardware-decoder availability,
+  and selected per-occurrence decoding; see `docs/runtime/DEVELOPER_DEBUGGING.md`.
 - If selection or first-sample realization cannot provide usable YUV output, libvpx decodes the
   **same prepared VP9 stream**. Once an occurrence publishes a decoded sample, later backend errors
   are terminal rather than an invisible backend/content substitution. Linux's VP9 header adapter

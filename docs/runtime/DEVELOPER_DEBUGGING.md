@@ -109,6 +109,23 @@ retained history does not restart the runtime or disable capture. The native fro
 complete currently retained buffers rather than silently truncating them to a smaller presentation
 limit.
 
+The native **Render** section also shows renderer-owned device/vendor identity and a conservative
+hardware/software/unknown acceleration classification. OpenGL/GLES identity comes from bgfx's actual
+current context, not a separate probe context or the desktop display's `glxinfo`. If the context or
+backend does not expose a name, PCI identity is retained and acceleration remains unknown.
+
+Video diagnostics are separate from rendering acceleration. The shared snapshot's host section
+contains `gpu`, `videoHardware`, and `videoOccurrences`; editor transport and debug reports preserve
+those same fields. Hardware video status is `not-probed`, `unconfirmed`, `unavailable`, `confirmed`,
+or `browser-managed`. Software playback changes an otherwise unprobed candidate to `unconfirmed`,
+not a claim that the entire platform lacks hardware support. An accessible Linux DRM node alone is not proof of VP9 support; absence of an
+accessible node explains why the VA-API adapter cannot use WSL's `/dev/dxg`. `confirmed` requires a
+hardware-decoded sample in the current world presentation. Each current-world video occurrence
+(including focused Room preview and retained transition frames) reports its selected backend,
+hardware/software/pending/browser-managed/unknown mode, and any software-fallback reason. Idle or
+browser-managed playback never implies confirmed hardware decoding. These observations do not open
+extra decoders, change backend selection, or become gameplay state.
+
 The editor Play inspector uses the current Devtools Snapshot directly for Input Routing, RmlUi State,
 and World Hotspots sections. World state keeps under-pointer/hovered/pressed Hotspots visible first
 while retaining the complete resolved Hotspot set in a collapsed subsection. Console and Trace remain

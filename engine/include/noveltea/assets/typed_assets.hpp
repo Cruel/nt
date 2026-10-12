@@ -109,6 +109,7 @@ public:
     virtual ~VideoTextureSession() = default;
     [[nodiscard]] virtual std::uint64_t identity() const noexcept = 0;
     [[nodiscard]] virtual const char* backend() const noexcept = 0;
+    [[nodiscard]] virtual std::string fallback_reason() const { return {}; }
     [[nodiscard]] virtual std::uint64_t uploads_on_owner() const noexcept = 0;
     // Uploads must not overwrite the sample currently held by presentation.
     virtual void set_presented_texture_on_owner(std::uint16_t handle) noexcept = 0;
