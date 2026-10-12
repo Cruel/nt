@@ -12,6 +12,7 @@
 #include <algorithm>
 
 #include "render/bgfx/bgfx_shader_loader.hpp"
+#include "render/bgfx/bgfx_renderer_internal.hpp"
 
 namespace noveltea {
 
@@ -110,7 +111,7 @@ void ImGuiBgfxRenderer::render(ImDrawData* draw_data, int width, int height)
         return;
     }
 
-    bgfx::touch(250);
+    bgfx::touch(bgfx_backend::ViewDebugUI);
 
     if (draw_data->CmdListsCount == 0) {
         return;
@@ -127,9 +128,9 @@ void ImGuiBgfxRenderer::render(ImDrawData* draw_data, int width, int height)
     const uint16_t fbWidth = static_cast<uint16_t>(fbWidthF);
     const uint16_t fbHeight = static_cast<uint16_t>(fbHeightF);
 
-    bgfx::setViewName(250, "ImGui");
-    bgfx::setViewRect(250, 0, 0, fbWidth, fbHeight);
-    bgfx::setViewClear(250, BGFX_CLEAR_NONE);
+    bgfx::setViewName(bgfx_backend::ViewDebugUI, "ImGui");
+    bgfx::setViewRect(bgfx_backend::ViewDebugUI, 0, 0, fbWidth, fbHeight);
+    bgfx::setViewClear(bgfx_backend::ViewDebugUI, BGFX_CLEAR_NONE);
 
     const float x = draw_data->DisplayPos.x;
     const float y = draw_data->DisplayPos.y;
@@ -159,8 +160,8 @@ void ImGuiBgfxRenderer::render(ImDrawData* draw_data, int width, int height)
     ortho[14] = ff;
     ortho[15] = 1.0f;
 
-    bgfx::setViewTransform(250, NULL, ortho);
-    bgfx::setViewMode(250, bgfx::ViewMode::Sequential);
+    bgfx::setViewTransform(bgfx_backend::ViewDebugUI, NULL, ortho);
+    bgfx::setViewMode(bgfx_backend::ViewDebugUI, bgfx::ViewMode::Sequential);
 
     bgfx::VertexLayout layout;
     layout.begin()
@@ -242,7 +243,7 @@ void ImGuiBgfxRenderer::render(ImDrawData* draw_data, int width, int height)
             encoder->setVertexBuffer(0, &tvb, cmd->VtxOffset, numVertices);
             encoder->setIndexBuffer(&tib, cmd->IdxOffset, cmd->ElemCount);
 
-            encoder->submit(250, program);
+            encoder->submit(bgfx_backend::ViewDebugUI, program);
         }
 
         bgfx::end(encoder);

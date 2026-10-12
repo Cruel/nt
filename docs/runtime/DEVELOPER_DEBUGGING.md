@@ -98,8 +98,10 @@ or recover an off-screen window. Once the second finger captures the gesture, th
 pending UI press is canceled and subsequent gesture/synthesized-mouse events are consumed. The first
 press may already have reached gameplay before the second finger arrives; ordinary single-touch
 input is intentionally not delayed. Production/devtools-off builds do not recognize this shortcut.
-A **Developer UI** section exposes independent 50–250% scales
-for ImGui and the embedded RmlUi debugger. Both are absolute scales rather than cumulative style
+The ImGui backend submits through the shared renderer
+`ViewDebugUI` slot, after game presentation and its clears; it must not use a fixed numeric view ID
+because native media conversions shift the presentation view range. A **Developer UI** section exposes
+independent 50–250% scales for ImGui and the embedded RmlUi debugger. Both are absolute scales rather than cumulative style
 multipliers, and they persist through ImGui's normal ini settings. The Dear ImGui frontend consumes
 the same Devtools Snapshot, Console, and Trace contracts as editor tooling. Its Console and Trace
 sections have explicit Clear actions, filtering, and presentation-only freeze controls; clearing

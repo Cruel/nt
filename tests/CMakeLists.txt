@@ -667,6 +667,12 @@ if(TARGET bgfx::bimg_decode)
 elseif(TARGET bimg_decode)
     target_link_libraries(noveltea_render_backend_tests PRIVATE bimg_decode)
 endif()
+get_target_property(NOVELTEA_ENGINE_DEFINITIONS noveltea_engine COMPILE_DEFINITIONS)
+if("NOVELTEA_HAS_IMGUI" IN_LIST NOVELTEA_ENGINE_DEFINITIONS)
+    target_sources(noveltea_render_backend_tests PRIVATE render/imgui_composition_tests.cpp)
+    target_compile_definitions(noveltea_render_backend_tests PRIVATE
+        NOVELTEA_TEST_RUNTIME_ASSET_ROOT="${NOVELTEA_RUNTIME_ASSET_ROOT}")
+endif()
 noveltea_attach_generated_shaders(noveltea_render_backend_tests)
 catch_discover_tests(noveltea_render_backend_tests)
 
