@@ -39,6 +39,8 @@ import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts
 import { assetRef } from '../../shared/project-schema/authoring-project-settings';
 import { rendererRuntimeArtifactPaths } from '../export/runtime-artifact-adapters';
 import type { ShaderCompileOutput } from '../../shared/editor-tooling';
+import { validateAdmittedAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import { buildAuthoringDependencyGraph } from '../../shared/authoring-dependency-graph';
 
 function roomProject() {
   const project = createAuthoringProject({
@@ -117,6 +119,157 @@ function compiledShaderOutput(
 }
 
 describe('Prepared Runtime Artifact module', () => {
+  it('reuses an admitted source graph without re-reading project Lua sources', async () => {
+    const project = createAuthoringProject({ name: 'Graph Reuse' });
+    project.rooms.foyer = {
+      id: 'foyer',
+      label: 'Foyer',
+      data: defaultRoomData('Foyer'),
+    };
+    project.entrypoint = { kind: 'room', id: 'foyer' };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.dependencies.scripts = ['scripts/layout-helper.lua'];
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const source = 'return {}';
+    const digest = `sha256:${createHash('sha256').update(source).digest('hex')}` as const;
+    const paths = {
+      ...rendererRuntimeArtifactPaths,
+      readProjectTextSources: async (
+        _root: string | null,
+        entries: readonly { assetId: string; projectRelativePath: string }[],
+      ) =>
+        entries.map((entry) => ({
+          status: 'ready' as const,
+          ...entry,
+          contentHash: digest,
+          text: source,
+        })),
+    };
+    const graph = await buildAuthoringDependencyGraph(project, {
+      mode: 'enabled',
+      sources: {
+        entriesByAssetId: new Map(),
+        entriesByProjectPath: new Map([
+          [
+            'scripts/layout-helper.lua',
+            {
+              status: 'ready' as const,
+              projectRelativePath: 'scripts/layout-helper.lua',
+              contentHash: digest,
+              text: source,
+              hadUtf8Bom: false,
+            },
+          ],
+        ]),
+      },
+    });
+    const baseline = await prepareRuntimeArtifact({
+      project,
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
+      intent: 'runtime-package-preflight',
+      paths,
+    });
+    const reused = await prepareRuntimeArtifact({
+      project,
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
+      intent: 'runtime-package-preflight',
+      admittedSourceGraph: {
+        graph,
+        project,
+        externalSourceRevisions: new Map([
+          ['scripts/layout-helper.lua', { contentHash: digest, byteSize: source.length }],
+        ]),
+      },
+      paths: {
+        ...paths,
+        async readProjectTextSources() {
+          throw new Error('Export must reuse the admitted source graph.');
+        },
+      },
+    });
+    expect(reused.status).toBe(baseline.status);
+    if (baseline.status === 'prepared' && reused.status === 'prepared') {
+      expect(reused.artifact.compiledProject).toEqual(baseline.artifact.compiledProject);
+      expect(reused.artifact.diagnostics).toEqual(baseline.artifact.diagnostics);
+      expect(reused.artifact.packageOptions).toEqual(baseline.artifact.packageOptions);
+    }
+    let fallbackSourceReads = 0;
+    const fallback = await prepareRuntimeArtifact({
+      project,
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
+      intent: 'runtime-package-preflight',
+      admittedSourceGraph: { graph, project, externalSourceRevisions: new Map() },
+      paths: {
+        ...paths,
+        async readProjectTextSources(root, entries) {
+          fallbackSourceReads++;
+          return paths.readProjectTextSources(root, entries);
+        },
+      },
+    });
+    expect(fallbackSourceReads).toBeGreaterThan(0);
+    expect(fallback.status).toBe(baseline.status);
+    const staleProject = structuredClone(project);
+    let staleGraphReads = 0;
+    const stale = await prepareRuntimeArtifact({
+      project,
+      projectRoot: '/project',
+      profile: { ...defaultExportProfile(project), compileShadersBeforeExport: false },
+      intent: 'runtime-package-preflight',
+      admittedSourceGraph: {
+        graph,
+        project: staleProject,
+        externalSourceRevisions: new Map([
+          ['scripts/layout-helper.lua', { contentHash: digest, byteSize: source.length }],
+        ]),
+      },
+      paths: {
+        ...paths,
+        async readProjectTextSources(root, entries) {
+          staleGraphReads++;
+          return paths.readProjectTextSources(root, entries);
+        },
+      },
+    });
+    expect(staleGraphReads).toBeGreaterThan(0);
+    expect(stale.status).toBe(baseline.status);
+  });
+  it('preserves runtime output when reusing admitted authoring validation contributions', async () => {
+    const project = roomProject();
+    const profile = { ...defaultExportProfile(project), compileShadersBeforeExport: false };
+    const inputs = {
+      project,
+      projectRoot: '/project',
+      profile,
+      intent: 'runtime-package-preflight' as const,
+      paths: rendererRuntimeArtifactPaths,
+    };
+    const admitted = validateAdmittedAuthoringProject(project, {
+      contributions: [],
+      resolveInputs(paths) {
+        return paths.map((path) => ({ path, contentHash: 'unchanged' }));
+      },
+    });
+    const baseline = await prepareRuntimeArtifact(inputs);
+    const reused = await prepareRuntimeArtifact({
+      ...inputs,
+      admittedAuthoringDiagnostics: admitted.diagnostics,
+      admittedValidationContributions: admitted.contributions,
+    });
+    expect(reused.status).toBe(baseline.status);
+    expect(
+      reused.status === 'prepared' ? reused.assessment.diagnostics : reused.diagnostics,
+    ).toEqual(
+      baseline.status === 'prepared' ? baseline.assessment.diagnostics : baseline.diagnostics,
+    );
+    if (baseline.status === 'prepared' && reused.status === 'prepared') {
+      expect(reused.artifact.compiledProject).toEqual(baseline.artifact.compiledProject);
+      expect(reused.artifact.packageOptions).toEqual(baseline.artifact.packageOptions);
+    }
+  });
   it('invalidates saved Project evidence when an applicable notice changes without editing Project JSON', async () => {
     const project = roomProject();
     project.settings.distributionNotices = [{ path: 'support/licenses/LICENSE.txt' }];

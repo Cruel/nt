@@ -135,8 +135,12 @@ SHA-256 revision. Project-relative lexical escape, alternate/backslash spellings
 non-regular files, stale sessions, and changed source identity fail closed before bytes are published.
 
 Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order. Every
-authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. The
-aggregate workspace revision hashes the sorted path/revision inventory, but Save and Save All use the
+authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. Cold
+workspace admission may obtain decoded text and its exact-byte revision in one filesystem read.
+That revision identifies the bytes actually admitted, not a proof that disk remained unchanged
+later; containment checks and fresh transaction/publication proofs remain independent. Revisions
+are never computed from decoded or re-encoded text, which could change BOM or invalid UTF-8 bytes.
+The aggregate workspace revision hashes the sorted path/revision inventory, but Save and Save All use the
 selected logical save units' exact files plus their exact changed JSON paths as the concurrency
 boundary. An unrelated file change does not block a scoped save, and a disjoint change to another
 field inside the same physical record is preserved by rebasing selected paths over the newest disk

@@ -10,8 +10,8 @@ export const validateCommand: CliCommandDefinition = {
     return {
       dryRun: false,
       mutation: false,
-      run: ({ workspace, snapshot, sourceWork, nativeTools }) =>
-        validateCliProject(workspace, snapshot, sourceWork, nativeTools),
+      run: ({ fileSystem, workspace, snapshot, sourceWork, nativeTools }) =>
+        validateCliProject(workspace, snapshot, sourceWork, nativeTools, fileSystem),
     };
   },
 };

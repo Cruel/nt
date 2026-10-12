@@ -34,10 +34,7 @@ import type {
   ReferenceTarget,
 } from './project-schema/authoring-project';
 import { resolveMessage } from './message-resolution';
-import {
-  localizationMessageWorkflowView,
-  localizationMessageWorkflowViews,
-} from './authoring-localization-workflow';
+import { localizationMessageSourceViews } from './authoring-localization-workflow';
 import { systemLayoutRoleValues } from './project-schema/authoring-layouts';
 import { systemCursorNames } from './project-schema/authoring-cursor-vocabulary';
 import { isVariableRef } from './project-schema/authoring-variables';
@@ -520,19 +517,25 @@ export function replaceAuthoringDependencyGraphContributions(
     newValues: (contribution: AuthoringDependencyGraphContribution) => readonly string[],
   ): ReadonlyMap<string, readonly string[]> => {
     const touched = new Set<string>();
+    const replacementOwnersByValue = new Map<string, Set<string>>();
     for (const key of changedKeys) {
       const prior = current.byKey.get(key);
       if (prior) oldValues(prior).forEach((value) => touched.add(value));
       const replacement = replacementMap.get(key);
-      if (replacement) newValues(replacement).forEach((value) => touched.add(value));
+      if (replacement)
+        for (const value of newValues(replacement)) {
+          touched.add(value);
+          const owners = replacementOwnersByValue.get(value) ?? new Set<string>();
+          owners.add(key);
+          replacementOwnersByValue.set(value, owners);
+        }
     }
     const changes = new Map<string, readonly string[]>();
     const removed = new Set<string>();
     for (const value of touched) {
       const owners = new Set(base.get(value) ?? []);
       for (const key of changedKeys) owners.delete(key);
-      for (const [key, replacement] of replacementMap)
-        if (newValues(replacement).includes(value)) owners.add(key);
+      for (const key of replacementOwnersByValue.get(value) ?? []) owners.add(key);
       if (owners.size === 0) removed.add(value);
       else changes.set(value, sortedUnique(owners));
     }
@@ -659,16 +662,21 @@ export function patchAuthoringDependencyGraph(
     side: 'source' | 'target',
   ): ReadonlyMap<string, readonly string[]> => {
     const touched = new Set<string>();
+    const newEdgesByNode = new Map<string, Set<string>>();
     for (const edge of oldEdges.values())
       touched.add(serializeAuthoringDependencyNodeKey(edge[side]));
-    for (const edge of newEdges.values())
-      touched.add(serializeAuthoringDependencyNodeKey(edge[side]));
+    for (const edge of newEdges.values()) {
+      const key = serializeAuthoringDependencyNodeKey(edge[side]);
+      touched.add(key);
+      const ids = newEdgesByNode.get(key) ?? new Set<string>();
+      ids.add(edge.id);
+      newEdgesByNode.set(key, ids);
+    }
     const changes = new Map<string, readonly string[]>();
     const deleted = new Set<string>();
     for (const nodeKey of touched) {
       const ids = new Set((base.get(nodeKey) ?? []).filter((id) => !oldEdgeIds.has(id)));
-      for (const edge of newEdges.values())
-        if (serializeAuthoringDependencyNodeKey(edge[side]) === nodeKey) ids.add(edge.id);
+      for (const id of newEdgesByNode.get(nodeKey) ?? []) ids.add(id);
       if (ids.size === 0) deleted.add(nodeKey);
       else changes.set(nodeKey, Object.freeze([...ids].sort()));
     }
@@ -900,168 +908,180 @@ function recordImpactPaths(
   return suffixes.map((suffix) => `${base}${suffix}`);
 }
 
+const semanticEdgeRules: readonly [
+  RegExp,
+  AuthoringDependencyRole,
+  readonly DependencyImpactFacet[],
+][] = [
+  [
+    /\/data\/background\/asset\/\$ref$/,
+    'room-background',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/background\/material\/\$ref$/,
+    'room-background-material',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/cast\/\d+\/character\/\$ref$/,
+    'room-cast-character',
+    ['reference-integrity', 'tooling-reference', 'preview-visual'],
+  ],
+  [
+    /\/data\/overlays\/\d+\/layout\/\$ref$/,
+    'room-overlay-layout',
+    ['reference-integrity', 'tooling-reference', 'preview-ui'],
+  ],
+  [
+    /\/data\/placements\/\d+\/presentation\/layout\/\$ref$/,
+    'room-placement-layout',
+    ['reference-integrity', 'tooling-reference', 'preview-ui'],
+  ],
+  [
+    /\/data\/props\/\d+\/asset\/\$ref$/,
+    'room-prop-asset',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/props\/\d+\/material\/\$ref$/,
+    'room-prop-material',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/environments\/\d+\/asset\/\$ref$/,
+    'room-environment-asset',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/environments\/\d+\/material\/\$ref$/,
+    'room-environment-material',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/compose\/script\/\$ref$/,
+    'room-compose-script',
+    ['reference-integrity', 'tooling-reference', 'runtime-only'],
+  ],
+  [
+    /\/data\/scriptHooks\/\d+\/handler\/module\/\$ref$/,
+    'room-script-hook',
+    ['reference-integrity', 'tooling-reference', 'validation', 'runtime-only'],
+  ],
+  [
+    /\/data\/exits\/\d+\/target\/\$ref$/,
+    'room-exit-target',
+    ['reference-integrity', 'tooling-reference', 'runtime-only'],
+  ],
+  [
+    /\/data\/(?:hotspots\/\d+|presentation\/hotspots\/(?:hotspot|hotspots\/\d+))\/highlight\/material\/\$ref$/,
+    'hotspot-material',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/profiles\/[^/]+\/poses\/[^/]+\/layers\/[^/]+\/visual\/(?:image|animation)\/\$ref$/,
+    'character-pose-visual',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/poses\/[^/]+\/material\/\$ref$/,
+    'character-pose-material',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/expressions\/[^/]+\/profiles\/[^/]+\/layers\/[^/]+\/visual\/(?:image|animation)\/\$ref$/,
+    'character-expression-visual',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/expressions\/[^/]+\/material\/\$ref$/,
+    'character-expression-material',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/presentation\/visual\/(?:image|animation)\/\$ref$/,
+    'interactable-visual',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/presentation\/material\/\$ref$/,
+    'interactable-material',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/data\/textures\/[^/]+\/source\/\$ref$/,
+    'material-texture',
+    ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
+  ],
+  [
+    /\/layouts\/[^/]+\/data\/rml\/sourceAsset\/\$ref$/,
+    'layout-rml-source',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /\/layouts\/[^/]+\/data\/rcss\/sourceAsset\/\$ref$/,
+    'layout-rcss-source',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /\/layouts\/[^/]+\/data\/dependencies\/images\/\d+\/\$ref$/,
+    'layout-image',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /\/layouts\/[^/]+\/data\/dependencies\/fonts\/\d+\/\$ref$/,
+    'layout-font',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /\/layouts\/[^/]+\/data\/dependencies\/stylesheets\/\d+\/\$ref$/,
+    'layout-stylesheet',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /\/layouts\/[^/]+\/data\/dependencies\/templates\/\d+\/\$ref$/,
+    'layout-template',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /\/layouts\/[^/]+\/data\/dependencies\/materials\/\d+\/\$ref$/,
+    'layout-material',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /^\/settings\/ui\/systemLayouts\//,
+    'system-layout',
+    ['reference-integrity', 'tooling-reference', 'preview-ui'],
+  ],
+  [
+    /^\/settings\/inventory\/defaultLayout\/\$ref$/,
+    'system-layout',
+    ['reference-integrity', 'tooling-reference', 'preview-ui'],
+  ],
+  [
+    /^\/settings\/text\/defaultFont\/\$ref$/,
+    'default-font',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+  [
+    /^(?:\/settings\/text\/fontStack\/\d+|\/localization\/locales\/[^/]+\/fontStack\/\d+)\/\$ref$/,
+    'font-stack',
+    ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
+  ],
+];
+const nullableReferenceRoles = new Set<AuthoringDependencyRole>([
+  'room-background',
+  'room-prop-asset',
+  'room-environment-asset',
+  'room-background-material',
+  'room-prop-material',
+]);
+
 function semanticEdgeOptions(
   path: JsonPointer,
   target: AuthoringDependencyNodeKey,
 ): StructuralEdgeOptions {
-  const rules: readonly [RegExp, AuthoringDependencyRole, readonly DependencyImpactFacet[]][] = [
-    [
-      /\/data\/background\/asset\/\$ref$/,
-      'room-background',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/background\/material\/\$ref$/,
-      'room-background-material',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/cast\/\d+\/character\/\$ref$/,
-      'room-cast-character',
-      ['reference-integrity', 'tooling-reference', 'preview-visual'],
-    ],
-    [
-      /\/data\/overlays\/\d+\/layout\/\$ref$/,
-      'room-overlay-layout',
-      ['reference-integrity', 'tooling-reference', 'preview-ui'],
-    ],
-    [
-      /\/data\/placements\/\d+\/presentation\/layout\/\$ref$/,
-      'room-placement-layout',
-      ['reference-integrity', 'tooling-reference', 'preview-ui'],
-    ],
-    [
-      /\/data\/props\/\d+\/asset\/\$ref$/,
-      'room-prop-asset',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/props\/\d+\/material\/\$ref$/,
-      'room-prop-material',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/environments\/\d+\/asset\/\$ref$/,
-      'room-environment-asset',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/environments\/\d+\/material\/\$ref$/,
-      'room-environment-material',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/compose\/script\/\$ref$/,
-      'room-compose-script',
-      ['reference-integrity', 'tooling-reference', 'runtime-only'],
-    ],
-    [
-      /\/data\/scriptHooks\/\d+\/handler\/module\/\$ref$/,
-      'room-script-hook',
-      ['reference-integrity', 'tooling-reference', 'validation', 'runtime-only'],
-    ],
-    [
-      /\/data\/exits\/\d+\/target\/\$ref$/,
-      'room-exit-target',
-      ['reference-integrity', 'tooling-reference', 'runtime-only'],
-    ],
-    [
-      /\/data\/(?:hotspots\/\d+|presentation\/hotspots\/(?:hotspot|hotspots\/\d+))\/highlight\/material\/\$ref$/,
-      'hotspot-material',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/profiles\/[^/]+\/poses\/[^/]+\/layers\/[^/]+\/visual\/(?:image|animation)\/\$ref$/,
-      'character-pose-visual',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/poses\/[^/]+\/material\/\$ref$/,
-      'character-pose-material',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/expressions\/[^/]+\/profiles\/[^/]+\/layers\/[^/]+\/visual\/(?:image|animation)\/\$ref$/,
-      'character-expression-visual',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/expressions\/[^/]+\/material\/\$ref$/,
-      'character-expression-material',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/presentation\/visual\/(?:image|animation)\/\$ref$/,
-      'interactable-visual',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/presentation\/material\/\$ref$/,
-      'interactable-material',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/data\/textures\/[^/]+\/source\/\$ref$/,
-      'material-texture',
-      ['reference-integrity', 'tooling-reference', 'preview-visual', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/rml\/sourceAsset\/\$ref$/,
-      'layout-rml-source',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/rcss\/sourceAsset\/\$ref$/,
-      'layout-rcss-source',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/dependencies\/images\/\d+\/\$ref$/,
-      'layout-image',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/dependencies\/fonts\/\d+\/\$ref$/,
-      'layout-font',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/dependencies\/stylesheets\/\d+\/\$ref$/,
-      'layout-stylesheet',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/dependencies\/templates\/\d+\/\$ref$/,
-      'layout-template',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /\/layouts\/[^/]+\/data\/dependencies\/materials\/\d+\/\$ref$/,
-      'layout-material',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /^\/settings\/ui\/systemLayouts\//,
-      'system-layout',
-      ['reference-integrity', 'tooling-reference', 'preview-ui'],
-    ],
-    [
-      /^\/settings\/inventory\/defaultLayout\/\$ref$/,
-      'system-layout',
-      ['reference-integrity', 'tooling-reference', 'preview-ui'],
-    ],
-    [
-      /^\/settings\/text\/defaultFont\/\$ref$/,
-      'default-font',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-    [
-      /^(?:\/settings\/text\/fontStack\/\d+|\/localization\/locales\/[^/]+\/fontStack\/\d+)\/\$ref$/,
-      'font-stack',
-      ['reference-integrity', 'tooling-reference', 'preview-ui', 'resource'],
-    ],
-  ];
-  const match = rules.find(([pattern]) => pattern.test(path));
+  const match = semanticEdgeRules.find(([pattern]) => pattern.test(path));
   if (!match) {
     if (
       target.kind === 'record' &&
@@ -1152,13 +1172,6 @@ function semanticEdgeOptions(
     targetImpactPaths = recordImpactPaths(target, ['/data/source']);
   }
 
-  const nullableReferenceRoles = new Set<AuthoringDependencyRole>([
-    'room-background',
-    'room-prop-asset',
-    'room-environment-asset',
-    'room-background-material',
-    'room-prop-material',
-  ]);
   let repair: AuthoringDependencyEdge['repair'] | undefined;
   if (role === 'room-cast-character' || role === 'room-overlay-layout') {
     repair = {
@@ -1199,21 +1212,57 @@ function scanStructuralReferences(
   source: AuthoringDependencyNodeKey,
   edges: AuthoringDependencyEdge[],
   project: AuthoringProject,
+  referenceIntegrityOnly = false,
+  derivationDependencies?: AuthoringDependencyDerivationDependency[],
 ): void {
   if (Array.isArray(value)) {
-    value.forEach((child, index) =>
-      scanStructuralReferences(child, `${path}/${index}`, source, edges, project),
-    );
+    value.forEach((child, index) => {
+      if (child === null || typeof child !== 'object') return;
+      scanStructuralReferences(
+        child,
+        `${path}/${index}`,
+        source,
+        edges,
+        project,
+        referenceIntegrityOnly,
+        derivationDependencies,
+      );
+    });
     return;
   }
   if (!isRecord(value)) return;
   const structuralValue: Record<string, unknown> = value;
+  const localizedKey =
+    structuralValue.kind === 'localized' && typeof structuralValue.key === 'string'
+      ? structuralValue.key
+      : typeof structuralValue.$message === 'string'
+        ? structuralValue.$message
+        : null;
+  const localizationResolution =
+    localizedKey && (!referenceIntegrityOnly || derivationDependencies)
+      ? resolveMessage(project.localization, {
+          key: localizedKey,
+          locale: project.localization.defaultLocale,
+        })
+      : null;
+  if (localizedKey && derivationDependencies) {
+    derivationDependencies.push({ kind: 'localization-lookup', key: localizedKey });
+    derivationDependencies.push({ kind: 'project-field', path: '/localization/defaultLocale' });
+    if (localizationResolution?.resolved?.locale === project.localization.sourceLocale)
+      derivationDependencies.push({ kind: 'project-field', path: '/localization/sourceLocale' });
+  }
 
+  // Most nested authored objects are not cursor fields. Avoid running four
+  // anchored path expressions for every element in large Room/Test records.
   const cursorReferencePath =
-    /^\/settings\/cursors\/defaults\/(?:default|pointer|hotspot)$/u.test(path) ||
-    /^\/rooms\/[^/]+\/data\/hotspots\/\d+\/cursor$/u.test(path) ||
-    /^\/interactables\/[^/]+\/data\/presentation\/cursor$/u.test(path) ||
-    /^\/interactables\/[^/]+\/data\/presentation\/hotspots\/hotspots\/\d+\/cursor$/u.test(path);
+    (path.endsWith('/cursor') &&
+      (/^\/rooms\/[^/]+\/data\/hotspots\/\d+\/cursor$/u.test(path) ||
+        /^\/interactables\/[^/]+\/data\/presentation\/cursor$/u.test(path) ||
+        /^\/interactables\/[^/]+\/data\/presentation\/hotspots\/hotspots\/\d+\/cursor$/u.test(
+          path,
+        ))) ||
+    (path.startsWith('/settings/cursors/defaults/') &&
+      /^\/settings\/cursors\/defaults\/(?:default|pointer|hotspot)$/u.test(path));
   if (cursorReferencePath && value.kind === 'named' && typeof value.id === 'string') {
     const cursorIndex = project.settings.cursors.named.findIndex(
       (cursor) => cursor.id === value.id,
@@ -1311,7 +1360,14 @@ function scanStructuralReferences(
   ) {
     const instanceId = value.interactable.$ref.id;
     const definitionId = project.interactableInstances[instanceId]?.definition.$ref.id;
-    if (!definitionId) return;
+    if (!definitionId) {
+      // Preserve the original early return for reference edges, but retain
+      // localization invalidation inputs from its skipped descendants.
+      if (derivationDependencies)
+        for (const child of Object.values(structuralValue))
+          collectDerivationDependencies(child, derivationDependencies, project);
+      return;
+    }
     edges.push(
       structuralEdge(
         source,
@@ -1395,18 +1451,8 @@ function scanStructuralReferences(
       );
     }
   }
-  const localizedKey =
-    structuralValue.kind === 'localized' && typeof structuralValue.key === 'string'
-      ? structuralValue.key
-      : typeof structuralValue.$message === 'string'
-        ? structuralValue.$message
-        : null;
-  if (localizedKey) {
-    const defaultLocale = project.localization.defaultLocale;
-    const resolution = resolveMessage(project.localization, {
-      key: localizedKey,
-      locale: defaultLocale,
-    });
+  if (localizedKey && !referenceIntegrityOnly) {
+    const resolution = localizationResolution!;
     const locales = resolution.consultedLocales;
     const projectFields = [
       '/localization/defaultLocale',
@@ -1456,23 +1502,27 @@ function scanStructuralReferences(
     }
   }
   for (const [key, child] of Object.entries(structuralValue)) {
+    if (child === null || typeof child !== 'object') continue;
     scanStructuralReferences(
       child,
       `${path}/${escapeJsonPointerSegment(key)}`,
       source,
       edges,
       project,
+      referenceIntegrityOnly,
+      derivationDependencies,
     );
   }
 }
 
+/** Rare fallback for a reference subtree skipped by the structural walker. */
 function collectDerivationDependencies(
   value: unknown,
   dependencies: AuthoringDependencyDerivationDependency[],
   project: AuthoringProject,
 ): void {
   if (Array.isArray(value)) {
-    value.forEach((child) => collectDerivationDependencies(child, dependencies, project));
+    for (const child of value) collectDerivationDependencies(child, dependencies, project);
     return;
   }
   if (!isRecord(value)) return;
@@ -1492,9 +1542,8 @@ function collectDerivationDependencies(
     if (resolution.resolved?.locale === project.localization.sourceLocale)
       dependencies.push({ kind: 'project-field', path: '/localization/sourceLocale' });
   }
-  Object.values(value).forEach((child) =>
-    collectDerivationDependencies(child, dependencies, project),
-  );
+  for (const child of Object.values(value))
+    collectDerivationDependencies(child, dependencies, project);
 }
 
 function tolerantObjectArray(value: unknown, key: string): readonly Record<string, unknown>[] {
@@ -2009,6 +2058,7 @@ function recordContribution(
   collection: AuthoringCollectionKey,
   id: string,
   record: AuthoringRecordBase,
+  referenceIntegrityOnly = false,
 ): AuthoringDependencyGraphContribution {
   const owningPath = `/${collection}/${escapeJsonPointerSegment(id)}`;
   const source = recordNodeKey(collection, id);
@@ -2063,8 +2113,17 @@ function recordContribution(
       ),
     );
   }
-  scanStructuralReferences(record.data, `${owningPath}/data`, source, edges, project);
-  if (collection === 'materials') {
+  const derivationDependencies: AuthoringDependencyDerivationDependency[] = [];
+  scanStructuralReferences(
+    record.data,
+    `${owningPath}/data`,
+    source,
+    edges,
+    project,
+    referenceIntegrityOnly,
+    referenceIntegrityOnly ? undefined : derivationDependencies,
+  );
+  if (collection === 'materials' && !referenceIntegrityOnly) {
     for (let index = edges.length - 1; index >= 0; index -= 1) {
       const edge = edges[index]!;
       if (
@@ -2084,9 +2143,9 @@ function recordContribution(
       }
     }
   }
-  if (collection === 'layouts')
+  if (collection === 'layouts' && !referenceIntegrityOnly)
     addInlineRcssCursorReferenceEdges(project, id, record, source, edges);
-  if (collection === 'archetypes') {
+  if (collection === 'archetypes' && !referenceIntegrityOnly) {
     for (let index = edges.length - 1; index >= 0; index -= 1) {
       const edge = edges[index]!;
       if (
@@ -2109,13 +2168,11 @@ function recordContribution(
       }
     }
   }
-  if (collection === 'rooms') {
+  if (collection === 'rooms' && !referenceIntegrityOnly) {
     addRoomCastEdgeDetails(record, owningPath, edges);
     edges.push(...roomProjectFieldEdges(source, owningPath));
   }
   edges.push(...nested.edges);
-  const derivationDependencies: AuthoringDependencyDerivationDependency[] = [];
-  collectDerivationDependencies(record.data, derivationDependencies, project);
   return {
     key: recordContributionKey(collection, id),
     ownerPath: owningPath,
@@ -2129,7 +2186,9 @@ function recordContribution(
       ...nested.nodes,
     ],
     edges,
-    diagnostics: ownerLocalDiagnostics(collection, record, owningPath),
+    diagnostics: referenceIntegrityOnly
+      ? []
+      : ownerLocalDiagnostics(collection, record, owningPath),
     derivationDependencies: Object.freeze([
       ...new Map(
         derivationDependencies.map((item) => [
@@ -2218,10 +2277,8 @@ function projectFieldSpecs(project: AuthoringProject): readonly {
 function deriveStructuralContributionByKey(
   project: AuthoringProject,
   contributionKey: string,
-  workflowMessages?: ReadonlyMap<
-    string,
-    ReturnType<typeof localizationMessageWorkflowViews>[number]
-  >,
+  workflowMessages?: ReadonlyMap<string, ReturnType<typeof localizationMessageSourceViews>[number]>,
+  referenceIntegrityOnly = false,
 ): AuthoringDependencyGraphContribution | null {
   if (contributionKey.startsWith('record:')) {
     const parsed = JSON.parse(contributionKey.slice('record:'.length)) as unknown;
@@ -2236,7 +2293,9 @@ function deriveStructuralContributionByKey(
     const collection = parsed[1] as AuthoringCollectionKey;
     const id = parsed[2];
     const record = project[collection][id];
-    return record ? recordContribution(project, collection, id, record) : null;
+    return record
+      ? recordContribution(project, collection, id, record, referenceIntegrityOnly)
+      : null;
   }
   if (contributionKey.startsWith('trait-definition:')) {
     const id = JSON.parse(contributionKey.slice('trait-definition:'.length)) as unknown;
@@ -2274,7 +2333,8 @@ function deriveStructuralContributionByKey(
     const [locale, messageId] = parsed;
     const workflowMessage = workflowMessages
       ? (workflowMessages.get(messageId) ?? null)
-      : localizationMessageWorkflowView(project, messageId);
+      : (localizationMessageSourceViews(project).find((message) => message.id === messageId) ??
+        null);
     const exists =
       locale === project.localization.sourceLocale
         ? workflowMessage !== null
@@ -2314,7 +2374,14 @@ function deriveStructuralContributionByKey(
     const key = projectFieldNodeKey(field.path);
     const edges: AuthoringDependencyEdge[] = [];
     if (field.path === '/bootstrapModule') {
-      scanStructuralReferences(field.value, field.path, key, edges, project);
+      scanStructuralReferences(
+        field.value,
+        field.path,
+        key,
+        edges,
+        project,
+        referenceIntegrityOnly,
+      );
     } else if (field.path === '/entrypoint' && project.entrypoint) {
       const targetCollection = `${project.entrypoint.kind}s` as 'rooms' | 'scenes' | 'dialogues';
       edges.push(
@@ -2332,9 +2399,23 @@ function deriveStructuralContributionByKey(
       field.path === '/undefinedInteractionProgram' ||
       field.path === '/prefetchHints'
     ) {
-      scanStructuralReferences(field.value, field.path, key, edges, project);
+      scanStructuralReferences(
+        field.value,
+        field.path,
+        key,
+        edges,
+        project,
+        referenceIntegrityOnly,
+      );
     } else if (field.path.startsWith('/interactableInstances/')) {
-      scanStructuralReferences(field.value, field.path, key, edges, project);
+      scanStructuralReferences(
+        field.value,
+        field.path,
+        key,
+        edges,
+        project,
+        referenceIntegrityOnly,
+      );
       const escapedId = field.path.slice('/interactableInstances/'.length);
       const id = escapedId.replaceAll('~1', '/').replaceAll('~0', '~');
       const instance = project.interactableInstances[id];
@@ -2426,23 +2507,43 @@ export async function deriveAuthoringDependencyContribution(
   );
 }
 
+/** Reference integrity shares graph traversal without deriving editor-only message and impact data. */
+export function missingAuthoringStructuralReferences(
+  project: AuthoringProject,
+): readonly Pick<AuthoringDependencyEdge, 'sourcePath' | 'target'>[] {
+  const targets = new Set<string>();
+  const references: Pick<AuthoringDependencyEdge, 'sourcePath' | 'target'>[] = [];
+  for (const key of enumerateAuthoringDependencyContributionKeys(project)) {
+    // Localization edges have no reference-integrity facet; their nodes cannot be link targets.
+    if (key.startsWith('localization-message:')) continue;
+    const contribution = deriveStructuralContributionByKey(project, key, undefined, true);
+    if (!contribution) throw new Error(`Unable to derive reference contribution '${key}'.`);
+    for (const node of contribution.nodes) targets.add(node.keyText);
+    for (const edge of contribution.edges)
+      if (edge.facets.includes('reference-integrity'))
+        references.push({ sourcePath: edge.sourcePath, target: edge.target });
+  }
+  return references.filter(
+    (reference) => !targets.has(serializeAuthoringDependencyNodeKey(reference.target)),
+  );
+}
+
 export function deriveAuthoringStructuralDependencyGraphContributions(
   project: AuthoringProject,
 ): readonly AuthoringDependencyGraphContribution[] {
   let workflowMessages:
-    | Map<string, ReturnType<typeof localizationMessageWorkflowViews>[number]>
+    | Map<string, ReturnType<typeof localizationMessageSourceViews>[number]>
     | undefined;
-  return Object.freeze(
-    enumerateAuthoringDependencyContributionKeys(project).map((key) => {
-      if (key.startsWith('localization-message:') && !workflowMessages)
-        workflowMessages = new Map(
-          localizationMessageWorkflowViews(project).map((message) => [message.id, message]),
-        );
-      const contribution = deriveStructuralContributionByKey(project, key, workflowMessages);
-      if (!contribution) throw new Error(`Unable to derive graph contribution '${key}'.`);
-      return contribution;
-    }),
-  );
+  const contributions = enumerateAuthoringDependencyContributionKeys(project).map((key) => {
+    if (key.startsWith('localization-message:') && !workflowMessages)
+      workflowMessages = new Map(
+        localizationMessageSourceViews(project).map((message) => [message.id, message]),
+      );
+    const contribution = deriveStructuralContributionByKey(project, key, workflowMessages);
+    if (!contribution) throw new Error(`Unable to derive graph contribution '${key}'.`);
+    return contribution;
+  });
+  return Object.freeze(contributions);
 }
 
 export function buildAuthoringStructuralDependencyGraphContributionSet(
@@ -2456,9 +2557,9 @@ export function buildAuthoringStructuralDependencyGraphContributionSet(
 export function buildAuthoringStructuralDependencyGraph(
   project: AuthoringProject,
 ): AuthoringDependencyGraph {
-  return assembleAuthoringDependencyGraph(
-    buildAuthoringStructuralDependencyGraphContributionSet(project),
-  );
+  const contributions = deriveAuthoringStructuralDependencyGraphContributions(project);
+  const set = createAuthoringDependencyGraphContributionSet(contributions);
+  return assembleAuthoringDependencyGraph(set);
 }
 
 function luaTargetPath(project: AuthoringProject, target: AuthoringDependencyNodeKey): JsonPointer {
@@ -3140,8 +3241,9 @@ export function deriveAuthoringDependencyContributionFromPrepared(
   lexicalEnabled: boolean,
   recognizers: readonly AuthoringSourceReferenceRecognizer[] = AUTHORING_SOURCE_REFERENCE_RECOGNIZERS,
   symbolProjection?: ReadonlyMap<string, readonly AuthoringDependencyNodeKey[]>,
+  workflowMessages?: ReadonlyMap<string, ReturnType<typeof localizationMessageSourceViews>[number]>,
 ): AuthoringDependencyGraphContribution | null {
-  const base = deriveStructuralContributionByKey(project, contributionKey);
+  const base = deriveStructuralContributionByKey(project, contributionKey, workflowMessages);
   return base
     ? addLuaEvidenceToContribution(
         project,
@@ -3190,6 +3292,9 @@ export async function buildAuthoringDependencyGraphContributionSet(
           readonly import('./project-schema/authoring-lua-analysis').AuthoringSourceAnalysisArtifact<AuthoringDependencyGraphDiagnostic>[]
         >();
   const symbolProjection = buildAuthoringLuaSymbolProjection(project);
+  const workflowMessages = new Map(
+    localizationMessageSourceViews(project).map((message) => [message.id, message]),
+  );
   return createAuthoringDependencyGraphContributionSet(
     enumerateAuthoringDependencyContributionKeys(project).map((contributionKey) => {
       const contribution = deriveAuthoringDependencyContributionFromPrepared(
@@ -3200,6 +3305,7 @@ export async function buildAuthoringDependencyGraphContributionSet(
         luaAnalysis.mode === 'enabled',
         recognizers,
         symbolProjection,
+        workflowMessages,
       );
       if (!contribution)
         throw new Error(`Unable to derive graph contribution '${contributionKey}'.`);

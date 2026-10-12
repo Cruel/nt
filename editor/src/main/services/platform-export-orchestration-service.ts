@@ -32,6 +32,8 @@ import {
 } from '../../shared/runtime-artifact-preparation';
 import { stripEditorProjectState } from '../../shared/project-schema/editor-project-state';
 import { validateAuthoringProject } from '../../shared/project-schema/authoring-validation';
+import type { AuthoringValidationContribution } from '../../shared/project-schema/authoring-validation-contributions';
+import type { ProjectValidationDiagnostic } from '../../shared/project-schema/project-validation';
 import {
   classifyProjectValidationDiagnostics,
   collectProjectValidationDiagnostics,
@@ -199,6 +201,15 @@ export async function exportProjectToPlatform(
   beforePublish?: () => Promise<string | null>,
   registerRecoveryPath?: (path: string) => Promise<void>,
   runtimeArtifactPaths: RuntimeArtifactPathAdapter = nodeRuntimeArtifactPaths,
+  admitted?: Readonly<{
+    project: ReturnType<typeof parseAuthoringProject>;
+    diagnostics: readonly ProjectValidationDiagnostic[];
+    contributions: readonly AuthoringValidationContribution[];
+    sourceGraph?: Pick<
+      import('../../shared/project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
+      'graph' | 'externalSourceRevisions'
+    > & { readonly project: ReturnType<typeof parseAuthoringProject> };
+  }>,
 ): Promise<PlatformStageResult> {
   let request: ProjectPlatformExportRequest;
   try {
@@ -247,12 +258,16 @@ export async function exportProjectToPlatform(
       );
     }
 
+    const reusableAdmission =
+      admitted?.project === loaded.contentProject && !loaded.editorState ? admitted : undefined;
     let project;
     try {
-      project = parseAuthoringProject({
-        ...(stripEditorProjectState(loaded.contentProject) as Record<string, unknown>),
-        ...(loaded.editorState ? { editor: loaded.editorState } : {}),
-      });
+      project =
+        reusableAdmission?.project ??
+        parseAuthoringProject({
+          ...(stripEditorProjectState(loaded.contentProject) as Record<string, unknown>),
+          ...(loaded.editorState ? { editor: loaded.editorState } : {}),
+        });
     } catch (error) {
       return failure(operationId, [
         diagnostic('invalid-project', '/', error instanceof Error ? error.message : String(error)),
@@ -290,7 +305,9 @@ export async function exportProjectToPlatform(
       ]);
     }
 
-    const validation = validateAuthoringProject(project);
+    // Admission evidence is supplied out-of-band by the CLI's trusted
+    // workspace, never through the user-parsed platform export request.
+    const validation = reusableAdmission?.diagnostics ?? validateAuthoringProject(project);
     const validationErrors = validation.filter(
       (item) =>
         item.severity === 'error' &&
@@ -342,6 +359,15 @@ export async function exportProjectToPlatform(
     } else {
       const prepared = await prepareRuntimeArtifact({
         project,
+        ...(reusableAdmission
+          ? {
+              admittedAuthoringDiagnostics: reusableAdmission.diagnostics,
+              admittedValidationContributions: reusableAdmission.contributions,
+              ...(reusableAdmission.sourceGraph
+                ? { admittedSourceGraph: reusableAdmission.sourceGraph }
+                : {}),
+            }
+          : {}),
         projectRoot,
         profile: targetRuntimeProfile,
         intent: request.checkOnly ? 'platform-preflight' : 'platform-export',

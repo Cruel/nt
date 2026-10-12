@@ -3,6 +3,7 @@ import {
   buildAuthoringSymbolTables,
   compilerNestedNamespaces,
   compileAuthoringProject,
+  compileAuthoringProjectValue,
   resolveAuthoringSymbol,
   resolveNestedAuthoringSymbol,
 } from '../../shared/authoring-compiler';
@@ -10,6 +11,10 @@ import {
   compileSubjectSelector,
   lowerSharedAuthoringProject,
 } from '../../shared/authoring-compiler-shared-lowering';
+import {
+  buildAuthoringStructuralDependencyGraph,
+  serializeAuthoringDependencyNodeKey,
+} from '../../shared/authoring-dependency-graph';
 import { projectFlowPredictionIndexForTooling } from '../../shared/flow-prediction-tooling';
 import {
   createLocalizationTranslation,
@@ -60,6 +65,52 @@ function validProject(roomOrder: readonly string[] = ['foyer', 'hall']) {
 }
 
 describe('authoring compiler framework', () => {
+  it('preserves full-graph link diagnostics for missing record and nested targets', () => {
+    const project = validProject();
+    const room = project.rooms.foyer!.data as ReturnType<typeof defaultRoomData>;
+    room.cast.push({
+      id: 'alice',
+      character: { $ref: { collection: 'characters', id: 'missing-character' } },
+      condition: { kind: 'always' },
+      placementId: 'missing-placement',
+      poseId: null,
+      expressionId: null,
+      idleId: null,
+      visible: true,
+      order: 0,
+    });
+    const instance = defaultInteractableInstanceData('key', 'missing-definition');
+    instance.featureOverrides.push({
+      featureId: 'missing-feature',
+      traits: { add: [], remove: [] },
+      properties: [],
+    });
+    project.interactableInstances.key = instance;
+    const graph = buildAuthoringStructuralDependencyGraph(project);
+    const missing = [...graph.edgesById.values()].filter(
+      (edge) =>
+        edge.facets.includes('reference-integrity') &&
+        !graph.nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target)),
+    );
+    expect(missing.some((edge) => edge.target.kind === 'record')).toBe(true);
+    expect(missing.some((edge) => edge.target.kind === 'nested')).toBe(true);
+    const expected = missing.map((edge) => {
+      const target =
+        edge.target.kind === 'record'
+          ? `${edge.target.collection}/${edge.target.id}`
+          : serializeAuthoringDependencyNodeKey(edge.target);
+      return JSON.stringify([edge.sourcePath, `Reference target '${target}' does not exist.`]);
+    });
+    // Bypass semantic diagnostics to exercise the linker's independent integrity contract.
+    const result = compileAuthoringProject(project, () => []);
+    expect(result.ok).toBe(false);
+    expect(
+      result.diagnostics
+        .filter((item) => item.code === 'AUTHORING_LINK_MISSING_TARGET')
+        .map((item) => JSON.stringify([item.jsonPointer, item.message]))
+        .sort(),
+    ).toEqual([...new Set(expected)].sort());
+  });
   it('compiles Project cursor defaults and globally reachable named cursor images', () => {
     const project = validProject();
     project.assets['tea-pointer'] = {
@@ -2065,6 +2116,12 @@ describe('authoring compiler framework', () => {
     expect(result.ok).toBe(true);
     if (!result.ok) return;
     expect(JSON.parse(result.canonicalJson)).toEqual(result.project);
+    const value = compileAuthoringProjectValue(project);
+    expect(value.ok).toBe(true);
+    if (!value.ok) return;
+    expect(value.project).toEqual(result.project);
+    expect(value.diagnostics).toEqual(result.diagnostics);
+    expect(JSON.stringify(project)).toBe(before);
     expect(result.diagnostics).toEqual([]);
     expect(result.stages).toEqual([
       { name: 'normalize', status: 'completed' },

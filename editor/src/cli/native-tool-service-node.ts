@@ -24,6 +24,7 @@ function runRawNativeTool(command: 'shaderc' | 'texturec', arguments_: readonly 
 
 export function createNodeNovelTeaCliNativeToolService(): NovelTeaCliNativeToolService {
   return {
+    validationCacheIdentity: 'noveltea-cli-native',
     validateMedia: validateImportedAudioVideo,
     async inspectFont(absolutePath) {
       return (await invokeNovelTeaNativeOperation('font-inspect', { path: absolutePath })) as {

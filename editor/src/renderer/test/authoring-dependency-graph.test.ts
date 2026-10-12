@@ -10,6 +10,7 @@ import {
   classifyAuthoringGraphInputPath,
   createAuthoringDependencyEdgeId,
   createAuthoringDependencyGraphContributionSet,
+  deriveAuthoringDependencyContributionFromPrepared,
   findAuthoringDependencyOwnersByPath,
   findAuthoringDependencyUsages,
   findMissingAuthoringDependencyTargets,
@@ -17,6 +18,8 @@ import {
   findPreviewRootsImpactedByPathUnion,
   findPreviewRootsImpactedByPaths,
   localizationMessageNodeKey,
+  localizationMessageContributionKey,
+  missingAuthoringStructuralReferences,
   nestedNodeKey,
   outgoingAuthoringDependencies,
   recordNodeKey,
@@ -54,6 +57,7 @@ import {
   buildReferenceIndexFromGraph,
 } from '../../shared/project-schema/authoring-references';
 import { testTranslation } from './fixtures/localization-workflow';
+import { localizationMessageSourceViews } from '../../shared/authoring-localization-workflow';
 
 function node(
   collection: 'rooms' | 'characters',
@@ -115,6 +119,41 @@ function graphSnapshot(graph: ReturnType<typeof assembleAuthoringDependencyGraph
 }
 
 describe('authoring dependency graph contribution assembly', () => {
+  it('produces identical Message contributions with a shared workflow view index', () => {
+    const project = createAuthoringProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f010';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'room.foyer',
+      source: 'Foyer source',
+    };
+    project.localization.translations.fr = { [messageId]: testTranslation('Foyer') };
+    const workflowMessages = new Map(
+      localizationMessageSourceViews(project).map((message) => [message.id, message]),
+    );
+    for (const locale of [project.localization.sourceLocale, 'fr']) {
+      const key = localizationMessageContributionKey(locale, messageId);
+      const withoutReuse = deriveAuthoringDependencyContributionFromPrepared(
+        project,
+        key,
+        [],
+        [],
+        true,
+      );
+      const withReuse = deriveAuthoringDependencyContributionFromPrepared(
+        project,
+        key,
+        [],
+        [],
+        true,
+        undefined,
+        undefined,
+        workflowMessages,
+      );
+      expect(withReuse).toEqual(withoutReuse);
+    }
+  });
+
   it('keeps every current schema field covered by reviewed graph metadata', () => {
     expect(() => assertAuthoringGraphFieldMetadataComplete()).not.toThrow();
   });
@@ -661,6 +700,72 @@ describe('authoring structural dependency graph and queries', () => {
         },
       }),
     );
+  });
+
+  it('matches full-graph reference integrity without requiring localization workflow data', () => {
+    const project = createAuthoringProject();
+    project.traits = {};
+    project.settings = structuredClone(project.settings);
+    project.settings.text.defaultFont = { $ref: { collection: 'assets', id: 'missing-font' } };
+    project.entrypoint = { kind: 'room', id: 'missing-entry' };
+    project.rooms.room = {
+      id: 'room',
+      label: 'Room',
+      traits: ['missing-trait'],
+      data: {
+        features: [{ id: 'handle', traits: ['missing-feature-trait'] }],
+        hotspots: [{ id: 'door', target: { kind: 'exit', exitId: 'missing-exit' } }],
+        background: { asset: { $ref: { collection: 'assets', id: 'missing-background' } } },
+        refs: [
+          { room: 'room', placement: 'missing-placement' },
+          { room: 'room', exit: 'missing-exit' },
+          {
+            ownerKind: 'room',
+            room: { $ref: { collection: 'rooms', id: 'room' } },
+            featureId: 'missing-feature',
+          },
+          { $ref: { registry: 'interactableInstances', id: 'missing-instance' } },
+          { $var: 'missing-variable' },
+          { completion: { kind: 'scene', id: 'missing-scene' } },
+          { kind: 'localized', key: 'missing-message' },
+        ],
+      } as unknown as ReturnType<typeof defaultRoomData>,
+    };
+    project.interactables.key = {
+      id: 'key',
+      label: 'Key',
+      data: {
+        features: [{ id: 'lock', traits: ['missing-trait'] }],
+        presentation: {
+          visual: { kind: 'image', image: { $ref: { collection: 'assets', id: 'missing-image' } } },
+          hotspots: {
+            kind: 'custom',
+            hotspots: [
+              { id: 'key', target: { kind: 'owner-feature', featureId: 'missing-feature' } },
+            ],
+          },
+        },
+      } as unknown as ReturnType<typeof defaultInteractableData>,
+    };
+    const instance = defaultInteractableInstanceData('key', 'key');
+    instance.featureOverrides.push({
+      featureId: 'missing-feature',
+      traits: { add: [], remove: [] },
+      properties: [],
+    });
+    project.interactableInstances.key = instance;
+    const graph = buildAuthoringStructuralDependencyGraph(project);
+    const expected = [...graph.edgesById.values()].filter(
+      (edge) =>
+        edge.facets.includes('reference-integrity') &&
+        !graph.nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target)),
+    );
+    const identity = (edge: Pick<AuthoringDependencyEdge, 'sourcePath' | 'target'>) =>
+      JSON.stringify([edge.sourcePath, serializeAuthoringDependencyNodeKey(edge.target)]);
+    expect(expected.length).toBeGreaterThan(10);
+    expect(
+      [...new Set(missingAuthoringStructuralReferences(project).map(identity))].sort(),
+    ).toEqual([...new Set(expected.map(identity))].sort());
   });
 
   it('retains tolerant nested nodes and owner-local diagnostics for admitted invalid input', () => {

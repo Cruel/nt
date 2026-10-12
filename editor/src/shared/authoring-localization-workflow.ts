@@ -7,6 +7,7 @@ import {
 } from './project-schema/authoring-localization';
 import { dialogueMessageCueContracts, structuredMessages } from './authoring-structured-messages';
 import { collectManagedLuaLocalizationSources } from './authoring-lua-localization-lowering';
+import type { AuthoringLuaSourceDescriptor } from './authoring-source-analysis';
 import { collectRmlLocalizationSources } from './authoring-rml-localization-lowering';
 import { parseDialogueCueMarkup } from './project-schema/dialogue-cue-markup';
 import {
@@ -17,7 +18,7 @@ import {
 export type LocalizationFreshness = 'missing' | 'current' | 'outdated';
 export type LocalizationAttention = 'presentation' | 'guidance';
 
-export interface LocalizationMessageWorkflowView {
+export interface LocalizationMessageSourceView {
   readonly id: string;
   readonly kind: 'local' | 'named';
   readonly key?: string;
@@ -31,6 +32,9 @@ export interface LocalizationMessageWorkflowView {
   readonly usedIn: string | null;
   readonly usageNote: string | null;
   readonly dialogueCues?: readonly DialogueCuePlacement[];
+}
+
+export interface LocalizationMessageWorkflowView extends LocalizationMessageSourceView {
   readonly sourceFingerprint: string;
   readonly presentationFingerprint: string;
   readonly guidanceFingerprint: string;
@@ -116,8 +120,25 @@ function simpleView(
   sourcePath: string | null,
   usedIn: string | null,
   usageNote: string | null,
-  dialogueCues?: readonly DialogueCuePlacement[],
-): LocalizationMessageWorkflowView {
+  dialogueCues: readonly DialogueCuePlacement[] | undefined,
+  workflow: boolean,
+): LocalizationMessageSourceView {
+  const sourceView: LocalizationMessageSourceView = {
+    id,
+    kind: message.kind,
+    ...(message.kind === 'named' ? { key: message.key } : {}),
+    source: message.source,
+    ...(message.arguments === undefined ? {} : { arguments: message.arguments }),
+    ...(message.pattern === undefined ? {} : { pattern: message.pattern }),
+    ...(message.context === undefined ? {} : { context: message.context }),
+    ...(message.translatorNote === undefined ? {} : { translatorNote: message.translatorNote }),
+    sourcePath,
+    sourceEditPath: sourcePath,
+    usedIn,
+    usageNote,
+    ...(dialogueCues === undefined ? {} : { dialogueCues }),
+  };
+  if (!workflow) return sourceView;
   const argumentContract = Object.entries(message.arguments ?? {})
     .sort(([left], [right]) => left.localeCompare(right))
     .map(([name, type]) => `${name}:${type}`)
@@ -132,20 +153,8 @@ function simpleView(
     'semantic',
     `${normalizeLinguisticText(message.source)}\u0000${argumentContract}\u0000${semanticPatternContract}\u0000${cueContract}`,
   );
-  return {
-    id,
-    kind: message.kind,
-    ...(message.kind === 'named' ? { key: message.key } : {}),
-    source: message.source,
-    ...(message.arguments === undefined ? {} : { arguments: message.arguments }),
-    ...(message.pattern === undefined ? {} : { pattern: message.pattern }),
-    ...(message.context === undefined ? {} : { context: message.context }),
-    ...(message.translatorNote === undefined ? {} : { translatorNote: message.translatorNote }),
-    sourcePath,
-    sourceEditPath: sourcePath,
-    usedIn,
-    usageNote,
-    ...(dialogueCues === undefined ? {} : { dialogueCues }),
+  const view: LocalizationMessageWorkflowView = {
+    ...sourceView,
     sourceFingerprint,
     presentationFingerprint: fingerprint(
       'presentation',
@@ -153,12 +162,90 @@ function simpleView(
     ),
     guidanceFingerprint: guidanceFingerprint(message),
   };
+  return view;
 }
 
 export function localizationMessageWorkflowViews(
   project: AuthoringProject,
 ): readonly LocalizationMessageWorkflowView[] {
-  const views = new Map<string, LocalizationMessageWorkflowView>();
+  return localizationMessageViews(project, true);
+}
+
+/** Source contracts used by validation, without workflow freshness fingerprinting. */
+export function localizationMessageSourceViews(
+  project: AuthoringProject,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
+): readonly LocalizationMessageSourceView[] {
+  return localizationMessageViews(project, false, sourceDescriptors);
+}
+
+/**
+ * Exact source-view projection for an i18n/messages.json-only edit. The
+ * workspace must prove that other authored and external source inputs did
+ * not change before using this function. Conflicting or new Message
+ * identities always fall back to the full source extractor.
+ */
+export function updateLocalizationMessageSourceViews(
+  before: AuthoringProject,
+  after: AuthoringProject,
+  prior: readonly LocalizationMessageSourceView[],
+): readonly LocalizationMessageSourceView[] | null {
+  const previousMessages = before.localization.messages;
+  const currentMessages = after.localization.messages;
+  const ids = Object.keys(previousMessages);
+  if (
+    ids.length !== Object.keys(currentMessages).length ||
+    ids.some((id) => !Object.hasOwn(currentMessages, id)) ||
+    JSON.stringify(before.localization.structuredMessageIds) !==
+      JSON.stringify(after.localization.structuredMessageIds)
+  )
+    return null;
+  const previousViews = new Map(prior.map((view) => [view.id, view]));
+  const replacement = new Map<string, LocalizationMessageSourceView>();
+  for (const id of ids) {
+    const old = previousMessages[id]!;
+    const updated = currentMessages[id]!;
+    if (JSON.stringify(old) === JSON.stringify(updated)) continue;
+    const oldView = previousViews.get(id);
+    const sourcePath = `/localization/messages/${id.replaceAll('~', '~0').replaceAll('/', '~1')}/source`;
+    if (
+      !oldView ||
+      oldView.sourcePath !== sourcePath ||
+      oldView.sourceEditPath !== sourcePath ||
+      oldView.usedIn !== null
+    )
+      return null;
+    replacement.set(
+      id,
+      simpleView(
+        id,
+        updated,
+        sourcePath,
+        null,
+        after.localization.usageNotes[id] ?? null,
+        oldView.dialogueCues,
+        false,
+      ),
+    );
+  }
+  return replacement.size === 0 ? prior : prior.map((view) => replacement.get(view.id) ?? view);
+}
+
+function localizationMessageViews(
+  project: AuthoringProject,
+  workflow: true,
+): readonly LocalizationMessageWorkflowView[];
+function localizationMessageViews(
+  project: AuthoringProject,
+  workflow: false,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
+): readonly LocalizationMessageSourceView[];
+function localizationMessageViews(
+  project: AuthoringProject,
+  workflow: boolean,
+  sourceDescriptors?: readonly AuthoringLuaSourceDescriptor[],
+): readonly LocalizationMessageSourceView[] {
+  const views = new Map<string, LocalizationMessageSourceView>();
   const dialogueCueContracts = dialogueMessageCueContracts(project);
   for (const [id, message] of Object.entries(project.localization.messages))
     views.set(
@@ -170,6 +257,7 @@ export function localizationMessageWorkflowViews(
         null,
         project.localization.usageNotes[id] ?? null,
         dialogueCueContracts.get(id),
+        workflow,
       ),
     );
 
@@ -182,12 +270,13 @@ export function localizationMessageWorkflowViews(
       occurrence.usedIn,
       project.localization.usageNotes[occurrence.id] ?? null,
       occurrence.dialogueCues,
+      workflow && !occurrence.text,
     );
-    views.set(
-      occurrence.id,
-      occurrence.text
+    const structuredView =
+      workflow && occurrence.text
         ? {
             ...view,
+            guidanceFingerprint: guidanceFingerprint(message),
             sourceFingerprint: fingerprint(
               'semantic',
               `${
@@ -205,11 +294,11 @@ export function localizationMessageWorkflowViews(
                 .join('|')}`,
             ),
           }
-        : view,
-    );
+        : view;
+    views.set(occurrence.id, structuredView);
   }
 
-  for (const source of collectManagedLuaLocalizationSources(project)) {
+  for (const source of collectManagedLuaLocalizationSources(project, sourceDescriptors, false)) {
     source.occurrences.forEach((occurrence, ordinal) => {
       if (occurrence.kind === 'named') return;
       const candidate = source.source.occurrences[ordinal];
@@ -258,6 +347,8 @@ export function localizationMessageWorkflowViews(
           source.source.sourcePath,
           source.source.sourcePath,
           project.localization.usageNotes[id] ?? null,
+          undefined,
+          workflow,
         ),
         sourceEditPath: null,
       });
@@ -276,11 +367,13 @@ export function localizationMessageWorkflowViews(
       const argumentsContract = Object.fromEntries(
         messagePlaceholderNames(node.content).map((name) => [name, 'printable' as const]),
       );
-      const argumentFingerprint = Object.entries(argumentsContract)
-        .sort(([left], [right]) => left.localeCompare(right))
-        .map(([name, type]) => `${name}:${type}`)
-        .join('|');
-      const semantic = normalizeRmlLinguisticText(node.content);
+      const argumentFingerprint = workflow
+        ? Object.entries(argumentsContract)
+            .sort(([left], [right]) => left.localeCompare(right))
+            .map(([name, type]) => `${name}:${type}`)
+            .join('|')
+        : '';
+      const semantic = workflow ? normalizeRmlLinguisticText(node.content) : '';
       views.set(id, {
         id,
         kind: 'local',
@@ -290,9 +383,13 @@ export function localizationMessageWorkflowViews(
         sourceEditPath: null,
         usedIn: source.source.sourcePath,
         usageNote: project.localization.usageNotes[id] ?? null,
-        sourceFingerprint: fingerprint('semantic', `${semantic}\u0000${argumentFingerprint}`),
-        presentationFingerprint: fingerprint('presentation', node.content),
-        guidanceFingerprint: fingerprint('guidance', ''),
+        ...(workflow
+          ? {
+              sourceFingerprint: fingerprint('semantic', `${semantic}\u0000${argumentFingerprint}`),
+              presentationFingerprint: fingerprint('presentation', node.content),
+              guidanceFingerprint: fingerprint('guidance', ''),
+            }
+          : {}),
       });
     });
   }

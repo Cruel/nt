@@ -429,7 +429,33 @@ export class ResidentProjectWorkspaceSession {
       ...this.openedValue.snapshot,
     }) as LoadedProjectWorkspaceSnapshot;
     this.snapshotValue = snapshot;
-    this.openedValue = { ...this.openedValue, snapshot };
+    this.openedValue = {
+      ...this.openedValue,
+      snapshot,
+      // Only separately tracked external Asset authority advanced; no authored
+      // fragment was reread, projected, or semantically revalidated.
+      validationWork: {
+        executed: 0,
+        reused: this.openedValue.validationContributions.length,
+      },
+      sourceWork: {
+        ...this.openedValue.sourceWork,
+        authoredFilesReread: 0,
+        parsedJsonSources: 0,
+        reusedJsonSources: 0,
+        readTextSources: 0,
+        reusedTextSources: 0,
+        projectedJsonSources: 0,
+        wholeProjectSchemaParses: 0,
+        fullProjectTraversals: 0,
+        fullProjectProjections: 0,
+        foregroundSerializations: 0,
+        foregroundSerializedBytes: 0,
+        localizationCoverageInputsChanged: false,
+        residentReconcileMs: undefined,
+        residentAdmissionMs: undefined,
+      },
+    };
     return this.openedValue;
   }
 

@@ -10,6 +10,10 @@ import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import {
+  createLocalizationTranslation,
+  localizationMessageWorkflowView,
+} from '../../shared/authoring-localization-workflow';
+import {
   InMemoryProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
   projectWorkspaceFiles,
@@ -127,7 +131,7 @@ function trackSemanticTransactionWrites(
   };
 }
 
-async function createNativeAssetWorkspace() {
+async function createNativeAssetWorkspace(withRml = false) {
   const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
   project.assets.image = {
     id: 'image',
@@ -142,6 +146,28 @@ async function createNativeAssetWorkspace() {
       imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
     },
   };
+  if (withRml) {
+    project.assets.rml = {
+      id: 'rml',
+      label: 'RML',
+      data: {
+        kind: 'text',
+        source: { type: 'project-file', path: 'assets/shared.rml' },
+        aliases: [],
+        extension: '.rml',
+        contentHash: sha256PrefixedUtf8('<div>Valid</div>'),
+        byteSize: 16,
+        imageMetadata: null,
+      },
+    } as never;
+    const layout = defaultLayoutData('HUD');
+    layout.rml = {
+      sourceMode: 'asset',
+      sourceText: '',
+      sourceAsset: { $ref: { collection: 'assets', id: 'rml' } },
+    };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+  }
   const files = Object.fromEntries(
     Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
       `${ROOT}/${relativePath}`,
@@ -149,6 +175,7 @@ async function createNativeAssetWorkspace() {
     ]),
   );
   files[`${ROOT}/assets/original.png`] = 'a';
+  if (withRml) files[`${ROOT}/assets/shared.rml`] = '<div>Valid</div>';
   const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
   const probe = createProjectAuthorityProbe();
   const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
@@ -156,6 +183,484 @@ async function createNativeAssetWorkspace() {
   if (!first.ok) throw new Error('Initial Project open failed.');
   return { project, fileSystem, probe, workspace, first };
 }
+
+describe('Resident physical Asset validation acceleration', () => {
+  it('preserves external Asset invalidation when an authored source changes in the same generation', async () => {
+    const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace(true);
+    await workspace.buildDependencyGraphAnalysis(first.snapshot);
+    const updated = cloneAuthoringProject(project);
+    updated.settings.titleScreen.subtitle = 'Changed During Asset Edit';
+    const manifest = projectWorkspaceFiles(updated, updated.editor)['project.json']!;
+    await fileSystem.writeTextAtomic(`${ROOT}/project.json`, manifest);
+    await fileSystem.writeTextAtomic(`${ROOT}/assets/original.png`, 'changed');
+    await fileSystem.writeTextAtomic(`${ROOT}/assets/shared.rml`, '<div>Changed</div>');
+    probe.change('project.json', 'assets/original.png', 'assets/shared.rml');
+    const opened = await workspace.open(ROOT);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.snapshot.project.settings.titleScreen.subtitle).toBe('Changed During Asset Edit');
+    const warm = await workspace.buildDependencyGraphAnalysis(opened.snapshot);
+    const coldService = new ProjectWorkspaceService(fileSystem);
+    const cold = await coldService.open(ROOT);
+    expect(cold.ok).toBe(true);
+    if (!cold.ok) return;
+    const coldGraph = await coldService.buildDependencyGraphAnalysis(cold.snapshot);
+    expect(warm.graph.diagnostics).toEqual(coldGraph.graph.diagnostics);
+    expect(warm.externalSourceRevisions).toEqual(coldGraph.externalSourceRevisions);
+    expect(warm.graph.diagnostics.length).toBeGreaterThan(0);
+  });
+  for (const failure of ['hash-mismatch', 'missing'] as const) {
+    it(`drops stale source proof after ${failure} with an incremental Project rename`, async () => {
+      const { project, fileSystem, probe, workspace, first } =
+        await createNativeAssetWorkspace(true);
+      const before = await workspace.buildDependencyGraphAnalysis(first.snapshot);
+      const path = 'assets/shared.rml';
+      expect(before.externalSourceRevisions.has(path)).toBe(true);
+
+      const renamed = cloneAuthoringProject(project);
+      renamed.project.name = 'Changed Project Name';
+      await fileSystem.writeTextAtomic(
+        `${ROOT}/project.json`,
+        projectWorkspaceFiles(renamed, renamed.editor)['project.json']!,
+      );
+      if (failure === 'hash-mismatch')
+        await fileSystem.writeTextAtomic(`${ROOT}/${path}`, '<div>Hash Changed</div>');
+      else await fileSystem.removeFile(`${ROOT}/${path}`);
+      probe.change('project.json', path);
+
+      const changed = await workspace.open(ROOT);
+      expect(changed.ok).toBe(true);
+      if (!changed.ok) return;
+      expect(changed.snapshot.project.project.name).toBe('Changed Project Name');
+      const warm = await workspace.buildDependencyGraphAnalysis(changed.snapshot);
+      // This exercises the incremental graph patch, not a full cold recomputation.
+      expect(warm.work.fullProjectTraversals).toBe(0);
+      const coldService = new ProjectWorkspaceService(fileSystem);
+      const cold = await coldService.open(ROOT);
+      expect(cold.ok).toBe(true);
+      if (!cold.ok) return;
+      const coldAnalysis = await coldService.buildDependencyGraphAnalysis(cold.snapshot);
+      expect(coldAnalysis.externalSourceRevisions.has(path)).toBe(false);
+      expect(warm.externalSourceRevisions.has(path)).toBe(false);
+      expect([...warm.externalSourceRevisions]).toEqual([...coldAnalysis.externalSourceRevisions]);
+      expect(warm.graph.diagnostics).toEqual(coldAnalysis.graph.diagnostics);
+      expect(
+        warm.graph.diagnostics.some(
+          (diagnostic) => diagnostic.code === 'authoring.lua.source_unavailable',
+        ),
+      ).toBe(true);
+    });
+  }
+  it('revokes stale source proof when a full graph rebuild reuses prior revisions', async () => {
+    const { fileSystem, workspace, first } = await createNativeAssetWorkspace(true);
+    const initial = await workspace.buildDependencyGraphAnalysis(first.snapshot);
+    const path = 'assets/shared.rml';
+    expect(initial.externalSourceRevisions.has(path)).toBe(true);
+    await fileSystem.writeTextAtomic(`${ROOT}/${path}`, '<div>Changed</div>');
+
+    const reused = new ProjectWorkspaceService(fileSystem);
+    const opened = await reused.open(ROOT, {
+      reusableDependencyState: { externalSourceRevisions: initial.externalSourceRevisions },
+    });
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const analysis = await reused.buildDependencyGraphAnalysis(opened.snapshot);
+    expect(analysis.externalSourceRevisions.has(path)).toBe(false);
+    expect(
+      analysis.graph.diagnostics.some(
+        (diagnostic) => diagnostic.code === 'authoring.lua.source_unavailable',
+      ),
+    ).toBe(true);
+  });
+  it('invalidates font coverage identity when localization tracking changes', async () => {
+    const project = createAuthoringProject({ id: 'tracking-revision', name: 'Tracking Revision' });
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, value]) => [
+          `${ROOT}/${relative}`,
+          value,
+        ]),
+      ),
+      { pathMetadata: true },
+    );
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const initial = await workspace.open(ROOT);
+    expect(initial.ok).toBe(true);
+    if (!initial.ok) return;
+    await fileSystem.writeTextAtomic(`${ROOT}/i18n/tracking.json`, '{ }  ');
+    probe.change('i18n/tracking.json');
+    const updated = await workspace.open(ROOT);
+    expect(updated.ok).toBe(true);
+    if (!updated.ok) return;
+    expect(updated.sourceWork.localizationCoverageInputsChanged).toBe(true);
+    expect(updated.sourceWork.localizationCoverageDependencyRevision).not.toBe(
+      initial.sourceWork.localizationCoverageDependencyRevision,
+    );
+  });
+  it('preserves graph analysis when only an unrelated binary Asset changes', async () => {
+    const { fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
+    const initial = await workspace.buildDependencyGraphAnalysis(first.snapshot);
+    expect(initial.work.derivedContributions).toBeGreaterThan(0);
+
+    await fileSystem.writeTextAtomic(`${ROOT}/assets/original.png`, 'b');
+    probe.change('assets/original.png');
+    const changed = await workspace.open(ROOT);
+    expect(changed.ok).toBe(true);
+    if (!changed.ok) return;
+
+    const graph = await workspace.buildDependencyGraphAnalysis(changed.snapshot);
+    expect(graph.graph).toEqual(initial.graph);
+    expect(graph.work.derivedContributions).toBe(0);
+    expect(graph.work.analyzedOwners).toBe(0);
+    expect(graph.work.fullProjectTraversals).toBe(0);
+  });
+});
+
+describe('Presentation-only graph invalidation', () => {
+  it('rechecks a changed translation without rebuilding the Message identity and reference checks', async () => {
+    const project = createAuthoringProject();
+    const messageId = '11111111-1111-4111-8111-222222222222';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.greeting',
+      source: 'Hello {name}',
+      arguments: { name: 'printable' },
+    };
+    project.localization.locales.fr = {
+      supported: false,
+      parentLocale: null,
+      fontStack: null,
+    };
+    const view = localizationMessageWorkflowView(project, messageId);
+    if (!view) throw new Error('Missing named Message workflow view.');
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Bonjour {name}'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, text]) => [
+        `${ROOT}/${relative}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const resident = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const initial = await resident.open(ROOT);
+    if (!initial.ok)
+      throw new Error(`Initial admission failed: ${JSON.stringify(initial.diagnostics)}`);
+    await resident.buildDependencyGraphAnalysis(initial.snapshot);
+    const originalByKey = new Map(
+      initial.validationContributions.map((entry) => [entry.key, entry]),
+    );
+    const file = 'i18n/locales/fr.json';
+    const changed = cloneAuthoringProject(project);
+    changed.localization.translations.fr![messageId] = createLocalizationTranslation(
+      view,
+      'Bonjour {unknown}',
+    );
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${file}`,
+      projectWorkspaceFiles(changed, changed.editor)[file]!,
+    );
+    probe.change(file);
+    const warm = await resident.open(ROOT);
+    if (!warm.ok) throw new Error('Warm translation admission failed.');
+    expect(
+      warm.diagnostics.some(
+        (entry) => entry.code === 'localization.translation.placeholder-undeclared',
+      ),
+    ).toBe(true);
+    const latest = new Map(warm.validationContributions.map((entry) => [entry.key, entry]));
+    for (const phase of ['references', 'identities'])
+      expect(latest.get(`workspace:localization-${phase}`)).toBe(
+        originalByKey.get(`workspace:localization-${phase}`),
+      );
+    expect(latest.get('workspace:localization-translations')).not.toBe(
+      originalByKey.get('workspace:localization-translations'),
+    );
+    const cold = await new ProjectWorkspaceService(fileSystem).open(ROOT);
+    if (!cold.ok) throw new Error('Cold translation admission failed.');
+    expect(warm.diagnostics).toEqual(cold.diagnostics);
+    const graph = await resident.buildDependencyGraphAnalysis(warm.snapshot);
+    const coldGraph = await new ProjectWorkspaceService(fileSystem).buildDependencyGraphAnalysis(
+      cold.snapshot,
+    );
+    expect(graph.work.derivedContributions).toBe(0);
+    expect([...graph.graph.nodesByKey]).toEqual([...coldGraph.graph.nodesByKey]);
+    expect([...graph.graph.edgesById]).toEqual([...coldGraph.graph.edgesById]);
+  });
+
+  it('keeps named Message lookup edges when its source text changes', async () => {
+    const project = createAuthoringProject();
+    const id = '11111111-1111-4111-8111-222222222222';
+    project.localization.messages[id] = { kind: 'named', key: 'ui.greeting', source: 'Hello' };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.rooms.foyer.data.description.source = { kind: 'localized', key: 'ui.greeting' };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([file, value]) => [
+        `${ROOT}/${file}`,
+        value,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const resident = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const initial = await resident.open(ROOT);
+    if (!initial.ok) throw new Error('Initial admission failed.');
+    await resident.buildDependencyGraphAnalysis(initial.snapshot);
+    const changed = cloneAuthoringProject(project);
+    changed.localization.messages[id] = { kind: 'named', key: 'ui.greeting', source: 'Welcome' };
+    const file = 'i18n/messages.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${file}`,
+      projectWorkspaceFiles(changed, changed.editor)[file]!,
+    );
+    probe.change(file);
+    const warm = await resident.open(ROOT);
+    if (!warm.ok) throw new Error('Warm Message admission failed.');
+    const graph = await resident.buildDependencyGraphAnalysis(warm.snapshot);
+    const coldService = new ProjectWorkspaceService(fileSystem);
+    const cold = await coldService.open(ROOT);
+    if (!cold.ok) throw new Error('Cold Message admission failed.');
+    const coldGraph = await coldService.buildDependencyGraphAnalysis(cold.snapshot);
+    expect(warm.diagnostics).toEqual(cold.diagnostics);
+    expect(graph.work.derivedContributions).toBe(0);
+    expect([...graph.graph.nodesByKey]).toEqual([...coldGraph.graph.nodesByKey]);
+    expect([...graph.graph.edgesById]).toEqual([...coldGraph.graph.edgesById]);
+    expect(graph.graph.diagnostics).toEqual(coldGraph.graph.diagnostics);
+  });
+
+  it('reuses all validation and graph products after a semantic JSON no-op', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.entrypoint = { kind: 'room', id: 'missing' };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, text]) => [
+        `${ROOT}/${relative}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const resident = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await resident.open(ROOT);
+    if (!first.ok) throw new Error('Initial admission failed.');
+    const originalGraph = await resident.buildDependencyGraphAnalysis(first.snapshot);
+    const originalErrors = first.diagnostics;
+    expect(originalErrors.some((item) => item.code === 'authoring.entrypoint.target-missing')).toBe(
+      true,
+    );
+
+    for (const relative of ['project.json', 'traits.json', 'records/rooms/foyer.json']) {
+      const text = await fileSystem.readText(`${ROOT}/${relative}`);
+      await fileSystem.writeTextAtomic(`${ROOT}/${relative}`, `${text.trimEnd()}\n \n`);
+      probe.change(relative);
+      const warm = await resident.open(ROOT);
+      if (!warm.ok) throw new Error(`Warm admission failed for ${relative}`);
+      expect(warm.validationWork.executed, relative).toBe(0);
+      expect(warm.diagnostics, relative).toEqual(originalErrors);
+      const graph = await resident.buildDependencyGraphAnalysis(warm.snapshot);
+      expect(graph.work.derivedContributions, relative).toBe(0);
+      expect([...graph.graph.nodesByKey]).toEqual([...originalGraph.graph.nodesByKey]);
+      expect([...graph.graph.edgesById]).toEqual([...originalGraph.graph.edgesById]);
+      const cold = await new ProjectWorkspaceService(fileSystem).open(ROOT);
+      if (!cold.ok) throw new Error(`Cold admission failed for ${relative}`);
+      expect(warm.diagnostics).toEqual(cold.diagnostics);
+    }
+    const renamed = cloneAuthoringProject(project);
+    renamed.project.name = 'Display-only Project rename';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/project.json`,
+      projectWorkspaceFiles(renamed, renamed.editor)['project.json']!,
+    );
+    probe.change('project.json');
+    const changed = await resident.open(ROOT);
+    if (!changed.ok) throw new Error('Project display-name reconciliation failed.');
+    expect(changed.validationWork.executed).toBeLessThanOrEqual(3);
+    expect(changed.diagnostics).toEqual(originalErrors);
+    const graph = await resident.buildDependencyGraphAnalysis(changed.snapshot);
+    expect(graph.work.derivedContributions).toBe(0);
+    const cold = await new ProjectWorkspaceService(fileSystem).open(ROOT);
+    if (!cold.ok) throw new Error('Cold Project rename failed.');
+    expect(changed.diagnostics).toEqual(cold.diagnostics);
+  });
+
+  it('rederives the edited Asset rather than its Room consumers when only its label changes', async () => {
+    const project = createAuthoringProject();
+    project.assets.backdrop = {
+      id: 'backdrop',
+      label: 'Backdrop',
+      data: {
+        kind: 'image',
+        source: { type: 'project-file', path: 'assets/backdrop.png' },
+        aliases: [],
+        imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
+      },
+    };
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.rooms.foyer.data.background.asset = { $ref: { collection: 'assets', id: 'backdrop' } };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, value]) => [
+        `${ROOT}/${relative}`,
+        value,
+      ]),
+    );
+    files[`${ROOT}/assets/backdrop.png`] = 'image bytes';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    if (!first.ok) throw new Error('Initial Project admission failed.');
+    const initial = await workspace.buildDependencyGraphAnalysis(first.snapshot);
+    expect(initial.graph.edgesById.size).toBeGreaterThan(0);
+    const after = cloneAuthoringProject(project);
+    after.assets.backdrop!.label = 'New label';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/records/assets/backdrop.json`,
+      projectWorkspaceFiles(after, after.editor)['records/assets/backdrop.json']!,
+    );
+    probe.change('records/assets/backdrop.json');
+    const second = await workspace.open(ROOT);
+    if (!second.ok) throw new Error('Asset metadata reconciliation failed.');
+    const warm = await workspace.buildDependencyGraphAnalysis(second.snapshot);
+    const cold = await new ProjectWorkspaceService(fileSystem).open(ROOT);
+    if (!cold.ok) throw new Error('Cold Project admission failed.');
+    const expected = await new ProjectWorkspaceService(fileSystem).buildDependencyGraphAnalysis(
+      cold.snapshot,
+    );
+    expect([...warm.graph.nodesByKey]).toEqual([...expected.graph.nodesByKey]);
+    expect([...warm.graph.edgesById]).toEqual([...expected.graph.edgesById]);
+    expect(warm.graph.diagnostics).toEqual(expected.graph.diagnostics);
+    expect(warm.work.derivedContributions).toBeLessThanOrEqual(1);
+    expect(warm.work.analyzedOwners).toBe(0);
+  });
+
+  it('restricts nonstructural value edits to the correct owner while retaining cold graph parity', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, text]) => [
+        `${ROOT}/${relative}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const resident = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const initial = await resident.open(ROOT);
+    if (!initial.ok) throw new Error('Initial admission failed.');
+    await resident.buildDependencyGraphAnalysis(initial.snapshot);
+    const changed = cloneAuthoringProject(project);
+    changed.rooms.foyer.data.displayName = 'Revised display name';
+    const file = 'records/rooms/foyer.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${file}`,
+      projectWorkspaceFiles(changed, changed.editor)[file]!,
+    );
+    probe.change(file);
+    const warm = await resident.open(ROOT);
+    if (!warm.ok) throw new Error('Warm Room admission failed.');
+    const warmGraph = await resident.buildDependencyGraphAnalysis(warm.snapshot);
+    const coldService = new ProjectWorkspaceService(fileSystem);
+    const cold = await coldService.open(ROOT);
+    if (!cold.ok) throw new Error('Cold Room admission failed.');
+    const coldGraph = await coldService.buildDependencyGraphAnalysis(cold.snapshot);
+    expect(warm.diagnostics).toEqual(cold.diagnostics);
+    expect([...warmGraph.graph.nodesByKey]).toEqual([...coldGraph.graph.nodesByKey]);
+    expect([...warmGraph.graph.edgesById]).toEqual([...coldGraph.graph.edgesById]);
+    expect(warmGraph.graph.diagnostics).toEqual(coldGraph.graph.diagnostics);
+    expect(warmGraph.work.derivedContributions).toBeLessThanOrEqual(1);
+  });
+
+  it('reconciles a Layout JSON label edit without reconstructing source owners', async () => {
+    const project = createAuthoringProject();
+    project.layouts.hud = {
+      id: 'hud',
+      label: 'HUD',
+      data: defaultLayoutData('HUD', 'document'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, value]) => [
+        `${ROOT}/${relative}`,
+        value,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const initial = await workspace.open(ROOT);
+    if (!initial.ok) throw new Error('Initial Project admission failed.');
+    await workspace.buildDependencyGraphAnalysis(initial.snapshot);
+    const updated = cloneAuthoringProject(project);
+    updated.layouts.hud!.label = 'HUD edited';
+    const file = 'records/layouts/hud/layout.json';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${file}`,
+      projectWorkspaceFiles(updated, updated.editor)[file]!,
+    );
+    probe.change(file);
+    const warm = await workspace.open(ROOT);
+    if (!warm.ok) throw new Error('Warm Layout JSON reconciliation failed.');
+    const graph = await workspace.buildDependencyGraphAnalysis(warm.snapshot);
+    const cold = await new ProjectWorkspaceService(fileSystem).open(ROOT);
+    if (!cold.ok) throw new Error('Cold Layout JSON validation failed.');
+    const coldGraph = await new ProjectWorkspaceService(fileSystem).buildDependencyGraphAnalysis(
+      cold.snapshot,
+    );
+    expect([...graph.graph.nodesByKey]).toEqual([...coldGraph.graph.nodesByKey]);
+    expect([...graph.graph.edgesById]).toEqual([...coldGraph.graph.edgesById]);
+    expect(graph.graph.diagnostics).toEqual(coldGraph.graph.diagnostics);
+    expect(warm.sourceWork.authoredFilesReread).toBe(1);
+    expect(graph.work.derivedContributions).toBeLessThanOrEqual(1);
+    expect(graph.work.analyzedOwners).toBeLessThanOrEqual(1);
+  });
+});
+
+describe('Shader-source graph invalidation', () => {
+  it('preserves the source graph when unowned shader stage text changes', async () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relative, value]) => [
+        `${ROOT}/${relative}`,
+        value,
+      ]),
+    );
+    const shader = 'shaders/custom.fs.sc';
+    files[`${ROOT}/${shader}`] = '// initial shader\n';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    probe.setManifestEntries([
+      { path: shader, byteSize: files[`${ROOT}/${shader}`]!.length, mtimeNanoseconds: '1' },
+    ]);
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    if (!first.ok) throw new Error('Initial Project admission failed.');
+    // Shader sources have physical native authority but no semantic graph owner.
+    expect(first.sourceContributions[shader]).toBeUndefined();
+    const graphBefore = await workspace.buildDependencyGraphAnalysis(first.snapshot);
+    await fileSystem.writeTextAtomic(`${ROOT}/${shader}`, '// changed shader\n');
+    probe.change(shader);
+    const second = await workspace.open(ROOT);
+    if (!second.ok) throw new Error('Shader-source reconciliation failed.');
+    expect(second.sourceWork.authoredFilesReread).toBe(0);
+    const graphAfter = await workspace.buildDependencyGraphAnalysis(second.snapshot);
+    expect([...graphAfter.graph.nodesByKey]).toEqual([...graphBefore.graph.nodesByKey]);
+    expect([...graphAfter.graph.edgesById]).toEqual([...graphBefore.graph.edgesById]);
+    expect(graphAfter.work.derivedContributions).toBe(0);
+    expect(graphAfter.work.analyzedOwners).toBe(0);
+    expect(second.sourceWork.authoredFilesReread).toBe(0);
+    const portable = await workspace.preparePortableSnapshot(ROOT);
+    expect(portable).not.toBeNull();
+    if (!portable) return;
+    const retained = JSON.parse(portable.snapshotText) as {
+      projectTextSources: Record<string, { text: string }>;
+    };
+    expect(retained.projectTextSources[shader]?.text).toBe('// changed shader\n');
+  });
+});
 
 async function createResidentSession() {
   const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
@@ -179,6 +684,254 @@ async function createResidentSession() {
 }
 
 describe('ResidentProjectWorkspaceSession', () => {
+  it('rechecks only Lua source consumers and preserves full cold graph diagnostics', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.scripts.main = {
+      id: 'main',
+      label: 'Main',
+      data: {
+        kind: 'script-module',
+        source: { kind: 'project-file', path: 'scripts/modules/main.lua' },
+      },
+    };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.dependencies.scripts = ['scripts/modules/main.lua'];
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    project.rooms.unrelated = {
+      id: 'unrelated',
+      label: 'Unrelated room',
+      data: defaultRoomData('Unrelated room'),
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([relativePath, text]) => [
+        `${ROOT}/${relativePath}`,
+        text,
+      ]),
+    );
+    files[`${ROOT}/scripts/modules/main.lua`] = '-- initial source\n';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const initial = await workspace.open(ROOT);
+    if (!initial.ok) throw new Error('Initial Project admission failed.');
+    await workspace.buildDependencyGraphAnalysis(initial.snapshot);
+
+    for (const text of [
+      '-- comment-only source edit\n',
+      'noveltea.presentation.cursor.set("unregistered_cursor")\n',
+      'Text.tr("A localized Lua message")\n',
+      'Text.tr("Not " .. "a literal")\n',
+      '-- fixed invalid localized call\n',
+    ]) {
+      await fileSystem.writeTextAtomic(`${ROOT}/scripts/modules/main.lua`, text);
+      probe.change('scripts/modules/main.lua');
+      const changed = await workspace.open(ROOT);
+      if (!changed.ok) throw new Error('Edited source admission failed.');
+      expect(changed.sourceWork).toMatchObject({
+        authoredFilesReread: 1,
+        parsedJsonSources: 0,
+        localizationCoverageInputsChanged: false,
+      });
+      expect(changed.validationWork.executed).toBeLessThanOrEqual(4);
+      const incremental = await workspace.buildDependencyGraphAnalysis(changed.snapshot);
+      // Both the Script Module and the Layout consuming its dependency path
+      // must be reevaluated, but unrelated owners must remain reusable.
+      expect(incremental.work.derivedContributions).toBe(2);
+      expect(incremental.work.analyzedOwners).toBe(2);
+      expect(incremental.work.reusedContributions).toBeGreaterThan(0);
+      const coldOpened = await new ProjectWorkspaceService(fileSystem).open(ROOT);
+      if (!coldOpened.ok) throw new Error('Cold source admission failed.');
+      const cold = await new ProjectWorkspaceService(fileSystem).buildDependencyGraphAnalysis(
+        coldOpened.snapshot,
+      );
+      const ordered = (entries: Iterable<readonly [string, unknown]>) =>
+        [...entries].sort(([left], [right]) => left.localeCompare(right));
+      expect(ordered(incremental.graph.nodesByKey)).toEqual(ordered(cold.graph.nodesByKey));
+      expect(ordered(incremental.graph.edgesById)).toEqual(ordered(cold.graph.edgesById));
+      expect(incremental.graph.diagnostics).toEqual(cold.graph.diagnostics);
+      if (text.includes('unregistered_cursor'))
+        expect(
+          incremental.graph.diagnostics.some(
+            (item) => item.code === 'authoring.cursor.lua_named_missing',
+          ),
+        ).toBe(true);
+      const invalidLocalization = incremental.graph.diagnostics.some(
+        (item) => item.code === 'authoring.localization.lua_source_literal',
+      );
+      expect(invalidLocalization).toBe(text.includes('Not '));
+      if (text.includes('A localized Lua message'))
+        expect(
+          [...incremental.sourceAnalyses.values()].some((ownerArtifacts) =>
+            ownerArtifacts.some((artifact) =>
+              artifact.managedMessageOccurrences.some(
+                (occurrence) =>
+                  occurrence.kind === 'local' && occurrence.source === 'A localized Lua message',
+              ),
+            ),
+          ),
+        ).toBe(true);
+    }
+  });
+
+  it('preserves cold validation and dependency diagnostics across heterogeneous warm edits', async () => {
+    const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.rooms.foyer.data.description.source = { kind: 'localized', key: 'ui.original' };
+    project.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
+    project.scripts.main = {
+      id: 'main',
+      label: 'Main',
+      data: { kind: 'script-module', source: { kind: 'project-file', path: 'scripts/main.lua' } },
+    };
+    const messageId = '11111111-1111-4111-8111-111111111111';
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.original',
+      source: 'Hello',
+    };
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.dependencies.scripts = ['scripts/main.lua'];
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([path, text]) => [
+        `${ROOT}/${path}`,
+        text,
+      ]),
+    );
+    files[`${ROOT}/scripts/main.lua`] = '-- initial source\n';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const resident = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const initial = await resident.open(ROOT);
+    if (!initial.ok) throw new Error('Initial admission failed.');
+    await resident.buildDependencyGraphAnalysis(initial.snapshot);
+    const edits: Array<readonly [string, string]> = [
+      ['scripts/main.lua', 'Text.msg("ui.missing")\n'],
+    ];
+    const revised = cloneAuthoringProject(project);
+    revised.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.missing',
+      source: 'Hello',
+    };
+    edits.push([
+      'i18n/messages.json',
+      projectWorkspaceFiles(revised, revised.editor)['i18n/messages.json']!,
+    ]);
+    revised.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.original',
+      source: 'Hello',
+    };
+    edits.push([
+      'i18n/messages.json',
+      projectWorkspaceFiles(revised, revised.editor)['i18n/messages.json']!,
+    ]);
+    edits.push(
+      ['scripts/main.lua', 'Text.tr("Not " .. "literal")\n'],
+      ['scripts/main.lua', 'Text.tr("Localized {name}", { name = player_name })\n'],
+    );
+    revised.rooms.foyer.archetype = { $ref: { collection: 'archetypes', id: 'missing' } };
+    edits.push([
+      'records/rooms/foyer.json',
+      projectWorkspaceFiles(revised, revised.editor)['records/rooms/foyer.json']!,
+    ]);
+    revised.rooms.foyer.archetype = null;
+    edits.push([
+      'records/rooms/foyer.json',
+      projectWorkspaceFiles(revised, revised.editor)['records/rooms/foyer.json']!,
+    ]);
+    revised.entrypoint = { kind: 'room', id: 'missing' };
+    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+    revised.entrypoint = { kind: 'room', id: 'foyer' };
+    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+    revised.editor.recordMetadata.rooms = { ghost: { tags: [] } };
+    edits.push(['editor.json', projectWorkspaceFiles(revised, revised.editor)['editor.json']!]);
+    revised.editor.recordMetadata.rooms = {};
+    edits.push(['editor.json', projectWorkspaceFiles(revised, revised.editor)['editor.json']!]);
+    revised.settings.cursors.named = [
+      {
+        id: 'cursor-original',
+        image: { $ref: { collection: 'assets', id: 'cursor-image' } },
+        hotspotX: 0,
+        hotspotY: 0,
+      },
+    ];
+    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+    edits.push(['scripts/main.lua', 'noveltea.presentation.cursor.set("cursor-renamed")\n']);
+    revised.settings.cursors.named[0]!.id = 'cursor-renamed';
+    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+
+    for (const [path, text] of edits) {
+      await fileSystem.writeTextAtomic(`${ROOT}/${path}`, text);
+      probe.change(path);
+      const warm = await resident.open(ROOT);
+      const coldService = new ProjectWorkspaceService(fileSystem);
+      const cold = await coldService.open(ROOT);
+      expect(
+        warm.ok,
+        `warm admission for ${path}: ${warm.ok ? '' : JSON.stringify(warm.diagnostics)}`,
+      ).toBe(true);
+      expect(cold.ok, `cold admission for ${path}`).toBe(true);
+      if (!warm.ok || !cold.ok) continue;
+      expect(warm.diagnostics, `validation parity after ${path}: ${text.slice(0, 48)}`).toEqual(
+        cold.diagnostics,
+      );
+      if (path === 'i18n/messages.json') {
+        const originalKeyMissing = text.includes('ui.missing');
+        expect(
+          warm.diagnostics.some(
+            (item) =>
+              item.code === 'localization.message-reference.missing' &&
+              item.path === '/rooms/foyer/data/description/source/key',
+          ),
+        ).toBe(originalKeyMissing);
+      }
+      const contributionContracts = (entries: typeof warm.validationContributions) =>
+        entries
+          .map((entry) => ({
+            key: entry.key,
+            inputs: entry.inputPaths,
+            diagnostics: entry.diagnostics,
+          }))
+          .sort((left, right) => left.key.localeCompare(right.key));
+      expect(contributionContracts(warm.validationContributions), `checks after ${path}`).toEqual(
+        contributionContracts(cold.validationContributions),
+      );
+      const warmGraph = await resident.buildDependencyGraphAnalysis(warm.snapshot);
+      const coldGraph = await coldService.buildDependencyGraphAnalysis(cold.snapshot);
+      expect(warmGraph.graph.diagnostics, `graph parity after ${path}`).toEqual(
+        coldGraph.graph.diagnostics,
+      );
+      if (path === 'i18n/messages.json')
+        expect(
+          warmGraph.graph.diagnostics.some(
+            (item) => item.code === 'authoring.localization.lua_named_message_missing',
+          ),
+        ).toBe(!text.includes('ui.missing'));
+      if (path === 'scripts/main.lua' && text.includes('cursor-renamed'))
+        expect(
+          warmGraph.graph.diagnostics.some(
+            (item) => item.code === 'authoring.cursor.lua_named_missing',
+          ),
+        ).toBe(true);
+      if (path === 'project.json' && text.includes('cursor-renamed'))
+        expect(
+          warmGraph.graph.diagnostics.some(
+            (item) => item.code === 'authoring.cursor.lua_named_missing',
+          ),
+        ).toBe(false);
+      const ordered = (entries: Iterable<readonly [string, unknown]>) =>
+        [...entries].sort(([left], [right]) => left.localeCompare(right));
+      expect(ordered(warmGraph.graph.nodesByKey), `nodes after ${path}`).toEqual(
+        ordered(coldGraph.graph.nodesByKey),
+      );
+      expect(ordered(warmGraph.graph.edgesById), `edges after ${path}`).toEqual(
+        ordered(coldGraph.graph.edgesById),
+      );
+    }
+  }, 30_000);
+
   it('seeds an opened session from admitted source contributions without reprojecting the Project', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.rooms.foyer = {
@@ -361,6 +1114,56 @@ describe('ResidentProjectWorkspaceSession', () => {
     );
   });
 
+  it('keeps font requirements stable for nonlocalized Layout edits and invalidates newly localized text', async () => {
+    const project = createAuthoringProject();
+    project.layouts.hud = {
+      id: 'hud',
+      label: 'HUD',
+      data: defaultLayoutData('HUD', 'document'),
+    };
+    project.layouts.hud.data.rml = {
+      sourceMode: 'inline',
+      sourceText: '<div>Plain</div>',
+      sourceAsset: null,
+    };
+    const files = Object.fromEntries(
+      Object.entries(projectWorkspaceFiles(project, project.editor)).map(([file, text]) => [
+        `${ROOT}/${file}`,
+        text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(files, { pathMetadata: true });
+    const probe = createProjectAuthorityProbe();
+    const workspace = new ResidentProjectWorkspaceService(fileSystem, undefined, probe.authority);
+    const first = await workspace.open(ROOT);
+    if (!first.ok) throw new Error('Initial Project open failed.');
+    const baseline = first.sourceWork.localizationCoverageDependencyRevision;
+
+    for (const [file, text] of [
+      ['records/layouts/hud/layout.rcss', '/* presentation only */'],
+      ['records/layouts/hud/layout.rml', '<div>Different plain text</div>'],
+      ['records/layouts/hud/layout.lua', '-- no localized calls'],
+    ] as const) {
+      await fileSystem.writeTextAtomic(`${ROOT}/${file}`, text);
+      probe.change(file);
+      const opened = await workspace.open(ROOT);
+      if (!opened.ok) throw new Error(`Layout source ${file} failed.`);
+      expect(opened.sourceWork.localizationCoverageInputsChanged, file).toBe(false);
+      expect(opened.sourceWork.localizationCoverageDependencyRevision).toBe(baseline);
+    }
+
+    const localized = 'records/layouts/hud/layout.rml';
+    await fileSystem.writeTextAtomic(
+      `${ROOT}/${localized}`,
+      '<div><nt-tr>New localized phrase</nt-tr></div>',
+    );
+    probe.change(localized);
+    const changed = await workspace.open(ROOT);
+    if (!changed.ok) throw new Error('Localized Layout reconciliation failed.');
+    expect(changed.sourceWork.localizationCoverageInputsChanged).toBe(true);
+    expect(changed.sourceWork.localizationCoverageDependencyRevision).not.toBe(baseline);
+  });
+
   it('does not enumerate the Asset registry for an unrelated native freshness check', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.rooms.foyer = {
@@ -453,7 +1256,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     const fourth = await workspace.open(ROOT);
     expect(fourth.ok).toBe(true);
     if (!fourth.ok) throw new Error('External Asset authority reconciliation failed.');
-    expect(fourth.sourceWork.authoredFilesReread).toBe(third.sourceWork.authoredFilesReread);
+    expect(fourth.sourceWork.authoredFilesReread).toBe(0);
+    expect(fourth.validationWork.executed).toBe(0);
     expect(probe.requests.at(-1)).toBeNull();
   });
 

@@ -20,7 +20,7 @@ import {
 } from './project-schema/authoring-project';
 import { projectSettingsFromProject } from './project-schema/authoring-project-settings';
 import {
-  buildAuthoringStructuralDependencyGraph,
+  missingAuthoringStructuralReferences,
   serializeAuthoringDependencyNodeKey,
 } from './authoring-dependency-graph';
 import { parseRoomData } from './project-schema/authoring-rooms';
@@ -109,12 +109,14 @@ export interface AuthoringPreflightResult {
 }
 
 export type CompileResult<Project> = CompileSuccess<Project> | CompileFailure;
+export type CompileValueResult<Project> =
+  | Omit<CompileSuccess<Project>, 'canonicalJson'>
+  | CompileFailure;
 
 interface CompilerContext {
   diagnostics: CompiledDiagnostic[];
   normalizedProject?: AuthoringProject;
   stages: CompilerStageReport[];
-  symbols?: AuthoringSymbolTables;
 }
 
 interface LoweringResult {
@@ -581,15 +583,7 @@ function linkAuthoringProject(context: CompilerContext): void {
     addStage(context, 'link', 'skipped');
     return;
   }
-  const symbols = buildAuthoringSymbolTables(context.normalizedProject);
-  if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
-    console.error('[export-profile] linker symbols built');
-  const graph = buildAuthoringStructuralDependencyGraph(context.normalizedProject);
-  if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
-    console.error('[export-profile] linker graph built');
-  for (const [, edge] of graph.edgesById) {
-    if (!edge.facets.includes('reference-integrity')) continue;
-    if (graph.nodesByKey.has(serializeAuthoringDependencyNodeKey(edge.target))) continue;
+  for (const edge of missingAuthoringStructuralReferences(context.normalizedProject)) {
     const targetLabel =
       edge.target.kind === 'record'
         ? `${edge.target.collection}/${edge.target.id}`
@@ -603,26 +597,15 @@ function linkAuthoringProject(context: CompilerContext): void {
       ),
     );
   }
-  context.symbols = symbols;
   addStage(context, 'link', hasErrors(context.diagnostics) ? 'failed' : 'completed');
 }
 
 /** Lowers every specialized family into the complete, unpublished wire draft. */
-function lowerAuthoringProject(
-  project: AuthoringProject,
-  _symbols: AuthoringSymbolTables,
-): LoweringResult {
-  const started = Date.now();
-  const mark = (stage: string) => {
-    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
-      console.error(`[export-profile] lower ${stage} ${Date.now() - started}ms`);
-  };
+function lowerAuthoringProject(project: AuthoringProject): LoweringResult {
   const managedLua = lowerManagedLuaLocalization(project);
-  mark('managed-lua');
   const loweringProject = managedLua.project;
   return withPackageMessageIds(loweringProject, () => {
     const shared = lowerSharedAuthoringProject(loweringProject);
-    mark('shared');
     const diagnostics = managedLua.diagnostics.map((diagnostic) =>
       makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
     );
@@ -633,7 +616,6 @@ function lowerAuthoringProject(
     );
     if (shared.draft) {
       const programs = lowerSceneAndRoomPrograms(loweringProject, shared.draft);
-      mark('scene-room');
       diagnostics.push(
         ...programs.diagnostics.map((diagnostic) =>
           makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
@@ -644,7 +626,6 @@ function lowerAuthoringProject(
           loweringProject,
           programs.draft,
         );
-        mark('dialogue-interaction');
         diagnostics.push(
           ...remainingPrograms.diagnostics.map((diagnostic) =>
             makeDiagnostic(diagnostic.code, 'error', diagnostic.path, diagnostic.message),
@@ -709,17 +690,25 @@ export function preflightAdmittedAuthoringProject(
  */
 export function compileAuthoringProject(
   project: unknown,
+  validate?: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[],
+): CompileResult<CompiledProjectWire> {
+  const compiled = compileAuthoringProjectValue(project, validate);
+  if (!compiled.ok) return compiled;
+  return {
+    ...compiled,
+    canonicalJson: serializeCompiledProjectWire(compiled.project),
+    stages: [...compiled.stages, { name: 'serialize', status: 'completed' }],
+  };
+}
+
+/** Validated compiler output for consumers that finalize the value before serializing it. */
+export function compileAuthoringProjectValue(
+  project: unknown,
   validate: (project: AuthoringProject) => readonly ProjectValidationDiagnostic[] = (project) =>
     validateAdmittedAuthoringProject(project).diagnostics,
-): CompileResult<CompiledProjectWire> {
-  const started = Date.now();
-  const mark = (stage: string) => {
-    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
-      console.error(`[export-profile] compiler ${stage} ${Date.now() - started}ms`);
-  };
+): CompileValueResult<CompiledProjectWire> {
   const context: CompilerContext = { diagnostics: [], stages: [] };
   normalizeAuthoringProject(project, context);
-  mark('normalize');
   if (!context.normalizedProject) {
     addSkippedStages(context, [
       'semantic-validation',
@@ -734,7 +723,6 @@ export function compileAuthoringProject(
   }
 
   validateSemantics(context, validate);
-  mark('semantic-validation');
   if (hasErrors(context.diagnostics)) {
     addSkippedStages(context, [
       'link',
@@ -748,20 +736,8 @@ export function compileAuthoringProject(
   }
 
   linkAuthoringProject(context);
-  mark('link');
-  if (!context.symbols) {
-    addSkippedStages(context, [
-      'lower',
-      'collect-resources',
-      'assemble',
-      'validate-wire',
-      'serialize',
-    ]);
-    return finish(context);
-  }
 
-  const lowered = lowerAuthoringProject(context.normalizedProject, context.symbols);
-  mark('lower');
+  const lowered = lowerAuthoringProject(context.normalizedProject);
   context.diagnostics.push(...lowered.diagnostics);
   addStage(context, 'lower', hasErrors(lowered.diagnostics) ? 'failed' : 'completed');
   if (!lowered.project || hasErrors(context.diagnostics)) {
@@ -770,7 +746,6 @@ export function compileAuthoringProject(
   }
 
   const resourceDiagnostics = validateResourceClosure(lowered.project);
-  mark('resource-closure');
   context.diagnostics.push(...resourceDiagnostics);
   addStage(context, 'collect-resources', hasErrors(resourceDiagnostics) ? 'failed' : 'completed');
   if (hasErrors(context.diagnostics)) {
@@ -786,10 +761,8 @@ export function compileAuthoringProject(
   // semantically ordered authored array. Assembly binds the complete value to the
   // compiler-produced persistent Save Contract before publication.
   lowered.project.saveContract = computeCompiledProjectSaveContract(lowered.project);
-  mark('flow-and-save-contract');
   addStage(context, 'assemble', 'completed');
   const validated = compiledProjectWireSchema.safeParse(lowered.project);
-  mark('validate-wire');
   if (!validated.success) {
     validated.error.issues.forEach((issue) =>
       context.diagnostics.push(
@@ -812,13 +785,9 @@ export function compileAuthoringProject(
     addStage(context, 'serialize', 'skipped');
     return { ok: false, diagnostics, stages: context.stages };
   }
-  addStage(context, 'serialize', 'completed');
-  const canonicalJson = serializeCompiledProjectWire(validated.data);
-  mark('serialize');
   return {
     ok: true,
     project: validated.data,
-    canonicalJson,
     diagnostics,
     stages: context.stages,
   };

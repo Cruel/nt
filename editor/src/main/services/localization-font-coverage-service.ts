@@ -1,5 +1,8 @@
 import type { AuthoringProject } from '../../shared/project-schema/authoring-project';
 import {
+  fontCoverageMessageIdentities,
+  fontCoverageUnverifiedMessages,
+  fontCoverageStackIdentity,
   localizationFontCoverageLocales,
   type LocalizationFontCoverageDiagnostic,
 } from '../../shared/localization-font-coverage';
@@ -11,6 +14,9 @@ import {
 interface CachedLocaleCoverage {
   fingerprint: string;
   diagnostics: readonly LocalizationFontCoverageDiagnostic[];
+  stackIdentity: string;
+  messageIdentities: readonly string[];
+  diagnosticCount: number;
 }
 
 export class LocalizationFontCoverageService {
@@ -38,15 +44,19 @@ export class LocalizationFontCoverageService {
 
     for (const localeRequest of localeRequests) {
       const cached = previous.get(localeRequest.locale);
-      if (cached?.fingerprint === localeRequest.fingerprint) {
-        next.set(localeRequest.locale, cached);
+      const delta = cached ? fontCoverageUnverifiedMessages(localeRequest, cached) : null;
+      if (
+        cached &&
+        (cached.fingerprint === localeRequest.fingerprint || delta?.messages.length === 0)
+      ) {
+        next.set(localeRequest.locale, { ...cached, fingerprint: localeRequest.fingerprint });
         diagnostics.push(...cached.diagnostics);
         continue;
       }
       const response = await this.runCoverage({
         projectRoot,
         systemRoot: this.systemRoot,
-        locales: [localeRequest],
+        locales: [delta ?? localeRequest],
       });
       if (!response.ok)
         throw new Error(
@@ -56,6 +66,9 @@ export class LocalizationFontCoverageService {
       const entry = Object.freeze({
         fingerprint: localeRequest.fingerprint,
         diagnostics: localeDiagnostics,
+        stackIdentity: fontCoverageStackIdentity(localeRequest),
+        messageIdentities: fontCoverageMessageIdentities(localeRequest),
+        diagnosticCount: localeDiagnostics.length,
       });
       next.set(localeRequest.locale, entry);
       diagnostics.push(...localeDiagnostics);

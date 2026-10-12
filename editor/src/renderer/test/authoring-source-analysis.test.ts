@@ -40,6 +40,32 @@ import type { AuthoringSourceReferenceRecognizer } from '../../shared/authoring-
 const hash = (digit: string) => `sha256:${digit.repeat(64)}` as const;
 
 describe('authoring Lua lexer', () => {
+  it('reuses indexed source descriptors without changing per-owner Asset requirements', () => {
+    const project = createAuthoringProject();
+    const layout = defaultLayoutData('HUD', 'document');
+    layout.rml = {
+      sourceMode: 'asset',
+      sourceText: '',
+      sourceAsset: { $ref: { collection: 'assets', id: 'layout-rml' } },
+    };
+    layout.dependencies.templates = [{ $ref: { collection: 'assets', id: 'panel-template' } }];
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const descriptors = collectAuthoringLuaSources(project);
+    for (const key of enumerateAuthoringDependencyContributionKeys(project)) {
+      expect(
+        collectAuthoringSourceRequirements(
+          project,
+          key,
+          descriptors.filter((descriptor) => descriptor.contributionKey === key),
+        ),
+      ).toEqual(collectAuthoringSourceRequirements(project, key));
+    }
+    expect(collectAuthoringSourceRequirements(project, undefined, descriptors)).toEqual(
+      collectAuthoringSourceRequirements(project),
+    );
+    expect(collectAuthoringSourceRequirements(project)).toEqual(['layout-rml', 'panel-template']);
+  });
+
   it('computes browser-safe SHA-256 fingerprints over exact UTF-8 bytes', async () => {
     expect(await sha256HexUtf8('')).toBe(
       'e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855',

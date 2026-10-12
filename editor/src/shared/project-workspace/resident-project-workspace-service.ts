@@ -104,7 +104,6 @@ function isResidentSemanticSourcePath(path: string): boolean {
     path === 'traits.json' ||
     /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(path) ||
     /^scripts\/.+\.lua$/u.test(path) ||
-    /^shaders\/.+\.sc$/u.test(path) ||
     /^i18n\/.+\.json$/u.test(path)
   );
 }
@@ -257,6 +256,7 @@ type ResidentEntry = {
   readonly pendingNativeSemanticPaths: Set<string>;
   pendingNativeStructuralChange: boolean;
   pendingNativeExternalAssetChange: boolean;
+  pendingNativeExternalAssetPaths: Set<string>;
   nativeAssetSourcePaths: readonly string[];
   nativeAssetSourcePathSet: ReadonlySet<string>;
   lastUsedAtMilliseconds: number;
@@ -499,14 +499,15 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     observation: ResidentProjectAuthorityObservation,
   ): ReturnType<typeof semanticObservationDelta> {
     const delta = semanticObservationDelta(observation);
-    const externalAssetChanged = [
+    const externalAssetPaths = [
       ...observation.delta.added,
       ...observation.delta.changed,
       ...observation.delta.removed,
-    ].some((path) => entry.nativeAssetSourcePathSet.has(path));
-    if (externalAssetChanged) {
+    ].filter((path) => entry.nativeAssetSourcePathSet.has(path) || /^shaders\/.+\.sc$/u.test(path));
+    if (externalAssetPaths.length > 0) {
       entry.portableSnapshot = null;
       entry.pendingNativeExternalAssetChange = true;
+      for (const path of externalAssetPaths) entry.pendingNativeExternalAssetPaths.add(path);
     }
     delta.paths.forEach((path) => entry.pendingNativeSemanticPaths.add(path));
     entry.pendingNativeStructuralChange ||= delta.structural;
@@ -610,6 +611,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           pendingNativeSemanticPaths: new Set(),
           pendingNativeStructuralChange: false,
           pendingNativeExternalAssetChange: false,
+          pendingNativeExternalAssetPaths: new Set(),
           nativeAssetSourcePaths,
           nativeAssetSourcePathSet: new Set(nativeAssetSourcePaths),
           lastUsedAtMilliseconds: Date.now(),
@@ -647,6 +649,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pendingNativeSemanticPaths: new Set(),
         pendingNativeStructuralChange: false,
         pendingNativeExternalAssetChange: false,
+        pendingNativeExternalAssetPaths: new Set(),
         nativeAssetSourcePaths: Object.freeze([]),
         nativeAssetSourcePathSet: new Set(),
         lastUsedAtMilliseconds: Date.now(),
@@ -695,6 +698,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     current: SuccessfulOpen,
     options: ProjectWorkspaceOpenOptions,
   ): Promise<ProjectWorkspaceOpenResult> {
+    const admissionStart = Date.now();
     const pendingPaths = new Set([
       ...entry.pendingNativeSemanticPaths,
       ...entry.session.invalidAuthoringSources().filter((path) => path !== '*'),
@@ -705,6 +709,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       entry.canonicalRoot,
       entry.nativeAssetSourcePaths,
     );
+    const firstAuthorityComplete = Date.now();
 
     for (let attempt = 0; attempt < 3; attempt += 1) {
       const delta = this.recordNativeObservation(entry, observation);
@@ -712,12 +717,19 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       structural ||= delta.structural;
       if (pendingPaths.size === 0 && !structural) {
         if (entry.pendingNativeExternalAssetChange) {
+          const previous = entry.session.snapshot();
           const advanced = entry.session.advanceAuthorityGeneration();
           if (!advanced)
             throw new Error(
               'Resident Project generation disappeared during Asset authority advance.',
             );
           entry.pendingNativeExternalAssetChange = false;
+          entry.session
+            .service()
+            .advanceExternalAssetAuthority(previous, advanced.snapshot, [
+              ...entry.pendingNativeExternalAssetPaths,
+            ]);
+          entry.pendingNativeExternalAssetPaths.clear();
           this.bindSnapshot(entry, advanced.snapshot);
           return advanced;
         }
@@ -751,6 +763,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         entry.session.recordInvalidAuthoringSources(changedSources);
         return candidate;
       }
+      const semanticReconciliationComplete = Date.now();
 
       const candidateAssetSourcePaths = assetAuthorityPathsAfterChanges(
         entry.nativeAssetSourcePaths,
@@ -768,6 +781,20 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         entry.canonicalRoot,
         candidateAssetSourcePaths,
       );
+      const proofComplete = Date.now();
+      if (process.env.NOVELTEA_CLI_VALIDATION_PROFILE === '1') {
+        candidate = {
+          ...candidate,
+          sourceWork: {
+            ...candidate.sourceWork,
+            residentAdmissionMs: {
+              firstAuthority: firstAuthorityComplete - admissionStart,
+              semanticReconciliation: semanticReconciliationComplete - firstAuthorityComplete,
+              proofAuthority: proofComplete - semanticReconciliationComplete,
+            },
+          },
+        };
+      }
       const raced = this.recordNativeObservation(entry, proof);
       if (raced.paths.length > 0) {
         raced.paths.forEach((path) => pendingPaths.add(path));
@@ -785,6 +812,12 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
           current.snapshot.canonicalSourceFiles.every(
             (path, index) => path === candidate.snapshot.canonicalSourceFiles[index],
           ));
+      if (entry.pendingNativeExternalAssetChange)
+        entry.session
+          .service()
+          .invalidateReconciledExternalAssets(current.snapshot, candidate.snapshot, [
+            ...entry.pendingNativeExternalAssetPaths,
+          ]);
       entry.session.adoptOpened(
         candidate,
         sameSourceSet ? { projectionPaths: changedSources } : {},
@@ -793,6 +826,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       entry.pendingNativeSemanticPaths.clear();
       entry.pendingNativeStructuralChange = false;
       entry.pendingNativeExternalAssetChange = false;
+      entry.pendingNativeExternalAssetPaths.clear();
       entry.nativeAssetSourcePaths = candidateAssetSourcePaths;
       entry.nativeAssetSourcePathSet = new Set(candidateAssetSourcePaths);
       this.bindSnapshot(entry, candidate.snapshot);
@@ -1222,6 +1256,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       entry.pendingNativeSemanticPaths.clear();
       entry.pendingNativeStructuralChange = false;
       entry.pendingNativeExternalAssetChange = false;
+      entry.pendingNativeExternalAssetPaths.clear();
       entry.authority = null;
     } else if (!fallbackProof) {
       entry.authority = prewriteAuthority;
@@ -1452,9 +1487,16 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
             return null;
         }
         if (entry.pendingNativeExternalAssetChange) {
+          const previous = entry.session.snapshot();
           const advanced = entry.session.advanceAuthorityGeneration();
           if (!advanced) return null;
           entry.pendingNativeExternalAssetChange = false;
+          entry.session
+            .service()
+            .advanceExternalAssetAuthority(previous, advanced.snapshot, [
+              ...entry.pendingNativeExternalAssetPaths,
+            ]);
+          entry.pendingNativeExternalAssetPaths.clear();
           this.bindSnapshot(entry, advanced.snapshot);
           opened = advanced;
         }
@@ -1673,6 +1715,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
         pendingNativeSemanticPaths: new Set(),
         pendingNativeStructuralChange: false,
         pendingNativeExternalAssetChange: false,
+        pendingNativeExternalAssetPaths: new Set(),
         nativeAssetSourcePaths: Object.freeze([]),
         nativeAssetSourcePathSet: new Set(),
         lastUsedAtMilliseconds: Date.now(),

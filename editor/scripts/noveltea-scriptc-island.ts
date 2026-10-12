@@ -267,6 +267,7 @@ function createNativeTools(
   const call = (operation: string, request: unknown): unknown =>
     JSON.parse(invoke(operation, JSON.stringify(request))) as unknown;
   return {
+    validationCacheIdentity: 'noveltea-cli-native',
     ...(disposable
       ? {
           async registerStagedOutput(path: string) {

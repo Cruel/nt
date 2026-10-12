@@ -81,6 +81,18 @@ export class NodeProjectWorkspaceFileSystem extends ProjectWorkspaceFileSystemAd
     return this.pathMetadataReader(value);
   }
 
+  async readTextWithRevision(value: string) {
+    const bytes = await fs.readFile(value);
+    return {
+      text: new TextDecoder('utf-8', { ignoreBOM: true }).decode(bytes),
+      revision: {
+        contentHash:
+          `sha256:${createHash('sha256').update(bytes).digest('hex')}` as `sha256:${string}`,
+        byteSize: bytes.byteLength,
+      },
+    };
+  }
+
   override async readFileRevision(
     value: string,
   ): Promise<Readonly<{ contentHash: `sha256:${string}`; byteSize: number }>> {

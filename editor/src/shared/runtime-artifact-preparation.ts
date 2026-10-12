@@ -1,4 +1,6 @@
+import { unchangedValidationContributionInputs } from './project-schema/authoring-validation-input-equivalence';
 import { publishCompiledArtifact } from './compiled-artifact-publication';
+import { compileAuthoringProjectValue } from './authoring-compiler';
 import { collectRuntimeDistributionNotices } from './runtime-distribution-notices';
 import { applyExportLocalizationClosure } from './export-localization-closure';
 import { buildAuthoringDependencyGraph } from './authoring-dependency-graph';
@@ -31,7 +33,14 @@ import {
   projectValidationBoundariesForCompilerDiagnostic,
   type ProjectValidationDiagnostic,
 } from './project-schema/project-validation';
-import { validateAuthoringProject } from './project-schema/authoring-validation';
+import {
+  validateAdmittedAuthoringProject,
+  validateAuthoringProject,
+} from './project-schema/authoring-validation';
+import type {
+  AuthoringValidationContribution,
+  AuthoringValidationReuse,
+} from './project-schema/authoring-validation-contributions';
 import {
   canonicalProjectContentJson,
   emptyEditorProjectState,
@@ -70,14 +79,11 @@ interface RuntimeArtifactAssemblyOptions {
   recoveryFingerprint?: unknown;
   shaderOutputs?: readonly ShaderCompileOutput[];
   paths: RuntimeArtifactPathAdapter;
-  memo?: RuntimeArtifactAssemblyMemo;
-}
-
-interface RuntimeArtifactAssemblyMemo {
-  authoringDiagnostics?: ReturnType<typeof validateAuthoringProject>;
-  runtimeProject?: AuthoringProject;
-  published?: ReturnType<typeof publishCompiledArtifact>;
-  sourceGraph?: Awaited<ReturnType<typeof runtimeSourceGraphAssessment>>;
+  compilation: ReturnType<typeof compileRuntimeArtifact>;
+  admittedSourceGraph?: Pick<
+    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
+    'graph' | 'externalSourceRevisions'
+  > & { readonly project: AuthoringProject };
 }
 
 export interface RuntimeArtifactAssessment {
@@ -152,6 +158,15 @@ export const logicalRuntimeArtifactPaths: RuntimeArtifactPathAdapter = {
 
 export interface PrepareRuntimeArtifactOptions {
   project: AuthoringProject;
+  /** Validation result bound to this exact admitted Project generation. */
+  admittedAuthoringDiagnostics?: readonly ProjectValidationDiagnostic[];
+  /** Admitted contributions from that same generation for runtime projection validation. */
+  admittedValidationContributions?: readonly AuthoringValidationContribution[];
+  /** Current admitted graph, supplied by a trusted workspace generation only. */
+  admittedSourceGraph?: Pick<
+    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
+    'graph' | 'externalSourceRevisions'
+  > & { readonly project: AuthoringProject };
   projectRoot: string | null;
   profile: ExportProfileData;
   intent: RuntimeArtifactPreparationIntent;
@@ -304,7 +319,7 @@ function runtimeCompilationProject(project: AuthoringProject): AuthoringProject 
 }
 
 function compilerDiagnosticsFor(
-  published: ReturnType<typeof publishCompiledArtifact>,
+  published: ReturnType<typeof compileAuthoringProjectValue>,
 ): ProjectValidationDiagnostic[] {
   return classifyProjectValidationDiagnostics(
     published.diagnostics.map((item) => ({
@@ -373,7 +388,54 @@ async function runtimeSourceGraphAssessment(
   project: AuthoringProject,
   projectRoot: string | null,
   paths: RuntimeArtifactPathAdapter,
+  admittedAnalysis?: Pick<
+    import('./project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
+    'graph' | 'externalSourceRevisions'
+  > & { readonly project: AuthoringProject },
 ): Promise<RuntimeSourceGraphAssessment | null> {
+  // The graph alone is insufficient evidence: a workspace analysis can be
+  // partial when an external source was unavailable. In that case preserve
+  // the original conservative fallback, which does not prune packaged Assets.
+  const requiredAssets = collectAuthoringSourceRequirements(project);
+  const requiredProjectFiles = new Set<string>();
+  for (const record of Object.values(project.scripts)) {
+    const source = parseScriptModuleData(record.data)?.source;
+    if (source?.kind === 'project-file') requiredProjectFiles.add(source.path);
+  }
+  for (const record of Object.values(project.layouts)) {
+    const layout = parseLayoutData(record.data);
+    for (const file of layout?.dependencies.scripts ?? []) requiredProjectFiles.add(file);
+  }
+  const graphInputsProven = Boolean(
+    admittedAnalysis?.project === project &&
+    requiredAssets.every((id) => {
+      const source = parseAssetData(project.assets[id]?.data);
+      return (
+        source?.contentHash &&
+        isSha256Digest(source.contentHash) &&
+        admittedAnalysis.externalSourceRevisions.get(source.source.path)?.contentHash ===
+          source.contentHash
+      );
+    }) &&
+    [...requiredProjectFiles].every((path) => admittedAnalysis.externalSourceRevisions.has(path)),
+  );
+  if (admittedAnalysis && graphInputsProven) {
+    const referenced = new Set<string>();
+    for (const edge of admittedAnalysis.graph.edgesById.values())
+      if (
+        edge.target.kind === 'record' &&
+        edge.target.collection === 'assets' &&
+        !localizationOwnsAssetReference(edge.sourcePath)
+      )
+        referenced.add(edge.target.id);
+    return {
+      referencedAssetIds: referenced,
+      diagnostics: classifyProjectValidationDiagnostics(
+        admittedAnalysis.graph.diagnostics.map((item) => ({ ...item, category: 'Layouts' })),
+        { producer: 'authoring' },
+      ),
+    };
+  }
   const requiredSourceAssetIds = collectAuthoringSourceRequirements(project);
   const assetReadEntries = requiredSourceAssetIds.flatMap((assetId) => {
     const data = parseAssetData(project.assets[assetId]?.data);
@@ -630,30 +692,41 @@ function reconcileCompiledMaterialParameters<T>(
   return { value: visit(value, '') as T, diagnostics };
 }
 
+function compileRuntimeArtifact(options: PrepareRuntimeArtifactOptions) {
+  const project = options.project;
+  const authoringDiagnostics =
+    options.admittedAuthoringDiagnostics ?? validateAuthoringProject(project);
+  const runtimeProject = runtimeCompilationProject(project);
+  const published = compileAuthoringProjectValue(
+    runtimeProject,
+    options.admittedValidationContributions
+      ? (normalized) => {
+          const unchangedInputs = unchangedValidationContributionInputs(
+            project,
+            normalized,
+            options.admittedValidationContributions!,
+          );
+          const reuse: AuthoringValidationReuse = {
+            contributions: options.admittedValidationContributions!,
+            resolveInputs(paths) {
+              return unchangedInputs.get(JSON.stringify(paths)) ?? null;
+            },
+          };
+          return validateAdmittedAuthoringProject(normalized, reuse).diagnostics;
+        }
+      : undefined,
+  );
+  return { authoringDiagnostics, runtimeProject, published };
+}
+
 async function assembleRuntimeArtifact(
   project: AuthoringProject,
   options: RuntimeArtifactAssemblyOptions,
 ): Promise<RuntimeArtifactAssessment> {
-  const started = Date.now();
-  const mark = (stage: string) => {
-    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
-      console.error(`[export-profile] assemble ${stage} ${Date.now() - started}ms`);
-  };
-  const authoringDiagnostics =
-    options.memo?.authoringDiagnostics ?? validateAuthoringProject(project);
-  if (options.memo) options.memo.authoringDiagnostics = authoringDiagnostics;
-  mark('authoring-validation');
-  const runtimeProject = options.memo?.runtimeProject ?? runtimeCompilationProject(project);
-  if (options.memo) options.memo.runtimeProject = runtimeProject;
-  mark('runtime-project');
-  const published = options.memo?.published ?? publishCompiledArtifact(runtimeProject);
-  if (options.memo) options.memo.published = published;
-  mark('published');
+  const { authoringDiagnostics, runtimeProject, published } = options.compilation;
   const compilerDiagnostics = compilerDiagnosticsFor(published);
 
-  const compiledSettings = published.ok
-    ? published.project.project.settings
-    : runtimeProject.settings;
+  const compiledSettings = published.ok ? published.project.settings : runtimeProject.settings;
   const display = compiledSettings.display;
   const runtimeDisplay = {
     reference_resolution: { ...display.referenceResolution },
@@ -684,22 +757,22 @@ async function assembleRuntimeArtifact(
     },
   };
 
-  const sourceGraph =
-    options.memo?.sourceGraph ??
-    (await runtimeSourceGraphAssessment(project, options.projectRoot ?? null, options.paths));
-  if (options.memo) options.memo.sourceGraph = sourceGraph;
-  mark('source-graph');
+  const sourceGraph = await runtimeSourceGraphAssessment(
+    project,
+    options.projectRoot ?? null,
+    options.paths,
+    options.admittedSourceGraph,
+  );
   const runtimeReferencedAssetIds = sourceGraph?.referencedAssetIds ?? null;
   const referencedAssetIds = options.profile.excludeUnusedAssets ? runtimeReferencedAssetIds : null;
   const localizationClosure = published.ok
     ? applyExportLocalizationClosure(
         project,
-        published.project.project,
+        published.project,
         options.profile.localization,
         runtimeReferencedAssetIds,
       )
     : null;
-  mark('localization-closure');
   const localizedCompiledProject = localizationClosure?.project;
   const compiledAssets = localizedCompiledProject?.resources.assets ?? [];
   const excludedUnusedAssetCount = referencedAssetIds
@@ -729,7 +802,7 @@ async function assembleRuntimeArtifact(
     : null;
   let compiledProject = partitioned?.project;
   const localizationTextEntries = partitioned?.textEntries ?? [];
-  let gameplayJson = compiledProject ? serializeCompiledProjectWire(compiledProject) : undefined;
+  let gameplayJson: string | undefined;
   const fileEntries = includedCompiledAssets.flatMap((asset): ExportFileEntry[] => {
     if (localizationClosure && !localizationClosure.payloadAssetIds.has(asset.id)) return [];
     const authored = parseAssetData(project.assets[asset.id]?.data);
@@ -1308,30 +1381,18 @@ function withPreparedMedia(
 export async function prepareRuntimeArtifact(
   options: PrepareRuntimeArtifactOptions,
 ): Promise<PrepareRuntimeArtifactResult> {
-  const profileStart = Date.now();
-  const profileMark = (stage: string) => {
-    if (process.env.NOVELTEA_EXPORT_PROFILE === '1')
-      console.error(`[export-profile] preparation ${stage} ${Date.now() - profileStart}ms`);
-  };
   const cancelled = () => options.isCancelled?.() === true;
   if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
   options.onStage?.('compiling-project');
-  const assemblyMemo: RuntimeArtifactAssemblyMemo = {};
-  let assessment = await assembleRuntimeArtifact(options.project, {
-    projectRoot: options.projectRoot,
-    profile: options.profile,
-    recoveryFingerprint: options.recoveryFingerprint,
-    paths: options.paths,
-    memo: assemblyMemo,
-  });
-  profileMark('first-assembly');
+  const compilation = compileRuntimeArtifact(options);
+  let verifiedShaderOutputs: readonly ShaderCompileOutput[] | undefined;
   let shaderDiagnostics: ProjectValidationDiagnostic[] = [];
   let shaderOutputs: ShaderCompileOutput[] = [];
   const shouldCompile =
     effectsAllowed(options.intent) &&
     options.profile.compileShadersBeforeExport &&
     hasAuthoringShadersOrMaterials(options.project) &&
-    assessment.compiledArtifactAvailable;
+    compilation.published.ok;
   if (shouldCompile) {
     if (!options.shaderCompiler) {
       shaderDiagnostics = [
@@ -1351,14 +1412,12 @@ export async function prepareRuntimeArtifact(
       const shaderProject = await buildShaderMaterialProject(options.project, [], {
         certifyPresetPrograms: true,
       });
-      profileMark('shader-project');
       const response = await options.shaderCompiler.compile(shaderProject.compilation, {
         projectRoot: options.projectRoot ?? '',
         outputRoot: options.projectRoot ? `${options.projectRoot}/.noveltea/build` : '',
         cacheRoot: options.projectRoot ? `${options.projectRoot}/.noveltea/cache` : '',
         shaderVariants: options.profile.shaderVariants,
       });
-      profileMark('shader-compiled');
       if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
       const verified = await validateShaderOutputs(
         shaderProject.compilation.programs,
@@ -1387,25 +1446,25 @@ export async function prepareRuntimeArtifact(
       );
       if (response.success && !shaderDiagnostics.some((item) => item.severity === 'error')) {
         options.onStage?.('compiling-project');
-        assessment = await assembleRuntimeArtifact(options.project, {
-          projectRoot: options.projectRoot,
-          profile: options.profile,
-          recoveryFingerprint: options.recoveryFingerprint,
-          shaderOutputs: verified.outputs,
-          paths: options.paths,
-          memo: assemblyMemo,
-        });
-        profileMark('second-assembly');
+        verifiedShaderOutputs = verified.outputs;
       }
     }
   }
+  let assessment = await assembleRuntimeArtifact(options.project, {
+    projectRoot: options.projectRoot,
+    profile: options.profile,
+    recoveryFingerprint: options.recoveryFingerprint,
+    shaderOutputs: verifiedShaderOutputs,
+    paths: options.paths,
+    compilation,
+    ...(options.admittedSourceGraph ? { admittedSourceGraph: options.admittedSourceGraph } : {}),
+  });
   if (effectsAllowed(options.intent) && assessment.compiledArtifactAvailable) {
     if (cancelled()) return { status: 'cancelled', diagnostics: [cancelledDiagnostic()] };
     assessment = withPreparedMedia(
       assessment,
       await prepareOpaqueVideoRepresentations(options.project, options.projectRoot, options.paths),
     );
-    profileMark('media-prepared');
   }
   if (assessment.compiledArtifactAvailable) {
     try {
@@ -1424,7 +1483,6 @@ export async function prepareRuntimeArtifact(
         options.projectRoot,
         options.paths,
       );
-      profileMark('notices');
       assessment = {
         ...assessment,
         manifestPreview: {

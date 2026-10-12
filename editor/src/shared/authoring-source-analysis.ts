@@ -1041,6 +1041,9 @@ export function analyzeManagedLuaLocalization(source: string): {
   occurrences: readonly ManagedLuaLocalizationOccurrence[];
   diagnostics: readonly ManagedLuaLocalizationDiagnostic[];
 } {
+  // Every supported managed call begins with the literal Lua identifier
+  // Text. Avoid tokenizing unrelated Lua modules for localization discovery.
+  if (!source.includes('Text')) return { occurrences: [], diagnostics: [] };
   const tokens = scanLua(source).tokens;
   const occurrences: ManagedLuaLocalizationOccurrence[] = [];
   const diagnostics: ManagedLuaLocalizationDiagnostic[] = [];
@@ -1586,12 +1589,13 @@ export async function bindAuthoringSourceOwner(
 export function collectAuthoringSourceRequirements(
   project: AuthoringProject,
   contributionKey?: AuthoringDependencyContributionKey,
-): readonly string[] {
-  const ids = new Set<string>();
-  for (const descriptor of collectAuthoringLuaSources(
+  sourceDescriptors: readonly AuthoringLuaSourceDescriptor[] = collectAuthoringLuaSources(
     project,
     contributionKey === undefined ? undefined : new Set([contributionKey]),
-  ))
+  ),
+): readonly string[] {
+  const ids = new Set<string>();
+  for (const descriptor of sourceDescriptors)
     if (
       descriptor.sourceAssetId &&
       (contributionKey === undefined || descriptor.contributionKey === contributionKey)

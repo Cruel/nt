@@ -7,6 +7,19 @@ import type {
   TemplateInstallResult,
   UserExportConfig,
 } from '../shared/project-schema/platform-export-contracts';
+import type { AuthoringProject } from '../shared/project-schema/authoring-project';
+import type { AuthoringValidationContribution } from '../shared/project-schema/authoring-validation-contributions';
+import type { ProjectValidationDiagnostic } from '../shared/project-schema/project-validation';
+
+export interface AdmittedPlatformExportValidation {
+  readonly project: AuthoringProject;
+  readonly diagnostics: readonly ProjectValidationDiagnostic[];
+  readonly contributions: readonly AuthoringValidationContribution[];
+  readonly sourceGraph?: Pick<
+    import('../shared/project-workspace/project-workspace-service').ProjectWorkspaceDependencyAnalysis,
+    'graph' | 'externalSourceRevisions'
+  > & { readonly project: AuthoringProject };
+}
 
 export interface NovelTeaCliPlatformToolService {
   listTemplates(): Promise<InstalledTemplate[]>;
@@ -18,6 +31,7 @@ export interface NovelTeaCliPlatformToolService {
     onProgress?: (event: PlatformExportProgressEvent) => void,
     abortSignal?: AbortSignal,
     beforePublish?: () => Promise<string | null>,
+    admitted?: AdmittedPlatformExportValidation,
   ): Promise<PlatformStageResult>;
   initializeConfig(path: string, force: boolean): Promise<EditorExportLocalState>;
   loadUserConfig(): Promise<UserExportConfig>;
