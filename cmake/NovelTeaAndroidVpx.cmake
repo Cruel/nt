@@ -12,7 +12,8 @@ find_package(Perl REQUIRED)
 file(MAKE_DIRECTORY "${libvpx_BINARY_DIR}")
 execute_process(COMMAND "${CMAKE_COMMAND}" -E env
     "CC=${CMAKE_C_COMPILER} --target=${CMAKE_C_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}"
-    "AR=${CMAKE_AR}" "CFLAGS=${CMAKE_C_FLAGS}"
+    "CXX=${CMAKE_CXX_COMPILER} --target=${CMAKE_CXX_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}"
+    "AR=${CMAKE_AR}" "CFLAGS=${CMAKE_C_FLAGS}" "CXXFLAGS=${CMAKE_CXX_FLAGS}"
     "${libvpx_SOURCE_DIR}/configure" --target=generic-gnu --disable-vp8
     --disable-vp9-encoder --disable-examples --disable-tools --disable-docs
     --disable-unit-tests --disable-runtime-cpu-detect --enable-pic

@@ -137,6 +137,7 @@ public:
 
     [[nodiscard]] AssetRmlFileInterface* file_interface() const noexcept;
 
+    void cancel_mouse_input();
     [[nodiscard]] bool process_event(const SDL_Event& event,
                                      const VisibleDocumentPredicate& has_visible_document,
                                      const LayoutEventDispatch& dispatch_layout_event);

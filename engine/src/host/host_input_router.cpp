@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <algorithm>
 #include <utility>
 
 namespace noveltea::host {
@@ -78,6 +79,7 @@ NormalizedHostEvent normalize_host_event(const SDL_Event& event,
                                          const HostSurfaceMetrics& host_surface)
 {
     NormalizedHostEvent normalized;
+    normalized.timestamp_ms = event.common.timestamp / 1000000;
     switch (event.type) {
     case SDL_EVENT_QUIT:
         normalized.kind = NormalizedHostEventKind::QuitRequested;
@@ -113,12 +115,14 @@ NormalizedHostEvent normalize_host_event(const SDL_Event& event,
         normalized.kind = event.type == SDL_EVENT_MOUSE_BUTTON_DOWN
                               ? NormalizedHostEventKind::MouseButtonDown
                               : NormalizedHostEventKind::MouseButtonUp;
+        normalized.touch_generated_mouse = event.button.which == SDL_TOUCH_MOUSEID;
         normalized.mouse_button = event.button.button;
         normalized.host_position = {event.button.x, event.button.y};
         normalized.has_host_position = true;
         break;
     case SDL_EVENT_MOUSE_MOTION:
         normalized.kind = NormalizedHostEventKind::MouseMotion;
+        normalized.touch_generated_mouse = event.motion.which == SDL_TOUCH_MOUSEID;
         normalized.host_position = {event.motion.x, event.motion.y};
         normalized.has_host_position = true;
         break;
@@ -216,6 +220,27 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
 
     const bool hidden_preview = context.mode == HostInputMode::Preview && !context.preview_visible;
     const bool suppress_hidden_interaction = hidden_preview && is_interactive_event(event.kind);
+    if (!context.devtools_enabled || !context.devtools_touch_gestures || hidden_preview ||
+        event.kind == NormalizedHostEventKind::FocusLost ||
+        event.kind == NormalizedHostEventKind::WindowMinimized ||
+        event.kind == NormalizedHostEventKind::EnteredBackground ||
+        event.kind == NormalizedHostEventKind::WindowResized) {
+        m_gesture_touches.clear();
+        m_gesture_captured = false;
+        m_gesture_eligible = false;
+        m_suppress_touch_mouse = false;
+    }
+    if (context.devtools_enabled && context.devtools_touch_gestures && !hidden_preview &&
+        route_devtools_touch(event, result)) {
+        result.disposition = HostInputDisposition::Consumed;
+        result.route_diagnostics.gameplay_event = is_gameplay_event(event.kind);
+        result.route_diagnostics.block_reason = HostGameplayInputBlockReason::DevtoolsShortcut;
+        m_pointer_valid = false;
+        m_active_touches.clear();
+        result.pointer_update =
+            HostPointerStateUpdate{.reference_position = m_pointer_position, .valid = false};
+        return result;
+    }
     const bool native_debug_shortcut = context.devtools_enabled &&
                                        event.kind == NormalizedHostEventKind::KeyDown &&
                                        event.key == NormalizedHostKey::F10 && !event.repeat;
@@ -352,8 +377,89 @@ HostInputRouteResult HostInputRouter::route(const NormalizedHostEvent& event,
     return result;
 }
 
+bool HostInputRouter::advance_devtools_touch_hold(std::uint64_t now_ms) noexcept
+{
+    if (!m_gesture_captured || !m_gesture_eligible || m_gesture_reset_fired ||
+        m_gesture_touches.size() != 2 || now_ms < m_gesture_started_ms ||
+        now_ms - m_gesture_started_ms < 3000)
+        return false;
+    m_gesture_reset_fired = true;
+    return true;
+}
+
+bool HostInputRouter::route_devtools_touch(const NormalizedHostEvent& event,
+                                           HostInputRouteResult& result)
+{
+    if (event.touch_generated_mouse && (m_suppress_touch_mouse || m_gesture_captured)) {
+        if (event.kind == NormalizedHostEventKind::MouseButtonUp && m_gesture_touches.empty())
+            m_suppress_touch_mouse = false;
+        return true;
+    }
+    const bool down = event.kind == NormalizedHostEventKind::TouchDown;
+    const bool up = event.kind == NormalizedHostEventKind::TouchUp;
+    const bool canceled = event.kind == NormalizedHostEventKind::TouchCanceled;
+    const bool motion = event.kind == NormalizedHostEventKind::TouchMotion;
+    if (!down && !up && !canceled && !motion)
+        return false;
+
+    auto touch =
+        std::find_if(m_gesture_touches.begin(), m_gesture_touches.end(),
+                     [&event](const auto& value) { return value.down.touch_id == event.touch_id; });
+    if (down && touch == m_gesture_touches.end()) {
+        if (m_gesture_touches.empty()) {
+            m_gesture_eligible = event.has_host_position;
+            m_gesture_reset_fired = false;
+            m_suppress_touch_mouse = false;
+        } else if (!m_gesture_captured && m_gesture_touches.size() == 1) {
+            const auto& first = m_gesture_touches.front();
+            m_gesture_eligible = m_gesture_eligible && !first.moved && event.has_host_position &&
+                                 event.timestamp_ms >= first.down.timestamp_ms &&
+                                 event.timestamp_ms - first.down.timestamp_ms <= 200;
+            if (m_gesture_eligible) {
+                m_gesture_captured = true;
+                m_suppress_touch_mouse = true;
+                m_gesture_started_ms = event.timestamp_ms;
+                result.canceled_touch = first.down;
+                result.canceled_touch->kind = NormalizedHostEventKind::TouchCanceled;
+            }
+        } else {
+            m_gesture_eligible = false;
+        }
+        m_gesture_touches.push_back({.down = event});
+        return m_gesture_captured;
+    }
+    if (touch == m_gesture_touches.end())
+        return m_gesture_captured;
+    const float dx = event.host_position.x - touch->down.host_position.x;
+    const float dy = event.host_position.y - touch->down.host_position.y;
+    if (!event.has_host_position || dx * dx + dy * dy > 12.0f * 12.0f) {
+        touch->moved = true;
+        m_gesture_eligible = false;
+    }
+    if (canceled)
+        m_gesture_eligible = false;
+    if (advance_devtools_touch_hold(event.timestamp_ms))
+        result.tooling_actions.emplace_back(ResetAndShowNativeDebugUiToolingAction{});
+    const bool consumed = m_gesture_captured;
+    if (up || canceled) {
+        if (up && m_gesture_captured && m_gesture_eligible && !m_gesture_reset_fired &&
+            m_gesture_touches.size() == 2 && event.timestamp_ms >= m_gesture_started_ms &&
+            event.timestamp_ms - m_gesture_started_ms >= 1000)
+            result.tooling_actions.emplace_back(ToggleNativeDebugUiToolingAction{});
+        m_gesture_eligible = false;
+        m_gesture_touches.erase(touch);
+        if (m_gesture_touches.empty())
+            m_gesture_captured = false;
+    }
+    return consumed;
+}
+
 void HostInputRouter::reset() noexcept
 {
+    m_gesture_touches.clear();
+    m_gesture_captured = false;
+    m_gesture_eligible = false;
+    m_suppress_touch_mouse = false;
     m_pointer_position = {};
     m_pointer_valid = false;
     m_active_touches.clear();

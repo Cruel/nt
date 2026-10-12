@@ -170,9 +170,37 @@ checked-in `android/` Gradle project, packages and installs an immutable player 
 isolated registry under `build/run-android`, and exports the selected Project through `noveltea
 platform export`. The script uses the shared Android acceptance fixture by default, installs the
 exported APK, and starts logcat. Pass `--project path/to/project.json` to use another saved Project
-and optionally `--profile <id>` to select its Android profile. Local templates require the explicit
+and optionally `--profile <id>` to select its Android profile from `project.json`'s `export.profiles`.
+Before any download or build, the script discovers online ADB targets (including network ADB).
+One target is used automatically; multiple targets are listed for interactive numbered selection.
+With no targets, it asks before launching `AVD_NAME` (default `noveltea_api35`); declining exits
+without building. Offline/unauthorized targets are reported and never cause a silent emulator
+fallback. Pass `--device SERIAL` to select a target explicitly, waiting up to three minutes for it
+to connect. Prompts require a terminal; noninteractive ambiguous/empty selection fails with guidance.
+All subsequent ADB commands are pinned to the selected serial. The target's ABI list determines
+`arm64-v8a` or `x86_64`; an explicit `ANDROID_ABI` must be supported by that target.
+
+For the in-tree Feature Lab on a connected phone or emulator, run:
+
+```sh
+./scripts/run-android.sh --project tests/projects/feature-lab/project.json
+```
+
+Its `android-arm64-debug` or `android-emulator-debug` profile is selected automatically according
+to the selected device ABI. Android template packaging matches
+AGP's current merged player library to the native CMake build by content, so retained `.cxx`
+configuration caches do not select stale native binaries, license metadata, or symbols.
+Local templates require the explicit
 untrusted-template acknowledgement; release certification separately exercises immutable packaged
-player templates.
+player templates. The script reuses the host CLI at `build/cli/linux/noveltea`, building it only
+when missing; `NOVELTEA_CLI` selects an explicit existing executable. To refresh the CLI after
+tooling changes, run `pnpm -C editor run noveltea:build` explicitly. The script uses the
+bgfx shader includes from its `linux-authoring-release` dependency tree, or from
+`NOVELTEA_PREBUILT_SHADERC_ROOT/resources` when that toolchain input is set. Set
+`BGFX_SHADER_INCLUDE_DIR` explicitly to override either default; it must contain `bgfx_shader.sh`.
+The script downloads and caches checksum-pinned bundletool 1.18.1 under `build/tools` for template
+packaging. Set `NOVELTEA_BUNDLETOOL_JAR` to use an existing copy of that same pinned JAR; cached and
+explicit copies are verified before use. The first uncached run requires `curl` and network access.
 Android CI invokes `pnpm android:fixture` and `noveltea platform export` directly for both fixture
 revisions so the public command path, rather than a private test-only entrypoint, is certified.
 

@@ -126,7 +126,8 @@ function verifyResolvedFetchedSource(name, source, licenseSources) {
   const stamp = path.join(prefix, `${name}-populate-stamp`);
   const urlInfo = path.join(stamp, `${name}-populate-urlinfo.txt`);
   const gitInfo = path.join(stamp, `${name}-populate-gitinfo.txt`);
-  const infoFile = existsSync(urlInfo) ? urlInfo : gitInfo;
+  // FetchContent retains old method stamps when a dependency changes from URL to Git.
+  const infoFile = existsSync(path.join(source, '.git')) ? gitInfo : urlInfo;
   if (!existsSync(infoFile))
     throw new Error(`Missing resolved FetchContent download metadata for ${name}: ${stamp}`);
   const info = readFileSync(infoFile, 'utf8');

@@ -2518,6 +2518,12 @@ void RuntimeUI::clear_focused_preview_cursors() noexcept
     m_state->cursor_authority->resolve();
 }
 
+void RuntimeUI::cancel_mouse_input()
+{
+    if (m_state && m_state->host)
+        m_state->host->cancel_mouse_input();
+}
+
 RuntimeUiEventResult RuntimeUI::process_event(const SDL_Event& event)
 {
     RuntimeUiEventResult result;
