@@ -54,7 +54,11 @@ import {
   type AuthoringCollectionKey,
 } from '../project-schema/authoring-collections';
 import { entityIdSchema } from '../project-schema/authoring-common';
-import { classifyAuthoringGraphInputPath } from '../project-schema/authoring-graph-field-metadata';
+import {
+  classifyWorkspaceEditEffects,
+  externalAssetContributionKeys,
+  type WorkspaceEditEffects,
+} from './workspace-edit-effects';
 import {
   authoringProjectSchema,
   cloneAuthoringProject,
@@ -1722,28 +1726,6 @@ function createSnapshotValidationState(
   });
 }
 
-function recordEditIsPresentationOnly(
-  before: AuthoringProject,
-  after: AuthoringProject,
-  relativePath: string,
-): boolean {
-  const match = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(relativePath);
-  if (!match || !isAuthoringCollectionKey(match[1]!)) return false;
-  const collection = match[1] as AuthoringCollectionKey;
-  const id = match[2]!;
-  const beforeRecord = before[collection][id];
-  const afterRecord = after[collection][id];
-  if (!beforeRecord || !afterRecord) return false;
-  const withoutPresentation = (record: typeof beforeRecord) => {
-    const { label: _label, description: _description, ...semantic } = record;
-    return semantic;
-  };
-  return (
-    JSON.stringify(withoutPresentation(beforeRecord)) ===
-    JSON.stringify(withoutPresentation(afterRecord))
-  );
-}
-
 /** Compare the schema-projected file, not its physical JSON formatting or object identity. */
 function semanticWorkspaceJsonUnchanged(
   changedPaths: readonly string[],
@@ -1764,148 +1746,13 @@ function semanticWorkspaceJsonUnchanged(
   );
 }
 
-function onlyProjectDisplayNameChanged(
-  changedPaths: readonly string[],
-  before: AuthoringProject,
-  after: AuthoringProject,
-): boolean {
-  if (changedPaths.length !== 1 || changedPaths[0] !== 'project.json') return false;
-  const original = before.project;
-  const updated = after.project;
-  if (original.name === updated.name) return false;
-  if (JSON.stringify({ ...original, name: '' }) !== JSON.stringify({ ...updated, name: '' }))
-    return false;
-  return (
-    JSON.stringify([
-      before.settings,
-      before.export,
-      before.entrypoint,
-      before.bootstrapModule,
-      before.undefinedInteractionProgram,
-      before.inventories,
-      before.interactableInstances,
-    ]) ===
-    JSON.stringify([
-      after.settings,
-      after.export,
-      after.entrypoint,
-      after.bootstrapModule,
-      after.undefinedInteractionProgram,
-      after.inventories,
-      after.interactableInstances,
-    ])
-  );
-}
-
-function localizationCoverageInputsChanged(
-  changedSourcePaths: readonly string[],
-  before: AuthoringProject,
-  after: AuthoringProject,
-): boolean {
-  // Coverage is derived from the admitted authored Project's message/locale
-  // contracts. External source bytes are checked by source analysis, while
-  // localization sync explicitly materializes free-form source tracking.
-  // Reuse coverage whenever reconciliation retains the exact same Project.
-  if (before === after) return false;
-  // Editor organization is not input to Message/locale realization, supported
-  // font stacks, or any structured gameplay source. It must not restart the
-  // expensive coverage preparation when only editor.json was edited.
-  if (changedSourcePaths.length > 0 && changedSourcePaths.every((path) => path === 'editor.json'))
-    return false;
-  // CSS does not enter the localization source extractor. Tracking/orphan/usage
-  // metadata and localized Asset substitutions do not affect the text and font
-  // stack actually supplied to native glyph validation.
-  const irrelevant = (path: string): boolean => {
-    if (/^records\/layouts\/[^/]+\/layout\.rcss$/u.test(path)) return true;
-    const layoutSource = /^records\/layouts\/([^/]+)\/layout\.(rml|lua)$/u.exec(path);
-    if (layoutSource) {
-      const previous = before.layouts[layoutSource[1]!]?.data;
-      const current = after.layouts[layoutSource[1]!]?.data;
-      if (!previous || !current) return false;
-      if (layoutSource[2] === 'rml')
-        return (
-          previous.rml.sourceMode === 'inline' &&
-          current.rml.sourceMode === 'inline' &&
-          !previous.rml.sourceText.toLowerCase().includes('<nt-tr') &&
-          !current.rml.sourceText.toLowerCase().includes('<nt-tr')
-        );
-      // Managed Lua localization is introduced exclusively through Text calls.
-      // A Layout Lua edit that cannot contain one cannot change required glyphs.
-      return (
-        previous.lua.sourceMode === 'inline' &&
-        current.lua.sourceMode === 'inline' &&
-        !previous.lua.sourceText.includes('Text') &&
-        !current.lua.sourceText.includes('Text')
-      );
-    }
-    if (
-      path === LOCALIZATION_ORPHANS_FILE ||
-      path === LOCALIZATION_USAGE_NOTES_FILE ||
-      /^i18n\/assets\/[^/]+\.json$/u.test(path)
-    )
-      return true;
-    if (path === 'traits.json')
-      return JSON.stringify(before.traits) === JSON.stringify(after.traits);
-    if (path === 'project.json')
-      return (
-        JSON.stringify([
-          before.settings,
-          before.inventories,
-          before.interactableInstances,
-          before.undefinedInteractionProgram,
-          before.bootstrapModule,
-          before.entrypoint,
-        ]) ===
-        JSON.stringify([
-          after.settings,
-          after.inventories,
-          after.interactableInstances,
-          after.undefinedInteractionProgram,
-          after.bootstrapModule,
-          after.entrypoint,
-        ])
-      );
-    if (path === LOCALIZATION_MESSAGES_FILE)
-      return (
-        JSON.stringify(before.localization.messages) === JSON.stringify(after.localization.messages)
-      );
-    if (path === LOCALIZATION_POLICY_FILE)
-      return (
-        JSON.stringify([before.localization.sourceLocale, before.localization.locales]) ===
-        JSON.stringify([after.localization.sourceLocale, after.localization.locales])
-      );
-    const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(path)?.[1];
-    if (locale)
-      return (
-        JSON.stringify(before.localization.translations[locale]) ===
-        JSON.stringify(after.localization.translations[locale])
-      );
-    const record = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(path);
-    if (record && isAuthoringCollectionKey(record[1]!)) {
-      const collection = record[1] as AuthoringCollectionKey;
-      const id = record[2]!;
-      return (
-        JSON.stringify(before[collection][id]) === JSON.stringify(after[collection][id]) ||
-        recordEditIsPresentationOnly(before, after, path)
-      );
-    }
-    return false;
-  };
-  return !(changedSourcePaths.length > 0 && changedSourcePaths.every(irrelevant));
-}
-
 function changedValidationContributionKeys(
   state: SnapshotValidationState,
   changedSourcePaths: readonly string[],
-  before: AuthoringProject,
-  after: AuthoringProject,
-  scriptSourcePaths: Readonly<Record<string, string>>,
+  effects: WorkspaceEditEffects,
 ): ReadonlySet<string> {
-  // A physical JSON revision must advance, but there is no semantic validator
-  // input change after the schema-normalized fragment is proven identical.
-  if (semanticWorkspaceJsonUnchanged(changedSourcePaths, before, after, scriptSourcePaths))
-    return new Set();
-  if (onlyProjectDisplayNameChanged(changedSourcePaths, before, after)) {
+  if (effects.semanticInputsUnchanged) return new Set();
+  if (effects.projectNameOnly) {
     const keys = new Set<string>();
     for (const [key, contribution] of state.byKey)
       if (
@@ -1917,94 +1764,19 @@ function changedValidationContributionKeys(
   const keys = new Set(state.unresolvedKeys);
   for (const path of changedSourcePaths)
     for (const key of state.keysBySourcePath.get(path) ?? []) keys.add(key);
-  // A record's presentation metadata cannot alter resolved gameplay or the
-  // inputs of other records' validators. Validate its local record/identity
-  // contracts; retain every other contribution and its diagnostics.
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => recordEditIsPresentationOnly(before, after, path))
-  ) {
+  if (effects.presentationRecords) {
     const localKeys = new Set<string>();
-    for (const path of changedSourcePaths) {
-      const match = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(path)!;
-      const collection = match[1]!;
-      const id = match[2]!;
+    for (const { collection, id } of effects.presentationRecords)
       for (const prefix of [
         `workspace:identity:${collection}:${id}`,
         `workspace:record:${collection}:${id}`,
         `workspace:archetype-definition:${id}`,
       ])
         if (keys.has(prefix)) localKeys.add(prefix);
-    }
     return localKeys;
   }
-  // Neither RmlUi stylesheets nor source files without any localization
-  // constructs can affect the Message catalog; the global localization
-  // validator must not re-execute for an unrelated source edit.
-  const irrelevantLocalizationSource = (path: string): boolean => {
-    if (/^records\/layouts\/[^/]+\/layout\.rcss$/u.test(path)) return true;
-    const match = /^records\/layouts\/([^/]+)\/layout\.(rml|lua)$/u.exec(path);
-    if (!match) return false;
-    const prev = before.layouts[match[1]!]?.data;
-    const next = after.layouts[match[1]!]?.data;
-    if (!prev || !next) return false;
-    if (match[2] === 'rml') {
-      return (
-        prev.rml.sourceMode === 'inline' &&
-        next.rml.sourceMode === 'inline' &&
-        !prev.rml.sourceText.toLowerCase().includes('<nt-tr') &&
-        !next.rml.sourceText.toLowerCase().includes('<nt-tr')
-      );
-    }
-    return (
-      prev.lua.sourceMode === 'inline' &&
-      next.lua.sourceMode === 'inline' &&
-      !prev.lua.sourceText.includes('Text') &&
-      !next.lua.sourceText.includes('Text')
-    );
-  };
-  const dropLocalization = (...phases: Array<'references' | 'identities' | 'translations'>) => {
-    for (const phase of phases) keys.delete(`workspace:localization-${phase}`);
-  };
-  if (before === after) dropLocalization('references', 'identities', 'translations');
-  else if (changedSourcePaths.length > 0 && changedSourcePaths.every(irrelevantLocalizationSource))
-    dropLocalization('references', 'identities', 'translations');
-  else if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every(
-      (path) =>
-        path === 'editor.json' ||
-        path === LOCALIZATION_USAGE_NOTES_FILE ||
-        /^i18n\/assets\/[^/]+\.json$/u.test(path),
-    )
-  )
-    dropLocalization('references', 'identities', 'translations');
-  else if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => /^i18n\/locales\/[^/]+\.json$/u.test(path))
-  )
-    dropLocalization('references', 'identities');
-  else if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => path === LOCALIZATION_MESSAGES_FILE) &&
-    namedMessageGraphBindingsStable(before, after)
-  )
-    dropLocalization('references', 'identities');
-  else if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => path === LOCALIZATION_ORPHANS_FILE)
-  )
-    dropLocalization('references', 'translations');
-  else if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => path === LOCALIZATION_TRACKING_FILE)
-  )
-    dropLocalization('references');
-  else if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => path === LOCALIZATION_POLICY_FILE)
-  )
-    dropLocalization('identities');
+  for (const phase of ['references', 'identities', 'translations'] as const)
+    if (!effects.localizationPhases.includes(phase)) keys.delete(`workspace:localization-${phase}`);
   // The editor-metadata check validates only editor.json recordMetadata membership. Existing-source
   // reconciliation cannot add/remove a record identity; traits.json is the one non-structural file
   // whose contents can change metadata target membership, so unrelated source edits can reuse it.
@@ -2044,90 +1816,6 @@ function changedValidationContributionKeys(
     );
   }
   return keys;
-}
-
-function registryMembershipChanged(
-  before: Readonly<Record<string, unknown>>,
-  after: Readonly<Record<string, unknown>>,
-): boolean {
-  const beforeKeys = Object.keys(before);
-  const afterKeys = Object.keys(after);
-  return (
-    beforeKeys.length !== afterKeys.length || beforeKeys.some((key) => !Object.hasOwn(after, key))
-  );
-}
-
-function namedMessageBindingsChanged(before: AuthoringProject, after: AuthoringProject): boolean {
-  // Unresolved named references have no graph edge to reverse-walk. Rebuild the
-  // semantic graph when a lookup key is rebound even if Message IDs are stable.
-  for (const [id, message] of Object.entries(before.localization.messages)) {
-    const next = after.localization.messages[id];
-    if (message.kind !== next?.kind) return true;
-    if (message.kind === 'named' && next?.kind === 'named' && message.key !== next.key) return true;
-  }
-  return false;
-}
-
-/** Changes to named Message text/arguments do not change their graph lookup identity. */
-function namedMessageGraphBindingsStable(
-  before: AuthoringProject,
-  after: AuthoringProject,
-): boolean {
-  if (registryMembershipChanged(before.localization.messages, after.localization.messages))
-    return false;
-  for (const [id, previous] of Object.entries(before.localization.messages)) {
-    const next = after.localization.messages[id];
-    if (JSON.stringify(previous) === JSON.stringify(next)) continue;
-    if (previous.kind !== 'named' || next?.kind !== 'named' || previous.key !== next.key)
-      return false;
-  }
-  return true;
-}
-
-function aggregateSemanticMembershipChanged(
-  changedSourcePaths: readonly string[],
-  before: AuthoringProject,
-  after: AuthoringProject,
-): boolean {
-  if (
-    changedSourcePaths.includes('traits.json') &&
-    registryMembershipChanged(before.traits, after.traits)
-  )
-    return true;
-  if (
-    changedSourcePaths.includes('project.json') &&
-    (registryMembershipChanged(before.interactableInstances, after.interactableInstances) ||
-      before.settings.cursors.named.length !== after.settings.cursors.named.length ||
-      before.settings.cursors.named.some(
-        (cursor, index) => cursor.id !== after.settings.cursors.named[index]?.id,
-      ))
-  )
-    return true;
-  if (
-    changedSourcePaths.includes(LOCALIZATION_POLICY_FILE) &&
-    (before.localization.sourceLocale !== after.localization.sourceLocale ||
-      registryMembershipChanged(before.localization.locales, after.localization.locales))
-  )
-    return true;
-  if (
-    changedSourcePaths.includes(LOCALIZATION_MESSAGES_FILE) &&
-    (registryMembershipChanged(before.localization.messages, after.localization.messages) ||
-      namedMessageBindingsChanged(before, after))
-  )
-    return true;
-  for (const path of changedSourcePaths) {
-    const localeMatch = /^i18n\/locales\/([^/]+)\.json$/u.exec(path);
-    if (!localeMatch) continue;
-    const locale = localeMatch[1]!;
-    if (
-      registryMembershipChanged(
-        before.localization.translations[locale] ?? {},
-        after.localization.translations[locale] ?? {},
-      )
-    )
-      return true;
-  }
-  return false;
 }
 
 function advanceSnapshotValidationState(
@@ -2196,183 +1884,14 @@ function recordOwnerRoot(path: string): JsonPointer | null {
   return null;
 }
 
-/** Enumerate exact non-array field edits, without treating array reordering as a leaf edit. */
-function changedRecordGraphFields(
-  before: unknown,
-  after: unknown,
-  root: JsonPointer,
-): readonly JsonPointer[] {
-  const changes: JsonPointer[] = [];
-  const visit = (prior: unknown, next: unknown, pointer: JsonPointer): void => {
-    if (prior === next) return;
-    if (Array.isArray(prior) || Array.isArray(next)) {
-      if (JSON.stringify(prior) !== JSON.stringify(next)) changes.push(pointer);
-      return;
-    }
-    if (prior !== null && next !== null && typeof prior === 'object' && typeof next === 'object') {
-      const oldFields = Object.keys(prior).sort();
-      const newFields = Object.keys(next).sort();
-      if (JSON.stringify(oldFields) !== JSON.stringify(newFields)) {
-        changes.push(pointer);
-        return;
-      }
-      for (const field of oldFields)
-        visit(
-          (prior as Record<string, unknown>)[field],
-          (next as Record<string, unknown>)[field],
-          `${pointer}/${escapeJsonPointerSegment(field)}`,
-        );
-      return;
-    }
-    changes.push(pointer);
-  };
-  visit(before, after, root);
-  return changes;
-}
-
 function incrementalDependencyContributionKeys(
   analysis: ProjectWorkspaceDependencyAnalysis,
   ownerPaths: ReadonlySet<string>,
   changedSourcePaths: readonly string[],
-  before: AuthoringProject,
-  after: AuthoringProject,
+  effects: WorkspaceEditEffects,
 ): ReadonlySet<string> | null {
-  if (onlyProjectDisplayNameChanged(changedSourcePaths, before, after)) return new Set();
-  // Parsed manifest/Trait fragments may have different physical revisions yet
-  // exactly the same authored values (formatting-only edits). A new immutable
-  // snapshot still needs a physical proof, but its dependency graph is identical.
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => {
-      if (path === 'editor.json')
-        return JSON.stringify(before.editor) === JSON.stringify(after.editor);
-      if (/^i18n\/.+\.json$/u.test(path))
-        return JSON.stringify(before.localization) === JSON.stringify(after.localization);
-      if (path === 'traits.json')
-        return JSON.stringify(before.traits) === JSON.stringify(after.traits);
-      if (path === 'project.json')
-        return (
-          JSON.stringify([
-            before.project,
-            before.settings,
-            before.export,
-            before.bootstrapModule,
-            before.undefinedInteractionProgram,
-            before.entrypoint,
-            before.inventories,
-            before.interactableInstances,
-          ]) ===
-          JSON.stringify([
-            after.project,
-            after.settings,
-            after.export,
-            after.bootstrapModule,
-            after.undefinedInteractionProgram,
-            after.entrypoint,
-            after.inventories,
-            after.interactableInstances,
-          ])
-        );
-      return false;
-    })
-  )
-    return new Set();
-  // Native shader compilation consumes shader stage/include bytes; the authored
-  // reference graph consumes Shader/Material declarations, not their .sc text.
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => /^shaders\/.+\.sc$/u.test(path))
-  )
-    return new Set();
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => path === LOCALIZATION_MESSAGES_FILE) &&
-    namedMessageGraphBindingsStable(before, after)
-  )
-    return new Set();
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => /^i18n\/locales\/[^/]+\.json$/u.test(path)) &&
-    changedSourcePaths.every((path) => {
-      const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(path)![1]!;
-      return !registryMembershipChanged(
-        before.localization.translations[locale] ?? {},
-        after.localization.translations[locale] ?? {},
-      );
-    })
-  )
-    return new Set();
-  // Record labels/descriptions are graph-local presentation; a consumer's edges and
-  // source evidence do not change when a referenced record is renamed for display.
-  // A whitespace-only JSON edit leaves even the owning graph contribution identical.
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => recordEditIsPresentationOnly(before, after, path))
-  ) {
-    const keys = new Set<string>();
-    for (const path of changedSourcePaths) {
-      const match = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(path);
-      if (!match || !isAuthoringCollectionKey(match[1]!)) return null;
-      const collection = match[1] as AuthoringCollectionKey;
-      const id = match[2]!;
-      if (JSON.stringify(before[collection][id]) !== JSON.stringify(after[collection][id]))
-        keys.add(recordContributionKey(collection, id));
-    }
-    return keys;
-  }
-  // The schema-reviewed graph-effect metadata distinguishes fields that
-  // cannot change graph derivation from fields affecting only their owning
-  // contribution. Unknown, structural, source and symbol effects continue
-  // through the conservative reverse-dependency planner below.
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) =>
-      /^records\/[^/]+\/[^/]+(?:\.json|\/layout\.json)$/u.test(path),
-    )
-  ) {
-    const keys = new Set<string>();
-    let narrowable = true;
-    for (const path of changedSourcePaths) {
-      const match = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(path)!;
-      const collection = match[1] as AuthoringCollectionKey;
-      const id = match[2]!;
-      if (!isAuthoringCollectionKey(collection)) {
-        narrowable = false;
-        break;
-      }
-      const oldRecord = before[collection][id];
-      const newRecord = after[collection][id];
-      if (!oldRecord || !newRecord) {
-        narrowable = false;
-        break;
-      }
-      const fields = changedRecordGraphFields(
-        oldRecord,
-        newRecord,
-        `/${collection}/${escapeJsonPointerSegment(id)}`,
-      );
-      for (const field of fields) {
-        const effect = classifyAuthoringGraphInputPath(field)?.effect;
-        if (effect?.kind === 'none') continue;
-        if (effect?.kind === 'owner-contribution') {
-          keys.add(recordContributionKey(collection, id));
-          continue;
-        }
-        narrowable = false;
-        break;
-      }
-      if (!narrowable) break;
-    }
-    if (narrowable) return keys;
-  }
-  // A source-only edit can change evidence within the owners consuming that
-  // source, but does not change the structure or resolution of their *targets*.
-  // The general reverse-impact closure is for editor preview invalidation:
-  // following it here needlessly reanalyzes unrelated dependents.
-  if (
-    changedSourcePaths.length > 0 &&
-    changedSourcePaths.every((path) => /\.(?:lua|rml|rcss)$/u.test(path))
-  ) {
+  if (effects.graph.kind === 'contributions') return effects.graph.keys;
+  if (effects.graph.kind === 'sources') {
     const keys = new Set<string>();
     const changedFiles = new Set(changedSourcePaths);
     for (const [key, sourcePaths] of analysis.sourcePathsByContributionKey)
@@ -2556,17 +2075,7 @@ export class ProjectWorkspaceService {
     const analysis = this.snapshotDependencyAnalysis.get(previous);
     if (!analysis) return;
 
-    const changed = new Set(changedPaths);
-    const keys = new Set<string>();
-    for (const [assetId, record] of Object.entries(next.project.assets)) {
-      const source = parseAssetData(record.data)?.source.path;
-      if (!source || !changed.has(source)) continue;
-      for (const kind of ['source-asset', 'source-resolution-asset'] as const)
-        for (const key of analysis.contributions.contributionKeysByDerivationKey.get(
-          JSON.stringify([kind, assetId]),
-        ) ?? [])
-          keys.add(key);
-    }
+    const keys = externalAssetContributionKeys(next.project, changedPaths, analysis.contributions);
     if (keys.size === 0) {
       this.snapshotDependencyAnalysis.set(next, {
         ...analysis,
@@ -2610,17 +2119,13 @@ export class ProjectWorkspaceService {
       this.snapshotDependencyReuse.delete(next);
       return;
     }
-    const changed = new Set(changedPaths);
     const keys = new Set(seed.contributionKeys);
-    for (const [assetId, record] of Object.entries(next.project.assets)) {
-      const source = parseAssetData(record.data)?.source.path;
-      if (!source || !changed.has(source)) continue;
-      for (const kind of ['source-asset', 'source-resolution-asset'] as const)
-        for (const key of analysis.contributions.contributionKeysByDerivationKey.get(
-          JSON.stringify([kind, assetId]),
-        ) ?? [])
-          keys.add(key);
-    }
+    for (const key of externalAssetContributionKeys(
+      next.project,
+      changedPaths,
+      analysis.contributions,
+    ))
+      keys.add(key);
     this.snapshotIncrementalDependencySeeds.set(next, { ...seed, contributionKeys: keys });
   }
 
@@ -2939,21 +2444,22 @@ export class ProjectWorkspaceService {
         ),
       );
     const priorValidationState = this.snapshotValidationStates.get(base.snapshot);
-    const semanticMembershipChanged = aggregateSemanticMembershipChanged(
+    const effects = classifyWorkspaceEditEffects(
       changedPaths,
       base.snapshot.project,
       project,
+      semanticWorkspaceJsonUnchanged(
+        changedPaths,
+        base.snapshot.project,
+        project,
+        base.snapshot.scriptSourcePaths,
+      ),
     );
+    const semanticMembershipChanged = effects.membershipChanged;
     if (semanticMembershipChanged) fullProjectTraversals += 1;
     const invalidValidationKeys =
       priorValidationState && !semanticMembershipChanged
-        ? changedValidationContributionKeys(
-            priorValidationState,
-            changedPaths,
-            base.snapshot.project,
-            project,
-            base.snapshot.scriptSourcePaths,
-          )
+        ? changedValidationContributionKeys(priorValidationState, changedPaths, effects)
         : null;
     const resolveValidationInputs: AuthoringValidationReuse['resolveInputs'] = (paths) => {
       if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
@@ -3034,8 +2540,7 @@ export class ProjectWorkspaceService {
             priorAnalysis,
             impactedOwnerPaths,
             changedPaths,
-            base.snapshot.project,
-            project,
+            effects,
           )
         : null;
     const priorDescriptorIndex = this.snapshotExternalDescriptorIndexes.get(base.snapshot);
@@ -3197,11 +2702,7 @@ export class ProjectWorkspaceService {
         });
       }
     }
-    const coverageInputsChanged = localizationCoverageInputsChanged(
-      changedPaths,
-      base.snapshot.project,
-      project,
-    );
+    const coverageInputsChanged = effects.coverageInputsChanged;
     const indexesFinished = Date.now();
     return withLazyOpenContent(
       {
@@ -3311,12 +2812,18 @@ export class ProjectWorkspaceService {
       }
     }
 
-    const semanticMembershipChanged =
-      aggregateSemanticMembershipChanged(
+    const effects = classifyWorkspaceEditEffects(
+      changedPaths,
+      base.snapshot.project,
+      committedSnapshot.project,
+      semanticWorkspaceJsonUnchanged(
         changedPaths,
         base.snapshot.project,
         committedSnapshot.project,
-      ) || sourceMembershipChanged;
+        base.snapshot.scriptSourcePaths,
+      ),
+    );
+    const semanticMembershipChanged = effects.membershipChanged || sourceMembershipChanged;
     const priorSourceOwnerPathIndex = this.snapshotSourceOwnerIndexes.get(base.snapshot);
     const ownerMembershipChanged = [...changedOwnerPaths].some(([relativePath, ownerPaths]) => {
       const prior = base.sourceContributions[relativePath]?.ownerPaths;
@@ -3355,13 +2862,7 @@ export class ProjectWorkspaceService {
     const priorValidationState = this.snapshotValidationStates.get(base.snapshot);
     const changedValidationKeys =
       priorValidationState && !semanticMembershipChanged
-        ? changedValidationContributionKeys(
-            priorValidationState,
-            changedPaths,
-            base.snapshot.project,
-            committedSnapshot.project,
-            base.snapshot.scriptSourcePaths,
-          )
+        ? changedValidationContributionKeys(priorValidationState, changedPaths, effects)
         : null;
     const resolveValidationInputs: AuthoringValidationReuse['resolveInputs'] = (paths) => {
       if (paths.some((path) => path === '/' || path === '/editor' || path.startsWith('/editor/')))
@@ -3464,8 +2965,7 @@ export class ProjectWorkspaceService {
             priorAnalysis,
             impactedOwnerPaths,
             changedPaths,
-            base.snapshot.project,
-            committedSnapshot.project,
+            effects,
           )
         : null;
     if (priorAnalysis && incrementalDependencyKeys) {
@@ -3484,11 +2984,7 @@ export class ProjectWorkspaceService {
         });
     }
 
-    const coverageInputsChanged = localizationCoverageInputsChanged(
-      changedPaths,
-      base.snapshot.project,
-      committedSnapshot.project,
-    );
+    const coverageInputsChanged = effects.coverageInputsChanged;
     return withLazyOpenContent(
       {
         ok: true as const,
