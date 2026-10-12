@@ -65,7 +65,8 @@ mkdir -p "$RUN_ROOT"
 echo "[run] exporting Feature Lab runtime package..."
 "$NOVELTEA_CLI" --project "$FEATURE_LAB_ROOT" package export \
   --output "$PACKAGE_PATH" \
-  --include-unused-assets
+  --include-unused-assets \
+  --allow-localization-warnings
 
 echo "[run] configuring desktop build ($PRESET)..."
 cmake --preset "$PRESET" "${CMAKE_CONFIGURE_ARGS[@]}"
