@@ -1,6 +1,7 @@
 #pragma once
 
 #include "noveltea/platform.hpp"
+#include "noveltea/render_diagnostics.hpp"
 #include "noveltea/render/quad_batch.hpp"
 #include "noveltea/render/material.hpp"
 #include "noveltea/render/rasterization_policy.hpp"
@@ -216,6 +217,10 @@ public:
     TextMetrics measure_text(FontHandle font, std::string_view text, float size) const;
 
     const char* renderer_name() const;
+    [[nodiscard]] const RendererDeviceDiagnostics& device_diagnostics() const noexcept
+    {
+        return m_device_diagnostics;
+    }
     const char* active_shader_variant() const;
     [[nodiscard]] const ShaderMaterialProject& builtin_hotspot_material_project() const noexcept
     {
@@ -285,6 +290,7 @@ private:
     assets::AssetLeaseLookupScope m_asset_lease_lookup_scope =
         assets::AssetLeaseLookupScope::Runtime;
     ShaderStandardInputs m_shader_standard_inputs{};
+    RendererDeviceDiagnostics m_device_diagnostics;
     bool m_initialized = false;
     bool m_vsync = true;
     PresentationMetrics m_presentation{};

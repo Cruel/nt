@@ -105,6 +105,11 @@ public:
     {
         return selected_backend.load(std::memory_order_acquire);
     }
+    std::string fallback_reason() const override
+    {
+        std::lock_guard lock(diagnostics_mutex);
+        return selected_fallback_reason;
+    }
     std::uint64_t uploads_on_owner() const noexcept override { return uploads; }
     void set_presented_texture_on_owner(std::uint16_t handle) noexcept override
     {
@@ -131,6 +136,8 @@ public:
     std::shared_ptr<Surfaces> surfaces;
     std::weak_ptr<assets::VideoTextureResidencyPin> residency_pin;
     std::mutex decoder_mutex;
+    mutable std::mutex diagnostics_mutex;
+    std::string selected_fallback_reason;
     std::atomic<std::uint64_t> active_task{0};
     std::atomic<std::uint64_t> uploaded_epoch{std::numeric_limits<std::uint64_t>::max()};
     std::uint64_t id;
@@ -397,6 +404,10 @@ public:
                 std::make_unique<media::NativeVideoDecoder>(m_session->factory->state->source);
         auto frame = m_session->decoder->step(m_request.video_sample->time_ms);
         m_session->selected_backend.store(m_session->decoder->backend(), std::memory_order_release);
+        {
+            std::lock_guard diagnostics_lock(m_session->diagnostics_mutex);
+            m_session->selected_fallback_reason = m_session->decoder->fallback_reason();
+        }
         if (!frame)
             return {.status = jobs::JobStepStatus::Failed, .diagnostics = std::move(frame).error()};
         if (!frame.value())

@@ -125,6 +125,13 @@ function createDevtoolsHarness() {
     host: {
       platform: 'SDL3',
       renderer: 'WebGL',
+      gpu: { vendor: '', device: '', acceleration: 'unknown' },
+      videoHardware: {
+        backend: 'browser-media',
+        status: 'browser-managed',
+        reason: 'Browser-managed decoding',
+      },
+      videoOccurrences: [],
       hostGeneration: 2,
       surface: {
         logicalWidth: 640,

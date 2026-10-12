@@ -251,6 +251,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/include/noveltea/render/resources.hpp
     engine/include/noveltea/render/texture.hpp
     engine/include/noveltea/renderer.hpp
+    engine/include/noveltea/render_diagnostics.hpp
     engine/include/noveltea/runtime_audio_adapter.hpp
     engine/include/noveltea/runtime_presentation_bridge.hpp
     engine/include/noveltea/runtime_preview_controller.hpp

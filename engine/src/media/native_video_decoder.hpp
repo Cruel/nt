@@ -6,6 +6,7 @@
 #include <cstdint>
 #include <memory>
 #include <span>
+#include <string>
 #include <vector>
 
 namespace noveltea::media {
@@ -56,6 +57,7 @@ public:
     step(double time_ms);
     [[nodiscard]] static std::uint64_t memory_budget(std::uint16_t width, std::uint16_t height);
     [[nodiscard]] const char* backend() const noexcept;
+    [[nodiscard]] const std::string& fallback_reason() const noexcept;
     [[nodiscard]] std::uint64_t resident_budget() const noexcept;
 
 private:

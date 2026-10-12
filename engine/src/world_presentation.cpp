@@ -681,6 +681,12 @@ public:
             return m_session->backend();
         return m_seed->video_session ? m_seed->video_session->backend() : "browser-media";
     }
+    std::string fallback_reason() const override
+    {
+        if (m_session && std::string_view(m_session->backend()) != "pending")
+            return m_session->fallback_reason();
+        return m_seed->video_session ? m_seed->video_session->fallback_reason() : std::string{};
+    }
     bool frame_addressable() const noexcept override { return true; }
     bool sample_ready(std::uint64_t time_ms) const noexcept override
     {

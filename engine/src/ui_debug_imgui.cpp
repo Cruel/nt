@@ -246,6 +246,28 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
                         snapshot.host.renderer.c_str(), io.Framerate);
             ImGui::Text("Host: %d x %d", snapshot.host.surface.logical_size.width,
                         snapshot.host.surface.logical_size.height);
+            ImGui::TextWrapped("GPU: %s", snapshot.host.gpu.device.empty()
+                                              ? "Unknown"
+                                              : snapshot.host.gpu.device.c_str());
+            ImGui::Text("Rendering: %s", snapshot.host.gpu.acceleration.c_str());
+            if (!snapshot.host.gpu.vendor.empty())
+                ImGui::TextWrapped("GPU vendor: %s", snapshot.host.gpu.vendor.c_str());
+            const auto& video = snapshot.host.video_hardware;
+            const ImVec4 status_color = video.status == "confirmed" ? ImVec4(0.4f, 0.9f, 0.4f, 1)
+                                        : video.status == "unavailable"
+                                            ? ImVec4(1, 0.75f, 0.3f, 1)
+                                            : ImVec4(0.7f, 0.7f, 0.7f, 1);
+            ImGui::TextColored(status_color, "Video HW decode: %s (%s)", video.status.c_str(),
+                               video.backend.empty() ? "none" : video.backend.c_str());
+            ImGui::TextWrapped("%s", video.reason.c_str());
+            if (snapshot.host.video_occurrences.empty())
+                ImGui::TextUnformatted("World video decode: no occurrences");
+            for (const auto& occurrence : snapshot.host.video_occurrences) {
+                ImGui::BulletText("%s: %s (%s)", occurrence.identity.c_str(),
+                                  occurrence.mode.c_str(), occurrence.backend.c_str());
+                if (!occurrence.fallback_reason.empty())
+                    ImGui::TextWrapped("Fallback: %s", occurrence.fallback_reason.c_str());
+            }
             bool render_perf_logging = snapshot.tooling.render_perf_logging;
             if (ImGui::Checkbox("Render Perf Logging", &render_perf_logging)) {
                 output.commands.emplace_back(

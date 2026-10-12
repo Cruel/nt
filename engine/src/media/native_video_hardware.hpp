@@ -1,8 +1,11 @@
 #pragma once
 
 #include "media/native_video_decoder.hpp"
+#include "noveltea/render_diagnostics.hpp"
 
 namespace noveltea::media {
+
+[[nodiscard]] VideoHardwareDiagnostics native_video_hardware_diagnostics();
 
 class NativeVideoHardwareDecoder {
 public:

@@ -235,6 +235,27 @@ TEST_CASE("Devtools Snapshot owns one typed Runtime Debug Snapshot section")
     CHECK_FALSE(snapshot.tooling.preview_running);
 }
 
+TEST_CASE("Render diagnostics distinguish rendering acceleration from video decoding")
+{
+    CHECK(renderer_acceleration("Microsoft Corporation", "D3D12 (NVIDIA GeForce RTX 5070 Ti)") ==
+          "hardware");
+    CHECK(renderer_acceleration("Mesa", "llvmpipe (LLVM)") == "software");
+    CHECK(renderer_acceleration("Intel", "SwiftShader") == "software");
+    CHECK(renderer_acceleration("", "") == "unknown");
+    CHECK(video_decode_mode("libvpx-vp9") == "software");
+    CHECK(video_decode_mode("va-api-vp9") == "hardware");
+    CHECK(video_decode_mode("mediacodec-vp9") == "hardware");
+    CHECK(video_decode_mode("mediafoundation-vp9") == "hardware");
+    CHECK(video_decode_mode("videotoolbox-vp9") == "hardware");
+    CHECK(video_decode_mode("browser-media") == "browser-managed");
+    CHECK(video_decode_mode("pending") == "pending");
+    CHECK(video_decode_mode("future-backend") == "unknown");
+    devtools::DevtoolsSnapshot snapshot;
+    CHECK(snapshot.host.gpu.acceleration == "unknown");
+    CHECK(snapshot.host.video_hardware.status == "not-probed");
+    CHECK(snapshot.host.video_occurrences.empty());
+}
+
 TEST_CASE("Devtools Console retains bounded sequenced history and reports cursor gaps")
 {
     devtools::ConsoleBuffer console(3);
@@ -517,6 +538,9 @@ TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapsh
           RuntimePreviewController::encode_debug_snapshot(*narrow_before));
     CHECK(devtools_before.value_if()->runtime->preview_running);
     CHECK(devtools_before.value_if()->tooling.preview_running);
+    CHECK_FALSE(devtools_before.value_if()->host.gpu.device.empty());
+    CHECK_FALSE(devtools_before.value_if()->host.video_hardware.reason.empty());
+    CHECK(devtools_before.value_if()->host.video_hardware.status != "confirmed");
 
     const auto rejected_mutation =
         nlohmann::json::parse(EngineTooling::preview(engine).set_variable("not a valid variable id",
@@ -553,6 +577,11 @@ TEST_CASE("Devtools Snapshot tracks the populated canonical Runtime Debug Snapsh
     CHECK_FALSE(report_value.build.target_platform.empty());
     CHECK(report_value.build.host_platform == report_value.snapshot.host.platform);
     CHECK(report_value.build.renderer == report_value.snapshot.host.renderer);
+    CHECK(report_value.snapshot.host.gpu.device == devtools_before.value_if()->host.gpu.device);
+    CHECK(report_value.snapshot.host.gpu.acceleration ==
+          devtools_before.value_if()->host.gpu.acceleration);
+    CHECK(report_value.snapshot.host.video_hardware.status ==
+          devtools_before.value_if()->host.video_hardware.status);
     CHECK(std::find(report_value.capabilities.begin(), report_value.capabilities.end(),
                     "devtools-debug-report-v1") != report_value.capabilities.end());
     CHECK(report_value.console.after_sequence == 0);

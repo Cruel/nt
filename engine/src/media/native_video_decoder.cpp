@@ -177,6 +177,8 @@ struct NativeVideoDecoder::Impl {
             selected = true;
             hardware_selected = hardware != nullptr;
             selected_backend = hardware ? hardware->backend() : "libvpx-vp9";
+            if (!hardware)
+                fallback_reason = "No usable hardware VP9 decoder for this stream and host.";
         } else if (hardware_selected) {
             hardware.reset();
             hardware = try_native_video_hardware(source);
@@ -209,6 +211,7 @@ struct NativeVideoDecoder::Impl {
     bool selected = false;
     bool hardware_selected = false;
     const char* selected_backend = "pending";
+    std::string fallback_reason;
     std::unique_ptr<NativeVideoHardwareDecoder> hardware;
     bool failed = false;
     std::size_t next = 0;
@@ -223,6 +226,10 @@ NativeVideoDecoder::NativeVideoDecoder(std::shared_ptr<const NativeVideoSource> 
 NativeVideoDecoder::~NativeVideoDecoder() = default;
 
 const char* NativeVideoDecoder::backend() const noexcept { return m_impl->selected_backend; }
+const std::string& NativeVideoDecoder::fallback_reason() const noexcept
+{
+    return m_impl->fallback_reason;
+}
 
 std::uint64_t NativeVideoDecoder::resident_budget() const noexcept
 {
@@ -295,6 +302,8 @@ NativeVideoDecoder::step(double time_ms)
                 self.opened = false;
                 self.next = 0;
                 self.selected_backend = "libvpx-vp9";
+                self.fallback_reason =
+                    "Hardware initial sample failed; using the same stream with libvpx.";
                 return core::Result<Frame, core::Diagnostics>::success(nullptr);
             }
             self.failed = true;

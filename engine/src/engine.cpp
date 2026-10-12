@@ -19,6 +19,9 @@
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
 #include "render/bgfx/editor_asset_profiler_renderer_memory.hpp"
 #endif
+#if NOVELTEA_ENABLE_DEVTOOLS
+#include "media/native_video_hardware.hpp"
+#endif
 
 #include <SDL3/SDL.h>
 
@@ -3137,6 +3140,43 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
         }
     }
 
+    auto video_hardware = media::native_video_hardware_diagnostics();
+    std::vector<VideoOccurrenceDiagnostics> video_occurrences;
+    std::vector<const WorldVideoStream*> observed_streams;
+    const auto observe_video = [&](const WorldPresentationFrame* frame) {
+        if (!frame)
+            return;
+        for (const auto& draw : frame->draws) {
+            if (!draw.video_stream ||
+                std::ranges::find(observed_streams, draw.video_stream.get()) !=
+                    observed_streams.end())
+                continue;
+            observed_streams.push_back(draw.video_stream.get());
+            const auto backend = std::string(draw.video_stream->backend());
+            const auto mode = video_decode_mode(backend);
+            if (mode == "software" && video_hardware.status == "not-probed") {
+                video_hardware.status = "unconfirmed";
+                video_hardware.reason =
+                    "Current video uses software; hardware support is not confirmed for this host "
+                    "and stream.";
+            }
+            if (mode == "hardware") {
+                video_hardware.status = "confirmed";
+                video_hardware.reason =
+                    "Hardware decoding realized a sample in the current world presentation.";
+            }
+            video_occurrences.push_back({.identity = draw.stable_identity,
+                                         .backend = backend,
+                                         .mode = mode,
+                                         .fallback_reason = draw.video_stream->fallback_reason()});
+        }
+    };
+    observe_video(m_world_presentation.frame());
+    if (const auto& transition = m_world_transitions.render_state()) {
+        observe_video(m_world_presentation.frame(transition->source));
+        observe_video(m_world_presentation.frame(transition->target));
+    }
+
     bool native_debug_ui_available = false;
 #if defined(NOVELTEA_HAS_IMGUI)
     native_debug_ui_available = true;
@@ -3144,6 +3184,9 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
     return {.host = {.surface = m_presentation.host,
                      .platform = "SDL3",
                      .renderer = std::string(m_renderer.renderer_name()),
+                     .gpu = m_renderer.device_diagnostics(),
+                     .video_hardware = std::move(video_hardware),
+                     .video_occurrences = std::move(video_occurrences),
                      .host_generation = preview_host_generation > 0
                                             ? std::optional<std::uint64_t>{preview_host_generation}
                                             : std::nullopt},

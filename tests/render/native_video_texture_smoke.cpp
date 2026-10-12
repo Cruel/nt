@@ -11,6 +11,7 @@
 #include <cstdio>
 #include <limits>
 #include <set>
+#include <string_view>
 
 namespace {
 using namespace noveltea;
@@ -151,6 +152,9 @@ bool run(Fixture& fixture)
         fixture.draw(&left_sample, &right_sample);
     }
     if (!check(right->sample_ready(125), "blue sample is ready"))
+        return false;
+    if (std::string_view(right->backend()) == "libvpx-vp9" &&
+        !check(!right->fallback_reason().empty(), "software fallback reason reaches the stream"))
         return false;
     const auto metadata = fixture.assets.stat("project:/opaque-vp9.webm");
     if (!check(metadata && fixture.residency->accounting_on_owner().current.source_bytes ==
@@ -360,5 +364,12 @@ int main()
                                       .vsync = false,
                                       .assets = &fixture.assets}))
         return 1;
+#if NOVELTEA_ENABLE_DEVTOOLS
+    const auto& gpu = fixture.renderer.device_diagnostics();
+    if (!check(!gpu.device.empty(), "renderer device diagnostics are captured"))
+        return 1;
+    std::fprintf(stdout, "NATIVE_VIDEO_RENDERER device=%s acceleration=%s\n", gpu.device.c_str(),
+                 gpu.acceleration.c_str());
+#endif
     return run(fixture) ? 0 : 1;
 }

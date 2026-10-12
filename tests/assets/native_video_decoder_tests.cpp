@@ -37,6 +37,10 @@ TEST_CASE("native VP9 decoder preserves held samples, seeks, and independent occ
     media::NativeVideoDecoder second(source.value());
     const auto red = sample(first, 0);
     CHECK(red->time_ns == 0);
+    if (std::string_view(first.backend()) == "libvpx-vp9")
+        CHECK_FALSE(first.fallback_reason().empty());
+    else
+        CHECK(first.fallback_reason().empty());
     REQUIRE(red->y.size() == 512);
     CHECK(red->y.front() == 81);
     CHECK(red->u.front() == 90);

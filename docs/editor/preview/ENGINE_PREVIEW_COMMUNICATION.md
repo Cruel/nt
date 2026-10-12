@@ -388,6 +388,12 @@ not copied to the root or re-encoded into a second gameplay-debugger DTO. Existi
 continue using `runtime-debug-snapshot` directly. Play requests both contracts when supported: the
 narrow runtime snapshot remains authoritative for runtime-only tooling, while the broader snapshot
 drives the Input Routing, RmlUi State, and World Hotspots inspector sections.
+The canonical host payload also requires `gpu`, `videoHardware`, and `videoOccurrences`; they are
+preserved in debug reports and available to editor tooling without scraping native logs. Rendering
+acceleration is distinct from hardware video decoding; availability, confirmed current-world
+backend use, and software-fallback reasons follow
+`docs/runtime/DEVELOPER_DEBUGGING.md`. The replaced host shape without these fields is rejected
+under the current development V1 contract.
 
 When `rmlui-debugger-v1` is advertised, Play tooling controls the engine-owned built-in RmlUi
 Debugger through `devtools-set-rmlui-debugger { visible, context }`. The widget calls the narrow

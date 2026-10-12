@@ -3,6 +3,7 @@
 #include "noveltea/core/diagnostic.hpp"
 #include "noveltea/runtime/runtime_contracts.hpp"
 #include "noveltea/surface.hpp"
+#include "noveltea/render_diagnostics.hpp"
 
 #include <cstdint>
 #include <optional>
@@ -21,6 +22,9 @@ struct DevtoolsHostSnapshot {
     HostSurfaceMetrics surface{};
     std::string platform;
     std::string renderer;
+    RendererDeviceDiagnostics gpu;
+    VideoHardwareDiagnostics video_hardware;
+    std::vector<VideoOccurrenceDiagnostics> video_occurrences;
     std::optional<std::uint64_t> host_generation;
 };
 

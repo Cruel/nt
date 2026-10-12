@@ -495,3 +495,46 @@ try_native_video_hardware(std::shared_ptr<const NativeVideoSource>)
 }
 } // namespace noveltea::media
 #endif
+
+namespace noveltea::media {
+VideoHardwareDiagnostics native_video_hardware_diagnostics()
+{
+#if defined(__EMSCRIPTEN__)
+    return {.backend = "browser-media",
+            .status = "browser-managed",
+            .reason = "Browser codec acceleration is not exposed by the media boundary."};
+#elif defined(__ANDROID__)
+    return {.backend = "mediacodec-vp9",
+            .status = "not-probed",
+            .reason = "Hardware codec and mapped output are selected when a stream opens."};
+#elif defined(_WIN32)
+    return {.backend = "mediafoundation-vp9",
+            .status = "not-probed",
+            .reason = "Hardware MFT and usable D3D11 output are selected when a stream opens."};
+#elif defined(__APPLE__)
+    return {.backend = "videotoolbox-vp9",
+            .status = "not-probed",
+            .reason = "Hardware-required VP9 output is verified when a stream opens."};
+#elif defined(__linux__)
+    for (unsigned node = 128; node < 144; ++node) {
+        const auto path = "/dev/dri/renderD" + std::to_string(node);
+        const auto fd = ::open(path.c_str(), O_RDWR | O_CLOEXEC);
+        if (fd < 0)
+            continue;
+        close(fd);
+        return {.backend = "va-api-vp9",
+                .status = "not-probed",
+                .reason = "Accessible DRM render device; VP9 profile and mapped output are not yet "
+                          "verified."};
+    }
+    return {.backend = "va-api-vp9",
+            .status = "unavailable",
+            .reason = "No accessible /dev/dri/renderD* device; WSL /dev/dxg is not supported by "
+                      "this adapter."};
+#else
+    return {.backend = "",
+            .status = "unavailable",
+            .reason = "No native hardware VP9 adapter is implemented for this platform."};
+#endif
+}
+} // namespace noveltea::media
