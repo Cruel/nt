@@ -411,6 +411,7 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/media/native_video_decoder.cpp
     engine/src/media/native_video_decoder.hpp
     engine/src/media/native_video_hardware.cpp
+    engine/src/media/native_video_nvdec.cpp
     engine/src/media/native_video_hardware.hpp
     engine/src/media/native_video_videotoolbox.cpp
     engine/src/media/native_video_mediafoundation.cpp
