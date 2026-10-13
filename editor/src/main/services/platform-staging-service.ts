@@ -700,6 +700,7 @@ async function finalizeWindowsStage(
     'gdi32.dll',
     'imm32.dll',
     'kernel32.dll',
+    'mfplat.dll', // Windows Media Foundation platform API (OS component, not a redistributable DLL).
     'ntdll.dll',
     'ole32.dll',
     'oleaut32.dll',
