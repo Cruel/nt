@@ -577,13 +577,10 @@ public:
             m_state = assets::AssetRequestState::Failed;
             return Sample::failure(std::move(diagnostics));
         };
-#ifndef __EMSCRIPTEN__
         if (!m_session)
-            return fail(
-                {diagnostic("presentation.video_decoder_unavailable",
-                            "Native VP9 media source did not provide an occurrence decoder.",
-                            m_representation.animation.text())});
-#endif
+            return fail({diagnostic("presentation.video_decoder_unavailable",
+                                    "Video media source did not provide an occurrence decoder.",
+                                    m_representation.animation.text())});
         if (m_generation != m_assets.source_generation_on_owner())
             return fail(
                 {diagnostic("presentation.video_source_changed",

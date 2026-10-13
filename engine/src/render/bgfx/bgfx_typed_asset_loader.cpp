@@ -1216,7 +1216,7 @@ BgfxTypedAssetLoader::create_texture_preparation_task(const assets::TextureAsset
     auto& owner = static_cast<TexturePreparationOwner&>(*this);
     if (request.video_sample) {
 #ifdef __EMSCRIPTEN__
-        return make_web_video_texture_task(m_assets, owner, request);
+        return make_web_video_texture_task(m_assets, request);
 #else
         return m_native_video->create_task(request);
 #endif

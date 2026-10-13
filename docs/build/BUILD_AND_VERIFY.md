@@ -77,7 +77,13 @@ cmake --build --preset web-debug --target public-header-probes module-dependency
 pnpm run web:smoke:debug
 node tests/web/video_texture_tests.mjs --request-build-dir build/web-debug
 # Prepared Feature Lab package with World Composition entrypoint, default HUD and neutral camera:
-node scripts/web-player-package-smoke.mjs --build-dir build/web-debug --video --package /path/to/video.ntpkg
+# Verify all three colors through the optimized player's actual raster output (GPU-backed WebGL):
+cmake --preset web-release
+cmake --build --preset web-release --target noveltea-player
+NOVELTEA_WEB_SMOKE_ANGLE_BACKEND=gl node scripts/web-player-package-smoke.mjs \
+  --build-dir build/web-release --video --start-via-title --package /path/to/video.ntpkg
+# Debug builds can miss short color intervals if a directed browser seek takes longer than the
+# interval; debug is for tracing seek/upload boundaries, not certifying the full color sequence.
 cmake --preset web-debug-no-threads
 cmake --build --preset web-debug-no-threads --target noveltea-player
 cmake --preset web-release-no-threads

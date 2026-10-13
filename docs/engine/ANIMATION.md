@@ -105,22 +105,25 @@ enters semantic playback. Existing occurrence epochs therefore provide default/l
 hidden-time catch-up, compatible-publication phase retention, reset/load/reconstruction restart, and
 independent phase for shared Animation occurrences.
 
-On Web, a declared browser alternative makes the same stream request time-addressed typed textures
-through `assets::prepared_video_texture_request`. Browser-native, paused `HTMLVideoElement` seeks and
-canvas RGBA rasterization live in `web/video_texture.js`, with no `play()` or browser playback clock.
-`WebVideoTextureTask` reads only the selected packaged media entry incrementally, reserves source,
-GPU and conservative browser/decode/upload temporary costs through ordinary residency, then hands
-pixels and mip preparation to the existing owner-thread bgfx texture finalizer. Source bytes are
-limited to 128 MiB per prepared browser representation; at most two browser decoders are active.
-Queued/active cancellation disposes media elements and revokes Blob URLs before releasing WASM
-buffers. Browser callbacks publish atomic completion directly to the task; worker polling never
-uses synchronous main-thread proxies, which can starve media events. Final textures are ordinary
-immutable residency-managed leases and may be shared by occurrences sampling the same frame.
-For a declared browser representation, unsupported/corrupt media, canvas mismatch, and decode timeout
-are typed resource failures, not PNG fallbacks. Finite startup requires its initial video sample and
-Material, while completion waits for the required endpoint sample. Browser decoding still performs
-bounded paused seeks per uncached sample, without claiming real-time codec throughput. Focused Room
-previews stage the same encoded stream with explicit `prepared-media` authority and canvas dimensions.
+On Web, `assets::prepared_video_texture_request` uses the same semantic sample/lease contract
+through a paused, persistent `HTMLVideoElement` for each active occurrence. The browser decodes and
+seeks the packaged WebM, then `web/video_texture.js` uploads its media element directly to an
+imported bgfx/WebGL RGBA texture using `texSubImage2D(video)`, without canvas readback or a
+browser playback clock. Decoder and Blob URL survive between directed samples; there are at most
+two active seeks and a bounded queue. The initial seed releases its temporary browser decoder and
+retains the shared encoded source for subsequent occurrence sessions. Samples pin the occurrence's
+first allocation; two presentation surfaces prevent a discarded seek from overwriting the image
+currently held by the World. One held sample does not trigger GPU uploads on render ticks.
+
+Texture creation/upload and retirement occur on the WebGL renderer owner; bgfx owns imported
+texture handles but not the underlying GL names. Names are deleted only after deferred bgfx
+frame processing; renderer shutdown retires surviving sessions before destroying its GL context.
+Source, browser Blob/decoder estimates, temporary decode storage, and GPU surfaces go through
+normal asset residency. Browser callbacks publish atomic task readiness; cancellation detaches
+callbacks before pending WASM task storage can be released. Corrupt/unsupported codecs, dimensions,
+GPU imports, uploads, and timeouts fail through typed resource diagnostics instead of a CPU fallback.
+A first/finite endpoint sample still gates readiness. Focused Room previews stage the same encoded
+stream under `prepared-media` authority, with the same canvas dimensions.
 
 For native decoder selection, GPU conversion, residency, and platform limits, see
 [Native opaque Animation video](../assets/NATIVE_VIDEO.md).

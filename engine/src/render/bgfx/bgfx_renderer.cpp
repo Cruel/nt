@@ -6,6 +6,7 @@
 #include "render/bgfx/bgfx_shader_program_cache.hpp"
 #include "render/bgfx/bgfx_typed_asset_loader.hpp"
 #include "render/bgfx/native_video_texture.hpp"
+#include "render/bgfx/web_video_texture.hpp"
 
 #include <SDL3/SDL.h>
 
@@ -398,6 +399,7 @@ void Renderer::end_frame()
 {
     m_bgfx_frame = bgfx::frame();
     reset_native_video_upload_views();
+    advance_web_video_render_epoch();
 }
 
 void Renderer::set_vsync(bool enabled)
@@ -505,6 +507,7 @@ void Renderer::shutdown()
         destroy_screenshot_capture_surfaces();
         destroy_ordinary_world_surface();
         destroy_2d();
+        drain_web_video_textures_on_owner();
         bgfx::shutdown();
         m_pending_screenshot_capture.reset();
         m_active_screenshot_capture.reset();
