@@ -1028,6 +1028,7 @@ void Renderer::create_2d()
 
     const BgfxShaderLoader shader_loader(*m_assets);
     m_quad_program = shader_loader.load_program(SystemShader::Quad).idx;
+    m_video_alpha_program = shader_loader.load_program(SystemShader::VideoAlpha).idx;
     m_premultiplied_quad_program = shader_loader.load_program(SystemShader::PremultipliedQuad).idx;
     m_hotspot_alpha_program = shader_loader.load_program(SystemShader::HotspotAlpha).idx;
     m_hotspot_custom_program = shader_loader.load_program(SystemShader::HotspotCustom).idx;
@@ -1043,6 +1044,7 @@ void Renderer::create_2d()
         return;
     }
     m_sampler = bgfx::createUniform("s_texColor", bgfx::UniformType::Sampler).idx;
+    m_video_alpha_sampler = bgfx::createUniform("s_videoAlpha", bgfx::UniformType::Sampler).idx;
 
     constexpr uint32_t white_pixel = 0xffffffff;
     m_white_texture = bgfx::createTexture2D(1, 1, false, 1, bgfx::TextureFormat::RGBA8,
@@ -1094,8 +1096,12 @@ void Renderer::destroy_2d()
         bgfx::destroy(bgfx::TextureHandle{m_white_texture});
     if (bgfx::isValid(bgfx::UniformHandle{m_sampler}))
         bgfx::destroy(bgfx::UniformHandle{m_sampler});
+    if (bgfx::isValid(bgfx::UniformHandle{m_video_alpha_sampler}))
+        bgfx::destroy(bgfx::UniformHandle{m_video_alpha_sampler});
     if (bgfx::isValid(bgfx::ProgramHandle{m_quad_program}))
         bgfx::destroy(bgfx::ProgramHandle{m_quad_program});
+    if (bgfx::isValid(bgfx::ProgramHandle{m_video_alpha_program}))
+        bgfx::destroy(bgfx::ProgramHandle{m_video_alpha_program});
     if (bgfx::isValid(bgfx::ProgramHandle{m_premultiplied_quad_program}))
         bgfx::destroy(bgfx::ProgramHandle{m_premultiplied_quad_program});
     if (bgfx::isValid(bgfx::ProgramHandle{m_hotspot_alpha_program}))
@@ -1105,7 +1111,9 @@ void Renderer::destroy_2d()
     m_checker_texture = UINT16_MAX;
     m_white_texture = UINT16_MAX;
     m_sampler = UINT16_MAX;
+    m_video_alpha_sampler = UINT16_MAX;
     m_quad_program = UINT16_MAX;
+    m_video_alpha_program = UINT16_MAX;
     m_premultiplied_quad_program = UINT16_MAX;
     m_hotspot_alpha_program = UINT16_MAX;
     m_hotspot_custom_program = UINT16_MAX;
@@ -1178,6 +1186,13 @@ void Renderer::submit_quad(const QuadCommand& command, std::uint16_t view, float
 {
     QuadCommand adjusted = command;
     adjusted.color.a *= opacity;
+    if (adjusted.material.valid() && adjusted.video_alpha_mask) {
+        // The tracer compositor cannot replace an authored Engine2D Material.
+        // Production transparent Material binding belongs to #409.
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                     "[renderer] video alpha masks with authored Materials are not supported");
+        return;
+    }
     if (adjusted.material.valid() && submit_material_quad(adjusted, view)) {
         return;
     }
@@ -1306,6 +1321,12 @@ void Renderer::submit_default_quad(const QuadCommand& command)
 void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t view)
 {
     (void)command.depth;
+    const bool masked = command.video_alpha_mask.has_value();
+    if (masked && (!bgfx::isValid(bgfx::ProgramHandle{m_video_alpha_program}) ||
+                   !bgfx::isValid(bgfx::UniformHandle{m_video_alpha_sampler}) ||
+                   !command.video_alpha_mask->valid() ||
+                   !bgfx::isValid(bgfx::TextureHandle{command.video_alpha_mask->handle})))
+        return;
     if (!set_quad_buffers(command))
         return;
 
@@ -1317,6 +1338,11 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
         use_texture ? command.texture_sampler : MaterialTextureSampler::ClampLinear;
     bgfx::setTexture(0, bgfx::UniformHandle{m_sampler}, texture_handle,
                      bgfx_backend::bgfx_sampler_flags(sampler));
+    if (masked)
+        bgfx::setTexture(1, bgfx::UniformHandle{m_video_alpha_sampler},
+                         bgfx::TextureHandle{command.video_alpha_mask->handle},
+                         BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT |
+                             BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT);
     bgfx::setState(BGFX_STATE_WRITE_RGB | BGFX_STATE_WRITE_A |
                    BGFX_STATE_BLEND_FUNC(BGFX_STATE_BLEND_ONE, BGFX_STATE_BLEND_INV_SRC_ALPHA));
 
@@ -1332,7 +1358,7 @@ void Renderer::submit_default_quad(const QuadCommand& command, std::uint16_t vie
         bgfx::setScissor(UINT16_MAX);
     }
 
-    bgfx::submit(view, bgfx::ProgramHandle{m_quad_program});
+    bgfx::submit(view, bgfx::ProgramHandle{masked ? m_video_alpha_program : m_quad_program});
 }
 
 void Renderer::submit_premultiplied_quad(const QuadCommand& command, std::uint16_t view, bool blend)

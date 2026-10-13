@@ -40,7 +40,10 @@ function seconds(milliseconds: number): string {
   return (milliseconds / 1000).toFixed(6).replace(/0+$/u, '').replace(/\.$/u, '');
 }
 
-async function readContainedVideoSource(projectRoot: string, sourcePath: string): Promise<Buffer> {
+export async function readContainedVideoSource(
+  projectRoot: string,
+  sourcePath: string,
+): Promise<Buffer> {
   if (
     isAbsolute(sourcePath) ||
     sourcePath.includes('\\') ||
@@ -65,7 +68,7 @@ interface VideoSample {
 
 // showinfo reports actual presentation timestamps after filtergraph transformations.
 // Never reconstruct VFR timing from frame count, average FPS, or encoder progress.
-function readSampleTimes(log: string): VideoSample[] {
+export function readSampleTimes(log: string): VideoSample[] {
   const samples: VideoSample[] = [];
   for (const line of log.split(/\r?\n/u)) {
     if (!line.includes('Parsed_showinfo_') || !line.includes('pts_time:')) continue;
@@ -106,7 +109,7 @@ function sourceDurationMs(samples: VideoSample[], log: string): number {
   return Math.round(duration);
 }
 
-function frameDurations(samples: VideoSample[], endpointMs: number): number[] {
+export function frameDurations(samples: VideoSample[], endpointMs: number): number[] {
   const durations: number[] = [];
   for (let index = 0; index < samples.length; index += 1) {
     const start = Math.round(samples[index]!.timeMs);
@@ -143,7 +146,7 @@ function retainFilter(sourceFrames: number, percent: number): string | null {
   return `select='eq(n\\,0)+eq(n\\,${last})+gt(floor(n*${intervals}/${last})\\,floor((n-1)*${intervals}/${last}))'`;
 }
 
-function samplingFilter(mode: VideoFrameSampling, sourceFrames: number): string | null {
+export function samplingFilter(mode: VideoFrameSampling, sourceFrames: number): string | null {
   if (mode.mode === 'source') return null;
   if (mode.mode === 'retain-percent') return retainFilter(sourceFrames, mode.percent);
   return `fps=fps=${mode.fps.numerator}/${mode.fps.denominator}:round=near`;
@@ -210,7 +213,7 @@ function sourceColorConversion(log: string): { filters: string[]; reducedPrecisi
   };
 }
 
-function sourceTimeline(
+export function sourceTimeline(
   request: VideoSourceTimingRequest,
   sourceSamples: readonly VideoSample[],
   sourceLog: string,

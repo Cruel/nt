@@ -306,6 +306,8 @@ private:
 
     // Backend resource handles (stored as uint16_t indices; UINT16_MAX = invalid).
     uint16_t m_quad_program = UINT16_MAX;
+    uint16_t m_video_alpha_program = UINT16_MAX;
+    uint16_t m_video_alpha_sampler = UINT16_MAX;
     uint16_t m_premultiplied_quad_program = UINT16_MAX;
     uint16_t m_hotspot_alpha_program = UINT16_MAX;
     uint16_t m_hotspot_custom_program = UINT16_MAX;
