@@ -4,7 +4,7 @@ import { access, mkdir, rename, rm, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 
 function usage() {
-  return 'Usage: pnpm android:export-config -- --output <file>\n';
+  return 'Usage: pnpm android:export-config -- --output <file> [--debug-signing-keystore <file>]\n';
 }
 
 function optionValue(args, name) {
@@ -41,12 +41,15 @@ async function main() {
 
   const output = optionValue(args, '--output');
   if (!output) throw new Error(`Missing required option --output.\n${usage()}`);
+  const debugSigningKeystore = optionValue(args, '--debug-signing-keystore');
   const unknown = args.filter(
     (argument, index) =>
       argument.startsWith('--') &&
       argument !== '--output' &&
+      argument !== '--debug-signing-keystore' &&
       argument !== '--help' &&
-      args[index - 1] !== '--output',
+      args[index - 1] !== '--output' &&
+      args[index - 1] !== '--debug-signing-keystore',
   );
   if (unknown.length) throw new Error(`Unknown option '${unknown[0]}'.\n${usage()}`);
 
@@ -56,6 +59,9 @@ async function main() {
   await Promise.all([
     requirePath(androidSdk, 'Android SDK'),
     requirePath(javaHome, 'Java home'),
+    ...(debugSigningKeystore
+      ? [requirePath(debugSigningKeystore, 'Android debug keystore')]
+      : []),
   ]);
 
   const outputPath = path.resolve(output);
@@ -68,7 +74,16 @@ async function main() {
         format: 'noveltea.editor-export-local-state',
         templateRoots: [],
         toolchains: { androidSdk, javaHome },
-        signing: {},
+        signing: debugSigningKeystore
+          ? {
+              android: {
+                keystorePath: path.resolve(debugSigningKeystore),
+                keyAlias: 'androiddebugkey',
+                storePasswordReference: 'env:NOVELTEA_ANDROID_RUN_DEBUG_STORE_PASSWORD',
+                keyPasswordReference: 'env:NOVELTEA_ANDROID_RUN_DEBUG_KEY_PASSWORD',
+              },
+            }
+          : {},
       })}\n`,
       'utf8',
     );

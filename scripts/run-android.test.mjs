@@ -8,11 +8,16 @@ import { fileURLToPath } from 'node:url';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-for (const [input, abi, cliMode = 'explicit'] of [
+for (const [input, abi, cliMode = 'explicit', flavor = 'debug', scenario = 'normal'] of [
   ['file', 'x86_64'], ['directory', 'x86_64'], ['directory', 'arm64-v8a'],
   ['directory', 'arm64-v8a', 'existing-default'], ['directory', 'arm64-v8a', 'missing-default'],
+  ['directory', 'arm64-v8a', 'explicit', 'release'],
+  ['directory', 'arm64-v8a', 'explicit', 'release', 'devtools'],
+  ['directory', 'arm64-v8a', 'explicit', 'release', 'invalid-signature'],
+  ['directory', 'arm64-v8a', 'explicit', 'release', 'missing-keystore'],
 ]) {
-  test(`exports the specified Project ${input} for ${abi} using ${cliMode} CLI and launches its APK`, async (t) => {
+  const release = flavor === 'release';
+  test(`exports the specified Project ${input} for ${abi} using ${cliMode} CLI (${flavor}, ${scenario}) and handles installation`, async (t) => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nt-android-run-'));
     t.after(() => rm(root, { recursive: true, force: true }));
     const bin = path.join(root, 'bin');
@@ -25,11 +30,14 @@ for (const [input, abi, cliMode = 'explicit'] of [
     }
     await file('scripts/run-android.sh', await readFile(path.join(repository, 'scripts/run-android.sh')), true);
     await file('scripts/android-device.sh', await readFile(path.join(repository, 'scripts/android-device.sh')));
+    await file('scripts/write-android-export-config.mjs', await readFile(path.join(repository, 'scripts/write-android-export-config.mjs')));
     await mkdir(workspace);
     await cp(path.join(repository, 'tests/projects/feature-lab/project.json'), path.join(workspace, 'project.json'));
-    await file('android/gradlew', '#!/usr/bin/env bash\n[[ " $* " == *" -PnovelteaAbi=$TEST_ABI "* ]]\n', true);
-    await file(`android/app/build/noveltea-native/debug/${abi}/libnoveltea-player.so`, 'player');
-    await file(`android/app/build/noveltea-native/debug/${abi}/libSDL3.so`, 'SDL');
+    await file('android/gradlew', '#!/usr/bin/env bash\n[[ " $* " == *" -PnovelteaAbi=$TEST_ABI "* ]] || exit 30\nif [ "$TEST_FLAVOR" = release ]; then\n  want=false\n  [ "$TEST_SCENARIO" != devtools ] || want=true\n  [[ " $* " == *" -PnovelteaEnableDevtools=$want "* ]] || exit 31\nfi\n', true);
+    await file(`android/app/build/noveltea-native/${flavor}/${abi}/libnoveltea-player.so`, 'player');
+    await file(`android/app/build/noveltea-native/${flavor}/${abi}/libSDL3.so`, 'SDL');
+    if (scenario !== 'missing-keystore') await file('android-user/debug.keystore', 'mock debug keystore');
+    await file('build-tools/35.0.0/apksigner', '#!/usr/bin/env bash\n[[ "$1" == verify ]] || exit 30\nprintf "%s\\n" "$*" >> "$TEST_ROOT/signature-checks"\n[[ "$TEST_SCENARIO" != invalid-signature ]]\n', true);
     await mkdir(path.join(root, 'android/app/build/generated/noveltea/shaders'), { recursive: true });
     const shaderRoot = path.join(root, 'shader-includes');
     await file('shader-includes/bgfx_shader.sh', 'shader');
@@ -44,10 +52,13 @@ for arg in "$@"; do
 done
 [ "$found" = 1 ]
 mkdir -p "$TEST_ROOT/dist"
-touch "$TEST_ROOT/dist/noveltea-player-template-local-run-android-android-$TEST_ABI-debug.tar.gz"
+touch "$TEST_ROOT/dist/noveltea-player-template-local-run-android-android-$TEST_ABI-$TEST_FLAVOR.tar.gz"
 `, true);
     await file('bin/pnpm', `#!/usr/bin/env bash
-if [[ " $* " == *" noveltea:build "* ]]; then
+if [[ "$1" == android:export-config ]]; then
+  shift 2
+  node "$TEST_ROOT/scripts/write-android-export-config.mjs" "$@"
+elif [[ " $* " == *" noveltea:build "* ]]; then
   echo build >> "$TEST_ROOT/cli-builds"
   mkdir -p "$TEST_ROOT/build/cli/linux"
   cp "$TEST_ROOT/bin/noveltea" "$TEST_ROOT/build/cli/linux/noveltea"
@@ -79,8 +90,18 @@ if (args.includes('export')) {
   if (project !== process.env.TEST_WORKSPACE) process.exit(10);
   const document = JSON.parse(fs.readFileSync(path.join(project, 'project.json'), 'utf8'));
   const profile = args[args.indexOf('--profile') + 1];
-  const expected = process.env.TEST_ABI === 'arm64-v8a' ? 'android-arm64-debug' : 'android-emulator-debug';
+  const expected = process.env.TEST_FLAVOR === 'release' ? 'android' : process.env.TEST_ABI === 'arm64-v8a' ? 'android-arm64-debug' : 'android-emulator-debug';
   if (profile !== expected || !document.export.profiles.some(p => p.id === profile)) process.exit(11);
+  const sign = args.includes('--sign');
+  if (sign !== (process.env.TEST_FLAVOR === 'release')) process.exit(12);
+  const config = JSON.parse(fs.readFileSync(args[args.indexOf('--config') + 1], 'utf8'));
+  if (sign) {
+    if (config.signing.android.keystorePath !== path.join(process.env.ANDROID_USER_HOME, 'debug.keystore')) process.exit(13);
+    if (config.signing.android.keyAlias !== 'androiddebugkey') process.exit(14);
+    if (config.signing.android.storePasswordReference !== 'env:NOVELTEA_ANDROID_RUN_DEBUG_STORE_PASSWORD') process.exit(15);
+    if (config.signing.android.keyPasswordReference !== 'env:NOVELTEA_ANDROID_RUN_DEBUG_KEY_PASSWORD') process.exit(16);
+    if (process.env.NOVELTEA_ANDROID_RUN_DEBUG_STORE_PASSWORD !== 'android' || process.env.NOVELTEA_ANDROID_RUN_DEBUG_KEY_PASSWORD !== 'android') process.exit(17);
+  }
   const output = args[args.indexOf('--output') + 1];
   fs.mkdirSync(output, {recursive:true});
   fs.writeFileSync(path.join(output, 'feature-lab.apk'), 'mock apk');
@@ -92,7 +113,9 @@ if (args.includes('export')) {
       await cp(cli, path.join(root, 'build/cli/linux/noveltea'));
     }
     const result = spawnSync('bash', [path.join(root, 'scripts/run-android.sh'), '--project',
-      input === 'file' ? path.join(workspace, 'project.json') : workspace], {
+      input === 'file' ? path.join(workspace, 'project.json') : workspace,
+      ...(release ? ['--release'] : []),
+      ...(scenario === 'devtools' ? ['--devtools'] : [])], {
       encoding: 'utf8',
       env: {
         ...process.env,
@@ -101,7 +124,11 @@ if (args.includes('export')) {
         NOVELTEA_BUNDLETOOL_JAR: jar,
         BGFX_SHADER_INCLUDE_DIR: shaderRoot,
         JAVA_HOME: root,
+        ANDROID_SDK_ROOT: root,
+        ANDROID_USER_HOME: path.join(root, 'android-user'),
         TEST_ROOT: root,
+        TEST_FLAVOR: flavor,
+        TEST_SCENARIO: scenario,
         TEST_WORKSPACE: workspace,
         PKG: 'org.noveltea.featurelab',
         APK: '',
@@ -111,10 +138,23 @@ if (args.includes('export')) {
         ACTIVITY: 'org.noveltea.player.MainActivity',
       },
     });
+    if (scenario === 'missing-keystore') {
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /Android debug keystore not found/);
+      assert.doesNotMatch(await readFile(path.join(root, 'adb-actions'), 'utf8').catch(() => ''), /install -r/);
+      return;
+    }
+    if (scenario === 'invalid-signature') {
+      assert.notEqual(result.status, 0);
+      assert.match(result.stderr, /exported APK has no valid Android signature/);
+      assert.doesNotMatch(await readFile(path.join(root, 'adb-actions'), 'utf8').catch(() => ''), /install -r/);
+      return;
+    }
     assert.equal(result.status, 0, result.stderr + result.stdout);
     const builds = await readFile(path.join(root, 'cli-builds'), 'utf8').catch(() => '');
     assert.equal(builds, cliMode === 'missing-default' ? 'build\n' : '');
     assert.equal(await readFile(path.join(root, 'export-project'), 'utf8'), workspace);
+    assert.match(await readFile(path.join(root, 'signature-checks'), 'utf8'), /verify .*feature-lab\.apk/);
     const adb = await readFile(path.join(root, 'adb-actions'), 'utf8');
     assert.match(adb, /install -r .*feature-lab\.apk/);
     assert.match(adb, /shell am start -n org\.noveltea\.featurelab\/org\.noveltea\.player\.MainActivity/);

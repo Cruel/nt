@@ -466,7 +466,7 @@ For local device/emulator release-smoke testing, use the helper script:
 ./scripts/run-android.sh --release
 ```
 
-That helper asks Gradle to sign the release build with the debug keystore only for local installation. Publishing/release packaging should use real release signing properties (`novelteaReleaseStoreFile`, `novelteaReleaseStorePassword`, `novelteaReleaseKeyAlias`, and `novelteaReleaseKeyPassword`) or leave the artifact unsigned for later signing.
+That helper builds the release player with Gradle's debug-signing option, then separately exports the Project through the CLI with `--sign` and the local Android debug keystore (`${ANDROID_USER_HOME:-$HOME/.android}/debug.keystore`). Pass `--release --devtools` for an optimized Release player **with** native NovelTea devtools compiled in, including the on-device ImGui Render panel's FPS reading. On the device, touch with two fingers within 200 ms, hold still for one second, then release to toggle the debugger. Normal `--release` keeps devtools compiled out, and Debug builds retain devtools by default. The instrumented Release build is much more representative of shipped performance than Debug, but the overlay and instrumentation still add some measurement overhead. The generated export-local configuration uses environment references for the standard debug-key passwords; the credentials are never stored in the Project. The helper verifies the **exported** APK signature before installing it, so an unsigned or invalid APK fails locally rather than at `adb install`. This is only for release-mode device testing. Ordinary CLI release exports remain unsigned unless explicitly signed with a configured production keystore.
 
 ## Optional Components
 
