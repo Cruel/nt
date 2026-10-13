@@ -77,6 +77,7 @@ export function inspectMediaTool(tool: MediaTool, run: MediaToolRunner = runMedi
       '--disable-network',
       '--enable-libaom',
       '--enable-libvpx',
+      '--enable-libzimg',
     ]) {
       if (!text.split(/\s+/).includes(flag))
         throw new Error(`Bundled FFmpeg ${pin.release} is missing configuration ${flag}.`);

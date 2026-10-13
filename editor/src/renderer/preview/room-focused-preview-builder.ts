@@ -1313,8 +1313,16 @@ export async function buildFocusedRoomPreview(
         sourcePath: asset.source.path,
         canvas: { ...animation.data.canvas },
         ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
+        ...(motion.frameSampling ? { frameSampling: motion.frameSampling } : {}),
       });
       preparedVideoMotions.set(`${animationId}\n${motion.id}`, prepared);
+      if (prepared.reducedColorPrecision)
+        diagnostics.push({
+          severity: 'warning',
+          path: `/animations/${animationId}/data/motions`,
+          message: `Video motion '${motion.id}' has HDR/high-bit-depth input converted to SDR/8-bit BT.709.`,
+          code: 'focused-room.video-color-reduced',
+        });
       if (prepared.hadAudio)
         diagnostics.push({
           severity: 'warning',
