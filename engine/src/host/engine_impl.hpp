@@ -33,6 +33,7 @@
 #include "noveltea/world_transition.hpp"
 #include "noveltea/platform.hpp"
 
+#include <array>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -47,6 +48,7 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     void handle_events();
     bool throttle_frame_start();
     void finish_frame_timing_sample();
+    void record_frame_perf_sample(const std::array<uint64_t, 7>& checkpoints);
     void service_normal_frame_jobs();
     void service_loading_frame_jobs();
     void service_pending_runtime_locale_change();
@@ -219,6 +221,14 @@ struct Engine::Impl final : private presentation::RuntimeSystemLayoutHost {
     bool m_pointer_valid = false;
     bool m_debug_ui_enabled = true;
     bool m_render_perf_logging = false;
+    struct FramePerfSample {
+        uint64_t sample_start = 0;
+        uint64_t max_tick = 0;
+        std::array<uint64_t, 6> phase_ticks{};
+        uint64_t total_tick = 0;
+        uint64_t bgfx_frame_ticks = 0;
+        uint32_t frames = 0;
+    } m_frame_perf_sample;
     bool m_audio_enabled = true;
     bool m_preview_widget = false;
     bool m_show_fps_counter = false;

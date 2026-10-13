@@ -63,6 +63,18 @@ TEST_CASE("DebugUI host commands use the same typed seam without a runtime")
     REQUIRE(executed.value_if()->render_perf_logging.has_value());
     CHECK(*executed.value_if()->render_perf_logging);
     CHECK_FALSE(executed.value_if()->runtime_state_changed);
+
+    const auto disabled = executor.execute(SetVsyncDebugCommand{false}, nullptr);
+    REQUIRE(disabled);
+    REQUIRE(disabled.value_if()->vsync.has_value());
+    CHECK_FALSE(*disabled.value_if()->vsync);
+    CHECK_FALSE(disabled.value_if()->runtime_state_changed);
+
+    const auto enabled = executor.execute(SetVsyncDebugCommand{true}, nullptr);
+    REQUIRE(enabled);
+    REQUIRE(enabled.value_if()->vsync.has_value());
+    CHECK(*enabled.value_if()->vsync);
+    CHECK_FALSE(enabled.value_if()->runtime_state_changed);
 }
 
 } // namespace

@@ -570,6 +570,8 @@ void RmlUiHost::apply_context_environment(Rml::Context& context,
 
 void RmlUiHost::set_perf_logging_enabled(bool enabled)
 {
+    if (m_perf_logging != enabled)
+        m_last_context_perf_log_ms = 0;
     m_perf_logging = enabled;
     for (auto& renderer : m_plane_renderers)
         if (renderer.bgfx)

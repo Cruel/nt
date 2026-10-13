@@ -1716,6 +1716,7 @@ bool Engine::Impl::initialize(const PlatformConfig& config, const EngineConfig& 
     m_debug_ui_enabled = false;
 #endif
     m_render_perf_logging = tooling_config.render_perf_logging;
+    m_frame_perf_sample = {};
     m_preview_widget = tooling_config.preview_widget;
     m_show_fps_counter = tooling_config.show_fps_counter;
     m_fps_sample_frames = 0;
@@ -2044,16 +2045,27 @@ bool Engine::Impl::tick()
         return true;
     }
 
+    // Opt-in owner-thread frame timings. No clock reads on the ordinary release path.
+    const bool measure_perf = m_render_perf_logging;
+    std::array<uint64_t, 7> perf_checkpoints{};
+    if (measure_perf)
+        perf_checkpoints[0] = SDL_GetPerformanceCounter();
     handle_events();
+    if (measure_perf)
+        perf_checkpoints[1] = SDL_GetPerformanceCounter();
     const auto asset_urgency = m_asset_progress.urgency_on_owner();
     if (asset_urgency == assets::AssetProgressUrgency::Blocking) {
         service_loading_frame_jobs();
     } else {
         service_normal_frame_jobs();
     }
+    if (measure_perf)
+        perf_checkpoints[2] = SDL_GetPerformanceCounter();
     m_asset_progress.service_owner_frame();
     service_pending_runtime_locale_change();
     apply_pending_debug_ui_commands();
+    if (measure_perf)
+        perf_checkpoints[3] = SDL_GetPerformanceCounter();
     const bool runtime_mandatory_loading = m_game_host.mandatory_assets_pending();
     const bool runtime_input_admitted = m_preview_running && !runtime_mandatory_loading;
     m_game_host_values.runtime_input_admitted = runtime_input_admitted;
@@ -2064,8 +2076,16 @@ bool Engine::Impl::tick()
                                    .runtime_input_admitted = runtime_input_admitted});
         update_presentation_audio_backends(runtime_input_admitted);
     }
+    if (measure_perf)
+        perf_checkpoints[4] = SDL_GetPerformanceCounter();
     realize_layouts_and_bind_ui();
+    if (measure_perf)
+        perf_checkpoints[5] = SDL_GetPerformanceCounter();
     render();
+    if (measure_perf) {
+        perf_checkpoints[6] = SDL_GetPerformanceCounter();
+        record_frame_perf_sample(perf_checkpoints);
+    }
 #if NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER
     if (m_editor_asset_profiler != nullptr)
         m_editor_asset_profiler->flush_frame_on_owner();
@@ -2088,6 +2108,46 @@ bool Engine::Impl::tick()
     }
 
     return m_running;
+}
+
+void Engine::Impl::record_frame_perf_sample(const std::array<uint64_t, 7>& checkpoints)
+{
+    if (!m_render_perf_logging) {
+        m_frame_perf_sample = {};
+        return;
+    }
+    const uint64_t frequency = SDL_GetPerformanceFrequency();
+    if (frequency == 0)
+        return;
+
+    auto& sample = m_frame_perf_sample;
+    if (sample.sample_start == 0)
+        sample.sample_start = checkpoints[0];
+    const uint64_t tick = checkpoints[6] - checkpoints[0];
+    sample.total_tick += tick;
+    sample.max_tick = std::max(sample.max_tick, tick);
+    for (std::size_t index = 0; index < sample.phase_ticks.size(); ++index)
+        sample.phase_ticks[index] += checkpoints[index + 1] - checkpoints[index];
+    ++sample.frames;
+
+    const double elapsed = double(checkpoints[6] - sample.sample_start) / double(frequency);
+    if (elapsed < 1.0)
+        return;
+
+    const double to_ms = 1000.0 / double(frequency) / double(sample.frames);
+    // CPU-owner timing only. render_ms may include waits for bgfx, but is not GPU execution time.
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "[frame-perf] fps=%.1f wall_ms=%.2f tick_ms=%.2f max_tick_ms=%.2f "
+                "events_ms=%.2f jobs_ms=%.2f assets_ms=%.2f runtime_ms=%.2f "
+                "layout_ms=%.2f render_ms=%.2f bgfx_frame_ms=%.2f vsync=%u",
+                double(sample.frames) / elapsed, 1000.0 * elapsed / double(sample.frames),
+                double(sample.total_tick) * to_ms,
+                1000.0 * double(sample.max_tick) / double(frequency),
+                double(sample.phase_ticks[0]) * to_ms, double(sample.phase_ticks[1]) * to_ms,
+                double(sample.phase_ticks[2]) * to_ms, double(sample.phase_ticks[3]) * to_ms,
+                double(sample.phase_ticks[4]) * to_ms, double(sample.phase_ticks[5]) * to_ms,
+                double(sample.bgfx_frame_ticks) * to_ms, m_renderer.vsync_enabled() ? 1u : 0u);
+    sample = {};
 }
 
 void Engine::Impl::service_normal_frame_jobs()
@@ -3001,7 +3061,12 @@ void Engine::Impl::apply_pending_debug_ui_commands()
         std::visit(
             [this](const auto& value) {
                 using T = std::decay_t<decltype(value)>;
-                if constexpr (std::is_same_v<T, host::SetRenderPerfLoggingDebugCommand>) {
+                if constexpr (std::is_same_v<T, host::SetVsyncDebugCommand>) {
+                    m_devtools_trace.append_debugger_mutation(
+                        "native-imgui",
+                        std::string{"set VSync "} + (value.enabled ? "enabled" : "disabled"),
+                        m_frame_count);
+                } else if constexpr (std::is_same_v<T, host::SetRenderPerfLoggingDebugCommand>) {
                     m_devtools_trace.append_debugger_mutation(
                         "native-imgui",
                         std::string{"set render perf logging "} +
@@ -3018,8 +3083,13 @@ void Engine::Impl::apply_pending_debug_ui_commands()
 #endif
 
         const auto& effect = *executed.value_if();
+        if (effect.vsync) {
+            m_renderer.set_vsync(*effect.vsync);
+            SDL_Log("[engine] VSync %s", m_renderer.vsync_enabled() ? "enabled" : "disabled");
+        }
         if (effect.render_perf_logging) {
             m_render_perf_logging = *effect.render_perf_logging;
+            m_frame_perf_sample = {};
             m_runtime_ui.enable_render_perf_logging(m_render_perf_logging);
             SDL_Log("[engine] renderer perf logging %s",
                     m_render_perf_logging ? "enabled" : "disabled");
@@ -3196,6 +3266,7 @@ devtools::DevtoolsSnapshot Engine::Impl::devtools_snapshot() const
             .world = std::move(world),
             .tooling = {.preview_running = m_preview_running,
                         .render_perf_logging = m_render_perf_logging,
+                        .vsync = m_renderer.vsync_enabled(),
                         .native_debug_ui_available = native_debug_ui_available,
                         .native_debug_ui_enabled = native_debug_ui_available && m_debug_ui_enabled},
             .runtime = std::move(runtime)};
@@ -3692,7 +3763,13 @@ void Engine::Impl::render()
         for (auto& command : output.commands)
             m_pending_debug_ui_commands.push_back(std::move(command));
     }
-    m_renderer.end_frame();
+    if (m_render_perf_logging) {
+        const uint64_t start = SDL_GetPerformanceCounter();
+        m_renderer.end_frame();
+        m_frame_perf_sample.bgfx_frame_ticks += SDL_GetPerformanceCounter() - start;
+    } else {
+        m_renderer.end_frame();
+    }
 }
 
 bool Engine::Impl::shutdown()

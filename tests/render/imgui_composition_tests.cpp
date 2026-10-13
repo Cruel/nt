@@ -84,6 +84,16 @@ TEST_CASE("Native ImGui remains visible after presentation clear", "[gpu][imgui]
         fixture.debug_ui.begin_frame(fixture.platform.surface());
         (void)fixture.debug_ui.end_frame({}, {}, {}, 0);
         fixture.renderer.end_frame();
+        if (frame == 1) {
+            // A live VSync switch must not invalidate the active render targets.
+            fixture.renderer.set_vsync(true);
+            CHECK(fixture.renderer.vsync_enabled());
+            fixture.renderer.set_vsync(true);
+        } else if (frame == 2) {
+            fixture.renderer.set_vsync(false);
+            CHECK_FALSE(fixture.renderer.vsync_enabled());
+            fixture.renderer.set_vsync(false);
+        }
     }
 
     // Copy in the following frame so readback cannot precede the debugger's final view.

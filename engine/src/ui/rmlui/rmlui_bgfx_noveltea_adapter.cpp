@@ -12,6 +12,7 @@
 
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/SystemInterface.h>
+#include <SDL3/SDL_log.h>
 #include <bimg/decode.h>
 #include <bx/allocator.h>
 
@@ -347,7 +348,8 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
 
     void log_perf_line(std::string_view message) override
     {
-        std::fprintf(stderr, "%.*s\n", int(message.size()), message.data());
+        // SDL routes information to desktop terminals, browser consoles, and Android logcat.
+        SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "%.*s", int(message.size()), message.data());
     }
 
     rmlui_bgfx::RmlUiMaterialShaderHandle

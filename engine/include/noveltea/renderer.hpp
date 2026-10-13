@@ -250,6 +250,10 @@ public:
     void push_scissor(int16_t x, int16_t y, uint16_t w, uint16_t h);
     void pop_scissor();
 
+    // Reconfigure the swapchain between frames. No offscreen surfaces need resizing.
+    void set_vsync(bool enabled);
+    [[nodiscard]] bool vsync_enabled() const noexcept { return m_vsync; }
+
     // Draw developer overlay text (rendered in-viewport, not stdout).
     void debug_printf(uint16_t x, uint16_t y, uint8_t color, const char* fmt, ...);
 

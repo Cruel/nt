@@ -26,7 +26,10 @@ DebugUiCommandExecutor::execute(const DebugUiCommand& command,
             using T = std::decay_t<decltype(value)>;
             if constexpr (std::is_same_v<T, SetRenderPerfLoggingDebugCommand>) {
                 return core::Result<DebugUiCommandEffect, core::Diagnostics>::success(
-                    {.render_perf_logging = value.enabled});
+                    {.render_perf_logging = value.enabled, .vsync = std::nullopt});
+            } else if constexpr (std::is_same_v<T, SetVsyncDebugCommand>) {
+                return core::Result<DebugUiCommandEffect, core::Diagnostics>::success(
+                    {.render_perf_logging = std::nullopt, .vsync = value.enabled});
             } else {
                 if (!gateway) {
                     return core::Result<DebugUiCommandEffect, core::Diagnostics>::failure(
@@ -54,7 +57,9 @@ DebugUiCommandExecutor::execute(const DebugUiCommand& command,
                         std::move(result).error());
                 }
                 return core::Result<DebugUiCommandEffect, core::Diagnostics>::success(
-                    {.render_perf_logging = std::nullopt, .runtime_state_changed = true});
+                    {.render_perf_logging = std::nullopt,
+                     .vsync = std::nullopt,
+                     .runtime_state_changed = true});
             }
         },
         command);

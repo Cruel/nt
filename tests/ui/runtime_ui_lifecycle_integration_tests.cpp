@@ -1692,6 +1692,12 @@ TEST_CASE("RmlUiHost interleaves ordered WorldOverlay contexts with external dra
     auto* upper_context = host.context_for(upper);
     REQUIRE(lower_context);
     REQUIRE(upper_context);
+    auto* lower_document = lower_context->CreateDocument();
+    auto* upper_document = upper_context->CreateDocument();
+    REQUIRE(lower_document);
+    REQUIRE(upper_document);
+    lower_document->Show();
+    upper_document->Show();
     host.set_context_presentation_order(lower_context, 10);
     host.set_context_presentation_order(upper_context, 30);
 
@@ -1715,6 +1721,23 @@ TEST_CASE("RmlUiHost interleaves ordered WorldOverlay contexts with external dra
 
     CHECK(sequence == std::vector<std::string>{"external-5", "layout-10", "external-20",
                                                "layout-30", "external-40"});
+
+    // Closed documents leave their reusable contexts behind but should not submit draw passes.
+    lower_document->Close();
+    upper_document->Close();
+    host.update_contexts();
+    REQUIRE(lower_context->GetNumDocuments() == 0);
+    REQUIRE(upper_context->GetNumDocuments() == 0);
+    sequence.clear();
+    host.begin_frame({});
+    REQUIRE(host.render_world_overlay_target(
+        external_orders, [&](std::size_t index, std::uint16_t view) {
+            CHECK(view == 0);
+            sequence.push_back("external-" + std::to_string(external_orders[index]));
+        }));
+    CHECK(sequence == std::vector<std::string>{"external-5", "external-20", "external-40"});
+    CHECK(host.find_context(lower) == lower_context);
+    CHECK(host.find_context(upper) == upper_context);
     host.shutdown();
 }
 

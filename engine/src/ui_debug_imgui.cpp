@@ -268,6 +268,14 @@ host::DebugUiFrameOutput DebugUI::end_frame(const devtools::DevtoolsSnapshot& sn
                 if (!occurrence.fallback_reason.empty())
                     ImGui::TextWrapped("Fallback: %s", occurrence.fallback_reason.c_str());
             }
+            bool vsync = snapshot.tooling.vsync;
+            if (ImGui::Checkbox("VSync", &vsync)) {
+                output.commands.emplace_back(host::SetVsyncDebugCommand{vsync});
+            }
+            if (ImGui::IsItemHovered())
+                ImGui::SetTooltip(
+                    "Disable for performance measurements; display pacing and tearing may change.");
+
             bool render_perf_logging = snapshot.tooling.render_perf_logging;
             if (ImGui::Checkbox("Render Perf Logging", &render_perf_logging)) {
                 output.commands.emplace_back(

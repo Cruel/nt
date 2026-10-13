@@ -109,6 +109,33 @@ retained history does not restart the runtime or disable capture. The native fro
 complete currently retained buffers rather than silently truncating them to a smaller presentation
 limit.
 
+The native **Render** section includes a **VSync** checkbox, enabled by default. It changes the
+bgfx swapchain presentation flags between frames without restarting the runtime or modifying
+the gameplay FPS cap. Disable it temporarily when comparing engine frame timings against the
+display refresh interval; re-enable it for normal play. Some Android drivers/compositors may
+still pace presentation even with the flag disabled. The CPU `render_ms` measurement includes
+the `bgfx::frame()` handoff and may still include CPU/GPU synchronization, so it should not be
+interpreted as GPU execution time. The opt-in `[frame-perf]` line reports `vsync=0/1`
+and `bgfx_frame_ms` separately (the latter is included in `render_ms`). Compare both
+values before and after toggling VSync in the same scene.
+
+The native **Render** section's opt-in **Render Perf Logging** checkbox emits two complementary, approximately one-per-second log lines through SDL's application logger:
+`[perf]` is the RmlUi/bgfx pass/layer/filter/target-usage inventory, while `[frame-perf]`
+reports overall engine frame rate, average wall/frame and owner-thread tick time, the longest
+owner-thread tick, and average events, jobs, assets/locale, runtime/audio, layout, and render times.
+These are CPU-side wall durations; `render_ms` can include a bgfx wait and is **not** GPU execution
+time. `[frame-perf] fps` counts completed engine ticks; the RmlUi-specific `[perf] fps` counts its own end-frame calls and may be much higher than actual game FPS. Neither should be confused with the ImGui overlay's own FPS estimate.
+On Android the lines appear in logcat via SDL; on native desktops they appear in the terminal;
+in browser builds they appear in the JavaScript console. Logging is disabled unless requested,
+and the debugger can be hidden after turning it on to reduce measurement interference. The desktop
+and Web player also accept `--render-perf` at startup (Android player arguments are not available;
+use the debugger checkbox on an instrumented Android build). An additional `[ui-contexts]` line
+reports retained RmlUi lifecycle contexts, empty contexts, loaded/visible documents, and contexts
+actually submitted for rendering in the current engine frame. Empty contexts are retained for stable
+lifecycle reuse and deferred document cleanup, but no longer submit offscreen render passes after
+all their documents have closed. When diagnosing persistent slowdown after leaving a Layout, compare
+`total`, `empty`, and `submitted` before and after the transition.
+
 The native **Render** section also shows renderer-owned device/vendor identity and a conservative
 hardware/software/unknown acceleration classification. OpenGL/GLES identity comes from bgfx's actual
 current context, not a separate probe context or the desktop display's `glxinfo`. If the context or
