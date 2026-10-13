@@ -6384,7 +6384,7 @@ std::string canonical_project_owner_root(std::string_view project_root, bool sea
         bool found_project = false;
         for (;;) {
             error.clear();
-            if (std::filesystem::exists(candidate / "project.json", error) && !error) {
+            if (std::filesystem::exists(candidate / "project.yaml", error) && !error) {
                 logical = candidate;
                 found_project = true;
                 break;
@@ -6398,7 +6398,7 @@ std::string canonical_project_owner_root(std::string_view project_root, bool sea
             return {};
     } else {
         error.clear();
-        if (!std::filesystem::exists(logical / "project.json", error) || error)
+        if (!std::filesystem::exists(logical / "project.yaml", error) || error)
             return {};
     }
 

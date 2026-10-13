@@ -18,8 +18,8 @@ way to learn NovelTea semantics when the compact reference already explains them
 
 ## Edit tracked source, not generated state
 
-The project root contains `project.json`. Editable source lives in the tracked Project workspace:
-`project.json`, `traits.json`, `editor.json`, `i18n/`, `records/`, `scripts/`, `shaders/`, and `assets/`.
+The project root contains `project.yaml`. Editable source lives in the tracked Project workspace:
+`project.yaml`, `traits.yaml`, `editor.yaml`, `i18n/`, `records/`, `scripts/`, `shaders/`, and `assets/`.
 Never author against `.noveltea/`.
 
 Stable top-level record IDs determine canonical record paths. Non-Layout records use
@@ -27,8 +27,9 @@ Stable top-level record IDs determine canonical record paths. Non-Layout records
 companion source files. Do not rename a file independently of its record identity.
 
 Script Module project-file paths stay under `scripts/` and must retain one canonical owner. Do not
-use absolute paths, parent traversal, or symlink escapes. Tracked JSON is UTF-8, LF, two-space
-indented, and ends with one newline; avoid unrelated formatting churn.
+use absolute paths, parent traversal, or symlink escapes. Tracked JSON remains UTF-8, LF, two-space
+indented, and ends with one newline. For YAML owners, retain existing comments and field presence;
+avoid unrelated formatting churn.
 
 ## Direct edits versus semantic CLI operations
 
@@ -66,7 +67,7 @@ license reader.
 ## Complete coherent edits
 
 Many operations span multiple records. For example, presenting a new exact Interactable in a Room
-can involve a Definition, a declared Instance in `project.json`, Room placement/presentation linkage,
+can involve a Definition, a declared Instance in `project.yaml`, Room placement/presentation linkage,
 and Interaction/Verb support. The shared concepts explain those ownership boundaries and the generated
 reference provides the current fields; do not keep a private template that may drift from either.
 

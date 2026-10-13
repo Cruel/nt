@@ -28,6 +28,19 @@ const same = (a: unknown, b: unknown): boolean => JSON.stringify(a) === JSON.str
 const isObject = (value: unknown): value is Record<string, unknown> =>
   value !== null && typeof value === 'object' && !Array.isArray(value);
 
+/** The YAML AST stores comments on descendants as well as sequence items themselves. */
+function containsComment(node: Node | null | undefined): boolean {
+  if (!node) return false;
+  if (node.comment || node.commentBefore) return true;
+  if (isMap(node))
+    return node.items.some(
+      (pair) =>
+        containsComment(pair.key as Node | null) || containsComment(pair.value as Node | null),
+    );
+  if (isSeq(node)) return node.items.some((item) => containsComment(item as Node | null));
+  return false;
+}
+
 /** Document-aware structural update: unchanged entries (including their comments) stay put. */
 function updateNode(doc: Document, node: Node, before: unknown, after: unknown): void {
   if (isMap(node) && isObject(before) && isObject(after)) {
@@ -79,9 +92,7 @@ function updateNode(doc: Document, node: Node, before: unknown, after: unknown):
       );
     } else {
       // No stable correspondence: never attach an unrelated entry's comments to a new value.
-      if (
-        node.items.some((item) => item && ((item as Node).comment || (item as Node).commentBefore))
-      )
+      if (node.items.some((item) => containsComment(item as Node | null)))
         throw new Error('Cannot replace a commented YAML sequence without stable item identities.');
       node.items.splice(0, node.items.length, ...after.map((item) => doc.createNode(item)));
     }

@@ -1316,6 +1316,45 @@ function sparseTrackedEditorOrganization(
   return { chapters, tags, recordMetadata };
 }
 
+/** Do not materialize defaults that were absent in the admitted YAML source on unrelated edits. */
+function preserveManifestOmissions(
+  projected: Record<string, unknown>,
+  previousText?: string,
+): Record<string, unknown> {
+  if (previousText === undefined) return projected;
+  const previousSource = projectWorkspaceSourceCodec('project.yaml').decode(previousText);
+  const normalized = workspaceManifestSchema.parse(previousSource);
+  const object = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+  const preserve = (source: unknown, before: unknown, next: unknown): unknown => {
+    if (Array.isArray(source) && Array.isArray(before) && Array.isArray(next)) {
+      // Preserve provenance only where the original item can be matched unambiguously.
+      const byId = new Map<string, number>();
+      for (let i = 0; i < before.length; i += 1) {
+        if (object(before[i]) && typeof before[i].id === 'string') byId.set(before[i].id, i);
+      }
+      return next.map((item, i) => {
+        const oldIndex = object(item) && typeof item.id === 'string' ? byId.get(item.id) : i;
+        return oldIndex !== undefined && oldIndex < source.length && oldIndex < before.length
+          ? preserve(source[oldIndex], before[oldIndex], item)
+          : item;
+      });
+    }
+    if (!object(source) || !object(before) || !object(next)) return next;
+    const result = { ...next };
+    for (const [key, value] of Object.entries(next)) {
+      if (!Object.hasOwn(source, key)) {
+        if (Object.hasOwn(before, key) && JSON.stringify(before[key]) === JSON.stringify(value))
+          delete result[key];
+      } else if (Object.hasOwn(before, key)) {
+        result[key] = preserve(source[key], before[key], value);
+      }
+    }
+    return result;
+  };
+  return preserve(previousSource, normalized, projected) as Record<string, unknown>;
+}
+
 export function projectWorkspaceFile(
   project: AuthoringProject,
   editorState: EditorProjectState,
@@ -1325,32 +1364,35 @@ export function projectWorkspaceFile(
 ): string | undefined {
   if (file === 'project.yaml')
     return projectWorkspaceSourceCodec(file).encode(
-      {
-        schema: PROJECT_WORKSPACE_SCHEMA,
-        schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
-        project: project.project,
-        settings: project.settings,
-        export: project.export,
-        bootstrapModule: project.bootstrapModule,
-        ...(project.undefinedInteractionProgram !== null ||
-        (previousText !== undefined &&
-          Object.hasOwn(
-            projectWorkspaceSourceCodec(file).decode(previousText) as object,
-            'undefinedInteractionProgram',
-          ))
-          ? { undefinedInteractionProgram: project.undefinedInteractionProgram }
-          : {}),
-        ...(project.entrypoint !== null ||
-        (previousText !== undefined &&
-          Object.hasOwn(
-            projectWorkspaceSourceCodec(file).decode(previousText) as object,
-            'entrypoint',
-          ))
-          ? { entrypoint: project.entrypoint }
-          : {}),
-        inventories: project.inventories,
-        interactableInstances: project.interactableInstances,
-      },
+      preserveManifestOmissions(
+        {
+          schema: PROJECT_WORKSPACE_SCHEMA,
+          schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
+          project: project.project,
+          settings: project.settings,
+          export: project.export,
+          bootstrapModule: project.bootstrapModule,
+          ...(project.undefinedInteractionProgram !== null ||
+          (previousText !== undefined &&
+            Object.hasOwn(
+              projectWorkspaceSourceCodec(file).decode(previousText) as object,
+              'undefinedInteractionProgram',
+            ))
+            ? { undefinedInteractionProgram: project.undefinedInteractionProgram }
+            : {}),
+          ...(project.entrypoint !== null ||
+          (previousText !== undefined &&
+            Object.hasOwn(
+              projectWorkspaceSourceCodec(file).decode(previousText) as object,
+              'entrypoint',
+            ))
+            ? { entrypoint: project.entrypoint }
+            : {}),
+          inventories: project.inventories,
+          interactableInstances: project.interactableInstances,
+        },
+        previousText,
+      ),
       workspaceManifestSchema,
       previousText,
     );

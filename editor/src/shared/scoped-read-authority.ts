@@ -22,6 +22,19 @@ export interface ScopedReadAuthorityToken {
   readonly relevantDeltaPaths: readonly string[];
 }
 
+/** Native resident observations must admit the same YAML owners as the workspace loader. */
+export function scopedResidentObservationConfiguration(assetsRequired: boolean) {
+  return {
+    authoritativePaths: ['project.yaml', 'editor.yaml', 'traits.yaml'],
+    discoveryScopes: [
+      { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
+      { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
+      { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
+      ...(assetsRequired ? [{ root: 'assets', extensions: ['*'], excludedPrefixes: [] }] : []),
+    ],
+  };
+}
+
 export function physicalPathRequiredBySemanticPaths(
   path: string,
   requiredSemanticPaths: readonly string[],
