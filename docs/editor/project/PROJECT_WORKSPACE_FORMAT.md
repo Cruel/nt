@@ -119,6 +119,27 @@ conflated. The source codec keeps typed reference IDs compact without collapsing
 registry-qualified or polymorphic identities. Optional Properties and explicit nulls
 retain their normalized meaning; the generated Agent Kit lists every permitted omission.
 
+Verbs and Interaction Rules also support staged `records/verbs/<id>.yaml` and
+`records/interactions/<id>.yaml` sources (#455). As with earlier families, existing
+JSON owners are retained, and a YAML owner in a collection selects YAML for new
+records in that collection. Their redundant `data.kind` is inferred from the family.
+Typed refs such as `verb: inspect`, `trait: inspectable`, or a variable referenced by
+a Command use bare IDs; exact Interactable Instance and owner-qualified Feature
+subjects preserve their explicit registry and discriminators. Only a typed Condition
+accepts scalar `always`; arbitrary strings and subject/Command variants do not.
+
+Absent empty Verb slots/binding order/Offers and empty Interaction Rules are constant
+defaults; named slots and their order still matter whenever present. Availability,
+rule Guard and empty completion programs have explicit semantic defaults listed in the
+generated Agent Kit. Rules may omit `offer` for `null` (no discovery) and `priority`
+for `0`, but nonzero priorities and Offer `rank`/`primary` choices are preserved.
+An absent Offer cannot prevent directly submitting a completed command. A false winning
+Offer Condition suppresses discovery without reverting to a broader Offer; a failed
+rule Guard permits structural-tier fallback. Programs with `outcome: unhandled`
+must preserve that value so the rule-to-Verb-to-Project-to-engine fallback chain is
+unchanged. Command sequence, IDs, Condition/Command union discriminators, and
+meaningful explicit source fields survive edits and revision-safe saves.
+
 Other records live under `records/<collection>/<id>.json`; Layouts instead live under
 `records/layouts/<id>/layout.json`. IDs are canonical file identity and must match the stored record
 ID. Unknown `records/` collection directories and noncanonical record paths are structural errors.
@@ -127,7 +148,7 @@ Missing known collection directories mean empty collections.
 ### Staged sparse YAML Variables tracer (#451)
 
 Until the complete YAML cutover (#449), most record families other than staged
-Rooms, Maps, Characters, Interactables and Variables remain JSON. Newly created Projects already use YAML for
+Rooms, Maps, Characters, Interactables, Verbs, Interactions and Variables remain JSON. Newly created Projects already use YAML for
 their manifest, Traits, and collaborator-visible editor metadata. A staged Project can replace one Variable's
 `records/variables/<id>.json` with `records/variables/<id>.yaml` to exercise the initial
 restricted YAML codec without changing any other record family. Two source files for the same

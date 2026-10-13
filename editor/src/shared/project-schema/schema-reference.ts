@@ -75,6 +75,8 @@ import { defaultRoomData } from './authoring-rooms';
 import { defaultMapData } from './authoring-maps';
 import { defaultCharacterData } from './authoring-characters';
 import { defaultInteractableData } from './authoring-interactables';
+import { defaultVerbData } from './authoring-verbs';
+import { defaultInteractionData } from './authoring-interactions';
 import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
@@ -420,7 +422,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       );
     }
     if (
-      ['rooms', 'maps', 'characters', 'interactables'].some(
+      ['rooms', 'maps', 'characters', 'interactables', 'verbs', 'interactions'].some(
         (family) => document.id === `records/${family}`,
       )
     ) {
@@ -430,12 +432,16 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         maps: 'Example Map',
         characters: 'Example Character',
         interactables: 'Example Interactable',
+        verbs: 'Example Verb',
+        interactions: 'Example Interaction',
       }[family];
       const data = {
         rooms: () => defaultRoomData(label),
         maps: () => defaultMapData(),
         characters: () => defaultCharacterData(label),
         interactables: () => defaultInteractableData(label),
+        verbs: () => defaultVerbData(label),
+        interactions: () => defaultInteractionData(),
       }[family]();
       const example = encodeSparseRecordYaml(family, {
         id: `example-${family.slice(0, -1)}`,
@@ -448,12 +454,122 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        `A staged ${family} YAML owner uses \`records/${family}/<id>.yaml\`; existing JSON owners are retained until the complete cutover. This checked example expands to the strict normalized record. The record ID must match the filename, and \`data.kind\` is implicit. Statically typed references use bare IDs (not \`$ref\` wrappers); registry/owner-qualified references retain their explicit identity. A scalar \`always\` is the trivial Condition. Omitted defaults expand recursively through the paths below. Identity, discriminators, typed Property values and the distinctions between record metadata, owner-local Character Properties, and Interactable definition-default Properties must be preserved. Non-default presentation and explicit optional/null fields retain their original semantics. The shape above describes the normalized runtime/editor model; this YAML example describes authored source.`,
+        `A staged ${family} YAML owner uses \`records/${family}/<id>.yaml\`; existing JSON owners are retained until the complete cutover. This checked example expands to the strict normalized record. The record ID must match the filename, and \`data.kind\` is implicit. Statically typed references use bare IDs (not \`$ref\` wrappers); registry/owner-qualified references retain their explicit identity. A scalar \`always\` is accepted only for typed Conditions. Omitted defaults expand recursively through the paths below. Identities, discriminators, typed Property values and Character-local versus Interactable definition-default Properties are preserved. For Verbs and Interactions, named slots, selector variants, priority tiers and rule/Command order are semantic; Offer discovery is independent from direct execution and Guards, and \`unhandled\` must remain explicit to preserve fallback. Non-default presentation and explicit optional/null fields retain their original semantics. The shape above describes the normalized runtime/editor model; this YAML example describes authored source.`,
         '',
         '```yaml',
         example.trimEnd(),
         '```',
         '',
+      );
+      if (family === 'verbs') {
+        const detailed = defaultVerbData('Inspect');
+        const inline = (text: string) => ({
+          source: { kind: 'inline' as const, text },
+          markup: 'plain' as const,
+        });
+        detailed.slots = [
+          {
+            id: 'object',
+            label: inline('Object'),
+            prompt: inline('Select {object}'),
+            selectors: [{ kind: 'any-subject' }],
+          },
+        ];
+        detailed.bindingOrder = ['object'];
+        detailed.completedCommandText = inline('Inspect {object}');
+        detailed.offers = [
+          {
+            id: 'inspect-objects',
+            slotId: 'object',
+            selectors: [{ kind: 'family', family: 'interactable' }],
+            rank: 0,
+            primary: false,
+          },
+        ];
+        detailed.defaultProgram.outcome = 'unhandled';
+        const authored = encodeSparseRecordYaml('verbs', {
+          id: 'inspect',
+          label: 'Inspect',
+          data: detailed,
+        });
+        authoringRecordSchemas.verbs.parse(decodeSparseRecordYaml('verbs', authored));
+        lines.push(
+          '## Authored discovery and direct-run example',
+          '',
+          'The Offer publishes Inspect in subject-first discovery for interactables. Named slots and binding order also allow a completed Inspect command to be submitted directly without finding an Offer. `defaultProgram: { outcome: unhandled }` passes an unhandled result onward to the Project and engine fallback; it must not be erased. A more specific matching Offer with a false Condition suppresses publication rather than falling back to this broader Offer. The rule below defines execution independently of discovery.',
+          '',
+          '```yaml',
+          authored.trimEnd(),
+          '```',
+          '',
+        );
+      }
+      if (family === 'interactions') {
+        const detailed = defaultInteractionData();
+        const exact = {
+          kind: 'exact' as const,
+          subject: {
+            kind: 'interactable' as const,
+            interactable: {
+              $ref: { registry: 'interactableInstances' as const, id: 'sealed-box' },
+            },
+          },
+        };
+        detailed.rules = [
+          {
+            id: 'narrow',
+            verb: { $ref: { collection: 'verbs', id: 'inspect' } },
+            slots: [{ slotId: 'object', selectors: [exact] }],
+            offer: null,
+            guard: { kind: 'not', condition: { kind: 'always' } },
+            priority: 10,
+            program: { instructions: [], completion: { kind: 'return' }, outcome: 'unhandled' },
+          },
+          {
+            id: 'broad',
+            verb: { $ref: { collection: 'verbs', id: 'inspect' } },
+            slots: [{ slotId: 'object', selectors: [{ kind: 'any-subject' }] }],
+            offer: { slotId: 'object', rank: 0, primary: false },
+            guard: { kind: 'always' },
+            priority: 0,
+            program: {
+              instructions: [
+                {
+                  id: 'show',
+                  kind: 'set-visible',
+                  subject: { kind: 'interaction-slot', slotId: 'object' },
+                  visible: true,
+                },
+                {
+                  id: 'enable',
+                  kind: 'set-enabled',
+                  subject: { kind: 'interaction-slot', slotId: 'object' },
+                  enabled: true,
+                },
+              ],
+              completion: { kind: 'return' },
+              outcome: 'handled',
+            },
+          },
+        ];
+        const authored = encodeSparseRecordYaml('interactions', {
+          id: 'inspect-rules',
+          label: 'Inspect Rules',
+          data: detailed,
+        });
+        authoringRecordSchemas.interactions.parse(decodeSparseRecordYaml('interactions', authored));
+        lines.push(
+          '## Authored resolution, fallback, and command-order example',
+          '',
+          'Both Rules refer to the `inspect` Verb example above. A false narrow Guard makes execution continue to the broad structural tier; its `offer: null` disables discovery for that Rule without disabling direct execution. Broad Offer discovery remains independent of the Guard. Commands run in their sequence order (`show` then `enable`). Nonzero priority survives encoding, and only priority within the same structural tier is comparable. Equal passing highest-priority Rules produce an analyzer ambiguity diagnostic rather than resolving by declaration order. `unhandled` continues the rule → Verb → Project → engine fallback chain.',
+          '',
+          '```yaml',
+          authored.trimEnd(),
+          '```',
+          '',
+        );
+      }
+      lines.push(
         '## Source omission defaults',
         '',
         'These exact typed values are filled when the corresponding YAML key is absent. Paths are relative to a record; `*` identifies one array element. Identity keys, other required values, and discriminators are never inferred from UI placeholders.',

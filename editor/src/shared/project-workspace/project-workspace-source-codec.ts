@@ -171,7 +171,8 @@ const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
 /** The single physical-format selection used by cold open, reconciliation and projection. */
 export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourceCodec {
   if (/^records\/variables\/[^/]+\.yaml$/u.test(file)) return variableYamlCodec;
-  const record = /^records\/(rooms|maps|characters|interactables)\/[^/]+\.yaml$/u.exec(file);
+  const record =
+    /^records\/(rooms|maps|characters|interactables|verbs|interactions)\/[^/]+\.yaml$/u.exec(file);
   if (record) {
     const family = record[1] as SparseRecordFamily;
     return {

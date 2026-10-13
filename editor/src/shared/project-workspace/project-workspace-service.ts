@@ -572,7 +572,9 @@ const recordFile = (
   sourceFiles?: ReadonlySet<string>,
 ) => {
   if (collection === 'layouts') return `records/layouts/${id}/layout.json`;
-  if (['rooms', 'maps', 'characters', 'interactables'].includes(collection)) {
+  if (
+    ['rooms', 'maps', 'characters', 'interactables', 'verbs', 'interactions'].includes(collection)
+  ) {
     const json = `records/${collection}/${id}.json`;
     const yaml = `records/${collection}/${id}.yaml`;
     // During the per-family cutover existing JSON owners keep their physical path.
@@ -722,13 +724,20 @@ export function projectWorkspaceAffectedFiles(
     if (!candidateFiles) return null;
     candidateFiles.forEach((file) => {
       const record =
-        /^records\/(variables|rooms|maps|characters|interactables)\/([^/]+)\.(?:json|yaml)$/u.exec(
+        /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions)\/([^/]+)\.(?:json|yaml)$/u.exec(
           file,
         );
       files.add(
         record
           ? recordFile(
-              record[1] as 'variables' | 'rooms' | 'maps' | 'characters' | 'interactables',
+              record[1] as
+                | 'variables'
+                | 'rooms'
+                | 'maps'
+                | 'characters'
+                | 'interactables'
+                | 'verbs'
+                | 'interactions',
               record[2]!,
               new Set(snapshot.canonicalSourceFiles),
             )
@@ -1459,7 +1468,15 @@ export function projectWorkspaceFile(
     const id = recordMatch[2]!;
     if (
       recordMatch[3] === 'yaml' &&
-      !['variables', 'rooms', 'maps', 'characters', 'interactables'].includes(collection)
+      ![
+        'variables',
+        'rooms',
+        'maps',
+        'characters',
+        'interactables',
+        'verbs',
+        'interactions',
+      ].includes(collection)
     )
       return undefined;
     const original = project[collection][id];
@@ -2147,13 +2164,20 @@ export class ProjectWorkspaceService {
       if (!candidateFiles) return null;
       candidateFiles.forEach((file) => {
         const variableMatch =
-          /^records\/(variables|rooms|maps|characters|interactables)\/([^/]+)\.(?:json|yaml)$/u.exec(
+          /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions)\/([^/]+)\.(?:json|yaml)$/u.exec(
             file,
           );
         files.add(
           variableMatch
             ? recordFile(
-                variableMatch[1] as 'variables' | 'rooms' | 'maps' | 'characters' | 'interactables',
+                variableMatch[1] as
+                  | 'variables'
+                  | 'rooms'
+                  | 'maps'
+                  | 'characters'
+                  | 'interactables'
+                  | 'verbs'
+                  | 'interactions',
                 variableMatch[2]!,
                 new Set(snapshot.canonicalSourceFiles),
               )
@@ -3485,8 +3509,14 @@ export class ProjectWorkspaceService {
                 !entry.endsWith('.json') &&
                 !(collection === 'variables' && entry.endsWith('.yaml')) &&
                 !(
-                  ['rooms', 'maps', 'characters', 'interactables'].includes(collection) &&
-                  entry.endsWith('.yaml')
+                  [
+                    'rooms',
+                    'maps',
+                    'characters',
+                    'interactables',
+                    'verbs',
+                    'interactions',
+                  ].includes(collection) && entry.endsWith('.yaml')
                 )
               )
                 return fail(

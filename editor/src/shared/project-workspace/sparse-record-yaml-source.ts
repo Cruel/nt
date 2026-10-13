@@ -4,9 +4,16 @@ import { conditionSchema } from '../project-schema/authoring-flow';
 import { defaultRoomData } from '../project-schema/authoring-rooms';
 import { defaultMapData } from '../project-schema/authoring-maps';
 import { characterDataSchema } from '../project-schema/authoring-characters';
+import { defaultInteractionProgram } from '../project-schema/authoring-interaction-programs';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
 
-export type SparseRecordFamily = 'rooms' | 'maps' | 'characters' | 'interactables';
+export type SparseRecordFamily =
+  | 'rooms'
+  | 'maps'
+  | 'characters'
+  | 'interactables'
+  | 'verbs'
+  | 'interactions';
 type Family = SparseRecordFamily;
 type Shape = Record<string, ZodType>;
 type Dict = Record<string, unknown>;
@@ -160,6 +167,30 @@ const defaults: Record<Family, Readonly<Record<string, unknown>>> = {
     'data.features.*.defaultProperties': [],
     'data.features.*.inventories': [],
   },
+  verbs: {
+    'data.slots': [],
+    'data.bindingOrder': [],
+    'data.offers': [],
+    'data.availability': { kind: 'always' },
+    'data.defaultProgram': defaultInteractionProgram(),
+    'data.defaultProgram.instructions': [],
+    'data.defaultProgram.completion': { kind: 'return' },
+    'data.defaultProgram.outcome': 'handled',
+    'data.offers.*.rank': 0,
+    'data.offers.*.primary': false,
+  },
+  interactions: {
+    'data.rules': [],
+    'data.rules.*.offer': null,
+    'data.rules.*.guard': { kind: 'always' },
+    'data.rules.*.priority': 0,
+    'data.rules.*.program': defaultInteractionProgram(),
+    'data.rules.*.program.instructions': [],
+    'data.rules.*.program.completion': { kind: 'return' },
+    'data.rules.*.program.outcome': 'handled',
+    'data.rules.*.offer.rank': 0,
+    'data.rules.*.offer.primary': false,
+  },
 };
 
 /** Source omission values, indexed by normalized record path; '*' is one sequence item. */
@@ -194,6 +225,16 @@ function unwrap(schema: ZodType): ZodType {
     } else if (def.type === 'lazy') {
       schema = (def.getter as () => ZodType)();
     } else return schema;
+  }
+}
+
+function conditionType(schema: ZodType): boolean {
+  for (;;) {
+    if (schema === conditionSchema) return true;
+    const def = definition(schema);
+    if (['optional', 'nullable', 'default', 'readonly', 'nonoptional'].includes(String(def.type)))
+      schema = def.innerType as ZodType;
+    else return false;
   }
 }
 
@@ -252,13 +293,10 @@ function convert(
   }
   if (value === null || value === undefined) return value;
   let schema = unwrap(schemaInput);
-  if (schemaInput === conditionSchema || schema === conditionSchema) {
+  if (conditionType(schemaInput)) {
     if (direction === 'read' && value === 'always') return { kind: 'always' };
     if (direction === 'write' && same(value, { kind: 'always' })) return 'always';
   }
-  if (direction === 'read' && value === 'always' && path.at(-1) === 'condition')
-    return { kind: 'always' };
-  if (direction === 'write' && same(value, { kind: 'always' })) return 'always';
   const selected = variant(schema, value);
   if (selected === schema && definition(schema).type === 'union') {
     const matches = (definition(schema).options as ZodType[]).flatMap((option) => {
@@ -316,6 +354,8 @@ function convert(
           maps: 'map',
           characters: 'character',
           interactables: 'interactable',
+          verbs: 'verb',
+          interactions: 'interaction',
         }[family];
       continue;
     }
