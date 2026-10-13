@@ -43,7 +43,7 @@ export function physicalPathRequiredBySemanticPaths(
       semanticPath === '/interactableInstances' ||
       semanticPath.startsWith('/interactableInstances/')
     ) {
-      if (path === 'project.json') return true;
+      if (path === 'project.yaml') return true;
       continue;
     }
     if (semanticPath === '/assets' || semanticPath.startsWith('/assets/')) {
@@ -56,7 +56,7 @@ export function physicalPathRequiredBySemanticPaths(
       continue;
     }
     if (semanticPath === '/localization' || semanticPath.startsWith('/localization/')) {
-      if (path === 'project.json' || path.startsWith('i18n/')) return true;
+      if (path === 'project.yaml' || path.startsWith('i18n/')) return true;
       continue;
     }
     const record = /^\/([^/]+)\/([^/]+)/u.exec(semanticPath);

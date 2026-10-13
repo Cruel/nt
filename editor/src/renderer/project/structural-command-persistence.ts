@@ -335,7 +335,7 @@ export function buildAutoCommitPlan(input: AutoCommitPlanBuildInput): AutoCommit
   let inverseBaselinePatches: JsonPatchOperation[] = [];
   if (persistenceTarget === 'project-content') {
     const savedContent = stripLocalEditorProjectState(input.savedDocument) as JsonValue;
-    // Tracked editor organization is part of project content even though it lives in editor.json;
+    // Tracked editor organization is part of project content even though it lives in editor.yaml;
     // only ignored/session editor paths are excluded from the structural content baseline.
     const contentPatches = input.patches.filter((patch) =>
       isPersistedProjectContentPath(patch.path),

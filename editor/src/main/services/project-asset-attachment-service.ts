@@ -78,7 +78,7 @@ export async function listProjectAttachmentFiles(
       if (entry.isSymbolicLink()) continue;
       if (entry.isDirectory()) {
         await visit(candidate);
-      } else if (entry.isFile() && candidate !== 'project.json') {
+      } else if (entry.isFile() && candidate !== 'project.yaml') {
         const absolute = await projectFile(root, candidate, true);
         files.push({ path: candidate, byteSize: (await fs.stat(absolute)).size });
       }

@@ -5,7 +5,7 @@ import type { CompilerStageReport } from '../shared/authoring-compiler';
 import type { CompiledDiagnostic } from '../shared/project-schema/compiled-project';
 import { createNodeProjectWorkspaceService } from '../shared/project-workspace';
 
-export const compileProjectUsage = `Usage: pnpm project:compile -- --project <directory> --output <file> [--json]\n\nOptions:\n  --project <directory>  Workspace root containing current project.json.\n  --output <file>        Destination for canonical compiled project JSON.\n  --json                 Emit a structured command report as JSON.\n  --help                 Print this help and exit successfully.\n`;
+export const compileProjectUsage = `Usage: pnpm project:compile -- --project <directory> --output <file> [--json]\n\nOptions:\n  --project <directory>  Workspace root containing current project.yaml.\n  --output <file>        Destination for canonical compiled project JSON.\n  --json                 Emit a structured command report as JSON.\n  --help                 Print this help and exit successfully.\n`;
 
 export const compileProjectExitCodes = {
   success: 0,

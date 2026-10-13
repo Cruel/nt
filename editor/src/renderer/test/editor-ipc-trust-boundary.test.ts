@@ -436,7 +436,7 @@ describe('guarded editor IPC registrar', () => {
 
     for (const [channel, arguments_] of [
       ['platform-export', [sessionId, { ...request, projectRoot: '/alternate-project' }]],
-      ['platform-export', [sessionId, { ...request, projectPath: '/alternate/project.json' }]],
+      ['platform-export', [sessionId, { ...request, projectPath: '/alternate/project.yaml' }]],
       ['cancel-export', ['not-a-session', 'editor-export-1']],
       ['inspect-template', ['x'.repeat(513), 'build-1']],
       ['install-template', [{ archivePath: '/tmp/template.tar', unexpected: true }]],
@@ -581,7 +581,7 @@ describe('guarded editor IPC registrar', () => {
           {
             workflowId: 'image-edit',
             sourceAssetId: 'source-image',
-            projectFilePath: '/alternate/project.json',
+            projectFilePath: '/alternate/project.yaml',
             prompt: 'night',
           },
         ],

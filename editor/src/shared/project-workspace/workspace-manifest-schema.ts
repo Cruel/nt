@@ -14,7 +14,7 @@ export const workspaceManifestSchema = z
     settings: authoringProjectSchema.shape.settings,
     export: authoringProjectSchema.shape.export,
     bootstrapModule: authoringProjectSchema.shape.bootstrapModule,
-    undefinedInteractionProgram: undefinedInteractionProgramSchema,
+    undefinedInteractionProgram: undefinedInteractionProgramSchema.default(null),
     entrypoint: authoringProjectSchema.shape.entrypoint,
     inventories: authoringProjectSchema.shape.inventories,
     interactableInstances: authoringProjectSchema.shape.interactableInstances,

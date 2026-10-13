@@ -3,6 +3,7 @@ import {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from './project-workspace-contracts';
+import { projectWorkspaceSourceCodec } from './project-workspace-source-codec';
 
 export type ProjectWorkspaceDiscoveryCode =
   | 'WORKSPACE_NOT_FOUND'
@@ -30,7 +31,7 @@ async function validateManifestAt(
   projectRoot: string,
 ): Promise<ProjectWorkspaceDiscoveryResult> {
   const root = fileSystem.resolvePath(projectRoot);
-  const manifestPath = fileSystem.joinPath(root, 'project.json');
+  const manifestPath = fileSystem.joinPath(root, 'project.yaml');
   let text: string;
   try {
     text = await fileSystem.readText(manifestPath);
@@ -40,21 +41,21 @@ async function validateManifestAt(
       code: 'WORKSPACE_MANIFEST_READ',
       projectRoot: root,
       manifestPath,
-      message: 'project.json could not be read.',
-      path: '/project.json',
+      message: 'project.yaml could not be read.',
+      path: '/project.yaml',
     };
   }
   let value: unknown;
   try {
-    value = JSON.parse(text);
+    value = projectWorkspaceSourceCodec('project.yaml').decode(text);
   } catch {
     return {
       ok: false,
       code: 'WORKSPACE_MANIFEST_INVALID',
       projectRoot: root,
       manifestPath,
-      message: 'project.json is not valid JSON.',
-      path: '/project.json',
+      message: 'project.yaml is not valid restricted YAML.',
+      path: '/project.yaml',
     };
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
@@ -63,8 +64,8 @@ async function validateManifestAt(
       code: 'WORKSPACE_MANIFEST_INVALID',
       projectRoot: root,
       manifestPath,
-      message: 'project.json must be an object.',
-      path: '/project.json',
+      message: 'project.yaml must be an object.',
+      path: '/project.yaml',
     };
   }
   const manifest = value as Record<string, unknown>;
@@ -74,7 +75,7 @@ async function validateManifestAt(
       code: 'WORKSPACE_MANIFEST_INVALID',
       projectRoot: root,
       manifestPath,
-      message: `project.json must use schema '${PROJECT_WORKSPACE_SCHEMA}'.`,
+      message: `project.yaml must use schema '${PROJECT_WORKSPACE_SCHEMA}'.`,
       path: '/schema',
     };
   }
@@ -101,20 +102,20 @@ export async function validateExplicitProjectRoot(
       ok: false,
       code: 'WORKSPACE_NOT_FOUND',
       projectRoot: root,
-      manifestPath: fileSystem.joinPath(root, 'project.json'),
+      manifestPath: fileSystem.joinPath(root, 'project.yaml'),
       message: 'The requested project directory does not exist.',
-      path: '/project.json',
+      path: '/project.yaml',
     };
   }
-  const manifestPath = fileSystem.joinPath(root, 'project.json');
+  const manifestPath = fileSystem.joinPath(root, 'project.yaml');
   if ((await fileSystem.inspect(manifestPath)) === 'missing') {
     return {
       ok: false,
       code: 'WORKSPACE_NOT_FOUND',
       projectRoot: root,
       manifestPath,
-      message: 'The requested directory does not contain project.json.',
-      path: '/project.json',
+      message: 'The requested directory does not contain project.yaml.',
+      path: '/project.yaml',
     };
   }
   return validateManifestAt(fileSystem, root);
@@ -130,7 +131,7 @@ export function discoverProjectRoot(
       if ((await fileSystem.inspect(current)) === 'file')
         current = parentDirectory(fileSystem, current);
       for (;;) {
-        const manifestPath = fileSystem.joinPath(current, 'project.json');
+        const manifestPath = fileSystem.joinPath(current, 'project.yaml');
         if ((await fileSystem.inspect(manifestPath)) !== 'missing') {
           resolve(await validateManifestAt(fileSystem, current));
           return;
@@ -142,8 +143,8 @@ export function discoverProjectRoot(
       resolve({
         ok: false,
         code: 'WORKSPACE_NOT_FOUND',
-        message: 'No NovelTea project.json was found from the current directory upward.',
-        path: '/project.json',
+        message: 'No NovelTea project.yaml was found from the current directory upward.',
+        path: '/project.yaml',
       });
     })().catch(reject);
   });

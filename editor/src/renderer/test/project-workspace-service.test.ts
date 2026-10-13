@@ -15,6 +15,7 @@ import {
 } from '../../shared/project-workspace';
 import { projectWorkspaceFile } from '../../shared/project-workspace/project-workspace-service';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { parse as parseYaml } from 'yaml';
 import {
   FINAL_WORKSPACE_FIXTURE_ROOT,
   finalWorkspaceV1SourceTreeFixture,
@@ -194,7 +195,7 @@ describe('ProjectWorkspaceService', () => {
     expect(saved).toContain('# keep this note');
     expect(saved).toContain('value: true');
     expect(await files.inspect('/project/records/variables/flag.json')).toBe('missing');
-    expect(await files.readText('/project/project.json')).toBe(original['project.json']);
+    expect(await files.readText('/project/project.yaml')).toBe(original['project.yaml']);
     const reopened = await workspace.open('/project');
     expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
     if (reopened.ok) expect(reopened.snapshot.project.variables.flag?.data.value).toBe(true);
@@ -333,7 +334,9 @@ describe('ProjectWorkspaceService', () => {
     for (const [path, text] of Object.entries(files)) {
       expect(projectWorkspaceFile(project, project.editor, {}, path), path).toBe(text);
       const codec = projectWorkspaceSourceCodec(path);
-      expect(codec.decode(text), path).toEqual(codec.kind === 'json' ? JSON.parse(text) : text);
+      expect(codec.decode(text), path).toEqual(
+        codec.kind === 'json' ? JSON.parse(text) : codec.kind === 'yaml' ? parseYaml(text) : text,
+      );
       if (codec.kind === 'json') expect(text, path).toMatch(/\n$/);
     }
     expect(files['records/scripts/bootstrap.json']).toContain('"project-file"');
@@ -345,12 +348,12 @@ describe('ProjectWorkspaceService', () => {
 
   it('keeps declared workspace field order while sorting record dictionaries', () => {
     const files = projectWorkspaceFiles(createAuthoringProject(), createAuthoringProject().editor);
-    expect(files['project.json']).toMatch(
-      /^\{\n  "schema":.*\n  "schemaVersion":.*\n  "project":.*\n  "settings":.*\n  "bootstrapModule":.*\n  "undefinedInteractionProgram":.*\n  "entrypoint":/s,
+    expect(files['project.yaml']).toMatch(
+      /^schema:.*\nschemaVersion:.*\nproject:.*\n  id:.*\n  name:/s,
     );
   });
 
-  it('round-trips the Project undefined-Interaction fallback and rejects replaced v1 manifests without it', async () => {
+  it('round-trips an explicit Project undefined-Interaction fallback and defaults an omitted fallback', async () => {
     const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
     project.undefinedInteractionProgram = {
       instructions: [],
@@ -367,24 +370,19 @@ describe('ProjectWorkspaceService', () => {
       project.undefinedInteractionProgram,
     );
 
-    const legacyFiles = filesFor(createAuthoringProject({ id: 'headless', name: 'Headless' }));
-    const legacyManifest = JSON.parse(legacyFiles['/projects/headless/project.json']!) as Record<
-      string,
-      unknown
-    >;
-    delete legacyManifest.undefinedInteractionProgram;
-    legacyFiles['/projects/headless/project.json'] = `${JSON.stringify(legacyManifest, null, 2)}\n`;
-    const legacyOpened = await new ProjectWorkspaceService(
-      new InMemoryProjectWorkspaceFileSystem(legacyFiles),
+    const sparseFiles = filesFor(createAuthoringProject({ id: 'headless', name: 'Headless' }));
+    const sparseManifest = projectWorkspaceSourceCodec('project.yaml').decode(
+      sparseFiles['/projects/headless/project.yaml']!,
+    ) as Record<string, unknown>;
+    expect(sparseManifest).not.toHaveProperty('undefinedInteractionProgram');
+    expect(sparseManifest).not.toHaveProperty('entrypoint');
+    const sparseOpened = await new ProjectWorkspaceService(
+      new InMemoryProjectWorkspaceFileSystem(sparseFiles),
     ).open('/projects/headless');
-    expect(legacyOpened.ok).toBe(false);
-    if (legacyOpened.ok) return;
-    expect(legacyOpened.diagnostics).toContainEqual(
-      expect.objectContaining({
-        code: 'authoring.workspace.invalid',
-        message: expect.stringContaining('unsupported workspace-v1 shape'),
-      }),
-    );
+    expect(sparseOpened.ok).toBe(true);
+    if (!sparseOpened.ok) return;
+    expect(sparseOpened.snapshot.project.undefinedInteractionProgram).toBeNull();
+    expect(sparseOpened.snapshot.project.entrypoint).toBeNull();
   });
 
   it('canonically projects every schema dictionary without disturbing fixed field order', () => {
@@ -467,7 +465,7 @@ describe('ProjectWorkspaceService', () => {
     const firstFiles = projectWorkspaceFiles(first, first.editor);
     const secondFiles = projectWorkspaceFiles(second, second.editor);
     expect(firstFiles).toEqual(secondFiles);
-    expect(firstFiles['traits.json']).toMatch(/"z"[\s\S]*"\uE000"[\s\S]*"𐀀"/);
+    expect(firstFiles['traits.yaml']).toMatch(/z:[\s\S]*\uE000:[\s\S]*\u{10000}:/u);
     expect(firstFiles).not.toHaveProperty('properties.json');
     expect(firstFiles['records/rooms/foyer.json']).not.toContain('"properties"');
     expect(firstFiles['records/rooms/foyer.json']).toMatch(
@@ -476,8 +474,8 @@ describe('ProjectWorkspaceService', () => {
     expect(firstFiles['records/layouts/main/layout.json']).toMatch(
       /"sampleState": \{\n      "z"[\s\S]*"\uE000"[\s\S]*"𐀀"/,
     );
-    expect(firstFiles['project.json']).toMatch(
-      /^\{\n  "schema":.*\n  "schemaVersion":.*\n  "project":.*\n  "settings":/s,
+    expect(firstFiles['project.yaml']).toMatch(
+      /^schema:.*\nschemaVersion:.*\nproject:.*\n  id:.*\n  name:/s,
     );
   });
 
@@ -512,13 +510,13 @@ describe('ProjectWorkspaceService', () => {
 
     expect(opened.snapshot.canonicalSourceFiles).toEqual(
       expect.arrayContaining([
-        'project.json',
+        'project.yaml',
         'i18n/project.json',
         'i18n/messages.json',
         'i18n/usage-notes.json',
         'i18n/tracking.json',
         'i18n/orphans.json',
-        'editor.json',
+        'editor.yaml',
         'records/layouts/hud-inline/layout.json',
         'records/layouts/hud-inline/layout.rml',
         'records/layouts/hud-inline/layout.rcss',
@@ -540,17 +538,17 @@ describe('ProjectWorkspaceService', () => {
     ).open('/projects/headless');
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    expect(opened.snapshot.manifestPath).toBe('/projects/headless/project.json');
-    expect(opened.snapshot.canonicalSourceFiles).toContain('project.json');
-    expect(opened.snapshot.canonicalSourceFiles).toContain('editor.json');
+    expect(opened.snapshot.manifestPath).toBe('/projects/headless/project.yaml');
+    expect(opened.snapshot.canonicalSourceFiles).toContain('project.yaml');
+    expect(opened.snapshot.canonicalSourceFiles).toContain('editor.yaml');
     expect(opened.snapshot.saveUnitFileOwnership['project:settings']?.files).toEqual([
-      'project.json',
+      'project.yaml',
     ]);
     expect(opened.snapshot.saveUnitFileOwnership['project:settings']?.paths).toContain(
       '/interactableInstances',
     );
     expect(opened.snapshot.saveUnitFileOwnership['collection:traits']?.files).toEqual([
-      'traits.json',
+      'traits.yaml',
     ]);
     expect(opened.snapshot.saveUnitFileOwnership['project:localization']).toEqual({
       files: [
@@ -570,12 +568,12 @@ describe('ProjectWorkspaceService', () => {
 
   it('rejects retired shader variants in segmented project workspaces', async () => {
     const files = filesFor();
-    const manifestPath = '/projects/headless/project.json';
-    const manifest = JSON.parse(files[manifestPath]!) as {
+    const manifestPath = '/projects/headless/project.yaml';
+    const manifest = projectWorkspaceSourceCodec('project.yaml').decode(files[manifestPath]!) as {
       export: { runtime: { shaderVariants: string[] } };
     };
     manifest.export.runtime.shaderVariants = ['unsupported-desktop', 'essl-300'];
-    files[manifestPath] = `${JSON.stringify(manifest, null, 2)}\n`;
+    files[manifestPath] = projectWorkspaceSourceCodec('project.yaml').encode(manifest);
 
     const opened = await new ProjectWorkspaceService(
       new InMemoryProjectWorkspaceFileSystem(files),
@@ -664,7 +662,7 @@ describe('ProjectWorkspaceService', () => {
 
   it('rejects metadata keys that would mutate dictionary prototypes', async () => {
     const files = filesFor();
-    files['/projects/headless/editor.json'] = `${JSON.stringify({
+    files['/projects/headless/editor.yaml'] = `${JSON.stringify({
       chapters: { records: {} },
       tags: { records: {} },
       recordMetadata: JSON.parse(
@@ -687,7 +685,7 @@ describe('ProjectWorkspaceService', () => {
     );
     expect((await monolithic.open('/projects/old')).ok).toBe(false);
     const files = filesFor();
-    files['/projects/headless/project.json'] = JSON.stringify({
+    files['/projects/headless/project.yaml'] = JSON.stringify({
       schema: 'noveltea.project.workspace',
       schemaVersion: 2,
     });
@@ -1013,8 +1011,8 @@ describe('ProjectWorkspaceService', () => {
     };
     const originals = projectWorkspaceFiles(project, project.editor);
     for (const [file, replacement] of [
-      ['project.json', `${originals['project.json']} `],
-      ['editor.json', `${originals['editor.json']} `],
+      ['project.yaml', `${originals['project.yaml']} `],
+      ['editor.yaml', `${originals['editor.yaml']} `],
       ['scripts/bootstrap.lua', 'return false\n'],
     ] as const) {
       const files = new InMemoryProjectWorkspaceFileSystem(

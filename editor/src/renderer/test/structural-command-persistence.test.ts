@@ -162,7 +162,7 @@ describe('structural command persistence', () => {
     expect(result.plan.inverseBaselinePatches.length).toBeGreaterThan(0);
   });
 
-  it('keeps tracked editor.json patches in the project-content baseline', () => {
+  it('keeps tracked editor.yaml patches in the project-content baseline', () => {
     const project = projectWithRoom();
     project.editor.recordMetadata.rooms = {
       foyer: { tags: [], color: null },
@@ -814,7 +814,7 @@ describe('structural command persistence', () => {
             affectedPaths: ['/rooms/kitchen'],
             pendingRawInputByPath: {},
             atomicTransactionGroupIds: [],
-            baselineFileRevisions: { 'editor.json': originalEditorRevision },
+            baselineFileRevisions: { 'editor.yaml': originalEditorRevision },
           },
         },
       },
@@ -827,7 +827,7 @@ describe('structural command persistence', () => {
         projectPath: '/mock/project',
         projectFilePath: '/mock/project/game.json',
         diagnostics: [],
-        fileRevisions: { 'editor.json': advancedEditorRevision },
+        fileRevisions: { 'editor.yaml': advancedEditorRevision },
         editorState: {
           ...editorState,
           recovery: {
@@ -836,7 +836,7 @@ describe('structural command persistence', () => {
               ...editorState.recovery.saveUnitsById,
               'record:rooms:kitchen': {
                 ...editorState.recovery.saveUnitsById['record:rooms:kitchen']!,
-                baselineFileRevisions: { 'editor.json': advancedEditorRevision },
+                baselineFileRevisions: { 'editor.yaml': advancedEditorRevision },
               },
             },
           },
@@ -870,7 +870,7 @@ describe('structural command persistence', () => {
     expect(persistedEditor?.recovery.saveUnitsById).toHaveProperty('record:rooms:kitchen');
     expect(
       buildEditorProjectStateSnapshot().recovery.saveUnitsById['record:rooms:kitchen']
-        ?.baselineFileRevisions?.['editor.json'],
+        ?.baselineFileRevisions?.['editor.yaml'],
     ).toBe(advancedEditorRevision);
   });
 

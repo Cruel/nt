@@ -854,7 +854,7 @@ export class ResidentProjectWorkspaceSession {
   ): InvalidAuthoringSourceBlock | null {
     if (this.invalidAuthoringSourcePaths.size === 0) return null;
     const invalidFiles = [...this.invalidAuthoringSourcePaths].sort();
-    if (invalidFiles.includes('*') || invalidFiles.includes('project.json'))
+    if (invalidFiles.includes('*') || invalidFiles.includes('project.yaml'))
       return { files: invalidFiles, ownerPaths: ['/'] };
 
     const selectedFiles = new Set<string>();
@@ -875,9 +875,9 @@ export class ResidentProjectWorkspaceSession {
       if (layout) invalidOwnerPaths.add(`/layouts/${layout[1]}`);
       else if (record) invalidOwnerPaths.add(`/${record[1]}/${record[2]}`);
       else if (scriptOwner) invalidOwnerPaths.add(`/scripts/${scriptOwner[0]}`);
-      else if (file === 'traits.json') invalidOwnerPaths.add('/traits');
+      else if (file === 'traits.yaml') invalidOwnerPaths.add('/traits');
       else if (file === 'i18n' || file.startsWith('i18n/')) invalidOwnerPaths.add('/localization');
-      else if (file === 'editor.json') invalidOwnerPaths.add('/editor');
+      else if (file === 'editor.yaml') invalidOwnerPaths.add('/editor');
       else {
         const attributedPaths = Object.values(this.snapshotValue.saveUnitFileOwnership)
           .filter((ownership) => ownership.files.includes(file))

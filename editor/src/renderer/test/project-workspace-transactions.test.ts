@@ -1,3 +1,4 @@
+import { parse as parseYaml } from 'yaml';
 import { createHash } from 'node:crypto';
 import { describe, expect, it } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -52,7 +53,7 @@ function manifestText(options: {
       operationLabel: 'interrupted test',
       targets: [
         {
-          path: 'project.json',
+          path: 'project.yaml',
           operation: 'write',
           beforeRevision: sha256PrefixedUtf8(options.before),
           afterRevision: sha256PrefixedUtf8(options.after),
@@ -72,17 +73,17 @@ function interruptedFiles(
   actual: 'before' | 'after' | 'unknown',
 ) {
   const files = workspaceFiles();
-  const before = files[`${root}/project.json`]!;
-  const parsed = JSON.parse(before) as { project: { name: string } };
+  const before = files[`${root}/project.yaml`]!;
+  const parsed = parseYaml(before) as { project: { name: string } };
   parsed.project.name = 'After';
   const after = `${JSON.stringify(parsed, null, 2)}\n`;
-  files[`${root}/project.json`] =
+  files[`${root}/project.yaml`] =
     actual === 'before' ? before : actual === 'after' ? after : `${before} `;
   files[`${root}/.noveltea/transactions/interrupted/manifest.json`] = manifestText({
     state,
     before,
     after,
-    completedTargets: actual === 'after' ? ['project.json'] : [],
+    completedTargets: actual === 'after' ? ['project.yaml'] : [],
   });
   files[`${root}/.noveltea/transactions/interrupted/before/0`] = before;
   files[`${root}/.noveltea/transactions/interrupted/after/0`] = after;
@@ -95,7 +96,7 @@ describe('workspace granular persistence and transactions', () => {
     const fileSystem = new InMemoryProjectWorkspaceFileSystem(files);
     let criticalDepth = 0;
     const transitions: string[] = [];
-    const targetPath = `${root}/project.json`;
+    const targetPath = `${root}/project.yaml`;
     const originalWriteBytesAtomic = fileSystem.writeBytesAtomic.bind(fileSystem);
     fileSystem.writeBytesAtomic = async (value, bytes) => {
       if (fileSystem.resolvePath(value) === targetPath) expect(criticalDepth).toBe(1);
@@ -118,7 +119,7 @@ describe('workspace granular persistence and transactions', () => {
       },
     );
     const before = files[targetPath]!;
-    const parsed = JSON.parse(before) as { project: { name: string } };
+    const parsed = parseYaml(before) as { project: { name: string } };
     parsed.project.name = 'After';
     const after = `${JSON.stringify(parsed, null, 2)}\n`;
 
@@ -126,7 +127,7 @@ describe('workspace granular persistence and transactions', () => {
       operationLabel: 'critical transaction test',
       targets: [
         {
-          path: 'project.json',
+          path: 'project.yaml',
           operation: 'write',
           expectedRevision: sha256PrefixedUtf8(before),
           bytes: new TextEncoder().encode(after),
@@ -166,7 +167,7 @@ describe('workspace granular persistence and transactions', () => {
     const baseline = await workspace.open(root);
     expect(baseline.ok).toBe(true);
     if (!baseline.ok) return;
-    const externalCharacter = JSON.parse(
+    const externalCharacter = parseYaml(
       await fileSystem.readText(`${root}/records/characters/guide.json`),
     ) as { label: string };
     externalCharacter.label = 'Externally changed';
@@ -230,7 +231,7 @@ describe('workspace granular persistence and transactions', () => {
     class FailingFileSystem extends InMemoryProjectWorkspaceFileSystem {
       private failed = false;
       override async writeBytesAtomic(path: string, bytes: Uint8Array): Promise<void> {
-        if (!this.failed && path === `${root}/traits.json`) {
+        if (!this.failed && path === `${root}/traits.yaml`) {
           this.failed = true;
           throw new Error('injected replacement failure');
         }
@@ -238,8 +239,8 @@ describe('workspace granular persistence and transactions', () => {
       }
     }
     const fileSystem = new FailingFileSystem(workspaceFiles());
-    const beforeProject = await fileSystem.readText(`${root}/project.json`);
-    const beforeTraits = await fileSystem.readText(`${root}/traits.json`);
+    const beforeProject = await fileSystem.readText(`${root}/project.yaml`);
+    const beforeTraits = await fileSystem.readText(`${root}/traits.yaml`);
     const transactions = new ProjectWorkspaceTransactionService(
       fileSystem,
       { isProcessAlive: async () => false },
@@ -250,13 +251,13 @@ describe('workspace granular persistence and transactions', () => {
         operationLabel: 'two-target failure',
         targets: [
           {
-            path: 'project.json',
+            path: 'project.yaml',
             operation: 'write',
             expectedRevision: sha256PrefixedUtf8(beforeProject),
             bytes: new TextEncoder().encode(beforeProject.replace('Before', 'Changed')),
           },
           {
-            path: 'traits.json',
+            path: 'traits.yaml',
             operation: 'write',
             expectedRevision: sha256PrefixedUtf8(beforeTraits),
             bytes: new TextEncoder().encode(`${beforeTraits} `),
@@ -264,8 +265,8 @@ describe('workspace granular persistence and transactions', () => {
         ],
       }),
     ).rejects.toThrow('injected replacement failure');
-    expect(await fileSystem.readText(`${root}/project.json`)).toBe(beforeProject);
-    expect(await fileSystem.readText(`${root}/traits.json`)).toBe(beforeTraits);
+    expect(await fileSystem.readText(`${root}/project.yaml`)).toBe(beforeProject);
+    expect(await fileSystem.readText(`${root}/traits.yaml`)).toBe(beforeTraits);
     expect(await fileSystem.listDirectory(`${root}/.noveltea/transactions`)).toEqual([]);
   });
 
@@ -369,7 +370,7 @@ describe('workspace granular persistence and transactions', () => {
       7,
     );
     await transactions.recover(root);
-    expect(await fileSystem.readText(`${root}/project.json`)).toBe(fixture.before);
+    expect(await fileSystem.readText(`${root}/project.yaml`)).toBe(fixture.before);
     expect(await fileSystem.inspect(`${root}/.noveltea/transactions/interrupted`)).toBe('missing');
   });
 
@@ -424,7 +425,7 @@ describe('workspace granular persistence and transactions', () => {
       (result): result is PromiseRejectedResult => result.status === 'rejected',
     );
     expect(rejected?.reason).toMatchObject({ code: 'WORKSPACE_BUSY' });
-    expect(await fileSystem.readText(`${root}/project.json`)).toBe(fixture.before);
+    expect(await fileSystem.readText(`${root}/project.yaml`)).toBe(fixture.before);
     expect(await fileSystem.listDirectory(`${root}/.noveltea/transactions`)).toEqual([]);
   });
 });

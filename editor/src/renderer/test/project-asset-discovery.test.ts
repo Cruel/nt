@@ -35,7 +35,7 @@ async function projectFixture() {
   await mkdir(path.join(root, 'assets/video'), { recursive: true });
   return {
     root,
-    projectFilePath: path.join(root, 'project.json'),
+    projectFilePath: path.join(root, 'project.yaml'),
     project: createAuthoringProject(),
   };
 }

@@ -202,7 +202,7 @@ function normalizeRelativePath(value: string): string {
 
 function runtimeCanonicalSourcePaths(snapshot: LoadedProjectWorkspaceSnapshot): string[] {
   return snapshot.canonicalSourceFiles.filter(
-    (file) => file !== 'editor.json' && !file.startsWith('records/tests/'),
+    (file) => file !== 'editor.yaml' && !file.startsWith('records/tests/'),
   );
 }
 

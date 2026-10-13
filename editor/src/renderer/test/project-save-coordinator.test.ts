@@ -312,7 +312,7 @@ describe('project save coordinator', () => {
     expect(useProjectStore.getState().lastMutationPublication).toBe(beforePublication);
   });
 
-  it('saves selected tracked editor.json content without marking unrelated tracked editor content saved', async () => {
+  it('saves selected tracked editor.yaml content without marking unrelated tracked editor content saved', async () => {
     const saved = projectWithRooms();
     saved.editor.tags.records.story = { name: 'Story', color: 'tag-slate' };
     saved.editor.recordMetadata.rooms = { foyer: { tags: [], color: null } };
@@ -365,7 +365,7 @@ describe('project save coordinator', () => {
       document: savedDocument,
       savedDocument,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'test-project-session',
     });
     useProjectStore.getState().replaceDocumentFromCommand(workingDocument, 0);
@@ -415,7 +415,7 @@ describe('project save coordinator', () => {
       success: true,
       diagnostics: [],
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       fileRevisions: {
         'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
         'records/rooms/kitchen.json': `sha256:${'f'.repeat(64)}`,

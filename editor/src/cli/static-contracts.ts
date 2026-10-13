@@ -87,7 +87,7 @@ Commands:
   platform config init <path> [--force]
 
 Global options:
-  --project <project-directory>  Use this project root instead of upward project.json discovery.
+  --project <project-directory>  Use this project root instead of upward project.yaml discovery.
   --json                         Emit one compact JSON object on stdout; stderr remains empty.
   --no-daemon                    Bypass resident-daemon acceleration for this invocation.
   --help                         Show this help.

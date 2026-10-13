@@ -34,7 +34,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     *)
       echo "[run] unknown argument: $1" >&2
-      echo "usage: $0 [--release] [--devtools] [--project path/to/project.json] [--profile profile-id] [--device SERIAL]" >&2
+      echo "usage: $0 [--release] [--devtools] [--project path/to/project.yaml] [--profile profile-id] [--device SERIAL]" >&2
       exit 2
       ;;
   esac
@@ -133,10 +133,10 @@ if [ -z "$PROJECT_PATH" ]; then
   PROFILE_ID="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).profileId)' <<<"$FIXTURE_JSON")"
 else
   if [ -d "$PROJECT_PATH" ]; then
-    PROJECT_PATH="$PROJECT_PATH/project.json"
+    PROJECT_PATH="$PROJECT_PATH/project.yaml"
   fi
   PROJECT_PATH="$(realpath "$PROJECT_PATH")"
-  PROJECT_FORMAT="$(node -e 'const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(p.format ?? "")' "$PROJECT_PATH")"
+  PROJECT_FORMAT="$(node -e 'const {parse}=require(process.argv[2]); const p=parse(require("fs").readFileSync(process.argv[1],"utf8")); console.log(p.format ?? "")' "$PROJECT_PATH" "$PROJECT_ROOT/editor/node_modules/yaml")"
   if [ "$PROJECT_FORMAT" = "noveltea.compiled.project" ]; then
     echo "[run] --project must name a saved editor project, not compiled-project JSON" >&2
     echo "[run] compiled-project JSON lacks source assets, application identity, and platform export profiles" >&2
@@ -144,11 +144,11 @@ else
   fi
   if [ -z "$PROFILE_ID" ]; then
     PROFILE_ID="$(node -e '
-      const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+      const p=require(process.argv[4]).parse(require("fs").readFileSync(process.argv[1],"utf8"));
       const profiles=p.export?.profiles ?? [];
       const profile=profiles.find((x)=>x?.target==="android" && x?.buildFlavor===process.argv[2] && x?.android?.abi===process.argv[3]);
       if (!profile?.id) process.exit(1); console.log(profile.id);
-    ' "$PROJECT_PATH" "$FLAVOR" "$ANDROID_ABI")" || {
+    ' "$PROJECT_PATH" "$FLAVOR" "$ANDROID_ABI" "$PROJECT_ROOT/editor/node_modules/yaml")" || {
       echo "[run] no matching Android $FLAVOR/$ANDROID_ABI platform-export profile; pass --profile" >&2
       exit 2
     }

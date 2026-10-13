@@ -78,7 +78,7 @@ describe('authoritative project publication', () => {
         document: { rooms: { foyer: { label: 'Foyer' } } },
         savedDocument: { rooms: { foyer: { label: 'Foyer' } } },
         projectPath: '/mock',
-        projectFilePath: '/mock/project.json',
+        projectFilePath: '/mock/project.yaml',
       }),
     ).toBe(true);
     const before = useProjectStore.getState();
@@ -117,7 +117,7 @@ describe('authoritative project publication', () => {
         document: project,
         savedDocument: project,
         projectPath: '/mock',
-        projectFilePath: '/mock/project.json',
+        projectFilePath: '/mock/project.yaml',
       }),
     ).toBe(true);
     const edited = {

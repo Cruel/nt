@@ -77,7 +77,7 @@ function tools(): NovelTeaCliNativeToolService {
 
 async function inventory(fileSystem: NodeProjectWorkspaceFileSystem, root: string) {
   const captured = await captureProjectSourceInventory(fileSystem, root, {
-    authoritativePaths: ['project.json', 'editor.json', 'traits.json'],
+    authoritativePaths: ['project.yaml', 'editor.yaml', 'traits.yaml'],
     discoveryScopes: AUTHORING_VALIDATION_DISCOVERY_SCOPES,
   });
   return {
@@ -100,7 +100,7 @@ const exactResult = {
       severity: 'info' as const,
       path: '/project',
       message: 'Exact result.',
-      sourceUrl: 'project:/project.json',
+      sourceUrl: 'project:/project.yaml',
       line: 1,
       column: 1,
     },

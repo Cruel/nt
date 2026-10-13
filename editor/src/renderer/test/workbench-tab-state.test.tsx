@@ -223,7 +223,7 @@ beforeEach(() => {
   useProjectStore.getState().loadProjectDocument({
     document: { schema: 'noveltea.authoring.project', rooms: {} },
     projectPath: '/mock',
-    projectFilePath: '/mock/project.json',
+    projectFilePath: '/mock/project.yaml',
   });
 });
 
@@ -539,7 +539,7 @@ describe('workbench tab-state project snapshots', () => {
         },
       },
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     const tab = rawTab('one');
     const shaderTab = sourceTab('hologram-scanlines');
@@ -574,7 +574,7 @@ describe('workbench tab-state project snapshots', () => {
         },
       }),
     ) as JsonValue;
-    restoreEditorProjectState(restoredProject, '/mock/project.json');
+    restoreEditorProjectState(restoredProject, '/mock/project.yaml');
 
     expect(useWorkbenchStore.getState().tabsById[tab.id]).toBeTruthy();
     expect(useWorkbenchStore.getState().tabsById[shaderTab.id]).toEqual(shaderTab);

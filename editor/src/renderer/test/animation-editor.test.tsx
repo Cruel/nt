@@ -36,7 +36,7 @@ beforeEach(() => {
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.json',
+    projectFilePath: '/mock/project/project.yaml',
   });
 });
 
@@ -64,7 +64,7 @@ it('adds a timed image frame to an empty manual Animation through the command bu
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.json',
+    projectFilePath: '/mock/project/project.yaml',
   });
   render(
     <AnimationEditor
@@ -155,7 +155,7 @@ it('uses motion-relative video scrub, restart, and playback rather than independ
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'video-session',
     }),
   ).toBe(true);

@@ -142,9 +142,9 @@ async function readCurrentManifest(fileSystem: ProjectWorkspaceFileSystem, root:
       manifest.discoveryScopes,
       AUTHORING_VALIDATION_DISCOVERY_SCOPES,
     ) ||
-    !manifest.inputs.some((input) => input.path === 'project.json') ||
-    !manifest.inputs.some((input) => input.path === 'editor.json') ||
-    !manifest.inputs.some((input) => input.path === 'traits.json')
+    !manifest.inputs.some((input) => input.path === 'project.yaml') ||
+    !manifest.inputs.some((input) => input.path === 'editor.yaml') ||
+    !manifest.inputs.some((input) => input.path === 'traits.yaml')
   )
     return null;
   return manifest;
@@ -262,8 +262,8 @@ export async function captureAuthoringValidationAuthorityInputs(
     if (!(await settled(fileSystem, snapshot.projectRoot))) return null;
     const validatedPaths = new Set([
       ...snapshot.canonicalSourceFiles,
-      'project.json',
-      'editor.json',
+      'project.yaml',
+      'editor.yaml',
       ...assetSourcePaths(snapshot.project),
     ]);
     const inputs = await captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {

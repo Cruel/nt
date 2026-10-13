@@ -24,7 +24,7 @@ const pngBytes = Uint8Array.from(
 function projectFilePath() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-comfyui-generate-'));
   roots.push(root);
-  return path.join(root, 'project.json');
+  return path.join(root, 'project.yaml');
 }
 
 function config(): ComfyUiConfig {
@@ -214,7 +214,7 @@ describe('comfyui generation service', () => {
       null,
       config(),
       {
-        projectFilePath: '/missing/project.json',
+        projectFilePath: '/missing/project.yaml',
         workflowId: 'custom',
         prompt: 'tea house',
       },

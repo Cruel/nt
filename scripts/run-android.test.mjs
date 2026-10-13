@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { spawnSync } from 'node:child_process';
-import { cp, mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { cp, mkdir, mkdtemp, readFile, rm, symlink, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
@@ -31,8 +31,10 @@ for (const [input, abi, cliMode = 'explicit', flavor = 'debug', scenario = 'norm
     await file('scripts/run-android.sh', await readFile(path.join(repository, 'scripts/run-android.sh')), true);
     await file('scripts/android-device.sh', await readFile(path.join(repository, 'scripts/android-device.sh')));
     await file('scripts/write-android-export-config.mjs', await readFile(path.join(repository, 'scripts/write-android-export-config.mjs')));
+    await mkdir(path.join(root, 'editor/node_modules'), { recursive: true });
+    await symlink(path.join(repository, 'editor/node_modules/yaml'), path.join(root, 'editor/node_modules/yaml'), 'dir');
     await mkdir(workspace);
-    await cp(path.join(repository, 'tests/projects/feature-lab/project.json'), path.join(workspace, 'project.json'));
+    await cp(path.join(repository, 'tests/projects/feature-lab/project.yaml'), path.join(workspace, 'project.yaml'));
     await file('android/gradlew', '#!/usr/bin/env bash\n[[ " $* " == *" -PnovelteaAbi=$TEST_ABI "* ]] || exit 30\nif [ "$TEST_FLAVOR" = release ]; then\n  want=false\n  [ "$TEST_SCENARIO" != devtools ] || want=true\n  [[ " $* " == *" -PnovelteaEnableDevtools=$want "* ]] || exit 31\nfi\n', true);
     await file(`android/app/build/noveltea-native/${flavor}/${abi}/libnoveltea-player.so`, 'player');
     await file(`android/app/build/noveltea-native/${flavor}/${abi}/libSDL3.so`, 'SDL');
@@ -88,7 +90,7 @@ const args = process.argv.slice(2);
 if (args.includes('export')) {
   const project = args[args.indexOf('--project') + 1];
   if (project !== process.env.TEST_WORKSPACE) process.exit(10);
-  const document = JSON.parse(fs.readFileSync(path.join(project, 'project.json'), 'utf8'));
+  const document = require(process.env.TEST_YAML_MODULE).parse(fs.readFileSync(path.join(project, 'project.yaml'), 'utf8'));
   const profile = args[args.indexOf('--profile') + 1];
   const expected = process.env.TEST_FLAVOR === 'release' ? 'android' : process.env.TEST_ABI === 'arm64-v8a' ? 'android-arm64-debug' : 'android-emulator-debug';
   if (profile !== expected || !document.export.profiles.some(p => p.id === profile)) process.exit(11);
@@ -113,7 +115,7 @@ if (args.includes('export')) {
       await cp(cli, path.join(root, 'build/cli/linux/noveltea'));
     }
     const result = spawnSync('bash', [path.join(root, 'scripts/run-android.sh'), '--project',
-      input === 'file' ? path.join(workspace, 'project.json') : workspace,
+      input === 'file' ? path.join(workspace, 'project.yaml') : workspace,
       ...(release ? ['--release'] : []),
       ...(scenario === 'devtools' ? ['--devtools'] : [])], {
       encoding: 'utf8',
@@ -130,6 +132,7 @@ if (args.includes('export')) {
         TEST_FLAVOR: flavor,
         TEST_SCENARIO: scenario,
         TEST_WORKSPACE: workspace,
+        TEST_YAML_MODULE: path.join(repository, 'editor/node_modules/yaml'),
         PKG: 'org.noveltea.featurelab',
         APK: '',
         ANDROID_ABI: '',

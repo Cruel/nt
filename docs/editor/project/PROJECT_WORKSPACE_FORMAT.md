@@ -1,12 +1,12 @@
 # Project Workspace Format
 
 NovelTea projects use workspace v1. A project's identity is its root directory; its manifest is
-always `<project-root>/project.json`. Normal editor, compiler, preview, export, and workspace open
+always `<project-root>/project.yaml`. Normal editor, compiler, preview, export, and workspace open
 paths accept no legacy monolithic project file or alternate manifest name.
 
 ## Tracked source
 
-`project.json` has schema `noveltea.project.workspace` at version `1` and owns project identity,
+`project.yaml` has schema `noveltea.project.workspace` at version `1` and owns project identity,
 project settings, top-level export configuration, the stable Bootstrap Module reference, entrypoint,
 the nullable Project-level undefined-Interaction fallback program, Project-level Inventory
 declarations, and the infrastructure-level `interactableInstances` registry.
@@ -14,7 +14,7 @@ The Instance registry is not an Explorer collection and is not persisted under `
 `/settings` is the
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
-choices remain editor-local. `traits.json`, the tracked `i18n/` tree, and `editor.json` are required
+choices remain editor-local. `traits.yaml`, the tracked `i18n/` tree, and `editor.yaml` are required
 contextual source. The canonical Message model is physically split for source-owner and locale merge
 locality: `i18n/project.json` owns Source/Default/locale policy plus the managed Source-locale lock;
 `i18n/messages.json` owns explicit local/named Messages, structured ownership overrides, and Message-level Context/Translator-note
@@ -79,9 +79,16 @@ new source fingerprint advances freshness without changing review. `/localizatio
 `project:localization` logical manual save unit even though its physical file set is the derived
 `i18n/` fragments above. Language, explicit Message, Usage-note, tracking, target-translation, and
 localized-Asset edits therefore commit atomically through the same revisioned Project Workspace
-transaction/recovery path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
-there is no top-level identity Property fragment. `editor.json` contains exactly collaborator-visible
+transaction/recovery path as other tracked project content. `traits.yaml` owns the self-contained Trait contracts;
+there is no top-level identity Property fragment. `editor.yaml` contains exactly collaborator-visible
 `chapters`, `tags`, and `recordMetadata`, including collaborator-visible Trait color metadata.
+These three tracked owners use restricted YAML, parsed into the existing strict Project schemas.
+Trait mapping keys must exactly match each declaration's semantic `id`. The manifest may omit
+`entrypoint` or `undefinedInteractionProgram` only when their effective value is `null`;
+explicitly authored nulls survive unrelated saves. Empty chapter records/assignments, tag records,
+and record-metadata tag lists may be omitted because their source defaults are empty collections;
+other identity and behavioral fields remain explicit. The YAML writer preserves comments and
+unchanged explicit fields through revision-safe selective saves.
 
 Records live under `records/<collection>/<id>.json`; Layouts instead live under
 `records/layouts/<id>/layout.json`. IDs are canonical file identity and must match the stored record
@@ -90,8 +97,9 @@ Missing known collection directories mean empty collections.
 
 ### Staged sparse YAML Variables tracer (#451)
 
-Until the complete YAML cutover (#449), existing workspaces and newly created Projects still
-use JSON for tracked source. A staged Project can replace one Variable's
+Until the complete YAML cutover (#449), record families other than the staged Variables tracer
+and tracked localization fragments remain JSON. Newly created Projects already use YAML for
+their manifest, Traits, and collaborator-visible editor metadata. A staged Project can replace one Variable's
 `records/variables/<id>.json` with `records/variables/<id>.yaml` to exercise the initial
 restricted YAML codec without changing any other record family. Two source files for the same
 Variable ID are rejected; an ID still must match its filename. Once a Project contains a YAML
@@ -181,7 +189,7 @@ The aggregate workspace revision hashes the sorted path/revision inventory, but 
 selected logical save units' exact files plus their exact changed JSON paths as the concurrency
 boundary. An unrelated file change does not block a scoped save, and a disjoint change to another
 field inside the same physical record is preserved by rebasing selected paths over the newest disk
-fragment. Logical owners that share `editor.json` are likewise merged by owned JSON paths so a
+fragment. Logical owners that share `editor.yaml` are likewise merged by owned JSON paths so a
 chapter save preserves independently changed tag or record-metadata data.
 
 NovelTea tracked writers serialize through `.noveltea/transactions/.writer-lock/`. Multi-file saves
@@ -204,7 +212,7 @@ rules. Optional
 `.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `3`; it stores recovery,
 export identity, workbench, explorer, bottom panel, tab state, and drafts. It never duplicates
 tracked organization fields. On open, `ProjectWorkspaceService` composes those ignored fields with
-tracked `editor.json` chapters/tags/recordMetadata into the internal `AuthoringProject.editor` state;
+tracked `editor.yaml` chapters/tags/recordMetadata into the internal `AuthoringProject.editor` state;
 callers that need project content receive the complete composed editor state separately from the
 editor-free content projection. Missing, corrupt, or unsupported local state is discarded; it cannot
 repair tracked source. Recovery is scoped per logical save unit: each dirty recovery entry stores only
@@ -214,7 +222,7 @@ files; a changed dependency reopens that unit as conflicted until Use Disk or Ke
 while unrelated tracked-source changes do not invalidate the recovery entry. When one successful save
 changes a physical file shared by another dirty logical owner, the remaining recovery entry advances
 to the newly committed exact revision before local state is persisted. Local-state writes neither
-rewrite tracked `editor.json` nor adopt tracked-file revisions that the active workspace session has
+rewrite tracked `editor.yaml` nor adopt tracked-file revisions that the active workspace session has
 not reconciled. Tracked organization and ignored local/session state are persisted independently, and
 ignored local/session changes do not change in-memory or on-disk workspace identity.
 
@@ -228,11 +236,11 @@ directory and derives a new child directory from the project name.
 When `.gitignore` is absent, creation and Save As create it with `/.noveltea/` and `/dist/`; an existing file is
 user-owned and preserved exactly. Save As reports a warning when that existing file does not mention
 `.noveltea` or `dist`, leaving the user to choose the appropriate ignore rule. Save As
-targets a project root and writes `project.json`; it carries tracked baseline, local editor state,
+targets a project root and writes `project.yaml`; it carries tracked baseline, local editor state,
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
 transactions, and trash state. A non-empty destination may contain unrelated user files, `.git`,
 documentation, workflows, or unrelated assets, but Save As rejects any pre-existing NovelTea-owned
-canonical source/state namespace (`project.json`, `traits.json`, `i18n/`, `editor.json`,
+canonical source/state namespace (`project.yaml`, `traits.yaml`, `i18n/`, `editor.yaml`,
 `records/`, `scripts/`, `.noveltea/transactions/`, or `.noveltea/editor/`). It also
 fails if an exact Asset source destination is already occupied. Save As therefore never silently
 merges stale records, Layout companions, Script Module sources, local transaction/recovery state, or
@@ -276,7 +284,7 @@ validated bundle is still staged, so the activated workspace has the user-select
 
 The TypeScript Node reference CLI uses `noveltea [--project <project-directory>] [--json]
 <command> ...`. Without `--project`, it walks upward from the current directory and selects the
-first `project.json`. Finding a malformed NovelTea manifest, the wrong workspace schema identity,
+first `project.yaml`. Finding a malformed NovelTea manifest, the wrong workspace schema identity,
 or an unsupported workspace version stops discovery at that directory; discovery never falls
 through to a parent project and never considers retired manifest names. `--project` is an explicit
 project-root override and is validated by the same workspace-v1 rules.

@@ -42,7 +42,7 @@ describe('CharacterEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<CharacterEditor tab={tab} />);
@@ -59,7 +59,7 @@ describe('CharacterEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<CharacterEditor tab={tab} />);
@@ -164,7 +164,7 @@ describe('CharacterEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<CharacterEditor tab={tab} />);
     const user = userEvent.setup();
@@ -232,7 +232,7 @@ describe('CharacterEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     const view = render(<CharacterEditor tab={tab} />);

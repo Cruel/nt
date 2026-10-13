@@ -127,7 +127,7 @@ export async function createNovelTeaProject(
     await fileSystem.movePathAtomic(staging, destination);
     return {
       projectRoot: destination,
-      projectFilePath: fileSystem.joinPath(destination, 'project.json'),
+      projectFilePath: fileSystem.joinPath(destination, 'project.yaml'),
       projectId,
     };
   } catch (error) {

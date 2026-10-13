@@ -149,7 +149,7 @@ function stubComfyUi(version = '1.2.3', objectInfo: unknown = compatibleObjectIn
 function writeProject(root: string) {
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'project.json'),
+    path.join(root, 'project.yaml'),
     `${JSON.stringify({ schema: 'noveltea.project.workspace', schemaVersion: 1 })}\n`,
   );
 }
