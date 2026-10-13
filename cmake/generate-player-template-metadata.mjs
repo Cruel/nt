@@ -191,7 +191,7 @@ function verifyResolvedFetchedSource(name, source, licenseSources) {
   if (actualHash !== pinnedHash[2].toLowerCase())
     throw new Error(`Downloaded source archive checksum mismatch for ${name}`);
   const archivedPaths = execFileSync('tar', ['-tf', archive], { encoding: 'utf8', maxBuffer: 8 * 1024 * 1024 })
-    .split('\n').filter(Boolean);
+    .split(/\r?\n/).filter(Boolean);
   for (const file of relativeSources) {
     const relative = path.relative(source, file).split(path.sep).join('/');
     const matches = archivedPaths.filter((entry) =>

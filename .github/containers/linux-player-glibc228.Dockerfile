@@ -14,6 +14,7 @@ RUN dnf -y install \
       libXtst-devel \
       libxkbcommon-devel \
       mesa-libEGL-devel \
+      nasm \
       ninja-build \
       tar \
       unzip \

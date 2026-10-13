@@ -1,6 +1,7 @@
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import {
+  chmodSync,
   cpSync,
   existsSync,
   mkdirSync,
@@ -51,7 +52,7 @@ function write(root: string, relative: string, bytes: Buffer | string) {
   writeFileSync(file, bytes);
 }
 
-function generate(root: string, android = false) {
+function generate(root: string, android = false, env = process.env) {
   const build = path.join(root, 'build');
   const stage = path.join(root, 'stage');
   mkdirSync(stage, { recursive: true });
@@ -67,7 +68,7 @@ function generate(root: string, android = false) {
       build,
       ...(android ? ['--android'] : []),
     ],
-    { encoding: 'utf8' },
+    { encoding: 'utf8', env },
   );
   return { result, stage };
 }
@@ -349,6 +350,41 @@ describe('resolved player-template license generation', () => {
     const component = getIndex(output.stage).components.find((item) => item.component === 'bimg')!;
     expect(readFileSync(path.join(output.stage, component.files[0]!.path), 'utf8')).toBe(original);
   });
+
+  it.skipIf(process.platform === 'win32')(
+    'accepts CRLF-delimited tar listings without weakening license-byte verification',
+    () => {
+      const fixture = webFixture();
+      const bin = path.join(fixture.root, 'bin');
+      const fakeTar = path.join(bin, 'tar');
+      write(
+        bin,
+        'tar',
+        String.raw`#!/usr/bin/env node
+const { spawnSync } = require('node:child_process');
+const result = spawnSync(process.env.NT_REAL_TAR, process.argv.slice(2));
+if (result.stdout) {
+  const bytes = process.argv[2] === '-tf'
+    ? Buffer.from(result.stdout.toString('utf8').replace(/\r?\n/g, '\r\n'))
+    : result.stdout;
+  process.stdout.write(bytes);
+}
+if (result.stderr) process.stderr.write(result.stderr);
+process.exit(result.status ?? 1);
+`,
+      );
+      chmodSync(fakeTar, 0o755);
+      const env = {
+        ...process.env,
+        PATH: `${bin}${path.delimiter}${process.env.PATH ?? ''}`,
+        NT_REAL_TAR: execFileSync('which', ['tar'], { encoding: 'utf8' }).trim(),
+      };
+      const first = generate(fixture.root, false, env);
+      expect(first.result.status, first.result.stderr).toBe(0);
+      write(fixture.build, '_deps/bgfx.cmake-src/bimg/LICENSE', 'Modified license text\n');
+      expect(generate(fixture.root, false, env).result.stderr).toContain('modified license bytes');
+    },
+  );
 
   it('rejects missing download metadata, mismatched pins, corrupt archives, and modified extracted notices', () => {
     const fixture = webFixture();

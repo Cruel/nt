@@ -441,7 +441,7 @@ jobs:
 
       - name: Make NovelTea host CLI executable
         if: matrix.platform == 'linux'
-        run: chmod +x build/cli/linux/noveltea
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Cache ccache
         if: runner.os != 'Windows'
@@ -806,7 +806,7 @@ jobs:
           path: build/cli/linux
 
       - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Validate canonical export fixture for Web certification
         working-directory: editor
@@ -1123,7 +1123,7 @@ jobs:
           path: build/cli/linux
 
       - name: Make NovelTea host CLI executable
-        run: chmod +x build/cli/linux/noveltea
+        run: chmod +x build/cli/linux/noveltea build/cli/linux/noveltea-ui-test-runner
 
       - name: Export and inspect release APK plus AAB through public CLI
         env:
