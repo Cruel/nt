@@ -205,6 +205,84 @@ describe('staged YAML Room and Map CLI authoring', () => {
   });
 });
 
+describe('staged YAML Character and Interactable CLI authoring', () => {
+  it('validates sparse annotated records and creates further Characters and Interactables in YAML', async () => {
+    const project = validProject();
+    project.characters.guide = createDefaultAuthoringRecord(
+      'characters',
+      'guide',
+    ) as typeof project.characters.guide;
+    project.interactables.key = createDefaultAuthoringRecord(
+      'interactables',
+      'key',
+    ) as typeof project.interactables.key;
+    const files = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/characters/guide.yaml', 'records/interactables/key.yaml']),
+    );
+    const staged = Object.fromEntries(
+      Object.entries(files).map(([file, text]) => [
+        `${root}/${file}`,
+        file === 'records/characters/guide.yaml'
+          ? text.replace(
+              `label: ${project.characters.guide.label}`,
+              `label: ${project.characters.guide.label} # guide note`,
+            )
+          : file === 'records/interactables/key.yaml'
+            ? text.replace(
+                `label: ${project.interactables.key.label}`,
+                `label: ${project.interactables.key.label} # key note`,
+              )
+            : text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], options(value, root, validationNativeTools())))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'create', 'characters', 'merchant'],
+          options(value),
+        )
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'create', 'interactables', 'coin'],
+          options(value),
+        )
+      ).exitCode,
+    ).toBe(0);
+    expect(await fileSystem.readText(`${root}/records/characters/merchant.yaml`)).toContain(
+      'id: merchant',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactables/coin.yaml`)).toContain(
+      'id: coin',
+    );
+    expect(await fileSystem.inspect(`${root}/records/characters/merchant.json`)).toBe('missing');
+    expect(await fileSystem.inspect(`${root}/records/interactables/coin.json`)).toBe('missing');
+    expect(await fileSystem.readText(`${root}/records/characters/guide.yaml`)).toContain(
+      '# guide note',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactables/key.yaml`)).toContain(
+      '# key note',
+    );
+    const reopened = await value.workspace.open(root);
+    expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (reopened.ok) {
+      expect(reopened.snapshot.project.characters.merchant).toBeDefined();
+      expect(reopened.snapshot.project.interactables.coin).toBeDefined();
+    }
+  });
+});
+
 describe('exact native validation stage reuse', () => {
   it('validates only changed messages with unchanged font revisions', async () => {
     const project = validProject();

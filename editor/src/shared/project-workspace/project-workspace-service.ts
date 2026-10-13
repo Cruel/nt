@@ -572,7 +572,7 @@ const recordFile = (
   sourceFiles?: ReadonlySet<string>,
 ) => {
   if (collection === 'layouts') return `records/layouts/${id}/layout.json`;
-  if (collection === 'rooms' || collection === 'maps') {
+  if (['rooms', 'maps', 'characters', 'interactables'].includes(collection)) {
     const json = `records/${collection}/${id}.json`;
     const yaml = `records/${collection}/${id}.yaml`;
     // During the per-family cutover existing JSON owners keep their physical path.
@@ -721,11 +721,14 @@ export function projectWorkspaceAffectedFiles(
     );
     if (!candidateFiles) return null;
     candidateFiles.forEach((file) => {
-      const record = /^records\/(variables|rooms|maps)\/([^/]+)\.(?:json|yaml)$/u.exec(file);
+      const record =
+        /^records\/(variables|rooms|maps|characters|interactables)\/([^/]+)\.(?:json|yaml)$/u.exec(
+          file,
+        );
       files.add(
         record
           ? recordFile(
-              record[1] as 'variables' | 'rooms' | 'maps',
+              record[1] as 'variables' | 'rooms' | 'maps' | 'characters' | 'interactables',
               record[2]!,
               new Set(snapshot.canonicalSourceFiles),
             )
@@ -1454,7 +1457,10 @@ export function projectWorkspaceFile(
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
     const collection = recordMatch[1] as AuthoringCollectionKey;
     const id = recordMatch[2]!;
-    if (recordMatch[3] === 'yaml' && !['variables', 'rooms', 'maps'].includes(collection))
+    if (
+      recordMatch[3] === 'yaml' &&
+      !['variables', 'rooms', 'maps', 'characters', 'interactables'].includes(collection)
+    )
       return undefined;
     const original = project[collection][id];
     if (!original) return undefined;
@@ -2140,13 +2146,14 @@ export class ProjectWorkspaceService {
       );
       if (!candidateFiles) return null;
       candidateFiles.forEach((file) => {
-        const variableMatch = /^records\/(variables|rooms|maps)\/([^/]+)\.(?:json|yaml)$/u.exec(
-          file,
-        );
+        const variableMatch =
+          /^records\/(variables|rooms|maps|characters|interactables)\/([^/]+)\.(?:json|yaml)$/u.exec(
+            file,
+          );
         files.add(
           variableMatch
             ? recordFile(
-                variableMatch[1] as 'variables' | 'rooms' | 'maps',
+                variableMatch[1] as 'variables' | 'rooms' | 'maps' | 'characters' | 'interactables',
                 variableMatch[2]!,
                 new Set(snapshot.canonicalSourceFiles),
               )
@@ -3477,7 +3484,10 @@ export class ProjectWorkspaceService {
               if (
                 !entry.endsWith('.json') &&
                 !(collection === 'variables' && entry.endsWith('.yaml')) &&
-                !(['rooms', 'maps'].includes(collection) && entry.endsWith('.yaml'))
+                !(
+                  ['rooms', 'maps', 'characters', 'interactables'].includes(collection) &&
+                  entry.endsWith('.yaml')
+                )
               )
                 return fail(
                   'Record files must use canonical names.',
