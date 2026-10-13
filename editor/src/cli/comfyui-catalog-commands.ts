@@ -451,7 +451,7 @@ export async function runComfyUiCatalogCommand(
     const shared = await loadComfyUiUserConfig();
     const config = resolvedComfyUiConfig(shared, runCommand.server);
     const projectFilePath = project.projectRoot
-      ? path.join(project.projectRoot, 'project.json')
+      ? path.join(project.projectRoot, 'project.yaml')
       : null;
     const library = await listComfyUiWorkflowLibrary(
       {
@@ -836,7 +836,7 @@ export async function runComfyUiCatalogCommand(
     const shared = await loadComfyUiUserConfig();
     const config = resolvedComfyUiConfig(shared, verifyCommand.server);
     const projectFilePath = project.projectRoot
-      ? path.join(project.projectRoot, 'project.json')
+      ? path.join(project.projectRoot, 'project.yaml')
       : null;
     const verification = await verifyComfyUiWorkflowLibrary(
       {
@@ -901,7 +901,7 @@ export async function runComfyUiCatalogCommand(
     );
 
   const projectFilePath = project.projectRoot
-    ? path.join(project.projectRoot, 'project.json')
+    ? path.join(project.projectRoot, 'project.yaml')
     : null;
   const shared = await loadComfyUiUserConfig();
   const library = await listComfyUiWorkflowLibrary(

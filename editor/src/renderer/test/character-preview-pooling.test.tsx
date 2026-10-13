@@ -116,7 +116,7 @@ beforeEach(() => {
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock',
-    projectFilePath: '/mock/project.json',
+    projectFilePath: '/mock/project.yaml',
   });
 });
 

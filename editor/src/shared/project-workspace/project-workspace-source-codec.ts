@@ -1,4 +1,5 @@
 import { decodeVariableYaml, encodeVariableYaml } from './variable-yaml-source';
+import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
 /**
  * Physical source syntax belongs here, not to the normalized AuthoringProject or the
  * transaction writer. File ownership and schema admission remain with the workspace
@@ -152,8 +153,20 @@ const variableYamlCodec: ProjectWorkspaceSourceCodec = {
   encode: (value, _schema, previousText) => encodeVariableYaml(value, previousText),
 };
 
+const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
+  kind: 'yaml',
+  decode: decodeStructuredYaml,
+  encode: (value, schema, previousText) =>
+    encodeStructuredYaml(
+      previousText === undefined ? canonicalize(value, schema) : value,
+      previousText,
+    ),
+};
+
 /** The single physical-format selection used by cold open, reconciliation and projection. */
 export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourceCodec {
   if (/^records\/variables\/[^/]+\.yaml$/u.test(file)) return variableYamlCodec;
+  if (file === 'project.yaml' || file === 'traits.yaml' || file === 'editor.yaml')
+    return structuredYamlCodec;
   return file.endsWith('.json') ? jsonCodec : textCodec;
 }

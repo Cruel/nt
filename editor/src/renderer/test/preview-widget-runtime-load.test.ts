@@ -29,8 +29,8 @@ function createRuntimeLoadHarness() {
     }),
     safeProjectAssetPath: () => true,
     stageProjectAsset: async () => true,
-    editorCompiledProjectPath: '/assets/project/compiled-project.json',
-    editorCompiledProjectLogicalPath: 'project:/compiled-project.json',
+    editorCompiledProjectPath: '/assets/project/compiled-project.yaml',
+    editorCompiledProjectLogicalPath: 'project:/compiled-project.yaml',
     Module: {
       ccall() {
         const diagnostic = {

@@ -168,13 +168,13 @@ Object.defineProperty(window, 'noveltea', {
       ok: true,
       success: true,
       projectPath: '/home/test/Documents/NovelTea/new-project',
-      projectFilePath: '/home/test/Documents/NovelTea/new-project/project.json',
+      projectFilePath: '/home/test/Documents/NovelTea/new-project/project.yaml',
     }),
     takePendingProjectImport: vi.fn().mockResolvedValue(null),
     completeProjectImport: vi.fn().mockResolvedValue({
       success: true,
       projectPath: '/home/test/Documents/NovelTea/imported-project',
-      projectFilePath: '/home/test/Documents/NovelTea/imported-project/project.json',
+      projectFilePath: '/home/test/Documents/NovelTea/imported-project/project.yaml',
     }),
     onProjectImportRequested: vi.fn().mockReturnValue(() => {}),
     openProject: vi.fn().mockResolvedValue({

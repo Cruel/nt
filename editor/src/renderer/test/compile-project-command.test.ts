@@ -73,7 +73,7 @@ describe('project compiler workspace command', () => {
   it('compiles the canonical in-tree Feature Lab project', async () => {
     const outputDirectory = await fs.mkdtemp(path.join(tmpdir(), 'noveltea-feature-lab-'));
     temporaryDirectories.push(outputDirectory);
-    const outputPath = path.join(outputDirectory, 'compiled-project.json');
+    const outputPath = path.join(outputDirectory, 'compiled-project.yaml');
     const result = await runCompileProjectCommand([
       '--project',
       path.resolve('..', 'tests', 'projects', 'feature-lab'),
@@ -120,7 +120,7 @@ describe('project compiler workspace command', () => {
 
   it('does not overwrite the workspace manifest', async () => {
     const directory = await workspaceDirectory();
-    const manifest = path.join(directory, 'project.json');
+    const manifest = path.join(directory, 'project.yaml');
     const result = await runCompileProjectCommand(['--project', directory, '--output', manifest]);
     expect(result.exitCode).toBe(compileProjectExitCodes.output);
     expect(result.report.diagnostics[0]).toMatchObject({ code: 'PROJECT_COMPILE_OUTPUT_CONFLICT' });

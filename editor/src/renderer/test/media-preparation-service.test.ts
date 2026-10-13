@@ -105,7 +105,7 @@ describe('private media preparation tool', () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-video-session-'));
     const sessions = new ActiveProjectSessionService();
     try {
-      await writeFile(path.join(root, 'project.json'), '{}');
+      await writeFile(path.join(root, 'project.yaml'), '{}');
       await mkdir(path.join(root, 'assets/video'), { recursive: true });
       const bytes = Buffer.from('admitted video');
       await writeFile(path.join(root, 'assets/video/source.mov'), bytes);
@@ -121,7 +121,7 @@ describe('private media preparation tool', () => {
         },
       };
       const session = await sessions.activateProjectFile(
-        path.join(root, 'project.json'),
+        path.join(root, 'project.yaml'),
         undefined,
         project,
       );

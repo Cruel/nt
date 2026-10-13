@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { parse as parseYaml } from 'yaml';
 import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli, type AuthoringValidationInstrumentation } from '../../cli/application';
@@ -1071,14 +1072,14 @@ describe('NovelTea headless CLI', () => {
     const project = validProject();
     project.export.profiles = [defaultPlatformExportProfile('linux')];
     const value = fixture(project);
-    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+    const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as Record<
       string,
       unknown
     >;
     manifest.settings = null;
-    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
     await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
-    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.yaml`, '{"broken":');
     await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
 
     const result = await runNovelTeaCli(
@@ -1123,11 +1124,11 @@ describe('NovelTea headless CLI', () => {
     const verify = residentWorkspace.verifyScopedReadAuthority.bind(residentWorkspace);
     let race = 0;
     residentWorkspace.verifyScopedReadAuthority = async (token) => {
-      const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as {
+      const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as {
         project: { description: string };
       };
       manifest.project.description = `race-${race++}`;
-      await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+      await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
       return verify(token);
     };
 
@@ -1146,12 +1147,12 @@ describe('NovelTea headless CLI', () => {
 
   it('preserves Project identity diagnostics during scoped platform profile preparation', async () => {
     const value = fixture();
-    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+    const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as Record<
       string,
       unknown
     >;
     manifest.project = { ...(manifest.project as Record<string, unknown>), id: '' };
-    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
 
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'profiles'],
@@ -1202,7 +1203,7 @@ describe('NovelTea headless CLI', () => {
     const project = validProject();
     project.export.profiles = [defaultPlatformExportProfile('linux')];
     const value = fixture(project);
-    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+    const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as Record<
       string,
       unknown
     >;
@@ -1211,7 +1212,7 @@ describe('NovelTea headless CLI', () => {
     runtime.id = '';
     const profiles = exportSettings.profiles as Array<Record<string, unknown>>;
     profiles[0] = { ...profiles[0], target: 'not-a-platform' };
-    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
 
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'profiles'],
@@ -1730,7 +1731,7 @@ describe('NovelTea headless CLI', () => {
     await value.fileSystem.writeTextAtomic(`${root}/records/scenes/broken.json`, '{"id":');
     await value.fileSystem.writeTextAtomic(`${root}/records/layouts/broken/layout.json`, '{"id":');
     await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
-    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.yaml`, '{"broken":');
     await value.fileSystem.writeTextAtomic(`${root}/assets/text/untracked.txt`, 'untracked');
 
     const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
@@ -2761,7 +2762,7 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
-  it('discovers project.json upward, accepts explicit roots, and ignores retired filenames', async () => {
+  it('discovers project.yaml upward, accepts explicit roots, and ignores retired filenames', async () => {
     const value = fixture();
     const upward = await runNovelTeaCli(
       ['--json', 'validate'],
@@ -2789,9 +2790,9 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(notFound.stdout).diagnostics[0].code).toBe('WORKSPACE_NOT_FOUND');
   });
 
-  it('stops at a malformed or unsupported nested project.json instead of walking upward', async () => {
+  it('stops at a malformed or unsupported nested project.yaml instead of walking upward', async () => {
     const outer = fixture();
-    await outer.fileSystem.writeTextAtomic('/projects/headless/nested/project.json', '{ bad');
+    await outer.fileSystem.writeTextAtomic('/projects/headless/nested/project.yaml', '{ bad');
     const malformed = await runNovelTeaCli(
       ['--json', 'validate'],
       options(outer, `${root}/nested/child`),
@@ -2800,7 +2801,7 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(malformed.stdout).diagnostics[0].code).toBe('WORKSPACE_MANIFEST_INVALID');
 
     await outer.fileSystem.writeTextAtomic(
-      '/projects/headless/nested/project.json',
+      '/projects/headless/nested/project.yaml',
       JSON.stringify({ schema: 'noveltea.project.workspace', schemaVersion: 99 }),
     );
     const unsupported = await runNovelTeaCli(
@@ -3617,7 +3618,7 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['reference/records/verbs.md']).toContain(
       'Named slots with progressive order',
     );
-    expect(first.files['reference/project.md']).toContain('Project-owned fallback in project.json');
+    expect(first.files['reference/project.md']).toContain('Project-owned fallback in project.yaml');
     expect(first.files['reference/project.md']).toContain('next fallback stage for the host');
     expect(first.files['reference/records/verbs.md']).toContain('next fallback stage for the host');
     expect(first.files['reference/records/interactions.md']).toContain(
@@ -4592,7 +4593,7 @@ describe('NovelTea headless CLI', () => {
     expect(created.exitCode).toBe(0);
     expect(JSON.parse(created.stdout)).toMatchObject({
       projectRoot: '/projects/My Story',
-      projectFilePath: '/projects/My Story/project.json',
+      projectFilePath: '/projects/My Story/project.yaml',
       projectId: 'my-story',
     });
     expect(await fileSystem.readText('/projects/My Story/AGENTS.md')).toBe(

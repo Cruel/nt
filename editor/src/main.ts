@@ -1138,7 +1138,7 @@ void app.whenReady().then(async () => {
     (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
     (projectSessionId) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.json'));
+      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.yaml'));
       return enginePreviewServer.getSession();
     },
   );
@@ -1148,7 +1148,7 @@ void app.whenReady().then(async () => {
     (arguments_) => previewSessionArgumentsSchema.parse(arguments_),
     (projectSessionId) => {
       const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.json'));
+      enginePreviewServer.setProjectFilePath(path.join(projectRoot, 'project.yaml'));
       return enginePreviewServer.reload();
     },
   );
@@ -1351,7 +1351,7 @@ void app.whenReady().then(async () => {
       return exportProjectToPlatform(
         {
           ...request,
-          projectPath: path.join(projectRoot, 'project.json'),
+          projectPath: path.join(projectRoot, 'project.yaml'),
           projectRoot,
         },
         (progress) =>
@@ -1496,7 +1496,7 @@ void app.whenReady().then(async () => {
     async (projectSessionId, options) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return await importAssets(mainWindow, path.join(projectRoot, 'project.json'), options, () =>
+        return await importAssets(mainWindow, path.join(projectRoot, 'project.yaml'), options, () =>
           activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
@@ -1519,7 +1519,7 @@ void app.whenReady().then(async () => {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await reimportAsset(
           mainWindow,
-          path.join(projectRoot, 'project.json'),
+          path.join(projectRoot, 'project.yaml'),
           projectRelativePath,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
@@ -1540,7 +1540,7 @@ void app.whenReady().then(async () => {
     async (projectSessionId, project) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return await auditProjectAssets(path.join(projectRoot, 'project.json'), project, () =>
+        return await auditProjectAssets(path.join(projectRoot, 'project.yaml'), project, () =>
           activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
@@ -1565,7 +1565,7 @@ void app.whenReady().then(async () => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await importUntrackedProjectAssets(
-          path.join(projectRoot, 'project.json'),
+          path.join(projectRoot, 'project.yaml'),
           projectRelativePaths,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
@@ -1587,7 +1587,7 @@ void app.whenReady().then(async () => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await organizeUntrackedProjectAsset(
-          path.join(projectRoot, 'project.json'),
+          path.join(projectRoot, 'project.yaml'),
           project,
           projectRelativePath,
           action,
@@ -1650,7 +1650,7 @@ void app.whenReady().then(async () => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
         return await trashProjectAssetFiles(
-          path.join(projectRoot, 'project.json'),
+          path.join(projectRoot, 'project.yaml'),
           projectRelativePaths,
           () => activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
@@ -1671,7 +1671,7 @@ void app.whenReady().then(async () => {
     async (projectSessionId, moves) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return await restoreProjectAssetFiles(path.join(projectRoot, 'project.json'), moves, () =>
+        return await restoreProjectAssetFiles(path.join(projectRoot, 'project.yaml'), moves, () =>
           activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
@@ -1691,7 +1691,7 @@ void app.whenReady().then(async () => {
     async (projectSessionId) => {
       try {
         const projectRoot = activeProjectSessions.requireActiveProjectRoot(projectSessionId);
-        return await purgeProjectTrash(path.join(projectRoot, 'project.json'), () =>
+        return await purgeProjectTrash(path.join(projectRoot, 'project.yaml'), () =>
           activeProjectSessions.requireActiveProjectRoot(projectSessionId),
         );
       } catch (error) {
@@ -1727,7 +1727,7 @@ void app.whenReady().then(async () => {
         return {
           ok: false,
           success: false,
-          diagnostics: [{ severity: 'error' as const, path: '/project.json', message }],
+          diagnostics: [{ severity: 'error' as const, path: '/project.yaml', message }],
           error: message,
         };
       }
@@ -1747,7 +1747,7 @@ void app.whenReady().then(async () => {
         return {
           ok: false,
           success: false,
-          diagnostics: [{ severity: 'error' as const, path: '/project.json', message }],
+          diagnostics: [{ severity: 'error' as const, path: '/project.yaml', message }],
           error: message,
         };
       }
@@ -1832,7 +1832,7 @@ void app.whenReady().then(async () => {
 
   const comfyUiProjectFilePath = (projectSessionId: string | null) =>
     projectSessionId
-      ? path.join(activeProjectSessions.requireActiveProjectRoot(projectSessionId), 'project.json')
+      ? path.join(activeProjectSessions.requireActiveProjectRoot(projectSessionId), 'project.yaml')
       : undefined;
   const requireComfyUiProjectFilePath = (projectSessionId: string | null) => {
     if (!projectSessionId)

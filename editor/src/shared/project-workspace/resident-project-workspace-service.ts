@@ -99,9 +99,9 @@ function certificationDelay(name: string): void {
 
 function isResidentSemanticSourcePath(path: string): boolean {
   return (
-    path === 'project.json' ||
-    path === 'editor.json' ||
-    path === 'traits.json' ||
+    path === 'project.yaml' ||
+    path === 'editor.yaml' ||
+    path === 'traits.yaml' ||
     /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(path) ||
     /^scripts\/.+\.lua$/u.test(path) ||
     /^i18n\/.+\.json$/u.test(path)
@@ -169,9 +169,9 @@ async function captureResidentInventory(
       // Record, script, and localization source membership is discovered so additions/deletions
       // remain representable as structural generation changes instead of failing inventory capture.
       authoritativePaths: [
-        'project.json',
-        'editor.json',
-        'traits.json',
+        'project.yaml',
+        'editor.yaml',
+        'traits.yaml',
         ...assetSourcePaths(snapshot.project),
       ],
       discoveryScopes: residentDiscoveryScopes,
@@ -463,7 +463,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       };
     return {
       projectRoot: canonicalRoot,
-      authoritativePaths: ['project.json', 'editor.json', 'traits.json', ...nativeAssetSourcePaths],
+      authoritativePaths: ['project.yaml', 'editor.yaml', 'traits.yaml', ...nativeAssetSourcePaths],
       discoveryScopes: residentDiscoveryScopes,
       ...(includeManifestEntries ? { includeManifestEntries: true } : {}),
     };
@@ -535,7 +535,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     const snapshot = Object.freeze({
       ...opened.snapshot,
       projectRoot: logicalRoot,
-      manifestPath: this.residentFileSystem.joinPath(logicalRoot, 'project.json'),
+      manifestPath: this.residentFileSystem.joinPath(logicalRoot, 'project.yaml'),
     }) as LoadedProjectWorkspaceSnapshot;
     this.snapshotBindings.set(snapshot, {
       entry,
@@ -1668,7 +1668,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       portable.snapshot?.snapshotKind !== 'loaded' ||
       portable.snapshot.projectRoot !== canonicalRoot ||
       portable.snapshot.manifestPath !==
-        this.residentFileSystem.joinPath(canonicalRoot, 'project.json') ||
+        this.residentFileSystem.joinPath(canonicalRoot, 'project.yaml') ||
       !Number.isSafeInteger(portable.identity?.sessionEpoch) ||
       portable.identity.sessionEpoch <= 0 ||
       !Number.isSafeInteger(portable.identity?.generation) ||

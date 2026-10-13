@@ -56,7 +56,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<TestsEditor tab={tab} />);
@@ -73,7 +73,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<TestsEditor tab={tab} />);
@@ -103,7 +103,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<TestsEditor tab={tab} />);
@@ -153,7 +153,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<TestsEditor tab={tab} />);
@@ -177,7 +177,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<TestsEditor tab={tab} />);
@@ -221,7 +221,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     const runPlaybackTest = vi.mocked(window.noveltea.runPlaybackTest);
     runPlaybackTest.mockClear();
@@ -256,7 +256,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'project-session',
     });
     const runPlaybackTest = vi.mocked(window.noveltea.runPlaybackTest);
@@ -280,7 +280,7 @@ describe('TestsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<TestsEditor tab={tab} />);

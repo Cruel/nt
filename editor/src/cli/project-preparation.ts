@@ -22,6 +22,7 @@ import {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from '../shared/project-workspace/project-workspace-contracts';
+import { projectWorkspaceSourceCodec } from '../shared/project-workspace/project-workspace-source-codec';
 import { cliDiagnostic, type NovelTeaCliDiagnostic } from './contracts';
 
 export type CliProjectPreparationDomain =
@@ -151,9 +152,14 @@ function sortCliDiagnostics(
 }
 
 function exactManifestShape(value: Readonly<Record<string, unknown>>): boolean {
-  const actual = Object.keys(value).sort();
-  const expected = [...manifestKeys].sort();
-  return actual.length === expected.length && actual.every((key, index) => key === expected[index]);
+  const allowed = new Set(manifestKeys);
+  const required = manifestKeys.filter(
+    (key) => key !== 'entrypoint' && key !== 'undefinedInteractionProgram',
+  );
+  return (
+    Object.keys(value).every((key) => allowed.has(key)) &&
+    required.every((key) => Object.hasOwn(value, key))
+  );
 }
 
 function isIgnoredAssetInventoryPath(value: string): boolean {
@@ -280,7 +286,7 @@ export async function prepareCliProject(
   if (intent.mode !== 'scoped-read-only' || intent.validationBoundary !== 'required-domains')
     return failure(
       'WORKSPACE_SOURCE_READ',
-      '/project.json',
+      '/project.yaml',
       'Unsupported Project preparation intent.',
     );
 
@@ -297,21 +303,23 @@ export async function prepareCliProject(
 
   let manifest: Readonly<Record<string, unknown>>;
   try {
-    const manifestPath = fileSystem.joinPath(projectRoot, 'project.json');
+    const manifestPath = fileSystem.joinPath(projectRoot, 'project.yaml');
     await assertProjectWorkspacePathContained(fileSystem, projectRoot, manifestPath);
-    const parsed = JSON.parse(await fileSystem.readText(manifestPath)) as unknown;
+    const parsed = projectWorkspaceSourceCodec('project.yaml').decode(
+      await fileSystem.readText(manifestPath),
+    );
     if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed))
       return failure(
         'WORKSPACE_MANIFEST_INVALID',
-        '/project.json',
-        'project.json must be an object.',
+        '/project.yaml',
+        'project.yaml must be an object.',
       );
     manifest = parsed as Readonly<Record<string, unknown>>;
   } catch {
     return failure(
       'WORKSPACE_MANIFEST_READ',
-      '/project.json',
-      'Current project discovery requires a readable workspace-v1 project.json.',
+      '/project.yaml',
+      'Current project discovery requires a readable workspace-v1 project.yaml.',
     );
   }
 
@@ -327,8 +335,8 @@ export async function prepareCliProject(
   if (!exactManifestShape(manifest))
     return failure(
       'WORKSPACE_MANIFEST_INVALID',
-      '/project.json',
-      'project.json has an unsupported workspace-v1 shape.',
+      '/project.yaml',
+      'project.yaml has an unsupported workspace-v1 shape.',
     );
 
   const projectIdentity = projectIdentitySchema.safeParse(manifest.project);

@@ -108,7 +108,7 @@ describe('image thumbnail characterization', () => {
       useProjectStore.getState().loadProjectDocument({
         document: project,
         projectPath: '/project',
-        projectFilePath: '/project/project.json',
+        projectFilePath: '/project/project.yaml',
       }),
     ).toBe(true);
     const loaded = useProjectStore.getState();

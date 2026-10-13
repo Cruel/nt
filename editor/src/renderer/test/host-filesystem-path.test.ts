@@ -9,7 +9,7 @@ describe('host filesystem paths', () => {
     expect(joinHostPath('C:/Users/Thomas/NovelTea/project', 'assets/images/icon.png')).toBe(
       'C:\\Users\\Thomas\\NovelTea\\project\\assets\\images\\icon.png',
     );
-    expect(hostPathDirname('C:\\Users\\Thomas\\NovelTea\\project.json')).toBe(
+    expect(hostPathDirname('C:\\Users\\Thomas\\NovelTea\\project.yaml')).toBe(
       'C:\\Users\\Thomas\\NovelTea',
     );
   });
@@ -18,6 +18,6 @@ describe('host filesystem paths', () => {
     expect(joinHostPath('/home/thomas/project', 'dist', 'linux-release')).toBe(
       '/home/thomas/project/dist/linux-release',
     );
-    expect(hostPathDirname('/home/thomas/project/project.json')).toBe('/home/thomas/project');
+    expect(hostPathDirname('/home/thomas/project/project.yaml')).toBe('/home/thomas/project');
   });
 });

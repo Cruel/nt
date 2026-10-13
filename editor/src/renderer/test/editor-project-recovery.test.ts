@@ -93,7 +93,7 @@ describe('project recovery reconstruction', () => {
       document: reconstructed.workingDocument,
       savedDocument: reconstructed.savedDocument,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
 
     expect(selectProjectDirty(useProjectStore.getState())).toBe(true);
@@ -136,14 +136,14 @@ describe('project recovery reconstruction', () => {
             affectedPaths: ['/project/name'],
             pendingRawInputByPath: {},
             atomicTransactionGroupIds: [],
-            baselineFileRevisions: { 'project.json': oldRevision },
+            baselineFileRevisions: { 'project.yaml': oldRevision },
           },
         },
       },
     };
 
     const reconstructed = reconstructEditorProject(content, content, editorState, [], {
-      currentFileRevisions: { 'project.json': currentRevision },
+      currentFileRevisions: { 'project.yaml': currentRevision },
     });
 
     expect((reconstructed.workingDocument as { project: { name: string } }).project.name).toBe(
@@ -156,7 +156,7 @@ describe('project recovery reconstruction', () => {
       reconstructed.editorState.recovery.saveUnitsById['project:settings']?.externalConflict,
     ).toMatchObject({
       conflictingPaths: ['/project/name'],
-      externalFileRevisions: { 'project.json': currentRevision },
+      externalFileRevisions: { 'project.yaml': currentRevision },
       baseValueByPath: { '/project/name': { exists: true, value: 'Disk changed' } },
       localValueByPath: { '/project/name': { exists: true, value: 'Recovered local' } },
       externalValueByPath: { '/project/name': { exists: true, value: 'Disk changed' } },
@@ -195,7 +195,7 @@ describe('project recovery reconstruction', () => {
       document: reconstructed.workingDocument,
       savedDocument: reconstructed.savedDocument,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     const settingsTab: WorkbenchTab = {
       id: 'tab:project-settings',
@@ -271,7 +271,7 @@ describe('project recovery reconstruction', () => {
       document: project,
       savedDocument: project,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     setLoadedEditorProjectState(project.editor);
 
@@ -303,7 +303,7 @@ describe('project recovery reconstruction', () => {
       document: project,
       savedDocument: project,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     setLoadedEditorProjectState(project.editor);
 
@@ -331,7 +331,7 @@ describe('project recovery reconstruction', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     setLoadedEditorProjectState(emptyEditorProjectState());
     useCommandStore.getState().executeCommand({

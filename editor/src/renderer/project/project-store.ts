@@ -466,7 +466,7 @@ export const useProjectStore = create<ProjectStoreState>()((set, get) => ({
       const serializedEditorState = JSON.parse(
         JSON.stringify({
           ...editorState,
-          // These fields are tracked in editor.json and are content, not local metadata. Preserve
+          // These fields are tracked in editor.yaml and are content, not local metadata. Preserve
           // each document's own baseline so a local-state flush cannot silently mark them saved.
           chapters: currentEditor.chapters,
           tags: currentEditor.tags,

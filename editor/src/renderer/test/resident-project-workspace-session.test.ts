@@ -102,9 +102,9 @@ function trackSemanticTransactionWrites(
     const absolute = fileSystem.resolvePath(value);
     if (!absolute.startsWith(`${ROOT}/`)) return null;
     const relative = absolute.slice(ROOT.length + 1);
-    return relative === 'project.json' ||
-      relative === 'editor.json' ||
-      relative === 'traits.json' ||
+    return relative === 'project.yaml' ||
+      relative === 'editor.yaml' ||
+      relative === 'traits.yaml' ||
       /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(relative) ||
       /^scripts\/.+\.lua$/u.test(relative) ||
       /^shaders\/.+\.sc$/u.test(relative) ||
@@ -190,11 +190,11 @@ describe('Resident physical Asset validation acceleration', () => {
     await workspace.buildDependencyGraphAnalysis(first.snapshot);
     const updated = cloneAuthoringProject(project);
     updated.settings.titleScreen.subtitle = 'Changed During Asset Edit';
-    const manifest = projectWorkspaceFiles(updated, updated.editor)['project.json']!;
-    await fileSystem.writeTextAtomic(`${ROOT}/project.json`, manifest);
+    const manifest = projectWorkspaceFiles(updated, updated.editor)['project.yaml']!;
+    await fileSystem.writeTextAtomic(`${ROOT}/project.yaml`, manifest);
     await fileSystem.writeTextAtomic(`${ROOT}/assets/original.png`, 'changed');
     await fileSystem.writeTextAtomic(`${ROOT}/assets/shared.rml`, '<div>Changed</div>');
-    probe.change('project.json', 'assets/original.png', 'assets/shared.rml');
+    probe.change('project.yaml', 'assets/original.png', 'assets/shared.rml');
     const opened = await workspace.open(ROOT);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
@@ -220,13 +220,13 @@ describe('Resident physical Asset validation acceleration', () => {
       const renamed = cloneAuthoringProject(project);
       renamed.project.name = 'Changed Project Name';
       await fileSystem.writeTextAtomic(
-        `${ROOT}/project.json`,
-        projectWorkspaceFiles(renamed, renamed.editor)['project.json']!,
+        `${ROOT}/project.yaml`,
+        projectWorkspaceFiles(renamed, renamed.editor)['project.yaml']!,
       );
       if (failure === 'hash-mismatch')
         await fileSystem.writeTextAtomic(`${ROOT}/${path}`, '<div>Hash Changed</div>');
       else await fileSystem.removeFile(`${ROOT}/${path}`);
-      probe.change('project.json', path);
+      probe.change('project.yaml', path);
 
       const changed = await workspace.open(ROOT);
       expect(changed.ok).toBe(true);
@@ -452,7 +452,7 @@ describe('Presentation-only graph invalidation', () => {
       true,
     );
 
-    for (const relative of ['project.json', 'traits.json', 'records/rooms/foyer.json']) {
+    for (const relative of ['project.yaml', 'traits.yaml', 'records/rooms/foyer.json']) {
       const text = await fileSystem.readText(`${ROOT}/${relative}`);
       await fileSystem.writeTextAtomic(`${ROOT}/${relative}`, `${text.trimEnd()}\n \n`);
       probe.change(relative);
@@ -471,10 +471,10 @@ describe('Presentation-only graph invalidation', () => {
     const renamed = cloneAuthoringProject(project);
     renamed.project.name = 'Display-only Project rename';
     await fileSystem.writeTextAtomic(
-      `${ROOT}/project.json`,
-      projectWorkspaceFiles(renamed, renamed.editor)['project.json']!,
+      `${ROOT}/project.yaml`,
+      projectWorkspaceFiles(renamed, renamed.editor)['project.yaml']!,
     );
-    probe.change('project.json');
+    probe.change('project.yaml');
     const changed = await resident.open(ROOT);
     if (!changed.ok) throw new Error('Project display-name reconciliation failed.');
     expect(changed.validationWork.executed).toBeLessThanOrEqual(3);
@@ -842,13 +842,13 @@ describe('ResidentProjectWorkspaceSession', () => {
       projectWorkspaceFiles(revised, revised.editor)['records/rooms/foyer.json']!,
     ]);
     revised.entrypoint = { kind: 'room', id: 'missing' };
-    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+    edits.push(['project.yaml', projectWorkspaceFiles(revised, revised.editor)['project.yaml']!]);
     revised.entrypoint = { kind: 'room', id: 'foyer' };
-    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+    edits.push(['project.yaml', projectWorkspaceFiles(revised, revised.editor)['project.yaml']!]);
     revised.editor.recordMetadata.rooms = { ghost: { tags: [] } };
-    edits.push(['editor.json', projectWorkspaceFiles(revised, revised.editor)['editor.json']!]);
+    edits.push(['editor.yaml', projectWorkspaceFiles(revised, revised.editor)['editor.yaml']!]);
     revised.editor.recordMetadata.rooms = {};
-    edits.push(['editor.json', projectWorkspaceFiles(revised, revised.editor)['editor.json']!]);
+    edits.push(['editor.yaml', projectWorkspaceFiles(revised, revised.editor)['editor.yaml']!]);
     revised.settings.cursors.named = [
       {
         id: 'cursor-original',
@@ -857,10 +857,10 @@ describe('ResidentProjectWorkspaceSession', () => {
         hotspotY: 0,
       },
     ];
-    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+    edits.push(['project.yaml', projectWorkspaceFiles(revised, revised.editor)['project.yaml']!]);
     edits.push(['scripts/main.lua', 'noveltea.presentation.cursor.set("cursor-renamed")\n']);
     revised.settings.cursors.named[0]!.id = 'cursor-renamed';
-    edits.push(['project.json', projectWorkspaceFiles(revised, revised.editor)['project.json']!]);
+    edits.push(['project.yaml', projectWorkspaceFiles(revised, revised.editor)['project.yaml']!]);
 
     for (const [path, text] of edits) {
       await fileSystem.writeTextAtomic(`${ROOT}/${path}`, text);
@@ -915,7 +915,7 @@ describe('ResidentProjectWorkspaceSession', () => {
             (item) => item.code === 'authoring.cursor.lua_named_missing',
           ),
         ).toBe(true);
-      if (path === 'project.json' && text.includes('cursor-renamed'))
+      if (path === 'project.yaml' && text.includes('cursor-renamed'))
         expect(
           warmGraph.graph.diagnostics.some(
             (item) => item.code === 'authoring.cursor.lua_named_missing',
@@ -1230,9 +1230,9 @@ describe('ResidentProjectWorkspaceSession', () => {
       probe.requests.findLast((request): request is readonly string[] => request !== null),
     ).toEqual(
       expect.arrayContaining([
-        'project.json',
-        'editor.json',
-        'traits.json',
+        'project.yaml',
+        'editor.yaml',
+        'traits.yaml',
         'assets/image-000.png',
       ]),
     );
@@ -1291,9 +1291,9 @@ describe('ResidentProjectWorkspaceSession', () => {
     );
     expect(await workspace.hasResidentSession(ROOT)).toBe(true);
     expect(probe.requests.at(-1)).toEqual([
-      'project.json',
-      'editor.json',
-      'traits.json',
+      'project.yaml',
+      'editor.yaml',
+      'traits.yaml',
       'assets/replaced.png',
     ]);
     expect(await workspace.verifyReadAuthority(first.snapshot)).toBe(false);
@@ -1677,8 +1677,8 @@ describe('ResidentProjectWorkspaceSession', () => {
 
   it('permits a native resident mutation around an unrelated invalid overlay', async () => {
     const { project, fileSystem, probe, workspace } = await createNativeAssetWorkspace();
-    await fileSystem.writeTextAtomic(`${ROOT}/traits.json`, '{ invalid json');
-    probe.change('traits.json');
+    await fileSystem.writeTextAtomic(`${ROOT}/traits.yaml`, '{ invalid json');
+    probe.change('traits.yaml');
     const mutationBase = await workspace.openForMutation(ROOT);
     expect(mutationBase.ok).toBe(true);
     if (!mutationBase.ok) throw new Error('Coherent mutation base was not retained.');
@@ -1695,7 +1695,7 @@ describe('ResidentProjectWorkspaceSession', () => {
       { affectedPaths: ['/assets/image'] },
     );
 
-    expect(await fileSystem.readText(`${ROOT}/traits.json`)).toBe('{ invalid json');
+    expect(await fileSystem.readText(`${ROOT}/traits.yaml`)).toBe('{ invalid json');
     expect(await workspace.hasResidentSession(ROOT)).toBe(true);
   });
 
@@ -1749,8 +1749,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(reopened.snapshot.project.assets.image.data.source.path).toBe('assets/original.png');
     expect(probe.requests.slice(2)).toEqual([
       null,
-      ['project.json', 'editor.json', 'traits.json', 'assets/replaced.png'],
-      ['project.json', 'editor.json', 'traits.json', 'assets/original.png'],
+      ['project.yaml', 'editor.yaml', 'traits.yaml', 'assets/replaced.png'],
+      ['project.yaml', 'editor.yaml', 'traits.yaml', 'assets/original.png'],
     ]);
     expect(await workspace.verifyReadAuthority(reopened.snapshot)).toBe(true);
     expect(probe.requests.at(-1)).toBeNull();
@@ -1766,14 +1766,14 @@ describe('ResidentProjectWorkspaceSession', () => {
     const reopened = await workspace.open(ROOT);
     expect(reopened.ok).toBe(true);
     expect(probe.requests.at(-1)).toEqual([
-      'project.json',
-      'editor.json',
-      'traits.json',
+      'project.yaml',
+      'editor.yaml',
+      'traits.yaml',
       'assets/original.png',
     ]);
   });
 
-  it('widens validation when Trait membership changes inside traits.json', async () => {
+  it('widens validation when Trait membership changes inside traits.yaml', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.traits.legacy = {
       id: 'legacy',
@@ -1798,25 +1798,22 @@ describe('ResidentProjectWorkspaceSession', () => {
     const changed = cloneAuthoringProject(project);
     delete changed.traits.legacy;
     changed.traits['new-trait'] = {
-      id: 'different-id',
+      id: 'new-trait',
       label: 'New Trait',
       ownerKinds: ['room'],
       properties: [],
     };
     await fileSystem.writeTextAtomic(
-      `${ROOT}/traits.json`,
-      projectWorkspaceFiles(changed, changed.editor)['traits.json']!,
+      `${ROOT}/traits.yaml`,
+      projectWorkspaceFiles(changed, changed.editor)['traits.yaml']!,
     );
-    probe.change('traits.json');
+    probe.change('traits.yaml');
 
     const reopened = await workspace.open(ROOT);
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) throw new Error('Trait membership reconciliation failed.');
-    expect(reopened.diagnostics).toContainEqual(
-      expect.objectContaining({
-        path: '/traits/new-trait/id',
-        message: expect.stringContaining("must match map key 'new-trait'"),
-      }),
+    expect(reopened.diagnostics.some((diagnostic) => diagnostic.path.startsWith('/traits'))).toBe(
+      false,
     );
     expect(reopened.validationContributions.map((entry) => entry.key)).toContain(
       'workspace:trait-definition:new-trait',
@@ -1838,7 +1835,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     ).toBe(false);
   });
 
-  it('widens validation when Interactable Instance membership changes inside project.json', async () => {
+  it('widens validation when Interactable Instance membership changes inside project.yaml', async () => {
     const project = createAuthoringProject({ id: 'resident-session', name: 'Resident Session' });
     project.interactables.box = {
       id: 'box',
@@ -1864,10 +1861,10 @@ describe('ResidentProjectWorkspaceSession', () => {
       inventory: { owner: { kind: 'project' }, inventoryId: 'missing' },
     });
     await fileSystem.writeTextAtomic(
-      `${ROOT}/project.json`,
-      projectWorkspaceFiles(changed, changed.editor)['project.json']!,
+      `${ROOT}/project.yaml`,
+      projectWorkspaceFiles(changed, changed.editor)['project.yaml']!,
     );
-    probe.change('project.json');
+    probe.change('project.yaml');
 
     const reopened = await workspace.open(ROOT);
     expect(reopened.ok).toBe(true);
@@ -3194,8 +3191,8 @@ describe('ResidentProjectWorkspaceSession', () => {
         .relativePath(ROOT, fileSystem.resolvePath(value))
         .replaceAll('\\', '/');
       if (
-        relative === 'project.json' ||
-        relative === 'traits.json' ||
+        relative === 'project.yaml' ||
+        relative === 'traits.yaml' ||
         relative.startsWith('records/')
       )
         authoredReads += 1;

@@ -2,6 +2,7 @@ import fs from 'node:fs';
 import http from 'node:http';
 import os from 'node:os';
 import path from 'node:path';
+import { parse as parseYaml } from 'yaml';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
 import { runNovelTeaCli } from '../../cli/application';
 import {
@@ -178,7 +179,7 @@ function writeUserConfig(configRoot: string, defaultWorkflows: Record<string, st
 function writeProject(root: string) {
   fs.mkdirSync(root, { recursive: true });
   fs.writeFileSync(
-    path.join(root, 'project.json'),
+    path.join(root, 'project.yaml'),
     `${JSON.stringify({ schema: 'noveltea.project.workspace', schemaVersion: 1 })}\n`,
   );
 }
@@ -1104,8 +1105,8 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
         );
         if (edited) return;
         edited = true;
-        const projectFile = path.join(root, 'project.json');
-        const document = JSON.parse(fs.readFileSync(projectFile, 'utf8')) as {
+        const projectFile = path.join(root, 'project.yaml');
+        const document = parseYaml(fs.readFileSync(projectFile, 'utf8')) as {
           project: { name: string };
         };
         document.project.name = 'Edited During Generation';
@@ -1121,7 +1122,7 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
     });
     expect(result.exitCode).toBe(0);
     expect(writerLockObserved).toBe(false);
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8'))).toMatchObject({
+    expect(parseYaml(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8'))).toMatchObject({
       project: { name: 'Edited During Generation' },
     });
   });
@@ -1134,7 +1135,7 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
     writePackage(userRoot);
     const server = await fakeComfyUi({
       completeAfterHistoryCalls: 1,
-      onPrompt: () => fs.rmSync(path.join(root, 'project.json')),
+      onPrompt: () => fs.rmSync(path.join(root, 'project.yaml')),
     });
     const argv = runArguments(server.url, 'ignored.png').filter(
       (value, index, values) => value !== '--output' && values[index - 1] !== '--output',

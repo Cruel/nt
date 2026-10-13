@@ -61,7 +61,7 @@ function loadTimelineScene() {
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock',
-    projectFilePath: '/mock/project.json',
+    projectFilePath: '/mock/project.yaml',
   });
   return project;
 }
@@ -73,7 +73,7 @@ describe('SceneEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<SceneEditor tab={tab} />);
     expect(screen.getByTestId('scene-derived-preview')).toHaveAttribute(
@@ -117,7 +117,7 @@ describe('SceneEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<SceneEditor tab={tab} />);

@@ -136,9 +136,9 @@ function semanticMembershipChanged(
   before: AuthoringProject,
   after: AuthoringProject,
 ): boolean {
-  if (paths.includes('traits.json') && membershipChanged(before.traits, after.traits)) return true;
+  if (paths.includes('traits.yaml') && membershipChanged(before.traits, after.traits)) return true;
   if (
-    paths.includes('project.json') &&
+    paths.includes('project.yaml') &&
     (membershipChanged(before.interactableInstances, after.interactableInstances) ||
       before.settings.cursors.named.length !== after.settings.cursors.named.length ||
       before.settings.cursors.named.some(
@@ -246,7 +246,7 @@ export function classifyWorkspaceEditEffects(
     paths.filter((path) => layoutSourceIsNonLocalizing(before, after, path)),
   );
   const nameOnly =
-    paths.length === 1 && paths[0] === 'project.json' && projectNameOnly(before, after);
+    paths.length === 1 && paths[0] === 'project.yaml' && projectNameOnly(before, after);
   const stableMessages = every((path) => path === MESSAGES) && namedBindingsStable(before, after);
   let localizationPhases: readonly LocalizationPhase[] = phases;
   if (
@@ -254,7 +254,7 @@ export function classifyWorkspaceEditEffects(
     every((path) => nonLocalizingSources.has(path)) ||
     every(
       (path) =>
-        path === 'editor.json' || path === NOTES || /^i18n\/assets\/[^/]+\.json$/u.test(path),
+        path === 'editor.yaml' || path === NOTES || /^i18n\/assets\/[^/]+\.json$/u.test(path),
     )
   )
     localizationPhases = [];
@@ -268,15 +268,15 @@ export function classifyWorkspaceEditEffects(
     before !== after &&
     !every((path) => {
       if (
-        path === 'editor.json' ||
+        path === 'editor.yaml' ||
         nonLocalizingSources.has(path) ||
         path === ORPHANS ||
         path === NOTES ||
         /^i18n\/assets\/[^/]+\.json$/u.test(path)
       )
         return true;
-      if (path === 'traits.json') return equal(before.traits, after.traits);
-      if (path === 'project.json')
+      if (path === 'traits.yaml') return equal(before.traits, after.traits);
+      if (path === 'project.yaml')
         return equal(
           [
             before.settings,

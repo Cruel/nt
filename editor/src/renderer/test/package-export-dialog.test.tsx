@@ -96,7 +96,7 @@ function renderExport(
       onOpenChange={vi.fn()}
       project={project}
       projectRoot="/project"
-      projectFilePath="/project/project.json"
+      projectFilePath="/project/project.yaml"
     />,
   );
 }
@@ -199,7 +199,7 @@ describe('PackageExportDialog', () => {
       expect(
         usePreferencesStore.getState().exportPreferences.profileOutputDirectories,
       ).toMatchObject({
-        '/project/project.json::runtime-package': '/project/custom/dialog-export.ntpkg',
+        '/project/project.yaml::runtime-package': '/project/custom/dialog-export.ntpkg',
       }),
     );
   });
@@ -209,7 +209,7 @@ describe('PackageExportDialog', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     renderExport(project, 'platform');
 
@@ -241,7 +241,7 @@ describe('PackageExportDialog', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     renderExport(project, 'platform');
 
@@ -265,7 +265,7 @@ describe('PackageExportDialog', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     renderExport(project, 'platform');
 
@@ -291,7 +291,7 @@ describe('PackageExportDialog', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/project',
-      projectFilePath: '/project/project.json',
+      projectFilePath: '/project/project.yaml',
     });
     renderExport(project, 'platform');
 
@@ -391,7 +391,7 @@ describe('PackageExportDialog', () => {
     fireEvent.click(await screen.findByRole('button', { name: /Windows/ }));
     expect(screen.getByRole('heading', { name: 'Windows' })).toBeInTheDocument();
     expect(usePreferencesStore.getState().exportPreferences.selectedProfileIds).toMatchObject({
-      '/project/project.json': windows.id,
+      '/project/project.yaml': windows.id,
     });
     first.unmount();
 

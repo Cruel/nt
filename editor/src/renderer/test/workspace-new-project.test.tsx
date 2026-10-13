@@ -142,20 +142,20 @@ beforeEach(() => {
     ok: true,
     success: true,
     projectPath: '/home/test/Documents/NovelTea/my-story',
-    projectFilePath: '/home/test/Documents/NovelTea/my-story/project.json',
+    projectFilePath: '/home/test/Documents/NovelTea/my-story/project.yaml',
     projectSessionId: 'created-project-session',
   });
   vi.mocked(window.noveltea.takePendingProjectImport).mockResolvedValue(null);
   vi.mocked(window.noveltea.completeProjectImport).mockResolvedValue({
     success: true,
     projectPath: '/home/test/Documents/NovelTea/verbs-example',
-    projectFilePath: '/home/test/Documents/NovelTea/verbs-example/project.json',
+    projectFilePath: '/home/test/Documents/NovelTea/verbs-example/project.yaml',
   });
   vi.mocked(window.noveltea.openProject).mockResolvedValue({
     ok: true,
     success: true,
     projectPath: '/home/test/Documents/NovelTea/my-story',
-    projectFilePath: '/home/test/Documents/NovelTea/my-story/project.json',
+    projectFilePath: '/home/test/Documents/NovelTea/my-story/project.yaml',
     projectSessionId: 'opened-project-session',
     contentProject: stripEditorProjectState(
       createAuthoringProject({ id: 'my-story', name: 'My Story' }),
@@ -182,7 +182,7 @@ beforeEach(() => {
 describe('WorkspacePage new project modal', () => {
   it('offers one dismissible media batch, preserves manual discovery, and notifies on new revisions', async () => {
     const project = createAuthoringProject({ id: 'my-story', name: 'My Story' });
-    const projectFilePath = '/mock/project/project.json';
+    const projectFilePath = '/mock/project/project.yaml';
     useProjectStore.getState().loadProjectDocument({
       document: project,
       savedDocument: project,
@@ -325,7 +325,7 @@ describe('WorkspacePage new project modal', () => {
       ok: true,
       success: true,
       projectPath: '/home/test/Documents/NovelTea/verbs-example',
-      projectFilePath: '/home/test/Documents/NovelTea/verbs-example/project.json',
+      projectFilePath: '/home/test/Documents/NovelTea/verbs-example/project.yaml',
       projectSessionId: 'imported-project-session',
       contentProject: stripEditorProjectState(
         createAuthoringProject({ id: 'verbs-example', name: 'Verbs Example' }),
@@ -376,13 +376,13 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       savedDocument: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
 
     render(<WorkspacePage />);
@@ -423,13 +423,13 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       savedDocument: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
 
     render(<WorkspacePage />);
@@ -487,13 +487,13 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       savedDocument: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
 
     render(<WorkspacePage />);
@@ -575,13 +575,13 @@ describe('WorkspacePage new project modal', () => {
       document: project,
       savedDocument: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
 
     render(<WorkspacePage />);
@@ -632,12 +632,12 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
 
     render(<WorkspacePage />);
@@ -666,7 +666,7 @@ describe('WorkspacePage new project modal', () => {
       ok: true,
       success: false,
       projectPath: '/home/test/legacy-project',
-      projectFilePath: '/home/test/legacy-project/project.json',
+      projectFilePath: '/home/test/legacy-project/project.yaml',
       diagnostics: [
         {
           severity: 'error',
@@ -678,7 +678,7 @@ describe('WorkspacePage new project modal', () => {
     });
 
     render(<WorkspacePage />);
-    dispatchOpenProject('/home/test/legacy-project/project.json');
+    dispatchOpenProject('/home/test/legacy-project/project.yaml');
 
     await waitFor(() =>
       expect(useWorkspaceStore.getState().statusMessage).toBe('Unsupported project schema'),
@@ -709,7 +709,7 @@ describe('WorkspacePage new project modal', () => {
     });
     vi.mocked(window.noveltea.openProject).mockRejectedValueOnce(
       new Error(
-        "ENOENT: no such file or directory, open '/home/test/missing-project/project.json'",
+        "ENOENT: no such file or directory, open '/home/test/missing-project/project.yaml'",
       ),
     );
 
@@ -742,12 +742,12 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     render(<WorkspacePage />);
     const shortcutHandler = vi.mocked(window.noveltea.onEditorShortcut).mock.calls.at(-1)?.[0];
@@ -766,13 +766,13 @@ describe('WorkspacePage new project modal', () => {
         document: project,
         savedDocument: project,
         projectPath: '/mock/project',
-        projectFilePath: '/mock/project/project.json',
+        projectFilePath: '/mock/project/project.yaml',
         projectSessionId: 'opened-project-session',
       });
       useWorkspaceStore.setState({
         project,
         projectPath: '/mock/project',
-        projectFilePath: '/mock/project/project.json',
+        projectFilePath: '/mock/project/project.yaml',
       });
       const settingsTab = buildProjectSettingsTab();
       useWorkbenchStore.getState().openTab(settingsTab);
@@ -810,13 +810,13 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     const settingsTab = buildProjectSettingsTab();
     useWorkbenchStore.getState().openTab(settingsTab);
@@ -897,11 +897,11 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: createAuthoringProject({ id: 'my-story', name: 'My Story' }),
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       project: createAuthoringProject({ id: 'my-story', name: 'My Story' }),
     });
     useComfyUiStore.setState((state) => ({
@@ -935,12 +935,12 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       project,
     });
     render(<WorkspacePage />);
@@ -954,7 +954,7 @@ describe('WorkspacePage new project modal', () => {
         progressValue: null,
         progressMax: null,
         message: 'Running',
-        projectFilePath: '/mock/project/project.json',
+        projectFilePath: '/mock/project/project.yaml',
       }),
     );
     act(() => {
@@ -978,12 +978,12 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       project,
     });
     render(<WorkspacePage />);
@@ -997,7 +997,7 @@ describe('WorkspacePage new project modal', () => {
         progressValue: null,
         progressMax: null,
         message: 'Running',
-        projectFilePath: '/mock/project/project.json',
+        projectFilePath: '/mock/project/project.yaml',
       }),
     );
     dispatchOpenProject('/mock/next-project');
@@ -1019,12 +1019,12 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       project,
     });
     useCommandStore.getState().executeCommand({
@@ -1056,7 +1056,7 @@ describe('WorkspacePage new project modal', () => {
           }),
         }),
       }),
-      { 'project:settings': ['project.json'] },
+      { 'project:settings': ['project.yaml'] },
     );
   });
 
@@ -1065,18 +1065,18 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       project,
     });
     useRecentProjectsStore.setState({
       recentProjects: [
         {
           projectPath: '/mock/project',
-          projectFilePath: '/mock/project/project.json',
+          projectFilePath: '/mock/project/project.yaml',
           label: 'Old Name',
           openedAt: 1,
         },
@@ -1113,12 +1113,12 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       project,
     });
     vi.mocked(window.noveltea.saveProjectEditorMetadata).mockResolvedValue({
@@ -1158,12 +1158,12 @@ describe('WorkspacePage new project modal', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opened-project-session',
     });
     useWorkspaceStore.setState({
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       project,
     });
     let beforeClose: ((request: { terminalRiskCount: number }) => void) | null = null;
@@ -1218,12 +1218,12 @@ describe('WorkspacePage new project modal', () => {
       useProjectStore.getState().loadProjectDocument({
         document: project,
         projectPath: '/mock/project',
-        projectFilePath: '/mock/project/project.json',
+        projectFilePath: '/mock/project/project.yaml',
         projectSessionId: 'opened-project-session',
       });
       useWorkspaceStore.setState({
         projectPath: '/mock/project',
-        projectFilePath: '/mock/project/project.json',
+        projectFilePath: '/mock/project/project.yaml',
         project,
       });
       render(<WorkspacePage />);
@@ -1270,7 +1270,7 @@ describe('WorkspacePage new project modal', () => {
             }),
           }),
         }),
-        { 'project:settings': ['project.json'] },
+        { 'project:settings': ['project.yaml'] },
       );
       await act(async () => {
         vi.advanceTimersByTime(500);
@@ -1329,7 +1329,7 @@ describe('WorkspacePage new project modal', () => {
     );
     await waitFor(() =>
       expect(useProjectStore.getState().projectFilePath).toBe(
-        '/home/test/Documents/NovelTea/my-story/project.json',
+        '/home/test/Documents/NovelTea/my-story/project.yaml',
       ),
     );
     expect(useProjectStore.getState().projectSessionId).toBe('opened-project-session');

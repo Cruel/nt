@@ -1,3 +1,4 @@
+import { parse as parseYaml } from 'yaml';
 import fs from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
@@ -52,7 +53,7 @@ describe('project-file-service workspace-v1', () => {
     const projectDirectory = path.join(root, 'my-project');
     const result = await createProject({ projectName: 'My Project', projectDirectory });
     expect(result.success).toBe(true);
-    expect(fs.existsSync(path.join(projectDirectory, 'project.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'project.yaml'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'properties.json'))).toBe(false);
     expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(false);
     expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'project.json'))).toBe(true);
@@ -60,7 +61,7 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'usage-notes.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'tracking.json'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'orphans.json'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDirectory, 'editor.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'editor.yaml'))).toBe(true);
     expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toBe(
       '/.noveltea/\n/dist/\n',
     );
@@ -111,22 +112,22 @@ describe('project-file-service workspace-v1', () => {
     const opened = await service.open(root);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    const beforeEditor = fs.readFileSync(path.join(root, 'editor.json'), 'utf8');
+    const beforeEditor = fs.readFileSync(path.join(root, 'editor.yaml'), 'utf8');
     const candidate = {
       ...opened.snapshot.project,
       project: { ...opened.snapshot.project.project, name: 'After' },
     };
     const result = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       opened.snapshot.workspaceRevision,
       candidate,
       opened.editorState,
     );
     expect(result.success).toBe(true);
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
+    expect(parseYaml(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8')).project.name).toBe(
       'After',
     );
-    expect(fs.readFileSync(path.join(root, 'editor.json'), 'utf8')).toBe(beforeEditor);
+    expect(fs.readFileSync(path.join(root, 'editor.yaml'), 'utf8')).toBe(beforeEditor);
   });
 
   it('does not write project content when active-session authority is lost before commit', async () => {
@@ -136,7 +137,7 @@ describe('project-file-service workspace-v1', () => {
     const opened = await service.open(root);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    const before = fs.readFileSync(path.join(root, 'project.json'), 'utf8');
+    const before = fs.readFileSync(path.join(root, 'project.yaml'), 'utf8');
     const candidate = structuredClone(opened.snapshot.project);
     candidate.project.name = 'Must Not Commit';
     let authorityChecks = 0;
@@ -157,7 +158,7 @@ describe('project-file-service workspace-v1', () => {
     expect(result.success).toBe(false);
     expect(result.error).toBe('Project session is stale or unknown.');
     expect(authorityChecks).toBe(2);
-    expect(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).toBe(before);
+    expect(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8')).toBe(before);
   });
 
   it('persists a scoped Room record save to its segmented record file', async () => {
@@ -188,7 +189,7 @@ describe('project-file-service workspace-v1', () => {
     candidate.rooms.hall!.description = 'After';
 
     const result = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       opened.snapshot.workspaceRevision,
       candidate,
       opened.editorState,
@@ -208,7 +209,7 @@ describe('project-file-service workspace-v1', () => {
 
     expect(result.success).toBe(true);
     expect(
-      JSON.parse(fs.readFileSync(path.join(root, 'records/rooms/hall.json'), 'utf8')),
+      parseYaml(fs.readFileSync(path.join(root, 'records/rooms/hall.json'), 'utf8')),
     ).toMatchObject({ description: 'After' });
   });
 
@@ -339,16 +340,16 @@ describe('project-file-service workspace-v1', () => {
       expect(revisionSpy).toHaveBeenCalled();
       expect(
         revisionSpy.mock.calls.map(([file]) => path.relative(root, file).replaceAll(path.sep, '/')),
-      ).toEqual(expect.arrayContaining(['project.json']));
+      ).toEqual(expect.arrayContaining(['project.yaml']));
       expect(
         revisionSpy.mock.calls.every(
-          ([file]) => path.relative(root, file).replaceAll(path.sep, '/') === 'project.json',
+          ([file]) => path.relative(root, file).replaceAll(path.sep, '/') === 'project.yaml',
         ),
       ).toBe(true);
-      expect(
-        JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name,
-      ).toBe('Saved');
-      expect(await filterExternallyChangedAuthoringPaths(session, ['project.json'])).toEqual([]);
+      expect(parseYaml(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8')).project.name).toBe(
+        'Saved',
+      );
+      expect(await filterExternallyChangedAuthoringPaths(session, ['project.yaml'])).toEqual([]);
     } finally {
       openSpy.mockRestore();
       revisionSpy.mockRestore();
@@ -447,7 +448,7 @@ describe('project-file-service workspace-v1', () => {
     expect(session.project().rooms.hall!.data.exits).toHaveLength(1);
   });
 
-  it('returns actual structural target revisions and advances a shared editor.json recovery baseline', async () => {
+  it('returns actual structural target revisions and advances a shared editor.yaml recovery baseline', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Structural recovery revision', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
@@ -469,7 +470,7 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const session = ActiveProjectWorkspaceSession.fromOpened(opened);
-    const editorRevisionBefore = opened.snapshot.fileRevisions['editor.json']!.contentHash;
+    const editorRevisionBefore = opened.snapshot.fileRevisions['editor.yaml']!.contentHash;
     const editorState = structuredClone(opened.editorState);
     delete editorState.recordMetadata.rooms!.hall;
     editorState.recovery = {
@@ -487,7 +488,7 @@ describe('project-file-service workspace-v1', () => {
           affectedPaths: ['/editor/tags'],
           pendingRawInputByPath: {},
           atomicTransactionGroupIds: [],
-          baselineFileRevisions: { 'editor.json': editorRevisionBefore },
+          baselineFileRevisions: { 'editor.yaml': editorRevisionBefore },
         },
       },
     };
@@ -508,7 +509,7 @@ describe('project-file-service workspace-v1', () => {
           '/rooms/hall': { exists: false },
           '/editor/recordMetadata/rooms/hall': { exists: false },
         },
-        recoveryFileOwnershipHints: { 'project:tags': ['editor.json'] },
+        recoveryFileOwnershipHints: { 'project:tags': ['editor.yaml'] },
         operationLabel: 'delete Room hall',
         structural: true,
       },
@@ -516,15 +517,15 @@ describe('project-file-service workspace-v1', () => {
     );
 
     expect(result.success).toBe(true);
-    const editorRevisionAfter = session.snapshot().fileRevisions['editor.json']!.contentHash;
+    const editorRevisionAfter = session.snapshot().fileRevisions['editor.yaml']!.contentHash;
     expect(editorRevisionAfter).not.toBe(editorRevisionBefore);
     expect(result.fileRevisions).toMatchObject({
-      'editor.json': editorRevisionAfter,
+      'editor.yaml': editorRevisionAfter,
       'records/rooms/hall.json': 'absent',
     });
     expect(
       result.editorState?.recovery.saveUnitsById['project:tags']?.baselineFileRevisions?.[
-        'editor.json'
+        'editor.yaml'
       ],
     ).toBe(editorRevisionAfter);
   });
@@ -704,7 +705,7 @@ describe('project-file-service workspace-v1', () => {
       .spyOn(NodeProjectWorkspaceFileSystem.prototype, 'readFileRevision')
       .mockRejectedValueOnce(missing);
     try {
-      expect(await session.readFreshRevision('project.json')).toBe('absent');
+      expect(await session.readFreshRevision('project.yaml')).toBe('absent');
     } finally {
       inspectSpy.mockRestore();
       revisionSpy.mockRestore();
@@ -790,7 +791,7 @@ describe('project-file-service workspace-v1', () => {
     await session.captureAuthoringFileStamps();
     const openSpy = vi.spyOn(session.service(), 'open').mockResolvedValueOnce({
       ok: false,
-      diagnostics: [{ severity: 'error', path: '/project.json', message: 'forced failure' }],
+      diagnostics: [{ severity: 'error', path: '/project.yaml', message: 'forced failure' }],
     } as never);
 
     session.markResyncNeeded();
@@ -799,12 +800,12 @@ describe('project-file-service workspace-v1', () => {
     expect(session.invalidAuthoringSources()).toEqual(['*']);
     expect(session.coherenceState()).toBe('invalid');
 
-    const knownRevision = session.knownFileRevision('project.json');
+    const knownRevision = session.knownFileRevision('project.yaml');
     expect(knownRevision).toBeDefined();
-    expect(session.requiresAuthoringReassembly('project.json', knownRevision!)).toBe(true);
+    expect(session.requiresAuthoringReassembly('project.yaml', knownRevision!)).toBe(true);
 
     openSpy.mockRestore();
-    expect((await session.reassemble(['project.json'])).ok).toBe(true);
+    expect((await session.reassemble(['project.yaml'])).ok).toBe(true);
     expect(session.invalidAuthoringSources()).toEqual([]);
     expect(session.coherenceState()).toBe('coherent');
   });
@@ -823,7 +824,7 @@ describe('project-file-service workspace-v1', () => {
     await session.captureAuthoringFileStamps();
     const openSpy = vi.spyOn(session.service(), 'open').mockResolvedValueOnce({
       ok: false,
-      diagnostics: [{ severity: 'error', path: '/project.json', message: 'forced failure' }],
+      diagnostics: [{ severity: 'error', path: '/project.yaml', message: 'forced failure' }],
     } as never);
 
     session.markResyncNeeded();
@@ -840,7 +841,7 @@ describe('project-file-service workspace-v1', () => {
     expect(session.coherenceState()).toBe('coherent');
   });
 
-  it('blocks all tracked mutations while project.json is invalid', async () => {
+  it('blocks all tracked mutations while project.yaml is invalid', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Invalid manifest scope', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
@@ -848,8 +849,8 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const session = ActiveProjectWorkspaceSession.fromOpened(opened);
-    fs.writeFileSync(path.join(root, 'project.json'), '{ invalid json');
-    expect((await session.reassemble(['project.json'])).ok).toBe(false);
+    fs.writeFileSync(path.join(root, 'project.yaml'), '{ invalid json');
+    expect((await session.reassemble(['project.yaml'])).ok).toBe(false);
 
     const result = await saveActiveProjectContent(
       session,
@@ -888,8 +889,8 @@ describe('project-file-service workspace-v1', () => {
     });
     expect(openSpy).not.toHaveBeenCalled();
 
-    const before = fs.readFileSync(path.join(root, 'project.json'), 'utf8');
-    const parsed = JSON.parse(before) as { project: { name: string } };
+    const before = fs.readFileSync(path.join(root, 'project.yaml'), 'utf8');
+    const parsed = parseYaml(before) as { project: { name: string } };
     parsed.project.name = 'Recovery After';
     const after = `${JSON.stringify(parsed, null, 2)}\n`;
     const digest = (text: string) =>
@@ -912,7 +913,7 @@ describe('project-file-service workspace-v1', () => {
           operationLabel: 'interrupted test',
           targets: [
             {
-              path: 'project.json',
+              path: 'project.yaml',
               operation: 'write',
               beforeRevision: digest(before),
               afterRevision: digest(after),
@@ -929,7 +930,7 @@ describe('project-file-service workspace-v1', () => {
 
     const recovered = await session.recoverPendingTransactions();
     expect(recovered.recovered).toBe(true);
-    expect(recovered.changedPaths).toEqual(['project.json']);
+    expect(recovered.changedPaths).toEqual(['project.yaml']);
     expect(recovered.opened?.ok && recovered.opened.snapshot.project.project.name).toBe(
       'Recovery After',
     );
@@ -999,9 +1000,9 @@ describe('project-file-service workspace-v1', () => {
     const opened = await service.open(root);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    const projectPath = path.join(root, 'project.json');
+    const projectPath = path.join(root, 'project.yaml');
     const roomPath = path.join(root, 'records/rooms/hall.json');
-    const invalidRoom = JSON.parse(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
+    const invalidRoom = parseYaml(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
     delete invalidRoom.data;
     fs.writeFileSync(roomPath, `${JSON.stringify(invalidRoom, null, 2)}\n`);
     const candidate = structuredClone(opened.snapshot.project);
@@ -1028,7 +1029,7 @@ describe('project-file-service workspace-v1', () => {
     );
 
     expect(result.success).toBe(false);
-    expect(JSON.parse(fs.readFileSync(projectPath, 'utf8')).project.name).toBe('Fail Closed');
+    expect(parseYaml(fs.readFileSync(projectPath, 'utf8')).project.name).toBe('Fail Closed');
   });
 
   it('does not manufacture an external conflict when an asset memory policy is edited after saving', async () => {
@@ -1070,7 +1071,7 @@ describe('project-file-service workspace-v1', () => {
     );
     expect(firstSave.success).toBe(true);
 
-    expect(await filterExternallyChangedAuthoringPaths(session, ['project.json'])).toEqual([]);
+    expect(await filterExternallyChangedAuthoringPaths(session, ['project.yaml'])).toEqual([]);
 
     const secondPolicy = {
       ...firstPolicy,
@@ -1098,12 +1099,12 @@ describe('project-file-service workspace-v1', () => {
       },
     };
     const persistedRecovery = await session.persistEditorState(recoveryState, {
-      'project:settings': ['project.json'],
+      'project:settings': ['project.yaml'],
     });
     expect(
       persistedRecovery.recovery.saveUnitsById['project:settings']?.baselineFileRevisions,
     ).toEqual({
-      'project.json': session.knownFileRevision('project.json'),
+      'project.yaml': session.knownFileRevision('project.yaml'),
     });
 
     const secondSave = await saveActiveProjectContent(
@@ -1118,14 +1119,14 @@ describe('project-file-service workspace-v1', () => {
           '/export/assetMemoryPolicies': { exists: true, value: [secondPolicy] },
         },
         operationLabel: 'update asset memory policy',
-        recoveryFileOwnershipHints: { 'project:settings': ['project.json'] },
+        recoveryFileOwnershipHints: { 'project:settings': ['project.yaml'] },
       },
       persistedRecovery,
     );
 
     expect(secondSave.success).toBe(true);
     expect(
-      JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).export
+      parseYaml(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8')).export
         .assetMemoryPolicies,
     ).toEqual([secondPolicy]);
   });
@@ -1155,14 +1156,14 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const roomPath = path.join(root, 'records/rooms/hall.json');
-    const external = JSON.parse(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
+    const external = parseYaml(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
     external.label = 'External Hall';
     fs.writeFileSync(roomPath, `${JSON.stringify(external, null, 2)}\n`);
     const candidate = structuredClone(opened.snapshot.project);
     candidate.rooms.hall!.description = 'Local description';
 
     const result = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       opened.snapshot.workspaceRevision,
       candidate,
       opened.editorState,
@@ -1182,7 +1183,7 @@ describe('project-file-service workspace-v1', () => {
     );
 
     expect(result.success).toBe(true);
-    const persisted = JSON.parse(fs.readFileSync(roomPath, 'utf8')) as {
+    const persisted = parseYaml(fs.readFileSync(roomPath, 'utf8')) as {
       label: string;
       description: string;
     };
@@ -1228,7 +1229,7 @@ describe('project-file-service workspace-v1', () => {
     ) as Record<string, `sha256:${string}`>;
 
     const result = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       opened.snapshot.workspaceRevision,
       candidate,
       opened.editorState,
@@ -1243,12 +1244,12 @@ describe('project-file-service workspace-v1', () => {
 
     expect(result.success).toBe(true);
     expect(
-      JSON.parse(fs.readFileSync(path.join(root, 'records/rooms/bedroom.json'), 'utf8')).data
+      parseYaml(fs.readFileSync(path.join(root, 'records/rooms/bedroom.json'), 'utf8')).data
         .description.source.text,
     ).toBe('Changed in editor');
   });
 
-  it('persists only local editor state outside tracked editor.json', async () => {
+  it('persists only local editor state outside tracked editor.yaml', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Metadata', projectDirectory: root });
     const service = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
@@ -1273,21 +1274,21 @@ describe('project-file-service workspace-v1', () => {
               externalValueByPath: { '/project/name': { exists: true as const, value: 'Disk' } },
               conflictingPaths: ['/project/name'],
               externalFileRevisions: {
-                'project.json': opened.snapshot.fileRevisions['project.json']!.contentHash,
+                'project.yaml': opened.snapshot.fileRevisions['project.yaml']!.contentHash,
               },
             },
           },
         },
       },
     };
-    const result = await saveProjectEditorMetadata(path.join(root, 'project.json'), state);
+    const result = await saveProjectEditorMetadata(path.join(root, 'project.yaml'), state);
     expect(result.success).toBe(true);
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8'))).toEqual({
-      chapters: { assignments: {}, records: {} },
+    expect(parseYaml(fs.readFileSync(path.join(root, 'editor.yaml'), 'utf8'))).toEqual({
+      chapters: {},
       recordMetadata: {},
-      tags: { records: {} },
+      tags: {},
     });
-    const persistedLocalState = JSON.parse(
+    const persistedLocalState = parseYaml(
       fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8'),
     );
     expect(persistedLocalState).not.toHaveProperty('workspaceRevision');
@@ -1317,22 +1318,23 @@ describe('project-file-service workspace-v1', () => {
       });
   });
 
-  it('merges disjoint logical editor.json owners during a granular save', async () => {
+  it('merges disjoint logical editor.yaml owners during a granular save', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Organization', projectDirectory: root });
     const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
     const opened = await workspace.open(root);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    const external = JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8')) as {
+    const external = parseYaml(fs.readFileSync(path.join(root, 'editor.yaml'), 'utf8')) as {
       tags: { records: Record<string, unknown> };
     };
+    external.tags.records ??= {};
     external.tags.records.external = { name: 'External', color: '#123456' };
-    fs.writeFileSync(path.join(root, 'editor.json'), `${JSON.stringify(external, null, 2)}\n`);
+    fs.writeFileSync(path.join(root, 'editor.yaml'), `${JSON.stringify(external, null, 2)}\n`);
     const editorState = structuredClone(opened.editorState);
     editorState.chapters.records.story = { id: 'story', label: 'Story' };
     const result = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       opened.snapshot.workspaceRevision,
       opened.contentProject,
       editorState,
@@ -1350,7 +1352,7 @@ describe('project-file-service workspace-v1', () => {
       },
     );
     expect(result.success).toBe(true);
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8'))).toMatchObject({
+    expect(parseYaml(fs.readFileSync(path.join(root, 'editor.yaml'), 'utf8'))).toMatchObject({
       chapters: { records: { story: { label: 'Story' } } },
       tags: { records: { external: { name: 'External' } } },
     });
@@ -1358,7 +1360,7 @@ describe('project-file-service workspace-v1', () => {
     const conflictingTags = structuredClone(opened.editorState);
     conflictingTags.tags.records.local = { name: 'Local', color: '#654321' };
     const conflictingResult = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       result.workspaceRevision!,
       opened.contentProject,
       conflictingTags,
@@ -1372,7 +1374,7 @@ describe('project-file-service workspace-v1', () => {
     );
     expect(conflictingResult.success).toBe(false);
     expect(conflictingResult.diagnostics?.[0]?.code).toBe('WORKSPACE_REVISION_CONFLICT');
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'editor.json'), 'utf8'))).toMatchObject({
+    expect(parseYaml(fs.readFileSync(path.join(root, 'editor.yaml'), 'utf8'))).toMatchObject({
       tags: { records: { external: { name: 'External' } } },
     });
   });
@@ -1385,21 +1387,21 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     fs.writeFileSync(
-      path.join(root, 'project.json'),
-      fs.readFileSync(path.join(root, 'project.json'), 'utf8').replace('Conflict', 'External'),
+      path.join(root, 'project.yaml'),
+      fs.readFileSync(path.join(root, 'project.yaml'), 'utf8').replace('Conflict', 'External'),
     );
     const openSpy = vi.spyOn(ProjectWorkspaceService.prototype, 'open');
     const result = await saveProjectEditorMetadata(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       emptyEditorProjectState(),
     );
     expect(result.success).toBe(true);
     expect(openSpy).not.toHaveBeenCalled();
     openSpy.mockRestore();
     expect(
-      JSON.parse(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8')),
+      parseYaml(fs.readFileSync(path.join(root, '.noveltea/editor/state.json'), 'utf8')),
     ).not.toHaveProperty('workspaceRevision');
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
+    expect(parseYaml(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8')).project.name).toBe(
       'External',
     );
   });
@@ -1411,15 +1413,15 @@ describe('project-file-service workspace-v1', () => {
     const opened = await workspace.open(root);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    const external = JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')) as {
+    const external = parseYaml(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8')) as {
       project: { name: string };
     };
     external.project.name = 'External';
-    fs.writeFileSync(path.join(root, 'project.json'), `${JSON.stringify(external, null, 2)}\n`);
+    fs.writeFileSync(path.join(root, 'project.yaml'), `${JSON.stringify(external, null, 2)}\n`);
     const candidate = structuredClone(opened.snapshot.project);
     candidate.project.name = 'Local';
     const result = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       opened.snapshot.workspaceRevision,
       candidate,
       opened.editorState,
@@ -1439,7 +1441,7 @@ describe('project-file-service workspace-v1', () => {
     );
     expect(result.success).toBe(false);
     expect(result.diagnostics?.[0]?.code).toBe('WORKSPACE_REVISION_CONFLICT');
-    expect(JSON.parse(fs.readFileSync(path.join(root, 'project.json'), 'utf8')).project.name).toBe(
+    expect(parseYaml(fs.readFileSync(path.join(root, 'project.yaml'), 'utf8')).project.name).toBe(
       'External',
     );
   });
@@ -1467,7 +1469,7 @@ describe('project-file-service workspace-v1', () => {
     renamed.scripts.after = { ...renamed.scripts.before!, id: 'after', label: 'After' };
     delete renamed.scripts.before;
     const result = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       loaded.snapshot.workspaceRevision,
       renamed,
       loaded.editorState,
@@ -1506,7 +1508,7 @@ describe('project-file-service workspace-v1', () => {
     const deleted = structuredClone(beforeDelete.snapshot.project);
     delete deleted.assets.logo;
     const deletedResult = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       beforeDelete.snapshot.workspaceRevision,
       deleted,
       beforeDelete.editorState,
@@ -1536,7 +1538,7 @@ describe('project-file-service workspace-v1', () => {
     expect(beforeRestore.ok).toBe(true);
     if (!beforeRestore.ok) return;
     const restoredResult = await saveProjectContent(
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       beforeRestore.snapshot.workspaceRevision,
       withAsset,
       beforeRestore.editorState,
@@ -1572,11 +1574,11 @@ describe('project-file-service workspace-v1', () => {
     fs.mkdirSync(path.join(root, '.noveltea', 'editor'), { recursive: true });
     fs.symlinkSync(outside, path.join(root, '.noveltea', 'editor', 'escape'));
     const state = emptyEditorProjectState();
-    const result = await saveProjectEditorMetadata(path.join(root, 'project.json'), state);
+    const result = await saveProjectEditorMetadata(path.join(root, 'project.yaml'), state);
     expect(result.success).toBe(true);
     fs.rmSync(path.join(root, '.noveltea', 'editor'), { recursive: true, force: true });
     fs.symlinkSync(outside, path.join(root, '.noveltea', 'editor'));
-    const rejected = await saveProjectEditorMetadata(path.join(root, 'project.json'), state);
+    const rejected = await saveProjectEditorMetadata(path.join(root, 'project.yaml'), state);
     expect(rejected.success).toBe(false);
     expect(fs.existsSync(path.join(outside, 'state.json'))).toBe(false);
   });
@@ -1732,7 +1734,7 @@ describe('project-file-service workspace-v1', () => {
 
     expect(result.success).toBe(false);
     expect(result.error).toContain('already contains NovelTea project state');
-    expect(fs.existsSync(path.join(destination, 'project.json'))).toBe(false);
+    expect(fs.existsSync(path.join(destination, 'project.yaml'))).toBe(false);
     expect(
       fs.readFileSync(path.join(destination, 'records', 'rooms', 'old-room.json'), 'utf8'),
     ).toBe('{}\n');
@@ -1775,7 +1777,7 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.readFileSync(path.join(destination, 'assets', 'logo.bin'), 'utf8')).toBe(
       'destination-bytes',
     );
-    expect(fs.existsSync(path.join(destination, 'project.json'))).toBe(false);
+    expect(fs.existsSync(path.join(destination, 'project.yaml'))).toBe(false);
     expect(fs.readFileSync(path.join(destination, 'README.md'), 'utf8')).toBe('keep me\n');
   });
 

@@ -715,7 +715,7 @@ export async function importPortableProjectBundle(
     await fileSystem.movePathAtomic(staging, destination);
     return {
       projectRoot: destination,
-      projectFilePath: fileSystem.joinPath(destination, 'project.json'),
+      projectFilePath: fileSystem.joinPath(destination, 'project.yaml'),
       manifest,
     };
   } catch (error) {

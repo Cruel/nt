@@ -304,11 +304,11 @@ describe('active Project session lifecycle', () => {
     const service = new ActiveProjectSessionService();
     await fs.symlink('.', path.join(projectA, 'alias'), 'dir');
 
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const refreshedSessionA = await service.activateProjectFile(
-      path.join(projectA, 'alias', 'project.json'),
+      path.join(projectA, 'alias', 'project.yaml'),
     );
-    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.json'));
+    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.yaml'));
 
     expect(sessionA).toMatch(/^[0-9a-f-]{36}$/u);
     expect(refreshedSessionA).toBe(sessionA);
@@ -344,7 +344,7 @@ describe('active Project session lifecycle', () => {
       {
         ok: false,
         success: false,
-        projectFilePath: path.join(projectB, 'project.json'),
+        projectFilePath: path.join(projectB, 'project.yaml'),
       },
       failedActivation,
     );
@@ -363,11 +363,11 @@ describe('active Project session lifecycle', () => {
     const projectA = await createWorkspace('preserved');
     const projectB = await createWorkspace('failed');
     const service = new ActiveProjectSessionService();
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
-    await fs.rm(path.join(projectB, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
+    await fs.rm(path.join(projectB, 'project.yaml'));
 
     await expect(
-      service.activateProjectFile(path.join(projectB, 'project.json')),
+      service.activateProjectFile(path.join(projectB, 'project.yaml')),
     ).rejects.toThrow();
 
     expect(service.currentSessionId()).toBe(sessionA);
@@ -375,7 +375,7 @@ describe('active Project session lifecycle', () => {
 
   it('refreshes admitted Asset metadata atomically and preserves it after a malformed candidate', async () => {
     const project = await createWorkspace('asset-snapshot');
-    const projectFilePath = path.join(project, 'project.json');
+    const projectFilePath = path.join(project, 'project.yaml');
     const opened = await openProject(project);
     if (!opened.success || !opened.contentProject) throw new Error('Project fixture open failed.');
     const contentProject = parseAuthoringProject(opened.contentProject);
@@ -421,17 +421,17 @@ describe('active Project session lifecycle', () => {
     const projectA = await createWorkspace('refresh-a');
     const projectB = await createWorkspace('refresh-b');
     const service = new ActiveProjectSessionService();
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
 
     expect(service.requireActiveProjectRoot(sessionA)).toBe(await fs.realpath(projectA));
-    expect(await service.refreshActiveProject(sessionA, path.join(projectA, 'project.json'))).toBe(
+    expect(await service.refreshActiveProject(sessionA, path.join(projectA, 'project.yaml'))).toBe(
       sessionA,
     );
     await expect(
-      service.refreshActiveProject('stale-session', path.join(projectB, 'project.json')),
+      service.refreshActiveProject('stale-session', path.join(projectB, 'project.yaml')),
     ).rejects.toThrow('Project session is stale or unknown.');
     await expect(
-      service.refreshActiveProject(sessionA, path.join(projectB, 'project.json')),
+      service.refreshActiveProject(sessionA, path.join(projectB, 'project.yaml')),
     ).rejects.toThrow('Project result does not belong to the active Project session.');
     expect(service.currentSessionId()).toBe(sessionA);
     expect(service.requireActiveProjectRoot(sessionA)).toBe(await fs.realpath(projectA));
@@ -439,7 +439,7 @@ describe('active Project session lifecycle', () => {
 
   it('does not reactivate a Project when close revokes an in-flight lifecycle activation', async () => {
     const project = await createWorkspace('close-in-flight');
-    const projectFilePath = path.join(project, 'project.json');
+    const projectFilePath = path.join(project, 'project.yaml');
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
     const originalRealpath = fs.realpath.bind(fs);
@@ -479,12 +479,12 @@ describe('active Project session lifecycle', () => {
     const activationB = service.beginProjectActivation();
 
     const resultB = await service.attachToSuccessfulResult(
-      { success: true, projectFilePath: path.join(projectB, 'project.json') },
+      { success: true, projectFilePath: path.join(projectB, 'project.yaml') },
       activationB,
     );
     await expect(
       service.attachToSuccessfulResult(
-        { success: true, projectFilePath: path.join(projectA, 'project.json') },
+        { success: true, projectFilePath: path.join(projectA, 'project.yaml') },
         activationA,
       ),
     ).rejects.toThrow('Project activation was superseded.');
@@ -499,7 +499,7 @@ describe('active Project session lifecycle', () => {
     await fs.mkdir(path.join(projectA, 'assets'), { recursive: true });
     await fs.writeFile(path.join(projectA, 'assets', 'script.lua'), source);
     const service = new ActiveProjectSessionService();
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const request = {
       projectSessionId: sessionA,
       entries: [
@@ -532,11 +532,11 @@ describe('active Project session lifecycle', () => {
     };
 
     await expectRejectedWithoutFileAccess('random-session');
-    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.json'));
+    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.yaml'));
     await expectRejectedWithoutFileAccess(sessionA);
     service.closeActiveProject();
     await expectRejectedWithoutFileAccess(sessionB);
-    const reopenedSessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const reopenedSessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     service.dispose();
     await expectRejectedWithoutFileAccess(reopenedSessionA);
   });
@@ -549,7 +549,7 @@ describe('active Project session lifecycle', () => {
     await fs.mkdir(path.join(projectB, 'assets'), { recursive: true });
     await fs.writeFile(path.join(projectB, 'assets', 'script.lua'), source);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
 
     await fs.rename(projectA, movedProjectA);
     await fs.symlink(projectB, projectA, 'dir');
@@ -584,7 +584,7 @@ describe('active Project session lifecycle', () => {
     await fs.writeFile(sourcePath, 'return "inside"\n', 'utf8');
     await fs.writeFile(outsidePath, outside);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const originalOpen = fs.open.bind(fs);
     vi.spyOn(fs, 'open').mockImplementationOnce(async (value, flags) => {
       await fs.rm(sourcePath);
@@ -616,7 +616,7 @@ describe('active Project session lifecycle', () => {
     const sourcePath = path.join(projectA, 'assets', 'script.lua');
     await fs.writeFile(sourcePath, source);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const originalRealpath = fs.realpath.bind(fs);
     let entered!: () => void;
     let release!: () => void;
@@ -645,7 +645,7 @@ describe('active Project session lifecycle', () => {
       ],
     });
     await enteredGate;
-    await service.activateProjectFile(path.join(projectB, 'project.json'));
+    await service.activateProjectFile(path.join(projectB, 'project.yaml'));
     release();
 
     await expect(pending).resolves.toEqual({
@@ -667,7 +667,7 @@ describe('active Project session lifecycle', () => {
       fs.writeFile(path.join(project, 'assets', 'oversized.lua'), oversizedSource),
     ]);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.yaml'));
 
     const response = await service.read({
       projectSessionId,
@@ -733,7 +733,7 @@ describe('active Project session lifecycle', () => {
     await fs.writeFile(path.join(project, 'assets', 'note.txt'), 'asset text\n');
     await fs.writeFile(path.join(project, 'records', 'internal', 'hidden.lua'), 'return false\n');
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.yaml'));
 
     const response = await service.listProjectSourceFiles({ projectSessionId });
 
@@ -1136,7 +1136,7 @@ describe('active Project session lifecycle', () => {
           kind: 'material-shader-copy',
           materialId: 'panel',
           stage: 'fragment',
-          sourceIdentity: 'project:/shaders/../project.json',
+          sourceIdentity: 'project:/shaders/../project.yaml',
         },
       }),
     ).resolves.toMatchObject({ success: false });
@@ -1192,7 +1192,7 @@ describe('active Project session lifecycle', () => {
     const source = Buffer.alloc(PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes + 1, 0x61);
     await fs.writeFile(path.join(project, 'assets', 'growing.lua'), source);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.yaml'));
     const originalOpen = fs.open.bind(fs);
     vi.spyOn(fs, 'open').mockImplementationOnce(async (value, flags) => {
       const file = await originalOpen(value, flags);

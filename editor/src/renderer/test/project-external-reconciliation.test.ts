@@ -90,7 +90,7 @@ describe('external project reconciliation', () => {
     });
   });
 
-  it('detects conflicts in tracked editor.json organization state', () => {
+  it('detects conflicts in tracked editor.yaml organization state', () => {
     const path = '/editor/tags/records/story/color';
     const base = { editor: { tags: { records: { story: { color: 'old' } } } } };
     const local = { editor: { tags: { records: { story: { color: 'local' } } } } };

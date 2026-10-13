@@ -15,7 +15,7 @@ const roots: string[] = [];
 function projectFilePath() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-comfyui-import-'));
   roots.push(root);
-  return path.join(root, 'project.json');
+  return path.join(root, 'project.yaml');
 }
 
 function simpleWorkflow() {

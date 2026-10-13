@@ -43,7 +43,7 @@ function loadProject() {
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock',
-    projectFilePath: '/mock/project.json',
+    projectFilePath: '/mock/project.yaml',
   });
   return project;
 }
@@ -137,7 +137,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<LocalizationEditor tab={tab} />);
 
@@ -265,7 +265,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -331,7 +331,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -370,7 +370,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -423,7 +423,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -476,7 +476,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -530,7 +530,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -574,7 +574,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -622,7 +622,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: tracked,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -694,7 +694,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -729,7 +729,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -764,7 +764,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -791,7 +791,7 @@ describe('LocalizationEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LocalizationEditor tab={tab} />);
@@ -837,7 +837,7 @@ describe('LocalizationEditor content preservation', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<LocalizationEditor tab={tab} />);
     return { project, messageId };

@@ -207,7 +207,7 @@ describe('editor project state defaults', () => {
     );
   });
 
-  it('accepts recovery patches for tracked editor.json organization paths', () => {
+  it('accepts recovery patches for tracked editor.yaml organization paths', () => {
     const value = {
       ...emptyEditorProjectState(),
       recovery: {

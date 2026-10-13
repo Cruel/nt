@@ -43,7 +43,7 @@ function loadProject(
       document: project,
       savedDocument: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     }),
   ).toBe(true);
@@ -142,7 +142,7 @@ describe('project Files navigation', () => {
         document: firstProject,
         savedDocument: firstProject,
         projectPath: '/mock/first',
-        projectFilePath: '/mock/first/project.json',
+        projectFilePath: '/mock/first/project.yaml',
         projectSessionId: firstSession,
       }),
     ).toBe(true);
@@ -160,7 +160,7 @@ describe('project Files navigation', () => {
           document: secondProject,
           savedDocument: secondProject,
           projectPath: '/mock/second',
-          projectFilePath: '/mock/second/project.json',
+          projectFilePath: '/mock/second/project.yaml',
           projectSessionId: secondSession,
         }),
       ).toBe(true);

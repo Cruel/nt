@@ -2,7 +2,7 @@
 
 Feature Lab is NovelTea's canonical in-tree authored acceptance and working-reference Project. It is intentionally an ordinary segmented NovelTea Project: engine/editor features used here must work through the same authoring, validation, compilation, runtime, and Test paths available to user projects.
 
-The Project root is `tests/projects/feature-lab/`; this README lives beside `project.json`. Its authoritative catalog is the registered JSON `data` Asset `feature-lab-catalog`, backed by `assets/data/feature-lab.json`. The persistent Game HUD Layout reads that exact Asset at runtime; do not introduce a second Lua or generated catalog.
+The Project root is `tests/projects/feature-lab/`; this README lives beside `project.yaml`. Its authoritative catalog is the registered JSON `data` Asset `feature-lab-catalog`, backed by `assets/data/feature-lab.json`. The persistent Game HUD Layout reads that exact Asset at runtime; do not introduce a second Lua or generated catalog.
 
 ## Comprehensive baseline
 
@@ -33,7 +33,7 @@ Feature Lab is one example in the [unified publication pipeline](../../../docs/b
 From the repository root, build, export, install, and launch Feature Lab with:
 
 ```sh
-./scripts/run-android.sh --project tests/projects/feature-lab/project.json
+./scripts/run-android.sh --project tests/projects/feature-lab/project.yaml
 ```
 
 Before building, the script uses the only online ADB target, asks which to use when there are

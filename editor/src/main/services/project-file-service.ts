@@ -705,10 +705,10 @@ async function copyProjectWorkflows(oldProjectFilePath: string, newProjectFilePa
 }
 
 const saveAsOwnedDestinationPaths = [
-  'project.json',
-  'traits.json',
+  'project.yaml',
+  'traits.yaml',
   'i18n',
-  'editor.json',
+  'editor.yaml',
   'records',
   'scripts',
   '.noveltea/transactions',
@@ -821,7 +821,7 @@ export async function saveProjectEditorMetadata(
   }
   try {
     const root =
-      path.basename(projectRoot) === 'project.json'
+      path.basename(projectRoot) === 'project.yaml'
         ? projectPathFromFile(projectRoot)
         : path.resolve(projectRoot);
     const workspace = workspaceService();
@@ -910,7 +910,7 @@ async function saveProjectContentFromSnapshot(
   workspaceOverride?: ProjectWorkspaceService,
   refreshAfterCommit = true,
 ): Promise<SaveProjectResponse & { committedSnapshot?: LoadedProjectWorkspaceSnapshot }> {
-  const absolute = path.join(root, 'project.json');
+  const absolute = path.join(root, 'project.yaml');
   if (!commitOptions && openedSnapshot.workspaceRevision !== expectedWorkspaceRevision) {
     const diagnostic = contentSaveConflictDiagnostic();
     return {
@@ -989,7 +989,7 @@ export async function saveProjectContent(
   }
   try {
     const root =
-      path.basename(projectRoot) === 'project.json'
+      path.basename(projectRoot) === 'project.yaml'
         ? projectPathFromFile(projectRoot)
         : path.resolve(projectRoot);
     const opened = await workspaceService().open(root);
@@ -1258,7 +1258,7 @@ export async function saveProjectCopyAs(
 ): Promise<SaveProjectResponse> {
   if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
   const sourceRoot = path.resolve(sourceProjectRoot);
-  const sourceManifestPath = path.join(sourceRoot, 'project.json');
+  const sourceManifestPath = path.join(sourceRoot, 'project.yaml');
   const result = await dialog.showOpenDialog(owner, {
     title: 'Save NovelTea Project Copy',
     defaultPath: sourceRoot,
@@ -1279,10 +1279,10 @@ export async function saveProjectCopyAs(
     diagnostics = await copyProjectAssets(
       project,
       sourceManifestPath,
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       workingProjectAssetPaths,
     );
-    const manifestPath = path.join(root, 'project.json');
+    const manifestPath = path.join(root, 'project.yaml');
     await copyProjectWorkflows(sourceManifestPath, manifestPath);
     const normalized = projectWithCurrentEditorState(project);
     const editor = parseEditorProjectState((normalized as Record<string, unknown>).editor);

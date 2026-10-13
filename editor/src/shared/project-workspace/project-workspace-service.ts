@@ -163,7 +163,17 @@ const editorLocalStateSchema = editorProjectStateSchema
   })
   .strict();
 
-const traitsWorkspaceSchema = z.record(entityIdSchema, traitDefinitionSchema);
+const traitsWorkspaceSchema = z
+  .record(entityIdSchema, traitDefinitionSchema)
+  .superRefine((traits, ctx) => {
+    for (const [key, trait] of Object.entries(traits))
+      if (trait.id !== key)
+        ctx.addIssue({
+          code: 'custom',
+          path: [key, 'id'],
+          message: `Trait id '${trait.id}' must match its map key '${key}'.`,
+        });
+  });
 
 const trackedEditorOrganizationSchema = z
   .object({
@@ -391,7 +401,7 @@ const sortKeys = <T>(value: Record<string, T>) =>
   ) as Record<string, T>;
 
 const canonicalJson = (value: unknown, schema?: CanonicalSourceSchema): string =>
-  projectWorkspaceSourceCodec('project.json').encode(value, schema);
+  projectWorkspaceSourceCodec('i18n/project.json').encode(value, schema);
 const localizationPolicyFragmentSchema = z
   .object({
     sourceLocale: localeIdSchema,
@@ -577,7 +587,7 @@ function sourceContributionOwnerPaths(
   file: string,
   scriptSourcePaths: Readonly<Record<string, string>>,
 ): readonly string[] {
-  if (file === 'project.json')
+  if (file === 'project.yaml')
     return [
       '/project',
       '/settings',
@@ -587,8 +597,8 @@ function sourceContributionOwnerPaths(
       '/inventories',
       '/interactableInstances',
     ];
-  if (file === 'traits.json') return ['/traits'];
-  if (file === 'editor.json') return ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'];
+  if (file === 'traits.yaml') return ['/traits'];
+  if (file === 'editor.yaml') return ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'];
   if (file === LOCALIZATION_POLICY_FILE)
     return [
       '/localization/sourceLocale',
@@ -657,10 +667,10 @@ function candidateWorkspaceFilesForAffectedPath(
     }
     return [...files];
   }
-  if (head === 'editor') return ['editor.json'];
+  if (head === 'editor') return ['editor.yaml'];
   if (head === 'localization')
     return Object.keys(projectWorkspaceLocalizationFiles(project.localization));
-  if (head === 'traits') return ['traits.json'];
+  if (head === 'traits') return ['traits.yaml'];
   if (
     head === 'project' ||
     head === 'settings' ||
@@ -670,7 +680,7 @@ function candidateWorkspaceFilesForAffectedPath(
     head === 'inventories' ||
     head === 'interactableInstances'
   )
-    return ['project.json'];
+    return ['project.yaml'];
   return null;
 }
 
@@ -1084,7 +1094,7 @@ function ownershipFor(
 ): Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>> {
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
-      files: ['project.json'],
+      files: ['project.yaml'],
       paths: [
         '/project',
         '/settings',
@@ -1095,22 +1105,22 @@ function ownershipFor(
         '/export/assetMemoryPolicies',
       ],
     },
-    'collection:traits': { files: ['traits.json'], paths: ['/traits'] },
+    'collection:traits': { files: ['traits.yaml'], paths: ['/traits'] },
     'project:localization': {
       files: Object.keys(projectWorkspaceLocalizationFiles(project.localization)),
       paths: ['/localization'],
     },
     'project:chapters': {
-      files: ['editor.json'],
+      files: ['editor.yaml'],
       paths: ['/editor/chapters'],
     },
-    'project:tags': { files: ['editor.json'], paths: ['/editor/tags'] },
+    'project:tags': { files: ['editor.yaml'], paths: ['/editor/tags'] },
     'project:platform-export-profiles': {
-      files: ['project.json'],
+      files: ['project.yaml'],
       paths: ['/export/runtime', '/export/profiles'],
     },
     'editor:organization': {
-      files: ['editor.json'],
+      files: ['editor.yaml'],
       paths: ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'],
     },
     'editor:state': {
@@ -1144,7 +1154,7 @@ function ownershipFor(
             : source.path,
         );
       }
-      files.push('editor.json');
+      files.push('editor.yaml');
       result[`record:${collection}:${id}`] = {
         files: Object.freeze([...new Set(files)].sort(compareProjectWorkspaceUnicodeCodePoints)),
         paths: [`/${collection}/${id}`, `/editor/recordMetadata/${collection}/${id}`],
@@ -1259,6 +1269,53 @@ function externalSearchSources(
   );
 }
 
+function sparseTrackedEditorOrganization(
+  editorState: EditorProjectState,
+  previousText?: string,
+): Record<string, unknown> {
+  const previous = previousText
+    ? (projectWorkspaceSourceCodec('editor.yaml').decode(previousText) as Record<string, unknown>)
+    : {};
+  const previousChapters = (previous.chapters ?? {}) as Record<string, unknown>;
+  const previousTags = (previous.tags ?? {}) as Record<string, unknown>;
+  const chapterRecords = editorState.chapters?.records ?? {};
+  const chapterAssignments = editorState.chapters?.assignments ?? {};
+  const tagRecords = editorState.tags?.records ?? {};
+  const chapters: Record<string, unknown> = {};
+  if (Object.keys(chapterRecords).length || Object.hasOwn(previousChapters, 'records'))
+    chapters.records = chapterRecords;
+  if (Object.keys(chapterAssignments).length || Object.hasOwn(previousChapters, 'assignments'))
+    chapters.assignments = chapterAssignments;
+  const tags: Record<string, unknown> = {};
+  if (Object.keys(tagRecords).length || Object.hasOwn(previousTags, 'records'))
+    tags.records = tagRecords;
+  const previousMetadata = (previous.recordMetadata ?? {}) as Record<string, unknown>;
+  const recordMetadata = Object.fromEntries(
+    Object.entries(editorState.recordMetadata ?? {}).map(([collection, entries]) => {
+      const priorRecords = (previousMetadata[collection] ?? {}) as Record<string, unknown>;
+      return [
+        collection,
+        Object.fromEntries(
+          Object.entries(entries).map(([id, metadata]) => {
+            const prior = (priorRecords[id] ?? {}) as Record<string, unknown>;
+            const { tags: assignedTags, ...other } = metadata;
+            return [
+              id,
+              {
+                ...(assignedTags.length || Object.hasOwn(prior, 'tags')
+                  ? { tags: assignedTags }
+                  : {}),
+                ...other,
+              },
+            ];
+          }),
+        ),
+      ];
+    }),
+  );
+  return { chapters, tags, recordMetadata };
+}
+
 export function projectWorkspaceFile(
   project: AuthoringProject,
   editorState: EditorProjectState,
@@ -1266,7 +1323,7 @@ export function projectWorkspaceFile(
   file: string,
   previousText?: string,
 ): string | undefined {
-  if (file === 'project.json')
+  if (file === 'project.yaml')
     return projectWorkspaceSourceCodec(file).encode(
       {
         schema: PROJECT_WORKSPACE_SCHEMA,
@@ -1275,23 +1332,39 @@ export function projectWorkspaceFile(
         settings: project.settings,
         export: project.export,
         bootstrapModule: project.bootstrapModule,
-        undefinedInteractionProgram: project.undefinedInteractionProgram,
-        entrypoint: project.entrypoint,
+        ...(project.undefinedInteractionProgram !== null ||
+        (previousText !== undefined &&
+          Object.hasOwn(
+            projectWorkspaceSourceCodec(file).decode(previousText) as object,
+            'undefinedInteractionProgram',
+          ))
+          ? { undefinedInteractionProgram: project.undefinedInteractionProgram }
+          : {}),
+        ...(project.entrypoint !== null ||
+        (previousText !== undefined &&
+          Object.hasOwn(
+            projectWorkspaceSourceCodec(file).decode(previousText) as object,
+            'entrypoint',
+          ))
+          ? { entrypoint: project.entrypoint }
+          : {}),
         inventories: project.inventories,
         interactableInstances: project.interactableInstances,
       },
       workspaceManifestSchema,
+      previousText,
     );
-  if (file === 'traits.json')
-    return projectWorkspaceSourceCodec(file).encode(project.traits, traitsWorkspaceSchema);
-  if (file === 'editor.json')
+  if (file === 'traits.yaml')
     return projectWorkspaceSourceCodec(file).encode(
-      {
-        chapters: editorState.chapters,
-        tags: editorState.tags,
-        recordMetadata: editorState.recordMetadata,
-      },
+      project.traits,
+      traitsWorkspaceSchema,
+      previousText,
+    );
+  if (file === 'editor.yaml')
+    return projectWorkspaceSourceCodec(file).encode(
+      sparseTrackedEditorOrganization(editorState, previousText),
       trackedEditorOrganizationSchema,
+      previousText,
     );
   const localization = projectWorkspaceLocalizationFile(project.localization, file);
   if (localization !== undefined) return localization;
@@ -1360,9 +1433,9 @@ export function projectWorkspaceFiles(
     const text = projectWorkspaceFile(project, editorState, scriptSourcePaths, file);
     if (text !== undefined) files[file] = text;
   };
-  add('project.json');
-  add('traits.json');
-  add('editor.json');
+  add('project.yaml');
+  add('traits.yaml');
+  add('editor.yaml');
   for (const file of projectWorkspaceLocalizationPaths(project.localization)) add(file);
   for (const collection of authoringCollectionKeys)
     for (const id of Object.keys(project[collection]).sort(
@@ -1637,12 +1710,12 @@ function changedValidationContributionKeys(
   }
   for (const phase of ['references', 'identities', 'translations'] as const)
     if (!effects.localizationPhases.includes(phase)) keys.delete(`workspace:localization-${phase}`);
-  // The editor-metadata check validates only editor.json recordMetadata membership. Existing-source
-  // reconciliation cannot add/remove a record identity; traits.json is the one non-structural file
+  // The editor-metadata check validates only editor.yaml recordMetadata membership. Existing-source
+  // reconciliation cannot add/remove a record identity; traits.yaml is the one non-structural file
   // whose contents can change metadata target membership, so unrelated source edits can reuse it.
   if (
     keys.has('workspace:editor-metadata') &&
-    changedSourcePaths.every((path) => path !== 'editor.json' && path !== 'traits.json')
+    changedSourcePaths.every((path) => path !== 'editor.yaml' && path !== 'traits.yaml')
   )
     keys.delete('workspace:editor-metadata');
   if (process.env.NOVELTEA_CLI_VALIDATION_PROFILE === '1') {
@@ -2023,7 +2096,7 @@ export class ProjectWorkspaceService {
   }
   async discover(projectRoot: string): Promise<{ projectRoot: string; manifestPath: string }> {
     const root = this.fileSystem.resolvePath(projectRoot);
-    return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.json') };
+    return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.yaml') };
   }
   async reconcileExistingSources(
     base: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
@@ -2068,7 +2141,7 @@ export class ProjectWorkspaceService {
           .map((path) => parseJsonPointer(path))
           .find((segments) => segments[0] === 'scripts' && segments.length >= 2)?.[1];
 
-        if (relativePath === 'project.json') {
+        if (relativePath === 'project.yaml') {
           const parsed = workspaceManifestSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
@@ -2084,13 +2157,13 @@ export class ProjectWorkspaceService {
             inventories: parsed.data.inventories,
             interactableInstances: parsed.data.interactableInstances,
           };
-        } else if (relativePath === 'traits.json') {
+        } else if (relativePath === 'traits.yaml') {
           const parsed = traitsWorkspaceSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
           if (!parsed.success) return null;
           project = { ...project, traits: parsed.data };
-        } else if (relativePath === 'editor.json') {
+        } else if (relativePath === 'editor.yaml') {
           const raw = projectWorkspaceSourceCodec(relativePath).decode(text) as Record<
             string,
             unknown
@@ -2364,7 +2437,7 @@ export class ProjectWorkspaceService {
         if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
           for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
             files.add(file);
-        } else if (overlappingFiles.length === 0) files.add('project.json');
+        } else if (overlappingFiles.length === 0) files.add('project.yaml');
       }
       return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
         path,
@@ -2769,7 +2842,7 @@ export class ProjectWorkspaceService {
         if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
           for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
             resolvedFiles.add(file);
-        } else if (overlappingFiles.length === 0) resolvedFiles.add('project.json');
+        } else if (overlappingFiles.length === 0) resolvedFiles.add('project.yaml');
       }
       return [...resolvedFiles].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
         path,
@@ -2973,7 +3046,7 @@ export class ProjectWorkspaceService {
               if (contribution.sourceText !== undefined)
                 textSourceValues.set(relativePath, contribution.sourceText);
               const requiresMutableProjection =
-                relativePath === 'project.json' ||
+                relativePath === 'project.yaml' ||
                 /^records\/layouts\/[^/]+\/layout\.json$/u.test(relativePath) ||
                 /^records\/scripts\/[^/]+\.json$/u.test(relativePath);
               return requiresMutableProjection
@@ -3038,14 +3111,14 @@ export class ProjectWorkspaceService {
           let manifest: Record<string, unknown>;
           try {
             await this.assertContained(discovered.projectRoot, discovered.manifestPath);
-            const value = await readJsonSource('project.json');
+            const value = await readJsonSource('project.yaml');
             if (!value || typeof value !== 'object' || Array.isArray(value))
-              return fail('project.json must be an object.');
+              return fail('project.yaml must be an object.');
             manifest = value as Record<string, unknown>;
           } catch {
             return fail(
-              'Current project discovery requires a readable workspace-v1 project.json.',
-              '/project.json',
+              'Current project discovery requires a readable workspace-v1 project.yaml.',
+              '/project.yaml',
             );
           }
           if (
@@ -3058,19 +3131,27 @@ export class ProjectWorkspaceService {
             'settings',
             'export',
             'bootstrapModule',
-            'undefinedInteractionProgram',
-            'entrypoint',
             'inventories',
             'interactableInstances',
           ];
           const manifestKeys = Object.keys(manifest);
           if (
-            manifestKeys.length !== 10 ||
+            manifestKeys.length < 8 ||
+            manifestKeys.length > 10 ||
             !required.every((key) => key in manifest) ||
-            manifestKeys.some((key) => !['schema', 'schemaVersion', ...required].includes(key))
+            manifestKeys.some(
+              (key) =>
+                ![
+                  'schema',
+                  'schemaVersion',
+                  ...required,
+                  'undefinedInteractionProgram',
+                  'entrypoint',
+                ].includes(key),
+            )
           )
-            return fail('project.json has an unsupported workspace-v1 shape.');
-          if (freshJsonSourcePaths.has('project.json')) {
+            return fail('project.yaml has an unsupported workspace-v1 shape.');
+          if (freshJsonSourcePaths.has('project.yaml')) {
             const parsedManifest = workspaceManifestSchema.safeParse(manifest);
             if (parsedManifest.success) manifest = parsedManifest.data;
             else requiresFullSchemaParse = true;
@@ -3082,7 +3163,7 @@ export class ProjectWorkspaceService {
           try {
             await this.assertContained(
               discovered.projectRoot,
-              this.fileSystem.joinPath(discovered.projectRoot, 'traits.json'),
+              this.fileSystem.joinPath(discovered.projectRoot, 'traits.yaml'),
             );
             for (const file of [
               LOCALIZATION_POLICY_FILE,
@@ -3097,13 +3178,14 @@ export class ProjectWorkspaceService {
               );
             await this.assertContained(
               discovered.projectRoot,
-              this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
+              this.fileSystem.joinPath(discovered.projectRoot, 'editor.yaml'),
             );
-            traits = await readJsonSource('traits.json');
-            if (freshJsonSourcePaths.has('traits.json')) {
+            traits = await readJsonSource('traits.yaml');
+            if (freshJsonSourcePaths.has('traits.yaml')) {
               const parsedTraits = traitsWorkspaceSchema.safeParse(traits);
               if (parsedTraits.success) traits = parsedTraits.data;
-              else requiresFullSchemaParse = true;
+              else
+                throw new Error(parsedTraits.error.issues.map((issue) => issue.message).join('; '));
             }
             const policy = await parseJsonSource(
               LOCALIZATION_POLICY_FILE,
@@ -3163,20 +3245,20 @@ export class ProjectWorkspaceService {
               if (parsedLocalization.success) localization = parsedLocalization.data;
               else requiresFullSchemaParse = true;
             }
-            const value = await readJsonSource('editor.json');
+            const value = await readJsonSource('editor.yaml');
             if (!value || typeof value !== 'object' || Array.isArray(value))
-              return fail('editor.json must be an object.', '/editor.json');
+              return fail('editor.yaml must be an object.', '/editor.yaml');
             editor = value as Record<string, unknown>;
             if (Object.keys(editor).sort().join(',') !== 'chapters,recordMetadata,tags')
               return fail(
-                'editor.json must contain exactly tracked organization fields.',
-                '/editor.json',
+                'editor.yaml must contain exactly tracked organization fields.',
+                '/editor.yaml',
               );
-            trackedEditor = reusedJsonSourcePaths.has('editor.json')
+            trackedEditor = reusedJsonSourcePaths.has('editor.yaml')
               ? (editor as NonNullable<ReturnType<typeof parseTrackedEditorOrganization>>)
               : parseTrackedEditorOrganization(editor);
             if (!trackedEditor)
-              return fail('editor.json tracked organization fields are malformed.', '/editor.json');
+              return fail('editor.yaml tracked organization fields are malformed.', '/editor.yaml');
           } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             return fail(`Required workspace fragments are missing or malformed: ${detail}`);
@@ -3560,7 +3642,7 @@ export class ProjectWorkspaceService {
                   for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
                     files.add(file);
                 } else if (overlappingFiles.length === 0) {
-                  files.add('project.json');
+                  files.add('project.yaml');
                 }
               }
               return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({

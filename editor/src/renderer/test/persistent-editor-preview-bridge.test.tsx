@@ -321,7 +321,7 @@ beforeEach(() => {
   useProjectStore.getState().loadProjectDocument({
     document: { schema: 'noveltea.authoring.project', rooms: {} },
     projectPath: '/mock',
-    projectFilePath: '/mock/project.json',
+    projectFilePath: '/mock/project.yaml',
   });
   rectSpy = vi
     .spyOn(HTMLElement.prototype, 'getBoundingClientRect')
