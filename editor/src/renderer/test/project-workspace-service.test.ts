@@ -9,6 +9,8 @@ import {
   createProjectWorkspaceSnapshot,
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
+import { projectWorkspaceFile } from '../../shared/project-workspace/project-workspace-service';
+import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
 import {
   FINAL_WORKSPACE_FIXTURE_ROOT,
   finalWorkspaceV1SourceTreeFixture,
@@ -47,6 +49,32 @@ describe('ProjectWorkspaceService', () => {
       '\u{e000}',
       '\u{10000}',
     ]);
+  });
+
+  it('uses the identical per-file projection for complete and selective JSON and text sources', () => {
+    const project = createAuthoringProject();
+    project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
+    project.scripts.bootstrap = {
+      id: 'bootstrap',
+      label: 'Bootstrap',
+      data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return true\n' } },
+    };
+    const layout = defaultLayoutData('HUD');
+    layout.rml.sourceText = '<rml>HUD</rml>\n';
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: layout };
+    const files = projectWorkspaceFiles(project, project.editor);
+
+    for (const [path, text] of Object.entries(files)) {
+      expect(projectWorkspaceFile(project, project.editor, {}, path), path).toBe(text);
+      const codec = projectWorkspaceSourceCodec(path);
+      expect(codec.decode(text), path).toEqual(codec.kind === 'json' ? JSON.parse(text) : text);
+      if (codec.kind === 'json') expect(text, path).toMatch(/\n$/);
+    }
+    expect(files['records/scripts/bootstrap.json']).toContain('"project-file"');
+    expect(files['records/layouts/hud/layout.rml']).toBe('<rml>HUD</rml>\n');
+    expect(
+      projectWorkspaceFile(project, project.editor, {}, 'i18n/locales/es.json'),
+    ).toBeUndefined();
   });
 
   it('keeps declared workspace field order while sorting record dictionaries', () => {

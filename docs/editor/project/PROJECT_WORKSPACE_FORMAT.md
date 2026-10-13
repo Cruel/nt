@@ -134,8 +134,17 @@ remains beneath the canonical Project root, requires a regular file, and verifie
 SHA-256 revision. Project-relative lexical escape, alternate/backslash spellings, symlink escape,
 non-regular files, stale sessions, and changed source identity fail closed before bytes are published.
 
-Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order. Every
-authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. Cold
+Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order.
+workspace reads, resident reconciliation, and selective/full projections use the shared per-file
+source codec (`editor/src/shared/project-workspace/project-workspace-source-codec.ts`). The
+`projectWorkspaceFile` projection is the single source of serialized structured-file content;
+`projectWorkspaceFiles` enumerates canonical source paths and calls that same projection. The
+affected-path planner preserves existing logical ownership of those files, while the transaction
+writer still compares actual bytes and enforces expected revisions. The codec currently selects
+JSON for all tracked structured files and passes companion Lua/RML/RCSS text through unchanged;
+it does not enable YAML or change the Project schema.
+
+Every authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. Cold
 workspace admission may obtain decoded text and its exact-byte revision in one filesystem read.
 That revision identifies the bytes actually admitted, not a proof that disk remained unchanged
 later; containment checks and fresh transaction/publication proofs remain independent. Revisions
