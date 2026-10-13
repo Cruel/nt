@@ -14,7 +14,8 @@ execute_process(COMMAND "${CMAKE_COMMAND}" -E env
     "CC=${CMAKE_C_COMPILER} --target=${CMAKE_C_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}"
     "CXX=${CMAKE_CXX_COMPILER} --target=${CMAKE_CXX_COMPILER_TARGET} --sysroot=${CMAKE_SYSROOT}"
     "AR=${CMAKE_AR}" "CFLAGS=${CMAKE_C_FLAGS}" "CXXFLAGS=${CMAKE_CXX_FLAGS}"
-    "${libvpx_SOURCE_DIR}/configure" --target=generic-gnu --disable-vp8
+    # Use portable C code while preserving Android's Bionic pthread linking semantics.
+    "${libvpx_SOURCE_DIR}/configure" --force-target=generic-android-gcc --disable-vp8
     --disable-vp9-encoder --disable-examples --disable-tools --disable-docs
     --disable-unit-tests --disable-runtime-cpu-detect --enable-pic
     WORKING_DIRECTORY "${libvpx_BINARY_DIR}"
@@ -33,7 +34,7 @@ foreach(_rtcd IN ITEMS vp9 vpx_dsp vpx_scale)
         set(_definitions "vpx_scale/vpx_scale_rtcd.pl")
     endif()
     execute_process(COMMAND "${PERL_EXECUTABLE}" "${libvpx_SOURCE_DIR}/build/make/rtcd.pl"
-        --arch=generic "--config=${libvpx_BINARY_DIR}/libs-generic-gnu.mk" "--sym=${_rtcd}_rtcd"
+        --arch=generic "--config=${libvpx_BINARY_DIR}/libs-generic-android-gcc.mk" "--sym=${_rtcd}_rtcd"
         "${libvpx_SOURCE_DIR}/${_definitions}"
         OUTPUT_FILE "${libvpx_BINARY_DIR}/${_rtcd}_rtcd.h"
         RESULT_VARIABLE _rtcd_result)
