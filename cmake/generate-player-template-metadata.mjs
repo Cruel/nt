@@ -132,7 +132,15 @@ function verifyResolvedFetchedSource(name, source, licenseSources) {
     throw new Error(`Missing resolved FetchContent download metadata for ${name}: ${stamp}`);
   const info = readFileSync(infoFile, 'utf8');
   const resolved = /^source_dir=(.+)$/m.exec(info)?.[1]?.trim();
-  if (!resolved || path.resolve(resolved) !== path.resolve(source))
+  const configuredBuildRoot = /^CMAKE_CACHEFILE_DIR:INTERNAL=(.+)$/m.exec(cacheContents)?.[1]?.trim();
+  const expectedSource = path.join('_deps', `${name}-src`);
+  // Container builds can be packaged from their bind-mounted host checkout.
+  // Accept only the exact configured build-root relocation, not arbitrary source paths.
+  const relocated =
+    configuredBuildRoot &&
+    path.resolve(source) === path.resolve(buildRoot, expectedSource) &&
+    path.resolve(resolved ?? '') === path.resolve(configuredBuildRoot, expectedSource);
+  if (!resolved || (path.resolve(resolved) !== path.resolve(source) && !relocated))
     throw new Error(`Resolved FetchContent source path mismatch for ${name}: ${resolved ?? '<unknown>'}`);
 
   const declaration = cmakeDeclarations.flatMap((cmake) =>
@@ -166,9 +174,13 @@ function verifyResolvedFetchedSource(name, source, licenseSources) {
     })) throw new Error(`Resolved Git source ${name} is at ${head}, not its FetchContent pin ${tags.join(', ')}`);
     for (const file of relativeSources) {
       const relative = path.relative(source, file).split(path.sep).join('/');
-      const pristine = execFileSync('git', ['-C', source, 'show', `HEAD:${relative}`],
-        { stdio: ['ignore', 'pipe', 'ignore'], maxBuffer: 2 * 1024 * 1024 });
-      if (hash(pristine) !== shaFile(file))
+      // Git's clean conversion accounts for core.autocrlf on Windows, while still
+      // rejecting content that differs from the pinned blob in the source repository.
+      const pristine = execFileSync('git', ['-C', source, 'rev-parse', `HEAD:${relative}`],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      const actual = execFileSync('git', ['-C', source, 'hash-object', `--path=${relative}`, file],
+        { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] }).trim();
+      if (actual !== pristine)
         throw new Error(`Resolved Git source ${name} has modified license bytes: ${relative}`);
     }
     return;
