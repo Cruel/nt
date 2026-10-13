@@ -7,13 +7,44 @@ The existing private `PreparedBrowserVideo` field names the same encoded represe
 native players and browser preview; it is not a second authoring contract. Unsupported or missing
 encoded media fails through typed asset/presentation diagnostics.
 
+## Linux NVIDIA NVDEC verification
+
+The driver-supplied `libcuda.so.1` and `libnvcuvid.so.1` are loaded only when available.
+The NVIDIA-specific decoder probes VP9 Profile 0, 8-bit 4:2:0, NV12 output and hardware
+resolution limits before selecting the backend. Unsupported media continues through VA-API or
+libvpx. The smallest legacy 32x16 video fixture is too small for NVDEC on the tested RTX 5070 Ti.
+
+For a reproducible hardware test on a machine with NVIDIA drivers and FFmpeg installed, generate a
+256x144, 24 fps WebM using the production codec settings:
+
+```sh
+ffmpeg -f lavfi -i 'testsrc2=size=256x144:rate=24' -frames:v 36 \
+  -c:v libvpx-vp9 -pix_fmt yuv420p -lossless 1 -threads 1 \
+  -row-mt 0 -lag-in-frames 0 -auto-alt-ref 0 -g 30 /tmp/nt-nvdec.webm
+ffmpeg -c:v libvpx-vp9 -i /tmp/nt-nvdec.webm \
+  -pix_fmt yuv420p -f rawvideo /tmp/nt-nvdec.yuv
+NOVELTEA_NVDEC_TEST_WEBM=/tmp/nt-nvdec.webm \
+NOVELTEA_NVDEC_TEST_I420=/tmp/nt-nvdec.yuv \
+  build/linux-debug/tests/noveltea_asset_tests 'native NVIDIA NVDEC*'
+```
+
+The optional test requires `nvdec-vp9` selection, verifies decoded Y/U/V against the software
+reference, advances the session on another thread, rewinds, and tests an independent occurrence.
+Ordinary CPU-only test runs skip the GPU fixture. FFmpeg's default VP9 encoding options are not
+equivalent to the prepared video profile; GPU test fixtures must use the production options.
+
 ## Boundaries and ownership
 
 - `media/native_video_decoder.*` indexes a shared immutable WebM byte source and advances one
   packet per decode step. NovelTea's gameplay/unscaled clocks select the semantic sample; a backend
   clock, decoder EOF, or a decoder's arrival time never advances gameplay.
-- `native_video_hardware.*` selects a usable platform decoder. Linux uses dynamically loaded VA-API
-  on DRM render nodes; macOS uses hardware-required VideoToolbox; Windows uses hardware MFTs with
+- `native_video_hardware.*` selects a usable platform decoder. Linux first tries dynamically loaded
+  NVIDIA NVDEC (`libcuda.so.1` + `libnvcuvid.so.1`) on supported VP9/NV12 streams, then VA-API
+  on DRM render nodes. NVDEC works with WSL2's `/dev/dxg` (without `/dev/dri`) and native NVIDIA
+  drivers; its SDK headers are compile-time only, with no CUDA toolkit/runtime dependency shipped.
+  Each occurrence retains the device's shared CUDA primary context and owns its decoder/parser;
+  it maps decoded NV12 and copies into the existing planar YUV frame representation.
+  macOS uses hardware-required VideoToolbox; Windows uses hardware MFTs with
   D3D11 NV12 staging; Android selects hardware MediaCodec entries and accepts supported mapped YUV
   layouts. Native interfaces are private and use platform status/error returns, not C++ exceptions
   or compiler RTTI. Backend names are logged at admission and exposed by the stream. Software
