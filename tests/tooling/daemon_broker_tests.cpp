@@ -208,9 +208,10 @@ TempProjectRoot temp_project_root(std::string_view suffix)
                       ("noveltea-project-authority-" + std::string(suffix) + "-" +
                        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(path);
-    write_project_file(path / "project.json", "{}\n");
-    write_project_file(path / "editor.json", "{}\n");
-    write_project_file(path / "traits.json", "{}\n");
+    write_project_file(path / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
+    write_project_file(path / "editor.yaml", "{}\n");
+    write_project_file(path / "traits.yaml", "{}\n");
     write_project_file(path / "records/room.json", "{\"id\":\"room\"}\n");
     write_project_file(path / "scripts/main.lua", "return true\n");
     write_project_file(path / "i18n/en.json", "{}\n");
@@ -224,7 +225,7 @@ project_authority_request(const std::filesystem::path& root)
     using noveltea::tooling::daemon::ProjectSourceDiscoveryScope;
     return {
         .project_root = root,
-        .authoritative_paths = {"project.json", "editor.json", "traits.json"},
+        .authoritative_paths = {"project.yaml", "editor.yaml", "traits.yaml"},
         .discovery_scopes =
             {
                 ProjectSourceDiscoveryScope{
@@ -273,8 +274,8 @@ TEST_CASE("Project authority batches unchanged and add-change-remove observation
     CHECK(first.delta.changed.empty());
     CHECK(first.delta.removed.empty());
     CHECK(manifest_paths(first.manifest) ==
-          std::vector<std::string>{"editor.json", "i18n/en.json", "project.json",
-                                   "records/room.json", "scripts/main.lua", "traits.json"});
+          std::vector<std::string>{"editor.yaml", "i18n/en.json", "project.yaml",
+                                   "records/room.json", "scripts/main.lua", "traits.yaml"});
     for (const auto& entry : first.manifest.entries) {
         CHECK_FALSE(entry.source_identity.empty());
         CHECK(entry.byte_size > 0);
@@ -370,18 +371,18 @@ TEST_CASE("Project authority reports exact authoritative source deletion and res
     ProjectAuthorityManager authority({.enable_native_watcher = false});
     REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
 
-    std::filesystem::remove(root.path / "traits.json");
+    std::filesystem::remove(root.path / "traits.yaml");
     const auto removed = authority.observe(project_authority_request(root.path));
     CHECK(removed.delta.added.empty());
     CHECK(removed.delta.changed.empty());
-    CHECK(removed.delta.removed == std::vector<std::string>{"traits.json"});
+    CHECK(removed.delta.removed == std::vector<std::string>{"traits.yaml"});
     CHECK(manifest_paths(removed.manifest) ==
-          std::vector<std::string>{"editor.json", "i18n/en.json", "project.json",
+          std::vector<std::string>{"editor.yaml", "i18n/en.json", "project.yaml",
                                    "records/room.json", "scripts/main.lua"});
 
-    write_project_file(root.path / "traits.json", "{}\n");
+    write_project_file(root.path / "traits.yaml", "{}\n");
     const auto restored = authority.observe(project_authority_request(root.path));
-    CHECK(restored.delta.added == std::vector<std::string>{"traits.json"});
+    CHECK(restored.delta.added == std::vector<std::string>{"traits.yaml"});
     CHECK(restored.delta.changed.empty());
     CHECK(restored.delta.removed.empty());
 }
@@ -596,7 +597,7 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
 
     request["action"] = "serve-project-observe";
     request["projectRoot"] = root.path.generic_string();
-    request["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    request["authoritativePaths"] = Json::array({"project.yaml", "editor.yaml", "traits.yaml"});
     request["discoveryScopes"] =
         Json::array({{{"root", "records"},
                       {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
@@ -997,6 +998,11 @@ TEST_CASE("daemon Project-owner nomination preserves explicit roots and discover
     std::filesystem::create_directories(non_project.path / "nested");
     CHECK(canonical_project_owner_root((non_project.path / "nested").string(), true).empty());
 
+    // Retired JSON manifests cannot nominate a resident Project owner.
+    write_project_file(non_project.path / "project.json", "{}\n");
+    CHECK(canonical_project_owner_root(non_project.path.string(), false).empty());
+    CHECK(canonical_project_owner_root((non_project.path / "nested").string(), true).empty());
+
 #if !defined(_WIN32)
     const auto alias = root.path / "owner-alias";
     std::filesystem::create_directory_symlink(root.path, alias);
@@ -1061,7 +1067,7 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     observe["action"] = "owner-project-observe";
     observe["ownerWorkerId"] = owner;
     observe["projectRoot"] = alternate_root;
-    observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    observe["authoritativePaths"] = Json::array({"project.yaml", "editor.yaml", "traits.yaml"});
     observe["discoveryScopes"] =
         Json::array({Json{{"root", "records"}, {"extensions", Json::array({".json"})}},
                      Json{{"root", "scripts"}, {"extensions", Json::array({".lua"})}},
@@ -1235,7 +1241,7 @@ TEST_CASE("daemon shutdown does not wait for optional exact-validation persisten
     observe["action"] = "owner-project-observe";
     observe["ownerWorkerId"] = owner;
     observe["projectRoot"] = project.path.string();
-    observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    observe["authoritativePaths"] = Json::array({"project.yaml", "editor.yaml", "traits.yaml"});
     observe["discoveryScopes"] =
         Json::array({Json{{"root", "records"}, {"extensions", Json::array({".json"})}},
                      Json{{"root", "scripts"}, {"extensions", Json::array({".lua"})}},
@@ -1353,7 +1359,8 @@ TEST_CASE("daemon scheduler bounds owners and prioritizes queued Project admissi
     std::vector<std::future<Json>> owner_results;
     for (int index = 0; index < 8; ++index) {
         const auto root = projects.path / ("project-" + std::to_string(index));
-        write_project_file(root / "project.json", "{}\n");
+        write_project_file(root / "project.yaml",
+                           "schema: noveltea.project.workspace\nschemaVersion: 1\n");
         roots.push_back(root);
         const auto work = owner_request(request, "owner-" + std::to_string(index), root);
         owner_results.push_back(
@@ -1373,7 +1380,8 @@ TEST_CASE("daemon scheduler bounds owners and prioritizes queued Project admissi
     CHECK(heavy.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
 
     const auto ninth_root = projects.path / "project-8";
-    write_project_file(ninth_root / "project.json", "{}\n");
+    write_project_file(ninth_root / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
     const auto ninth_request = owner_request(request, "owner-8", ninth_root);
     auto ninth =
         std::async(std::launch::async, [ninth_request] { return invoke_daemon(ninth_request); });
@@ -1603,7 +1611,8 @@ TEST_CASE(
 
     auto projects = temp_runtime_root("owner-handoff-project");
     const auto root = projects.path / "project";
-    write_project_file(root / "project.json", "{}\n");
+    write_project_file(root / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
     auto owner_work_request = owner_request(request, "owner-before-crash", root);
     auto owner_result = std::async(
         std::launch::async, [owner_work_request] { return invoke_daemon(owner_work_request); });
@@ -1781,7 +1790,8 @@ TEST_CASE("daemon Project owner crash rolls back an activated mixed publication"
 
     auto files = temp_runtime_root("mixed-owner-crash-files");
     const auto root = files.path / "project";
-    write_project_file(root / "project.json", "{}\n");
+    write_project_file(root / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
     const auto output = files.path / "mixed.png";
     const auto staged = files.path / "mixed.stage";
     const auto backup = files.path / "mixed.backup";
