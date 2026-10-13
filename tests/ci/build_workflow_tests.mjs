@@ -80,6 +80,16 @@ test('release Windows CLI build and certification are separate same-run artifact
   assert.doesNotMatch(consumer, /Cache vcpkg SDK and binaries|Set up Zig for ScriptC Windows target/);
 });
 
+test('release Linux CLI artifact consumers restore both required executable bits', () => {
+  for (const name of ['desktop-hosts', 'web', 'android']) {
+    const consumer = releaseJob(name);
+    const chmod = step(consumer, 'Make NovelTea host CLI executable');
+    assert.match(chmod, /chmod \+x build\/cli\/linux\/noveltea build\/cli\/linux\/noveltea-ui-test-runner/);
+    assert.ok(consumer.indexOf(chmod) < consumer.indexOf('Validate canonical export fixture') ||
+      !consumer.includes('Validate canonical export fixture'));
+  }
+});
+
 test('workflows do not spend Actions cache quota on package-manager or downloadable SDK caches', () => {
   const workflowRoot = new URL('../../.github/workflows/', import.meta.url);
   const sources = readdirSync(workflowRoot)

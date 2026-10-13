@@ -457,9 +457,12 @@ void RmlUiHost::end_frame(bool include_debug_plane)
                 document && document->IsVisible())
                 ++visible;
     }
-    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
-                "[ui-contexts] total=%zu empty=%zu docs=%zu visible=%zu submitted=%u",
-                m_contexts.size(), empty, documents, visible, m_contexts_submitted_this_frame);
+    const std::string report = "[ui-contexts] total=" + std::to_string(m_contexts.size()) +
+                               " empty=" + std::to_string(empty) +
+                               " docs=" + std::to_string(documents) +
+                               " visible=" + std::to_string(visible) +
+                               " submitted=" + std::to_string(m_contexts_submitted_this_frame);
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "%s", report.c_str());
 }
 
 void RmlUiHost::reset_backend_state()

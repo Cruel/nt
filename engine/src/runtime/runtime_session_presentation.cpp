@@ -151,7 +151,7 @@ core::Result<void, core::Diagnostics> RuntimeSession::request_motion(MotionReque
         return reject("Invalid finite motion policy, marker, or unresolved endpoint");
     const long double duration =
         std::ceil(static_cast<long double>(*endpoint - *initial) / request.playback.rate);
-    if (duration <= 0 || duration > std::numeric_limits<std::int64_t>::max())
+    if (!(duration > 0 && duration < std::ldexp(1.0L, 63)))
         return reject("Finite motion requires a representable positive endpoint duration");
     const auto* script =
         request.await_completion ? active_blocker<core::ScriptFlowBlocker>(*m_kernel) : nullptr;
