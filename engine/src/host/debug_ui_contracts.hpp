@@ -15,13 +15,18 @@ struct SetRenderPerfLoggingDebugCommand {
     auto operator<=>(const SetRenderPerfLoggingDebugCommand&) const = default;
 };
 
+struct SetVsyncDebugCommand {
+    bool enabled = true;
+    auto operator<=>(const SetVsyncDebugCommand&) const = default;
+};
+
 struct SetGameplayPausedDebugCommand {
     bool paused = false;
     auto operator<=>(const SetGameplayPausedDebugCommand&) const = default;
 };
 
-using DebugUiCommand =
-    std::variant<SetRenderPerfLoggingDebugCommand, SetGameplayPausedDebugCommand>;
+using DebugUiCommand = std::variant<SetRenderPerfLoggingDebugCommand, SetVsyncDebugCommand,
+                                    SetGameplayPausedDebugCommand>;
 
 struct DebugUiFrameOutput {
     std::vector<DebugUiCommand> commands;

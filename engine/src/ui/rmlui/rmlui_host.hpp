@@ -243,6 +243,8 @@ private:
     std::unique_ptr<AssetRmlFileInterface> m_file_interface;
     std::unique_ptr<SdlSystemInterface> m_system_interface;
     std::vector<ContextRecord> m_contexts;
+    std::uint32_t m_contexts_submitted_this_frame = 0;
+    std::uint64_t m_last_context_perf_log_ms = 0;
     std::vector<PlaneRenderer> m_plane_renderers;
     std::unordered_set<Rml::Context*> m_rendered_contexts;
     ContextRenderObserver m_context_render_observer;

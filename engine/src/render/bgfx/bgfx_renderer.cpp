@@ -400,6 +400,20 @@ void Renderer::end_frame()
     reset_native_video_upload_views();
 }
 
+void Renderer::set_vsync(bool enabled)
+{
+    if (m_vsync == enabled)
+        return;
+    m_vsync = enabled;
+    if (!m_initialized)
+        return;
+
+    bgfx::SwapChain swap_chain;
+    swap_chain.width = static_cast<uint32_t>(m_backbuffer_size.width);
+    swap_chain.height = static_cast<uint32_t>(m_backbuffer_size.height);
+    bgfx::reset(m_vsync ? BGFX_RESET_VSYNC : 0, &swap_chain);
+}
+
 bool Renderer::request_screenshot_capture(RendererScreenshotRequest request)
 {
     const auto valid_uv = [](const Rect& uv) {

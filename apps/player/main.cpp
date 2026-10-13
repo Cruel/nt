@@ -275,6 +275,8 @@ noveltea::EngineToolingConfig tooling_config(int argc, char** argv)
         const std::string_view argument = argv[i];
         if (argument == "--show-fps") {
             config.show_fps_counter = true;
+        } else if (argument == "--render-perf") {
+            config.render_perf_logging = true;
         } else if (argument == "--fps-cap" && i + 1 < argc) {
             config.fps_cap = static_cast<std::uint32_t>(std::strtoul(argv[++i], nullptr, 10));
         } else if (argument == "--rmlui-snap") {

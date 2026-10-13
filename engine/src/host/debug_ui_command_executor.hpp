@@ -14,6 +14,7 @@ namespace noveltea::host {
 
 struct DebugUiCommandEffect {
     std::optional<bool> render_perf_logging;
+    std::optional<bool> vsync;
     bool runtime_state_changed = false;
 };
 

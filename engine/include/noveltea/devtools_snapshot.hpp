@@ -131,6 +131,7 @@ struct DevtoolsWorldSnapshot {
 struct DevtoolsToolingSnapshot {
     bool preview_running = false;
     bool render_perf_logging = false;
+    bool vsync = true;
     bool native_debug_ui_available = false;
     bool native_debug_ui_enabled = false;
 };

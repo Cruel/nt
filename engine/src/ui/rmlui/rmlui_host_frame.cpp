@@ -11,6 +11,7 @@
 #include <SDL3/SDL.h>
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/ElementDocument.h>
 #include <bgfx/bgfx.h>
 
 namespace noveltea::ui::rmlui {
@@ -179,6 +180,7 @@ RmlUiHost::reconfigure_context_environment(const PresentationMetrics& presentati
 void RmlUiHost::begin_frame(const core::RuntimeClockUpdate& clocks)
 {
     m_rendered_contexts.clear();
+    m_contexts_submitted_this_frame = 0;
     m_clocks = clocks;
     for (auto& renderer : m_plane_renderers)
         renderer.view_range_started = false;
@@ -253,6 +255,14 @@ void RmlUiHost::configure_plane_output_framebuffers()
 
 void RmlUiHost::render_context(ContextRecord& record)
 {
+    // Lifecycle contexts remain address-stable after their documents are unloaded. Do not
+    // submit a full-surface render pass for those empty contexts on every subsequent frame.
+    // Update still runs, including the deferred RmlUi document-close cleanup.
+    if (record.context->GetNumDocuments() == 0) {
+        m_rendered_contexts.insert(record.context);
+        return;
+    }
+    ++m_contexts_submitted_this_frame;
     const bool is_source = is_world_transition_source_context(
         record.key, host::kWorldTransitionSourceCompositionGroup);
     set_context_clock(record.key);
@@ -429,6 +439,27 @@ bool RmlUiHost::render_world_overlay_target(std::span<const std::int32_t> extern
 void RmlUiHost::end_frame(bool include_debug_plane)
 {
     render_contexts(false, false, include_debug_plane);
+    if (!m_perf_logging)
+        return;
+    const uint64_t now = SDL_GetTicks();
+    if (m_last_context_perf_log_ms != 0 && now - m_last_context_perf_log_ms < 1000)
+        return;
+    m_last_context_perf_log_ms = now;
+    std::size_t empty = 0;
+    std::size_t documents = 0;
+    std::size_t visible = 0;
+    for (const auto& record : m_contexts) {
+        const int count = record.context->GetNumDocuments();
+        empty += count == 0 ? 1u : 0u;
+        documents += static_cast<std::size_t>(count);
+        for (int index = 0; index < count; ++index)
+            if (const auto* document = record.context->GetDocument(index);
+                document && document->IsVisible())
+                ++visible;
+    }
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
+                "[ui-contexts] total=%zu empty=%zu docs=%zu visible=%zu submitted=%u",
+                m_contexts.size(), empty, documents, visible, m_contexts_submitted_this_frame);
 }
 
 void RmlUiHost::reset_backend_state()
