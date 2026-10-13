@@ -106,6 +106,15 @@ exclusive temporary-memory arbitration; speculative interest cannot masquerade a
   authored half-second blue interval when browser seeks take roughly as long; its screenshot sequence
   is not a valid three-color throughput certification. The release raster and directed WebGL checks
   cover these separate boundaries without altering gameplay timing.
+- `node scripts/certify-video-package-scenarios.mjs --web --native` re-exports ten disposable
+  Feature Lab cases, including CFR/VFR, rational FPS, Retain %, source revision, locale selection,
+  and PQ/HLG HDR-to-SDR. It checks authoritative endpoints, deterministic media output, a negative
+  corrupt-source export, and both optimized Web raster and Linux native player smoke. Build the
+  standalone CLI, optimized Web player and Linux debug native player first. Set `DISPLAY=:0`,
+  `XDG_RUNTIME_DIR=/mnt/wslg/runtime-dir`, `GALLIUM_DRIVER=d3d12`,
+  `MESA_LOADER_DRIVER_OVERRIDE=d3d12` and
+  `MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA` to use WSLg NVIDIA hardware rendering.
+  This does not certify VA-API hardware *decoding*.
 - `noveltea_native_video_texture_smoke` (CTest uses `xvfb-run` when available): real native YUV GPU
   conversion and red/blue readback, independent occurrences, no held uploads, bounded reused
   surfaces, late-sample progress under an advancing playhead, held-pixel readback across discarded

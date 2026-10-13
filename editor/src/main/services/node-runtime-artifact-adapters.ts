@@ -1,12 +1,11 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareOpaqueVideoMotion } from './opaque-video-preparation-service';
 import {
-  installedMediaTool,
-  runMediaToolProcess,
-  type MediaToolRunner,
-} from './media-preparation-service';
+  prepareOpaqueVideoMotion,
+  runVideoMediaToolProcess,
+} from './opaque-video-preparation-service';
+import { installedMediaTool, type MediaToolRunner } from './media-preparation-service';
 import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import type {
@@ -16,7 +15,7 @@ import type {
 
 export function createNodeRuntimeArtifactPaths(
   cliExecutable: () => string = resolveNovelTeaCliPath,
-  mediaRunner: MediaToolRunner = runMediaToolProcess,
+  mediaRunner: MediaToolRunner = runVideoMediaToolProcess,
 ): RuntimeArtifactPathAdapter {
   return {
     resolveProjectSource(projectRoot, source) {

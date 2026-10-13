@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { videoFrameSamplingSchema } from './project-schema/authoring-animations';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
@@ -6,7 +7,9 @@ export const PREPARED_MEDIA_MANIFEST_PATH = 'assets/.prepared-media/manifest.jso
 export const PREPARED_MEDIA_SCHEMA = 'noveltea.private.prepared-media';
 export const PREPARED_MEDIA_VERSION = 1;
 export {
-  OPAQUE_VIDEO_FRAME_RATE,
+  type VideoFrameSampling,
+  type VideoSourceTimingRequest,
+  type VideoSourceTimingResult,
   type OpaqueVideoPreparationRequest,
   type OpaqueVideoPreparationResult,
 } from './prepared-media-contracts';
@@ -36,11 +39,24 @@ export const opaqueVideoPreparationRequestSchema = strict({
   })
     .refine((range) => range.endMs > range.startMs)
     .optional(),
+  frameSampling: videoFrameSamplingSchema.optional(),
+});
+
+export const videoSourceTimingRequestSchema = opaqueVideoPreparationRequestSchema.pick({
+  assetId: true,
+  sourcePath: true,
+  sourceRange: true,
+});
+
+export const videoSourceTimingResultSchema = strict({
+  sampleTimesMs: z.array(z.number().finite().nonnegative()).min(1).max(65_536),
+  endpointMs: z.number().int().positive(),
 });
 
 export const opaqueVideoPreparationResultSchema = strict({
   contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
   hadAudio: z.boolean(),
+  reducedColorPrecision: z.boolean(),
   browserVideo: strict({
     sourcePath: z.string().min(1),
     projectRelativePath: z.string().min(1),

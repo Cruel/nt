@@ -1227,6 +1227,7 @@ async function prepareOpaqueVideoRepresentations(
           sourcePath: asset.source.path,
           canvas: { ...animation.data.canvas },
           ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
+          ...(motion.frameSampling ? { frameSampling: motion.frameSampling } : {}),
         },
       });
     }
@@ -1284,6 +1285,18 @@ async function prepareOpaqueVideoRepresentations(
         },
         frames: prepared.frameDurationsMs.map((durationMs) => ({ durationMs })),
       });
+      if (prepared.reducedColorPrecision)
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'animation.video.color-precision-reduced',
+            severity: 'warning',
+            path: `/animations/${entry.animationId}/data/motions`,
+            message: `Video motion '${entry.motionId}' uses HDR or high-bit-depth color. Runtime preparation converts it to SDR/8-bit BT.709.`,
+            category: 'Animations',
+            boundaries: ['authoring', 'runtime-package'],
+            ownerPaths: [`/animations/${entry.animationId}`],
+          }),
+        );
       if (prepared.hadAudio)
         diagnostics.push(
           createProjectValidationDiagnostic({

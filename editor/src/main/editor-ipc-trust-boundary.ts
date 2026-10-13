@@ -52,7 +52,10 @@ import { novelTeaUserPreferencesSchema } from '../shared/user-config';
 import { completeDesktopProjectImportRequestSchema } from '../shared/project-import-handoff';
 import { TERMINAL_LIMITS } from '../shared/terminal';
 import { shaderVariantSchema } from '../shared/shader-variants';
-import { opaqueVideoPreparationRequestSchema } from '../shared/prepared-media';
+import {
+  opaqueVideoPreparationRequestSchema,
+  videoSourceTimingRequestSchema,
+} from '../shared/prepared-media';
 import type { ToolingActivityRecord } from '../shared/tooling-activity';
 
 const PACKAGED_EDITOR_DOCUMENT = 'noveltea-editor://app/index.html';
@@ -749,6 +752,14 @@ export const compileShadersArgumentsSchema = z.tuple([
       sourceOverlays: shaderSourceOverlaysSchema.optional(),
     })
     .strict(),
+]);
+
+export const probeVideoTimelineArgumentsSchema = z.tuple([
+  projectSessionIdSchema,
+  videoSourceTimingRequestSchema.refine((request) => isSafeProjectAssetPath(request.sourcePath), {
+    message: 'Video source path must be a safe project-relative Asset path.',
+    path: ['sourcePath'],
+  }),
 ]);
 
 export const prepareOpaqueVideoArgumentsSchema = z.tuple([

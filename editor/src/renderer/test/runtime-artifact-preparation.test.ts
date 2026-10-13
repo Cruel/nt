@@ -462,6 +462,7 @@ describe('Prepared Runtime Artifact module', () => {
           return {
             contentHash: 'a'.repeat(64),
             hadAudio: true,
+            reducedColorPrecision: false,
             browserVideo: {
               sourcePath: '/project/.noveltea/build/prepared-media/a/opaque.webm',
               projectRelativePath: '.noveltea/build/prepared-media/a/opaque.webm',

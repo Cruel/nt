@@ -192,6 +192,97 @@ it('uses motion-relative video scrub, restart, and playback rather than independ
   expect(screen.getByRole('button', { name: 'Play' })).not.toBeDisabled();
 });
 
+it('confirms target FPS at authoring time before committing and preserves rational values', async () => {
+  const project = structuredClone(useProjectStore.getState().document);
+  if (!isAuthoringProject(project)) throw new Error('Expected Project');
+  project.assets.video = {
+    id: 'video',
+    label: 'Video',
+    data: {
+      kind: 'video',
+      source: { type: 'project-file', path: 'assets/video/source.webm' },
+      aliases: [],
+      imageMetadata: null,
+    },
+  };
+  project.animations.pulse!.data.motions = [
+    {
+      id: 'idle',
+      kind: 'video',
+      video: { $ref: { collection: 'assets', id: 'video' } },
+      sourceRange: { startMs: 0, endMs: 1000 },
+      markers: [],
+    },
+  ];
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/project.json',
+    projectSessionId: 'video-session',
+  });
+  vi.mocked(window.noveltea.probeVideoTimeline).mockResolvedValue({
+    sampleTimesMs: Array.from({ length: 10 }, (_, index) => index * 100),
+    endpointMs: 1000,
+  });
+  const user = userEvent.setup();
+  render(
+    <AnimationEditor
+      tab={{
+        id: 'pulse',
+        title: 'Pulse',
+        editorType: 'animation-detail',
+        resource: {
+          kind: 'record',
+          stableId: 'record:animations:pulse',
+          collection: 'animations',
+          entityId: 'pulse',
+        },
+      }}
+    />,
+  );
+  const sampling = screen.getByRole('combobox', { name: 'Video frame sampling' });
+  await user.click(sampling);
+  await user.click(screen.getByRole('option', { name: 'Target FPS' }));
+  expect(await screen.findByText('Apply target frame rate?')).toBeInTheDocument();
+  expect(window.noveltea.probeVideoTimeline).toHaveBeenCalledWith('video-session', {
+    assetId: 'video',
+    sourcePath: 'assets/video/source.webm',
+    sourceRange: { startMs: 0, endMs: 1000 },
+  });
+  let document = useProjectStore.getState().document;
+  if (!isAuthoringProject(document)) throw new Error('Expected Project');
+  expect(document.animations.pulse!.data.motions[0]).not.toHaveProperty('frameSampling');
+  await user.click(screen.getByRole('button', { name: 'Apply FPS' }));
+  document = useProjectStore.getState().document;
+  if (!isAuthoringProject(document)) throw new Error('Expected Project');
+  expect(document.animations.pulse!.data.motions[0]).toMatchObject({
+    frameSampling: { mode: 'target-fps', fps: { numerator: 30000, denominator: 1001 } },
+  });
+  // A lower target rate maps each output to a distinct source PTS: no modal.
+  fireEvent.change(screen.getByLabelText('FPS denominator'), { target: { value: '6000' } });
+  fireEvent.blur(screen.getByLabelText('FPS denominator'));
+  await waitFor(() => {
+    const saved = useProjectStore.getState().document;
+    if (!isAuthoringProject(saved)) throw new Error('Expected Project');
+    expect(saved.animations.pulse!.data.motions[0]).toMatchObject({
+      frameSampling: { mode: 'target-fps', fps: { numerator: 30000, denominator: 6000 } },
+    });
+  });
+  expect(screen.queryByText('Apply target frame rate?')).toBeNull();
+  // Cancel a second change that would duplicate source frames. The last
+  // committed rational FPS must remain unchanged.
+  fireEvent.change(screen.getByLabelText('FPS denominator'), { target: { value: '1001' } });
+  fireEvent.blur(screen.getByLabelText('FPS denominator'));
+  expect(await screen.findByText('Apply target frame rate?')).toBeInTheDocument();
+  await user.click(screen.getByRole('button', { name: 'Cancel' }));
+  const afterCancel = useProjectStore.getState().document;
+  if (!isAuthoringProject(afterCancel)) throw new Error('Expected Project');
+  expect(afterCancel.animations.pulse!.data.motions[0]).toMatchObject({
+    frameSampling: { mode: 'target-fps', fps: { numerator: 30000, denominator: 6000 } },
+  });
+  expect(screen.queryByText('Apply target frame rate?')).toBeNull();
+});
+
 it('commits frame timing only after an integer duration is entered', async () => {
   const user = userEvent.setup();
   render(

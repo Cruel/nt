@@ -56,11 +56,24 @@ export const videoAnimationSourceRangeSchema = strict({
   path: ['endMs'],
 });
 
+export const videoFrameSamplingSchema = z.discriminatedUnion('mode', [
+  strict({ mode: z.literal('source') }),
+  strict({
+    mode: z.literal('target-fps'),
+    fps: strict({
+      numerator: z.number().int().positive().safe(),
+      denominator: z.number().int().positive().safe(),
+    }),
+  }),
+  strict({ mode: z.literal('retain-percent'), percent: z.number().int().min(1).max(100) }),
+]);
+
 export const videoAnimationMotionSchema = strict({
   id: entityIdSchema,
   kind: z.literal('video'),
   video: assetRefSchema,
   sourceRange: videoAnimationSourceRangeSchema.optional(),
+  frameSampling: videoFrameSamplingSchema.optional(),
   markers: z.array(animationMarkerSchema),
 });
 

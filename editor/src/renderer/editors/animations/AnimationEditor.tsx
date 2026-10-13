@@ -3,6 +3,13 @@ import { z } from 'zod';
 import { useWorkbenchEditorTabState } from '@/workbench/workbench-tab-state';
 import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
+import {
+  Dialog,
+  DialogDescription,
+  DialogFooter,
+  DialogPopup,
+  DialogTitle,
+} from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import {
@@ -17,6 +24,8 @@ import { useCommandStore } from '@/commands/command-store';
 import { recordSaveUnitId } from '@/project/save-unit-registry';
 import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
+import type { VideoFrameSampling } from '../../../shared/prepared-media-contracts';
+import { targetFpsDuplicatesSource } from '../../../shared/video-fps-duplicates';
 import {
   animationDataSchema,
   animationMarkerTime,
@@ -55,6 +64,10 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const [playing, setPlaying] = useState(false);
   const [restart, setRestart] = useState(0);
   const [loop, setLoop] = useState(false);
+  const [pendingSampling, setPendingSampling] = useState<VideoFrameSampling | null>(null);
+  const [samplingError, setSamplingError] = useState(false);
+  const [inspectingSampling, setInspectingSampling] = useState(false);
+  const samplingProbeToken = useRef(0);
   const [rangeStart, setRangeStart] = useState('start');
   const [rangeEnd, setRangeEnd] = useState('end');
   const [urls, setUrls] = useState<Record<string, string>>({});
@@ -153,6 +166,13 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     return () => cancelAnimationFrame(handle);
   }, [playing, timelineMotion, loop, policy, validRange, duration, restart]);
 
+  useEffect(() => {
+    samplingProbeToken.current += 1;
+    setSamplingError(false);
+    setInspectingSampling(false);
+    setPendingSampling(null);
+  }, [motion?.id, session]);
+
   if (!data || !record || !id || !motion)
     return <div className="p-4">{t('animationEditor.unavailable')}</div>;
   const commit = (next: AnimationData) => {
@@ -178,11 +198,12 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     value: string,
     values: string[],
     onChange: (value: string) => void,
+    labelForValue: (value: string) => string = (value) => value,
   ) => (
     <div>
       <Label>{label}</Label>
       <Select
-        items={values.map((value) => ({ value, label: value }))}
+        items={values.map((value) => ({ value, label: labelForValue(value) }))}
         value={value}
         onValueChange={(value) => {
           if (value) onChange(value);
@@ -194,7 +215,7 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
         <SelectContent>
           {values.map((value) => (
             <SelectItem key={value} value={value}>
-              {value}
+              {labelForValue(value)}
             </SelectItem>
           ))}
         </SelectContent>
@@ -206,6 +227,63 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
     setTime(Math.max(0, Math.min(value, duration)));
   };
   const supportsFrames = motion.kind === 'sprite-sequence';
+  const sampling = motion.kind === 'video' ? (motion.frameSampling ?? { mode: 'source' }) : null;
+  const commitSampling = (next: VideoFrameSampling) => {
+    if (motion.kind !== 'video') return;
+    const apply = () =>
+      commit({
+        ...data,
+        motions: data.motions.map((entry) =>
+          entry.id === motion.id && entry.kind === 'video'
+            ? { ...entry, frameSampling: next }
+            : entry,
+        ),
+      });
+    if (next.mode !== 'target-fps') {
+      samplingProbeToken.current += 1;
+      setSamplingError(false);
+      apply();
+      return;
+    }
+    const asset = project?.assets[motion.video.$ref.id]?.data;
+    if (!session || asset?.kind !== 'video' || asset.source.type !== 'project-file') {
+      setSamplingError(true);
+      return;
+    }
+    const probeToken = ++samplingProbeToken.current;
+    setSamplingError(false);
+    setInspectingSampling(true);
+    void window.noveltea
+      .probeVideoTimeline(session, {
+        assetId: motion.video.$ref.id,
+        sourcePath: asset.source.path,
+        ...(motion.sourceRange ? { sourceRange: motion.sourceRange } : {}),
+      })
+      .then((result) => {
+        if (probeToken !== samplingProbeToken.current) return;
+        if (targetFpsDuplicatesSource(result.sampleTimesMs, result.endpointMs, next.fps))
+          setPendingSampling(next);
+        else apply();
+      })
+      .catch(() => {
+        if (probeToken === samplingProbeToken.current) setSamplingError(true);
+      })
+      .finally(() => {
+        if (probeToken === samplingProbeToken.current) setInspectingSampling(false);
+      });
+  };
+  const confirmSampling = () => {
+    if (!pendingSampling || motion.kind !== 'video') return;
+    commit({
+      ...data,
+      motions: data.motions.map((entry) =>
+        entry.id === motion.id && entry.kind === 'video'
+          ? { ...entry, frameSampling: pendingSampling }
+          : entry,
+      ),
+    });
+    setPendingSampling(null);
+  };
   return (
     <div className="h-full space-y-4 overflow-auto p-4">
       <h2 className="font-semibold">{record.label ?? id}</h2>
@@ -299,6 +377,106 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
           </Button>
         </div>
       ) : null}
+      {sampling ? (
+        <div className="space-y-2">
+          {select(
+            t('animationEditor.videoSampling'),
+            sampling.mode,
+            [
+              { value: 'source', label: t('animationEditor.samplingSource') },
+              { value: 'target-fps', label: t('animationEditor.samplingTarget') },
+              { value: 'retain-percent', label: t('animationEditor.samplingRetain') },
+            ].map((option) => option.value),
+            (mode) => {
+              if (mode === 'source') commitSampling({ mode: 'source' });
+              else if (mode === 'retain-percent')
+                commitSampling({ mode: 'retain-percent', percent: 50 });
+              else
+                commitSampling({
+                  mode: 'target-fps',
+                  fps: { numerator: 30000, denominator: 1001 },
+                });
+            },
+            (mode) =>
+              t(
+                `animationEditor.sampling${mode === 'source' ? 'Source' : mode === 'target-fps' ? 'Target' : 'Retain'}`,
+              ),
+          )}
+          {sampling.mode === 'target-fps' ? (
+            <div className="flex gap-2">
+              {(['numerator', 'denominator'] as const).map((part) => (
+                <div key={part}>
+                  <Label htmlFor={`sampling-${part}-${tab.id}`}>
+                    {t(`animationEditor.${part}`)}
+                  </Label>
+                  <Input
+                    id={`sampling-${part}-${tab.id}`}
+                    key={`${motion.id}:${part}:${sampling.fps[part]}`}
+                    type="number"
+                    min={1}
+                    step={1}
+                    defaultValue={sampling.fps[part]}
+                    onBlur={(event) => {
+                      const value = Number(event.target.value);
+                      if (Number.isSafeInteger(value) && value > 0 && value !== sampling.fps[part])
+                        commitSampling({ ...sampling, fps: { ...sampling.fps, [part]: value } });
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          ) : null}
+          {sampling.mode === 'retain-percent' ? (
+            <div>
+              <Label htmlFor={`retain-percent-${tab.id}`}>
+                {t('animationEditor.retainPercent')}
+              </Label>
+              <Input
+                id={`retain-percent-${tab.id}`}
+                key={`${motion.id}:${sampling.percent}`}
+                type="number"
+                min={1}
+                max={100}
+                step={1}
+                defaultValue={sampling.percent}
+                onBlur={(event) => {
+                  const percent = Number(event.target.value);
+                  if (
+                    Number.isSafeInteger(percent) &&
+                    percent >= 1 &&
+                    percent <= 100 &&
+                    percent !== sampling.percent
+                  )
+                    commitSampling({ mode: 'retain-percent', percent });
+                }}
+              />
+            </div>
+          ) : null}
+        </div>
+      ) : null}
+      {inspectingSampling ? (
+        <p className="text-xs text-muted-foreground">{t('animationEditor.samplingInspecting')}</p>
+      ) : null}
+      {samplingError ? (
+        <p role="alert" className="text-xs text-destructive">
+          {t('animationEditor.samplingInspectionFailed')}
+        </p>
+      ) : null}
+      <Dialog
+        open={pendingSampling !== null}
+        onOpenChange={(open) => !open && setPendingSampling(null)}
+      >
+        <DialogPopup>
+          <DialogTitle>{t('animationEditor.fpsConfirmationTitle')}</DialogTitle>
+          <DialogDescription>{t('animationEditor.fpsConfirmationBody')}</DialogDescription>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setPendingSampling(null)}>
+              {t('animationEditor.cancel')}
+            </Button>
+            <Button onClick={confirmSampling}>{t('animationEditor.confirmFps')}</Button>
+          </DialogFooter>
+        </DialogPopup>
+      </Dialog>
       <div className="flex h-64 items-center justify-center bg-muted/20">
         {videoUrl ? (
           <video
