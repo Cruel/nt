@@ -62,28 +62,67 @@ try {
   }, [...media]);
   await page.addScriptTag({ content: library });
   const length = media.length;
-  const ids = await page.evaluate((length) => {
-    const one = start(1024, length, 750.5, 96, 64, 32768, 16, 128, 512);
-    const two = start(1024, length, 1750, 96, 64, 65536, 20, 640, 256);
-    const queued = start(1024, length, 16, 96, 64, 98304, 24, 896, 128);
-    dispose(queued);
-    return { one, two, created: mediaUrls.created };
+  // Repeat independent seeks to catch initial-frame/seek-completion races in browser media events.
+  for (let iteration = 0; iteration < 12; ++iteration) {
+    await page.evaluate(() => {
+      HEAP32.fill(0, 4, 7);
+      mediaUrls.created = mediaUrls.maximum = 0;
+    });
+    const ids = await page.evaluate((length) => {
+      const one = start(1024, length, 750.5, 96, 64, 32768, 16, 128, 512);
+      const two = start(1024, length, 1750, 96, 64, 65536, 20, 640, 256);
+      const queued = start(1024, length, 16, 96, 64, 98304, 24, 896, 128);
+      dispose(queued);
+      return { one, two, created: mediaUrls.created };
+    }, length);
+    assert.equal(ids.created, 2);
+    await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[5] !== 0);
+    const result = await page.evaluate(() => ({
+      states: [HEAP32[4], HEAP32[5], HEAP32[6]],
+      green: [...HEAPU8.slice(32768, 32772)],
+      blue: [...HEAPU8.slice(65536, 65540)],
+      urls: { ...mediaUrls },
+    }));
+    assert.deepEqual(result.states, [1, 1, 0]);
+    assert.equal(result.urls.live, 0);
+    assert.equal(result.urls.maximum, 2);
+    assert.equal(result.urls.created, 2);
+    assert.ok(result.green[1] > 80 && result.green[0] < 30 && result.green[2] < 30,
+      `Seek iteration ${iteration}: expected green, got ${result.green}`);
+    assert.ok(result.blue[2] > 200 && result.blue[0] < 30 && result.blue[1] < 30,
+      `Seek iteration ${iteration}: expected blue, got ${result.blue}`);
+    await page.evaluate(({ one, two }) => { dispose(one); dispose(two); }, ids);
+  }
+
+  const boundaryIds = await page.evaluate((length) => {
+    HEAP32.fill(0, 4, 7);
+    mediaUrls.created = mediaUrls.maximum = 0;
+    return [
+      start(1024, length, 0, 96, 64, 32768, 16, 128, 512),
+      start(1024, length, 2000, 96, 64, 65536, 20, 640, 256),
+      start(1024, length, 750.5, 96, 64, 98304, 24, 896, 128),
+    ];
   }, length);
-  assert.equal(ids.created, 2);
-  await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[5] !== 0);
-  const result = await page.evaluate(() => ({
-    states: [HEAP32[4], HEAP32[5], HEAP32[6]],
-    green: [...HEAPU8.slice(32768, 32772)],
-    blue: [...HEAPU8.slice(65536, 65540)],
+  await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[5] !== 0 && HEAP32[6] !== 0);
+  const boundaries = await page.evaluate(() => ({
+    states: [...HEAP32.slice(4, 7)],
+    initial: [...HEAPU8.slice(32768, 32772)],
+    endpoint: [...HEAPU8.slice(65536, 65540)],
+    queued: [...HEAPU8.slice(98304, 98308)],
     urls: { ...mediaUrls },
   }));
-  assert.deepEqual(result.states, [1, 1, 0]);
-  assert.equal(result.urls.live, 0);
-  assert.equal(result.urls.maximum, 2);
-  assert.equal(result.urls.created, 2);
-  assert.ok(result.green[1] > 80 && result.green[0] < 30 && result.green[2] < 30);
-  assert.ok(result.blue[2] > 200 && result.blue[0] < 30 && result.blue[1] < 30);
-  await page.evaluate(({ one, two }) => { dispose(one); dispose(two); }, ids);
+  assert.deepEqual(boundaries.states, [1, 1, 1]);
+  assert.ok(boundaries.initial[0] > 200 && boundaries.initial[1] < 30 && boundaries.initial[2] < 30,
+    `Expected red initial sample, got ${boundaries.initial}`);
+  assert.ok(boundaries.endpoint[2] > 200 && boundaries.endpoint[0] < 30 && boundaries.endpoint[1] < 30,
+    `Expected blue endpoint sample, got ${boundaries.endpoint}`);
+  assert.ok(boundaries.queued[1] > 80 && boundaries.queued[0] < 30 && boundaries.queued[2] < 30,
+    `Expected green queued sample, got ${boundaries.queued}`);
+  assert.deepEqual(boundaries.urls, { live: 0, maximum: 2, created: 3 });
+  await page.evaluate((ids) => {
+    for (const id of ids) dispose(id);
+    HEAP32.fill(0, 4, 7);
+  }, boundaryIds);
 
   // Disposal revokes interest before an asynchronous browser callback can touch freed WASM memory.
   await page.evaluate((length) => {
@@ -105,7 +144,7 @@ try {
   assert.equal(await page.evaluate(() => HEAP32[6]), -1);
   await page.evaluate((id) => dispose(id), mismatch);
   assert.equal(await page.evaluate(() => mediaUrls.live), 0);
-  console.log('[web-video-texture] directed decode, independent samples, bounded queue, cancellation and typed failure passed');
+  console.log('[web-video-texture] repeated directed decode, initial/endpoint samples, bounded queue progress, cancellation and typed failure passed');
 } finally {
   await browser.close();
 }

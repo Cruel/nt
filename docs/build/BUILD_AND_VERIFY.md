@@ -214,7 +214,15 @@ runtime directly, without testing title-screen interaction. The browser checks p
 media seeks and screenshot colors at the authored panel; this is platform realization coverage,
 not a second gameplay-semantic suite. `NOVELTEA_WEB_VIDEO_SMOKE_CAPTURE` optionally names a
 failure screenshot. `pnpm web:video:test` runs the smaller browser media-boundary checks plus the
-WebAssembly request-contract test, using the configured Web-debug compiler.
+WebAssembly request-contract test, using the configured Web-debug compiler. The browser checks
+repeat independent directed seeks and cover the zero-time sample, exact endpoint, and queued decoder
+progress in addition to cancellation and resource failure. Capture waits for seek completion, not
+initial-frame `loadeddata`, before publishing a nonzero-time sample.
+
+If the current display cannot initialize WebGL (for example an unavailable SSH-forwarded display),
+run the package smoke under `xvfb-run -a node scripts/web-player-package-smoke.mjs ...`. Browser media
+boundary tests alone do not prove bgfx raster rendering; retain the exported-package smoke as the
+platform integration check.
 
 For repository-local Web export testing, `scripts/run-web.sh` refreshes the repository `noveltea`
 host CLI, configures the canonical release Web player template, exports the selected project (or the shared acceptance
