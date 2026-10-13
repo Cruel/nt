@@ -42,7 +42,7 @@ ProjectAuthorityRequest project_authority_request(const std::filesystem::path& r
 {
     return {
         .project_root = root,
-        .authoritative_paths = {"project.json", "editor.json", "traits.json"},
+        .authoritative_paths = {"project.yaml", "editor.yaml", "traits.yaml"},
         .discovery_scopes =
             {
                 ProjectSourceDiscoveryScope{
@@ -77,9 +77,10 @@ int main()
     TempProjectRoot root{
         temp / ("noveltea-project-authority-windows-stop-before-read-" +
                 std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()))};
-    if (!write_project_file(root.path / "project.json", "{}\n") ||
-        !write_project_file(root.path / "editor.json", "{}\n") ||
-        !write_project_file(root.path / "traits.json", "{}\n") ||
+    if (!write_project_file(root.path / "project.yaml",
+                            "schema: noveltea.project.workspace\nschemaVersion: 1\n") ||
+        !write_project_file(root.path / "editor.yaml", "{}\n") ||
+        !write_project_file(root.path / "traits.yaml", "{}\n") ||
         !write_project_file(root.path / "records/room.json", "{\"id\":\"room\"}\n") ||
         !write_project_file(root.path / "scripts/main.lua", "return true\n") ||
         !write_project_file(root.path / "i18n/en.json", "{}\n") ||
