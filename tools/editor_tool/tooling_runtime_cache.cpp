@@ -433,7 +433,7 @@ Json probe(const Json& request)
     if (error || !std::filesystem::is_directory(root_status) ||
         std::filesystem::is_symlink(root_status))
         return response("unusable", "project-root-unusable");
-    const auto project_status = std::filesystem::symlink_status(root / "project.json", error);
+    const auto project_status = std::filesystem::symlink_status(root / "project.yaml", error);
     if (error || !std::filesystem::is_regular_file(project_status) ||
         std::filesystem::is_symlink(project_status))
         return response("unusable", "project-manifest-unavailable");
@@ -517,7 +517,7 @@ Json probe(const Json& request)
             return response("stale", "input-metadata-changed");
         input_paths.insert(input["path"].get<std::string>());
     }
-    if (!input_paths.contains("project.json"))
+    if (!input_paths.contains("project.yaml"))
         return response("unusable", "manifest-invalid");
     if (!discovery_matches(root, manifest["discoveryScopes"], input_paths))
         return response("stale", "discovery-inputs-changed");
@@ -770,8 +770,8 @@ Json probe_authoring(const Json& request)
         current_inputs.push_back(*current);
         metadata_changed = metadata_changed || *current != input;
     }
-    if (!inputs.contains("project.json") || !inputs.contains("editor.json") ||
-        !inputs.contains("traits.json"))
+    if (!inputs.contains("project.yaml") || !inputs.contains("editor.yaml") ||
+        !inputs.contains("traits.yaml"))
         return response("unusable", "manifest-inputs-invalid");
     if (!discovery_matches(root, scopes, inputs) || !authoring_workspace_settled(root))
         return response("stale", "discovery-inputs-changed");

@@ -924,7 +924,7 @@ function daemonLogicalProjectRoot(request: DaemonRequestContext): string {
   for (;;) {
     try {
       const metadata = JSON.parse(
-        invokeHost('path-metadata', JSON.stringify({ path: join(candidate, 'project.json') })),
+        invokeHost('path-metadata', JSON.stringify({ path: join(candidate, 'project.yaml') })),
       ) as { ok?: boolean; kind?: string };
       if (metadata.ok === true && metadata.kind !== 'missing') return candidate;
     } catch {

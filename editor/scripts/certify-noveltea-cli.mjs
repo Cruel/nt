@@ -19,6 +19,7 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 import { waitForDaemonState } from './cli-certification-synchronization.mjs';
@@ -162,6 +163,14 @@ async function verifyWindowsPeStackReserve() {
 async function writeJson(filePath, value) {
   await mkdir(path.dirname(filePath), { recursive: true });
   await writeFile(filePath, `${JSON.stringify(value, null, 2)}\n`);
+}
+
+async function readProjectManifest(root) {
+  return parseYaml(await readFile(path.join(root, 'project.yaml'), 'utf8'));
+}
+
+async function writeProjectManifest(root, value) {
+  await writeFile(path.join(root, 'project.yaml'), stringifyYaml(value));
 }
 
 async function treeSnapshot(root, normalizeFile = null) {
@@ -796,16 +805,15 @@ const differentialCases = [
   {
     name: 'malformed-manifest',
     args: (root) => ['--project', root, '--json', 'validate'],
-    prepare: async (root) => writeFile(path.join(root, 'project.json'), '{\n'),
+    prepare: async (root) => writeFile(path.join(root, 'project.yaml'), 'project: [\n'),
   },
   {
     name: 'unsupported-manifest',
     args: (root) => ['--project', root, '--json', 'validate'],
     prepare: async (root) => {
-      const file = path.join(root, 'project.json');
-      const value = JSON.parse(await readFile(file, 'utf8'));
+      const value = await readProjectManifest(root);
       value.schemaVersion = 999;
-      await writeJson(file, value);
+      await writeProjectManifest(root, value);
     },
   },
   { name: 'usages', args: (root) => ['--project', root, '--json', 'usages', 'rooms', 'gallery'] },
@@ -817,10 +825,9 @@ const differentialCases = [
     name: 'asset-audit-unrelated-malformed',
     args: (root) => ['--project', root, '--json', 'asset', 'audit'],
     prepare: async (root) => {
-      const manifestPath = path.join(root, 'project.json');
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      const manifest = await readProjectManifest(root);
       manifest.settings = null;
-      await writeJson(manifestPath, manifest);
+      await writeProjectManifest(root, manifest);
       const dialoguesRoot = path.join(root, 'records', 'dialogues');
       await mkdir(dialoguesRoot, { recursive: true });
       await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
@@ -982,10 +989,9 @@ const differentialCases = [
     name: 'platform-profiles-unrelated-malformed',
     args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
     prepare: async (root) => {
-      const manifestPath = path.join(root, 'project.json');
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      const manifest = await readProjectManifest(root);
       manifest.settings = null;
-      await writeJson(manifestPath, manifest);
+      await writeProjectManifest(root, manifest);
       const dialoguesRoot = path.join(root, 'records', 'dialogues');
       await mkdir(dialoguesRoot, { recursive: true });
       await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
@@ -995,31 +1001,28 @@ const differentialCases = [
     name: 'platform-profiles-malformed-profile',
     args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
     prepare: async (root) => {
-      const manifestPath = path.join(root, 'project.json');
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      const manifest = await readProjectManifest(root);
       manifest.export.profiles[0].target = 'not-a-platform';
-      await writeJson(manifestPath, manifest);
+      await writeProjectManifest(root, manifest);
     },
   },
   {
     name: 'platform-profiles-missing-memory-policy',
     args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
     prepare: async (root) => {
-      const manifestPath = path.join(root, 'project.json');
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      const manifest = await readProjectManifest(root);
       manifest.export.profiles[0].assetMemory = {
         kind: 'policy',
         policyId: 'missing-policy',
       };
-      await writeJson(manifestPath, manifest);
+      await writeProjectManifest(root, manifest);
     },
   },
   {
     name: 'platform-profiles-multiple-export-diagnostics',
     args: (root) => ['--project', root, '--json', 'platform', 'profiles'],
     prepare: async (root) => {
-      const manifestPath = path.join(root, 'project.json');
-      const manifest = JSON.parse(await readFile(manifestPath, 'utf8'));
+      const manifest = await readProjectManifest(root);
       manifest.export.assetMemoryPolicies = [
         {
           id: 'too-warm',
@@ -1032,7 +1035,7 @@ const differentialCases = [
         kind: 'policy',
         policyId: 'missing-policy',
       };
-      await writeJson(manifestPath, manifest);
+      await writeProjectManifest(root, manifest);
     },
   },
   {
@@ -1694,21 +1697,21 @@ async function certifyAuthoringCache(tempRoot, pristine) {
       fail('Authoring cache did not publish the repaired generation after source removal.');
   }
   invoke('authoring removed candidate warm', false);
-  const manifestPath = path.join(root, 'project.json');
+  const manifestPath = path.join(root, 'project.yaml');
   await writeFile(manifestPath, `${await readFile(manifestPath, 'utf8')}\n`);
   invoke('authoring changed metadata', true);
   const declaredAsset = path.join(root, 'assets/scripts/startup.lua');
   await writeFile(declaredAsset, `${await readFile(declaredAsset, 'utf8')}\n-- changed asset\n`);
   invoke('authoring changed declared Asset', true);
-  const project = JSON.parse(await readFile(manifestPath, 'utf8'));
+  const project = await readProjectManifest(root);
   const originalEntrypoint = project.entrypoint;
   project.entrypoint = { kind: 'room', id: 'missing-cache-room' };
-  await writeJson(manifestPath, project);
+  await writeProjectManifest(root, project);
   if (invoke('authoring semantic failure', true).status !== 4)
     fail('Authoring semantic-error fixture did not fail validation.');
   invoke('authoring cached semantic failure', false);
   project.entrypoint = originalEntrypoint;
-  await writeJson(manifestPath, project);
+  await writeProjectManifest(root, project);
   invoke('authoring semantic repair', true);
   const currentPath = path.join(cacheRoot, 'current.json');
   await writeFile(currentPath, '{}');
@@ -1731,7 +1734,7 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   invoke('authoring recovered warm hit', false);
   const incompleteManifest = JSON.parse(await readFile(currentPath, 'utf8'));
   incompleteManifest.inputs = incompleteManifest.inputs.filter(
-    (input) => input.path !== 'traits.json',
+    (input) => input.path !== 'traits.yaml',
   );
   await writeJson(currentPath, incompleteManifest);
   invoke('authoring missing authoritative root fragment', true);
@@ -1826,11 +1829,10 @@ async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
     // covered by native daemon tests. CLI certification proves native-memory reuse and persistence
     // without racing the broker's maintenance cadence.
 
-    const projectPath = path.join(root, 'project.json');
-    const project = JSON.parse(await readFile(projectPath, 'utf8'));
+    const project = await readProjectManifest(root);
     const originalEntrypoint = project.entrypoint;
     project.entrypoint = { kind: 'room', id: 'missing-daemon-cache-room' };
-    await writeJson(projectPath, project);
+    await writeProjectManifest(root, project);
     const invalid = runNative(args, { cwd: root, env: traced });
     if (invalid.status !== 4 || !validationProfile(invalid))
       fail(`Changed invalid Project was not recomputed canonically: ${invalid.stderr}`);
@@ -1845,7 +1847,7 @@ async function certifyDaemonAuthoringCacheResidency(tempRoot, pristine) {
       );
 
     project.entrypoint = originalEntrypoint;
-    await writeJson(projectPath, project);
+    await writeProjectManifest(root, project);
     await rm(path.join(cacheRoot, 'current.json'), { recursive: true, force: true });
     const recovered = requireSuccess(
       'daemon authoring persistent publication recovery',
@@ -3604,15 +3606,15 @@ async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
   if (candidateDeleted.payload.runtimeCache?.published !== true)
     fail(`Candidate-source deletion did not republish: ${candidateDeleted.result.stdout}`);
 
-  const projectJson = path.join(root, 'project.json');
-  const projectMetadata = await stat(projectJson);
+  const projectYaml = path.join(root, 'project.yaml');
+  const projectMetadata = await stat(projectYaml);
   const moved = new Date(projectMetadata.mtimeMs + 5000);
-  await utimes(projectJson, moved, moved);
+  await utimes(projectYaml, moved, moved);
   const mtimeChanged = runCached('runtime-cache tracked mtime change', true, 'stale');
   if (mtimeChanged.payload.runtimeCache?.published !== true)
     fail(`Tracked mtime change did not republish: ${mtimeChanged.result.stdout}`);
 
-  await writeFile(projectJson, `${await readFile(projectJson, 'utf8')} `, 'utf8');
+  await writeFile(projectYaml, `${await readFile(projectYaml, 'utf8')} `, 'utf8');
   const sizeChanged = runCached('runtime-cache tracked size change', true, 'stale');
   if (sizeChanged.payload.runtimeCache?.published !== true)
     fail(`Tracked size change did not republish: ${sizeChanged.result.stdout}`);

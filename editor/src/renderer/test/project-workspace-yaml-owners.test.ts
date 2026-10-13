@@ -113,4 +113,93 @@ describe('YAML manifest, Traits, and collaborator metadata', () => {
     expect(text).toContain('color: null');
     expect(() => codec.decode('root: *alias\n')).toThrow();
   });
+
+  it('rejects unkeyed sequence replacement when a descendant contains a comment', () => {
+    const codec = projectWorkspaceSourceCodec('project.yaml');
+    const original =
+      'settings:\n  text:\n    fontStack:\n      - $ref:\n          collection: assets\n          id: first # retain this comment\n';
+    const parsed = codec.decode(original) as {
+      settings: { text: { fontStack: { $ref: { collection: string; id: string } }[] } };
+    };
+    parsed.settings.text.fontStack.push({ $ref: { collection: 'assets', id: 'second' } });
+    expect(() => codec.encode(parsed, undefined, original)).toThrow(
+      'Cannot replace a commented YAML sequence without stable item identities.',
+    );
+    // Rejection happens before any file update; the input bytes remain authoritative.
+    expect(original).toContain('id: first # retain this comment');
+  });
+
+  it('leaves YAML bytes unchanged when a transactional fontStack append encounters a nested comment', async () => {
+    const files = sources();
+    const key = `${root}/project.yaml`;
+    const before = files[key]!;
+    expect(before).toContain('fontStack: []');
+    files[key] = before.replace(
+      'fontStack: []',
+      'fontStack:\n      - $ref:\n          collection: assets\n          id: original # keep nested comment',
+    );
+    const fs = new InMemoryProjectWorkspaceFileSystem(files);
+    const workspace = new ProjectWorkspaceService(fs);
+    const opened = await workspace.open(root);
+    if (!opened.ok) throw new Error(opened.diagnostics.map((d) => d.message).join('; '));
+    const next = cloneAuthoringProject(opened.snapshot.project);
+    next.settings.text.fontStack.push({ $ref: { collection: 'assets', id: 'added' } });
+    const originalText = await fs.readText(key);
+    await expect(
+      workspace.write(
+        root,
+        opened.snapshot.workspaceRevision,
+        next,
+        next.editor,
+        {},
+        {
+          affectedPaths: ['/settings/text/fontStack'],
+        },
+      ),
+    ).rejects.toThrow('Cannot replace a commented YAML sequence without stable item identities.');
+    expect(await fs.readText(key)).toBe(originalText);
+  });
+
+  it('preserves nested omitted manifest defaults on an unrelated name edit', async () => {
+    const files = sources();
+    const key = `${root}/project.yaml`;
+    expect(files[key]).toMatch(/showAuthor: false/u);
+    files[key] = files[key]!.replace(/^\s*showAuthor: false\n/mu, '');
+    const fs = new InMemoryProjectWorkspaceFileSystem(files);
+    const workspace = new ProjectWorkspaceService(fs);
+    const opened = await workspace.open(root);
+    if (!opened.ok) throw new Error(opened.diagnostics.map((d) => d.message).join('; '));
+    expect(opened.snapshot.project.settings.titleScreen.showAuthor).toBe(false);
+    const next = cloneAuthoringProject(opened.snapshot.project);
+    next.project.name = 'Only name changed';
+    await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      next,
+      next.editor,
+      {},
+      {
+        affectedPaths: ['/project/name'],
+      },
+    );
+    const updated = await fs.readText(key);
+    expect(updated).toContain('name: Only name changed');
+    expect(updated).not.toContain('showAuthor:');
+    const reopened = await workspace.open(root);
+    expect(reopened.ok).toBe(true);
+    if (!reopened.ok) return;
+    const explicit = cloneAuthoringProject(reopened.snapshot.project);
+    explicit.settings.titleScreen.showAuthor = true;
+    await workspace.write(
+      root,
+      reopened.snapshot.workspaceRevision,
+      explicit,
+      explicit.editor,
+      {},
+      {
+        affectedPaths: ['/settings/titleScreen/showAuthor'],
+      },
+    );
+    expect(await fs.readText(key)).toContain('showAuthor: true');
+  });
 });

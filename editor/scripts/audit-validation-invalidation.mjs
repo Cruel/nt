@@ -14,6 +14,7 @@ import {
 import os from 'node:os';
 import path from 'node:path';
 import { performance } from 'node:perf_hooks';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 
 const args = process.argv.slice(2);
 const option = (name) => {
@@ -58,6 +59,11 @@ const json = (change) => (original, attempt) => {
   const document = JSON.parse(original);
   change(document, attempt);
   return `${JSON.stringify(document, null, 2)}\n`;
+};
+const yaml = (change) => (original, attempt) => {
+  const document = parseYaml(original);
+  change(document, attempt);
+  return stringifyYaml(document);
 };
 const whitespace = (original, attempt) => `${original.trimEnd()}\n${' '.repeat(attempt)}\n`;
 const comment = (syntax) => (original, attempt) =>
@@ -141,14 +147,14 @@ try {
   add('shader', firstFile('shaders', '.sc'), comment('shader'));
   add(
     'project-name',
-    'project.json',
-    json((x, n) => {
+    'project.yaml',
+    yaml((x, n) => {
       x.project.name += ` audit-${n}`;
     }),
   );
-  add('project-whitespace', 'project.json', whitespace);
-  add('editor-whitespace', 'editor.json', whitespace);
-  add('traits-whitespace', 'traits.json', whitespace);
+  add('project-whitespace', 'project.yaml', whitespace);
+  add('editor-whitespace', 'editor.yaml', whitespace);
+  add('traits-whitespace', 'traits.yaml', whitespace);
   for (const collection of [
     'assets',
     'animations',
