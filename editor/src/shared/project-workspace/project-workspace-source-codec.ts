@@ -1,6 +1,10 @@
 import { decodeVariableYaml, encodeVariableYaml } from './variable-yaml-source';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
-import { decodeRoomMapYaml, encodeRoomMapYaml } from './room-map-yaml-source';
+import {
+  decodeSparseRecordYaml,
+  encodeSparseRecordYaml,
+  type SparseRecordFamily,
+} from './sparse-record-yaml-source';
 /**
  * Physical source syntax belongs here, not to the normalized AuthoringProject or the
  * transaction writer. File ownership and schema admission remain with the workspace
@@ -167,13 +171,13 @@ const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
 /** The single physical-format selection used by cold open, reconciliation and projection. */
 export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourceCodec {
   if (/^records\/variables\/[^/]+\.yaml$/u.test(file)) return variableYamlCodec;
-  const roomMap = /^records\/(rooms|maps)\/[^/]+\.yaml$/u.exec(file);
-  if (roomMap) {
-    const family = roomMap[1] as 'rooms' | 'maps';
+  const record = /^records\/(rooms|maps|characters|interactables)\/[^/]+\.yaml$/u.exec(file);
+  if (record) {
+    const family = record[1] as SparseRecordFamily;
     return {
       kind: 'yaml',
-      decode: (text) => decodeRoomMapYaml(family, text),
-      encode: (value, _schema, previousText) => encodeRoomMapYaml(family, value, previousText),
+      decode: (text) => decodeSparseRecordYaml(family, text),
+      encode: (value, _schema, previousText) => encodeSparseRecordYaml(family, value, previousText),
     };
   }
   if (file === 'project.yaml' || file === 'traits.yaml' || file === 'editor.yaml')

@@ -3,9 +3,11 @@ import { authoringRecordSchemas } from '../project-schema/authoring-records';
 import { conditionSchema } from '../project-schema/authoring-flow';
 import { defaultRoomData } from '../project-schema/authoring-rooms';
 import { defaultMapData } from '../project-schema/authoring-maps';
+import { characterDataSchema } from '../project-schema/authoring-characters';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
 
-type Family = 'rooms' | 'maps';
+export type SparseRecordFamily = 'rooms' | 'maps' | 'characters' | 'interactables';
+type Family = SparseRecordFamily;
 type Shape = Record<string, ZodType>;
 type Dict = Record<string, unknown>;
 
@@ -90,10 +92,78 @@ const defaults: Record<Family, Readonly<Record<string, unknown>>> = {
     'data.connections.*.path': [],
     'data.connections.*.hitRegions': [],
   },
+  characters: {
+    // Match the Character schema's defaults. The editor's starter Profile/Pose,
+    // Expression and display-name placeholders are not source defaults.
+    'data.displayName': '',
+    'data.dialogue': characterDataSchema.parse({ inventories: [] }).dialogue,
+    'data.defaults': characterDataSchema.parse({ inventories: [] }).defaults,
+    'data.profiles': [],
+    'data.expressions': [],
+    'data.appearances': [],
+    'data.gestures': [],
+    'data.idles': [],
+    'data.inventories': [],
+    'data.initialWorldState': {
+      location: { kind: 'unplaced' },
+      enabled: true,
+      visible: true,
+    },
+    'data.profiles.*.layers': [],
+    'data.profiles.*.poses': [],
+    'data.profiles.*.animationClips': [],
+    'data.profiles.*.automaticAnimations': { blink: null, speaking: null },
+    'data.profiles.*.automaticAnimations.blink': null,
+    'data.profiles.*.automaticAnimations.speaking': null,
+    'data.profiles.*.layers.*.role': null,
+    'data.profiles.*.poses.*.layers': [],
+    'data.profiles.*.poses.*.layers.*.visual': null,
+    'data.profiles.*.poses.*.layers.*.materialApplication': null,
+    'data.profiles.*.poses.*.layers.*.offset': { x: 0, y: 0 },
+    'data.profiles.*.poses.*.layers.*.scale': 1,
+    'data.profiles.*.poses.*.layers.*.anchor': { x: 0.5, y: 1 },
+    'data.profiles.*.poses.*.layers.*.visible': true,
+    'data.profiles.*.animationClips.*.frames.*.layers': [],
+    'data.defaults.appearanceId': null,
+    'data.defaults.idleId': null,
+    'data.dialogue.name': '',
+    'data.dialogue.nameColor': null,
+    'data.dialogue.textColor': null,
+    'data.dialogue.styleClass': '',
+    'data.gestures.*.profiles': [],
+    'data.gestures.*.profiles.*.cues': [],
+    'data.gestures.*.profiles.*.cues.*.gain': 1,
+    'data.gestures.*.profiles.*.cues.*.pan': 0,
+    'data.appearances.*.profiles': [],
+    'data.appearances.*.profiles.*.layers': [],
+    'data.expressions.*.profiles': [],
+    'data.expressions.*.profiles.*.layers': [],
+    'data.initialWorldState.location': { kind: 'unplaced' },
+    'data.initialWorldState.enabled': true,
+    'data.initialWorldState.visible': true,
+  },
+  interactables: {
+    // Definition gameplay policy (stackable/stackLimit) is NOT defaulted.
+    // A lack of visual presentation, features or inventories is semantically inert.
+    'data.presentation': {
+      visual: null,
+      materialApplication: null,
+      hotspots: { kind: 'none' },
+    },
+    'data.presentation.visual': null,
+    'data.presentation.materialApplication': null,
+    'data.presentation.hotspots': { kind: 'none' },
+    'data.features': [],
+    'data.inventories': [],
+    'data.features.*.traits': [],
+    'data.features.*.localProperties': [],
+    'data.features.*.defaultProperties': [],
+    'data.features.*.inventories': [],
+  },
 };
 
 /** Source omission values, indexed by normalized record path; '*' is one sequence item. */
-export function roomMapYamlSourceDefaults(family: Family): Readonly<Record<string, unknown>> {
+export function sparseRecordYamlSourceDefaults(family: Family): Readonly<Record<string, unknown>> {
   return defaults[family];
 }
 
@@ -131,16 +201,23 @@ function variant(schema: ZodType, value: unknown): ZodType {
   const def = definition(schema);
   if (def.type !== 'union') return schema;
   const options = def.options as ZodType[];
-  if (object(value) && typeof value.kind === 'string') {
-    const match = options.find((option) => {
-      const shape = definition(unwrap(option)).shape as Shape | undefined;
-      return (
-        shape?.kind &&
-        definition(unwrap(shape.kind)).values instanceof Array &&
-        (definition(unwrap(shape.kind)).values as unknown[]).includes(value.kind)
-      );
+  if (object(value)) {
+    // Zod unions may discriminate on 'kind', 'ownerKind', or another literal
+    // field. Choose that variant before transforming its typed references;
+    // source YAML bare IDs would otherwise fail safeParse against the normalized
+    // alternative and leave opaque $ref wrappers unconverted.
+    const matches = options.filter((option) => {
+      const candidate = unwrap(option);
+      if (definition(candidate).type !== 'object') return false;
+      const shape = definition(candidate).shape as Shape;
+      return Object.entries(shape).some(([key, field]) => {
+        const literals = definition(unwrap(field)).values;
+        return (
+          Object.hasOwn(value, key) && Array.isArray(literals) && literals.includes(value[key])
+        );
+      });
     });
-    if (match) return match;
+    if (matches.length === 1) return matches[0]!;
   }
   // Non-discriminated unions (e.g. placement presentation) are selected only by
   // their validated contract, never by guessing a gameplay kind from property names.
@@ -229,11 +306,17 @@ function convert(
   if (def.type !== 'object' || !object(value)) return value;
   const shape = def.shape as Shape;
   if (direction === 'read' && path.join('.') === 'data' && Object.hasOwn(value, 'kind'))
-    throw new Error('Redundant data.kind is not supported in Room/Map YAML.');
+    throw new Error(`Redundant data.kind is not supported in ${family} YAML.`);
   const result: Dict = {};
   for (const [key, childSchema] of Object.entries(shape)) {
     if (path.join('.') === 'data' && key === 'kind') {
-      if (direction === 'read') result.kind = family === 'rooms' ? 'room' : 'map';
+      if (direction === 'read')
+        result.kind = {
+          rooms: 'room',
+          maps: 'map',
+          characters: 'character',
+          interactables: 'interactable',
+        }[family];
       continue;
     }
     const child = convert(
@@ -252,7 +335,7 @@ function convert(
   return result;
 }
 
-export function decodeRoomMapYaml(family: Family, text: string): unknown {
+export function decodeSparseRecordYaml(family: Family, text: string): unknown {
   const schema = authoringRecordSchemas[family];
   const source = decodeStructuredYaml(text);
   // Admission belongs to the workspace projection so Zod errors retain their
@@ -260,13 +343,19 @@ export function decodeRoomMapYaml(family: Family, text: string): unknown {
   return convert(family, schema, source, [], 'read');
 }
 
-export function encodeRoomMapYaml(family: Family, value: unknown, previousText?: string): string {
+export function encodeSparseRecordYaml(
+  family: Family,
+  value: unknown,
+  previousText?: string,
+): string {
   const schema = authoringRecordSchemas[family];
   const normalized = schema.parse(value);
   const previousSource =
     previousText === undefined ? undefined : decodeStructuredYaml(previousText);
   const previousEffective =
-    previousText === undefined ? undefined : schema.parse(decodeRoomMapYaml(family, previousText));
+    previousText === undefined
+      ? undefined
+      : schema.parse(decodeSparseRecordYaml(family, previousText));
   const source = convert(
     family,
     schema,
