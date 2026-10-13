@@ -49,4 +49,5 @@ minimumReleaseAgeExclude:
   - '@scriptc/cli-linux-arm64-musl@0.2.8'
   - '@scriptc/cli-linux-x64-gnu@0.2.8'
   - '@scriptc/cli-linux-x64-musl@0.2.8'
+  - '@scriptc/cli-win32-x64-msvc@0.2.8'
   - scriptc@0.2.8
