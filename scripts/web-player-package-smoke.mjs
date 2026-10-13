@@ -21,10 +21,13 @@ function parseArgs(argv) {
       options.packagePath = path.resolve(argv[++index]);
     } else if (argv[index] === '--video') {
       options.video = true;
+    } else if (argv[index] === '--start-via-title') {
+      options.startViaTitle = true;
     } else {
       throw new Error(`unknown argument: ${argv[index]}`);
     }
   }
+  if (options.startViaTitle && !options.video) throw new Error('--start-via-title requires --video');
   options.buildDir = path.resolve(root, options.buildDir);
   return options;
 }
@@ -120,7 +123,9 @@ try {
   const { chromium } = await import('playwright');
   const browser = await chromium.launch({
     headless: true,
-    args: ['--autoplay-policy=no-user-gesture-required'],
+    args: ['--autoplay-policy=no-user-gesture-required',
+      ...(process.env.NOVELTEA_WEB_SMOKE_ANGLE_BACKEND
+        ? ['--use-gl=angle', `--use-angle=${process.env.NOVELTEA_WEB_SMOKE_ANGLE_BACKEND}`] : [])],
   });
   try {
     const page = await browser.newPage({ viewport: { width: 960, height: 540 } });
@@ -130,18 +135,42 @@ try {
     page.on('console', (message) => {
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
-    await page.addInitScript((videoSmoke) => {
+    await page.addInitScript(({ videoSmoke, startViaTitle }) => {
+      globalThis.__novelteaStartViaTitle = startViaTitle;
       globalThis.__novelteaLoadingRecords = [];
       globalThis.__novelteaVideoSamples = [];
-      const drawImage = CanvasRenderingContext2D.prototype.drawImage;
-      CanvasRenderingContext2D.prototype.drawImage = function(source, ...args) {
+      const upload = WebGL2RenderingContext.prototype.texSubImage2D;
+      const occurrences = new WeakMap();
+      const seeks = new WeakMap();
+      const currentTime = Object.getOwnPropertyDescriptor(HTMLMediaElement.prototype, 'currentTime');
+      Object.defineProperty(HTMLMediaElement.prototype, 'currentTime', {
+        ...currentTime,
+        set(value) {
+          const timing = { began: performance.now(), ready: null };
+          seeks.set(this, timing);
+          this.addEventListener('seeked', () => { timing.ready = performance.now(); }, { once: true });
+          currentTime.set.call(this, value);
+        },
+      });
+      let nextOccurrence = 1;
+      WebGL2RenderingContext.prototype.texSubImage2D = function(...args) {
+        const source = args.at(-1);
         if (source instanceof HTMLVideoElement) {
+          if (!occurrences.has(source)) occurrences.set(source, nextOccurrence++);
           globalThis.__novelteaVideoSamples.push({
+            occurrence: occurrences.get(source),
+            seekToUploadMs: performance.now() - (seeks.get(source)?.began || performance.now()),
+            readyToUploadMs: performance.now() - (seeks.get(source)?.ready || performance.now()),
             time: source.currentTime, paused: source.paused,
             width: source.videoWidth, height: source.videoHeight,
             blob: source.currentSrc.startsWith('blob:'),
           });
         }
+        return upload.apply(this, args);
+      };
+      const drawImage = CanvasRenderingContext2D.prototype.drawImage;
+      CanvasRenderingContext2D.prototype.drawImage = function(source, ...args) {
+        if (source instanceof HTMLVideoElement) throw new Error('Video CPU raster fallback is forbidden');
         return drawImage.call(this, source, ...args);
       };
       let moduleValue;
@@ -150,7 +179,7 @@ try {
         get() { return moduleValue; },
         set(value) {
           if (value && !value.__novelteaProgressCaptureInstalled) {
-            if (videoSmoke) value.arguments = ['--smoke-run-runtime'];
+            if (videoSmoke && !globalThis.__novelteaStartViaTitle) value.arguments = ['--smoke-run-runtime'];
             const original = value.onNovelTeaLoadingProgress;
             value.onNovelTeaLoadingProgress = (record) => {
               globalThis.__novelteaLoadingRecords.push({
@@ -169,7 +198,7 @@ try {
           moduleValue = value;
         },
       });
-    }, Boolean(options.video));
+    }, { videoSmoke: Boolean(options.video), startViaTitle: Boolean(options.startViaTitle) });
 
     await page.goto(`http://127.0.0.1:${address.port}/player.html`, { waitUntil: 'load' });
     try {
@@ -192,9 +221,13 @@ try {
       );
     }
 
+    if (options.startViaTitle) {
+      // Release builds have no debug direct-start switch. The package uses the default title UI.
+      await page.waitForTimeout(1500);
+      await page.mouse.click(480, 248);
+    }
     if (options.video) {
-      // Use the debug player's direct-start smoke mode, independent of title-screen interaction.
-      // The fixture isolates Feature Lab's opaque panel in a neutral camera World Composition Room.
+      // The package isolates Feature Lab's opaque panel in a neutral-camera World Composition Room.
       const colors = new Set();
       const deadline = Date.now() + startupTimeoutMs;
       while (Date.now() < deadline && colors.size < 3) {
@@ -221,7 +254,7 @@ try {
         if (process.env.NOVELTEA_WEB_VIDEO_SMOKE_CAPTURE) {
           await page.screenshot({ path: process.env.NOVELTEA_WEB_VIDEO_SMOKE_CAPTURE });
         }
-        throw new Error(`opaque browser video did not reach ordinary raster rendering: colors=${[...colors]}, samples=${JSON.stringify(samples.slice(-10))}; console=${consoleErrors.join(' | ')}`);
+        throw new Error(`opaque browser video did not reach ordinary raster rendering: colors=${[...colors]}, samples=${JSON.stringify(samples.slice(-10))}; page errors=${pageErrors.join(' | ')}; console=${consoleErrors.join(' | ')}`);
       }
       console.log(`[web-player-package-smoke] browser video: ${samples.length} time-directed samples; red/green/blue reached the raster Visual panel`);
     }

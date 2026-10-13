@@ -54,6 +54,26 @@ encoded media fails through typed asset/presentation diagnostics.
   destroy decoder/GPU resources through their owning worker/owner boundaries. Reusing a stream
   after its asset source generation expires is a typed failure.
 
+## Web browser GPU realization
+
+Web players reuse the prepared opaque VP9/WebM and the `WorldVideoStream` timing contract,
+but use independent, persistent paused browser video elements rather than native libvpx or
+platform YUV decoders. Browser-native decoding feeds a WebGL RGBA texture directly with
+`texSubImage2D(video)`; no canvas frame extraction, full-video preload, or PNG fallback occurs.
+Each active occurrence retains its media element, Blob URL, and two bgfx-imported presentation
+textures. The immutable initial seed retains encoded source bytes but disposes its temporary
+decoder after publication. Subsequent samples are lease-bound aliases of the occurrence's first
+resident allocation. At most two directed browser seeks run concurrently, with bounded queued
+interest; cancellation drops callbacks before its WASM completion storage is released.
+
+All WebGL operations, imports and retirement run on the renderer owner. bgfx destroys its handle
+but does not delete external GL names, so deletion follows deferred bgfx frame processing;
+shutdown retires remaining sessions before the context is destroyed. Web residency reserves
+encoded-source/Blob memory, decoder-frame estimates, and GPU surfaces; an unchanged semantic
+sample causes no GPU update. Invalid media, unsupported codec/extent/GPU path, upload errors,
+and seek timeouts report typed failures rather than silently falling back to CPU rasterization.
+Browser codec and seek latency depend on the browser/device and are not real-time guarantees.
+
 ## Readiness and limits
 
 Publication and finite named-motion startup require the correct initial/marker sample and Material,
@@ -76,6 +96,16 @@ exclusive temporary-memory arbitration; speculative interest cannot masquerade a
   positions, keyframe seeks, malformed/truncated source, dimension mismatch, corrupt final packet.
 - `noveltea_asset_tests '[video]'`: startup/marker/Material closure, time/rate/loop/seek semantics,
   hidden suspension, finite play/transition endpoints, pending holds, terminal operation failure.
+- `tests/web/video_texture_tests.mjs --request-build-dir build/web-debug`: directed WebGL
+  red/green/blue samples, independent persistent browser decoders, repeated holds, cancellation,
+  bounded queue, typed failures, and the actual threaded WASM request boundary. GPU-backend selection
+  can be forced with `NOVELTEA_WEB_SMOKE_ANGLE_BACKEND=gl` on the WSL GPU host.
+- `scripts/web-player-package-smoke.mjs --build-dir build/web-release --video
+  --start-via-title --package /path/to/video.ntpkg`: the optimized Web player reaches all three
+  colors through its ordinary raster Visual. The unoptimized debug direct-start tracer can skip the
+  authored half-second blue interval when browser seeks take roughly as long; its screenshot sequence
+  is not a valid three-color throughput certification. The release raster and directed WebGL checks
+  cover these separate boundaries without altering gameplay timing.
 - `noveltea_native_video_texture_smoke` (CTest uses `xvfb-run` when available): real native YUV GPU
   conversion and red/blue readback, independent occurrences, no held uploads, bounded reused
   surfaces, late-sample progress under an advancing playhead, held-pixel readback across discarded

@@ -32,11 +32,19 @@ if (requestBuildArgument !== -1) {
 
 const library = await fs.readFile(new URL('../../web/video_texture.js', import.meta.url), 'utf8');
 const media = await fs.readFile(new URL('./fixtures/opaque-colors.webm', import.meta.url));
-const browser = await chromium.launch({ headless: true });
+const browser = await chromium.launch({ headless: true,
+  args: process.env.NOVELTEA_WEB_SMOKE_ANGLE_BACKEND
+    ? ['--use-gl=angle', `--use-angle=${process.env.NOVELTEA_WEB_SMOKE_ANGLE_BACKEND}`] : [],
+});
 try {
   const page = await browser.newPage();
+  await page.route('http://localhost:7777/', (route) => route.fulfill({
+    contentType: 'text/html', body: '<!doctype html><body></body>',
+    headers: { 'Cross-Origin-Opener-Policy': 'same-origin', 'Cross-Origin-Embedder-Policy': 'require-corp' },
+  }));
+  await page.goto('http://localhost:7777/');
   await page.evaluate((bytes) => {
-    const memory = new ArrayBuffer(512 * 1024);
+    const memory = new SharedArrayBuffer(512 * 1024);
     globalThis.HEAPU8 = new Uint8Array(memory);
     globalThis.HEAP32 = new Int32Array(memory);
     HEAPU8.set(bytes, 1024);
@@ -56,95 +64,152 @@ try {
     };
     globalThis.addToLibrary = (value) => {
       globalThis.NTVideoTextures = value.$NTVideoTextures;
-      globalThis.start = value.nt_web_video_start;
-      globalThis.dispose = value.nt_web_video_dispose;
+      for (const name of ['create', 'sample', 'upload', 'cancel', 'dispose'])
+        globalThis[name] = value[`nt_web_video_${name}`];
+    };
+    CanvasRenderingContext2D.prototype.getImageData = () => { throw new Error('CPU video readback is forbidden'); };
+    const canvas = document.createElement('canvas');
+    canvas.width = 96;
+    canvas.height = 64;
+    document.body.append(canvas);
+    globalThis.GLctx = canvas.getContext('webgl2');
+    if (!GLctx) throw new Error('WebGL2 is unavailable');
+    globalThis.GL = { textures: [null] };
+    for (let i = 0; i < 3; ++i) {
+      const texture = GLctx.createTexture();
+      GL.textures.push(texture);
+      GLctx.bindTexture(GLctx.TEXTURE_2D, texture);
+      GLctx.texImage2D(GLctx.TEXTURE_2D, 0, GLctx.RGBA, 96, 64, 0, GLctx.RGBA, GLctx.UNSIGNED_BYTE, null);
+    }
+    // Read back only the certification pixel from the actual GPU texture, never decoder memory.
+    globalThis.pixel = (id) => {
+      const fbo = GLctx.createFramebuffer();
+      GLctx.bindFramebuffer(GLctx.FRAMEBUFFER, fbo);
+      GLctx.framebufferTexture2D(GLctx.FRAMEBUFFER, GLctx.COLOR_ATTACHMENT0, GLctx.TEXTURE_2D, GL.textures[id], 0);
+      const value = new Uint8Array(4);
+      GLctx.readPixels(48, 32, 1, 1, GLctx.RGBA, GLctx.UNSIGNED_BYTE, value);
+      GLctx.bindFramebuffer(GLctx.FRAMEBUFFER, null);
+      GLctx.deleteFramebuffer(fbo);
+      return [...value];
     };
   }, [...media]);
   await page.addScriptTag({ content: library });
-  const length = media.length;
-  // Repeat independent seeks to catch initial-frame/seek-completion races in browser media events.
-  for (let iteration = 0; iteration < 12; ++iteration) {
-    await page.evaluate(() => {
-      HEAP32.fill(0, 4, 7);
-      mediaUrls.created = mediaUrls.maximum = 0;
-    });
-    const ids = await page.evaluate((length) => {
-      const one = start(1024, length, 750.5, 96, 64, 32768, 16, 128, 512);
-      const two = start(1024, length, 1750, 96, 64, 65536, 20, 640, 256);
-      const queued = start(1024, length, 16, 96, 64, 98304, 24, 896, 128);
-      dispose(queued);
-      return { one, two, created: mediaUrls.created };
-    }, length);
-    assert.equal(ids.created, 2);
+  const ids = await page.evaluate((length) => [create(1024, length, 96, 64), create(1024, length, 96, 64)], media.length);
+  await page.evaluate(([one, two]) => {
+    sample(one, 750.5, 16, 128, 256);
+    sample(two, 1750, 20, 384, 256);
+  }, ids);
+  await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[5] !== 0);
+  const result = await page.evaluate(([one, two]) => ({
+    states: [...HEAP32.slice(4, 6)],
+    uploaded: [upload(one, 1, 128, 256), upload(two, 2, 384, 256)],
+    green: pixel(1), blue: pixel(2), urls: { ...mediaUrls },
+    errors: [128, 384].map((start) => new TextDecoder().decode(HEAPU8.slice(start, start + 256)).split('\0')[0]),
+    gpu: { contextLost: GLctx.isContextLost(), textureSlots: GL.textures.map(Boolean),
+      contextStatus: GLctx.getError() },
+  }), ids);
+  assert.deepEqual(result.states, [1, 1]);
+  assert.deepEqual(result.uploaded, [1, 1], JSON.stringify(result));
+  assert.ok(result.green[1] > 80 && result.green[0] < 30 && result.green[2] < 30, `Expected green: ${result.green}`);
+  assert.ok(result.blue[2] > 200 && result.blue[0] < 30 && result.blue[1] < 30, `Expected blue: ${result.blue}`);
+  assert.equal(result.urls.live, 2);
+  // Rewinds, endpoints and repeated holds reuse the two independent decoders and textures.
+  for (let round = 0; round < 12; ++round) {
+    if (round > 0) {
+      await page.evaluate(([one, two]) => {
+        sample(one, 750.5, 16, 128, 256);
+        sample(two, 1750, 20, 384, 256);
+      }, ids);
+      await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[5] !== 0);
+      assert.deepEqual(await page.evaluate(([one, two]) => [upload(one, 1, 128, 256), upload(two, 2, 384, 256)], ids), [1, 1]);
+    }
+    const started = Date.now();
+    await page.evaluate(([one, two]) => {
+      sample(one, 0, 16, 128, 256);
+      sample(two, 2000, 20, 384, 256);
+    }, ids);
     await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[5] !== 0);
-    const result = await page.evaluate(() => ({
-      states: [HEAP32[4], HEAP32[5], HEAP32[6]],
-      green: [...HEAPU8.slice(32768, 32772)],
-      blue: [...HEAPU8.slice(65536, 65540)],
-      urls: { ...mediaUrls },
-    }));
-    assert.deepEqual(result.states, [1, 1, 0]);
-    assert.equal(result.urls.live, 0);
-    assert.equal(result.urls.maximum, 2);
-    assert.equal(result.urls.created, 2);
-    assert.ok(result.green[1] > 80 && result.green[0] < 30 && result.green[2] < 30,
-      `Seek iteration ${iteration}: expected green, got ${result.green}`);
-    assert.ok(result.blue[2] > 200 && result.blue[0] < 30 && result.blue[1] < 30,
-      `Seek iteration ${iteration}: expected blue, got ${result.blue}`);
-    await page.evaluate(({ one, two }) => { dispose(one); dispose(two); }, ids);
+    const held = await page.evaluate(([one, two]) => {
+      const original = GLctx.texSubImage2D;
+      let uploads = 0;
+      GLctx.texSubImage2D = function(...args) { uploads++; return original.apply(this, args); };
+      const uploaded = [upload(one, 1, 128, 256), upload(two, 2, 384, 256)];
+      for (let tick = 0; tick < 60; ++tick) upload(one, 1, 128, 256);
+      GLctx.texSubImage2D = original;
+      return { uploaded, uploads, red: pixel(1), blue: pixel(2), created: mediaUrls.created };
+    }, ids);
+    assert.deepEqual(held.uploaded, [1, 1]);
+    assert.equal(held.uploads, 2, 'Held samples must not upload on render ticks');
+    assert.equal(held.created, 2, 'Seeks must retain decoder/source ownership');
+    assert.ok(held.red[0] > 200 && held.red[1] < 30 && held.red[2] < 30, `Expected red: ${held.red}`);
+    assert.ok(held.blue[2] > 200 && held.blue[0] < 30 && held.blue[1] < 30, `Expected endpoint blue: ${held.blue}`);
+    assert.ok(Date.now() - started < 5000, 'Tiny fixture directed seek exceeded the certification latency bound');
+  }
+  // A hidden/obsolete seek may be canceled while the decoder remains live. Its callbacks
+  // must not write a reclaimed status slot or poison the next directed sample.
+  await page.evaluate(([one]) => {
+    sample(one, 1750, 16, 128, 256);
+    cancel(one);
+    HEAP32[4] = 43;
+    sample(one, 750.5, 16, 128, 256);
+  }, ids);
+  await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[4] !== 43);
+  assert.equal(await page.evaluate(() => HEAP32[4]), 1);
+  const resumed = await page.evaluate(([one]) => ({
+    uploaded: upload(one, 1, 128, 256), color: pixel(1), created: mediaUrls.created,
+  }), ids);
+  assert.equal(resumed.uploaded, 1);
+  assert.ok(resumed.color[1] > 80 && resumed.color[0] < 30 && resumed.color[2] < 30);
+  assert.equal(resumed.created, 2);
+  await page.evaluate((ids) => { for (const id of ids) dispose(id); }, ids);
+  assert.equal(await page.evaluate(() => mediaUrls.live), 0);
+
+  const queuedIds = await page.evaluate((length) => {
+    mediaUrls.created = mediaUrls.maximum = 0;
+    const ids = Array.from({ length: 4 }, () => create(1024, length, 96, 64));
+    ids.forEach((id, index) => sample(id, 750.5, 16 + index * 4, 128 + index * 128, 128));
+    dispose(ids.pop());
+    return ids;
+  }, media.length);
+  await page.waitForFunction(() => [...HEAP32.slice(4, 7)].every((state) => state !== 0));
+  assert.deepEqual(await page.evaluate(() => [...HEAP32.slice(4, 8)]), [1, 1, 1, 0]);
+  assert.equal(await page.evaluate(() => mediaUrls.created), 3, 'Queued cancellation must not create a decoder');
+  await page.evaluate((ids) => { for (const id of ids) dispose(id); }, queuedIds);
+
+  await page.evaluate((length) => {
+    const id = create(1024, length, 96, 64);
+    sample(id, 1750, 16, 128, 256);
+    cancel(id);
+    // The task's status storage may be reused immediately after cancellation.
+    HEAP32[4] = 42;
+    dispose(id);
+  }, media.length);
+  await page.waitForTimeout(100);
+  assert.deepEqual(await page.evaluate(() => [HEAP32[4], mediaUrls.live]), [42, 0]);
+
+  for (const [length, width, expected] of [[4, 96, /cannot decode/u], [media.length, 95, /dimensions/u]]) {
+    const id = await page.evaluate(({ length, width }) => {
+      const id = create(1024, length, width, 64);
+      sample(id, 0, 16, 128, 256);
+      return id;
+    }, { length, width });
+    await page.waitForFunction(() => HEAP32[4] !== 0);
+    assert.equal(await page.evaluate(() => HEAP32[4]), -1);
+    assert.match(await page.evaluate(() => new TextDecoder().decode(HEAPU8.slice(128, 384)).split('\0')[0]), expected);
+    await page.evaluate((id) => dispose(id), id);
   }
 
-  const boundaryIds = await page.evaluate((length) => {
-    HEAP32.fill(0, 4, 7);
-    mediaUrls.created = mediaUrls.maximum = 0;
-    return [
-      start(1024, length, 0, 96, 64, 32768, 16, 128, 512),
-      start(1024, length, 2000, 96, 64, 65536, 20, 640, 256),
-      start(1024, length, 750.5, 96, 64, 98304, 24, 896, 128),
-    ];
-  }, length);
-  await page.waitForFunction(() => HEAP32[4] !== 0 && HEAP32[5] !== 0 && HEAP32[6] !== 0);
-  const boundaries = await page.evaluate(() => ({
-    states: [...HEAP32.slice(4, 7)],
-    initial: [...HEAPU8.slice(32768, 32772)],
-    endpoint: [...HEAPU8.slice(65536, 65540)],
-    queued: [...HEAPU8.slice(98304, 98308)],
-    urls: { ...mediaUrls },
-  }));
-  assert.deepEqual(boundaries.states, [1, 1, 1]);
-  assert.ok(boundaries.initial[0] > 200 && boundaries.initial[1] < 30 && boundaries.initial[2] < 30,
-    `Expected red initial sample, got ${boundaries.initial}`);
-  assert.ok(boundaries.endpoint[2] > 200 && boundaries.endpoint[0] < 30 && boundaries.endpoint[1] < 30,
-    `Expected blue endpoint sample, got ${boundaries.endpoint}`);
-  assert.ok(boundaries.queued[1] > 80 && boundaries.queued[0] < 30 && boundaries.queued[2] < 30,
-    `Expected green queued sample, got ${boundaries.queued}`);
-  assert.deepEqual(boundaries.urls, { live: 0, maximum: 2, created: 3 });
-  await page.evaluate((ids) => {
-    for (const id of ids) dispose(id);
-    HEAP32.fill(0, 4, 7);
-  }, boundaryIds);
-
-  // Disposal revokes interest before an asynchronous browser callback can touch freed WASM memory.
-  await page.evaluate((length) => {
-    const id = start(1024, length, 1750, 96, 64, 98304, 24, 896, 128);
-    dispose(id);
-  }, length);
-  await page.waitForTimeout(100);
-  assert.deepEqual(await page.evaluate(() => [HEAP32[6], mediaUrls.live]), [0, 0]);
-
-  const failed = await page.evaluate(() => start(1024, 4, 16, 96, 64, 98304, 24, 896, 128));
-  await page.waitForFunction(() => HEAP32[6] !== 0);
-  assert.equal(await page.evaluate(() => HEAP32[6]), -1);
-  const error = await page.evaluate(() => new TextDecoder().decode(HEAPU8.slice(896, 1024)).split('\0')[0]);
-  assert.match(error, /cannot decode/u);
-  await page.evaluate((id) => { dispose(id); HEAP32[6] = 0; }, failed);
-
-  const mismatch = await page.evaluate((length) => start(1024, length, 16, 95, 64, 98304, 24, 896, 128), length);
-  await page.waitForFunction(() => HEAP32[6] !== 0);
-  assert.equal(await page.evaluate(() => HEAP32[6]), -1);
-  await page.evaluate((id) => dispose(id), mismatch);
+  const unsupported = await page.evaluate((length) => {
+    const id = create(1024, length, 96, 64);
+    sample(id, 0, 16, 128, 256);
+    return id;
+  }, media.length);
+  await page.waitForFunction(() => HEAP32[4] !== 0);
+  assert.equal(await page.evaluate((id) => upload(id, 9999, 128, 256), unsupported), 0);
+  assert.match(await page.evaluate(() => new TextDecoder().decode(HEAPU8.slice(128, 384)).split('\0')[0]), /GPU texture path/u);
+  await page.evaluate((id) => dispose(id), unsupported);
   assert.equal(await page.evaluate(() => mediaUrls.live), 0);
-  console.log('[web-video-texture] repeated directed decode, initial/endpoint samples, bounded queue progress, cancellation and typed failure passed');
+  console.log('[web-video-texture] persistent independent GPU samples, held uploads, seeks, queue, cancellation and failures passed');
 } finally {
   await browser.close();
 }
