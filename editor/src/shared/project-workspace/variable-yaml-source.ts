@@ -5,6 +5,7 @@ import {
   isScalar,
   isSeq,
   parseAllDocuments,
+  Scalar,
   type Node,
   type Pair,
 } from 'yaml';
@@ -16,6 +17,13 @@ export const variableYamlSourceSchema = authoringRecordSchemas.variables.extend(
     .omit({ kind: true })
     .meta(authoringRecordSchemas.variables.shape.data.meta() ?? {}),
 });
+
+function ambiguousPlainScalar(value: string): boolean {
+  return (
+    /^(yes|no|on|off|y|n|~|true|false|null)$/iu.test(value) ||
+    /^(?:[-+]?0[0-9]+|\.inf|\.nan)$/iu.test(value)
+  );
+}
 
 function inspectNode(node: Node | null | undefined, mappingKey = false): void {
   if (!node) return;
@@ -39,8 +47,8 @@ function inspectNode(node: Node | null | undefined, mappingKey = false): void {
     const spelling = node.source;
     if (typeof spelling !== 'string') return;
     if (
-      /^(yes|no|on|off|y|n|~|true|false|null)$/iu.test(spelling) &&
-      !['true', 'false', 'null'].includes(spelling)
+      ambiguousPlainScalar(spelling) &&
+      !(typeof node.value !== 'string' && ['true', 'false', 'null'].includes(spelling))
     )
       throw new Error(`Ambiguous YAML scalar '${spelling}' must be quoted.`);
     if (
@@ -48,8 +56,26 @@ function inspectNode(node: Node | null | undefined, mappingKey = false): void {
       !/^-?(?:0|[1-9][0-9]*)(?:\.[0-9]+)?(?:[eE][+-]?[0-9]+)?$/u.test(spelling)
     )
       throw new Error(`YAML numeric scalar '${spelling}' is not a JSON number.`);
-    if (typeof node.value === 'string' && /^(?:[-+]?0[0-9]+|\.inf|\.nan)$/iu.test(spelling))
-      throw new Error(`Ambiguous YAML scalar '${spelling}' must be quoted.`);
+  }
+}
+
+/** Newly authored nodes must obey the exact scalar profile enforced by the reader. */
+function quoteAmbiguousStrings(node: Node | null | undefined): void {
+  if (!node) return;
+  if (isMap(node)) {
+    for (const pair of node.items) {
+      quoteAmbiguousStrings(pair.key as Node | null);
+      quoteAmbiguousStrings(pair.value as Node | null);
+    }
+  } else if (isSeq(node)) {
+    for (const item of node.items) quoteAmbiguousStrings(item as Node | null);
+  } else if (
+    isScalar(node) &&
+    typeof node.value === 'string' &&
+    (node.type === undefined || node.type === Scalar.PLAIN) &&
+    ambiguousPlainScalar(node.value)
+  ) {
+    node.type = Scalar.QUOTE_DOUBLE;
   }
 }
 
@@ -89,7 +115,9 @@ function same(left: unknown, right: unknown): boolean {
 export function encodeVariableYaml(value: unknown, previousText?: string): string {
   const target = sparseVariable(value);
   if (previousText === undefined) {
-    return new Document(target).toString({ indent: 2, lineWidth: 0 });
+    const doc = new Document(target);
+    quoteAmbiguousStrings(doc.contents);
+    return doc.toString({ indent: 2, lineWidth: 0 });
   }
   const doc = parseVariableYamlDocument(previousText);
   const previous = doc.toJS() as Record<string, unknown>;
@@ -110,6 +138,31 @@ export function encodeVariableYaml(value: unknown, previousText?: string): strin
       const old = before[key];
       if (same(old, next)) continue;
       if (
+        Array.isArray(old) &&
+        Array.isArray(next) &&
+        old.every((item) => typeof item === 'string') &&
+        next.every((item) => typeof item === 'string')
+      ) {
+        const sequence = doc.getIn([...path, key], true);
+        // String-enum entries have stable identities when their values are unique. Reusing
+        // those exact YAML nodes retains inline and preceding comments across appends,
+        // removals, and reorderings, instead of replacing the entire sequence document.
+        if (
+          isSeq(sequence) &&
+          sequence.items.length === old.length &&
+          new Set(old).size === old.length &&
+          new Set(next).size === next.length
+        ) {
+          const nodes = new Map(old.map((item, index) => [item, sequence.items[index]!]));
+          sequence.items.splice(
+            0,
+            sequence.items.length,
+            ...next.map((item) => nodes.get(item) ?? doc.createNode(item)),
+          );
+          continue;
+        }
+      }
+      if (
         old &&
         next &&
         typeof old === 'object' &&
@@ -122,5 +175,6 @@ export function encodeVariableYaml(value: unknown, previousText?: string): strin
     }
   };
   update(previous, target, []);
+  quoteAmbiguousStrings(doc.contents);
   return doc.toString({ indent: 2, lineWidth: 0 });
 }

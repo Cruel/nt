@@ -30,6 +30,131 @@ function filesFor(project = createAuthoringProject({ id: 'headless', name: 'Head
 }
 
 describe('ProjectWorkspaceService', () => {
+  it('quotes ambiguous authored strings in new YAML Variables and after workspace save/reopen', async () => {
+    const path = 'records/variables/flag.yaml';
+    const codec = projectWorkspaceSourceCodec(path);
+    const ambiguous = ['yes', 'NO', 'on', 'off', 'Y', '~', '0123', '.inf', '.NaN'];
+    for (const value of ambiguous) {
+      const record = {
+        id: 'flag',
+        label: 'Flag',
+        data: {
+          kind: 'variable' as const,
+          type: 'string' as const,
+          nullable: false,
+          scope: 'global' as const,
+          value,
+        },
+      };
+      const generated = codec.encode(record);
+      expect(codec.decode(generated), `new YAML Variable with value ${value}`).toEqual(record);
+    }
+
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    project.variables.flag = {
+      id: 'flag',
+      label: 'Flag',
+      data: defaultVariableData('string'),
+    };
+    project.variables.flag.data.value = 'hello';
+    const files = projectWorkspaceFiles(project, project.editor);
+    const original =
+      '# author note\nid: flag\nlabel: Flag\ndata:\n  type: string\n  value: hello # keep label\n';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries({ ...files, [path]: original })
+          .filter(([file]) => file !== 'records/variables/flag.json')
+          .map(([file, text]) => [`/project/${file}`, text]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fileSystem);
+    let opened = await workspace.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    for (const value of ambiguous) {
+      const next = cloneAuthoringProject(opened.snapshot.project);
+      next.variables.flag!.data.value = value;
+      await workspace.write(
+        '/project',
+        opened.snapshot.workspaceRevision,
+        next,
+        opened.editorState,
+        {},
+        {
+          affectedPaths: ['/variables/flag/data/value'],
+        },
+      );
+      const saved = await fileSystem.readText(`/project/${path}`);
+      expect(saved, value).toContain('# author note');
+      expect(saved, value).toContain('# keep label');
+      expect(saved, value).toMatch(/value: ["'][^\n]+["']/u);
+      const reopened = await workspace.open('/project');
+      expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+      if (!reopened.ok) return;
+      expect(reopened.snapshot.project.variables.flag!.data.value).toBe(value);
+      opened = reopened;
+    }
+  });
+
+  it('preserves comments on existing enum sequence entries when extending or reordering', async () => {
+    const codec = projectWorkspaceSourceCodec('records/variables/mode.yaml');
+    const initial =
+      'id: mode\nlabel: Mode\ndata:\n  type: enum\n  value: first\n  enumValues:\n    - first # existing explanation\n    # preceding note\n    - second # another explanation\n';
+    const parsed = codec.decode(initial) as { data: { enumValues: string[] } };
+    const next = structuredClone(parsed);
+    next.data.enumValues.push('third');
+    const appended = codec.encode(next, undefined, initial);
+    expect(appended).toContain('- first # existing explanation');
+    expect(appended).toContain('- second # another explanation');
+    expect(appended).toContain('# preceding note');
+    expect(appended).toContain('- third');
+    expect(codec.decode(appended)).toEqual(next);
+    const reordered = structuredClone(next);
+    reordered.data.enumValues = ['third', 'first', 'second'];
+    const output = codec.encode(reordered, undefined, appended);
+    expect(output).toContain('- first # existing explanation');
+    expect(output).toContain('- second # another explanation');
+    expect(output).toContain('# preceding note');
+    expect(codec.decode(output)).toEqual(reordered);
+
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    project.variables.mode = codec.decode(initial) as typeof project.variables.mode;
+    const sources = projectWorkspaceFiles(project, project.editor);
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries({ ...sources, 'records/variables/mode.yaml': initial })
+          .filter(([file]) => file !== 'records/variables/mode.json')
+          .map(([file, text]) => [`/project/${file}`, text]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fileSystem);
+    const opened = await workspace.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const updated = cloneAuthoringProject(opened.snapshot.project);
+    updated.variables.mode!.data.enumValues!.push('third');
+    await workspace.write(
+      '/project',
+      opened.snapshot.workspaceRevision,
+      updated,
+      opened.editorState,
+      {},
+      { affectedPaths: ['/variables/mode/data/enumValues'] },
+    );
+    const saved = await fileSystem.readText('/project/records/variables/mode.yaml');
+    expect(saved).toContain('- first # existing explanation');
+    expect(saved).toContain('# preceding note');
+    expect(saved).toContain('- second # another explanation');
+    const reopened = await workspace.open('/project');
+    expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (reopened.ok)
+      expect(reopened.snapshot.project.variables.mode?.data.enumValues).toEqual([
+        'first',
+        'second',
+        'third',
+      ]);
+  });
+
   it('admits a sparse staged YAML Variable, preserves comments across a selective save, and reopens', async () => {
     const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
     project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
