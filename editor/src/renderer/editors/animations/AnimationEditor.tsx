@@ -12,6 +12,7 @@ import {
 } from '@/components/ui/dialog';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import { EditorHelpIcon } from '@/components/editor-section-heading';
 import {
   Select,
   SelectContent,
@@ -26,6 +27,10 @@ import type { WorkbenchEditorProps } from '@/workbench/editor-registry';
 import { isAuthoringProject } from '../../../shared/project-schema/authoring-project';
 import type { VideoFrameSampling } from '../../../shared/prepared-media-contracts';
 import { targetFpsDuplicatesSource } from '../../../shared/video-fps-duplicates';
+import {
+  NATIVE_VIDEO_MIN_TESTED_NVDEC_DIMENSION,
+  videoCanvasNotice,
+} from '../../../shared/native-video-playback-limits';
 import {
   animationDataSchema,
   animationMarkerTime,
@@ -48,6 +53,8 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
   const record = id ? project?.animations[id] : null;
   const parsed = useMemo(() => animationDataSchema.safeParse(record?.data), [record?.data]);
   const data = parsed.success ? parsed.data : null;
+  const hasVideoMotion = data?.motions.some((entry) => entry.kind === 'video') ?? false;
+  const canvasNotice = hasVideoMotion && data ? videoCanvasNotice(data.canvas) : null;
   const [newFrameAsset, setNewFrameAsset] = useState<string | null>(null);
   const [newFrameDuration, setNewFrameDuration] = useState(100);
   const imageIds = project
@@ -322,6 +329,38 @@ export function AnimationEditor({ tab }: WorkbenchEditorProps) {
           </div>
         ))}
       </div>
+      {canvasNotice ? (
+        <div
+          className={`flex items-center gap-1.5 text-xs ${
+            canvasNotice === 'native-limit' ? 'text-destructive' : 'text-muted-foreground'
+          }`}
+        >
+          <span role={canvasNotice === 'native-limit' ? 'alert' : 'status'}>
+            {t(
+              canvasNotice === 'native-limit'
+                ? 'animationEditor.videoNativeLimitNotice'
+                : 'animationEditor.videoHardwareNotice',
+            )}
+          </span>
+          <EditorHelpIcon
+            label={t('animationEditor.videoNoticeDetails')}
+            className="size-4 text-inherit"
+          >
+            {canvasNotice === 'native-limit'
+              ? t('animationEditor.videoNativeLimitTooltip', data.canvas)
+              : t('animationEditor.videoHardwareTooltip', {
+                  ...data.canvas,
+                  reason:
+                    data.canvas.width < NATIVE_VIDEO_MIN_TESTED_NVDEC_DIMENSION ||
+                    data.canvas.height < NATIVE_VIDEO_MIN_TESTED_NVDEC_DIMENSION
+                      ? data.canvas.width % 2 !== 0 || data.canvas.height % 2 !== 0
+                        ? t('animationEditor.videoHardwareSmallAndOdd')
+                        : t('animationEditor.videoHardwareSmall')
+                      : t('animationEditor.videoHardwareOdd'),
+                })}
+          </EditorHelpIcon>
+        </div>
+      ) : null}
       {select(
         t('animationEditor.motion'),
         motion.id,

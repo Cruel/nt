@@ -16,6 +16,7 @@ import {
 } from '../../main/services/opaque-video-preparation-service';
 import { opaqueVideoPreparationResultSchema } from '../../shared/prepared-media';
 import { targetFpsDuplicatesSource } from '../../shared/video-fps-duplicates';
+import { videoCanvasNotice } from '../../shared/native-video-playback-limits';
 import { prepareProjectOpaqueVideo } from '../../main/services/project-video-preparation-service';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -50,6 +51,33 @@ it('detects rational-FPS duplication using actual irregular VFR presentation tim
   expect(
     targetFpsDuplicatesSource([0, 100, 200, 300], 400, { numerator: 30000, denominator: 1001 }),
   ).toBe(true);
+});
+
+it('classifies native video limits separately from potential hardware fallback', () => {
+  expect(videoCanvasNotice({ width: 64, height: 64 })).toBe('hardware-may-fallback');
+  expect(videoCanvasNotice({ width: 127, height: 128 })).toBe('hardware-may-fallback');
+  expect(videoCanvasNotice({ width: 129, height: 128 })).toBe('hardware-may-fallback');
+  expect(videoCanvasNotice({ width: 128, height: 128 })).toBeNull();
+  expect(videoCanvasNotice({ width: 8192, height: 8192 })).toBeNull();
+  expect(videoCanvasNotice({ width: 8193, height: 512 })).toBe('native-limit');
+  expect(videoCanvasNotice({ width: 9000, height: 64 })).toBe('native-limit');
+});
+
+it('rejects native-incompatible video canvases before invoking the encoder', async () => {
+  await expect(
+    prepareOpaqueVideoMotion(
+      '/nonexistent',
+      {
+        animationId: 'a',
+        motionId: 'v',
+        assetId: 'source',
+        sourcePath: 'missing.webm',
+        canvas: { width: 8193, height: 512 },
+      },
+      { executable: '/nonexistent/ffmpeg', bundled: true },
+      run,
+    ),
+  ).rejects.toThrow('Native video canvas cannot exceed 8192 pixels per axis.');
 });
 
 it('captures multi-megabyte video timeline output without the Node spawnSync default limit', () => {

@@ -129,6 +129,76 @@ it('scrubs, steps and restarts without editing durable Animation content, and ed
   expect(JSON.stringify(useProjectStore.getState().document)).toBe(before);
 });
 
+it('shows short video capability notices with details in a tooltip, not on sprite-only animations', async () => {
+  const tab = {
+    id: 'pulse',
+    title: 'Pulse',
+    editorType: 'animation-detail',
+    resource: {
+      kind: 'record',
+      stableId: 'record:animations:pulse',
+      collection: 'animations',
+      entityId: 'pulse',
+    },
+  } as const;
+  const spriteOnly = render(<AnimationEditor tab={tab} />);
+  expect(screen.queryByText('Hardware decoding may be unavailable')).toBeNull();
+  spriteOnly.unmount();
+
+  const project = structuredClone(useProjectStore.getState().document);
+  if (!isAuthoringProject(project)) throw new Error('Expected Project');
+  project.assets.video = {
+    id: 'video',
+    label: 'Video',
+    data: {
+      kind: 'video',
+      source: { type: 'project-file', path: 'assets/video/source.mp4' },
+      aliases: [],
+      imageMetadata: null,
+    },
+  };
+  // The notice applies even while the sprite motion is selected: canvas size is shared.
+  project.animations.pulse!.data.motions.push({
+    id: 'motion-video',
+    kind: 'video',
+    video: { $ref: { collection: 'assets', id: 'video' } },
+    markers: [],
+  });
+  useProjectStore.getState().loadProjectDocument({
+    document: project,
+    projectPath: '/mock/project',
+    projectFilePath: '/mock/project/project.json',
+  });
+  render(<AnimationEditor tab={tab} />);
+  expect(screen.getByText('Hardware decoding may be unavailable')).toBeInTheDocument();
+  expect(screen.queryByRole('alert')).toBeNull();
+  expect(screen.queryByText(/minimum of 128×128/u)).toBeNull();
+  const user = userEvent.setup();
+  await user.hover(screen.getByRole('button', { name: 'Video playback details' }));
+  expect(await screen.findByText(/below the tested NVIDIA minimum of 128×128/u)).toBeVisible();
+
+  fireEvent.change(screen.getByLabelText('Canvas width'), { target: { value: '128' } });
+  fireEvent.blur(screen.getByLabelText('Canvas width'));
+  fireEvent.change(screen.getByLabelText('Canvas height'), { target: { value: '128' } });
+  fireEvent.blur(screen.getByLabelText('Canvas height'));
+  await waitFor(() =>
+    expect(screen.queryByText('Hardware decoding may be unavailable')).toBeNull(),
+  );
+
+  fireEvent.change(screen.getByLabelText('Canvas width'), { target: { value: '129' } });
+  fireEvent.blur(screen.getByLabelText('Canvas width'));
+  expect(screen.getByText('Hardware decoding may be unavailable')).toBeInTheDocument();
+  await user.hover(screen.getByRole('button', { name: 'Video playback details' }));
+  expect(await screen.findByText(/odd dimensions unsupported/u)).toBeVisible();
+
+  fireEvent.change(screen.getByLabelText('Canvas width'), { target: { value: '8193' } });
+  fireEvent.blur(screen.getByLabelText('Canvas width'));
+  expect(screen.getByRole('alert')).toHaveTextContent('Video exceeds native playback limits');
+  expect(screen.queryByText('Hardware decoding may be unavailable')).toBeNull();
+  await user.hover(screen.getByRole('button', { name: 'Video playback details' }));
+  expect(await screen.findByText(/at most 8192 pixels per side/u)).toBeVisible();
+});
+
 it('uses motion-relative video scrub, restart, and playback rather than independent source controls', async () => {
   const project = structuredClone(useProjectStore.getState().document);
   if (!isAuthoringProject(project)) throw new Error('Expected Project');

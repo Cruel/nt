@@ -5,6 +5,10 @@ import { mkdir, mkdtemp, readFile, realpath, rm, stat, unlink, writeFile } from 
 import { isAbsolute, join, relative, resolve } from 'node:path';
 import pin from '../../shared/media-tool-pin.json';
 import {
+  NATIVE_VIDEO_MAX_DIMENSION,
+  NATIVE_VIDEO_MAX_SOURCE_BYTES,
+} from '../../shared/native-video-playback-limits';
+import {
   type OpaqueVideoPreparationRequest,
   type OpaqueVideoPreparationResult,
   type VideoFrameSampling,
@@ -301,6 +305,13 @@ export async function prepareOpaqueVideoMotion(
   run: MediaToolRunner = runVideoMediaToolProcess,
   admittedSourceBytes?: Uint8Array,
 ): Promise<OpaqueVideoPreparationResult> {
+  if (
+    request.canvas.width > NATIVE_VIDEO_MAX_DIMENSION ||
+    request.canvas.height > NATIVE_VIDEO_MAX_DIMENSION
+  )
+    throw new Error(
+      `Native video canvas cannot exceed ${NATIVE_VIDEO_MAX_DIMENSION} pixels per axis.`,
+    );
   const sourceBytes =
     admittedSourceBytes ?? (await readContainedVideoSource(projectRoot, request.sourcePath));
   const sampling = request.frameSampling ?? { mode: 'source' };
@@ -428,6 +439,8 @@ export async function prepareOpaqueVideoMotion(
         ],
         run,
       );
+      if ((await stat(videoPath)).size > NATIVE_VIDEO_MAX_SOURCE_BYTES)
+        throw new Error('Prepared video exceeds the native decoder 128 MiB source limit.');
       // Filtering precedes encoder reordering and muxing. Verify the decoded packets
       // in the actual packaged WebM; encoder progress and filter PTS are not sufficient
       // evidence of what native libwebm and the browser will later present.
