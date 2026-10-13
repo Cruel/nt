@@ -53,6 +53,8 @@ android {
             file(releaseStoreFile).exists()
     def useDebugSigningForRelease = providers.gradleProperty("novelteaUseDebugSigningForRelease")
             .orElse("false").get().toBoolean()
+    def enableReleaseDevtools = providers.gradleProperty("novelteaEnableDevtools")
+            .orElse("false").get().toBoolean()
     def requestedOrientation = generatedValue("novelteaOrientation", "landscape").toLowerCase()
     if (!(requestedOrientation in ["landscape", "portrait"])) {
         throw new GradleException("novelteaOrientation must be 'landscape' or 'portrait'.")
@@ -105,9 +107,19 @@ android {
     buildTypes {
         debug {
             debuggable true
+            externalNativeBuild {
+                cmake {
+                    arguments "-DNOVELTEA_ENABLE_DEVTOOLS=ON"
+                }
+            }
         }
         release {
             debuggable false
+            externalNativeBuild {
+                cmake {
+                    arguments "-DNOVELTEA_ENABLE_DEVTOOLS=${enableReleaseDevtools ? 'ON' : 'OFF'}"
+                }
+            }
             minifyEnabled false
             if (hasReleaseSigning) {
                 signingConfig signingConfigs.release

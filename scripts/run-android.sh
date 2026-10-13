@@ -2,6 +2,7 @@
 set -euo pipefail
 
 RELEASE=0
+DEVTOOLS=0
 PROJECT_PATH=""
 PROFILE_ID=""
 DEVICE_SERIAL=""
@@ -10,6 +11,10 @@ while [ "$#" -gt 0 ]; do
   case "$1" in
     --release)
       RELEASE=1
+      shift
+      ;;
+    --devtools)
+      DEVTOOLS=1
       shift
       ;;
     --project)
@@ -29,7 +34,7 @@ while [ "$#" -gt 0 ]; do
       ;;
     *)
       echo "[run] unknown argument: $1" >&2
-      echo "usage: $0 [--release] [--project path/to/project.json] [--profile profile-id] [--device SERIAL]" >&2
+      echo "usage: $0 [--release] [--devtools] [--project path/to/project.json] [--profile profile-id] [--device SERIAL]" >&2
       exit 2
       ;;
   esac
@@ -44,7 +49,7 @@ android_select_target
 
 if [ "$RELEASE" = "1" ]; then
   GRADLE_TASK="assembleRelease"
-  GRADLE_ARGS=("$GRADLE_TASK" "-PnovelteaUseDebugSigningForRelease=true" "-PnovelteaAbi=$ANDROID_ABI")
+  GRADLE_ARGS=("$GRADLE_TASK" "-PnovelteaUseDebugSigningForRelease=true" "-PnovelteaAbi=$ANDROID_ABI" "-PnovelteaEnableDevtools=$([ "$DEVTOOLS" = "1" ] && echo true || echo false)")
 else
   GRADLE_TASK="assembleDebug"
   GRADLE_ARGS=("$GRADLE_TASK" "-PnovelteaAbi=$ANDROID_ABI")
@@ -173,7 +178,21 @@ TEMPLATE_ARCHIVE="$(find "$PROJECT_ROOT/dist" -maxdepth 1 -name "noveltea-player
 export NOVELTEA_TEMPLATE_REGISTRY_ROOT="$RUN_ROOT/templates"
 "$NOVELTEA_CLI" --json platform template install "$TEMPLATE_ARCHIVE" --force
 CONFIG_PATH="$RUN_ROOT/export-local-state.json"
-pnpm android:export-config -- --output "$CONFIG_PATH"
+CONFIG_ARGS=(--output "$CONFIG_PATH")
+SIGN_ARGS=()
+if [ "$RELEASE" = "1" ]; then
+  # Local release playback uses the Android debug certificate, never a distribution key.
+  DEBUG_KEYSTORE="${ANDROID_USER_HOME:-$HOME/.android}/debug.keystore"
+  [ -f "$DEBUG_KEYSTORE" ] || {
+    echo "[run] Android debug keystore not found: $DEBUG_KEYSTORE" >&2
+    exit 1
+  }
+  CONFIG_ARGS+=(--debug-signing-keystore "$DEBUG_KEYSTORE")
+  SIGN_ARGS+=(--sign)
+  export NOVELTEA_ANDROID_RUN_DEBUG_STORE_PASSWORD=android
+  export NOVELTEA_ANDROID_RUN_DEBUG_KEY_PASSWORD=android
+fi
+pnpm android:export-config -- "${CONFIG_ARGS[@]}"
 EXPORT_ROOT="$RUN_ROOT/export"
 rm -rf "$EXPORT_ROOT"
 echo "[run] exporting the project through noveltea platform export..."
@@ -181,6 +200,7 @@ echo "[run] exporting the project through noveltea platform export..."
   --profile "$PROFILE_ID" \
   --output "$EXPORT_ROOT" \
   --config "$CONFIG_PATH" \
+  "${SIGN_ARGS[@]}" \
   --allow-untrusted-template \
   --allow-localization-warnings
 DEFAULT_APK="$(find "$EXPORT_ROOT" -name '*.apk' -print -quit)"
@@ -199,7 +219,12 @@ fi
 
 if [[ "$APK" == *-unsigned.apk ]]; then
   echo "[run] unsigned APKs cannot be installed by adb; Android requires an APK signing certificate" >&2
-  echo "[run] configure release signing, or use a signed APK path through APK=/path/to/app-release.apk" >&2
+  exit 1
+fi
+APKSIGNER="${ANDROID_SDK_ROOT:-${ANDROID_HOME:-}}/build-tools/35.0.0/apksigner"
+[ -x "$APKSIGNER" ] || { echo "[run] apksigner is required to verify the exported APK" >&2; exit 1; }
+if ! "$APKSIGNER" verify "$APK"; then
+  echo "[run] exported APK has no valid Android signature: $APK" >&2
   exit 1
 fi
 
@@ -213,4 +238,4 @@ echo "[run] launching app..."
 adb -s "$DEVICE_SERIAL" shell am start -n "$PKG/$ACTIVITY"
 
 echo "[run] logcat:"
-adb -s "$DEVICE_SERIAL" logcat | grep -iE 'noveltea|SDL|native|crash|fatal|AndroidRuntime'
+adb -s "$DEVICE_SERIAL" logcat | grep --line-buffered -iE 'noveltea|SDL|\[perf\]|\[frame-perf\]|native|crash|fatal|AndroidRuntime'
