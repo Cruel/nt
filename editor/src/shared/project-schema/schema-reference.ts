@@ -61,6 +61,11 @@ import {
 import { PROJECT_WORKSPACE_SCHEMA_VERSION } from '../project-workspace/project-workspace-contracts';
 import { workspaceManifestSchema } from '../project-workspace/workspace-manifest-schema';
 import {
+  decodeVariableYaml,
+  encodeVariableYaml,
+  variableYamlSourceSchema,
+} from '../project-workspace/variable-yaml-source';
+import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
   renderSchemaNotation,
@@ -117,7 +122,7 @@ export const schemaSources = {
   'localization.schema.json': authoringLocalizationSchema,
   'editor.schema.json': trackedEditorSchema,
   'records/assets.schema.json': authoringRecordSchemas.assets,
-  'records/variables.schema.json': authoringRecordSchemas.variables,
+  'records/variables.schema.json': variableYamlSourceSchema,
   'records/materials.schema.json': authoringRecordSchemas.materials,
   'records/layouts.schema.json': persistedLayoutRecordSchema,
   'records/archetypes.schema.json': authoringRecordSchemas.archetypes,
@@ -385,6 +390,25 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       '```',
       '',
     );
+    if (document.id === 'records/variables') {
+      const example = encodeVariableYaml({
+        id: 'story-flag',
+        label: 'Story Flag',
+        data: { type: 'boolean', value: false },
+      });
+      // Keep the human-readable example checked against the exact admitted source contract.
+      decodeVariableYaml(example);
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        'The staged Variables tracer uses `records/variables/<id>.yaml`; other collections remain JSON until their cutover. The `data.kind` field is determined by the record family and must be omitted. `data.nullable` defaults to `false` and `data.scope` to `global`; `data.value` remains required.',
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+      );
+    }
     files[`${document.id}.md`] = lines.join('\n');
   }
   compactReferenceFilesCache = Object.freeze(files);

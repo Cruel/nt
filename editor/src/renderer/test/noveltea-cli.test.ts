@@ -120,6 +120,40 @@ function validationNativeTools(): NovelTeaCliNativeToolService {
   };
 }
 
+describe('staged YAML Variables CLI tracer', () => {
+  it('validates a hand-authored Variable and creates the next Variable as sparse YAML', async () => {
+    const value = fixture();
+    const file = `${root}/records/variables/flag.yaml`;
+    const original =
+      '# agent intent\nid: flag\nlabel: Flag\ndata:\n  type: boolean\n  value: false\n';
+    await value.fileSystem.writeTextAtomic(file, original);
+    const validated = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(validated.exitCode).toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(original);
+    const created = await runNovelTeaCli(
+      ['--json', 'entity', 'create', 'variables', 'second-flag'],
+      options(value),
+    );
+    expect(created.exitCode).toBe(0);
+    const createdText = await value.fileSystem.readText(
+      `${root}/records/variables/second-flag.yaml`,
+    );
+    expect(createdText).toContain('id: second-flag');
+    expect(createdText).not.toContain('kind: variable');
+    expect(createdText).not.toContain('nullable: false');
+    expect(await value.fileSystem.inspect(`${root}/records/variables/second-flag.json`)).toBe(
+      'missing',
+    );
+    expect(await value.fileSystem.readText(file)).toBe(original);
+    const reopened = await value.workspace.open(root);
+    expect(reopened.ok).toBe(true);
+    if (reopened.ok) expect(reopened.snapshot.project.variables['second-flag']).toBeDefined();
+  });
+});
+
 describe('exact native validation stage reuse', () => {
   it('validates only changed messages with unchanged font revisions', async () => {
     const project = validProject();

@@ -322,6 +322,7 @@ export default defineConfig({
           'resedit',
           'saxes',
           'xmlchars',
+          'yaml',
           'zod',
         ],
       },
@@ -357,7 +358,7 @@ export default defineConfig({
       ],
       deps: {
         ...commonNodePack.deps,
-        onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars'],
+        onlyBundle: ['zod', 'resedit', 'pe-library', 'saxes', 'xmlchars', 'yaml'],
       },
       entry: {
         noveltea: 'scripts/noveltea.ts',
@@ -388,7 +389,7 @@ export default defineConfig({
           'noveltea-scriptc-agent-kit-source',
           'noveltea-scriptc-comfyui-workflows',
         ],
-        onlyBundle: ['pe-library', 'resedit', 'saxes', 'xmlchars', 'zod'],
+        onlyBundle: ['pe-library', 'resedit', 'saxes', 'xmlchars', 'yaml', 'zod'],
       },
       entry: { 'noveltea-scriptc-island': 'scripts/noveltea-scriptc-island.ts' },
       format: 'esm',
