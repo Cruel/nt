@@ -13,6 +13,8 @@ Use this entrypoint before changing asset loading, asset metadata, project asset
 - `docs/runtime/PACKAGE_EXPORT.md` describes runtime package layout and manifest shape.
 - `docs/assets/NATIVE_VIDEO.md` describes native VP9/WebM decoder ownership, GPU sampling,
   readiness, resource limits, and platform verification.
+- `docs/assets/TRANSPARENT_VIDEO_TRACER.md` records the #408 transparent-video
+  proof, test procedure, measured synthetic-mask stress, and remaining #409 parity work.
 - `docs/editor/export/EXPORT_AND_PACKAGING.md` describes the editor export workflow and asset packaging surface.
 - `docs/assets/ASSET_MEMORY_PROFILES.md` records measured residency units, target presets, Custom
   validation, and runtime pressure semantics.
