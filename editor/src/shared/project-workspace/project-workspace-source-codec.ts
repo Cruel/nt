@@ -1,3 +1,4 @@
+import { decodeVariableYaml, encodeVariableYaml } from './variable-yaml-source';
 /**
  * Physical source syntax belongs here, not to the normalized AuthoringProject or the
  * transaction writer. File ownership and schema admission remain with the workspace
@@ -128,9 +129,9 @@ function canonicalize(value: unknown, schema?: CanonicalSourceSchema): unknown {
 }
 
 export interface ProjectWorkspaceSourceCodec {
-  readonly kind: 'json' | 'text';
+  readonly kind: 'json' | 'text' | 'yaml';
   decode(text: string): unknown;
-  encode(value: unknown, schema?: CanonicalSourceSchema): string;
+  encode(value: unknown, schema?: CanonicalSourceSchema, previousText?: string): string;
 }
 
 const jsonCodec: ProjectWorkspaceSourceCodec = {
@@ -145,7 +146,14 @@ const textCodec: ProjectWorkspaceSourceCodec = {
   encode: (value) => String(value),
 };
 
+const variableYamlCodec: ProjectWorkspaceSourceCodec = {
+  kind: 'yaml',
+  decode: decodeVariableYaml,
+  encode: (value, _schema, previousText) => encodeVariableYaml(value, previousText),
+};
+
 /** The single physical-format selection used by cold open, reconciliation and projection. */
 export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourceCodec {
+  if (/^records\/variables\/[^/]+\.yaml$/u.test(file)) return variableYamlCodec;
   return file.endsWith('.json') ? jsonCodec : textCodec;
 }

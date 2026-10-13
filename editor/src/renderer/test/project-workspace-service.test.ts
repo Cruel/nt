@@ -1,7 +1,11 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  cloneAuthoringProject,
+  createAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultVariableData } from '../../shared/project-schema/authoring-variables';
 import {
   InMemoryProjectWorkspaceFileSystem,
   ProjectWorkspaceService,
@@ -26,6 +30,143 @@ function filesFor(project = createAuthoringProject({ id: 'headless', name: 'Head
 }
 
 describe('ProjectWorkspaceService', () => {
+  it('admits a sparse staged YAML Variable, preserves comments across a selective save, and reopens', async () => {
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    const original = projectWorkspaceFiles(project, project.editor);
+    const yaml =
+      '# Hand-authored Variable\nid: flag\nlabel: Flag # editor label\ndata:\n  type: boolean # stable type\n  # keep this note\n  value: false\n';
+    const files = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries({ ...original, 'records/variables/flag.yaml': yaml })
+          .filter(([file]) => file !== 'records/variables/flag.json')
+          .map(([file, contents]) => [`/project/${file}`, contents]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(files);
+    const opened = await workspace.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    expect(opened.snapshot.project.variables.flag?.data).toEqual(defaultVariableData('boolean'));
+    expect(opened.snapshot.saveUnitFileOwnership['record:variables:flag']?.files).toContain(
+      'records/variables/flag.yaml',
+    );
+    const next = structuredClone(opened.snapshot.project);
+    next.variables.flag!.data.value = true;
+    await workspace.write(
+      '/project',
+      opened.snapshot.workspaceRevision,
+      next,
+      opened.editorState,
+      {},
+      {
+        affectedPaths: ['/variables/flag/data/value'],
+      },
+    );
+    const saved = await files.readText('/project/records/variables/flag.yaml');
+    expect(saved).toContain('# Hand-authored Variable');
+    expect(saved).toContain('# stable type');
+    expect(saved).toContain('# keep this note');
+    expect(saved).toContain('value: true');
+    expect(await files.inspect('/project/records/variables/flag.json')).toBe('missing');
+    expect(await files.readText('/project/project.json')).toBe(original['project.json']);
+    const reopened = await workspace.open('/project');
+    expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (reopened.ok) expect(reopened.snapshot.project.variables.flag?.data.value).toBe(true);
+  });
+
+  it('keeps YAML source revisions and comments separate from normalized Variable meaning', async () => {
+    const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
+    project.variables.flag = { id: 'flag', label: 'Flag', data: defaultVariableData('boolean') };
+    const sources = projectWorkspaceFiles(project, project.editor);
+    const filename = 'records/variables/flag.yaml';
+    const original =
+      '# reader note\nid: flag\nlabel: Flag\ndata:\n  type: boolean\n  nullable: false # deliberately explicit\n  value: false\n';
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries({ ...sources, [filename]: original })
+          .filter(([path]) => path !== 'records/variables/flag.json')
+          .map(([path, text]) => [`/project/${path}`, text]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fileSystem);
+    const opened = await workspace.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    await workspace.write(
+      '/project',
+      opened.snapshot.workspaceRevision,
+      opened.snapshot.project,
+      opened.editorState,
+      {},
+      { affectedPaths: ['/variables/flag/data/value'] },
+    );
+    expect(await fileSystem.readText(`/project/${filename}`)).toBe(original);
+
+    const external = `${original}# new author comment\n`;
+    await fileSystem.writeTextAtomic(`/project/${filename}`, external);
+    const reconciled = await workspace.reconcileExistingSources(opened, [filename]);
+    expect(reconciled?.ok).toBe(true);
+    if (!reconciled?.ok) return;
+    expect(reconciled.snapshot.project.variables.flag).toEqual(
+      opened.snapshot.project.variables.flag,
+    );
+    expect(reconciled.snapshot.fileRevisions[filename]?.contentHash).not.toBe(
+      opened.snapshot.fileRevisions[filename]?.contentHash,
+    );
+
+    const updated = cloneAuthoringProject(reconciled.snapshot.project);
+    updated.variables.flag!.label = 'Changed';
+    await expect(
+      workspace.write(
+        '/project',
+        opened.snapshot.workspaceRevision,
+        updated,
+        updated.editor,
+        {},
+        {
+          targetFiles: [filename],
+          expectedFileRevisions: {
+            [filename]: opened.snapshot.fileRevisions[filename]!.contentHash,
+          },
+        },
+      ),
+    ).rejects.toThrow();
+    expect(await fileSystem.readText(`/project/${filename}`)).toBe(external);
+  });
+
+  it('rejects unsupported YAML features and ambiguous scalars without writing source', async () => {
+    const codec = projectWorkspaceSourceCodec('records/variables/flag.yaml');
+    const invalid = [
+      'id: flag\nid: flag\nlabel: Flag\ndata: { type: boolean, value: false }\n',
+      'id: flag\nlabel: Flag\ndata: &anchor { type: boolean, value: false }\n',
+      'id: flag\nlabel: Flag\ndata: { type: boolean, value: *alias }\n',
+      'id: flag\nlabel: Flag\ndata: { <<: { type: boolean }, value: false }\n',
+      'id: flag\nlabel: !bad Flag\ndata: { type: boolean, value: false }\n',
+      'id: flag\nlabel: Flag\ndata: { type: boolean, value: false }\n---\n{}\n',
+      'id: flag\nlabel: Flag\ndata: { type: boolean, value: FALSE }\n',
+      'id: flag\nlabel: Flag\ndata: { type: integer, value: 01 }\n',
+      'id: flag\nlabel: Flag\ndata: { type: boolean, value: [] }\n',
+      'id: flag\nlabel: Flag\ndata: { type: boolean, value: false, kind: variable }\n',
+    ];
+    for (const text of invalid) expect(() => codec.decode(text), text).toThrow();
+    const multiline = codec.decode(
+      'id: flag\nlabel: "007"\ndescription: |\n  Line one\n  Line two\ndata:\n  type: string\n  value: "yes"\n',
+    );
+    expect(multiline).toMatchObject({
+      label: '007',
+      description: 'Line one\nLine two\n',
+      data: { value: 'yes' },
+    });
+    expect(
+      codec.decode(
+        'id: flag\nlabel: Flag\ndata:\n  type: string\n  nullable: true\n  value: null\n',
+      ),
+    ).toMatchObject({ data: { kind: 'variable', type: 'string', nullable: true, value: null } });
+    expect(
+      codec.decode('id: flag\nlabel: Flag\ndata:\n  type: string\n  value: ""\n'),
+    ).toMatchObject({ data: { value: '' } });
+  });
   it('shares localization source views only within the admitted workspace generation', async () => {
     const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
     const service = new ProjectWorkspaceService(

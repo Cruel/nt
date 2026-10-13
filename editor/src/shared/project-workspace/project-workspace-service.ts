@@ -228,6 +228,8 @@ export type ProjectWorkspaceSourceContribution =
       Readonly<{
         kind: 'json';
         parsed: unknown;
+        /** Original YAML document for staged Variables, including comment nodes. */
+        sourceText?: string;
       }>)
   | (ProjectWorkspaceSourceContributionBase &
       Readonly<{
@@ -554,10 +556,22 @@ const hasExactKeys = (value: unknown, keys: readonly string[]) =>
     .join('\0') === [...keys].sort(compareProjectWorkspaceUnicodeCodePoints).join('\0');
 const layoutFile = (id: string, channel: 'rml' | 'rcss' | 'lua') =>
   `records/layouts/${id}/layout.${channel}`;
-const recordFile = (collection: AuthoringCollectionKey, id: string) =>
-  collection === 'layouts'
-    ? `records/layouts/${id}/layout.json`
-    : `records/${collection}/${id}.json`;
+const recordFile = (
+  collection: AuthoringCollectionKey,
+  id: string,
+  sourceFiles?: ReadonlySet<string>,
+) => {
+  if (collection === 'layouts') return `records/layouts/${id}/layout.json`;
+  if (collection !== 'variables' || !sourceFiles) return `records/${collection}/${id}.json`;
+  const json = `records/variables/${id}.json`;
+  const yaml = `records/variables/${id}.yaml`;
+  // Once a tracer Variable is present, additional Variables join its physical format.
+  // Existing JSON Variables retain their paths until the full source-format cutover.
+  return sourceFiles.has(json) ||
+    ![...sourceFiles].some((file) => /^records\/variables\/[^/]+\.yaml$/u.test(file))
+    ? json
+    : yaml;
+};
 
 function sourceContributionOwnerPaths(
   file: string,
@@ -600,7 +614,7 @@ function sourceContributionOwnerPaths(
     const channel = layoutMatch[2]!;
     return channel === 'json' ? [`/layouts/${id}`] : [`/layouts/${id}/data/${channel}`];
   }
-  const recordMatch = file.match(/^records\/([^/]+)\/([^/]+)\.json$/u);
+  const recordMatch = file.match(/^records\/([^/]+)\/([^/]+)\.(?:json|yaml)$/u);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!))
     return [`/${recordMatch[1]}/${escapeJsonPointerSegment(recordMatch[2]!)}`];
   for (const [id, sourcePath] of Object.entries(scriptSourcePaths))
@@ -683,7 +697,14 @@ export function projectWorkspaceAffectedFiles(
       affectedPath,
     );
     if (!candidateFiles) return null;
-    candidateFiles.forEach((file) => files.add(file));
+    candidateFiles.forEach((file) => {
+      const variable = /^records\/variables\/([^/]+)\.json$/u.exec(file);
+      files.add(
+        variable
+          ? recordFile('variables', variable[1]!, new Set(snapshot.canonicalSourceFiles))
+          : file,
+      );
+    });
   }
   return [...files].sort(compareProjectWorkspaceUnicodeCodePoints);
 }
@@ -1059,6 +1080,7 @@ function failedWorkspaceSourceProofs(
 function ownershipFor(
   project: AuthoringProject,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
+  sourceFiles?: ReadonlySet<string>,
 ): Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>> {
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
@@ -1108,7 +1130,7 @@ function ownershipFor(
     for (const id of Object.keys(project[collection]).sort(
       compareProjectWorkspaceUnicodeCodePoints,
     )) {
-      const files = [recordFile(collection, id)];
+      const files = [recordFile(collection, id, sourceFiles)];
       if (collection === 'layouts') {
         const data = project.layouts[id]!.data;
         if (data.rml.sourceMode === 'inline') files.push(layoutFile(id, 'rml'));
@@ -1242,6 +1264,7 @@ export function projectWorkspaceFile(
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>>,
   file: string,
+  previousText?: string,
 ): string | undefined {
   if (file === 'project.json')
     return projectWorkspaceSourceCodec(file).encode(
@@ -1295,10 +1318,11 @@ export function projectWorkspaceFile(
     }
     return projectWorkspaceSourceCodec(file).encode(record, authoringRecordSchemas.layouts);
   }
-  const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
+  const recordMatch = /^records\/([^/]+)\/([^/]+)\.(json|yaml)$/u.exec(file);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
     const collection = recordMatch[1] as AuthoringCollectionKey;
     const id = recordMatch[2]!;
+    if (recordMatch[3] === 'yaml' && collection !== 'variables') return undefined;
     const original = project[collection][id];
     if (!original) return undefined;
     const record = structuredClone(original) as Record<string, unknown>;
@@ -1309,7 +1333,11 @@ export function projectWorkspaceFile(
         data.source = { kind: 'project-file', path: sourcePath };
       }
     }
-    return projectWorkspaceSourceCodec(file).encode(record, authoringRecordSchemas[collection]);
+    return projectWorkspaceSourceCodec(file).encode(
+      record,
+      authoringRecordSchemas[collection],
+      previousText,
+    );
   }
   for (const [id, record] of Object.entries(project.scripts)) {
     const source = record.data.source;
@@ -1325,6 +1353,7 @@ export function projectWorkspaceFiles(
   project: AuthoringProject,
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
+  sourceFiles?: ReadonlySet<string>,
 ): Readonly<Record<string, string>> {
   const files: Record<string, string> = {};
   const add = (file: string) => {
@@ -1339,7 +1368,7 @@ export function projectWorkspaceFiles(
     for (const id of Object.keys(project[collection]).sort(
       compareProjectWorkspaceUnicodeCodePoints,
     )) {
-      add(recordFile(collection, id));
+      add(recordFile(collection, id, sourceFiles));
       if (collection === 'layouts') {
         for (const channel of ['rml', 'rcss', 'lua'] as const) add(layoutFile(id, channel));
       } else if (collection === 'scripts') {
@@ -1557,7 +1586,7 @@ function createSnapshotValidationState(
   });
 }
 
-/** Compare the schema-projected file, not its physical JSON formatting or object identity. */
+/** Compare schema-projected semantics, not physical JSON/YAML style or source comments. */
 function semanticWorkspaceJsonUnchanged(
   changedPaths: readonly string[],
   before: AuthoringProject,
@@ -1567,7 +1596,7 @@ function semanticWorkspaceJsonUnchanged(
   return (
     changedPaths.length > 0 &&
     changedPaths.every((path) => {
-      if (!path.endsWith('.json')) return false;
+      if (projectWorkspaceSourceCodec(path).kind === 'text') return false;
       const previous = projectWorkspaceFile(before, before.editor, scriptSourcePaths, path);
       return (
         previous !== undefined &&
@@ -1977,7 +2006,14 @@ export class ProjectWorkspaceService {
         affectedPath,
       );
       if (!candidateFiles) return null;
-      candidateFiles.forEach((file) => files.add(file));
+      candidateFiles.forEach((file) => {
+        const variableMatch = /^records\/variables\/([^/]+)\.json$/u.exec(file);
+        files.add(
+          variableMatch
+            ? recordFile('variables', variableMatch[1]!, new Set(snapshot.canonicalSourceFiles))
+            : file,
+        );
+      });
     }
     return [...files].sort(compareProjectWorkspaceUnicodeCodePoints);
   }
@@ -2022,7 +2058,7 @@ export class ProjectWorkspaceService {
           contentHash: await sha256PrefixedBytes(bytes),
           byteSize: bytes.byteLength,
         };
-        const recordMatch = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(
+        const recordMatch = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.json)$/u.exec(
           relativePath,
         );
         const layoutSourceMatch = /^records\/layouts\/([^/]+)\/layout\.(rml|rcss|lua)$/u.exec(
@@ -2248,7 +2284,7 @@ export class ProjectWorkspaceService {
         fileRevisionChanges[relativePath] = revision;
         const ownerPaths = priorContribution.ownerPaths;
         changedOwnerPaths.set(relativePath, ownerPaths);
-        if (relativePath.endsWith('.json')) {
+        if (projectWorkspaceSourceCodec(relativePath).kind !== 'text') {
           parsedJsonSources += 1;
           projectedJsonSources += 1;
           const normalizedText = projectWorkspaceFile(
@@ -2263,6 +2299,7 @@ export class ProjectWorkspaceService {
             ...revision,
             kind: 'json' as const,
             parsed: projectWorkspaceSourceCodec(relativePath).decode(normalizedText),
+            ...(relativePath.endsWith('.yaml') ? { sourceText: text } : {}),
             schemaValid: true as const,
             ownerPaths,
             localDiagnostics: Object.freeze([]),
@@ -2628,6 +2665,7 @@ export class ProjectWorkspaceService {
         committedSnapshot.project.editor,
         committedSnapshot.scriptSourcePaths,
         relativePath,
+        prior?.kind === 'json' ? prior.sourceText : undefined,
       );
       const revision = committedSnapshot.fileRevisions[relativePath];
       if (text === undefined || !revision) {
@@ -2641,7 +2679,7 @@ export class ProjectWorkspaceService {
       );
       sourceMembershipChanged ||= prior === undefined;
       changedOwnerPaths.set(relativePath, ownerPaths);
-      if (relativePath.endsWith('.json')) {
+      if (projectWorkspaceSourceCodec(relativePath).kind !== 'text') {
         parsedJsonSources += 1;
         projectedJsonSources += 1;
         sourceContributionChanges[relativePath] = Object.freeze({
@@ -2649,6 +2687,7 @@ export class ProjectWorkspaceService {
           ...revision,
           kind: 'json' as const,
           parsed: projectWorkspaceSourceCodec(relativePath).decode(text),
+          ...(relativePath.endsWith('.yaml') ? { sourceText: text } : {}),
           schemaValid: true as const,
           ownerPaths,
           localDiagnostics: Object.freeze([]),
@@ -2931,6 +2970,8 @@ export class ProjectWorkspaceService {
             if (contribution?.kind === 'json') {
               sourceWork.reusedJsonSources++;
               reusedJsonSourcePaths.add(relativePath);
+              if (contribution.sourceText !== undefined)
+                textSourceValues.set(relativePath, contribution.sourceText);
               const requiresMutableProjection =
                 relativePath === 'project.json' ||
                 /^records\/layouts\/[^/]+\/layout\.json$/u.test(relativePath) ||
@@ -2942,9 +2983,9 @@ export class ProjectWorkspaceService {
             sourceWork.authoredFilesReread++;
             sourceWork.parsedJsonSources++;
             freshJsonSourcePaths.add(relativePath);
-            return projectWorkspaceSourceCodec(relativePath).decode(
-              await readSourceText(relativePath),
-            );
+            const text = await readSourceText(relativePath);
+            if (relativePath.endsWith('.yaml')) textSourceValues.set(relativePath, text);
+            return projectWorkspaceSourceCodec(relativePath).decode(text);
           };
           const parseJsonSource = async <Schema extends z.ZodType>(
             relativePath: string,
@@ -3285,9 +3326,12 @@ export class ProjectWorkspaceService {
                 collections.layouts[entry] = raw;
                 continue;
               }
-              if (!entry.endsWith('.json'))
+              if (
+                !entry.endsWith('.json') &&
+                !(collection === 'variables' && entry.endsWith('.yaml'))
+              )
                 return fail(
-                  'Record files must use canonical .json names.',
+                  'Record files must use canonical names.',
                   `/records/${collection}/${entry}`,
                 );
               const id = entry.slice(0, -5);
@@ -3312,6 +3356,11 @@ export class ProjectWorkspaceService {
               if (raw.id !== id)
                 return fail(
                   'Record ID does not match its path.',
+                  `/records/${collection}/${entry}`,
+                );
+              if (collections[collection][id])
+                return fail(
+                  'Duplicate record identity across source files.',
                   `/records/${collection}/${entry}`,
                 );
               const relativeRecordPath = `records/${collection}/${entry}`;
@@ -3467,7 +3516,11 @@ export class ProjectWorkspaceService {
               return fail(`Authoritative source file '${file}' is missing.`, `/${file}`);
             fileRevisions[file] = revision;
           }
-          const saveUnitFileOwnership = ownershipFor(decodedProject, scriptSourcePaths);
+          const saveUnitFileOwnership = ownershipFor(
+            decodedProject,
+            scriptSourcePaths,
+            new Set(admittedSourcePaths),
+          );
           const ownerPathsByFile = new Map<string, readonly string[]>();
           for (const file of canonicalSourceFiles)
             ownerPathsByFile.set(
@@ -3540,11 +3593,11 @@ export class ProjectWorkspaceService {
             const localDiagnostics = reused
               ? reused.localDiagnostics
               : Object.freeze([...(localDiagnosticsByFile.get(file) ?? [])]);
-            if (file.endsWith('.json')) {
+            if (projectWorkspaceSourceCodec(file).kind !== 'text') {
               let parsed: unknown;
               if (reused?.kind === 'json') parsed = reused.parsed;
               else {
-                const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
+                const recordMatch = /^records\/([^/]+)\/([^/]+)\.(?:json|yaml)$/u.exec(file);
                 const collection = recordMatch?.[1];
                 const recordId = recordMatch?.[2];
                 if (
@@ -3586,6 +3639,7 @@ export class ProjectWorkspaceService {
                 byteSize: revision.byteSize,
                 kind: 'json' as const,
                 parsed,
+                ...(file.endsWith('.yaml') ? { sourceText: textSourceValues.get(file) } : {}),
                 schemaValid: true as const,
                 ownerPaths,
                 localDiagnostics,
@@ -3704,13 +3758,19 @@ export class ProjectWorkspaceService {
     const explicitCandidates = options.targetFiles ?? affectedCandidates;
     const fullProjection = explicitCandidates
       ? null
-      : projectWorkspaceFiles(project, editorState, projectedSourcePaths);
+      : projectWorkspaceFiles(
+          project,
+          editorState,
+          projectedSourcePaths,
+          new Set(openedSnapshot.canonicalSourceFiles),
+        );
     const priorFullProjection = explicitCandidates
       ? null
       : projectWorkspaceFiles(
           openedSnapshot.project,
           openedSnapshot.project.editor,
           openedSnapshot.scriptSourcePaths,
+          new Set(openedSnapshot.canonicalSourceFiles),
         );
     const candidates = new Set(
       explicitCandidates ?? [...Object.keys(priorFullProjection!), ...Object.keys(fullProjection!)],
@@ -3737,9 +3797,17 @@ export class ProjectWorkspaceService {
         .readText(this.fileSystem.joinPath(projectRoot, file))
         .catch(() => null);
       const nextText =
-        (fullProjection
-          ? fullProjection[file]
-          : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
+        (file.endsWith('.yaml')
+          ? projectWorkspaceFile(
+              project,
+              editorState,
+              projectedSourcePaths,
+              file,
+              currentText ?? undefined,
+            )
+          : fullProjection
+            ? fullProjection[file]
+            : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
       sourceMembershipChanged ||=
         (openedSnapshot.fileRevisions[file] !== undefined) !== (nextText !== null);
       if (currentText === nextText) continue;
@@ -3835,7 +3903,7 @@ export class ProjectWorkspaceService {
         fileRevisions,
         saveUnitFileOwnership: incrementalProjection
           ? openedSnapshot.saveUnitFileOwnership
-          : ownershipFor(committedProject, projectedSourcePaths),
+          : ownershipFor(committedProject, projectedSourcePaths, new Set(canonicalSourceFiles)),
         externalSourceDescriptors:
           descriptorAdvance?.descriptors ??
           externalDescriptors(committedProject, projectedSourcePaths),

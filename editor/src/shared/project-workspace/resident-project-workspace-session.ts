@@ -46,8 +46,14 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
       snapshot.project,
       snapshot.project.editor,
       snapshot.scriptSourcePaths,
+      new Set(snapshot.canonicalSourceFiles),
     );
     this.seedEntries(snapshot, Object.entries(projected));
+    // Hydrated snapshots carry semantic records, not the physical comment-bearing YAML bytes.
+    // Do not cache a fabricated source document under an exact on-disk revision.
+    for (const file of snapshot.canonicalSourceFiles)
+      if (file.endsWith('.yaml'))
+        this.textByPath.delete(this.key(this.joinPath(snapshot.projectRoot, file)));
   }
 
   seedOpened(opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>): void {
@@ -56,7 +62,7 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
       Object.entries(opened.sourceContributions).map(([relativePath, contribution]) => [
         relativePath,
         contribution.kind === 'json'
-          ? `${JSON.stringify(contribution.parsed, null, 2)}\n`
+          ? (contribution.sourceText ?? `${JSON.stringify(contribution.parsed, null, 2)}\n`)
           : contribution.text,
       ]),
     );
@@ -111,11 +117,16 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
     const root = this.key(snapshot.projectRoot);
     for (const relativePath of new Set(relativePaths)) {
       const absolute = this.key(this.joinPath(root, relativePath));
+      if (relativePath.endsWith('.yaml') && !this.textByPath.has(absolute)) {
+        this.invalidateAbsolute(absolute);
+        continue;
+      }
       const text = projectWorkspaceFile(
         snapshot.project,
         snapshot.project.editor,
         snapshot.scriptSourcePaths,
         relativePath,
+        relativePath.endsWith('.yaml') ? this.textByPath.get(absolute) : undefined,
       );
       const revision = snapshot.fileRevisions[relativePath];
       if (text === undefined || !revision) {
@@ -857,7 +868,7 @@ export class ResidentProjectWorkspaceSession {
     const invalidOwnerPaths = new Set<string>();
     for (const file of invalidFiles) {
       const layout = file.match(/^records\/layouts\/([^/]+)\/layout\.(?:json|rml|rcss|lua)$/);
-      const record = file.match(/^records\/([^/]+)\/([^/]+)\.json$/);
+      const record = file.match(/^records\/([^/]+)\/([^/]+)\.(?:json|yaml)$/);
       const scriptOwner = Object.entries(this.snapshotValue.scriptSourcePaths).find(
         ([, sourcePath]) => sourcePath === file,
       );

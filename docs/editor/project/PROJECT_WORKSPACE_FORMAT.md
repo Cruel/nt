@@ -88,6 +88,32 @@ Records live under `records/<collection>/<id>.json`; Layouts instead live under
 ID. Unknown `records/` collection directories and noncanonical record paths are structural errors.
 Missing known collection directories mean empty collections.
 
+### Staged sparse YAML Variables tracer (#451)
+
+Until the complete YAML cutover (#449), existing workspaces and newly created Projects still
+use JSON for tracked source. A staged Project can replace one Variable's
+`records/variables/<id>.json` with `records/variables/<id>.yaml` to exercise the initial
+restricted YAML codec without changing any other record family. Two source files for the same
+Variable ID are rejected; an ID still must match its filename. Once a Project contains a YAML
+Variable, newly created Variables use `.yaml`; existing JSON Variables remain JSON until the
+full cutover. This is an intentional transitional tracer, not permanent dual-format support.
+
+The YAML Variable source omits the redundant `data.kind: variable`. `data.nullable` may be
+omitted for `false`, and `data.scope` for `global`; `id`, `label`, `data.type`, and `data.value`
+remain required. These source omissions are expanded through the existing strict Variable
+schema before authoring validation. Explicit `null` is distinct from omission and is subject
+to the Variable type/nullability semantic checks. The YAML profile rejects duplicate keys,
+aliases, anchors, merges, explicit tags, multiple documents, ambiguous unquoted scalar values,
+and non-string mapping keys; quote strings that resemble booleans, nulls or numeric values.
+
+The shared per-file codec uses a document-aware YAML writer for selective Variable edits. It
+keeps untouched keys, explicitly authored defaults, and attached comments, and leaves the
+physical bytes of an unaffected YAML file unchanged. Physical source hashes remain exact-byte
+revisions; effective Variable data remains the normalized `AuthoringProject` value. The
+generated `records/variables` Agent Kit reference describes the sparse YAML source shape and
+provides a schema-checked minimal example. Other tracked source remains JSON until its
+individual cutover ticket.
+
 File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` beside `layout.json`.
 The persisted Layout JSON selectors use `sourceMode: "file"`, `sourceMode: "asset"` for RML/RCSS only,
 or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.json`. Layout Lua Asset

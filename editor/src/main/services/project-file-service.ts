@@ -283,9 +283,20 @@ function changedProjectionFiles(
   candidate: Parameters<typeof createProjectWorkspaceSnapshot>[0],
   baselineSourcePaths: Readonly<Record<string, string>>,
   candidateSourcePaths: Readonly<Record<string, string>>,
+  sourceFiles?: ReadonlySet<string>,
 ) {
-  const beforeFiles = projectWorkspaceFiles(baseline, baseline.editor, baselineSourcePaths);
-  const afterFiles = projectWorkspaceFiles(candidate, candidate.editor, candidateSourcePaths);
+  const beforeFiles = projectWorkspaceFiles(
+    baseline,
+    baseline.editor,
+    baselineSourcePaths,
+    sourceFiles,
+  );
+  const afterFiles = projectWorkspaceFiles(
+    candidate,
+    candidate.editor,
+    candidateSourcePaths,
+    sourceFiles,
+  );
   return [...new Set([...Object.keys(beforeFiles), ...Object.keys(afterFiles)])]
     .filter((file) => beforeFiles[file] !== afterFiles[file])
     .sort();
@@ -457,6 +468,7 @@ async function writeWorkspaceProject(
           projectForWrite,
           openedSnapshot.scriptSourcePaths,
           sourcePaths,
+          new Set(openedSnapshot.canonicalSourceFiles),
         )
       : commitOptions.structural
         ? undefined
@@ -466,6 +478,7 @@ async function writeWorkspaceProject(
               projectForWrite,
               openedSnapshot.scriptSourcePaths,
               sourcePaths,
+              new Set(openedSnapshot.canonicalSourceFiles),
             )
           : await filesForSaveUnits(
               openedSnapshot,
@@ -1283,6 +1296,7 @@ export async function saveProjectCopyAs(
         normalized as Parameters<typeof projectWorkspaceFiles>[0],
         editor,
         projectedScriptSourcePaths,
+        sourcePaths.ok ? new Set(sourcePaths.snapshot.canonicalSourceFiles) : undefined,
       ),
     ))
       await writeContainedText(root, path.join(root, relativePath), text);

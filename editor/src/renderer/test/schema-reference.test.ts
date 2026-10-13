@@ -342,6 +342,10 @@ describe('compact schema reference', () => {
     expect(materials).toContain('texture override must set at least one');
 
     const variables = files['records/variables.md']!;
+    expect(variables).toContain('## Minimal YAML source');
+    expect(variables).toContain('id: story-flag');
+    expect(variables).toContain('nullable?: boolean = false');
+    expect(variables).not.toContain('kind: "variable"');
     expect(variables).toContain('value must match the declared type and nullability.');
     expect(variables).toContain('Enum Variables require at least one non-empty enumValues entry');
     expect(variables).toContain(
