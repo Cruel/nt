@@ -283,6 +283,77 @@ describe('staged YAML Character and Interactable CLI authoring', () => {
   });
 });
 
+describe('staged YAML Verb and Interaction CLI authoring', () => {
+  it('validates annotated sources, creates new YAML records, and preserves existing JSON owners', async () => {
+    const project = validProject();
+    project.verbs.inspect = createDefaultAuthoringRecord(
+      'verbs',
+      'inspect',
+    ) as typeof project.verbs.inspect;
+    project.interactions.rules = createDefaultAuthoringRecord(
+      'interactions',
+      'rules',
+    ) as typeof project.interactions.rules;
+    const staged = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/verbs/inspect.yaml', 'records/interactions/rules.yaml']),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(staged).map(([file, content]) => [
+          `${root}/${file}`,
+          file === 'records/verbs/inspect.yaml'
+            ? content.replace('label: Verb inspect', 'label: Verb inspect # offer note')
+            : file === 'records/interactions/rules.yaml'
+              ? content.replace('label: Interaction rules', 'label: Interaction rules # rule note')
+              : content,
+        ]),
+      ),
+    );
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], options(value, root, validationNativeTools())))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'create', 'verbs', 'activate'], options(value)))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'create', 'interactions', 'activate-rules'],
+          options(value),
+        )
+      ).exitCode,
+    ).toBe(0);
+    expect(await fileSystem.readText(`${root}/records/verbs/activate.yaml`)).toContain(
+      'id: activate',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactions/activate-rules.yaml`)).toContain(
+      'id: activate-rules',
+    );
+    expect(await fileSystem.inspect(`${root}/records/verbs/activate.json`)).toBe('missing');
+    expect(await fileSystem.inspect(`${root}/records/interactions/activate-rules.json`)).toBe(
+      'missing',
+    );
+    expect(await fileSystem.readText(`${root}/records/verbs/inspect.yaml`)).toContain(
+      '# offer note',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactions/rules.yaml`)).toContain(
+      '# rule note',
+    );
+    const reopened = await value.workspace.open(root);
+    expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (reopened.ok) {
+      expect(reopened.snapshot.project.verbs.activate).toBeDefined();
+      expect(reopened.snapshot.project.interactions['activate-rules']).toBeDefined();
+    }
+  });
+});
+
 describe('exact native validation stage reuse', () => {
   it('validates only changed messages with unchanged font revisions', async () => {
     const project = validProject();
