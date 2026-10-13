@@ -10,6 +10,11 @@ import {
   updateLocalizationMessageSourceViews,
 } from '../authoring-localization-workflow';
 import { workspaceManifestSchema } from './workspace-manifest-schema';
+import {
+  compareProjectWorkspaceUnicodeCodePoints,
+  projectWorkspaceSourceCodec,
+  type CanonicalSourceSchema,
+} from './project-workspace-source-codec';
 import { buildAuthoringDependencyGraph } from '../authoring-dependency-graph';
 import {
   assembleAuthoringDependencyGraph,
@@ -141,6 +146,7 @@ export {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from './project-workspace-contracts';
+export { compareProjectWorkspaceUnicodeCodePoints } from './project-workspace-source-codec';
 
 /* This is deliberately a distinct persistence codec.  The assembled editor state
  * remains the old in-memory shape, but no workspace file is read as that retired
@@ -377,138 +383,13 @@ function withLazyWriteContent<T extends object>(
   return result as T & Readonly<{ contentProject: unknown }>;
 }
 
-export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
-  const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
-  const rightPoints = Array.from(right, (character) => character.codePointAt(0)!);
-  for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
-    const difference = leftPoints[index]! - rightPoints[index]!;
-    if (difference !== 0) return difference;
-  }
-  return leftPoints.length - rightPoints.length;
-}
 const sortKeys = <T>(value: Record<string, T>) =>
   Object.fromEntries(
     Object.entries(value).sort(([a], [b]) => compareProjectWorkspaceUnicodeCodePoints(a, b)),
   ) as Record<string, T>;
-type CanonicalSchema = {
-  readonly _zod?: { readonly def?: unknown };
-  safeParse?(value: unknown): { readonly success: boolean };
-};
 
-function schemaDefinition(
-  schema: CanonicalSchema | undefined,
-): Record<string, unknown> | undefined {
-  const definition = schema?._zod?.def;
-  return definition && typeof definition === 'object'
-    ? (definition as Record<string, unknown>)
-    : undefined;
-}
-
-function objectShape(schema: CanonicalSchema): Record<string, CanonicalSchema> | undefined {
-  const definition = schemaDefinition(schema);
-  return definition?.type === 'object'
-    ? (definition.shape as Record<string, CanonicalSchema>)
-    : undefined;
-}
-
-function literalValues(schema: CanonicalSchema | undefined): readonly unknown[] | undefined {
-  const definition = schemaDefinition(schema);
-  if (definition?.type === 'literal') return definition.values as readonly unknown[];
-  if (
-    definition?.type === 'optional' ||
-    definition?.type === 'nullable' ||
-    definition?.type === 'default' ||
-    definition?.type === 'catch' ||
-    definition?.type === 'readonly' ||
-    definition?.type === 'nonoptional'
-  )
-    return literalValues(definition.innerType as CanonicalSchema);
-  return undefined;
-}
-
-function matchingUnionSchema(
-  value: unknown,
-  options: readonly CanonicalSchema[],
-  discriminator?: unknown,
-): CanonicalSchema | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const object = value as Record<string, unknown>;
-  if (typeof discriminator === 'string') {
-    const matched = options.find((option) =>
-      literalValues(objectShape(option)?.[discriminator])?.includes(object[discriminator]),
-    );
-    if (matched) return matched;
-  }
-  const parsed = options.filter((option) => option.safeParse?.(value).success);
-  if (parsed.length > 0) return parsed[0];
-  const structurallyMatched = options.filter((option) => {
-    const shape = objectShape(option);
-    return shape !== undefined && Object.keys(object).every((key) => key in shape);
-  });
-  return structurallyMatched.length === 1 ? structurallyMatched[0] : undefined;
-}
-
-/**
- * A schema object is an ordered product; a Zod record (and an untyped JSON value)
- * is a dictionary.  Keeping that distinction at the codec boundary avoids a
- * parent-key convention that inevitably misses newly added maps.
- */
-function canonicalize(value: unknown, schema?: CanonicalSchema): unknown {
-  const definition = schemaDefinition(schema);
-  const type = definition?.type;
-  if (type === 'optional' || type === 'nullable' || type === 'default' || type === 'catch')
-    return canonicalize(value, definition?.innerType as CanonicalSchema);
-  if (type === 'readonly' || type === 'nonoptional')
-    return canonicalize(value, definition?.innerType as CanonicalSchema);
-  if (type === 'pipe') return canonicalize(value, definition?.out as CanonicalSchema);
-  if (type === 'lazy') {
-    const getter = definition?.getter;
-    return typeof getter === 'function'
-      ? canonicalize(value, (getter as () => CanonicalSchema)())
-      : canonicalize(value);
-  }
-  if (type === 'array') {
-    const element = definition?.element as CanonicalSchema;
-    return Array.isArray(value) ? value.map((item) => canonicalize(item, element)) : value;
-  }
-  if (type === 'record') {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-    const item = definition?.valueType as CanonicalSchema;
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
-        .map(([key, nested]) => [key, canonicalize(nested, item)]),
-    );
-  }
-  if (type === 'union' || type === 'discriminatedUnion') {
-    const options = (definition?.options ?? []) as readonly CanonicalSchema[];
-    return canonicalize(value, matchingUnionSchema(value, options, definition?.discriminator));
-  }
-  if (type === 'object') {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-    const shape = definition?.shape as Record<string, CanonicalSchema>;
-    const object = value as Record<string, unknown>;
-    const known = Object.keys(shape)
-      .filter((key) => object[key] !== undefined)
-      .map((key) => [key, canonicalize(object[key], shape[key])] as const);
-    const unknown = Object.keys(object)
-      .filter((key) => !(key in shape) && object[key] !== undefined)
-      .sort(compareProjectWorkspaceUnicodeCodePoints)
-      .map((key) => [key, canonicalize(object[key])] as const);
-    return Object.fromEntries([...known, ...unknown]);
-  }
-  if (Array.isArray(value)) return value.map((item) => canonicalize(item));
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
-      .map(([key, nested]) => [key, canonicalize(nested)]),
-  );
-}
-
-const canonicalJson = (value: unknown, schema?: CanonicalSchema): string =>
-  `${JSON.stringify(canonicalize(value, schema), null, 2)}\n`;
-
+const canonicalJson = (value: unknown, schema?: CanonicalSourceSchema): string =>
+  projectWorkspaceSourceCodec('project.json').encode(value, schema);
 const localizationPolicyFragmentSchema = z
   .object({
     sourceLocale: localeIdSchema,
@@ -545,11 +426,14 @@ const LOCALIZATION_ORPHANS_FILE = 'i18n/orphans.json';
 const localizationTranslationFile = (locale: string) => `i18n/locales/${locale}.json`;
 const localizationAssetsFile = (locale: string) => `i18n/assets/${locale}.json`;
 
-export function projectWorkspaceLocalizationFiles(
+function projectWorkspaceLocalizationFile(
   localization: AuthoringLocalization,
-): Readonly<Record<string, string>> {
-  const files: Record<string, string> = {
-    [LOCALIZATION_POLICY_FILE]: canonicalJson(
+  file: string,
+): string | undefined {
+  const encode = (value: unknown, schema: CanonicalSourceSchema) =>
+    projectWorkspaceSourceCodec(file).encode(value, schema);
+  if (file === LOCALIZATION_POLICY_FILE)
+    return encode(
       {
         sourceLocale: localization.sourceLocale,
         sourceLocaleLock:
@@ -559,42 +443,64 @@ export function projectWorkspaceLocalizationFiles(
         locales: localization.locales,
       },
       localizationPolicyFragmentSchema,
-    ),
-    [LOCALIZATION_MESSAGES_FILE]: canonicalJson(
+    );
+  if (file === LOCALIZATION_MESSAGES_FILE)
+    return encode(
       {
         messages: localization.messages,
         structuredMessageIds: localization.structuredMessageIds,
       },
       localizationMessagesFragmentSchema,
-    ),
-    [LOCALIZATION_USAGE_NOTES_FILE]: canonicalJson(
-      localization.usageNotes,
-      localizationUsageNotesFragmentSchema,
-    ),
-    [LOCALIZATION_TRACKING_FILE]: canonicalJson(
-      localization.sourceMessageTracking,
-      localizationTrackingFragmentSchema,
-    ),
-    [LOCALIZATION_ORPHANS_FILE]: canonicalJson(
-      localization.orphanedMessages,
-      localizationOrphansFragmentSchema,
-    ),
-  };
-  for (const [locale, translations] of Object.entries(localization.translations))
-    if (Object.keys(translations).length > 0)
-      files[localizationTranslationFile(locale)] = canonicalJson(
-        translations,
-        localizationTranslationSchema,
-      );
-  for (const [locale, assets] of Object.entries(localization.assets))
-    if (Object.keys(assets).length > 0)
-      files[localizationAssetsFile(locale)] = canonicalJson(
-        assets,
-        localizationAssetsLocaleFragmentSchema,
-      );
-  return sortKeys(files);
+    );
+  if (file === LOCALIZATION_USAGE_NOTES_FILE)
+    return encode(localization.usageNotes, localizationUsageNotesFragmentSchema);
+  if (file === LOCALIZATION_TRACKING_FILE)
+    return encode(localization.sourceMessageTracking, localizationTrackingFragmentSchema);
+  if (file === LOCALIZATION_ORPHANS_FILE)
+    return encode(localization.orphanedMessages, localizationOrphansFragmentSchema);
+  const translation = /^i18n\/locales\/([^/]+)\.json$/u.exec(file);
+  if (translation) {
+    const translations = localization.translations[translation[1]!] ?? {};
+    return Object.keys(translations).length > 0
+      ? encode(translations, localizationTranslationSchema)
+      : undefined;
+  }
+  const localizedAssets = /^i18n\/assets\/([^/]+)\.json$/u.exec(file);
+  if (localizedAssets) {
+    const assets = localization.assets[localizedAssets[1]!] ?? {};
+    return Object.keys(assets).length > 0
+      ? encode(assets, localizationAssetsLocaleFragmentSchema)
+      : undefined;
+  }
+  return undefined;
 }
 
+function projectWorkspaceLocalizationPaths(localization: AuthoringLocalization): readonly string[] {
+  return [
+    LOCALIZATION_POLICY_FILE,
+    LOCALIZATION_MESSAGES_FILE,
+    LOCALIZATION_USAGE_NOTES_FILE,
+    LOCALIZATION_TRACKING_FILE,
+    LOCALIZATION_ORPHANS_FILE,
+    ...Object.entries(localization.translations)
+      .filter(([, translations]) => Object.keys(translations).length > 0)
+      .map(([locale]) => localizationTranslationFile(locale)),
+    ...Object.entries(localization.assets)
+      .filter(([, assets]) => Object.keys(assets).length > 0)
+      .map(([locale]) => localizationAssetsFile(locale)),
+  ];
+}
+
+export function projectWorkspaceLocalizationFiles(
+  localization: AuthoringLocalization,
+): Readonly<Record<string, string>> {
+  const files: Record<string, string> = {};
+  for (const file of projectWorkspaceLocalizationPaths(localization)) {
+    const text = projectWorkspaceLocalizationFile(localization, file);
+    if (text !== undefined) files[file] = text;
+  }
+  return sortKeys(files);
+}
 export function projectWorkspaceChangedLocalizationFiles(
   before: AuthoringLocalization,
   after: AuthoringLocalization,
@@ -1338,7 +1244,7 @@ export function projectWorkspaceFile(
   file: string,
 ): string | undefined {
   if (file === 'project.json')
-    return canonicalJson(
+    return projectWorkspaceSourceCodec(file).encode(
       {
         schema: PROJECT_WORKSPACE_SCHEMA,
         schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
@@ -1353,9 +1259,10 @@ export function projectWorkspaceFile(
       },
       workspaceManifestSchema,
     );
-  if (file === 'traits.json') return canonicalJson(project.traits, traitsWorkspaceSchema);
+  if (file === 'traits.json')
+    return projectWorkspaceSourceCodec(file).encode(project.traits, traitsWorkspaceSchema);
   if (file === 'editor.json')
-    return canonicalJson(
+    return projectWorkspaceSourceCodec(file).encode(
       {
         chapters: editorState.chapters,
         tags: editorState.tags,
@@ -1363,51 +1270,8 @@ export function projectWorkspaceFile(
       },
       trackedEditorOrganizationSchema,
     );
-  if (file === LOCALIZATION_POLICY_FILE)
-    return canonicalJson(
-      {
-        sourceLocale: project.localization.sourceLocale,
-        sourceLocaleLock:
-          project.localization.sourceLocaleLock ??
-          (hasSubstantiveLocalizationWork(project.localization)
-            ? project.localization.sourceLocale
-            : null),
-        defaultLocale: project.localization.defaultLocale,
-        locales: project.localization.locales,
-      },
-      localizationPolicyFragmentSchema,
-    );
-  if (file === LOCALIZATION_MESSAGES_FILE)
-    return canonicalJson(
-      {
-        messages: project.localization.messages,
-        structuredMessageIds: project.localization.structuredMessageIds,
-      },
-      localizationMessagesFragmentSchema,
-    );
-  if (file === LOCALIZATION_USAGE_NOTES_FILE)
-    return canonicalJson(project.localization.usageNotes, localizationUsageNotesFragmentSchema);
-  if (file === LOCALIZATION_TRACKING_FILE)
-    return canonicalJson(
-      project.localization.sourceMessageTracking,
-      localizationTrackingFragmentSchema,
-    );
-  if (file === LOCALIZATION_ORPHANS_FILE)
-    return canonicalJson(project.localization.orphanedMessages, localizationOrphansFragmentSchema);
-  const translation = /^i18n\/locales\/([^/]+)\.json$/u.exec(file);
-  if (translation) {
-    const translations = project.localization.translations[translation[1]!] ?? {};
-    return Object.keys(translations).length > 0
-      ? canonicalJson(translations, localizationTranslationSchema)
-      : undefined;
-  }
-  const localizedAssets = /^i18n\/assets\/([^/]+)\.json$/u.exec(file);
-  if (localizedAssets) {
-    const assets = project.localization.assets[localizedAssets[1]!] ?? {};
-    return Object.keys(assets).length > 0
-      ? canonicalJson(assets, localizationAssetsLocaleFragmentSchema)
-      : undefined;
-  }
+  const localization = projectWorkspaceLocalizationFile(project.localization, file);
+  if (localization !== undefined) return localization;
   const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u.exec(file);
   if (layoutMatch) {
     const id = layoutMatch[1]!;
@@ -1416,7 +1280,9 @@ export function projectWorkspaceFile(
     if (!original) return undefined;
     if (channel !== 'json') {
       const source = original.data[channel as 'rml' | 'rcss' | 'lua'];
-      return source.sourceMode === 'inline' ? source.sourceText : undefined;
+      return source.sourceMode === 'inline'
+        ? projectWorkspaceSourceCodec(file).encode(source.sourceText)
+        : undefined;
     }
     const record = structuredClone(original) as Record<string, unknown>;
     const data = record.data as Record<string, Record<string, unknown>>;
@@ -1427,7 +1293,7 @@ export function projectWorkspaceFile(
         data[sourceChannel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
       else data[sourceChannel] = { sourceMode: 'none' };
     }
-    return canonicalJson(record, authoringRecordSchemas.layouts);
+    return projectWorkspaceSourceCodec(file).encode(record, authoringRecordSchemas.layouts);
   }
   const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
@@ -1440,84 +1306,49 @@ export function projectWorkspaceFile(
       const data = record.data as { source: { kind: string; source?: string; path?: string } };
       if (data.source.kind === 'inline-lua') {
         const sourcePath = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
-        data.source = { kind: 'file', path: sourcePath };
+        data.source = { kind: 'project-file', path: sourcePath };
       }
     }
-    return canonicalJson(record, authoringRecordSchemas[collection]);
+    return projectWorkspaceSourceCodec(file).encode(record, authoringRecordSchemas[collection]);
   }
   for (const [id, record] of Object.entries(project.scripts)) {
     const source = record.data.source;
     if (source.kind !== 'inline-lua') continue;
-    if ((scriptSourcePaths[id] ?? `scripts/${id}.lua`) === file) return source.source;
+    if ((scriptSourcePaths[id] ?? `scripts/${id}.lua`) === file)
+      return projectWorkspaceSourceCodec(file).encode(source.source);
   }
   return undefined;
 }
 
-/** Projection is the only writer for tracked workspace files. */
+/** Full projection enumerates paths, then uses the same file codec as selective saves. */
 export function projectWorkspaceFiles(
   project: AuthoringProject,
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
 ): Readonly<Record<string, string>> {
   const files: Record<string, string> = {};
-  files['project.json'] = canonicalJson(
-    {
-      schema: PROJECT_WORKSPACE_SCHEMA,
-      schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
-      project: project.project,
-      settings: project.settings,
-      export: project.export,
-      bootstrapModule: project.bootstrapModule,
-      undefinedInteractionProgram: project.undefinedInteractionProgram,
-      entrypoint: project.entrypoint,
-      inventories: project.inventories,
-      interactableInstances: project.interactableInstances,
-    },
-    workspaceManifestSchema,
-  );
-  files['traits.json'] = canonicalJson(project.traits, traitsWorkspaceSchema);
-  Object.assign(files, projectWorkspaceLocalizationFiles(project.localization));
-  files['editor.json'] = canonicalJson(
-    {
-      chapters: editorState.chapters,
-      tags: editorState.tags,
-      recordMetadata: editorState.recordMetadata,
-    },
-    trackedEditorOrganizationSchema,
-  );
+  const add = (file: string) => {
+    const text = projectWorkspaceFile(project, editorState, scriptSourcePaths, file);
+    if (text !== undefined) files[file] = text;
+  };
+  add('project.json');
+  add('traits.json');
+  add('editor.json');
+  for (const file of projectWorkspaceLocalizationPaths(project.localization)) add(file);
   for (const collection of authoringCollectionKeys)
-    for (const [id, original] of Object.entries(project[collection]).sort(([a], [b]) =>
-      compareProjectWorkspaceUnicodeCodePoints(a, b),
+    for (const id of Object.keys(project[collection]).sort(
+      compareProjectWorkspaceUnicodeCodePoints,
     )) {
-      const record = structuredClone(original) as Record<string, unknown>;
+      add(recordFile(collection, id));
       if (collection === 'layouts') {
-        const data = record.data as Record<string, Record<string, unknown>>;
-        for (const channel of ['rml', 'rcss', 'lua'] as const) {
-          const source = data[channel]!;
-          if (source.sourceMode === 'inline') {
-            files[layoutFile(id, channel)] =
-              typeof source.sourceText === 'string' ? source.sourceText : '';
-            data[channel] = { sourceMode: 'file' };
-          } else if (source.sourceMode === 'asset')
-            data[channel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
-          else data[channel] = { sourceMode: 'none' };
-        }
+        for (const channel of ['rml', 'rcss', 'lua'] as const) add(layoutFile(id, channel));
+      } else if (collection === 'scripts') {
+        const source = project.scripts[id]?.data.source;
+        if (source?.kind === 'inline-lua') add(scriptSourcePaths[id] ?? `scripts/${id}.lua`);
       }
-      if (collection === 'scripts') {
-        const data = record.data as {
-          source: { kind: string; source?: string; path?: string };
-        };
-        if (data.source.kind === 'inline-lua') {
-          const file = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
-          files[file] = data.source.source ?? '';
-          data.source = { kind: 'project-file', path: file };
-        }
-      }
-      files[recordFile(collection, id)] = canonicalJson(record, authoringRecordSchemas[collection]);
     }
   return sortKeys(files);
 }
-
 export function projectWorkspaceLocalStateFile(editorState: EditorProjectState): string {
   const {
     chapters: _chapters,
@@ -2202,7 +2033,9 @@ export class ProjectWorkspaceService {
           .find((segments) => segments[0] === 'scripts' && segments.length >= 2)?.[1];
 
         if (relativePath === 'project.json') {
-          const parsed = workspaceManifestSchema.safeParse(JSON.parse(text));
+          const parsed = workspaceManifestSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
@@ -2216,38 +2049,53 @@ export class ProjectWorkspaceService {
             interactableInstances: parsed.data.interactableInstances,
           };
         } else if (relativePath === 'traits.json') {
-          const parsed = traitsWorkspaceSchema.safeParse(JSON.parse(text));
+          const parsed = traitsWorkspaceSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = { ...project, traits: parsed.data };
         } else if (relativePath === 'editor.json') {
-          const raw = JSON.parse(text) as Record<string, unknown>;
+          const raw = projectWorkspaceSourceCodec(relativePath).decode(text) as Record<
+            string,
+            unknown
+          >;
           const parsed = parseTrackedEditorOrganization(raw);
           if (!parsed) return null;
           project = { ...project, editor: { ...project.editor, ...parsed } };
         } else if (relativePath === LOCALIZATION_POLICY_FILE) {
-          const parsed = localizationPolicyFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationPolicyFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = { ...project, localization: { ...project.localization, ...parsed.data } };
         } else if (relativePath === LOCALIZATION_MESSAGES_FILE) {
-          const parsed = localizationMessagesFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationMessagesFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = { ...project, localization: { ...project.localization, ...parsed.data } };
         } else if (relativePath === LOCALIZATION_USAGE_NOTES_FILE) {
-          const parsed = localizationUsageNotesFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationUsageNotesFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
             localization: { ...project.localization, usageNotes: parsed.data },
           };
         } else if (relativePath === LOCALIZATION_TRACKING_FILE) {
-          const parsed = localizationTrackingFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationTrackingFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
             localization: { ...project.localization, sourceMessageTracking: parsed.data },
           };
         } else if (relativePath === LOCALIZATION_ORPHANS_FILE) {
-          const parsed = localizationOrphansFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationOrphansFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
@@ -2255,7 +2103,9 @@ export class ProjectWorkspaceService {
           };
         } else if (/^i18n\/locales\/([^/]+)\.json$/u.test(relativePath)) {
           const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(relativePath)![1]!;
-          const parsed = localizationTranslationSchema.safeParse(JSON.parse(text));
+          const parsed = localizationTranslationSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success || !project.localization.translations[locale]) return null;
           project = {
             ...project,
@@ -2270,7 +2120,9 @@ export class ProjectWorkspaceService {
           };
         } else if (/^i18n\/assets\/([^/]+)\.json$/u.test(relativePath)) {
           const locale = /^i18n\/assets\/([^/]+)\.json$/u.exec(relativePath)![1]!;
-          const parsed = localizationAssetsLocaleFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationAssetsLocaleFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success || !project.localization.assets[locale]) return null;
           project = {
             ...project,
@@ -2287,7 +2139,10 @@ export class ProjectWorkspaceService {
           const collection = recordMatch[1] as AuthoringCollectionKey;
           const id = recordMatch[2]!;
           if (!project[collection][id]) return null;
-          const raw = JSON.parse(text) as Record<string, unknown>;
+          const raw = projectWorkspaceSourceCodec(relativePath).decode(text) as Record<
+            string,
+            unknown
+          >;
           if (raw.id !== id) return null;
           if (collection === 'layouts') {
             const prior = project.layouts[id];
@@ -2407,7 +2262,7 @@ export class ProjectWorkspaceService {
             path: relativePath,
             ...revision,
             kind: 'json' as const,
-            parsed: JSON.parse(normalizedText) as unknown,
+            parsed: projectWorkspaceSourceCodec(relativePath).decode(normalizedText),
             schemaValid: true as const,
             ownerPaths,
             localDiagnostics: Object.freeze([]),
@@ -2793,7 +2648,7 @@ export class ProjectWorkspaceService {
           path: relativePath,
           ...revision,
           kind: 'json' as const,
-          parsed: JSON.parse(text) as unknown,
+          parsed: projectWorkspaceSourceCodec(relativePath).decode(text),
           schemaValid: true as const,
           ownerPaths,
           localDiagnostics: Object.freeze([]),
@@ -3087,7 +2942,9 @@ export class ProjectWorkspaceService {
             sourceWork.authoredFilesReread++;
             sourceWork.parsedJsonSources++;
             freshJsonSourcePaths.add(relativePath);
-            return JSON.parse(await readSourceText(relativePath));
+            return projectWorkspaceSourceCodec(relativePath).decode(
+              await readSourceText(relativePath),
+            );
           };
           const parseJsonSource = async <Schema extends z.ZodType>(
             relativePath: string,
@@ -3108,7 +2965,9 @@ export class ProjectWorkspaceService {
             }
             sourceWork.authoredFilesReread++;
             sourceWork.readTextSources++;
-            const text = await readSourceText(relativePath);
+            const text = projectWorkspaceSourceCodec(relativePath).decode(
+              await readSourceText(relativePath),
+            ) as string;
             textSourceValues.set(relativePath, text);
             return text;
           };
@@ -3709,13 +3568,15 @@ export class ProjectWorkspaceService {
                       `Authoritative source file '${file}' was not projected.`,
                       `/${file}`,
                     );
-                  const normalizedSource = JSON.parse(normalizedText);
+                  const normalizedSource = projectWorkspaceSourceCodec(file).decode(
+                    normalizedText,
+                  ) as Record<string, unknown>;
                   // Hydration exposes Lua `none` as empty inline source, not an authored companion.
                   if (
                     /^records\/layouts\/[^/]+\/layout\.json$/u.test(file) &&
                     !admittedSourcePaths.has(file.replace(/\.json$/u, '.lua'))
                   )
-                    normalizedSource.data.lua = { sourceMode: 'none' };
+                    (normalizedSource.data as Record<string, unknown>).lua = { sourceMode: 'none' };
                   parsed = normalizedSource;
                 }
               }
