@@ -90,15 +90,29 @@ and record-metadata tag lists may be omitted because their source defaults are e
 other identity and behavioral fields remain explicit. The YAML writer preserves comments and
 unchanged explicit fields through revision-safe selective saves.
 
-Records live under `records/<collection>/<id>.json`; Layouts instead live under
+Staged Room and Map records use `records/rooms/<id>.yaml` and `records/maps/<id>.yaml`.
+During the family cutover (#453), once one YAML owner exists in the collection, new records
+in that collection use YAML; existing JSON Room/Map owners retain their file names;
+mixed extensions for the same ID are rejected. The full project cutover (#467) removes the
+transitional JSON allowance, and Feature Lab source conversion is owned by #468. Their
+restricted YAML omits the redundant `data.kind`; statically typed references use bare IDs,
+while registry and owner-qualified references remain explicit. A scalar `always` expands to
+the default Condition. The shared source codec applies declared recursive omissions,
+including absent Room `background` or `lifecycle`, and absent Map `presentation` objects.
+Partial objects inherit only explicitly approved defaults. Non-default presentation,
+geometry, views, exits, and gameplay conditions retain their semantics. `null` stays
+distinct from omission except where the field declares a null source default. Selective
+saves preserve unchanged explicit values and YAML comments. IDs still match filenames.
+
+Other records live under `records/<collection>/<id>.json`; Layouts instead live under
 `records/layouts/<id>/layout.json`. IDs are canonical file identity and must match the stored record
 ID. Unknown `records/` collection directories and noncanonical record paths are structural errors.
 Missing known collection directories mean empty collections.
 
 ### Staged sparse YAML Variables tracer (#451)
 
-Until the complete YAML cutover (#449), record families other than the staged Variables tracer
-and tracked localization fragments remain JSON. Newly created Projects already use YAML for
+Until the complete YAML cutover (#449), most record families other than the newly authored
+Rooms, Maps, and staged Variables tracer remain JSON. Newly created Projects already use YAML for
 their manifest, Traits, and collaborator-visible editor metadata. A staged Project can replace one Variable's
 `records/variables/<id>.json` with `records/variables/<id>.yaml` to exercise the initial
 restricted YAML codec without changing any other record family. Two source files for the same

@@ -66,6 +66,13 @@ import {
   variableYamlSourceSchema,
 } from '../project-workspace/variable-yaml-source';
 import {
+  decodeRoomMapYaml,
+  encodeRoomMapYaml,
+  roomMapYamlSourceDefaults,
+} from '../project-workspace/room-map-yaml-source';
+import { defaultRoomData } from './authoring-rooms';
+import { defaultMapData } from './authoring-maps';
+import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
   renderSchemaNotation,
@@ -401,10 +408,40 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        'The staged Variables tracer uses `records/variables/<id>.yaml`; other collections remain JSON until their cutover. The `data.kind` field is determined by the record family and must be omitted. `data.nullable` defaults to `false` and `data.scope` to `global`; `data.value` remains required.',
+        'The staged Variables tracer uses `records/variables/<id>.yaml`; most other collections remain JSON until their cutover. The `data.kind` field is determined by the record family and must be omitted. `data.nullable` defaults to `false` and `data.scope` to `global`; `data.value` remains required.',
         '',
         '```yaml',
         example.trimEnd(),
+        '```',
+        '',
+      );
+    }
+    if (document.id === 'records/rooms' || document.id === 'records/maps') {
+      const family = document.id === 'records/rooms' ? 'rooms' : 'maps';
+      const example = encodeRoomMapYaml(
+        family,
+        family === 'rooms'
+          ? { id: 'example-room', label: 'Example Room', data: defaultRoomData('Example Room') }
+          : { id: 'example-map', label: 'Example Map', data: defaultMapData() },
+      );
+      decodeRoomMapYaml(family, example);
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        `A staged ${family === 'rooms' ? 'Room' : 'Map'} YAML owner uses \`records/${family}/<id>.yaml\`; existing JSON owners are retained until the complete cutover. This checked example expands to the strict normalized record. The record ID must match the filename, and \`data.kind\` is implicit. Statically typed references use bare IDs (not \`$ref\` wrappers); registry/owner-qualified references retain their explicit identity. A scalar \`always\` is the trivial Condition. Omitted defaults expand recursively, including empty lifecycle/background/presentation objects. Union discriminators and semantically distinct nulls remain significant. The shape above describes the normalized runtime/editor model; this YAML example describes authored source.`,
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+        '## Source omission defaults',
+        '',
+        'These exact typed values are filled when the corresponding YAML key is absent. Paths are relative to a record; `*` identifies one array element. Identity keys, other required values, and discriminators are never inferred from UI placeholders.',
+        '',
+        '```text',
+        ...Object.entries(roomMapYamlSourceDefaults(family))
+          .sort(([a], [b]) => a.localeCompare(b))
+          .map(([path, value]) => `${path} = ${JSON.stringify(value)}`),
         '```',
         '',
       );

@@ -335,7 +335,13 @@ describe('ProjectWorkspaceService', () => {
       expect(projectWorkspaceFile(project, project.editor, {}, path), path).toBe(text);
       const codec = projectWorkspaceSourceCodec(path);
       expect(codec.decode(text), path).toEqual(
-        codec.kind === 'json' ? JSON.parse(text) : codec.kind === 'yaml' ? parseYaml(text) : text,
+        /^records\/(?:rooms|maps)\//u.test(path)
+          ? project[path.split('/')[1] as 'rooms' | 'maps'][path.split('/')[2]!.slice(0, -5)]
+          : codec.kind === 'json'
+            ? JSON.parse(text)
+            : codec.kind === 'yaml'
+              ? parseYaml(text)
+              : text,
       );
       if (codec.kind === 'json') expect(text, path).toMatch(/\n$/);
     }

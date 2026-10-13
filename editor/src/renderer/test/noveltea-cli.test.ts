@@ -33,6 +33,7 @@ import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-ser
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import {
@@ -152,6 +153,55 @@ describe('staged YAML Variables CLI tracer', () => {
     const reopened = await value.workspace.open(root);
     expect(reopened.ok).toBe(true);
     if (reopened.ok) expect(reopened.snapshot.project.variables['second-flag']).toBeDefined();
+  });
+});
+
+describe('staged YAML Room and Map CLI authoring', () => {
+  it('validates annotated source and creates further Room/Map records in YAML', async () => {
+    const project = validProject();
+    project.maps.overview = { id: 'overview', label: 'Overview', data: defaultMapData() };
+    const files = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/rooms/start.yaml', 'records/maps/overview.yaml']),
+    );
+    const roomPath = `${root}/records/rooms/start.yaml`;
+    const mapPath = `${root}/records/maps/overview.yaml`;
+    const staged = Object.fromEntries(
+      Object.entries(files).map(([file, text]) => [
+        `${root}/${file}`,
+        file === 'records/rooms/start.yaml'
+          ? text.replace('label: Room start', 'label: Room start # room authored note')
+          : file === 'records/maps/overview.yaml'
+            ? text.replace('label: Overview', 'label: Overview # map authored note')
+            : text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], options(value, root, validationNativeTools())))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'create', 'rooms', 'annex'], options(value)))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'create', 'maps', 'detail'], options(value)))
+        .exitCode,
+    ).toBe(0);
+    expect(await value.fileSystem.readText(`${root}/records/rooms/annex.yaml`)).toContain(
+      'id: annex',
+    );
+    expect(await value.fileSystem.readText(`${root}/records/maps/detail.yaml`)).toContain(
+      'id: detail',
+    );
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/annex.json`)).toBe('missing');
+    expect(await value.fileSystem.readText(roomPath)).toContain('# room authored note');
+    expect(await value.fileSystem.readText(mapPath)).toContain('# map authored note');
+    expect((await value.workspace.open(root)).ok).toBe(true);
   });
 });
 
