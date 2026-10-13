@@ -1796,8 +1796,11 @@ export function PackageExportDialog({
         ) : null}
         <div className="flex h-full min-h-0 flex-col">
           <div className="grid min-h-0 flex-1 grid-cols-[220px_minmax(0,1fr)]">
-            <aside className="min-h-0 border-r p-3">
-              <fieldset disabled={sidebarDisabled} className="grid gap-3 disabled:opacity-60">
+            <aside className="min-h-0 min-w-0 border-r p-3">
+              <fieldset
+                disabled={sidebarDisabled}
+                className="grid min-w-0 grid-cols-1 gap-3 disabled:opacity-60"
+              >
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-sm font-semibold">{t('settings:exportUi.profiles')}</div>
                   <div className="flex items-center gap-0.5">
@@ -1842,17 +1845,18 @@ export function PackageExportDialog({
                   }`}
                   onClick={selectRuntimeProfile}
                 >
-                  <span className="grid size-7 place-items-center rounded border text-[10px] font-semibold">
+                  <span className="grid size-7 shrink-0 place-items-center rounded border text-[10px] font-semibold">
                     NT
                   </span>
-                  {t('settings:exportUi.runtimePackage')}
+                  <span className="min-w-0 truncate">{t('settings:exportUi.runtimePackage')}</span>
                 </button>
                 <div className="border-t" />
-                <div className="grid gap-1">
+                <div className="grid min-w-0 grid-cols-1 gap-1">
                   {sortedProfiles.map((profile) => (
                     <button
                       key={profile.id}
                       type="button"
+                      title={profile.label}
                       className={`flex w-full items-center gap-2 rounded px-2 py-2 text-left text-sm ${
                         mode === 'platform' && selectedPlatformProfile?.id === profile.id
                           ? 'bg-accent font-medium'

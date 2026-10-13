@@ -170,6 +170,24 @@ describe('PackageExportDialog', () => {
     expect(screen.queryByText('Export Profiles')).not.toBeInTheDocument();
   });
 
+  it('constrains long profile names to the sidebar without hiding their full labels', () => {
+    const project = exportableProject(false);
+    const profile = defaultPlatformExportProfile('android');
+    profile.label = 'Android Emulator Debug with a very long name';
+    project.export.profiles = [profile];
+    renderExport(project, 'platform');
+
+    const button = screen.getByRole('button', {
+      name: /Android Emulator Debug with a very long name/,
+    });
+    expect(button).toHaveAttribute('title', profile.label);
+    expect(button.querySelector('.truncate')).toHaveTextContent(profile.label);
+    expect(button.parentElement).toHaveClass('min-w-0', 'grid-cols-1');
+    const fieldset = button.closest('fieldset');
+    expect(fieldset).toHaveClass('min-w-0', 'grid-cols-1');
+    expect(fieldset?.parentElement).toHaveClass('min-w-0');
+  });
+
   it('keeps runtime output local and defaults it under dist', async () => {
     renderExport();
     expect(screen.getByDisplayValue('/project/dist/dialog-export.ntpkg')).toBeInTheDocument();
