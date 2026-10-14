@@ -237,7 +237,6 @@ function workflowMutationCommand(command: 'accept' | 'review'): CliCommandDefini
           const localizationFiles = projectWorkspaceChangedLocalizationFiles(
             project.localization,
             candidate.localization,
-            new Set(context.snapshot.canonicalSourceFiles),
           );
           if (!parsed.dryRun && patches.length > 0)
             await context.workspace.write(

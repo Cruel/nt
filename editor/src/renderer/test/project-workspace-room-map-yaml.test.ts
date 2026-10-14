@@ -238,7 +238,7 @@ describe('Room and Map restricted sparse YAML workspace', () => {
     expect(codec.decode(saved)).toEqual(updated);
   });
 
-  it('rejects old typed ref wrappers and duplicate YAML/JSON physical record owners', async () => {
+  it('rejects old typed ref wrappers and both duplicate and lone JSON physical owners', async () => {
     const project = fixture();
     const files = yamlFiles(project);
     const mapPath = 'records/maps/world.yaml';
@@ -253,12 +253,11 @@ describe('Room and Map restricted sparse YAML workspace', () => {
       Object.fromEntries(Object.entries(legacy).map(([file, text]) => [`${root}/${file}`, text])),
     );
     expect((await new ProjectWorkspaceService(fs).open(root)).ok).toBe(false);
-    // Staged JSON owner compatibility is intentionally retained until #467, but
-    // newly created records have one canonical YAML owner.
+    // Retired JSON is never accepted, even when no matching YAML owner exists.
     delete legacy['records/rooms/foyer.yaml'];
-    const transitional = new InMemoryProjectWorkspaceFileSystem(
+    const obsolete = new InMemoryProjectWorkspaceFileSystem(
       Object.fromEntries(Object.entries(legacy).map(([file, text]) => [`${root}/${file}`, text])),
     );
-    expect((await new ProjectWorkspaceService(transitional).open(root)).ok).toBe(true);
+    expect((await new ProjectWorkspaceService(obsolete).open(root)).ok).toBe(false);
   });
 });

@@ -392,11 +392,11 @@ export async function prepareCliProject(
         }
         for (const entry of [...(await fileSystem.listDirectory(assetsRoot))].sort()) {
           const diagnosticPath = `/records/assets/${entry}`;
-          if (!/\.(?:json|yaml)$/u.test(entry))
+          if (!entry.endsWith('.yaml'))
             return failure(
               'WORKSPACE_SOURCE_READ',
               diagnosticPath,
-              'Record files must use canonical .json or .yaml names.',
+              'Record files must use canonical .yaml names.',
             );
           const id = entry.slice(0, -5);
           if (!entityIdSchema.safeParse(id).success)

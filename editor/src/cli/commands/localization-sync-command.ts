@@ -22,7 +22,6 @@ export const localizationSyncCommand: CliCommandDefinition = {
         const localizationFiles = projectWorkspaceChangedLocalizationFiles(
           snapshot.project.localization,
           result.project.localization,
-          new Set(snapshot.canonicalSourceFiles),
         );
         if (!dryRun && result.changed)
           await workspace.write(

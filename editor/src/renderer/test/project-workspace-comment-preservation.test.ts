@@ -525,32 +525,15 @@ describe('source-aware workspace mutations', () => {
     );
   });
 
-  it('keeps an existing JSON owner in JSON during an identity rename in a staged mixed family', async () => {
+  it('rejects a legacy JSON Variable owner instead of silently renaming it', async () => {
     const { fs, workspace, opened } = await fixture();
     const seeded = cloneAuthoringProject(opened.snapshot.project);
     seeded.variables.legacy = { ...seeded.variables.score!, id: 'legacy', label: 'Legacy' };
-    await fs.writeTextAtomic(
-      `${root}/records/variables/legacy.json`,
-      `${JSON.stringify(seeded.variables.legacy, null, 2)}\n`,
-    );
+    const legacy = `${JSON.stringify(seeded.variables.legacy, null, 2)}\n`;
+    await fs.writeTextAtomic(`${root}/records/variables/legacy.json`, legacy);
     const mixed = await workspace.open(root);
-    if (!mixed.ok) throw new Error('Mixed staged collection did not open');
-    const renamed = cloneAuthoringProject(mixed.snapshot.project);
-    renamed.variables.modern = { ...renamed.variables.legacy!, id: 'modern' };
-    delete renamed.variables.legacy;
-    await workspace.write(
-      root,
-      mixed.snapshot.workspaceRevision,
-      renamed,
-      renamed.editor,
-      {},
-      {
-        affectedPaths: ['/variables/legacy', '/variables/modern'],
-        identityRemap: [{ fromPath: '/variables/legacy', toPath: '/variables/modern' }],
-      },
-    );
-    expect(await fs.readText(`${root}/records/variables/modern.json`)).toContain('"id": "modern"');
-    await expect(fs.readText(`${root}/records/variables/modern.yaml`)).rejects.toThrow();
+    expect(mixed.ok).toBe(false);
+    expect(await fs.readText(`${root}/records/variables/legacy.json`)).toBe(legacy);
     expect(await fs.readText(`${root}/${file}`)).toBe(original);
   });
   it('keeps scalar annotations and explicit untouched defaults during a broad record replacement', async () => {

@@ -245,7 +245,7 @@ export type ProjectWorkspaceSourceContribution =
       Readonly<{
         kind: 'json';
         parsed: unknown;
-        /** Original YAML document for staged Variables, including comment nodes. */
+        /** Original YAML document, including comment nodes. */
         sourceText?: string;
       }>)
   | (ProjectWorkspaceSourceContributionBase &
@@ -408,7 +408,7 @@ const sortKeys = <T>(value: Record<string, T>) =>
   ) as Record<string, T>;
 
 const canonicalJson = (value: unknown, schema?: CanonicalSourceSchema): string =>
-  projectWorkspaceSourceCodec('i18n/project.json').encode(value, schema);
+  projectWorkspaceSourceCodec('machine.json').encode(value, schema);
 const localizationPolicyFragmentSchema = z
   .object({
     sourceLocale: localeIdSchema,
@@ -466,19 +466,13 @@ export function validateYamlCompactionSource(file: string, text: string): unknow
   return value;
 }
 
-const LOCALIZATION_POLICY_FILE = 'i18n/project.json';
-const LOCALIZATION_MESSAGES_FILE = 'i18n/messages.json';
-const LOCALIZATION_USAGE_NOTES_FILE = 'i18n/usage-notes.json';
-const LOCALIZATION_TRACKING_FILE = 'i18n/tracking.json';
-const LOCALIZATION_ORPHANS_FILE = 'i18n/orphans.json';
-const localizationTranslationFile = (locale: string) => `i18n/locales/${locale}.json`;
-const localizationAssetsFile = (locale: string) => `i18n/assets/${locale}.json`;
-
-function localizationSourcePath(file: string, sourceFiles?: ReadonlySet<string>): string {
-  const yaml = file.replace(/\.json$/u, '.yaml');
-  // Existing staged JSON owners retain their paths until the final conversion removal.
-  return sourceFiles?.has(file) ? file : yaml;
-}
+const LOCALIZATION_POLICY_FILE = 'i18n/project.yaml';
+const LOCALIZATION_MESSAGES_FILE = 'i18n/messages.yaml';
+const LOCALIZATION_USAGE_NOTES_FILE = 'i18n/usage-notes.yaml';
+const LOCALIZATION_TRACKING_FILE = 'i18n/tracking.yaml';
+const LOCALIZATION_ORPHANS_FILE = 'i18n/orphans.yaml';
+const localizationTranslationFile = (locale: string) => `i18n/locales/${locale}.yaml`;
+const localizationAssetsFile = (locale: string) => `i18n/assets/${locale}.yaml`;
 
 function projectWorkspaceLocalizationFile(
   localization: AuthoringLocalization,
@@ -487,8 +481,7 @@ function projectWorkspaceLocalizationFile(
 ): string | undefined {
   const encode = (value: unknown, schema: CanonicalSourceSchema) =>
     projectWorkspaceSourceCodec(file).encode(value, schema, previousText);
-  const logicalFile = file.replace(/\.yaml$/u, '.json');
-  if (logicalFile === LOCALIZATION_POLICY_FILE)
+  if (file === LOCALIZATION_POLICY_FILE)
     return encode(
       {
         sourceLocale: localization.sourceLocale,
@@ -500,7 +493,7 @@ function projectWorkspaceLocalizationFile(
       },
       localizationPolicyFragmentSchema,
     );
-  if (logicalFile === LOCALIZATION_MESSAGES_FILE)
+  if (file === LOCALIZATION_MESSAGES_FILE)
     return encode(
       {
         messages: localization.messages,
@@ -508,20 +501,20 @@ function projectWorkspaceLocalizationFile(
       },
       localizationMessagesFragmentSchema,
     );
-  if (logicalFile === LOCALIZATION_USAGE_NOTES_FILE)
+  if (file === LOCALIZATION_USAGE_NOTES_FILE)
     return encode(localization.usageNotes, localizationUsageNotesFragmentSchema);
-  if (logicalFile === LOCALIZATION_TRACKING_FILE)
+  if (file === LOCALIZATION_TRACKING_FILE)
     return encode(localization.sourceMessageTracking, localizationTrackingFragmentSchema);
-  if (logicalFile === LOCALIZATION_ORPHANS_FILE)
+  if (file === LOCALIZATION_ORPHANS_FILE)
     return encode(localization.orphanedMessages, localizationOrphansFragmentSchema);
-  const translation = /^i18n\/locales\/([^/]+)\.json$/u.exec(logicalFile);
+  const translation = /^i18n\/locales\/([^/]+)\.yaml$/u.exec(file);
   if (translation) {
     const translations = localization.translations[translation[1]!] ?? {};
     return Object.keys(translations).length > 0
       ? encode(translations, localizationTranslationSchema)
       : undefined;
   }
-  const localizedAssets = /^i18n\/assets\/([^/]+)\.json$/u.exec(logicalFile);
+  const localizedAssets = /^i18n\/assets\/([^/]+)\.yaml$/u.exec(file);
   if (localizedAssets) {
     const assets = localization.assets[localizedAssets[1]!] ?? {};
     return Object.keys(assets).length > 0
@@ -531,10 +524,7 @@ function projectWorkspaceLocalizationFile(
   return undefined;
 }
 
-function projectWorkspaceLocalizationPaths(
-  localization: AuthoringLocalization,
-  sourceFiles?: ReadonlySet<string>,
-): readonly string[] {
+function projectWorkspaceLocalizationPaths(localization: AuthoringLocalization): readonly string[] {
   return [
     LOCALIZATION_POLICY_FILE,
     LOCALIZATION_MESSAGES_FILE,
@@ -547,15 +537,14 @@ function projectWorkspaceLocalizationPaths(
     ...Object.entries(localization.assets)
       .filter(([, assets]) => Object.keys(assets).length > 0)
       .map(([locale]) => localizationAssetsFile(locale)),
-  ].map((file) => localizationSourcePath(file, sourceFiles));
+  ];
 }
 
 export function projectWorkspaceLocalizationFiles(
   localization: AuthoringLocalization,
-  sourceFiles?: ReadonlySet<string>,
 ): Readonly<Record<string, string>> {
   const files: Record<string, string> = {};
-  for (const file of projectWorkspaceLocalizationPaths(localization, sourceFiles)) {
+  for (const file of projectWorkspaceLocalizationPaths(localization)) {
     const text = projectWorkspaceLocalizationFile(localization, file);
     if (text !== undefined) files[file] = text;
   }
@@ -564,10 +553,9 @@ export function projectWorkspaceLocalizationFiles(
 export function projectWorkspaceChangedLocalizationFiles(
   before: AuthoringLocalization,
   after: AuthoringLocalization,
-  sourceFiles?: ReadonlySet<string>,
 ): readonly string[] {
-  const previous = projectWorkspaceLocalizationFiles(before, sourceFiles);
-  const next = projectWorkspaceLocalizationFiles(after, sourceFiles);
+  const previous = projectWorkspaceLocalizationFiles(before);
+  const next = projectWorkspaceLocalizationFiles(after);
   return Object.freeze(
     [...new Set([...Object.keys(previous), ...Object.keys(next)])]
       .filter((file) => previous[file] !== next[file])
@@ -615,14 +603,10 @@ const hasExactKeys = (value: unknown, keys: readonly string[]) =>
     .join('\0') === [...keys].sort(compareProjectWorkspaceUnicodeCodePoints).join('\0');
 const layoutFile = (id: string, channel: 'rml' | 'rcss' | 'lua') =>
   `records/layouts/${id}/layout.${channel}`;
-const recordFile = (
-  collection: AuthoringCollectionKey,
-  id: string,
-  sourceFiles?: ReadonlySet<string>,
-) => {
+const recordFile = (collection: AuthoringCollectionKey, id: string) => {
   const stem =
     collection === 'layouts' ? `records/layouts/${id}/layout` : `records/${collection}/${id}`;
-  return sourceFiles?.has(`${stem}.json`) ? `${stem}.json` : `${stem}.yaml`;
+  return `${stem}.yaml`;
 };
 
 function sourceContributionOwnerPaths(
@@ -641,36 +625,32 @@ function sourceContributionOwnerPaths(
     ];
   if (file === 'traits.yaml') return ['/traits'];
   if (file === 'editor.yaml') return ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'];
-  const localizationOwner = file.replace(/\.yaml$/u, '.json');
-  if (localizationOwner === LOCALIZATION_POLICY_FILE)
+  if (file === LOCALIZATION_POLICY_FILE)
     return [
       '/localization/sourceLocale',
       '/localization/sourceLocaleLock',
       '/localization/defaultLocale',
       '/localization/locales',
     ];
-  if (localizationOwner === LOCALIZATION_MESSAGES_FILE)
+  if (file === LOCALIZATION_MESSAGES_FILE)
     return ['/localization/messages', '/localization/structuredMessageIds'];
-  if (localizationOwner === LOCALIZATION_USAGE_NOTES_FILE) return ['/localization/usageNotes'];
-  if (localizationOwner === LOCALIZATION_TRACKING_FILE)
-    return ['/localization/sourceMessageTracking'];
-  if (localizationOwner === LOCALIZATION_ORPHANS_FILE) return ['/localization/orphanedMessages'];
-  const localeMatch = localizationOwner.match(/^i18n\/locales\/([^/]+)\.json$/u);
+  if (file === LOCALIZATION_USAGE_NOTES_FILE) return ['/localization/usageNotes'];
+  if (file === LOCALIZATION_TRACKING_FILE) return ['/localization/sourceMessageTracking'];
+  if (file === LOCALIZATION_ORPHANS_FILE) return ['/localization/orphanedMessages'];
+  const localeMatch = file.match(/^i18n\/locales\/([^/]+)\.yaml$/u);
   if (localeMatch)
     return [`/localization/translations/${escapeJsonPointerSegment(localeMatch[1]!)}`];
-  const localizedAssetMatch = localizationOwner.match(/^i18n\/assets\/([^/]+)\.json$/u);
+  const localizedAssetMatch = file.match(/^i18n\/assets\/([^/]+)\.yaml$/u);
   if (localizedAssetMatch)
     return [`/localization/assets/${escapeJsonPointerSegment(localizedAssetMatch[1]!)}`];
 
-  const layoutMatch = file.match(/^records\/layouts\/([^/]+)\/layout\.(json|yaml|rml|rcss|lua)$/u);
+  const layoutMatch = file.match(/^records\/layouts\/([^/]+)\/layout\.(yaml|rml|rcss|lua)$/u);
   if (layoutMatch) {
     const id = escapeJsonPointerSegment(layoutMatch[1]!);
     const channel = layoutMatch[2]!;
-    return channel === 'json' || channel === 'yaml'
-      ? [`/layouts/${id}`]
-      : [`/layouts/${id}/data/${channel}`];
+    return channel === 'yaml' ? [`/layouts/${id}`] : [`/layouts/${id}/data/${channel}`];
   }
-  const recordMatch = file.match(/^records\/([^/]+)\/([^/]+)\.(?:json|yaml)$/u);
+  const recordMatch = file.match(/^records\/([^/]+)\/([^/]+)\.yaml$/u);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!))
     return [`/${recordMatch[1]}/${escapeJsonPointerSegment(recordMatch[2]!)}`];
   for (const [id, sourcePath] of Object.entries(scriptSourcePaths))
@@ -754,17 +734,13 @@ export function projectWorkspaceAffectedFiles(
     );
     if (!candidateFiles) return null;
     candidateFiles.forEach((file) => {
-      if (file.startsWith('i18n/')) {
-        files.add(localizationSourcePath(file, new Set(snapshot.canonicalSourceFiles)));
-        return;
-      }
-      const layout = /^records\/layouts\/([^/]+)\/layout\.(?:json|yaml)$/u.exec(file);
+      const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/u.exec(file);
       if (layout) {
-        files.add(recordFile('layouts', layout[1]!, new Set(snapshot.canonicalSourceFiles)));
+        files.add(recordFile('layouts', layout[1]!));
         return;
       }
       const record =
-        /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
+        /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.yaml$/u.exec(
           file,
         );
       files.add(
@@ -787,7 +763,6 @@ export function projectWorkspaceAffectedFiles(
                 | 'scenes'
                 | 'tests',
               record[2]!,
-              new Set(snapshot.canonicalSourceFiles),
             )
           : file,
       );
@@ -1167,7 +1142,6 @@ function failedWorkspaceSourceProofs(
 function ownershipFor(
   project: AuthoringProject,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
-  sourceFiles?: ReadonlySet<string>,
 ): Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>> {
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
@@ -1184,7 +1158,7 @@ function ownershipFor(
     },
     'collection:traits': { files: ['traits.yaml'], paths: ['/traits'] },
     'project:localization': {
-      files: Object.keys(projectWorkspaceLocalizationFiles(project.localization, sourceFiles)),
+      files: Object.keys(projectWorkspaceLocalizationFiles(project.localization)),
       paths: ['/localization'],
     },
     'project:chapters': {
@@ -1217,7 +1191,7 @@ function ownershipFor(
     for (const id of Object.keys(project[collection]).sort(
       compareProjectWorkspaceUnicodeCodePoints,
     )) {
-      const files = [recordFile(collection, id, sourceFiles)];
+      const files = [recordFile(collection, id)];
       if (collection === 'layouts') {
         const data = project.layouts[id]!.data;
         if (data.rml.sourceMode === 'inline') files.push(layoutFile(id, 'rml'));
@@ -1489,7 +1463,7 @@ export function projectWorkspaceFile(
     );
   const localization = projectWorkspaceLocalizationFile(project.localization, file, previousText);
   if (localization !== undefined) return localization;
-  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|yaml|rml|rcss|lua)$/u.exec(file);
+  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(yaml|rml|rcss|lua)$/u.exec(file);
   if (layoutMatch) {
     const id = layoutMatch[1]!;
     const channel = layoutMatch[2]!;
@@ -1501,10 +1475,9 @@ export function projectWorkspaceFile(
       original.data.lua.sourceMode === 'inline' &&
       original.data.lua.sourceText === '' &&
       sourceFiles !== undefined &&
-      (sourceFiles.has(`records/layouts/${id}/layout.yaml`) ||
-        sourceFiles.has(`records/layouts/${id}/layout.json`)) &&
+      sourceFiles.has(`records/layouts/${id}/layout.yaml`) &&
       !sourceFiles.has(layoutFile(id, 'lua'));
-    if (channel !== 'json' && channel !== 'yaml') {
+    if (channel !== 'yaml') {
       const source = original.data[channel as 'rml' | 'rcss' | 'lua'];
       if (channel === 'lua' && preservesAbsentLua) return undefined;
       return source.sourceMode === 'inline'
@@ -1528,31 +1501,10 @@ export function projectWorkspaceFile(
       previousText,
     );
   }
-  const recordMatch = /^records\/([^/]+)\/([^/]+)\.(json|yaml)$/u.exec(file);
+  const recordMatch = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
     const collection = recordMatch[1] as AuthoringCollectionKey;
     const id = recordMatch[2]!;
-    if (
-      recordMatch[3] === 'yaml' &&
-      ![
-        'variables',
-        'assets',
-        'animations',
-        'materials',
-        'archetypes',
-        'scripts',
-        'rooms',
-        'maps',
-        'characters',
-        'interactables',
-        'verbs',
-        'interactions',
-        'dialogues',
-        'scenes',
-        'tests',
-      ].includes(collection)
-    )
-      return undefined;
     const original = project[collection][id];
     if (!original) return undefined;
     const record = structuredClone(original) as Record<string, unknown>;
@@ -1602,13 +1554,12 @@ export function projectWorkspaceFiles(
   add('project.yaml');
   add('traits.yaml');
   add('editor.yaml');
-  for (const file of projectWorkspaceLocalizationPaths(project.localization, sourceFiles))
-    add(file);
+  for (const file of projectWorkspaceLocalizationPaths(project.localization)) add(file);
   for (const collection of authoringCollectionKeys)
     for (const id of Object.keys(project[collection]).sort(
       compareProjectWorkspaceUnicodeCodePoints,
     )) {
-      add(recordFile(collection, id, sourceFiles));
+      add(recordFile(collection, id));
       if (collection === 'layouts') {
         for (const channel of ['rml', 'rcss', 'lua'] as const) add(layoutFile(id, channel));
       } else if (collection === 'scripts') {
@@ -2264,17 +2215,13 @@ export class ProjectWorkspaceService {
       );
       if (!candidateFiles) return null;
       candidateFiles.forEach((file) => {
-        if (file.startsWith('i18n/')) {
-          files.add(localizationSourcePath(file, new Set(snapshot.canonicalSourceFiles)));
-          return;
-        }
-        const layout = /^records\/layouts\/([^/]+)\/layout\.(?:json|yaml)$/u.exec(file);
+        const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/u.exec(file);
         if (layout) {
-          files.add(recordFile('layouts', layout[1]!, new Set(snapshot.canonicalSourceFiles)));
+          files.add(recordFile('layouts', layout[1]!));
           return;
         }
         const variableMatch =
-          /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
+          /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.yaml$/u.exec(
             file,
           );
         files.add(
@@ -2297,7 +2244,6 @@ export class ProjectWorkspaceService {
                   | 'scenes'
                   | 'tests',
                 variableMatch[2]!,
-                new Set(snapshot.canonicalSourceFiles),
               )
             : file,
         );
@@ -2346,10 +2292,9 @@ export class ProjectWorkspaceService {
           contentHash: await sha256PrefixedBytes(bytes),
           byteSize: bytes.byteLength,
         };
-        const recordMatch =
-          /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.(?:json|yaml))$/u.exec(
-            relativePath,
-          );
+        const recordMatch = /^records\/([^/]+)\/([^/]+)(?:\.yaml|\/layout\.yaml)$/u.exec(
+          relativePath,
+        );
         const layoutSourceMatch = /^records\/layouts\/([^/]+)\/layout\.(rml|rcss|lua)$/u.exec(
           relativePath,
         );
@@ -2387,19 +2332,19 @@ export class ProjectWorkspaceService {
           const parsed = parseTrackedEditorOrganization(raw);
           if (!parsed) return null;
           project = { ...project, editor: { ...project.editor, ...parsed } };
-        } else if (relativePath.replace(/\.yaml$/u, '.json') === LOCALIZATION_POLICY_FILE) {
+        } else if (relativePath === LOCALIZATION_POLICY_FILE) {
           const parsed = localizationPolicyFragmentSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
           if (!parsed.success) return null;
           project = { ...project, localization: { ...project.localization, ...parsed.data } };
-        } else if (relativePath.replace(/\.yaml$/u, '.json') === LOCALIZATION_MESSAGES_FILE) {
+        } else if (relativePath === LOCALIZATION_MESSAGES_FILE) {
           const parsed = localizationMessagesFragmentSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
           if (!parsed.success) return null;
           project = { ...project, localization: { ...project.localization, ...parsed.data } };
-        } else if (relativePath.replace(/\.yaml$/u, '.json') === LOCALIZATION_USAGE_NOTES_FILE) {
+        } else if (relativePath === LOCALIZATION_USAGE_NOTES_FILE) {
           const parsed = localizationUsageNotesFragmentSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
@@ -2408,7 +2353,7 @@ export class ProjectWorkspaceService {
             ...project,
             localization: { ...project.localization, usageNotes: parsed.data },
           };
-        } else if (relativePath.replace(/\.yaml$/u, '.json') === LOCALIZATION_TRACKING_FILE) {
+        } else if (relativePath === LOCALIZATION_TRACKING_FILE) {
           const parsed = localizationTrackingFragmentSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
@@ -2417,7 +2362,7 @@ export class ProjectWorkspaceService {
             ...project,
             localization: { ...project.localization, sourceMessageTracking: parsed.data },
           };
-        } else if (relativePath.replace(/\.yaml$/u, '.json') === LOCALIZATION_ORPHANS_FILE) {
+        } else if (relativePath === LOCALIZATION_ORPHANS_FILE) {
           const parsed = localizationOrphansFragmentSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
@@ -2426,8 +2371,8 @@ export class ProjectWorkspaceService {
             ...project,
             localization: { ...project.localization, orphanedMessages: parsed.data },
           };
-        } else if (/^i18n\/locales\/([^/]+)\.(?:json|yaml)$/u.test(relativePath)) {
-          const locale = /^i18n\/locales\/([^/]+)\.(?:json|yaml)$/u.exec(relativePath)![1]!;
+        } else if (/^i18n\/locales\/([^/]+)\.yaml$/u.test(relativePath)) {
+          const locale = /^i18n\/locales\/([^/]+)\.yaml$/u.exec(relativePath)![1]!;
           const parsed = localizationTranslationSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
@@ -2443,8 +2388,8 @@ export class ProjectWorkspaceService {
               ),
             },
           };
-        } else if (/^i18n\/assets\/([^/]+)\.(?:json|yaml)$/u.test(relativePath)) {
-          const locale = /^i18n\/assets\/([^/]+)\.(?:json|yaml)$/u.exec(relativePath)![1]!;
+        } else if (/^i18n\/assets\/([^/]+)\.yaml$/u.test(relativePath)) {
+          const locale = /^i18n\/assets\/([^/]+)\.yaml$/u.exec(relativePath)![1]!;
           const parsed = localizationAssetsLocaleFragmentSchema.safeParse(
             projectWorkspaceSourceCodec(relativePath).decode(text),
           );
@@ -2728,9 +2673,7 @@ export class ProjectWorkspaceService {
     let externalSourceDescriptors = base.snapshot.externalSourceDescriptors;
     const changedRecordKeys = new Set<string>();
     for (const path of changedPaths) {
-      const match = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.(?:json|yaml))$/u.exec(
-        path,
-      );
+      const match = /^records\/([^/]+)\/([^/]+)(?:\.yaml|\/layout\.yaml)$/u.exec(path);
       if (match && isAuthoringCollectionKey(match[1]!))
         changedRecordKeys.add(recordContributionKey(match[1], match[2]!));
     }
@@ -3267,8 +3210,8 @@ export class ProjectWorkspaceService {
                 textSourceValues.set(relativePath, contribution.sourceText);
               const requiresMutableProjection =
                 relativePath === 'project.yaml' ||
-                /^records\/layouts\/[^/]+\/layout\.(?:json|yaml)$/u.test(relativePath) ||
-                /^records\/scripts\/[^/]+\.(?:json|yaml)$/u.test(relativePath);
+                /^records\/layouts\/[^/]+\/layout\.yaml$/u.test(relativePath) ||
+                /^records\/scripts\/[^/]+\.yaml$/u.test(relativePath);
               return requiresMutableProjection
                 ? structuredClone(contribution.parsed)
                 : contribution.parsed;
@@ -3327,6 +3270,28 @@ export class ProjectWorkspaceService {
                 return fail(error.message, '/.noveltea/transactions', error.code);
               throw error;
             }
+          }
+          // Retired tracked JSON owners must invalidate admission even when the
+          // corresponding YAML source exists. Unrelated machine JSON is not source.
+          for (const file of [
+            'project.json',
+            'traits.json',
+            'editor.json',
+            'i18n/project.json',
+            'i18n/messages.json',
+            'i18n/usage-notes.json',
+            'i18n/tracking.json',
+            'i18n/orphans.json',
+          ]) {
+            if (
+              (await this.fileSystem.inspect(
+                this.fileSystem.joinPath(discovered.projectRoot, file),
+              )) !== 'missing'
+            )
+              return fail(
+                `Retired tracked JSON source '${file}' is not supported; use canonical .yaml Project files.`,
+                `/${file}`,
+              );
           }
           let manifest: Record<string, unknown>;
           try {
@@ -3407,38 +3372,24 @@ export class ProjectWorkspaceService {
               else
                 throw new Error(parsedTraits.error.issues.map((issue) => issue.message).join('; '));
             }
-            const localizationPhysicalOwner = async (legacy: string): Promise<string> => {
-              const yaml = legacy.replace(/\.json$/u, '.yaml');
-              const jsonPresent =
-                (await this.fileSystem.inspect(
-                  this.fileSystem.joinPath(discovered.projectRoot, legacy),
-                )) !== 'missing';
-              const yamlPresent =
-                (await this.fileSystem.inspect(
-                  this.fileSystem.joinPath(discovered.projectRoot, yaml),
-                )) !== 'missing';
-              if (jsonPresent === yamlPresent)
-                throw new Error(`Expected exactly one localization source owner for ${legacy}.`);
-              return yamlPresent ? yaml : legacy;
-            };
             const policy = await parseJsonSource(
-              await localizationPhysicalOwner(LOCALIZATION_POLICY_FILE),
+              LOCALIZATION_POLICY_FILE,
               localizationPolicyFragmentSchema,
             );
             const messages = await parseJsonSource(
-              await localizationPhysicalOwner(LOCALIZATION_MESSAGES_FILE),
+              LOCALIZATION_MESSAGES_FILE,
               localizationMessagesFragmentSchema,
             );
             const usageNotes = await parseJsonSource(
-              await localizationPhysicalOwner(LOCALIZATION_USAGE_NOTES_FILE),
+              LOCALIZATION_USAGE_NOTES_FILE,
               localizationUsageNotesFragmentSchema,
             );
             const sourceMessageTracking = await parseJsonSource(
-              await localizationPhysicalOwner(LOCALIZATION_TRACKING_FILE),
+              LOCALIZATION_TRACKING_FILE,
               localizationTrackingFragmentSchema,
             );
             const orphanedMessages = await parseJsonSource(
-              await localizationPhysicalOwner(LOCALIZATION_ORPHANS_FILE),
+              LOCALIZATION_ORPHANS_FILE,
               localizationOrphansFragmentSchema,
             );
             const translations: Record<string, unknown> = {};
@@ -3450,8 +3401,10 @@ export class ProjectWorkspaceService {
             ) => {
               const root = this.fileSystem.joinPath(discovered.projectRoot, directory);
               for (const entry of await this.fileSystem.listDirectory(root)) {
-                if (!/\.(?:json|yaml)$/u.test(entry))
-                  throw new Error(`${directory} contains a non-JSON/YAML localization chunk.`);
+                if (!entry.endsWith('.yaml'))
+                  throw new Error(
+                    `${directory} contains a non-YAML localization chunk '${entry}'.`,
+                  );
                 const locale = entry.slice(0, -5);
                 if (!localeIdSchema.safeParse(locale).success)
                   throw new Error(`${directory} contains an invalid locale chunk '${entry}'.`);
@@ -3543,20 +3496,25 @@ export class ProjectWorkspaceService {
                     'Layout path does not contain a valid record ID.',
                     `/records/layouts/${entry}`,
                   );
-                const hasJson =
+                if (
                   (await this.fileSystem.inspect(
                     this.fileSystem.joinPath(layoutPath, 'layout.json'),
-                  )) !== 'missing';
+                  )) !== 'missing'
+                )
+                  return fail(
+                    'Retired Layout metadata layout.json is not supported; use layout.yaml.',
+                    `/records/layouts/${entry}/layout.json`,
+                  );
                 const hasYaml =
                   (await this.fileSystem.inspect(
                     this.fileSystem.joinPath(layoutPath, 'layout.yaml'),
                   )) !== 'missing';
-                if (hasJson === hasYaml)
+                if (!hasYaml)
                   return fail(
-                    'Layout requires exactly one metadata owner.',
+                    'Layout requires canonical layout.yaml metadata.',
                     `/records/layouts/${entry}`,
                   );
-                const metadataName = hasJson ? 'layout.json' : 'layout.yaml';
+                const metadataName = 'layout.yaml';
                 const relativeRecordPath = `records/layouts/${entry}/${metadataName}`;
                 const file = this.fileSystem.joinPath(layoutPath, metadataName);
                 let raw: Record<string, unknown>;
@@ -3652,30 +3610,9 @@ export class ProjectWorkspaceService {
                 collections.layouts[entry] = raw;
                 continue;
               }
-              if (
-                !entry.endsWith('.json') &&
-                !(collection === 'variables' && entry.endsWith('.yaml')) &&
-                !(
-                  [
-                    'assets',
-                    'animations',
-                    'materials',
-                    'archetypes',
-                    'scripts',
-                    'rooms',
-                    'maps',
-                    'characters',
-                    'interactables',
-                    'verbs',
-                    'interactions',
-                    'dialogues',
-                    'scenes',
-                    'tests',
-                  ].includes(collection) && entry.endsWith('.yaml')
-                )
-              )
+              if (!entry.endsWith('.yaml'))
                 return fail(
-                  'Record files must use canonical names.',
+                  'Record files must use canonical .yaml names.',
                   `/records/${collection}/${entry}`,
                 );
               const id = entry.slice(0, -5);
@@ -3860,11 +3797,7 @@ export class ProjectWorkspaceService {
               return fail(`Authoritative source file '${file}' is missing.`, `/${file}`);
             fileRevisions[file] = revision;
           }
-          const saveUnitFileOwnership = ownershipFor(
-            decodedProject,
-            scriptSourcePaths,
-            new Set(admittedSourcePaths),
-          );
+          const saveUnitFileOwnership = ownershipFor(decodedProject, scriptSourcePaths);
           const ownerPathsByFile = new Map<string, readonly string[]>();
           for (const file of canonicalSourceFiles)
             ownerPathsByFile.set(
@@ -3941,7 +3874,7 @@ export class ProjectWorkspaceService {
               let parsed: unknown;
               if (reused?.kind === 'json') parsed = reused.parsed;
               else {
-                const recordMatch = /^records\/([^/]+)\/([^/]+)\.(?:json|yaml)$/u.exec(file);
+                const recordMatch = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
                 const collection = recordMatch?.[1];
                 const recordId = recordMatch?.[2];
                 if (
@@ -3970,8 +3903,8 @@ export class ProjectWorkspaceService {
                   ) as Record<string, unknown>;
                   // Hydration exposes Lua `none` as empty inline source, not an authored companion.
                   if (
-                    /^records\/layouts\/[^/]+\/layout\.(?:json|yaml)$/u.test(file) &&
-                    !admittedSourcePaths.has(file.replace(/\.(?:json|yaml)$/u, '.lua'))
+                    /^records\/layouts\/[^/]+\/layout\.yaml$/u.test(file) &&
+                    !admittedSourcePaths.has(file.replace(/\.yaml$/u, '.lua'))
                   )
                     (normalizedSource.data as Record<string, unknown>).lua = { sourceMode: 'none' };
                   parsed = normalizedSource;
@@ -4099,7 +4032,7 @@ export class ProjectWorkspaceService {
       const from = /^\/layouts\/([^/]+)$/u.exec(fromPath);
       const to = /^\/layouts\/([^/]+)$/u.exec(toPath);
       if (!from || !to) continue;
-      const oldMetadata = recordFile('layouts', from[1]!, sourceFiles);
+      const oldMetadata = recordFile('layouts', from[1]!);
       if (sourceFiles.has(oldMetadata))
         projectedOwnerFiles.add(
           oldMetadata.replace(`records/layouts/${from[1]!}/`, `records/layouts/${to[1]!}/`),
@@ -4134,11 +4067,7 @@ export class ProjectWorkspaceService {
     for (const file of Object.keys(options.sourceRestorations ?? {})) {
       if (!/^(?:records\/[^/]+\/[^/]+(?:\/layout)?|project|editor|traits)\.yaml$/u.test(file))
         throw new Error('Source restoration must name a canonical YAML owner.');
-      const stagedJson = file.replace(/\.yaml$/u, '.json');
-      if (candidates.has(stagedJson) && !openedSnapshot.fileRevisions[stagedJson]) {
-        candidates.delete(stagedJson);
-        candidates.add(file);
-      }
+      candidates.add(file);
     }
     const sourceMoves = new Map<string, string>();
     for (const { fromPath, toPath } of options.identityRemap ?? []) {
@@ -4156,16 +4085,10 @@ export class ProjectWorkspaceService {
         throw new Error(
           'Workspace identity move must remove an existing record and create a new identity.',
         );
-      const oldFile = recordFile(collection, from[2]!, sourceFiles);
-      const selectedNewFile = recordFile(collection, to[2]!, sourceFiles);
-      // In the staged mixed-family cutover, a rename is a path move, not an
-      // implicit JSON-to-YAML conversion of an existing source owner.
-      const newFile = oldFile.endsWith('.json')
-        ? selectedNewFile.replace(/\.yaml$/u, '.json')
-        : selectedNewFile;
+      const oldFile = recordFile(collection, from[2]!);
+      const newFile = recordFile(collection, to[2]!);
       if (sourceMoves.has(newFile) || [...sourceMoves.values()].includes(oldFile))
         throw new Error('Ambiguous workspace record identity move.');
-      if (newFile !== selectedNewFile) candidates.delete(selectedNewFile);
       sourceMoves.set(newFile, oldFile);
       candidates.add(oldFile);
       candidates.add(newFile);
@@ -4466,7 +4389,7 @@ export class ProjectWorkspaceService {
         fileRevisions,
         saveUnitFileOwnership: incrementalProjection
           ? openedSnapshot.saveUnitFileOwnership
-          : ownershipFor(committedProject, projectedSourcePaths, new Set(canonicalSourceFiles)),
+          : ownershipFor(committedProject, projectedSourcePaths),
         externalSourceDescriptors:
           descriptorAdvance?.descriptors ??
           externalDescriptors(committedProject, projectedSourcePaths),

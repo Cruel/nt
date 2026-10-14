@@ -135,7 +135,7 @@ describe('effective entity inspection CLI', () => {
     ).not.toBe(0);
   });
 
-  it('reads staged JSON Layout provenance from the Layout-owned source path', async () => {
+  it('reads YAML Layout provenance from the canonical Layout-owned source path', async () => {
     const project = validProject();
     project.layouts.hud = {
       id: 'hud',
@@ -144,12 +144,7 @@ describe('effective entity inspection CLI', () => {
     };
     const files = { ...projectWorkspaceFiles(project, project.editor) };
     const yamlPath = 'records/layouts/hud/layout.yaml';
-    const jsonPath = 'records/layouts/hud/layout.json';
-    const jsonText = projectWorkspaceSourceCodec(jsonPath).encode(
-      projectWorkspaceSourceCodec(yamlPath).decode(files[yamlPath]!),
-    );
-    delete files[yamlPath];
-    files[jsonPath] = jsonText;
+    const yamlText = files[yamlPath]!;
     const fileSystem = new InMemoryProjectWorkspaceFileSystem(
       Object.fromEntries(Object.entries(files).map(([file, text]) => [`${root}/${file}`, text])),
     );
@@ -161,8 +156,36 @@ describe('effective entity inspection CLI', () => {
     );
     expect(result.exitCode).toBe(0);
     expect(result.envelope.provenance).toMatchObject({ id: 'explicit', label: 'explicit' });
-    expect(await fileSystem.readText(`${root}/${jsonPath}`)).toBe(jsonText);
+    expect(await fileSystem.readText(`${root}/${yamlPath}`)).toBe(yamlText);
+    expect(await fileSystem.inspect(`${root}/records/layouts/hud/layout.json`)).toBe('missing');
+  });
+
+  it('rejects an obsolete JSON Layout owner rather than inspecting it', async () => {
+    const project = validProject();
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
+    const files = { ...projectWorkspaceFiles(project, project.editor) };
+    const yamlPath = 'records/layouts/hud/layout.yaml';
+    const yamlText = files[yamlPath]!;
+    files['records/layouts/hud/layout.json'] = projectWorkspaceSourceCodec('obsolete.json').encode(
+      projectWorkspaceSourceCodec(yamlPath).decode(files[yamlPath]!),
+    );
+    delete files[yamlPath];
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(files).map(([file, text]) => [`${root}/${file}`, text])),
+    );
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'layouts', 'hud', '--provenance'],
+      options(value),
+    );
+    expect(result.exitCode).not.toBe(0);
     expect(await fileSystem.inspect(`${root}/${yamlPath}`)).toBe('missing');
+    await fileSystem.writeTextAtomic(`${root}/${yamlPath}`, yamlText);
+    const duplicate = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'layouts', 'hud', '--provenance'],
+      options(value),
+    );
+    expect(duplicate.exitCode).not.toBe(0);
   });
 });
 
@@ -744,8 +767,8 @@ describe('staged YAML Character and Interactable CLI authoring', () => {
   });
 });
 
-describe('staged YAML Verb and Interaction CLI authoring', () => {
-  it('validates annotated sources, creates new YAML records, and preserves existing JSON owners', async () => {
+describe('canonical YAML Verb and Interaction CLI authoring', () => {
+  it('validates annotated sources, creates new YAML records, and preserves existing YAML comments', async () => {
     const project = validProject();
     project.verbs.inspect = createDefaultAuthoringRecord(
       'verbs',
@@ -755,12 +778,7 @@ describe('staged YAML Verb and Interaction CLI authoring', () => {
       'interactions',
       'rules',
     ) as typeof project.interactions.rules;
-    const staged = projectWorkspaceFiles(
-      project,
-      project.editor,
-      {},
-      new Set(['records/verbs/inspect.yaml', 'records/interactions/rules.yaml']),
-    );
+    const staged = projectWorkspaceFiles(project, project.editor);
     const fileSystem = new InMemoryProjectWorkspaceFileSystem(
       Object.fromEntries(
         Object.entries(staged).map(([file, content]) => [

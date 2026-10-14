@@ -252,7 +252,12 @@ function formatStaticCommand(
   envelope.protocolVersion = NOVELTEA_CLI_JSON_PROTOCOL_VERSION;
   if (json) return [exitCode, `${JSON.stringify(envelope)}\n`, ''];
   const diagnosticText = sorted
-    .map((item) => `[${item.severity}] ${item.code} ${item.path}: ${item.message}`)
+    .map((item) => {
+      const location = item.sourceUrl
+        ? ` (${item.sourceUrl}${item.line !== undefined ? `:${item.line}${item.column !== undefined ? `:${item.column}` : ''}` : ''})`
+        : '';
+      return `[${item.severity}] ${item.code} ${item.path}${location}: ${item.message}`;
+    })
     .join('\n');
   if (success)
     return [

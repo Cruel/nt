@@ -187,6 +187,21 @@ async function createNativeAssetWorkspace(withRml = false) {
 }
 
 describe('Resident physical Asset validation acceleration', () => {
+  it('invalidates resident admission when a retired JSON source appears and recovers after deletion', async () => {
+    const { fileSystem, probe, workspace } = await createNativeAssetWorkspace();
+    const path = 'i18n/messages.json';
+    await fileSystem.writeTextAtomic(`${ROOT}/${path}`, '{}\n');
+    probe.add(path);
+    const invalid = await workspace.open(ROOT);
+    expect(invalid.ok).toBe(false);
+    if (!invalid.ok)
+      expect(invalid.diagnostics[0]?.message).toContain(`Retired tracked JSON source '${path}'`);
+    await fileSystem.removeFile(`${ROOT}/${path}`);
+    probe.remove(path);
+    const recovered = await workspace.open(ROOT);
+    expect(recovered.ok).toBe(true);
+  });
+
   it('preserves external Asset invalidation when an authored source changes in the same generation', async () => {
     const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace(true);
     await workspace.buildDependencyGraphAnalysis(first.snapshot);

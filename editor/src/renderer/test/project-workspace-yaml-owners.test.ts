@@ -98,6 +98,33 @@ describe('YAML manifest, Traits, and collaborator metadata', () => {
     }
   });
 
+  it('rejects every retired fixed JSON owner even when its canonical YAML peer exists', async () => {
+    const originals = sources();
+    for (const file of [
+      'project.json',
+      'traits.json',
+      'editor.json',
+      'i18n/project.json',
+      'i18n/messages.json',
+      'i18n/usage-notes.json',
+      'i18n/tracking.json',
+      'i18n/orphans.json',
+    ]) {
+      const fs = new InMemoryProjectWorkspaceFileSystem({
+        ...originals,
+        [`${root}/${file}`]: '{}\n',
+      });
+      const opened = await new ProjectWorkspaceService(fs).open(root);
+      expect(opened.ok, file).toBe(false);
+      if (opened.ok) continue;
+      expect(opened.diagnostics[0]?.message, file).toContain(
+        `Retired tracked JSON source '${file}'`,
+      );
+      expect(opened.diagnostics[0]?.path, file).toBe(`/${file}`);
+      expect(await fs.readText(`${root}/${file}`)).toBe('{}\n');
+    }
+  });
+
   it('quotes ambiguous YAML strings and preserves explicit non-default nulls', () => {
     const codec = projectWorkspaceSourceCodec('editor.yaml');
     const input = {

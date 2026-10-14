@@ -228,12 +228,7 @@ async function planAssets(options: {
       const extension = extensionForFormat(output.format);
       const filename = `${assetId}${extension}`;
       const projectRelativePath = `assets/generated/${filename}`;
-      // Match the physical source family already present in the workspace.
-      // #467 will make YAML the default for entirely new projects.
-      const usesYaml = Object.keys(opened.snapshot.fileRevisions).some((path) =>
-        /^records\/assets\/[^/]+\.yaml$/u.test(path),
-      );
-      const recordPath = `records/assets/${assetId}.${usesYaml ? 'yaml' : 'json'}`;
+      const recordPath = `records/assets/${assetId}.yaml`;
       if (
         (await options.fileSystem.inspect(
           options.fileSystem.joinPath(options.projectRoot, projectRelativePath),

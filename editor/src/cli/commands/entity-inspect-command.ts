@@ -83,8 +83,8 @@ export const entityInspectCommand: CliCommandDefinition = {
             // Some projects still have legacy JSON owners: inspect their authored fields.
             const legacy =
               collection === 'layouts'
-                ? `records/layouts/${id}/layout.json`
-                : `records/${collection}/${id}.json`;
+                ? `records/layouts/${id}/layout.yaml`
+                : `records/${collection}/${id}.yaml`;
             try {
               const content = await fileSystem.readText(
                 fileSystem.joinPath(snapshot.projectRoot, legacy),

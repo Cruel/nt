@@ -81,6 +81,8 @@ export interface ResidentProjectAuthority {
 }
 
 const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.freeze([
+  // Observe retired JSON paths so adding one invalidates a resident generation.
+  // Discovery is not admission: the workspace reader rejects these files.
   { root: 'i18n', extensions: ['.yaml', '.json'], excludedPrefixes: [] },
   {
     root: 'records',
@@ -140,7 +142,7 @@ function assetAuthorityPathsAfterChanges(
 ): readonly string[] {
   if (structural) return Object.freeze(assetSourcePaths(after));
   for (const path of changedSources) {
-    const match = /^records\/assets\/([^/]+)\.(?:json|yaml)$/u.exec(path);
+    const match = /^records\/assets\/([^/]+)\.yaml$/u.exec(path);
     if (!match) continue;
     const id = match[1]!;
     if (assetRecordSourcePath(before, id) !== assetRecordSourcePath(after, id))

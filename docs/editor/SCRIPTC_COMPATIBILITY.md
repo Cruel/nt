@@ -58,7 +58,7 @@ Resident record, validation, and dependency indexes share persistent search-tree
 copy only changed-key search paths and advance Map sizes from the current delta; they neither chain
 one view per generation nor compact by rescanning historical changes. Keys use exact string identity
 with locale-independent ordering, so distinct Unicode source paths remain distinct. Aggregate-file
-membership changes (for example adding a Trait inside `traits.json`) explicitly widen validation and
+membership changes (for example adding a Trait inside `traits.yaml`) explicitly widen validation and
 dependency reconciliation rather than reusing a check set that cannot contain the new member.
 Full validation drops checks and diagnostics for removed owners; committed structural transactions
 apply the same membership rule and prepare the indexes needed by the next resident source edit.
