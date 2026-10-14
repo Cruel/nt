@@ -144,7 +144,22 @@ it.skipIf(!enabled)(
           );
           expect(nativePrepared.colorDurationsMs).toEqual(prepared.colorDurationsMs);
           expect(nativePrepared.holds).toEqual(prepared.holds);
-          expect(nativePrepared.alphaWebp).toEqual(prepared.alphaWebp);
+          const optimized = new WebpAlphaTraceSession(
+            nativePrepared.alphaWebp,
+            nativePrepared.holds,
+            width!,
+            height!,
+          );
+          const reference = new WebpAlphaTraceSession(
+            prepared.alphaWebp,
+            prepared.holds,
+            width!,
+            height!,
+          );
+          for (const when of [0, 100, 200])
+            expect((await optimized.sample(when)).alpha).toEqual(
+              (await reference.sample(when)).alpha,
+            );
         }
         // Production export takes the streaming FFmpeg pipe path, independently
         // from the test-runner-file tracer, even for full 4K original media.

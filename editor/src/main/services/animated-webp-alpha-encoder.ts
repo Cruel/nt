@@ -112,12 +112,13 @@ export function inspectAlphaWebp(
     webp.toString('ascii', 8, 12) !== 'WEBP'
   )
     throw new Error('Invalid prepared alpha WebP RIFF.');
-  if (holds.length === 1) {
+  if (holds.length === 1 && webp.toString('ascii', 12, 16) === 'VP8L') {
     vp8lPage(webp);
     return;
   }
   let offset = 12;
   let frame = 0;
+  let elapsed = 0;
   let canvas = false;
   let animation = false;
   while (offset < webp.length) {
@@ -130,26 +131,32 @@ export function inspectAlphaWebp(
       canvas =
         webp.readUIntLE(offset + 12, 3) + 1 === width &&
         webp.readUIntLE(offset + 15, 3) + 1 === height &&
-        (webp[offset + 8]! & 0x12) === 0x12;
+        (webp[offset + 8]! & 0x02) !== 0;
     } else if (tag === 'ANIM' && canvas && size === 6 && !animation) {
       animation = true;
     } else if (tag === 'ANMF' && animation && frame < holds.length && size >= 24) {
       const data = offset + 8;
-      const fullCanvas =
-        webp.readUIntLE(data, 3) === 0 &&
-        webp.readUIntLE(data + 3, 3) === 0 &&
-        webp.readUIntLE(data + 6, 3) + 1 === width &&
-        webp.readUIntLE(data + 9, 3) + 1 === height &&
-        webp.readUIntLE(data + 12, 3) === holds[frame]!.durationMs &&
-        webp[data + 15] === 2;
+      const x = webp.readUIntLE(data, 3) * 2;
+      const y = webp.readUIntLE(data + 3, 3) * 2;
+      const frameWidth = webp.readUIntLE(data + 6, 3) + 1;
+      const frameHeight = webp.readUIntLE(data + 9, 3) + 1;
+      const duration = webp.readUIntLE(data + 12, 3);
+      const flags = webp[data + 15]!;
       const inner = data + 16;
+      if (inner + 8 > offset + 8 + size) throw new Error('Truncated animated WebP lossless frame.');
       const innerSize = webp.readUInt32LE(inner + 4);
       if (
-        !fullCanvas ||
+        x + frameWidth > width ||
+        y + frameHeight > height ||
+        !duration ||
+        (flags & ~0x03) !== 0 ||
+        elapsed !== holds[frame]!.startMs ||
+        duration !== holds[frame]!.durationMs ||
         webp.toString('ascii', inner, inner + 4) !== 'VP8L' ||
         inner + 8 + innerSize + (innerSize & 1) !== offset + 8 + size
       )
         throw new Error('Animated WebP is incompatible with NovelTea alpha decoder.');
+      elapsed += duration;
       frame += 1;
     } else {
       throw new Error('Unexpected prepared alpha WebP chunk.');

@@ -54,6 +54,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_scriptc_gc.cpp
     tooling_image.cpp
     tooling_alpha_encoder.cpp
+    "${CMAKE_SOURCE_DIR}/engine/src/media/animated_webp_alpha.cpp"
     tooling_filesystem.cpp
     tooling_runtime_cache.cpp
     font_coverage_tool.cpp
