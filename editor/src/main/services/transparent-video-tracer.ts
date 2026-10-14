@@ -189,8 +189,9 @@ export async function prepareOptionalVideoAlpha(
     let extractionLog: string;
     let encoded;
     if (nativeAlphaEncoder) {
-      // A permanent C++ tool operation streams compressed VP8L pages directly
-      // from FFmpeg. QuickJS passes only the request and result metadata.
+      // The native host streams FFmpeg's optimized lossless animation over a
+      // pipe and validates it with the actual native/Web runtime decoder.
+      // QuickJS passes only the request and result metadata.
       const nativeFilter = filter.split(',').slice(0, -1);
       // The native path turns grayscale coverage into white-RGB VP8L pixels
       // without changing the R8 alpha plane or source sampling timeline.
@@ -214,14 +215,16 @@ export async function prepareOptionalVideoAlpha(
           nativeFilter.join(','),
           '-fps_mode',
           'passthrough',
+          '-enc_time_base',
+          '1:1000',
           '-c:v',
-          'libwebp',
+          'libwebp_anim',
           '-lossless',
           '1',
           '-pix_fmt',
           'bgra',
           '-f',
-          'image2pipe',
+          'webp',
           'pipe:1',
         ],
         durationsMs: color.frameDurationsMs,
@@ -229,7 +232,10 @@ export async function prepareOptionalVideoAlpha(
         height,
         outputPath,
       });
-      if (!native.ok) throw new Error(native.error ?? 'Native alpha encoding failed.');
+      if (!native.ok)
+        throw new Error(
+          `Alpha encoding '${request.motionId}': ${native.error ?? 'native encoder failed'}`,
+        );
       extractionLog = native.stderr ?? '';
       encoded = {
         alphaWebp: native.hasAlpha ? await readFile(outputPath) : null,

@@ -219,6 +219,37 @@ it.skipIf(!hasWebpEncoder)(
           ).toEqual(expectedAlphaDurations);
           const decoded = new WebpAlphaTraceSession(variant.alphaWebp, variant.holds, 80, 48);
           expect((await decoded.sample(variant.holds.at(-1)!.startMs)).page).toBe(1);
+          if (input === 'alpha.mov' && existsSync(resolveNovelTeaCliPath())) {
+            const optimized = await traceTransparentVideo(
+              root,
+              {
+                animationId: 'alpha-native-trace',
+                motionId: `${name}-optimized`,
+                assetId: input,
+                sourcePath: input,
+                canvas: { width: 80, height: 48 },
+                ...options,
+              },
+              tool,
+              run,
+              (request) =>
+                invokeNovelTeaNativeOperation(
+                  'alpha-encode',
+                  request,
+                ) as Promise<NativeAlphaEncodeResult>,
+            );
+            expect(optimized.colorDurationsMs).toEqual(expectedColorDurations);
+            const optimizedSession = new WebpAlphaTraceSession(
+              optimized.alphaWebp,
+              optimized.holds,
+              80,
+              48,
+            );
+            for (let ms = 0; ms < expectedColorDurations.reduce((a, b) => a + b, 0); ms += 1)
+              expect((await optimizedSession.sample(ms)).alpha).toEqual(
+                (await decoded.sample(ms)).alpha,
+              );
+          }
         }
         const rational = await traceTransparentVideo(
           root,
@@ -236,6 +267,42 @@ it.skipIf(!hasWebpEncoder)(
         expect(rational.colorDurationsMs).toHaveLength(12);
         expect(rational.colorDurationsMs.reduce((sum, duration) => sum + duration, 0)).toBe(400);
         expect(rational.holds.map((hold) => hold.durationMs)).toEqual([200, 200]);
+        if (input === 'alpha.mov' && existsSync(resolveNovelTeaCliPath())) {
+          const rationalNative = await traceTransparentVideo(
+            root,
+            {
+              animationId: 'alpha-native-trace',
+              motionId: 'rational-native',
+              assetId: input,
+              sourcePath: input,
+              canvas: { width: 80, height: 48 },
+              frameSampling: { mode: 'target-fps', fps: { numerator: 30000, denominator: 1001 } },
+            },
+            tool,
+            run,
+            (request) =>
+              invokeNovelTeaNativeOperation(
+                'alpha-encode',
+                request,
+              ) as Promise<NativeAlphaEncodeResult>,
+          );
+          const optimizedSession = new WebpAlphaTraceSession(
+            rationalNative.alphaWebp,
+            rationalNative.holds,
+            80,
+            48,
+          );
+          const referenceSession = new WebpAlphaTraceSession(
+            rational.alphaWebp,
+            rational.holds,
+            80,
+            48,
+          );
+          for (let ms = 0; ms < 400; ms += 10)
+            expect((await optimizedSession.sample(ms)).alpha).toEqual(
+              (await referenceSession.sample(ms)).alpha,
+            );
+        }
       }
       // Constant nonopaque coverage is a single timed lossless VP8L still,
       // not an ANIM container; it must remain a valid production sidecar.
@@ -338,7 +405,17 @@ it.skipIf(!hasWebpEncoder)(
         );
         expect(nativeVfr.colorDurationsMs).toEqual([200, 100, 100]);
         expect(nativeVfr.holds).toEqual(vfr.holds);
-        expect(nativeVfr.alphaWebp).toEqual(vfr.alphaWebp);
+        const nativeSession = new WebpAlphaTraceSession(
+          nativeVfr.alphaWebp,
+          nativeVfr.holds,
+          80,
+          48,
+        );
+        const originalSession = new WebpAlphaTraceSession(vfr.alphaWebp, vfr.holds, 80, 48);
+        for (const when of [0, 200, 300])
+          expect((await nativeSession.sample(when)).alpha).toEqual(
+            (await originalSession.sample(when)).alpha,
+          );
       }
       // Explicitly detect an FFmpeg decoder that returns an opaque pixel format
       // rather than accepting it as a successful auxiliary-alpha import.

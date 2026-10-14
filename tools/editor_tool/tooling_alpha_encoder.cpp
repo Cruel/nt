@@ -1,8 +1,6 @@
 #include "tooling_native_c.h"
+#include "media/animated_webp_alpha.hpp"
 
-#include <bimg/bimg.h>
-#include <bimg/decode.h>
-#include <bx/allocator.h>
 #include <nlohmann/json.hpp>
 
 #include <algorithm>
@@ -44,7 +42,6 @@ using Bytes = std::vector<std::uint8_t>;
 using Json = nlohmann::json;
 constexpr std::size_t max_webp_bytes = 128u * 1024u * 1024u;
 constexpr std::size_t max_diagnostics = 24u * 1024u * 1024u;
-constexpr std::uint32_t max_hold_ms = 0xffffff;
 constexpr std::size_t max_frames = 65536;
 constexpr auto child_timeout = std::chrono::minutes(15);
 
@@ -57,29 +54,6 @@ std::uint32_t le32(const std::uint8_t* ptr)
 {
     return static_cast<std::uint32_t>(ptr[0]) | (static_cast<std::uint32_t>(ptr[1]) << 8) |
            (static_cast<std::uint32_t>(ptr[2]) << 16) | (static_cast<std::uint32_t>(ptr[3]) << 24);
-}
-void u32(Bytes& out, std::uint32_t value)
-{
-    for (int shift = 0; shift < 32; shift += 8)
-        out.push_back(static_cast<std::uint8_t>(value >> shift));
-}
-void u24(Bytes& out, std::uint32_t value)
-{
-    ensure(value <= max_hold_ms, "WebP 24-bit field exceeded.");
-    for (int shift = 0; shift < 24; shift += 8)
-        out.push_back(static_cast<std::uint8_t>(value >> shift));
-}
-void append(Bytes& out, const char* text, std::size_t size)
-{
-    out.insert(out.end(), text, text + size);
-}
-void chunk(Bytes& out, const char tag[5], const Bytes& payload)
-{
-    append(out, tag, 4);
-    u32(out, static_cast<std::uint32_t>(payload.size()));
-    out.insert(out.end(), payload.begin(), payload.end());
-    if (payload.size() & 1u)
-        out.push_back(0);
 }
 #if defined(_WIN32)
 std::wstring wide(std::string_view input)
@@ -433,89 +407,68 @@ private:
     int exit_code_ = -1;
 };
 
-bool read_exact(FfmpegProcess& process, std::uint8_t* buffer, std::size_t size,
-                bool allow_eof = false)
+// Consume a single complete animated WebP from FFmpeg's libwebp_anim encoder.
+// We enforce the compressed output cap while reading, before FFmpeg can publish
+// any file. FFmpeg may buffer the animation internally, unlike the old page
+// streamer; subprocess lifetime and diagnostics remain explicitly bounded.
+Bytes read_webp(FfmpegProcess& process)
 {
-    std::size_t at = 0;
-    while (at < size) {
-        const auto count = process.read(buffer + at, size - at);
-        if (count == 0) {
-            ensure(at == 0 && allow_eof, "FFmpeg ended in the middle of a WebP page.");
-            return false;
-        }
-        at += count;
+    Bytes result;
+    std::array<std::uint8_t, 65536> buffer{};
+    for (;;) {
+        const auto received = process.read(buffer.data(), buffer.size());
+        if (received == 0)
+            break;
+        ensure(result.size() <= max_webp_bytes - received,
+               "Compressed animated WebP exceeds the 128 MiB package limit.");
+        result.insert(result.end(), buffer.begin(), buffer.begin() + received);
     }
-    return true;
+    ensure(result.size() >= 20 && result.size() <= max_webp_bytes &&
+               std::memcmp(result.data(), "RIFF", 4) == 0 &&
+               std::memcmp(result.data() + 8, "WEBP", 4) == 0 &&
+               static_cast<std::uint64_t>(le32(result.data() + 4)) + 8 == result.size(),
+           "FFmpeg did not produce a complete animated WebP RIFF.");
+    return result;
 }
 
-bool has_nonopaque_alpha(const Bytes& payload, std::uint32_t width, std::uint32_t height)
+// FFmpeg's patched libwebp_anim knows the input frame's nominal duration,
+// but range trimming can end mid-frame. Only adjust the final ANMF duration
+// to the authoritatively sampled color endpoint; never change compressed
+// pixels, frame rectangles, or any preceding sample timing.
+void normalize_final_hold(Bytes& webp, const std::vector<std::uint64_t>& boundaries)
 {
-    Bytes riff;
-    append(riff, "RIFF", 4);
-    u32(riff, static_cast<std::uint32_t>(payload.size() + 4));
-    append(riff, "WEBP", 4);
-    riff.insert(riff.end(), payload.begin(), payload.end());
-    bx::DefaultAllocator allocator;
-    auto* image = bimg::imageParse(&allocator, riff.data(), static_cast<std::uint32_t>(riff.size()),
-                                   bimg::TextureFormat::RGBA8);
-    ensure(image != nullptr, "FFmpeg VP8L output failed the native WebP decoder.");
-    bimg::ImageMip mip{};
-    const bool valid = image->m_width == width && image->m_height == height &&
-                       bimg::imageGetRawData(*image, 0, 0, image->m_data, image->m_size, mip) &&
-                       mip.m_format == bimg::TextureFormat::RGBA8;
-    bool visible = false;
-    if (valid) {
-        const auto* bytes = static_cast<const std::uint8_t*>(mip.m_data);
-        for (std::size_t at = 3; at < static_cast<std::size_t>(width) * height * 4; at += 4) {
-            if (bytes[at] != 255) {
-                visible = true;
-                break;
-            }
+    std::size_t at = 12;
+    std::size_t last_duration_offset = 0;
+    std::uint64_t cursor = 0;
+    std::uint64_t last_start = 0;
+    while (at < webp.size()) {
+        ensure(at + 8 <= webp.size(), "Truncated FFmpeg animated-WebP chunk.");
+        const auto size = le32(webp.data() + at + 4);
+        const auto padded = static_cast<std::uint64_t>(size) + (size & 1u);
+        ensure(padded <= webp.size() - at - 8, "Invalid FFmpeg animated-WebP chunk size.");
+        if (std::memcmp(webp.data() + at, "ANMF", 4) == 0) {
+            ensure(size >= 24, "Invalid FFmpeg animated-WebP frame.");
+            last_start = cursor;
+            last_duration_offset = at + 8 + 12;
+            const auto* duration = webp.data() + last_duration_offset;
+            const auto value = static_cast<std::uint32_t>(duration[0]) |
+                               (static_cast<std::uint32_t>(duration[1]) << 8) |
+                               (static_cast<std::uint32_t>(duration[2]) << 16);
+            ensure(value > 0, "FFmpeg emitted a zero-duration animated-WebP frame.");
+            cursor += value;
         }
+        at += 8 + static_cast<std::size_t>(padded);
     }
-    bimg::imageFree(image);
-    ensure(valid, "Decoded WebP page has incorrect dimensions or format.");
-    return visible;
-}
-
-struct Hold {
-    std::uint64_t start = 0;
-    std::uint64_t duration = 0;
-};
-Bytes build_webp(const std::vector<Bytes>& pages, const std::vector<Hold>& holds,
-                 std::uint32_t width, std::uint32_t height)
-{
-    Bytes webp;
-    append(webp, "RIFF", 4);
-    u32(webp, 0);
-    append(webp, "WEBP", 4);
-    if (pages.size() == 1) {
-        webp.insert(webp.end(), pages[0].begin(), pages[0].end());
-    } else {
-        Bytes header{0x12, 0, 0, 0};
-        u24(header, width - 1);
-        u24(header, height - 1);
-        chunk(webp, "VP8X", header);
-        chunk(webp, "ANIM", Bytes(6, 0));
-        for (std::size_t index = 0; index < pages.size(); ++index) {
-            ensure(holds[index].duration <= max_hold_ms, "Animated WebP hold exceeds 24 bits.");
-            Bytes payload;
-            u24(payload, 0);
-            u24(payload, 0);
-            u24(payload, width - 1);
-            u24(payload, height - 1);
-            u24(payload, static_cast<std::uint32_t>(holds[index].duration));
-            payload.push_back(2);
-            payload.insert(payload.end(), pages[index].begin(), pages[index].end());
-            chunk(webp, "ANMF", payload);
-            ensure(webp.size() <= max_webp_bytes, "Compressed alpha WebP exceeds 128 MiB.");
-        }
-    }
-    ensure(webp.size() <= max_webp_bytes, "Compressed alpha WebP exceeds 128 MiB.");
-    const auto riff_size = static_cast<std::uint32_t>(webp.size() - 8);
-    for (int shift = 0; shift < 32; shift += 8)
-        webp[4 + shift / 8] = static_cast<std::uint8_t>(riff_size >> shift);
-    return webp;
+    if (last_duration_offset == 0 || cursor == boundaries.back())
+        return; // Still WebP, or FFmpeg already produced the exact endpoint.
+    if (!std::binary_search(boundaries.begin(), boundaries.end(), last_start) ||
+        last_start >= boundaries.back() || boundaries.back() - last_start > 0xffffff)
+        throw std::runtime_error(
+            "FFmpeg animated WebP cannot represent the final hold: " + std::to_string(last_start) +
+            " -> " + std::to_string(cursor) + " expected " + std::to_string(boundaries.back()));
+    const auto corrected = static_cast<std::uint32_t>(boundaries.back() - last_start);
+    for (int byte = 0; byte < 3; ++byte)
+        webp[last_duration_offset + byte] = static_cast<std::uint8_t>(corrected >> (byte * 8));
 }
 
 Json encode(const Json& request)
@@ -542,66 +495,66 @@ Json encode(const Json& request)
            "Native alpha encoder canvas is invalid.");
     ensure(!durations.empty() && durations.size() <= max_frames,
            "Native alpha encoder exceeds its frame budget.");
-    ensure(arguments.back() == "pipe:1", "Native alpha encoder requires piped WebP output.");
-    std::uint64_t expected_endpoint = 0;
+    ensure(arguments.back() == "pipe:1" &&
+               std::adjacent_find(arguments.begin(), arguments.end(),
+                                  [](const std::string& a, const std::string& b) {
+                                      return a == "-c:v" && b == "libwebp_anim";
+                                  }) != arguments.end(),
+           "Native alpha encoder requires lossless FFmpeg libwebp_anim piped output.");
+
+    std::vector<std::uint64_t> boundaries;
+    boundaries.reserve(durations.size() + 1);
+    boundaries.push_back(0);
     for (const auto duration : durations) {
         ensure(duration > 0, "Native alpha frame duration is invalid or unrepresentable.");
-        ensure(expected_endpoint <= (std::numeric_limits<std::uint64_t>::max)() - duration,
+        ensure(boundaries.back() <= (std::numeric_limits<std::uint64_t>::max)() - duration,
                "Native alpha timeline overflow.");
-        expected_endpoint += duration;
+        boundaries.push_back(boundaries.back() + duration);
     }
+    const auto expected_endpoint = boundaries.back();
 
     FfmpegProcess process(executable, arguments);
-    std::vector<Bytes> pages;
-    std::vector<Hold> holds;
-    Bytes previous;
-    std::uint64_t elapsed = 0;
-    std::size_t consumed = 0;
-    std::size_t compressed_size = 12;
-    bool has_transparency = false;
-    for (;;) {
-        std::array<std::uint8_t, 12> header{};
-        if (!read_exact(process, header.data(), header.size(), true))
-            break;
-        ensure(std::memcmp(header.data(), "RIFF", 4) == 0 &&
-                   std::memcmp(header.data() + 8, "WEBP", 4) == 0,
-               "FFmpeg output is not a WebP RIFF image.");
-        const auto declared = le32(header.data() + 4);
-        ensure(declared >= 12 && declared <= max_webp_bytes - 8, "Invalid or oversized WebP page.");
-        const auto length = static_cast<std::size_t>(declared) + 8;
-        Bytes page(length);
-        std::copy(header.begin(), header.end(), page.begin());
-        read_exact(process, page.data() + 12, length - 12);
-        ensure(std::memcmp(page.data() + 12, "VP8L", 4) == 0 &&
-                   20ull + le32(page.data() + 16) + (le32(page.data() + 16) & 1u) == length,
-               "FFmpeg must produce one lossless VP8L chunk per page.");
-        ensure(consumed < durations.size(), "FFmpeg produced too many alpha frames.");
-        const Bytes payload(page.begin() + 12, page.end());
-        if (pages.empty() || payload != previous) {
-            const bool nonopaque = has_nonopaque_alpha(payload, width, height);
-            has_transparency = has_transparency || nonopaque;
-            holds.push_back({elapsed, durations[consumed]});
-            pages.push_back(payload);
-            compressed_size += payload.size() + 64;
-            ensure(compressed_size <= max_webp_bytes, "Compressed alpha WebP exceeds 128 MiB.");
-            previous = payload;
-        } else {
-            holds.back().duration += durations[consumed];
-        }
-        elapsed += durations[consumed];
-        ++consumed;
-    }
+    Bytes webp = read_webp(process);
     const auto diagnostics = process.finish();
-    ensure(consumed == durations.size() && elapsed == expected_endpoint,
-           "FFmpeg output does not match the prepared color frame count.");
+    normalize_final_hold(webp, boundaries);
+
+    // Reuse the actual native/Web player decoder, rather than defining a
+    // parallel WebP subset in the authoring tool. This validates VP8L-only
+    // cropped rectangles, disposal/blending, canvas bounds, complete timeline,
+    // and the final hold before an asset can be published.
+    noveltea::media::AnimatedWebpAlpha decoded;
+    std::string error;
+    if (!decoded.open(webp, static_cast<std::uint16_t>(width), static_cast<std::uint16_t>(height),
+                      expected_endpoint, error))
+        throw std::runtime_error("FFmpeg animated WebP is incompatible with NovelTea: " + error);
+    ensure(decoded.frame_count() <= durations.size(),
+           "Animated WebP has more frames than the color timeline.");
+    const auto& frames = decoded.frames();
+    Json holds = Json::array();
+    bool has_transparency = false;
+    for (const auto& frame : frames) {
+        ensure(std::binary_search(boundaries.begin(), boundaries.end(), frame.start_ms) &&
+                   std::binary_search(boundaries.begin(), boundaries.end(),
+                                      frame.start_ms + frame.duration_ms),
+               "FFmpeg optimized WebP frame boundaries disagree with prepared color samples.");
+        bool changed = false;
+        if (!decoded.sample(frame.start_ms, changed, error))
+            throw std::runtime_error("Cannot verify FFmpeg alpha frame: " + error);
+        if (!has_transparency) {
+            const auto coverage = decoded.alpha();
+            has_transparency = std::any_of(coverage.begin(), coverage.end(),
+                                           [](std::uint8_t a) { return a != 255; });
+        }
+        holds.push_back({{"startMs", frame.start_ms}, {"durationMs", frame.duration_ms}});
+    }
 
     if (!has_transparency)
         return {{"ok", true},
                 {"hasAlpha", false},
                 {"stderr", diagnostics},
                 {"holds", Json::array()},
-                {"frameCount", consumed}};
-    Bytes webp = build_webp(pages, holds, width, height);
+                {"frameCount", durations.size()}};
+
 #if defined(_WIN32)
     const std::filesystem::path destination(wide(output_path));
 #else
@@ -626,14 +579,11 @@ Json encode(const Json& request)
         ensure(stream.good(), "Failed writing native alpha output.");
     }
     std::filesystem::rename(partial, destination);
-    Json hold_values = Json::array();
-    for (const auto& hold : holds)
-        hold_values.push_back({{"startMs", hold.start}, {"durationMs", hold.duration}});
     return {{"ok", true},
             {"hasAlpha", true},
             {"stderr", diagnostics},
-            {"holds", std::move(hold_values)},
-            {"frameCount", consumed},
+            {"holds", std::move(holds)},
+            {"frameCount", durations.size()},
             {"webpBytes", webp.size()}};
 }
 

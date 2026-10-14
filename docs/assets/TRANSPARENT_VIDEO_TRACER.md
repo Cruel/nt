@@ -21,14 +21,17 @@ and remaining qualification limits.
   preparation. Frame durations and endpoint must match the production
   color representation exactly or tracing fails.
 - Production Node/Electron and standalone ScriptC exports use one shared
-  native C++ alpha encoder (`tooling_alpha_encoder.cpp`). FFmpeg extracts the
-  8-bit alpha, normalizes RGB to white, and writes lossless VP8L pages directly
-  through a bounded stdout pipe. Native code validates each page using the
-  engine's bimg decoder, coalesces byte-identical consecutive pages, and
-  assembles animated WebP with the authored millisecond holds. The original
-  color sampling and alpha sampling logs must agree. Neither raw R8 nor BGRA
-  intermediates are written to disk. The immutable source snapshot and final
-  compressed output remain file-backed. Sharp is test-only.
+  native C++ alpha preparation service (`tooling_alpha_encoder.cpp`). FFmpeg
+  extracts the 8-bit alpha, normalizes RGB to white, and uses **lossless
+  `libwebp_anim`** to produce one optimized animated WebP over a pipe. This
+  permits cropped-frame compression instead of always storing full-canvas
+  VP8L pages. Native code validates the finished stream with the *same*
+  bounded persistent `AnimatedWebpAlpha` reader used by native/Web playback;
+  it verifies the color-timeline boundaries and replays the masks to ensure
+  coverage is nonopaque before publishing a sidecar. The original color and
+  alpha sampling logs must agree. Neither raw R8 nor BGRA intermediates are
+  written to disk. The immutable source snapshot and final compressed output
+  remain file-backed. Sharp is test-only.
 - The test-only `WebpAlphaTraceSession` reference helper holds the compressed
   WebP plus at most one decoded CPU alpha mask at a time and exposes the same
   R8 bytes to CPU hit queries (`alpha > 0`). Sharp is used only as an
@@ -135,18 +138,35 @@ late color samples retain the previous displayed color/alpha pair. A missing
 alpha texture suppresses rendering instead of silently treating the video as
 opaque. The built-in video quad shader composites this pair without chroma key.
 
-Production alpha preparation runs one native-owned FFmpeg subprocess,
-producing lossless VP8L frames directly through a bounded pipe. Consecutive
-identical compressed pages are coalesced; the native assembler retains the
-prepared color timeline, checks frames against the engine bimg decoder, and
-writes only the finished `alpha.webp` to disk. Node/Electron invoke the same
-native service through the static `__editor-native alpha-encode` operation;
-standalone ScriptC uses its existing native FFI host. Neither path requires
-QuickJS-specific streaming or raw-alpha scratch files. The current test-only
-and directly invoked tracing fallback retains bounded BGRA batches so that
-injected media runners can be tested without a native binary. Compressed
-output is capped at 128 MiB; FFmpeg stderr capture and process lifetime are
-bounded. Raw video is not transferred through JSON or QuickJS.
+Production alpha preparation runs one native-owned FFmpeg subprocess.
+`libwebp_anim` optimizes/reuses consecutive masks and emits one lossless
+animated WebP through a pipe, without raw-alpha scratch files. The native
+service checks its frame rectangles, compositing, exact 8-bit decoded coverage,
+color-frame boundaries, and final duration using the engine-owned
+`AnimatedWebpAlpha` decoder. `-enc_time_base 1:1000` prevents FFmpeg from
+rounding source-range boundaries to an integer source-frame timebase. For an
+end range cutting through the final source frame, the native service corrects
+*only the final ANMF duration metadata* to the authoritative color endpoint;
+no image pages or rectangles are manually assembled.
+
+Node/Electron call the service through the static `__editor-native alpha-encode`
+operation; standalone ScriptC uses its existing native FFI host. Neither path
+requires QuickJS-specific binary streaming. The injected test-runner fallback
+retains the prior manual VP8L page assembler for isolated tests. Compressed
+output is capped at 128 MiB; FFmpeg stderr capture and subprocess lifetime are
+bounded. Because `libwebp_anim` assembles internally, its working memory is
+not bounded by the compressed-output cap: long-duration profiling remains a
+release qualification requirement. Raw video is never sent through JSON.
+
+On the same synthetic 36-frame/20 FPS sparse-motion fixtures as the earlier
+comparison, the **production native operation** now produces 1,498 bytes at
+854×480 and 1,842 bytes at 1920×1080, matching FFmpeg directly (previous
+manual assembly: 2,160 / 4,624 bytes). On detailed-motion fixtures, the two
+methods both produce 1,006,270 / 1,179,424 bytes. The native size-budget
+regression in `native-alpha-encoder.test.ts` checks those sparse-motion limits
+and matches FFmpeg's compressed frames. All benchmark outputs independently
+pass exact-alpha and timeline decoding. The reproducible local benchmark is
+`build/benchmark-alpha-webp.py`.
 
 Engine2D Materials now retain their authored fragment output before the
 renderer-owned compositor multiplies their premultiplied RGBA by the actual
@@ -161,7 +181,8 @@ Missing masks are not replaced with opaque draws.
 synthesizes a ProRes 4444 MOV with a changing alpha strip, exports it using
 the Node CLI by default or standalone ScriptC with
 `NOVELTEA_ALPHA_STANDALONE_CLI=1`, and verifies the single animated-WebP
-sidecar and shared 2-second color timeline in the package, then launches native and Web players. The Web
+sidecar and shared 2-second color timeline in the package, then launches
+native and Web players. The Web
 smoke instruments R8 GPU uploads and compares transparent/half/opaque strips
 within rendered WebGL screenshots **with an authored Engine2D Material**. It
 proves startup, source packaging, repeated alpha uploads, and actual
@@ -176,8 +197,9 @@ resolved by removing production Sharp imports; the rebuilt standalone CLI and
 Node CLI each successfully export transparent MOV to native and Web packages
 with the local FFmpeg override. The native service survives any future QuickJS
 removal unchanged. Windows and macOS process-path qualification is still due.
-The checked-in `ffmpeg-r2` binary does not yet provide the required `libwebp` encoder, so set `NOVELTEA_FFMPEG` to the local build
-until a certified replacement release is pinned.
+The checked-in `ffmpeg-r2` binary does not yet provide the required
+`libwebp_anim` encoder or final-duration fix. Use `NOVELTEA_FFMPEG` with the
+patched local build until the updated encoder is certified and pinned.
 Real Mac/Windows/Android device execution, hardware GPU timings and
 unbounded-duration memory profiling are additional release certification,
 not claims made by the Linux/Web tests.
