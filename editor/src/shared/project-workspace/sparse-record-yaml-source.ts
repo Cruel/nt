@@ -16,7 +16,8 @@ export type SparseRecordFamily =
   | 'verbs'
   | 'interactions'
   | 'dialogues'
-  | 'scenes';
+  | 'scenes'
+  | 'tests';
 type Family = SparseRecordFamily;
 type Shape = Record<string, ZodType>;
 type Dict = Record<string, unknown>;
@@ -238,6 +239,18 @@ const defaults: Record<Family, Readonly<Record<string, unknown>>> = {
     'data.events.*.effects': [],
     'data.events.*.options.*.effects': [],
   },
+  tests: {
+    'data.displayName': '',
+    'data.steps': [],
+    'data.finalExpectations': [],
+    'data.steps.*.enabled': true,
+    'data.steps.*.expectations': [],
+    // Inactive input payloads are retained in normalized data by Zod, but their
+    // defaults are not meaningful commands or targets for the selected input.
+    // Never infer a choice ID, selector, expectation operator or target.
+    'data.steps.*.tick': { deltaSeconds: 0 },
+    'data.steps.*.selectSubjects': { subjects: [] },
+  },
 };
 
 /** Source omission values, indexed by normalized record path; '*' is one sequence item. */
@@ -405,6 +418,7 @@ function convert(
           interactions: 'interaction',
           dialogues: 'dialogue',
           scenes: 'scene',
+          tests: 'test',
         }[family];
       continue;
     }

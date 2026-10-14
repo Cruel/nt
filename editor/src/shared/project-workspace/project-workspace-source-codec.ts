@@ -172,7 +172,7 @@ const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
 export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourceCodec {
   if (/^records\/variables\/[^/]+\.yaml$/u.test(file)) return variableYamlCodec;
   const record =
-    /^records\/(rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes)\/[^/]+\.yaml$/u.exec(
+    /^records\/(rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/[^/]+\.yaml$/u.exec(
       file,
     );
   if (record) {
