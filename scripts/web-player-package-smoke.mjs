@@ -21,6 +21,8 @@ function parseArgs(argv) {
       options.packagePath = path.resolve(argv[++index]);
     } else if (argv[index] === '--video') {
       options.video = true;
+    } else if (argv[index] === '--alpha') {
+      options.alpha = true;
     } else if (argv[index] === '--start-via-title') {
       options.startViaTitle = true;
     } else {
@@ -28,6 +30,7 @@ function parseArgs(argv) {
     }
   }
   if (options.startViaTitle && !options.video) throw new Error('--start-via-title requires --video');
+  if (options.alpha && !options.video) throw new Error('--alpha requires --video');
   options.buildDir = path.resolve(root, options.buildDir);
   return options;
 }
@@ -135,10 +138,12 @@ try {
     page.on('console', (message) => {
       if (message.type() === 'error') consoleErrors.push(message.text());
     });
-    await page.addInitScript(({ videoSmoke, startViaTitle }) => {
+    await page.addInitScript(({ videoSmoke, startViaTitle, alphaSmoke }) => {
       globalThis.__novelteaStartViaTitle = startViaTitle;
+      globalThis.__novelteaAlphaMode = alphaSmoke;
       globalThis.__novelteaLoadingRecords = [];
       globalThis.__novelteaVideoSamples = [];
+      globalThis.__novelteaR8Uploads = [];
       const upload = WebGL2RenderingContext.prototype.texSubImage2D;
       const occurrences = new WeakMap();
       const seeks = new WeakMap();
@@ -155,6 +160,8 @@ try {
       let nextOccurrence = 1;
       WebGL2RenderingContext.prototype.texSubImage2D = function(...args) {
         const source = args.at(-1);
+        if (args.some((value) => value === this.RED) && args.some((value) => value === this.UNSIGNED_BYTE))
+          globalThis.__novelteaR8Uploads.push({ at: performance.now(), args: args.length });
         if (source instanceof HTMLVideoElement) {
           if (!occurrences.has(source)) occurrences.set(source, nextOccurrence++);
           globalThis.__novelteaVideoSamples.push({
@@ -198,7 +205,7 @@ try {
           moduleValue = value;
         },
       });
-    }, { videoSmoke: Boolean(options.video), startViaTitle: Boolean(options.startViaTitle) });
+    }, { videoSmoke: Boolean(options.video), startViaTitle: Boolean(options.startViaTitle), alphaSmoke: Boolean(options.alpha) });
 
     await page.goto(`http://127.0.0.1:${address.port}/player.html`, { waitUntil: 'load' });
     try {
@@ -229,8 +236,9 @@ try {
     if (options.video) {
       // The package isolates Feature Lab's opaque panel in a neutral-camera World Composition Room.
       const colors = new Set();
+      const alphaSamples = [];
       const deadline = Date.now() + startupTimeoutMs;
-      while (Date.now() < deadline && colors.size < 3) {
+      while (Date.now() < deadline && (options.alpha ? alphaSamples.length < 36 : colors.size < 3)) {
         const image = (await page.screenshot({ type: 'png' })).toString('base64');
         const color = await page.evaluate(async (encoded) => {
           const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${encoded}`)).blob());
@@ -240,23 +248,57 @@ try {
           const context = canvas.getContext('2d');
           context.drawImage(bitmap, 0, 0);
           // Center of the authored video-gameplay panel, away from its bounds/letterbox edges.
-          const pixel = context.getImageData(Math.floor(bitmap.width * 0.685), Math.floor(bitmap.height * 0.415), 1, 1).data;
+          const pixel = context.getImageData(Math.floor(bitmap.width * (globalThis.__novelteaAlphaMode ? 0.724 : 0.685)), Math.floor(bitmap.height * 0.415), 1, 1).data;
           bitmap.close();
           const channels = Array.from(pixel).slice(0, 3);
           const strongest = channels.indexOf(Math.max(...channels));
           return channels[strongest] > 80 && channels.every((value, index) => index === strongest || value < channels[strongest] / 2) ? strongest : -1;
         }, image);
         if (color >= 0) colors.add(color);
+        if (options.alpha) {
+          const samples = await page.evaluate(async (encoded) => {
+            const bitmap = await createImageBitmap(await (await fetch(`data:image/png;base64,${encoded}`)).blob());
+            const canvas = document.createElement('canvas');
+            canvas.width = bitmap.width; canvas.height = bitmap.height;
+            const ctx = canvas.getContext('2d');
+            ctx.drawImage(bitmap, 0, 0);
+            const y = Math.floor(bitmap.height * 0.415);
+            const pixels = Array.from({ length: 26 }, (_, index) => 0.60 + index * 0.01).map((x) =>
+              Array.from(ctx.getImageData(Math.floor(bitmap.width * x), y, 1, 1).data).slice(0, 3));
+            bitmap.close();
+            return pixels;
+          }, image);
+          alphaSamples.push(samples);
+        }
         await page.waitForTimeout(250);
       }
       const samples = await page.evaluate(() => globalThis.__novelteaVideoSamples);
-      if (colors.size !== 3 || samples.length < 2 || samples.some((sample) => !sample.paused || !sample.blob || sample.width !== 96 || sample.height !== 64)) {
+      if ((!options.alpha && colors.size !== 3) || samples.length < 2 || samples.some((sample) => !sample.paused || !sample.blob || sample.width !== 96 || sample.height !== 64)) {
         if (process.env.NOVELTEA_WEB_VIDEO_SMOKE_CAPTURE) {
           await page.screenshot({ path: process.env.NOVELTEA_WEB_VIDEO_SMOKE_CAPTURE });
         }
         throw new Error(`opaque browser video did not reach ordinary raster rendering: colors=${[...colors]}, samples=${JSON.stringify(samples.slice(-10))}; page errors=${pageErrors.join(' | ')}; console=${consoleErrors.join(' | ')}`);
       }
-      console.log(`[web-player-package-smoke] browser video: ${samples.length} time-directed samples; red/green/blue reached the raster Visual panel`);
+      console.log(`[web-player-package-smoke] browser video: ${samples.length} time-directed samples; color video reached raster Visual panel`);
+      if (options.alpha) {
+        // The camera/framing and colored scene can change between screenshots.
+        // Within one image, the authored Material's transparent/half/opaque
+        // strips must satisfy premultiplied-alpha compositing. These three
+        // positions are interior to the Feature Lab video's left/middle/right
+        // thirds after its World camera transform.
+        const valid = alphaSamples.slice(-12).map((row) => {
+          const clear = row[5]; // x=.65, 0% alpha
+          const half = row[7];  // x=.67, 50% alpha
+          const full = row[12]; // x=.72, 100% alpha
+          return full.some((value, channel) => Math.abs(value - clear[channel]) > 90) &&
+            half.every((value, channel) =>
+              Math.abs(value - (clear[channel] + full[channel]) * 0.5) < 27);
+        });
+        const uploads = await page.evaluate(() => globalThis.__novelteaR8Uploads.length);
+        if (uploads < 1 || valid.filter(Boolean).length < Math.min(3, valid.length))
+          throw new Error(`Web transparent video compositing failed: R8Uploads=${uploads}, matched=${valid.filter(Boolean).length}/${valid.length}, samples=${JSON.stringify(alphaSamples.slice(-3))}`);
+        console.log(`[web-player-package-smoke] transparent R8 compositing confirmed: uploads=${uploads}, matched=${valid.filter(Boolean).length}/${valid.length}`);
+      }
     }
 
     const result = await page.evaluate(() => ({

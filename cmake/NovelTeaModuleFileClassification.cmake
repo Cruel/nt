@@ -408,6 +408,10 @@ set(NOVELTEA_MODULE_FILES_noveltea_engine
     engine/src/ui/rmlui/runtime_ui.cpp
     engine/include/noveltea/assets/prepared_video_texture.hpp
     engine/src/assets/prepared_video_texture.cpp
+    engine/src/media/animated_webp_alpha.cpp
+    engine/src/media/animated_webp_alpha.hpp
+    engine/src/media/video_alpha_session.cpp
+    engine/src/media/video_alpha_session.hpp
     engine/src/media/native_video_decoder.cpp
     engine/src/media/native_video_decoder.hpp
     engine/src/media/native_video_hardware.cpp

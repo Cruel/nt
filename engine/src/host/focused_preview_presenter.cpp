@@ -1642,6 +1642,33 @@ FocusedPreviewPresenter::prepare_room_state(
                             {error("editor_preview.mixed_video_streams",
                                    "A focused motion must sample one prepared encoded stream.")});
                     prepared_motion.browser_video = video;
+                    if (frame.asset_id.ends_with("-stream")) {
+                        const auto alpha_id =
+                            frame.asset_id.substr(0, frame.asset_id.size() - 7) + "-alpha";
+                        const auto alpha =
+                            std::ranges::find_if(request.resources, [&](const auto& value) {
+                                return value.source_kind == "prepared-media" &&
+                                       value.asset_id == alpha_id;
+                            });
+                        if (alpha != request.resources.end()) {
+                            const auto prefix = video.path.substr(0, video.path.rfind('/') + 1);
+                            if (alpha->kind != "video-alpha" || !alpha->width || !alpha->height ||
+                                *alpha->width != video.width || *alpha->height != video.height ||
+                                !alpha->logical_path.starts_with("project:/" + prefix) ||
+                                !alpha->logical_path.ends_with("/alpha.webp"))
+                                return core::Result<FocusedState, core::Diagnostics>::failure(
+                                    {error("editor_preview.prepared_video_alpha_invalid",
+                                           "Focused video alpha must use the matching private "
+                                           "lossless WebP sidecar and canvas.")});
+                            const auto alpha_path = alpha->logical_path.substr(9);
+                            if (prepared_motion.alpha_webp &&
+                                prepared_motion.alpha_webp->path != alpha_path)
+                                return core::Result<FocusedState, core::Diagnostics>::failure(
+                                    {error("editor_preview.mixed_video_alpha",
+                                           "A focused video motion must use one alpha sidecar.")});
+                            prepared_motion.alpha_webp = core::PreparedVideoAlpha{alpha_path};
+                        }
+                    }
                     prepared_motion.content_hash = prepared->content_hash;
                     prepared_motion.frames.push_back(
                         {prepared->logical_path.substr(9), frame.duration_ms});

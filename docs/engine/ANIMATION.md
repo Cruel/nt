@@ -241,14 +241,16 @@ backend-local motion phase used for the realized raster frame: missing tracks us
 Focus uses the shared authoring timeline helpers for play/pause/scrub/frame-step/marker inspection and
 can author keys for any motion in the selected Animation.
 
-Opaque native video Animation uses persistent per-occurrence VP9 decoding with GPU YUV conversion,
+Native video Animation uses persistent per-occurrence VP9 decoding with GPU YUV conversion,
 including finite named-motion operation parity and representation-derived frame addressing. Web
-realizes the same prepared encoded stream through its browser media adapter. True
-codec-level frame introspection,
-transparent video, dynamic video `visual-alpha`, movies, and animated Inventory icons remain
-follow-up work. The Phase 1 world-presentation sprite-to-Visual
-cutover remains complete, and Interactable world Hotspots can sample sprite Animation frame CPU
-coverage; opaque video does not provide dynamic alpha coverage.
+realizes the same prepared encoded stream through its browser media adapter. Transparent video
+uses one additional lossless animated WebP sidecar from the production media preparer, with
+on-demand decoding, a retained CPU R8 mask for Interactable `visual-alpha` Hotspots, and an
+R8 GPU texture composited **after** the authored Engine2D fragment shader. Color and alpha
+publish together; delayed decoding retains the previous displayed pair and hit coverage.
+Opaque video omits the WebP and does not provide dynamic alpha coverage. True codec-level
+frame introspection, movies, and animated Inventory icons remain follow-up work.
+The Phase 1 world-presentation sprite-to-Visual cutover remains complete.
 
 ## Verification
 

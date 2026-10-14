@@ -8,10 +8,10 @@ import {
   type MediaToolRunner,
 } from './media-preparation-service';
 import {
-  prepareOpaqueVideoMotion,
   probeOpaqueVideoTimeline,
   runVideoMediaToolProcess,
 } from './opaque-video-preparation-service';
+import { prepareProductionVideoMotion } from './transparent-video-tracer';
 import type {
   OpaqueVideoPreparationRequest,
   VideoSourceTimingRequest,
@@ -71,7 +71,7 @@ export async function prepareProjectOpaqueVideo(
     )
       throw new Error('Video Asset changed during preparation.');
     sessions.requireActiveAsset(projectSessionId, request.assetId);
-    const result = await prepareOpaqueVideoMotion(authorized.root, request, tool, run, bytes);
+    const result = await prepareProductionVideoMotion(authorized.root, request, tool, run, bytes);
     sessions.requireActiveAsset(projectSessionId, request.assetId);
     return result;
   } finally {

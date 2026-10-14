@@ -1,18 +1,19 @@
 /**
  * Optional #408 high-resolution media qualification. Creates a source with
  * moving detailed color and antialiased irregular alpha edges, runs the real
- * FFmpeg -> prepared VP9 + lossless WebP path, and exercises both Sharp's
- * trace and a persistent libwebp animation decoder. Does not install a player
- * decoder, export a transparent package, or own runtime presentation (#409).
+ * FFmpeg -> prepared VP9 + lossless WebP path, verifies byte-identical
+ * production streaming export preparation, and exercises Sharp and persistent
+ * libwebp reference decoders. Player/device qualification is separate.
  */
 import { spawnSync } from 'node:child_process';
 import { existsSync } from 'node:fs';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import sharp from 'sharp';
 import { expect, it } from 'vite-plus/test';
 import {
+  prepareProductionVideoMotion,
   traceTransparentVideo,
   WebpAlphaTraceSession,
 } from '../../main/services/transparent-video-tracer';
@@ -113,6 +114,21 @@ it.skipIf(!enabled)(
           ffmpegRun,
         );
         const prepareMs = performance.now() - start;
+        // Production export takes the streaming FFmpeg pipe path, independently
+        // from the test-runner-file tracer, even for full 4K original media.
+        const exported = await prepareProductionVideoMotion(
+          root,
+          {
+            animationId: 'qualification',
+            motionId: 'streamed',
+            assetId: 'source',
+            sourcePath: 'source.mov',
+            canvas: { width: width!, height: height! },
+          },
+          { executable: ffmpeg, bundled: true },
+        );
+        expect(exported.alphaWebp).toBeDefined();
+        expect(await readFile(exported.alphaWebp!.sourcePath)).toEqual(prepared.alphaWebp);
         expect(prepared.colorDurationsMs).toEqual([100, 100, 100]);
         expect(prepared.holds).toEqual([
           { startMs: 0, durationMs: 200 },

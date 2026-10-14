@@ -224,6 +224,10 @@ Result<HeadlessRuntimeInput, Diagnostics> make_headless_running_game_input(
             entries.push_back({{"path", motion.browser_video->path}, {"size", 0}});
             files.push_back({motion.browser_video->path, 0, std::nullopt});
         }
+        if (motion.alpha_webp) {
+            entries.push_back({{"path", motion.alpha_webp->path}, {"size", 0}});
+            files.push_back({motion.alpha_webp->path, 0, std::nullopt});
+        }
     }
 
     nlohmann::json manifest = {

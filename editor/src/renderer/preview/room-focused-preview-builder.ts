@@ -1338,13 +1338,30 @@ export async function buildFocusedRoomPreview(
         usageRoles: ['room-preview'],
         fetchProjectRelativePath: prepared.browserVideo.projectRelativePath,
         logicalPath: `project:/${prepared.browserVideo.projectRelativePath}`,
-        contentHash: prepared.browserVideo.contentHash,
+        contentHash: `sha256:${prepared.browserVideo.contentHash}`,
         byteSize: prepared.browserVideo.byteSize,
         kind: 'video',
         sampling: 'linear',
         width: prepared.browserVideo.width,
         height: prepared.browserVideo.height,
       });
+      if (prepared.alphaWebp) {
+        const alphaAssetId = `prepared-video-${prepared.contentHash.slice(0, 16)}-alpha`;
+        preparedVideoResources.push({
+          resourceId: `asset:${alphaAssetId}`,
+          sourceKind: 'prepared-media',
+          assetId: alphaAssetId,
+          usageRoles: ['room-preview'],
+          fetchProjectRelativePath: prepared.alphaWebp.projectRelativePath,
+          logicalPath: `project:/${prepared.alphaWebp.projectRelativePath}`,
+          contentHash: `sha256:${prepared.alphaWebp.contentHash}`,
+          byteSize: prepared.alphaWebp.byteSize,
+          kind: 'video-alpha',
+          sampling: 'linear',
+          width: prepared.alphaWebp.width,
+          height: prepared.alphaWebp.height,
+        });
+      }
     }
   }
   const focusedAnimations: RoomPreviewDocument['world']['animations'] = worldAnimationIds.flatMap(

@@ -66,6 +66,14 @@ export const opaqueVideoPreparationResultSchema = strict({
     height: z.number().int().positive().max(10_000),
   }),
   frameDurationsMs: z.array(z.number().int().positive()).min(1),
+  alphaWebp: strict({
+    sourcePath: z.string().min(1),
+    projectRelativePath: z.string().min(1),
+    contentHash: z.string().regex(/^[0-9a-f]{64}$/u),
+    byteSize: z.number().int().positive(),
+    width: z.number().int().positive().max(10_000),
+    height: z.number().int().positive().max(10_000),
+  }).optional(),
 });
 
 export const preparedMediaManifestSchema = strict({
@@ -83,6 +91,7 @@ export const preparedMediaManifestSchema = strict({
         height: z.number().int().positive().max(10_000),
       }),
       frames: z.array(strict({ durationMs: z.number().int().positive() })).min(1),
+      alphaWebp: strict({ path: z.string().min(1) }).optional(),
     }),
   ),
 });

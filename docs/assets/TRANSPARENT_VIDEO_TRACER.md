@@ -1,11 +1,11 @@
 # Transparent-video integration tracer (#408)
 
-This is a validation path for the selected **opaque VP9/WebM color + one
-lossless animated WebP alpha** representation, not a new authoring format or
-a production transparent-video package reader. The sole authorable video
-source remains an Asset referenced by an Animation. #409 owns transparent
-runtime package/lease publication, native/Web player decoders, authored
-Material integration, and Interactable visual-alpha parity.
+This began as the #408 validation path for the selected **opaque VP9/WebM
+color + one lossless animated WebP alpha** representation. #409 now reuses
+that transport in its production prepared-media package and native player;
+the sole authorable video source remains an Asset referenced by an Animation.
+This document records the initial proof as well as subsequent implementation
+and remaining qualification limits.
 
 ## Implemented evidence
 
@@ -26,8 +26,8 @@ Material integration, and Interactable visual-alpha parity.
   into one timed hold, not duplicated to align with video color frames.
   WebP metadata, delays, all page pixels, and byte-for-byte alpha
   round-tripping are verified. The temporary raw masks are removed. The
-  tracer refuses raw decoded alpha exceeding 64 MiB, rather than trying
-  to materialize unlimited video samples in memory.
+  production path subsequently replaced its all-frames buffer with
+  backpressured FFmpeg streaming, one R8 canvas at a time.
 - `WebpAlphaTraceSession` holds the compressed WebP plus at most one
   decoded CPU alpha mask at a time, reuses that mask for held intervals,
   and exposes the same R8 bytes to CPU hit queries (`alpha > 0`). Sharp
@@ -105,6 +105,67 @@ GPU-throughput benchmark**, and do not establish a numerical acceptance
 gate. Real footage, motion complexity, seeking costs, edge halos, and
 platform/device memory still require production player qualification.
 
+## #409 production runtime playback
+
+The editor/CLI export adapter prepares VP9 color and, when the original source
+has nonopaque pixels, a lossless WebP alpha sidecar from the same immutable source
+snapshot with exact matching color-sample timestamps. The private package
+manifest carries `alphaWebp.path`; package assembly verifies its inventory and
+colocation with `opaque.webm`. Opaque videos still have no sidecar. The focused
+Room preview now admits the same alpha resource and binds it to the prepared
+motion; the preview does not synthesize a separately authored mask.
+
+The production player now includes a bounded persistent `AnimatedWebpAlpha`
+reader using the already-linked bimg lossless VP8L decoder on native and Web.
+It validates the RIFF animation, frame extents, duration and full color timeline;
+retains one compressed source and one R8 composited CPU mask; and handles held
+pages and rewind/replay. A single unchanged alpha mask uses a still WebP page,
+which has no WebP ANIM duration metadata; the paired color motion supplies its
+hold duration. `VideoAlphaSession` owns three independent R8 GPU textures per
+active video occurrence, uploads only when a page changes, exposes the
+last-presented CPU alpha for visual-alpha Hotspots, and releases its resources
+at occurrence teardown. `PreparedVideoStream` lazily creates this session on
+first demand, so an unused or superseded candidate snapshot does not allocate
+textures. Completed color samples publish their matching alpha page first;
+late color samples retain the previous displayed color/alpha pair. A missing
+alpha texture suppresses rendering instead of silently treating the video as
+opaque. The built-in video quad shader composites this pair without chroma key.
+
+Production alpha preparation streams grayscale frames through a single R8
+canvas under FFmpeg pipe backpressure. A separate test-runner file path reads
+one frame at a time. Both paths deduplicate held masks and assemble lossless
+VP8L pages into one animated-WebP RIFF without a whole-video raw atlas; the
+compressed output is bounded to 128 MiB.
+
+Engine2D Materials now retain their authored fragment output before the
+renderer-owned compositor multiplies their premultiplied RGBA by the actual
+WebP mask. The Material source compiler wraps the fragment entry point without
+modifying the authored source or losing Metal's entry-point varyings; the
+reserved sampler is on stage 15 and is hidden from author-facing reflection.
+Opaque Materials receive a white mask. The built-in quad preset uses the
+existing native `video_alpha` shader at stage 1 for transparent videos.
+Missing masks are not replaced with opaque draws.
+
+`scripts/certify-transparent-video-package-scenarios.mjs --native --web`
+synthesizes a ProRes 4444 MOV with a changing alpha strip, exports it using
+the Node CLI, verifies the single animated-WebP sidecar and shared 2-second
+color timeline in the package, then launches native and Web players. The Web
+smoke instruments R8 GPU uploads and compares transparent/half/opaque strips
+within rendered WebGL screenshots **with an authored Engine2D Material**. It
+proves startup, source packaging, repeated alpha uploads, and actual
+post-Material compositing. The native smoke exercises R8 GPU readback under
+Xvfb/llvmpipe; the native packaged player exercises initial playback/shutdown.
+Shaderc builds the wrapped Material for GLSL 330, WebGL2 ESSL 300 and Metal.
+The native and Web decoder reuse identical animated-WebP logic.
+
+The standalone ScriptC CLI is separately selectable with
+`NOVELTEA_ALPHA_STANDALONE_CLI=1`; it currently fails even ordinary `validate`
+with `Could not find export 'default' in module 'scr:import-trap:0'`,
+independent of transparent video. The production Node CLI export passes.
+Real Mac/Windows/Android device execution, hardware GPU timings and
+unbounded-duration memory profiling are additional release certification,
+not claims made by the Linux/Web tests.
+
 ## #408 qualification and #409 boundary
 
 The selected **one lossless animated WebP alpha + prepared VP9 color**
@@ -124,8 +185,8 @@ coalesced alpha pages, 10 FPS, generated moving antialiased coverage):
 
 | Canvas | Prepared alpha WebP | One R8 mask | Real prepare | Sharp 0→1→0 sample | Persistent libwebp steady RSS (after replay) | Persistent libwebp peak RSS | Node/test RSS after run |
 | --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
-| 1920×1080 | 3,290 bytes | 2.1 MB | 2.9 s | 2.7 s | ~55 MB | ~315 MB | ~1.17 GB |
-| 3840×2160 | 10,380 bytes | 8.3 MB | 9.8 s | 12.1 s | ~177 MB | ~852 MB | ~3.14 GB |
+| 1920×1080 | 4,134 bytes | 2.1 MB | 3.0 s | 2.6 s | ~54 MB | ~286 MB | ~1.15 GB |
+| 3840×2160 | 13,640 bytes | 8.3 MB | 10.1 s | 12.0 s | ~173 MB | ~930 MB | ~3.66 GB |
 
 Steady and peak RSS are **whole-process** measurements from an isolated
 Python/libwebp probe; the last column covers Node/Vitest/Sharp, source buffers,
@@ -137,12 +198,10 @@ random seeks instead of growing once per replay. The generated source's
 compressed alpha is highly compressible; more varied real-world footage
 can have substantially larger encoded WebP sizes.
 
-**Owned by #409, not #408:** publish the alpha sidecar in private prepared
-media; implement persistent **production** native and Web/WASM decoder owners
-with explicit budgets/disposal; automatically synchronize color + R8 mask
-publication and retain the last complete pair; project GPU/current-frame mask
-into Interactable hit tests; integrate authored Materials, focused Room preview,
-background/foreground lifecycle, and packaged/Web platform parity. The
-current GPU tracer deliberately pairs samples at test time and does **not**
-pretend these production features exist. Keep the one-WebP transport decision
+**Qualification boundary:** Native/Web production playback, authored
+Engine2D Material alpha, and actual package inventory are now covered by
+automated tests; 1080p/4K generated-source export and bounded decoder replay
+have also been exercised. Native GPU tests under Xvfb use llvmpipe, not the
+end-user GPU. Mac/Windows/Android hardware and longer real-footage sessions
+remain device-release qualification. Keep the one-WebP transport decision
 fixed.

@@ -1,10 +1,8 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import {
-  prepareOpaqueVideoMotion,
-  runVideoMediaToolProcess,
-} from './opaque-video-preparation-service';
+import { runVideoMediaToolProcess } from './opaque-video-preparation-service';
+import { prepareProductionVideoMotion } from './transparent-video-tracer';
 import { installedMediaTool, type MediaToolRunner } from './media-preparation-service';
 import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
@@ -26,7 +24,7 @@ export function createNodeRuntimeArtifactPaths(
     },
     async prepareOpaqueVideo(projectRoot, request) {
       if (!projectRoot) throw new Error('Video preparation requires a Project root.');
-      return prepareOpaqueVideoMotion(
+      return prepareProductionVideoMotion(
         projectRoot,
         request,
         installedMediaTool(process.env.NOVELTEA_FFMPEG === undefined ? cliExecutable() : undefined),

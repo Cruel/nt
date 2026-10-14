@@ -229,6 +229,56 @@ describe('hotspot semantic validation', () => {
     expect(codes(project)).not.toContain('hotspot.authoring.target.feature-missing');
   });
 
+  it('permits dynamic visual-alpha Hotspots for video Animations without extra authored masks', () => {
+    const project = createAuthoringProject();
+    project.assets.video = {
+      id: 'video',
+      label: 'Video',
+      data: {
+        kind: 'video',
+        source: { type: 'project-file', path: 'assets/video/clip.mov' },
+        aliases: [],
+        imageMetadata: null,
+      },
+    };
+    project.animations.clip = {
+      id: 'clip',
+      label: 'Clip',
+      data: {
+        kind: 'animation',
+        canvas: { width: 128, height: 128 },
+        defaultMotionId: 'motion',
+        motions: [
+          {
+            id: 'motion',
+            kind: 'video',
+            video: { $ref: { collection: 'assets', id: 'video' } },
+            markers: [],
+            sourceRange: { startMs: 0, endMs: 2000 },
+          },
+        ],
+      },
+    };
+    const item = defaultInteractableData('Clip');
+    item.presentation.visual = {
+      kind: 'animation',
+      animation: { $ref: { collection: 'animations', id: 'clip' } },
+      motionId: null,
+      playback: null,
+    };
+    primaryHotspot(item).target = { kind: 'none' };
+    project.interactables.clip = { id: 'clip', label: 'Clip', data: item };
+
+    const diagnostics = codes(project);
+    expect(diagnostics).not.toContain('hotspot.authoring.video-alpha-unsupported');
+    expect(diagnostics).not.toContain('hotspot.authoring.visual-invalid');
+    expect(diagnostics).not.toContain('hotspot.authoring.source-image-required');
+
+    // Validation must still reject an unresolved motion, not accept any video ref.
+    item.presentation.visual.motionId = 'missing';
+    expect(codes(project)).toContain('hotspot.authoring.visual-invalid');
+  });
+
   it('validates hotspot highlight compatibility from the authoritative Material preset contract', () => {
     const project = createAuthoringProject();
     project.assets.image = { id: 'image', label: 'Image', data: imageAsset() };

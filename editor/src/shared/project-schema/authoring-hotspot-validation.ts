@@ -334,17 +334,7 @@ export function validateInteractableHotspotAuthoringSemantics(
             'hotspot.authoring.visual-invalid',
           ),
         );
-      else if (motion.kind === 'video') {
-        if (definition.kind === 'visual-alpha')
-          diagnostics.push(
-            diagnostic(
-              'Interactables',
-              `${base}/visual`,
-              'Video Animation does not provide dynamic alpha hit coverage yet.',
-              'hotspot.authoring.video-alpha-unsupported',
-            ),
-          );
-      } else
+      else if (motion.kind === 'sprite-sequence')
         for (const frame of motion.frames)
           diagnostics.push(
             ...validateSourceImage(

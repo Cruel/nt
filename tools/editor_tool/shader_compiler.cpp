@@ -28,6 +28,7 @@ bool compileShader(const char* varying, const char* comment, char* shader, std::
 #include <iterator>
 #include <memory>
 #include <optional>
+#include <regex>
 #include <span>
 #include <sstream>
 #include <string>
@@ -52,6 +53,67 @@ vec2 a_texcoord0  : TEXCOORD0;
 vec2 v_texcoord0  : TEXCOORD0;
 vec4 v_color0     : COLOR0;
 )sc";
+
+// BGFX lowers fragment varyings to entry-point parameters on Metal/HLSL.
+// Keep authored main() intact: a wrapper calling a renamed helper would lose
+// those parameters. Apply the renderer-owned R8 mask immediately before every
+// return and at the normal exit. The authored RGB/alpha is premultiplied.
+[[nodiscard]] std::optional<std::string> wrap_engine_2d_video_alpha(std::string_view source)
+{
+    if (source.find("s_videoAlpha") != std::string_view::npos)
+        return std::nullopt;
+    static const std::regex entry{R"(\bvoid\s+main\s*\(\s*(?:void)?\s*\))"};
+    const std::string original(source);
+    std::smatch match;
+    if (!std::regex_search(original, match, entry) ||
+        std::regex_search(match.suffix().str(), entry))
+        return std::nullopt;
+    const auto begin = static_cast<std::size_t>(match.position());
+    const auto brace = original.find('{', begin + static_cast<std::size_t>(match.length()));
+    if (brace == std::string::npos ||
+        original.substr(begin + static_cast<std::size_t>(match.length()),
+                        brace - begin - static_cast<std::size_t>(match.length()))
+                .find(';') != std::string::npos)
+        return std::nullopt;
+    // Ignore braces inside source comments and strings while locating main's
+    // real closing brace. No authored source is modified on disk.
+    std::size_t depth = 0;
+    std::size_t end = std::string::npos;
+    bool quoted = false;
+    bool line_comment = false;
+    bool block_comment = false;
+    for (std::size_t i = brace; i < original.size(); ++i) {
+        const char ch = original[i];
+        const char next = i + 1 < original.size() ? original[i + 1] : '\0';
+        if (line_comment) {
+            if (ch == '\n') line_comment = false;
+            continue;
+        }
+        if (block_comment) {
+            if (ch == '*' && next == '/') { block_comment = false; ++i; }
+            continue;
+        }
+        if (!quoted && ch == '/' && next == '/') { line_comment = true; ++i; continue; }
+        if (!quoted && ch == '/' && next == '*') { block_comment = true; ++i; continue; }
+        if (ch == '"' && (i == 0 || original[i - 1] != '\\')) { quoted = !quoted; continue; }
+        if (quoted) continue;
+        if (ch == '{') ++depth;
+        if (ch == '}' && --depth == 0) { end = i; break; }
+    }
+    if (end == std::string::npos)
+        return std::nullopt;
+    const std::string mask = "gl_FragColor *= texture2D(s_videoAlpha, v_texcoord0).r;";
+    const auto body = original.substr(brace + 1, end - brace - 1);
+    static const std::regex early_return{R"(\breturn\s*;)"};
+    const auto covered = std::regex_replace(body, early_return, "{ " + mask + " return; }");
+    std::string wrapped = original.substr(0, begin);
+    wrapped += "\n// Renderer-owned optional WebP alpha mask.\nSAMPLER2D(s_videoAlpha, 15);\n";
+    wrapped += original.substr(begin, brace + 1 - begin);
+    wrapped += covered;
+    wrapped += "\n" + mask + "\n";
+    wrapped += original.substr(end);
+    return wrapped;
+}
 
 constexpr std::uint64_t fnv_offset = 14695981039346656037ull;
 constexpr std::uint64_t fnv_prime = 1099511628211ull;
@@ -1680,6 +1742,8 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
     struct StageWork {
         ShaderStage stage = ShaderStage::Fragment;
         ResolvedSourceFile source;
+        std::filesystem::path compiled_source;
+        bool video_alpha_wrapped = false;
         std::vector<std::pair<std::string, std::string>> dependencies;
     };
     std::vector<StageWork> stages;
@@ -1690,6 +1754,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
         if (!source)
             return false;
         StageWork work{.stage = stage, .source = std::move(*source)};
+        work.compiled_source = work.source.path;
         if (!collect_source_dependencies(work.source, effective_options, work.dependencies,
                                          result.diagnostics, stage)) {
             return false;
@@ -1718,6 +1783,37 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
         }
     }
 
+    // Engine2D fragment programs always receive a renderer-owned optional
+    // alpha plane. The wrapper retains the authored main() entry point for
+    // Metal/HLSL varying parity and multiplies the premultiplied output before
+    // its exits. Opaque quads bind a white plane.
+    const bool wrap_video_alpha =
+        role_contract && role_contract->id == "engine-2d";
+    if (wrap_video_alpha) {
+        for (auto& stage : stages) {
+            if (stage.stage != ShaderStage::Fragment)
+                continue;
+            const auto source_text = read_text_file(stage.source.path);
+            if (!source_text) return result;
+            const auto wrapped = wrap_engine_2d_video_alpha(*source_text);
+            if (!wrapped) {
+                add_contract_diagnostic(result.diagnostics, stage.stage, stage.source.path,
+                                        "Engine2D fragment source has no safe, unique main() to wrap.");
+                return result;
+            }
+            stage.compiled_source = effective_options.cache_root / "shader-cache" /
+                                    "video-alpha-fragments" / (hash_hex(*wrapped) + ".sc");
+            if (!write_text_file_if_changed(stage.compiled_source, *wrapped)) {
+                add_diagnostic(result.diagnostics, ShaderCompileSeverity::Error,
+                               ShaderCompileDiagnosticCode::SourceWriteFailed, ShaderId{},
+                               stage.stage, {}, stage.source.path, stage.compiled_source, {}, 0,
+                               "Failed to write renderer-owned alpha-compositing shader.");
+                return result;
+            }
+            stage.video_alpha_wrapped = true;
+        }
+    }
+
     std::ostringstream identity_input;
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
     identity_input << "shaderc=embedded-bgfx-" NOVELTEA_BGFX_VERSION_STRING "\n";
@@ -1725,6 +1821,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
 #else
     identity_input << "shaderc=unavailable\n";
 #endif
+    identity_input << "video-alpha-wrapper=engine-2d-v1:" << wrap_video_alpha << '\n';
     identity_input << "interface=" << request.interface_contract << '\n';
     identity_input << "interface_fingerprint=" << request.interface_fingerprint << '\n';
     identity_input << "varying=" << effective_varying.identity << '\n'
@@ -1753,7 +1850,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
             const auto output_path = effective_options.output_root / package_path;
 
             std::vector<std::string> args = {
-                "shaderc", "-f", path_utf8(stage.source.path), "-o", path_utf8(output_path),
+                "shaderc", "-f", path_utf8(stage.compiled_source), "-o", path_utf8(output_path),
                 "--type", shaderc_stage_type(stage.stage), "--platform", variant.platform,
                 "--profile", variant.profile, "--varyingdef", path_utf8(effective_varying.path),
                 "-i", path_utf8(effective_options.project_root / "shaders"),
@@ -1769,6 +1866,7 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                 effective_options.project_root / "shaders"};
             if (!effective_options.engine_shader_root.empty())
                 include_roots.push_back(effective_options.engine_shader_root);
+            include_roots.push_back(stage.source.path.parent_path());
             include_roots.push_back(*embedded_include_root);
 #endif
             const auto command_line = command_line_from_args(args);
@@ -1814,7 +1912,11 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                                                         probe_directory_error);
                     if (probe_directory_error ||
                         !write_text_file_if_changed(
-                            dependency_path, instrument_sampler_declarations(dependency_text))) {
+                            dependency_path,
+                            identity == stage.source.identity && stage.video_alpha_wrapped
+                                ? *wrap_engine_2d_video_alpha(
+                                      instrument_sampler_declarations(dependency_text))
+                                : instrument_sampler_declarations(dependency_text))) {
                         probe_ready = false;
                         break;
                     }
@@ -1859,6 +1961,21 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
                     }
                 }
 #endif
+                if (stage.video_alpha_wrapped) {
+                    // The reserved post-Material sampler is not part of the
+                    // authorable Material interface or exposed reflection.
+                    std::erase_if(reflected->inputs, [](const auto& input) {
+                        return input.name == "s_videoAlpha";
+                    });
+                }
+                if (wrap_video_alpha && std::ranges::any_of(reflected->inputs, [](const auto& input) {
+                        return input.kind == ShaderReflectedInputKind::SampledImage &&
+                               input.register_index == 15;
+                    })) {
+                    add_contract_diagnostic(result.diagnostics, stage.stage, stage.source.path,
+                                            "Sampler stage 15 is reserved for video alpha.");
+                    return false;
+                }
                 if (preset_contract != nullptr && role_contract != nullptr &&
                     !validate_reflected_contract(*preset_contract, *role_contract, stage.stage,
                                                  reflected->inputs, stage.source.path,
@@ -1932,8 +2049,9 @@ ShaderSourceProgramCompileResult ShaderCompilerService::compile_source_program(
             }
 
 #if NOVELTEA_HAS_EMBEDDED_SHADERC
-            const auto process = run_embedded_shaderc(args, stage.stage, variant, stage.source.path,
-                                                      output_path, effective_varying.path, include_roots);
+            const auto process = run_embedded_shaderc(args, stage.stage, variant,
+                                                      stage.compiled_source, output_path,
+                                                      effective_varying.path, include_roots);
 #else
             const ProcessResult process{.exit_code = -1, .output = "embedded shaderc is unavailable"};
 #endif

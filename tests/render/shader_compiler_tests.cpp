@@ -438,6 +438,22 @@ TEST_CASE("Material source programs certify renderer ABI and reflected sampler s
     REQUIRE(sampler != fragment->reflected_inputs.end());
     CHECK(sampler->register_index == 0);
     CHECK(sampler->register_count == 1);
+    // The Video alpha sampler is renderer-owned and deliberately invisible to
+    // authored Material parameters and reflected input contracts.
+    CHECK(std::ranges::none_of(fragment->reflected_inputs,
+                               [](const auto& input) { return input.name == "s_videoAlpha"; }));
+    const auto masked_source = options.cache_root / "shader-cache" / "video-alpha-fragments";
+    CHECK(std::filesystem::is_directory(masked_source));
+    bool compositor_found = false;
+    for (const auto& entry : std::filesystem::directory_iterator(masked_source)) {
+        std::ifstream file(entry.path(), std::ios::binary);
+        const std::string wrapped((std::istreambuf_iterator<char>(file)),
+                                  std::istreambuf_iterator<char>{});
+        compositor_found =
+            compositor_found ||
+            wrapped.find("gl_FragColor *= texture2D(s_videoAlpha,") != std::string::npos;
+    }
+    CHECK(compositor_found);
 
     write_text(options.project_root / "shaders" / "effect.fs.sc",
                "$input v_texcoord0, v_color0\n"
