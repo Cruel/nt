@@ -2777,6 +2777,108 @@ describe('NovelTea headless CLI', () => {
     }
   });
 
+  it('routes YAML-authored semantic activation and UI clicks to distinct runners', async () => {
+    const project = validProject();
+    project.characters.actor = createDefaultAuthoringRecord(
+      'characters',
+      'actor',
+    ) as typeof project.characters.actor;
+    const semantic = defaultTestData('Semantic');
+    semantic.steps = [
+      {
+        ...defaultTestStep('primary-activate'),
+        id: 'activate',
+        label: 'Activate',
+        subjectAction: {
+          subject: {
+            kind: 'character',
+            character: { $ref: { collection: 'characters', id: 'actor' } },
+          },
+        },
+      },
+    ];
+    semantic.preview.selectedStepId = 'activate';
+    const ui = defaultTestData('UI');
+    ui.steps = [
+      {
+        ...defaultTestStep('ui-click'),
+        id: 'click',
+        label: 'Click',
+        uiClick: { documentId: 'runtime_game', mountInstanceId: null, selector: '#confirm' },
+      },
+    ];
+    ui.preview.selectedStepId = 'click';
+    project.tests.semantic = { id: 'semantic', label: 'Semantic', data: semantic };
+    project.tests.ui = { id: 'ui', label: 'UI', data: ui };
+    const files = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/tests/semantic.yaml', 'records/tests/ui.yaml']),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(files).map(([path, source]) => [`${root}/${path}`, source]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fileSystem);
+    const called: string[] = [];
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async runHeadlessTest(request) {
+        called.push(`semantic:${(request as { spec: { id: string } }).spec.id}`);
+        return { ok: true, success: true };
+      },
+      async runUiTest(request) {
+        called.push(`ui:${(request as { spec: { id: string } }).spec.id}`);
+        return { ok: true, success: true };
+      },
+    };
+    for (const id of ['semantic', 'ui']) {
+      const result = await runNovelTeaCli(['--json', 'test', 'run', id], {
+        cwd: root,
+        fileSystem,
+        workspace,
+        nativeTools,
+      });
+      expect(result.exitCode, `${id}: ${JSON.stringify(result.envelope.diagnostics)}`).toBe(0);
+    }
+    expect(called).toEqual(['semantic:semantic', 'ui:ui']);
+    const failingTools: NovelTeaCliNativeToolService = {
+      ...nativeTools,
+      async runHeadlessTest() {
+        return {
+          ok: true,
+          success: true,
+          report: {
+            schema: 'noveltea.editor.playback-report',
+            passed: false,
+            diagnostics: [
+              { severity: 'error', path: '/steps/0', message: 'Expected activation failed.' },
+            ],
+          },
+        };
+      },
+    };
+    const failure = async () =>
+      runNovelTeaCli(['--json', 'test', 'run', 'semantic'], {
+        cwd: root,
+        fileSystem,
+        workspace,
+        nativeTools: failingTools,
+      });
+    const first = await failure();
+    const second = await failure();
+    expect(first.exitCode).not.toBe(0);
+    expect(first.envelope.diagnostics).toEqual(second.envelope.diagnostics);
+    expect(first.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'native.test.failed',
+        severity: 'error',
+      }),
+    );
+  });
+
   it('routes authored semantic tests through the headless runner with project authority', async () => {
     const project = validProject();
     project.tests.semantic = {
