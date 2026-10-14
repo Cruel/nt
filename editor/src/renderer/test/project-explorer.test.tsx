@@ -531,7 +531,7 @@ describe('ProjectExplorer', () => {
     await user.click(screen.getByRole('button', { name: /^delete$/i }));
     expect(await screen.findByText('author note')).toBeInTheDocument();
     expect(screen.getAllByRole('dialog')).toHaveLength(1);
-    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await user.keyboard('{Escape}');
     await flushStructuralCommandPersistence();
     expect(useProjectStore.getState().document).toMatchObject({
       rooms: { target: { id: 'target' } },

@@ -476,7 +476,14 @@ function EntityOperationDialog({
     <Dialog
       open
       onOpenChange={(open) => {
-        if (!open) onClose();
+        if (open) return;
+        // Escape/backdrop dismissal during an inline comment review must
+        // resolve the pending save, not orphan a queued structural transaction.
+        if (pendingDeleteCommandId) {
+          if (inlineDeleteComments) resolveProjectComments('cancel');
+          return;
+        }
+        onClose();
       }}
     >
       <DialogPopup key={`${state.action}:${state.collection}:${state.entityId ?? ''}`}>
