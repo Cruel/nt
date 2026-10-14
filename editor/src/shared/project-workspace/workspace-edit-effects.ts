@@ -230,11 +230,14 @@ export function externalAssetContributionKeys(
 
 /** Classify one admitted edit batch once; consumers select work without restating path rules. */
 export function classifyWorkspaceEditEffects(
-  paths: readonly string[],
+  changedPaths: readonly string[],
   before: AuthoringProject,
   after: AuthoringProject,
   semanticInputsUnchanged: boolean,
 ): WorkspaceEditEffects {
+  const paths = changedPaths.map((path) =>
+    path.startsWith('i18n/') ? path.replace(/\.yaml$/u, '.json') : path,
+  );
   const every = (predicate: (path: string) => boolean) =>
     paths.length > 0 && paths.every(predicate);
   const records = paths.map((path) => recordEdit(before, after, path));

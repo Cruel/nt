@@ -143,6 +143,7 @@ export const localizationReconcileCommand: CliCommandDefinition = {
         const localizationFiles = projectWorkspaceChangedLocalizationFiles(
           context.snapshot.project.localization,
           result.project.localization,
+          new Set(context.snapshot.canonicalSourceFiles),
         );
         if (result.changed)
           await context.workspace.write(
