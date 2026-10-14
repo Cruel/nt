@@ -236,6 +236,52 @@ describe('source-aware workspace mutations', () => {
     expect(restored).toContain('id: second # second item');
     expect(restored).toContain('id: inserted # agent added');
   });
+  it('removes an affected comment by item identity when a commented item is reordered and edited', async () => {
+    const project = createAuthoringProject({ id: 'comments', name: 'Comments' });
+    const data = defaultTestData('Test');
+    data.steps.push({ ...structuredClone(data.steps[0]!), id: 'second', label: 'Second' });
+    project.tests.example = { id: 'example', label: 'Example', data };
+    const name = 'records/tests/example.yaml';
+    const sources = projectWorkspaceFiles(project, project.editor, {}, new Set([name]));
+    const source = sources[name]!.replace('label: Second', 'label: Second # edit me').replace(
+      'label: Start',
+      'label: Start # leave me',
+    );
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(sources).map(([file, text]) => [
+          `${root}/${file}`,
+          file === name ? source : text,
+        ]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fs);
+    const opened = await workspace.open(root);
+    if (!opened.ok) throw new Error('Test fixture failed to open');
+    const next = cloneAuthoringProject(opened.snapshot.project);
+    const steps = next.tests.example!.data.steps;
+    steps.reverse();
+    steps[0]!.label = 'Updated Second';
+    const result = await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      next,
+      next.editor,
+      {},
+      { affectedPaths: ['/tests/example/data/steps'], commentDisposition: 'remove' },
+    );
+    expect(result.commentImpacts).toEqual([
+      expect.objectContaining({
+        path: '/data/steps/0/label',
+        comment: ' edit me',
+        kind: 'changed',
+      }),
+    ]);
+    const persisted = await fs.readText(`${root}/${name}`);
+    expect(persisted).toContain('label: Updated Second');
+    expect(persisted).not.toContain('# edit me');
+    expect(persisted).toContain('label: Start # leave me');
+  });
   it('reports explicit CLI deletion comments in dry-run and result, then restores source on Undo', async () => {
     const { fs, workspace, opened } = await fixture();
     const options = { dryRun: true, force: false, allowPossibleSourceReferences: false };
@@ -316,6 +362,41 @@ describe('source-aware workspace mutations', () => {
       { file, path: '/data/value', comment: ' starting score', kind: 'changed' },
     ]);
     expect(await fs.readText(`${root}/${file}`)).toBe(original);
+  });
+
+  it('groups multiple affected field comments and removes only those annotations', async () => {
+    const { fs, workspace, opened } = await fixture();
+    const next = cloneAuthoringProject(opened.snapshot.project);
+    next.variables.score!.label = 'New score';
+    next.variables.score!.data.value = 5;
+    const preview = await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      next,
+      next.editor,
+      {},
+      { affectedPaths: ['/variables/score'], dryRun: true },
+    );
+    expect(preview.commentImpacts).toEqual([
+      { file, path: '/label', comment: ' label intent', kind: 'changed' },
+      { file, path: '/data/value', comment: ' starting score', kind: 'changed' },
+    ]);
+    expect(await fs.readText(`${root}/${file}`)).toBe(original);
+    await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      next,
+      next.editor,
+      {},
+      { affectedPaths: ['/variables/score'], commentDisposition: 'remove' },
+    );
+    const saved = await fs.readText(`${root}/${file}`);
+    expect(saved).toContain('label: New score');
+    expect(saved).toContain('value: 5');
+    expect(saved).not.toContain('# label intent');
+    expect(saved).not.toContain('# starting score');
+    expect(saved).toContain('# Record intent');
+    expect(saved).toContain('nullable: false # deliberate default');
   });
 
   it('rejects stale and malformed external source and preserves a reconciled comment-only edit', async () => {

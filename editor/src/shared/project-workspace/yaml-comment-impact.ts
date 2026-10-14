@@ -66,7 +66,15 @@ export function yamlCommentImpacts(beforeText: string, afterText?: string): Yaml
         new Set(nextIds).size === nextIds.length;
       node.items.forEach((item, index) => {
         const nextIndex = keyed ? nextIds.indexOf(oldIds[index]) : index;
-        visit(item as Node, old[index], nextItems[nextIndex], pointer(path, index));
+        // Changed surviving items are located at their new source index. Use that
+        // physical path for both the warning and the subsequent Remove action.
+        // Deleted entries have no new index, so report their original location.
+        visit(
+          item as Node,
+          old[index],
+          nextItems[nextIndex],
+          pointer(path, nextIndex >= 0 ? nextIndex : index),
+        );
       });
     }
   };
