@@ -49,7 +49,9 @@ function recordEdit(
   after: AuthoringProject,
   path: string,
 ): RecordEdit | null {
-  const match = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(path);
+  const match = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.(?:json|yaml))$/u.exec(
+    path,
+  );
   if (!match || !isAuthoringCollectionKey(match[1]!)) return null;
   const collection = match[1];
   const id = match[2]!;

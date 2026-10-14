@@ -421,7 +421,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        'The staged Variables tracer uses `records/variables/<id>.yaml`; most other collections remain JSON until their cutover. The `data.kind` field is determined by the record family and must be omitted. `data.nullable` defaults to `false` and `data.scope` to `global`; `data.value` remains required.',
+        'Variables use `records/variables/<id>.yaml`, alongside canonical YAML owners for all structured Project source. The `data.kind` field is determined by the record family and must be omitted. `data.nullable` defaults to `false` and `data.scope` to `global`; `data.value` remains required.',
         '',
         '```yaml',
         example.trimEnd(),
@@ -468,7 +468,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        `A staged ${family} record uses \`records/${family}/<id>.yaml\`; existing JSON owners remain until the project-wide cutover. The record ID matches the filename. Asset \`data.kind\` is required because it identifies the asset type; Animation and Material kinds are implicit. Resource identity, import provenance, content hashes, animation timing, and material/shader settings are not discarded. Structured source uses restricted YAML; referenced media and shader files keep their original paths.`,
+        `A ${family} record uses \`records/${family}/<id>.yaml\`; new records always use YAML. The record ID matches the filename. Asset \`data.kind\` is required because it identifies the asset type; Animation and Material kinds are implicit. Resource identity, import provenance, content hashes, animation timing, and material/shader settings are not discarded. Structured source uses restricted YAML; referenced media and shader files keep their original paths.`,
         '',
         '```yaml',
         example.trimEnd(),
@@ -527,7 +527,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        'These records use restricted YAML with stable record identities and comments. Existing JSON owners remain valid during the staged cutover. Layout metadata lives in `records/layouts/<id>/layout.yaml`; RML, RCSS, and Lua remain separate companion files with explicit ownership selectors. Script Module YAML references canonical `scripts/*.lua` project files, never embeds Lua. Archetype overrides remain JSON Pointers, and inheritance and default-property semantics are unchanged.',
+        'These records use restricted YAML with stable record identities and comments. Layout metadata lives in `records/layouts/<id>/layout.yaml`; RML, RCSS, and Lua remain separate companion files with explicit ownership selectors. Script Module YAML references canonical `scripts/*.lua` project files, never embeds Lua. Archetype overrides remain JSON Pointers, and inheritance and default-property semantics are unchanged.',
         '',
         '```yaml',
         example.trimEnd(),
@@ -585,7 +585,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        `A staged ${family} YAML owner uses \`records/${family}/<id>.yaml\`; existing JSON owners are retained until the complete cutover. This checked example expands to the strict normalized record. The record ID must match the filename, and \`data.kind\` is implicit. Statically typed references use bare IDs (not \`$ref\` wrappers); registry/owner-qualified references retain their explicit identity. A scalar \`always\` is accepted only for typed Conditions. Omitted defaults expand recursively through the paths below. Identities, discriminators, typed Property values and Character-local versus Interactable definition-default Properties are preserved. For Verbs and Interactions, named slots, selector variants, priority tiers and rule/Command order are semantic; Offer discovery is independent from direct execution and Guards, and \`unhandled\` must remain explicit to preserve fallback. Non-default presentation and explicit optional/null fields retain their original semantics. The shape above describes the normalized runtime/editor model; this YAML example describes authored source.`,
+        `A ${family} YAML owner uses \`records/${family}/<id>.yaml\`; new records always use YAML. This checked example expands to the strict normalized record. The record ID must match the filename, and \`data.kind\` is implicit. Statically typed references use bare IDs (not \`$ref\` wrappers); registry/owner-qualified references retain their explicit identity. A scalar \`always\` is accepted only for typed Conditions. Omitted defaults expand recursively through the paths below. Identities, discriminators, typed Property values and Character-local versus Interactable definition-default Properties are preserved. For Verbs and Interactions, named slots, selector variants, priority tiers and rule/Command order are semantic; Offer discovery is independent from direct execution and Guards, and \`unhandled\` must remain explicit to preserve fallback. Non-default presentation and explicit optional/null fields retain their original semantics. The shape above describes the normalized runtime/editor model; this YAML example describes authored source.`,
         '',
         '```yaml',
         example.trimEnd(),

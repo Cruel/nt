@@ -3,6 +3,7 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { parse as parseYaml } from 'yaml';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { ActiveProjectWorkspaceSession } from '../../main/services/active-project-workspace-session';
 import { advanceExternallyUpdatedAssetSourceBaselines } from '../../main/services/project-authoring-source-freshness-service';
@@ -267,13 +268,19 @@ describe('active Project session lifecycle', () => {
       }),
     );
     const previous = await openProject(root);
-    if (!previous.success || !previous.contentProject)
+    if (!previous.success || !previous.contentProject || !previous._workspaceSnapshot)
       throw new Error('Project fixture open failed.');
     const authored = parseAuthoringProject(previous.contentProject);
     authored.settings.distributionNotices = [{ path: source, displayName: 'Attribution' }];
-    for (const [relative, contents] of Object.entries(
-      projectWorkspaceFiles(authored, authored.editor, previous.scriptSourcePaths ?? {}),
-    )) {
+    const projection = projectWorkspaceFiles(
+      authored,
+      authored.editor,
+      previous.scriptSourcePaths ?? {},
+      new Set(previous._workspaceSnapshot.canonicalSourceFiles),
+    );
+    expect(projection).toHaveProperty('records/assets/cover.json');
+    expect(projection).not.toHaveProperty('records/assets/cover.yaml');
+    for (const [relative, contents] of Object.entries(projection)) {
       await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
       await fs.writeFile(path.join(root, relative), contents);
     }
@@ -821,8 +828,8 @@ describe('active Project session lifecycle', () => {
     expect(await fs.readFile(path.join(project, 'scripts', 'core', 'bootstrap.lua'), 'utf8')).toBe(
       'return {}\n',
     );
-    const record = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'scripts', 'bootstrap.json'), 'utf8'),
+    const record = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'scripts', 'bootstrap.yaml'), 'utf8'),
     ) as { data: { source: { path: string } } };
     expect(record.data.source.path).toBe('scripts/core/bootstrap.lua');
     expect((await openProject(project)).success).toBe(true);
@@ -843,9 +850,11 @@ describe('active Project session lifecycle', () => {
       authored.editor,
       opened.scriptSourcePaths ?? {},
     );
+    expect(projected).toHaveProperty('records/layouts/hud/layout.yaml');
+    expect(projected).not.toHaveProperty('records/layouts/hud/layout.json');
     await fs.mkdir(path.join(project, 'records', 'layouts', 'hud'), { recursive: true });
     for (const relative of [
-      'records/layouts/hud/layout.json',
+      'records/layouts/hud/layout.yaml',
       'records/layouts/hud/layout.rml',
       'records/layouts/hud/layout.rcss',
       'records/layouts/hud/layout.lua',
@@ -883,8 +892,8 @@ describe('active Project session lifecycle', () => {
     });
 
     expect(moved.success).toBe(true);
-    const layoutRecord = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'layouts', 'hud', 'layout.json'), 'utf8'),
+    const layoutRecord = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'layouts', 'hud', 'layout.yaml'), 'utf8'),
     ) as { data: { dependencies: { scripts: string[] } } };
     expect(layoutRecord.data.dependencies.scripts).toEqual(['scripts/ui/hud-renamed.lua']);
     expect(

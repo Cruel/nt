@@ -13,9 +13,9 @@ add video playback or a Project media-transcoding policy.
 
 ## Project discovery and direct editing
 
-A project is identified by its root directory and `<project-root>/project.json`. Use `--project <project-directory>` to select a project explicitly. Without it, the CLI walks upward from the current directory and stops at the first `project.json`. A malformed NovelTea manifest, wrong workspace identity, or unsupported workspace version is a terminal discovery error at that directory; discovery does not fall through to a parent project or accept a retired monolithic project file.
+A project is identified by its root directory and `<project-root>/project.yaml`. Use `--project <project-directory>` to select a project explicitly. Without it, the CLI walks upward from the current directory and stops at the first `project.yaml`. A malformed NovelTea manifest, wrong workspace identity, or unsupported workspace version is a terminal discovery error at that directory; discovery does not fall through to a parent project or accept a retired monolithic project file.
 
-Ordinary authoring is file-first: edit tracked JSON, Lua, RML, and RCSS directly. After direct edits to managed localizable Lua/RML source, run `noveltea localization sync` to materialize only deterministic Message-tracking changes, then run `noveltea validate`. Passive validation, source analysis, preview, and editor watching never write localization tracking. Do not route ordinary field changes through invented setter commands. The CLI owns operations that need project-wide semantics, transactions, native tooling, or reproducible automation.
+Ordinary authoring is file-first: edit tracked YAML, Lua, RML, and RCSS directly. After direct edits to managed localizable Lua/RML source, run `noveltea localization sync` to materialize only deterministic Message-tracking changes, then run `noveltea validate`. Passive validation, source analysis, preview, and editor watching never write localization tracking. Do not route ordinary field changes through invented setter commands. The CLI owns operations that need project-wide semantics, transactions, native tooling, or reproducible automation.
 
 ## Public command surface
 

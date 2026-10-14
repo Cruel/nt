@@ -27,8 +27,12 @@ export function scopedResidentObservationConfiguration(assetsRequired: boolean) 
   return {
     authoritativePaths: ['project.yaml', 'editor.yaml', 'traits.yaml'],
     discoveryScopes: [
-      { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
-      { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
+      { root: 'i18n', extensions: ['.yaml', '.json'], excludedPrefixes: [] },
+      {
+        root: 'records',
+        extensions: ['.yaml', '.json', '.lua', '.rcss', '.rml'],
+        excludedPrefixes: [],
+      },
       { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
       ...(assetsRequired ? [{ root: 'assets', extensions: ['*'], excludedPrefixes: [] }] : []),
     ],
@@ -61,7 +65,7 @@ export function physicalPathRequiredBySemanticPaths(
     }
     if (semanticPath === '/assets' || semanticPath.startsWith('/assets/')) {
       if (
-        /^records\/assets\/[^/]+\.json$/u.test(path) ||
+        /^records\/assets\/[^/]+\.(?:json|yaml)$/u.test(path) ||
         path.startsWith('assets/') ||
         assetSourcePaths.has(path)
       )
@@ -73,7 +77,16 @@ export function physicalPathRequiredBySemanticPaths(
       continue;
     }
     const record = /^\/([^/]+)\/([^/]+)/u.exec(semanticPath);
-    if (record && path === `records/${record[1]}/${record[2]}.json`) return true;
+    if (record) {
+      const stem = `records/${record[1]}/${record[2]}`;
+      if (path === `${stem}.yaml` || path === `${stem}.json`) return true;
+      if (
+        record[1] === 'layouts' &&
+        /^layout\.(?:yaml|json|rml|rcss|lua)$/u.test(path.slice(stem.length + 1)) &&
+        path.startsWith(`${stem}/`)
+      )
+        return true;
+    }
   }
   return false;
 }

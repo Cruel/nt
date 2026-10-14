@@ -177,7 +177,11 @@ const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
 const layoutYamlCodec: ProjectWorkspaceSourceCodec = {
   kind: 'yaml',
   decode: decodeLayoutYaml,
-  encode: (value, _schema, previousText) => encodeLayoutYaml(value, previousText),
+  encode: (value, schema, previousText) =>
+    encodeLayoutYaml(
+      previousText === undefined ? canonicalize(value, schema) : value,
+      previousText,
+    ),
 };
 
 /** The single physical-format selection used by cold open, reconciliation and projection. */
@@ -199,8 +203,13 @@ export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourc
     return {
       kind: 'yaml',
       decode: (text) => decodeSparseRecordYaml(family, text),
-      encode: (value, _schema, previousText, keep) =>
-        encodeSparseRecordYaml(family, value, previousText, keep),
+      encode: (value, schema, previousText, keep) =>
+        encodeSparseRecordYaml(
+          family,
+          previousText === undefined ? canonicalize(value, schema) : value,
+          previousText,
+          keep,
+        ),
     };
   }
   if (file === 'project.yaml' || file === 'traits.yaml' || file === 'editor.yaml')

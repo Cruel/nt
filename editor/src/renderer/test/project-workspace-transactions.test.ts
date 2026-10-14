@@ -168,11 +168,11 @@ describe('workspace granular persistence and transactions', () => {
     expect(baseline.ok).toBe(true);
     if (!baseline.ok) return;
     const externalCharacter = parseYaml(
-      await fileSystem.readText(`${root}/records/characters/guide.json`),
+      await fileSystem.readText(`${root}/records/characters/guide.yaml`),
     ) as { label: string };
     externalCharacter.label = 'Externally changed';
     await fileSystem.writeTextAtomic(
-      `${root}/records/characters/guide.json`,
+      `${root}/records/characters/guide.yaml`,
       `${JSON.stringify(externalCharacter, null, 2)}\n`,
     );
     const candidate = structuredClone(baseline.snapshot.project);
@@ -206,7 +206,7 @@ describe('workspace granular persistence and transactions', () => {
     const baseline = await workspace.open(root);
     expect(baseline.ok).toBe(true);
     if (!baseline.ok) return;
-    const roomPath = `${root}/records/rooms/foyer.json`;
+    const roomPath = `${root}/records/rooms/foyer.yaml`;
     await fileSystem.writeTextAtomic(roomPath, `${await fileSystem.readText(roomPath)} `);
     const candidate = structuredClone(baseline.snapshot.project);
     candidate.rooms.foyer!.label = 'Local';

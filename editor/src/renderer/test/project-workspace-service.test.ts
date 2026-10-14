@@ -334,21 +334,12 @@ describe('ProjectWorkspaceService', () => {
     for (const [path, text] of Object.entries(files)) {
       expect(projectWorkspaceFile(project, project.editor, {}, path), path).toBe(text);
       const codec = projectWorkspaceSourceCodec(path);
-      expect(codec.decode(text), path).toEqual(
-        /^records\/(?:rooms|maps)\//u.test(path)
-          ? project[path.split('/')[1] as 'rooms' | 'maps'][path.split('/')[2]!.slice(0, -5)]
-          : codec.kind === 'json'
-            ? JSON.parse(text)
-            : codec.kind === 'yaml'
-              ? parseYaml(text)
-              : text,
-      );
-      if (codec.kind === 'json') expect(text, path).toMatch(/\n$/);
+      expect(codec.encode(codec.decode(text), undefined, text), path).toBe(text);
     }
-    expect(files['records/scripts/bootstrap.json']).toContain('"project-file"');
+    expect(files['records/scripts/bootstrap.yaml']).toContain('project-file');
     expect(files['records/layouts/hud/layout.rml']).toBe('<rml>HUD</rml>\n');
     expect(
-      projectWorkspaceFile(project, project.editor, {}, 'i18n/locales/es.json'),
+      projectWorkspaceFile(project, project.editor, {}, 'i18n/locales/es.yaml'),
     ).toBeUndefined();
   });
 
@@ -473,12 +464,12 @@ describe('ProjectWorkspaceService', () => {
     expect(firstFiles).toEqual(secondFiles);
     expect(firstFiles['traits.yaml']).toMatch(/z:[\s\S]*\uE000:[\s\S]*\u{10000}:/u);
     expect(firstFiles).not.toHaveProperty('properties.json');
-    expect(firstFiles['records/rooms/foyer.json']).not.toContain('"properties"');
-    expect(firstFiles['records/rooms/foyer.json']).toMatch(
-      /"canEnter": \{\n        "kind": "variable-comparison",\n        "variable": \{\n          "\$ref": \{\n            "collection": "variables",\n            "id": "flag"\n          \}\n        \},\n        "operator": "equal",\n        "value": true/s,
+    expect(firstFiles['records/rooms/foyer.yaml']).not.toContain('"properties"');
+    expect(firstFiles['records/rooms/foyer.yaml']).toContain(
+      'canEnter:\n      kind: variable-comparison\n      variable: flag\n      operator: equal\n      value: true',
     );
-    expect(firstFiles['records/layouts/main/layout.json']).toMatch(
-      /"sampleState": \{\n      "z"[\s\S]*"\uE000"[\s\S]*"𐀀"/,
+    expect(firstFiles['records/layouts/main/layout.yaml']).toMatch(
+      /sampleState:\n    z:[\s\S]*\uE000:[\s\S]*\u{10000}:/u,
     );
     expect(firstFiles['project.yaml']).toMatch(
       /^schema:.*\nschemaVersion:.*\nproject:.*\n  id:.*\n  name:/s,
@@ -517,17 +508,17 @@ describe('ProjectWorkspaceService', () => {
     expect(opened.snapshot.canonicalSourceFiles).toEqual(
       expect.arrayContaining([
         'project.yaml',
-        'i18n/project.json',
-        'i18n/messages.json',
-        'i18n/usage-notes.json',
-        'i18n/tracking.json',
-        'i18n/orphans.json',
+        'i18n/project.yaml',
+        'i18n/messages.yaml',
+        'i18n/usage-notes.yaml',
+        'i18n/tracking.yaml',
+        'i18n/orphans.yaml',
         'editor.yaml',
-        'records/layouts/hud-inline/layout.json',
+        'records/layouts/hud-inline/layout.yaml',
         'records/layouts/hud-inline/layout.rml',
         'records/layouts/hud-inline/layout.rcss',
         'records/layouts/hud-inline/layout.lua',
-        'records/scripts/inline-module.json',
+        'records/scripts/inline-module.yaml',
         'scripts/inline-module.lua',
       ]),
     );
@@ -558,11 +549,11 @@ describe('ProjectWorkspaceService', () => {
     ]);
     expect(opened.snapshot.saveUnitFileOwnership['project:localization']).toEqual({
       files: [
-        'i18n/messages.json',
-        'i18n/orphans.json',
-        'i18n/project.json',
-        'i18n/tracking.json',
-        'i18n/usage-notes.json',
+        'i18n/messages.yaml',
+        'i18n/orphans.yaml',
+        'i18n/project.yaml',
+        'i18n/tracking.yaml',
+        'i18n/usage-notes.yaml',
       ],
       paths: ['/localization'],
     });
@@ -598,8 +589,8 @@ describe('ProjectWorkspaceService', () => {
     const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
     project.rooms.foyer = { id: 'foyer', label: 'Foyer', data: defaultRoomData('Foyer') };
     const files = filesFor(project);
-    const roomPath = '/projects/headless/records/rooms/foyer.json';
-    const room = JSON.parse(files[roomPath]!) as {
+    const roomPath = '/projects/headless/records/rooms/foyer.yaml';
+    const room = parseYaml(files[roomPath]!) as {
       data: { interactables: unknown[] };
     };
     room.data.interactables = [
@@ -713,9 +704,9 @@ describe('ProjectWorkspaceService', () => {
       data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return true\n' } },
     };
     const files = { ...projectWorkspaceFiles(project, project.editor) };
-    expect(files['records/rooms/foyer.json']).toContain('"foyer"');
+    expect(files['records/rooms/foyer.yaml']).toContain('id: foyer');
     expect(files['scripts/bootstrap.lua']).toBe('return true\n');
-    expect(files['records/scripts/bootstrap.json']).toContain('"project-file"');
+    expect(files['records/scripts/bootstrap.yaml']).toContain('project-file');
     const opened = await new ProjectWorkspaceService(
       new InMemoryProjectWorkspaceFileSystem(
         Object.fromEntries(Object.entries(files).map(([file, text]) => [`/project/${file}`, text])),
@@ -799,7 +790,7 @@ describe('ProjectWorkspaceService', () => {
       data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return true\n' } },
     };
     const files = { ...projectWorkspaceFiles(project, project.editor) };
-    files['records/scripts/bootstrap.json'] = files['records/scripts/bootstrap.json']!.replace(
+    files['records/scripts/bootstrap.yaml'] = files['records/scripts/bootstrap.yaml']!.replace(
       'scripts/bootstrap.lua',
       'scripts/custom/bootstrap-entry.lua',
     );
@@ -877,7 +868,7 @@ describe('ProjectWorkspaceService', () => {
     );
 
     expect(await fileSystem.readText('/project/scripts/bootstrap.lua')).toBe('return true\n');
-    expect(await fileSystem.readText('/project/records/assets/logo.json')).toContain(
+    expect(await fileSystem.readText('/project/records/assets/logo.yaml')).toContain(
       'Changed Logo',
     );
     const reopened = await workspace.open('/project');
@@ -969,7 +960,7 @@ describe('ProjectWorkspaceService', () => {
       data: { kind: 'script-module', source: { kind: 'inline-lua', source: 'return true\n' } },
     };
     const files = { ...projectWorkspaceFiles(project, project.editor) };
-    files['records/scripts/before.json'] = files['records/scripts/before.json']!.replace(
+    files['records/scripts/before.yaml'] = files['records/scripts/before.yaml']!.replace(
       'scripts/before.lua',
       'scripts/custom.lua',
     );
@@ -992,7 +983,7 @@ describe('ProjectWorkspaceService', () => {
       opened.editorState,
       { after: 'scripts/custom.lua' },
     );
-    expect(await fileSystem.readText('/project/records/scripts/after.json')).toContain(
+    expect(await fileSystem.readText('/project/records/scripts/after.yaml')).toContain(
       'scripts/custom.lua',
     );
     expect(await fileSystem.readText('/project/scripts/custom.lua')).toBe('return true\n');

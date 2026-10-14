@@ -56,11 +56,11 @@ describe('project-file-service workspace-v1', () => {
     expect(fs.existsSync(path.join(projectDirectory, 'project.yaml'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'properties.json'))).toBe(false);
     expect(fs.existsSync(path.join(projectDirectory, 'localization.json'))).toBe(false);
-    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'project.json'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'messages.json'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'usage-notes.json'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'tracking.json'))).toBe(true);
-    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'orphans.json'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'project.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'messages.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'usage-notes.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'tracking.yaml'))).toBe(true);
+    expect(fs.existsSync(path.join(projectDirectory, 'i18n', 'orphans.yaml'))).toBe(true);
     expect(fs.existsSync(path.join(projectDirectory, 'editor.yaml'))).toBe(true);
     expect(fs.readFileSync(path.join(projectDirectory, '.gitignore'), 'utf8')).toBe(
       '/.noveltea/\n/dist/\n',
@@ -209,7 +209,7 @@ describe('project-file-service workspace-v1', () => {
 
     expect(result.success).toBe(true);
     expect(
-      parseYaml(fs.readFileSync(path.join(root, 'records/rooms/hall.json'), 'utf8')),
+      parseYaml(fs.readFileSync(path.join(root, 'records/rooms/hall.yaml'), 'utf8')),
     ).toMatchObject({ description: 'After' });
   });
 
@@ -521,7 +521,7 @@ describe('project-file-service workspace-v1', () => {
     expect(editorRevisionAfter).not.toBe(editorRevisionBefore);
     expect(result.fileRevisions).toMatchObject({
       'editor.yaml': editorRevisionAfter,
-      'records/rooms/hall.json': 'absent',
+      'records/rooms/hall.yaml': 'absent',
     });
     expect(
       result.editorState?.recovery.saveUnitsById['project:tags']?.baselineFileRevisions?.[
@@ -610,9 +610,9 @@ describe('project-file-service workspace-v1', () => {
     if (!opened.ok) return;
     const session = ActiveProjectWorkspaceSession.fromOpened(opened);
 
-    fs.writeFileSync(path.join(root, 'records/rooms/hall.json'), '{ invalid json');
-    expect((await session.reassemble(['records/rooms/hall.json'])).ok).toBe(false);
-    expect(session.invalidAuthoringSources()).toEqual(['records/rooms/hall.json']);
+    fs.writeFileSync(path.join(root, 'records/rooms/hall.yaml'), '{ invalid json');
+    expect((await session.reassemble(['records/rooms/hall.yaml'])).ok).toBe(false);
+    expect(session.invalidAuthoringSources()).toEqual(['records/rooms/hall.yaml']);
 
     const gardenSave = await saveActiveProjectContent(
       session,
@@ -677,7 +677,7 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const session = ActiveProjectWorkspaceSession.fromOpened(opened);
-    const relativePath = 'records/rooms/hall.json';
+    const relativePath = 'records/rooms/hall.yaml';
 
     fs.unlinkSync(path.join(root, relativePath));
 
@@ -763,7 +763,7 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const session = ActiveProjectWorkspaceSession.fromOpened(opened);
-    const relativePath = 'records/rooms/hall.json';
+    const relativePath = 'records/rooms/hall.yaml';
     const absolutePath = path.join(root, relativePath);
     const coherentBytes = fs.readFileSync(absolutePath, 'utf8');
 
@@ -963,14 +963,14 @@ describe('project-file-service workspace-v1', () => {
     );
     fs.mkdirSync(path.join(root, 'records', 'rooms'), { recursive: true });
     fs.writeFileSync(
-      path.join(root, 'records', 'rooms', 'newroom.json'),
-      projected['records/rooms/newroom.json']!,
+      path.join(root, 'records', 'rooms', 'newroom.yaml'),
+      projected['records/rooms/newroom.yaml']!,
     );
 
     session.markResyncNeeded();
     const resync = await session.resynchronizeAuthoring();
     expect(resync.opened.ok).toBe(true);
-    expect(resync.changedPaths).toContain('records/rooms/newroom.json');
+    expect(resync.changedPaths).toContain('records/rooms/newroom.yaml');
     expect(resync.opened.ok && resync.opened.snapshot.project.rooms.newroom?.label).toBe(
       'New Room',
     );
@@ -1001,7 +1001,7 @@ describe('project-file-service workspace-v1', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
     const projectPath = path.join(root, 'project.yaml');
-    const roomPath = path.join(root, 'records/rooms/hall.json');
+    const roomPath = path.join(root, 'records/rooms/hall.yaml');
     const invalidRoom = parseYaml(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
     delete invalidRoom.data;
     fs.writeFileSync(roomPath, `${JSON.stringify(invalidRoom, null, 2)}\n`);
@@ -1155,7 +1155,7 @@ describe('project-file-service workspace-v1', () => {
     const opened = await service.open(root);
     expect(opened.ok).toBe(true);
     if (!opened.ok) return;
-    const roomPath = path.join(root, 'records/rooms/hall.json');
+    const roomPath = path.join(root, 'records/rooms/hall.yaml');
     const external = parseYaml(fs.readFileSync(roomPath, 'utf8')) as Record<string, unknown>;
     external.label = 'External Hall';
     fs.writeFileSync(roomPath, `${JSON.stringify(external, null, 2)}\n`);
@@ -1380,7 +1380,7 @@ describe('project-file-service workspace-v1', () => {
 
     expect(result.success).toBe(true);
     expect(
-      parseYaml(fs.readFileSync(path.join(root, 'records/rooms/bedroom.json'), 'utf8')).data
+      parseYaml(fs.readFileSync(path.join(root, 'records/rooms/bedroom.yaml'), 'utf8')).data
         .description.source.text,
     ).toBe('Changed in editor');
   });
@@ -1612,7 +1612,7 @@ describe('project-file-service workspace-v1', () => {
       { after: 'scripts/custom/entry.lua' },
     );
     expect(result.success).toBe(true);
-    expect(fs.readFileSync(path.join(root, 'records/scripts/after.json'), 'utf8')).toContain(
+    expect(fs.readFileSync(path.join(root, 'records/scripts/after.yaml'), 'utf8')).toContain(
       'scripts/custom/entry.lua',
     );
     expect(fs.readFileSync(path.join(root, 'scripts/custom/entry.lua'), 'utf8')).toBe('return 1\n');
@@ -1664,7 +1664,7 @@ describe('project-file-service workspace-v1', () => {
       },
     );
     expect(deletedResult.success).toBe(true);
-    expect(fs.existsSync(path.join(root, 'records/assets/logo.json'))).toBe(false);
+    expect(fs.existsSync(path.join(root, 'records/assets/logo.yaml'))).toBe(false);
     expect(fs.existsSync(path.join(root, 'assets/logo.bin'))).toBe(false);
     const move = deletedResult.assetTrashMoves?.[0];
     expect(move).toBeDefined();
@@ -1696,7 +1696,7 @@ describe('project-file-service workspace-v1', () => {
     expect(restoredResult.success).toBe(true);
     expect(fs.readFileSync(path.join(root, 'assets/logo.bin'), 'utf8')).toBe('asset bytes');
     expect(fs.existsSync(path.join(root, move!.trashRelativePath))).toBe(false);
-    expect(fs.existsSync(path.join(root, 'records/assets/logo.json'))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'records/assets/logo.yaml'))).toBe(true);
   });
 
   it('rejects a local-state symlink escape instead of writing through it', async () => {

@@ -1,4 +1,4 @@
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -134,6 +134,15 @@ async function createPortableFixture(root: string): Promise<{
     },
   );
   expect(created.exitCode).toBe(0);
+  expect(await fs.readdir(path.join(projectRoot, 'i18n'))).toEqual(
+    expect.arrayContaining([
+      'project.yaml',
+      'messages.yaml',
+      'usage-notes.yaml',
+      'tracking.yaml',
+      'orphans.yaml',
+    ]),
+  );
   const roomCreated = await runNovelTeaCli(
     ['--project', projectRoot, 'entity', 'create', 'rooms', 'start'],
     { cwd: root },
@@ -181,7 +190,7 @@ async function createPortableFixture(root: string): Promise<{
   const assetFile = path.join(
     projectRoot,
     'records/assets',
-    assetFiles.find((name) => name.endsWith('.json'))!,
+    assetFiles.find((name) => name.endsWith('.yaml'))!,
   );
   const record = parseYaml(await fs.readFile(assetFile, 'utf8')) as {
     data: Record<string, unknown>;
@@ -197,27 +206,22 @@ async function createPortableFixture(root: string): Promise<{
   await fs.mkdir(path.join(projectRoot, 'records', 'materials'), { recursive: true });
   await fs.mkdir(path.join(projectRoot, 'shaders'), { recursive: true });
   await fs.writeFile(
-    path.join(projectRoot, 'records', 'materials', 'portable.json'),
-    `${JSON.stringify(
-      {
-        id: 'portable',
-        label: 'Portable Material',
-        data: {
-          kind: 'material',
-          base: { kind: 'preset', preset: 'engine-2d' },
-          displayName: 'Portable Material',
-          shader: {
-            vertex: { kind: 'project', path: 'shaders/portable.vs.sc' },
-            fragment: { kind: 'project', path: 'shaders/portable.fs.sc' },
-          },
-          parameters: {},
-          textures: {},
-          preview: { geometry: 'quad', background: 'checker' },
+    path.join(projectRoot, 'records', 'materials', 'portable.yaml'),
+    `${stringifyYaml({
+      id: 'portable',
+      label: 'Portable Material',
+      data: {
+        base: { kind: 'preset', preset: 'engine-2d' },
+        displayName: 'Portable Material',
+        shader: {
+          vertex: { kind: 'project', path: 'shaders/portable.vs.sc' },
+          fragment: { kind: 'project', path: 'shaders/portable.fs.sc' },
         },
+        parameters: {},
+        textures: {},
+        preview: { geometry: 'quad', background: 'checker' },
       },
-      null,
-      2,
-    )}\n`,
+    })}\n`,
     'utf8',
   );
   await fs.writeFile(path.join(projectRoot, 'shaders', 'portable.vs.sc'), 'void main() {}\n');

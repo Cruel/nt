@@ -17,8 +17,12 @@ export const AUTHORING_CACHE_SCHEMA = 'noveltea.authoring-cache';
 export const AUTHORING_CACHE_ROOT = '.noveltea/cache/authoring';
 
 export const AUTHORING_VALIDATION_DISCOVERY_SCOPES = Object.freeze([
-  { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
-  { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
+  { root: 'i18n', extensions: ['.yaml', '.json'], excludedPrefixes: [] },
+  {
+    root: 'records',
+    extensions: ['.yaml', '.json', '.lua', '.rcss', '.rml'],
+    excludedPrefixes: [],
+  },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
   { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
 ]);

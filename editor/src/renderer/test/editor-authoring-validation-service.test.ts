@@ -109,6 +109,12 @@ describe('editor authoring validation cache sharing', () => {
     const nativeTools = tools();
     const warmed = await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools });
     expect(warmed.exitCode).toBe(0);
+    expect(warmed.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        sourceUrl: 'project:/records/rooms/start.yaml',
+        line: expect.any(Number),
+      }),
+    );
     const generation = await waitForCurrentCache(root);
     const sessionLocal = vi.fn(async () => ({ ok: true, success: true, diagnostics: [] }));
     const service = new EditorAuthoringValidationService({ nativeTools });
@@ -123,7 +129,7 @@ describe('editor authoring validation cache sharing', () => {
     expect(result).toMatchObject({
       ok: true,
       success: true,
-      diagnostics: warmed.envelope.diagnostics,
+      diagnostics: warmed.editorDiagnostics ?? warmed.envelope.diagnostics,
     });
     expect(sessionLocal).not.toHaveBeenCalled();
     expect(await currentCache(root)).toBe(generation);

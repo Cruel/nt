@@ -79,7 +79,7 @@ describe('tracked localization YAML ownership', () => {
       Object.entries(jsonFiles).map(([path, source]) => {
         if (!path.startsWith('i18n/')) return [path, source];
         const yamlPath = path.replace(/\.json$/u, '.yaml');
-        const value = JSON.parse(source);
+        const value = projectWorkspaceSourceCodec(path).decode(source);
         return [
           yamlPath,
           `# localization note\n${projectWorkspaceSourceCodec(yamlPath).encode(value)}`,
