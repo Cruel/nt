@@ -45,15 +45,15 @@ describe('platform export acceptance fixture materializer', () => {
       'Fixture font license\r\n',
     );
     const bodyFont = parseYaml(
-      await readFile(path.join(firstRoot, 'records/assets/body-font.json'), 'utf8'),
+      await readFile(path.join(firstRoot, 'records/assets/body-font.yaml'), 'utf8'),
     );
     const alternateFont = parseYaml(
-      await readFile(path.join(firstRoot, 'records/assets/alternate-font.json'), 'utf8'),
+      await readFile(path.join(firstRoot, 'records/assets/alternate-font.yaml'), 'utf8'),
     );
     expect(bodyFont.data.attachments).toEqual(alternateFont.data.attachments);
     expect(bodyFont.data.attachments).toHaveLength(1);
     const frenchArtwork = parseYaml(
-      await readFile(path.join(firstRoot, 'records/assets/backdrop-fr.json'), 'utf8'),
+      await readFile(path.join(firstRoot, 'records/assets/backdrop-fr.yaml'), 'utf8'),
     );
     expect(frenchArtwork.data.attachments[0].path).toBe('support/licenses/localized-art.txt');
   });
@@ -86,10 +86,10 @@ describe('platform export acceptance fixture materializer', () => {
     expect(firstProject.settings.app.android.versionCode).toBe(1);
     expect(secondProject.settings.app.android.versionCode).toBe(2);
     const firstGallery = parseYaml(
-      await readFile(path.join(firstRoot, 'records/rooms/gallery.json'), 'utf8'),
+      await readFile(path.join(firstRoot, 'records/rooms/gallery.yaml'), 'utf8'),
     );
     const secondGallery = parseYaml(
-      await readFile(path.join(secondRoot, 'records/rooms/gallery.json'), 'utf8'),
+      await readFile(path.join(secondRoot, 'records/rooms/gallery.yaml'), 'utf8'),
     );
     expect(firstGallery.data.description.source.text).toBe(
       'Navigation reached the gallery, revision 1.',

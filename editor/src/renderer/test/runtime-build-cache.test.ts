@@ -175,7 +175,7 @@ describe('persistent runtime build cache', () => {
       'scripts/helpers/unreferenced.lua': 'return {}\n',
       'scripts/README.md': '# ignored\n',
       'records/layouts/unreferenced/controller.rml': '<rml/>\n',
-      'i18n/extra.json': '{}\n',
+      'i18n/extra.yaml': '{}\n',
       'outside.lua': 'return {}\n',
     };
     for (const [file, text] of Object.entries(extras)) {
@@ -268,7 +268,7 @@ describe('persistent runtime build cache', () => {
       );
     expect(await publishPinned()).toEqual({ published: true });
 
-    const roomPath = path.join(root, 'records/rooms/start.json');
+    const roomPath = path.join(root, 'records/rooms/start.yaml');
     const room = parseYaml(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
     room.label = 'Newer live generation';
     await writeFile(roomPath, `${JSON.stringify(room)}\n`, 'utf8');
@@ -419,7 +419,7 @@ describe('persistent runtime build cache', () => {
       'utf8',
     );
 
-    const testFile = path.join(root, 'records/tests/smoke.json');
+    const testFile = path.join(root, 'records/tests/smoke.yaml');
     const testRecord = parseYaml(await readFile(testFile, 'utf8')) as Record<string, unknown>;
     testRecord.label = 'Renamed smoke test';
     await writeFile(testFile, `${JSON.stringify(testRecord, null, 2)}\n`, 'utf8');
@@ -484,7 +484,7 @@ describe('persistent runtime build cache', () => {
     expect((await runCachedTest(root, tools)).exitCode).toBe(0);
     expect(projects).toHaveLength(1);
 
-    const testFile = path.join(root, 'records/tests/smoke.json');
+    const testFile = path.join(root, 'records/tests/smoke.yaml');
     const testRecord = parseYaml(await readFile(testFile, 'utf8')) as {
       data: { steps: unknown[] };
     };

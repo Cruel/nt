@@ -16,11 +16,11 @@ Project Settings subtree; `/export` is the independent Export save-unit subtree 
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
 choices remain editor-local. `traits.yaml`, the tracked `i18n/` tree, and `editor.yaml` are required
 contextual source. The canonical Message model is physically split for source-owner and locale merge
-locality: `i18n/project.json` owns Source/Default/locale policy plus the managed Source-locale lock;
-`i18n/messages.json` owns explicit local/named Messages, structured ownership overrides, and Message-level Context/Translator-note
-guidance; `i18n/usage-notes.json` owns authored per-occurrence Usage notes; `i18n/tracking.json` owns
-managed free-form source tracking; `i18n/orphans.json` owns disappeared Messages with retained work;
-`i18n/locales/<locale>.json` owns sparse target translations; and `i18n/assets/<locale>.json` owns
+locality: `i18n/project.yaml` owns Source/Default/locale policy plus the managed Source-locale lock;
+`i18n/messages.yaml` owns explicit local/named Messages, structured ownership overrides, and Message-level Context/Translator-note
+guidance; `i18n/usage-notes.yaml` owns authored per-occurrence Usage notes; `i18n/tracking.yaml` owns
+managed free-form source tracking; `i18n/orphans.yaml` owns disappeared Messages with retained work;
+`i18n/locales/<locale>.yaml` owns sparse target translations; and `i18n/assets/<locale>.yaml` owns
 sparse localized-Asset targets. Empty locale/Asset chunks are absent rather than placeholder files.
 The composed model has one Source locale, one Supported Default locale, explicit
 Supported/work-in-progress locale metadata with optional parent locale inheritance, and a nullable
@@ -33,7 +33,7 @@ semantic refactor must preserve an existing structured Message identity across a
 `sourceMessageTracking` entries for free-form managed Lua/RML occurrences. Those entries are keyed by
 source family plus semantic owner/source path and keep the last managed source/guidance occurrence
 snapshot together with compact source-snapshot, structural, anchor, and source fingerprints and the
-durable Message ID; they never inject opaque tracking IDs into Lua, RML, or structured gameplay JSON.
+durable Message ID; they never inject opaque tracking IDs into Lua, RML, or structured gameplay source.
 `orphanedMessages` retains disappeared free-form Message snapshots plus valuable target translation,
 review, provenance, and guidance work outside the live catalog until an author relinks or discards it.
 Each target translation record stores target text, the compact
@@ -116,11 +116,7 @@ and retry nonoverlapping semantic changes using the established external-conflic
 external YAML is not overwritten. Ordinary non-YAML source ownership and transactional target CAS
 remain unchanged.
 
-Staged Room and Map records use `records/rooms/<id>.yaml` and `records/maps/<id>.yaml`.
-During the family cutover (#453), once one YAML owner exists in the collection, new records
-in that collection use YAML; existing JSON Room/Map owners retain their file names;
-mixed extensions for the same ID are rejected. The full project cutover (#467) removes the
-transitional JSON allowance, and Feature Lab source conversion is owned by #468. Their
+Room and Map records use `records/rooms/<id>.yaml` and `records/maps/<id>.yaml`. Their
 restricted YAML omits the redundant `data.kind`; statically typed references use bare IDs,
 while registry and owner-qualified references remain explicit. A scalar `always` expands to
 the default Condition. The shared source codec applies declared recursive omissions,
@@ -130,10 +126,9 @@ geometry, views, exits, and gameplay conditions retain their semantics. `null` s
 distinct from omission except where the field declares a null source default. Selective
 saves preserve unchanged explicit values and YAML comments. IDs still match filenames.
 
-Character and Interactable families can also opt into staged `records/characters/<id>.yaml`
-and `records/interactables/<id>.yaml` sources (#454). Once one YAML record exists in one
-of these collections, new records in that collection use YAML; existing JSON owners keep
-their paths until #467. Character source omissions are based on the schema's typed
+Characters and Interactables use `records/characters/<id>.yaml` and
+`records/interactables/<id>.yaml`.
+Character source omissions are based on the schema's typed
 dialogue/profile/pose/appearance/animation and initial-world-state defaults—not on
 the editor's initial named Profile, Pose, Expression, or other placeholder data. Required
 Profile/Pose/Layer IDs and heterogeneous `kind` discriminators remain authored. An
@@ -145,10 +140,8 @@ conflated. The source codec keeps typed reference IDs compact without collapsing
 registry-qualified or polymorphic identities. Optional Properties and explicit nulls
 retain their normalized meaning; the generated Agent Kit lists every permitted omission.
 
-Verbs and Interaction Rules also support staged `records/verbs/<id>.yaml` and
-`records/interactions/<id>.yaml` sources (#455). As with earlier families, existing
-JSON owners are retained, and a YAML owner in a collection selects YAML for new
-records in that collection. Their redundant `data.kind` is inferred from the family.
+Verbs and Interaction Rules use `records/verbs/<id>.yaml` and
+`records/interactions/<id>.yaml`. Their redundant `data.kind` is inferred from the family.
 Typed refs such as `verb: inspect`, `trait: inspectable`, or a variable referenced by
 a Command use bare IDs; exact Interactable Instance and owner-qualified Feature
 subjects preserve their explicit registry and discriminators. Only a typed Condition
@@ -166,21 +159,17 @@ must preserve that value so the rule-to-Verb-to-Project-to-engine fallback chain
 unchanged. Command sequence, IDs, Condition/Command union discriminators, and
 meaningful explicit source fields survive edits and revision-safe saves.
 
-Other records live under `records/<collection>/<id>.json`; Layouts instead live under
-`records/layouts/<id>/layout.json`. IDs are canonical file identity and must match the stored record
+Other records live under `records/<collection>/<id>.yaml`; Layouts instead live under
+`records/layouts/<id>/layout.yaml`. IDs are canonical file identity and must match the stored record
 ID. Unknown `records/` collection directories and noncanonical record paths are structural errors.
 Missing known collection directories mean empty collections.
 
-### Staged sparse YAML Variables tracer (#451)
+### Canonical structured YAML
 
-Until the complete YAML cutover (#449), most record families other than staged
-Rooms, Maps, Characters, Interactables, Verbs, Interactions and Variables remain JSON. Newly created Projects already use YAML for
-their manifest, Traits, and collaborator-visible editor metadata. A staged Project can replace one Variable's
-`records/variables/<id>.json` with `records/variables/<id>.yaml` to exercise the initial
-restricted YAML codec without changing any other record family. Two source files for the same
-Variable ID are rejected; an ID still must match its filename. Once a Project contains a YAML
-Variable, newly created Variables use `.yaml`; existing JSON Variables remain JSON until the
-full cutover. This is an intentional transitional tracer, not permanent dual-format support.
+New Projects and new records use `.yaml` for every structured owner, including empty record
+families and new localization chunks. Existing staged `.json` record/localization owners retain
+their physical paths temporarily until the final source conversion removal; they are never emitted
+for new identities. Duplicate JSON/YAML owners for one record or locale are rejected.
 
 The YAML Variable source omits the redundant `data.kind: variable`. `data.nullable` may be
 omitted for `false`, and `data.scope` for `global`; `id`, `label`, `data.type`, and `data.value`
@@ -195,12 +184,11 @@ keeps untouched keys, explicitly authored defaults, and attached comments, and l
 physical bytes of an unaffected YAML file unchanged. Physical source hashes remain exact-byte
 revisions; effective Variable data remains the normalized `AuthoringProject` value. The
 generated `records/variables` Agent Kit reference describes the sparse YAML source shape and
-provides a schema-checked minimal example. Other tracked source remains JSON until its
-individual cutover ticket.
+provides a schema-checked minimal example. Feature Lab source conversion is tracked separately in #468.
 
-File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` beside `layout.json`.
-The persisted Layout JSON selectors use `sourceMode: "file"`, `sourceMode: "asset"` for RML/RCSS only,
-or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.json`. Layout Lua Asset
+File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` beside `layout.yaml`.
+The persisted Layout YAML selectors use `sourceMode: "file"`, `sourceMode: "asset"` for RML/RCSS only,
+or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.yaml`. Layout Lua Asset
 sources are obsolete. Workspace assembly reads a `file` Layout companion into the semantic inline
 Layout source used by compiler/editor consumers while retaining the companion file as the authoritative
 physical source.
@@ -214,7 +202,7 @@ without introducing hidden authored file IDs.
 Script Module file sources use `{ "kind": "project-file", "path": "scripts/...lua" }`. Their paths
 are safe project-relative `scripts/` paths and remain `project-file` sources after workspace assembly;
 the file bytes are read through the Project source authority when analysis, compilation, preview, or
-localization requires them. Persisted `inline-lua` Script Module JSON is rejected. File presence never
+localization requires them. Persisted `inline-lua` Script Module source is rejected. File presence never
 grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each
 fresh Project VM.
 
@@ -244,17 +232,14 @@ remains beneath the canonical Project root, requires a regular file, and verifie
 SHA-256 revision. Project-relative lexical escape, alternate/backslash spellings, symlink escape,
 non-regular files, stale sessions, and changed source identity fail closed before bytes are published.
 
-JSON writers emit UTF-8, LF, two-space indentation with a trailing newline and deterministic
-key order; staged YAML Variables use two-space YAML while preserving comments and explicit values.
-workspace reads, resident reconciliation, and selective/full projections use the shared per-file
-source codec (`editor/src/shared/project-workspace/project-workspace-source-codec.ts`). The
-`projectWorkspaceFile` projection is the single source of serialized structured-file content;
-`projectWorkspaceFiles` enumerates canonical source paths and calls that same projection. The
-affected-path planner preserves existing logical ownership of those files, while the transaction
-writer still compares actual bytes and enforces expected revisions. The codec selects JSON for
-tracked structured files except the staged `records/variables/<id>.yaml` tracer described above;
-companion Lua/RML/RCSS text passes through unchanged. YAML Variables use a comment-aware codec
-and expand to the same normalized Project schema. The remaining collections are not yet YAML.
+YAML writers emit UTF-8, LF, two-space indentation and deterministic new-node ordering while
+preserving comments and explicit values on existing source. Workspace reads, resident reconciliation,
+and selective/full projections use the shared per-file source codec
+(`editor/src/shared/project-workspace/project-workspace-source-codec.ts`). `projectWorkspaceFile`
+projects one source owner; `projectWorkspaceFiles` enumerates canonical paths using that projection.
+Affected-file planning retains logical ownership, and transactions enforce exact source revisions.
+Lua/RML/RCSS/shader/Asset bytes retain their independent source ownership. Comment-only edits advance
+physical revisions without invalidating unchanged semantic products.
 
 Every authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. Cold
 workspace admission may obtain decoded text and its exact-byte revision in one filesystem read.
@@ -365,7 +350,7 @@ or an unsupported workspace version stops discovery at that directory; discovery
 through to a parent project and never considers retired manifest names. `--project` is an explicit
 project-root override and is validated by the same workspace-v1 rules.
 
-Ordinary agent edits are direct edits to tracked JSON, Lua, RML, and RCSS source files. Managed
+Ordinary agent edits are direct edits to tracked YAML, Lua, RML, and RCSS source files. Managed
 localizable Lua/RML edits are followed by `noveltea localization sync` and then `noveltea validate`;
 all passive discovery remains read-only. Semantic commands are reserved for operations that need
 project-wide graph or transaction semantics: `localization sync`, `localization reconcile`,

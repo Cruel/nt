@@ -23,12 +23,12 @@ The project root contains `project.yaml`. Editable source lives in the tracked P
 Never author against `.noveltea/`.
 
 Stable top-level record IDs determine canonical record paths. Non-Layout records use
-`records/<collection>/<id>.json`; Layouts use `records/layouts/<id>/layout.json` plus their admitted
+`records/<collection>/<id>.yaml`; Layouts use `records/layouts/<id>/layout.yaml` plus their admitted
 companion source files. Do not rename a file independently of its record identity.
 
 Script Module project-file paths stay under `scripts/` and must retain one canonical owner. Do not
-use absolute paths, parent traversal, or symlink escapes. Tracked JSON remains UTF-8, LF, two-space
-indented, and ends with one newline. For YAML owners, retain existing comments and field presence;
+use absolute paths, parent traversal, or symlink escapes. Tracked structured source uses `.yaml`, including `i18n/*.yaml` and locale chunks.
+Retain existing comments and field presence;
 avoid unrelated formatting churn.
 
 ## Direct edits versus semantic CLI operations
@@ -89,7 +89,7 @@ source defaults; ordinary `fmt`, editor saves, and `validate` never strip author
 Run relevant authored Tests when the behavior is covered by semantic playback. Validation proves
 structural/semantic validity, not visual quality of placement, hotspot geometry, styling, or art.
 
-Layout records are directories. In `records/layouts/<layout-id>/layout.json`, a persisted
+Layout records are directories. In `records/layouts/<layout-id>/layout.yaml`, a persisted
 `sourceMode: "file"` selector means the channel source lives beside the record as `layout.rml`,
 `layout.rcss`, or `layout.lua`. Do not leave one of those companion files present when its selector is
 `asset` or `none`; workspace loading treats that as an ownership error rather than an alternate source.

@@ -51,7 +51,7 @@ describe('project save request ownership hints', () => {
         baselineDocument: toJsonValue(baseline),
         candidateDocument: toJsonValue(candidate),
       })['record:rooms:foyer'],
-    ).toEqual(['editor.yaml', 'project.yaml', 'records/rooms/foyer.json']);
+    ).toEqual(['editor.yaml', 'project.yaml', 'records/rooms/foyer.yaml']);
   });
 
   it('canonicalizes overlapping Trait metadata recovery paths', () => {

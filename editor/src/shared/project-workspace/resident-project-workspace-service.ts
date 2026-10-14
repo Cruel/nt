@@ -81,8 +81,12 @@ export interface ResidentProjectAuthority {
 }
 
 const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.freeze([
-  { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
-  { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
+  { root: 'i18n', extensions: ['.yaml', '.json'], excludedPrefixes: [] },
+  {
+    root: 'records',
+    extensions: ['.yaml', '.json', '.lua', '.rcss', '.rml'],
+    excludedPrefixes: [],
+  },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
   { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
 ]);
@@ -102,9 +106,9 @@ function isResidentSemanticSourcePath(path: string): boolean {
     path === 'project.yaml' ||
     path === 'editor.yaml' ||
     path === 'traits.yaml' ||
-    /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(path) ||
+    /^records\/[^/]+\/.+\.(?:json|yaml|lua|rml|rcss)$/u.test(path) ||
     /^scripts\/.+\.lua$/u.test(path) ||
-    /^i18n\/.+\.json$/u.test(path)
+    /^i18n\/.+\.(?:json|yaml)$/u.test(path)
   );
 }
 

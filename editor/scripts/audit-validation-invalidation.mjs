@@ -55,11 +55,6 @@ const firstLayoutSource = (extension) => {
   }
   return null;
 };
-const json = (change) => (original, attempt) => {
-  const document = JSON.parse(original);
-  change(document, attempt);
-  return `${JSON.stringify(document, null, 2)}\n`;
-};
 const yaml = (change) => (original, attempt) => {
   const document = parseYaml(original);
   change(document, attempt);
@@ -172,27 +167,27 @@ try {
     'scripts',
     'tests',
   ]) {
-    const file = firstFile(`records/${collection}`, '.json');
+    const file = firstFile(`records/${collection}`, '.yaml');
     add(
       `record-${collection}`,
       file,
-      json((x, n) => {
+      yaml((x, n) => {
         x.label += ` audit-${n}`;
       }),
     );
   }
-  add('record-rooms-whitespace', firstFile('records/rooms', '.json'), whitespace);
-  add('record-assets-whitespace', firstFile('records/assets', '.json'), whitespace);
-  add('missing-room', firstFile('records/rooms', '.json'), (text, attempt) =>
+  add('record-rooms-whitespace', firstFile('records/rooms', '.yaml'), whitespace);
+  add('record-assets-whitespace', firstFile('records/assets', '.yaml'), whitespace);
+  add('missing-room', firstFile('records/rooms', '.yaml'), (text, attempt) =>
     attempt === 1 ? whitespace(text, attempt) : null,
   );
   const assetRecords = path.join(root, 'records/assets');
   if (existsSync(assetRecords)) {
     const byKind = new Map();
     for (const file of readdirSync(assetRecords)
-      .filter((name) => name.endsWith('.json'))
+      .filter((name) => name.endsWith('.yaml'))
       .sort()) {
-      const asset = JSON.parse(readFileSync(path.join(assetRecords, file), 'utf8')).data;
+      const asset = parseYaml(readFileSync(path.join(assetRecords, file), 'utf8')).data;
       const source = asset?.source?.path;
       if (
         !byKind.has(asset.kind) &&
@@ -224,26 +219,26 @@ try {
   if (existsSync(layoutDirs)) {
     const file = readdirSync(layoutDirs)
       .sort()
-      .map((dir) => `records/layouts/${dir}/layout.json`)
+      .map((dir) => `records/layouts/${dir}/layout.yaml`)
       .find((f) => existsSync(path.join(root, f)));
     add(
       'record-layouts',
       file,
-      json((x, n) => {
+      yaml((x, n) => {
         x.label += ` audit-${n}`;
       }),
     );
   }
-  add('i18n-policy', 'i18n/project.json', whitespace);
-  add('i18n-translations', firstFile('i18n/locales', '.json'), whitespace);
-  add('i18n-assets', firstFile('i18n/assets', '.json'), whitespace);
-  add('i18n-tracking', 'i18n/tracking.json', whitespace);
-  add('i18n-orphans', 'i18n/orphans.json', whitespace);
-  add('i18n-usage-notes', 'i18n/usage-notes.json', whitespace);
+  add('i18n-policy', 'i18n/project.yaml', whitespace);
+  add('i18n-translations', firstFile('i18n/locales', '.yaml'), whitespace);
+  add('i18n-assets', firstFile('i18n/assets', '.yaml'), whitespace);
+  add('i18n-tracking', 'i18n/tracking.yaml', whitespace);
+  add('i18n-orphans', 'i18n/orphans.yaml', whitespace);
+  add('i18n-usage-notes', 'i18n/usage-notes.yaml', whitespace);
   add(
     'i18n-messages',
-    'i18n/messages.json',
-    json((x, n) => {
+    'i18n/messages.yaml',
+    yaml((x, n) => {
       const message = Object.values(x.messages).find((value) => typeof value.source === 'string');
       if (!message) throw new Error('No Message source in fixture');
       message.source += ` audit-${n}`;

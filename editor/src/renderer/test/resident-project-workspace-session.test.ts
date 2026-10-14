@@ -1,3 +1,5 @@
+import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { parse as parseYaml } from 'yaml';
 import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vite-plus/test';
 import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
@@ -105,10 +107,10 @@ function trackSemanticTransactionWrites(
     return relative === 'project.yaml' ||
       relative === 'editor.yaml' ||
       relative === 'traits.yaml' ||
-      /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(relative) ||
+      /^records\/[^/]+\/.+\.(?:json|yaml|lua|rml|rcss)$/u.test(relative) ||
       /^scripts\/.+\.lua$/u.test(relative) ||
       /^shaders\/.+\.sc$/u.test(relative) ||
-      /^i18n\/.+\.json$/u.test(relative)
+      /^i18n\/.+\.(?:json|yaml)$/u.test(relative)
       ? relative
       : null;
   };
@@ -288,8 +290,8 @@ describe('Resident physical Asset validation acceleration', () => {
     const initial = await workspace.open(ROOT);
     expect(initial.ok).toBe(true);
     if (!initial.ok) return;
-    await fileSystem.writeTextAtomic(`${ROOT}/i18n/tracking.json`, '{ }  ');
-    probe.change('i18n/tracking.json');
+    await fileSystem.writeTextAtomic(`${ROOT}/i18n/tracking.yaml`, '{ }  ');
+    probe.change('i18n/tracking.yaml');
     const updated = await workspace.open(ROOT);
     expect(updated.ok).toBe(true);
     if (!updated.ok) return;
@@ -353,7 +355,7 @@ describe('Presentation-only graph invalidation', () => {
     const originalByKey = new Map(
       initial.validationContributions.map((entry) => [entry.key, entry]),
     );
-    const file = 'i18n/locales/fr.json';
+    const file = 'i18n/locales/fr.yaml';
     const changed = cloneAuthoringProject(project);
     changed.localization.translations.fr![messageId] = createLocalizationTranslation(
       view,
@@ -411,7 +413,7 @@ describe('Presentation-only graph invalidation', () => {
     await resident.buildDependencyGraphAnalysis(initial.snapshot);
     const changed = cloneAuthoringProject(project);
     changed.localization.messages[id] = { kind: 'named', key: 'ui.greeting', source: 'Welcome' };
-    const file = 'i18n/messages.json';
+    const file = 'i18n/messages.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${file}`,
       projectWorkspaceFiles(changed, changed.editor)[file]!,
@@ -452,7 +454,7 @@ describe('Presentation-only graph invalidation', () => {
       true,
     );
 
-    for (const relative of ['project.yaml', 'traits.yaml', 'records/rooms/foyer.json']) {
+    for (const relative of ['project.yaml', 'traits.yaml', 'records/rooms/foyer.yaml']) {
       const text = await fileSystem.readText(`${ROOT}/${relative}`);
       await fileSystem.writeTextAtomic(`${ROOT}/${relative}`, `${text.trimEnd()}\n \n`);
       probe.change(relative);
@@ -517,10 +519,10 @@ describe('Presentation-only graph invalidation', () => {
     const after = cloneAuthoringProject(project);
     after.assets.backdrop!.label = 'New label';
     await fileSystem.writeTextAtomic(
-      `${ROOT}/records/assets/backdrop.json`,
-      projectWorkspaceFiles(after, after.editor)['records/assets/backdrop.json']!,
+      `${ROOT}/records/assets/backdrop.yaml`,
+      projectWorkspaceFiles(after, after.editor)['records/assets/backdrop.yaml']!,
     );
-    probe.change('records/assets/backdrop.json');
+    probe.change('records/assets/backdrop.yaml');
     const second = await workspace.open(ROOT);
     if (!second.ok) throw new Error('Asset metadata reconciliation failed.');
     const warm = await workspace.buildDependencyGraphAnalysis(second.snapshot);
@@ -554,7 +556,7 @@ describe('Presentation-only graph invalidation', () => {
     await resident.buildDependencyGraphAnalysis(initial.snapshot);
     const changed = cloneAuthoringProject(project);
     changed.rooms.foyer.data.displayName = 'Revised display name';
-    const file = 'records/rooms/foyer.json';
+    const file = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${file}`,
       projectWorkspaceFiles(changed, changed.editor)[file]!,
@@ -595,7 +597,7 @@ describe('Presentation-only graph invalidation', () => {
     await workspace.buildDependencyGraphAnalysis(initial.snapshot);
     const updated = cloneAuthoringProject(project);
     updated.layouts.hud!.label = 'HUD edited';
-    const file = 'records/layouts/hud/layout.json';
+    const file = 'records/layouts/hud/layout.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${file}`,
       projectWorkspaceFiles(updated, updated.editor)[file]!,
@@ -815,8 +817,8 @@ describe('ResidentProjectWorkspaceSession', () => {
       source: 'Hello',
     };
     edits.push([
-      'i18n/messages.json',
-      projectWorkspaceFiles(revised, revised.editor)['i18n/messages.json']!,
+      'i18n/messages.yaml',
+      projectWorkspaceFiles(revised, revised.editor)['i18n/messages.yaml']!,
     ]);
     revised.localization.messages[messageId] = {
       kind: 'named',
@@ -824,8 +826,8 @@ describe('ResidentProjectWorkspaceSession', () => {
       source: 'Hello',
     };
     edits.push([
-      'i18n/messages.json',
-      projectWorkspaceFiles(revised, revised.editor)['i18n/messages.json']!,
+      'i18n/messages.yaml',
+      projectWorkspaceFiles(revised, revised.editor)['i18n/messages.yaml']!,
     ]);
     edits.push(
       ['scripts/main.lua', 'Text.tr("Not " .. "literal")\n'],
@@ -833,13 +835,13 @@ describe('ResidentProjectWorkspaceSession', () => {
     );
     revised.rooms.foyer.archetype = { $ref: { collection: 'archetypes', id: 'missing' } };
     edits.push([
-      'records/rooms/foyer.json',
-      projectWorkspaceFiles(revised, revised.editor)['records/rooms/foyer.json']!,
+      'records/rooms/foyer.yaml',
+      projectWorkspaceFiles(revised, revised.editor)['records/rooms/foyer.yaml']!,
     ]);
     revised.rooms.foyer.archetype = null;
     edits.push([
-      'records/rooms/foyer.json',
-      projectWorkspaceFiles(revised, revised.editor)['records/rooms/foyer.json']!,
+      'records/rooms/foyer.yaml',
+      projectWorkspaceFiles(revised, revised.editor)['records/rooms/foyer.yaml']!,
     ]);
     revised.entrypoint = { kind: 'room', id: 'missing' };
     edits.push(['project.yaml', projectWorkspaceFiles(revised, revised.editor)['project.yaml']!]);
@@ -877,7 +879,7 @@ describe('ResidentProjectWorkspaceSession', () => {
       expect(warm.diagnostics, `validation parity after ${path}: ${text.slice(0, 48)}`).toEqual(
         cold.diagnostics,
       );
-      if (path === 'i18n/messages.json') {
+      if (path === 'i18n/messages.yaml') {
         const originalKeyMissing = text.includes('ui.missing');
         expect(
           warm.diagnostics.some(
@@ -903,7 +905,7 @@ describe('ResidentProjectWorkspaceSession', () => {
       expect(warmGraph.graph.diagnostics, `graph parity after ${path}`).toEqual(
         coldGraph.graph.diagnostics,
       );
-      if (path === 'i18n/messages.json')
+      if (path === 'i18n/messages.yaml')
         expect(
           warmGraph.graph.diagnostics.some(
             (item) => item.code === 'authoring.localization.lua_named_message_missing',
@@ -950,7 +952,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(opened.ok).toBe(true);
     if (!opened.ok) throw new Error(opened.diagnostics[0]?.message ?? 'Project open failed.');
 
-    const roomPath = 'records/rooms/foyer.json';
+    const roomPath = 'records/rooms/foyer.yaml';
     const contribution = opened.sourceContributions[roomPath];
     expect(contribution?.kind).toBe('json');
     if (contribution?.kind !== 'json') throw new Error('Room contribution was not JSON.');
@@ -963,7 +965,11 @@ describe('ResidentProjectWorkspaceSession', () => {
       ...opened,
       sourceContributions: Object.freeze({
         ...opened.sourceContributions,
-        [roomPath]: Object.freeze({ ...contribution, parsed }),
+        [roomPath]: Object.freeze({
+          ...contribution,
+          parsed,
+          sourceText: projectWorkspaceSourceCodec(roomPath).encode(parsed),
+        }),
       }),
     };
 
@@ -1014,7 +1020,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changed = structuredClone(project);
     changed.rooms['room-137']!.label = 'Only This Room Changed';
-    const relativePath = 'records/rooms/room-137.json';
+    const relativePath = 'records/rooms/room-137.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${relativePath}`,
       projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
@@ -1084,7 +1090,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const first = await workspace.open(ROOT);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     const semanticEdit = cloneAuthoringProject(project);
     semanticEdit.rooms.foyer.data.displayName = 'Coverage Relevant';
     await fileSystem.writeTextAtomic(
@@ -1200,8 +1206,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const roomPath = 'records/rooms/foyer.json';
-    const persistedRoom = JSON.parse(files[`${ROOT}/${roomPath}`]!) as Record<string, unknown>;
+    const roomPath = 'records/rooms/foyer.yaml';
+    const persistedRoom = parseYaml(files[`${ROOT}/${roomPath}`]!) as Record<string, unknown>;
     persistedRoom.label = 'Changed Foyer';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${roomPath}`,
@@ -1239,7 +1245,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changedAsset = cloneAuthoringProject(second.snapshot.project);
     changedAsset.assets['image-000']!.data.source.path = 'assets/replaced.png';
-    const assetRecordPath = 'records/assets/image-000.json';
+    const assetRecordPath = 'records/assets/image-000.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${assetRecordPath}`,
       projectWorkspaceFiles(changedAsset, changedAsset.editor)[assetRecordPath]!,
@@ -1309,10 +1315,10 @@ describe('ResidentProjectWorkspaceSession', () => {
   it('recovers an interrupted transaction without regressing the resident generation', async () => {
     const { fileSystem, probe, workspace } = await createNativeAssetWorkspace();
     const beforeIdentity = await workspace.residentGenerationIdentity(ROOT);
-    const target = 'records/assets/image.json';
+    const target = 'records/assets/image.yaml';
     const absolute = `${ROOT}/${target}`;
     const before = await fileSystem.readText(absolute);
-    const changed = JSON.parse(before) as { label: string };
+    const changed = parseYaml(before) as { label: string };
     changed.label = 'Interrupted Image';
     const after = `${JSON.stringify(changed, null, 2)}\n`;
     const transactionRoot = `${ROOT}/.noveltea/transactions/interrupted`;
@@ -1457,7 +1463,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     await workspace.buildDependencyGraphAnalysis(first.snapshot);
     const changed = cloneAuthoringProject(project);
     changed.assets.image.label = 'Changed Image';
-    const recordPath = 'records/assets/image.json';
+    const recordPath = 'records/assets/image.yaml';
     const beforeText = await fileSystem.readText(`${ROOT}/${recordPath}`);
     let admitted = false;
 
@@ -1500,7 +1506,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     trackSemanticTransactionWrites(fileSystem, probe);
     const changed = cloneAuthoringProject(project);
     changed.assets.image.label = 'Should Not Commit';
-    const recordPath = 'records/assets/image.json';
+    const recordPath = 'records/assets/image.yaml';
     const originalWrite = fileSystem.writeBytesAtomic.bind(fileSystem);
     let failed = false;
     fileSystem.writeBytesAtomic = async (value, bytes) => {
@@ -1568,8 +1574,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     trackSemanticTransactionWrites(fileSystem, probe);
     const changed = cloneAuthoringProject(project);
     changed.assets.image.label = 'Committed Candidate';
-    const assetRecordPath = `${ROOT}/records/assets/image.json`;
-    const racedRoomPath = 'records/rooms/raced.json';
+    const assetRecordPath = `${ROOT}/records/assets/image.yaml`;
+    const racedRoomPath = 'records/rooms/raced.yaml';
     const external = cloneAuthoringProject(project);
     external.rooms.raced = {
       id: 'raced',
@@ -1612,7 +1618,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
     const changed = cloneAuthoringProject(project);
     changed.assets.image.label = 'Mutation Candidate';
-    const roomPath = 'records/rooms/raced.json';
+    const roomPath = 'records/rooms/raced.yaml';
     const external = cloneAuthoringProject(project);
     external.rooms.raced = {
       id: 'raced',
@@ -1637,16 +1643,16 @@ describe('ResidentProjectWorkspaceSession', () => {
         },
       ),
     ).rejects.toMatchObject({ code: 'WORKSPACE_REVISION_CONFLICT', targetPath: roomPath });
-    const persisted = JSON.parse(
-      await fileSystem.readText(`${ROOT}/records/assets/image.json`),
-    ) as { label: string };
+    const persisted = parseYaml(await fileSystem.readText(`${ROOT}/records/assets/image.yaml`)) as {
+      label: string;
+    };
     expect(persisted.label).toBe(project.assets.image.label);
     expect(await workspace.hasResidentSession(ROOT)).toBe(true);
   });
 
   it('rejects a pending source race even after native authority already consumed the delta', async () => {
     const { project, fileSystem, probe, workspace, first } = await createNativeAssetWorkspace();
-    const roomPath = 'records/rooms/raced.json';
+    const roomPath = 'records/rooms/raced.yaml';
     const external = cloneAuthoringProject(project);
     external.rooms.raced = {
       id: 'raced',
@@ -1701,7 +1707,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
   it('blocks a native resident mutation that overlaps an invalid overlay', async () => {
     const { project, fileSystem, probe, workspace } = await createNativeAssetWorkspace();
-    const recordPath = 'records/assets/image.json';
+    const recordPath = 'records/assets/image.yaml';
     await fileSystem.writeTextAtomic(`${ROOT}/${recordPath}`, '{ invalid json');
     probe.change(recordPath);
     const mutationBase = await workspace.openForMutation(ROOT);
@@ -1726,7 +1732,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
   it('restores native configuration when a discarded Asset candidate reverts to the coherent path', async () => {
     const { project, fileSystem, probe, workspace } = await createNativeAssetWorkspace();
-    const relativePath = 'records/assets/image.json';
+    const relativePath = 'records/assets/image.yaml';
     const changed = cloneAuthoringProject(project);
     changed.assets.image.data.source.path = 'assets/replaced.png';
     await fileSystem.writeTextAtomic(
@@ -1906,8 +1912,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
     const unchangedHall = first.snapshot.project.rooms.hall;
-    const roomPath = 'records/rooms/foyer.json';
-    const persistedRoom = JSON.parse(files[`${ROOT}/${roomPath}`]!) as Record<string, unknown>;
+    const roomPath = 'records/rooms/foyer.yaml';
+    const persistedRoom = parseYaml(files[`${ROOT}/${roomPath}`]!) as Record<string, unknown>;
 
     let latest = first;
     for (let index = 0; index < 96; index += 1) {
@@ -1954,7 +1960,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changed = cloneAuthoringProject(project);
     changed.rooms.foyer!.label = 'Changed during admission';
-    const roomPath = 'records/rooms/foyer.json';
+    const roomPath = 'records/rooms/foyer.yaml';
     const changedRoom = projectWorkspaceFiles(changed, changed.editor)[roomPath]!;
     const probe = createProjectAuthorityProbe();
     probe.beforeObserve(async (count) => {
@@ -1998,7 +2004,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'Changed After Command';
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${relativePath}`,
       projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
@@ -2035,7 +2041,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     const firstEdit = structuredClone(project);
     firstEdit.rooms.foyer.label = 'First Edit';
     const secondEdit = structuredClone(project);
@@ -2088,7 +2094,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     await workspace.buildDependencyGraphAnalysis(first.snapshot);
     const changed = cloneAuthoringProject(project);
     changed.rooms.owner.data.description.source = { kind: 'lua-expression', source: "'after'" };
-    const path = 'records/rooms/owner.json';
+    const path = 'records/rooms/owner.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${path}`,
       projectWorkspaceFiles(changed, changed.editor)[path]!,
@@ -2138,7 +2144,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(`${ROOT}/${relativePath}`, '{');
     probe.change(relativePath);
     const invalid = await workspace.open(ROOT);
@@ -2175,7 +2181,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const first = await workspace.open(ROOT);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const malformedPath = 'records/rooms/foyer.json';
+    const malformedPath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(`${ROOT}/${malformedPath}`, '{');
     probe.change(malformedPath);
 
@@ -2212,7 +2218,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const withHall = structuredClone(project);
     withHall.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
-    const hallPath = 'records/rooms/hall.json';
+    const hallPath = 'records/rooms/hall.yaml';
     withHall.rooms.hall.archetype = { $ref: { collection: 'archetypes', id: 'missing' } };
     await fileSystem.writeTextAtomic(
       `${ROOT}/${hallPath}`,
@@ -2312,8 +2318,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const recordPath = 'records/scripts/bootstrap.json';
-    const persisted = JSON.parse(files[`${ROOT}/${recordPath}`]!) as Record<string, unknown>;
+    const recordPath = 'records/scripts/bootstrap.yaml';
+    const persisted = parseYaml(files[`${ROOT}/${recordPath}`]!) as Record<string, unknown>;
     persisted.label = 'Changed Bootstrap';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${recordPath}`,
@@ -2363,7 +2369,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'Changed Foyer';
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     const changedFiles = projectWorkspaceFiles(changed, changed.editor);
     await fileSystem.writeTextAtomic(`${ROOT}/${relativePath}`, changedFiles[relativePath]!);
 
@@ -2509,7 +2515,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'Changed Foyer';
     changed.rooms.foyer.data.exits[0]!.target.$ref.id = 'foyer';
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     const changedFiles = projectWorkspaceFiles(changed, changed.editor);
     await fileSystem.writeTextAtomic(`${ROOT}/${relativePath}`, changedFiles[relativePath]!);
 
@@ -2554,7 +2560,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     const firstEdit = structuredClone(project);
     firstEdit.rooms.foyer.label = 'First Edit';
     const secondEdit = structuredClone(project);
@@ -2610,8 +2616,8 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const foyerPath = 'records/rooms/foyer.json';
-    const hallPath = 'records/rooms/hall.json';
+    const foyerPath = 'records/rooms/foyer.yaml';
+    const hallPath = 'records/rooms/hall.yaml';
     const firstEdit = structuredClone(project);
     firstEdit.rooms.foyer.label = 'Changed Foyer';
     const secondEdit = structuredClone(firstEdit);
@@ -2664,7 +2670,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const withHall = structuredClone(project);
     withHall.rooms.hall = { id: 'hall', label: 'Hall', data: defaultRoomData('Hall') };
-    const hallPath = 'records/rooms/hall.json';
+    const hallPath = 'records/rooms/hall.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${hallPath}`,
       projectWorkspaceFiles(withHall, withHall.editor)[hallPath]!,
@@ -2788,7 +2794,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'Watcher Reconciled';
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${relativePath}`,
       projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
@@ -2941,7 +2947,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     if (!prepared) throw new Error('Portable Project snapshot was not prepared.');
 
     await fileSystem.writeTextAtomic(
-      `${ROOT}/records/rooms/live-only.json`,
+      `${ROOT}/records/rooms/live-only.yaml`,
       JSON.stringify({ id: 'live-only', label: 'Live Only', data: defaultRoomData('Live Only') }),
     );
 
@@ -2951,7 +2957,7 @@ describe('ResidentProjectWorkspaceSession', () => {
         .relativePath(ROOT, fileSystem.resolvePath(value))
         .replaceAll('\\', '/');
       if (
-        relative === 'records/rooms/live-only.json' ||
+        relative === 'records/rooms/live-only.yaml' ||
         opened.snapshot.canonicalSourceFiles.includes(relative)
       )
         throw new Error(`Authored source '${relative}' was read during pinned snapshot hydration.`);
@@ -2980,8 +2986,8 @@ describe('ResidentProjectWorkspaceSession', () => {
         text,
       ]),
     );
-    const layoutPath = `${ROOT}/records/layouts/hud/layout.json`;
-    const record = JSON.parse(files[layoutPath]!);
+    const layoutPath = `${ROOT}/records/layouts/hud/layout.yaml`;
+    const record = parseYaml(files[layoutPath]!);
     record.data.lua = { sourceMode: 'none' };
     record.data.script.enabled = false;
     delete record.data.preview;
@@ -2993,8 +2999,12 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(initial.ok).toBe(true);
     if (!initial.ok) throw new Error('Initial Project open failed.');
     await fileSystem.writeTextAtomic(
-      `${ROOT}/records/rooms/new-room.json`,
-      JSON.stringify({ id: 'new-room', label: 'New Room', data: defaultRoomData('New Room') }),
+      `${ROOT}/records/rooms/new-room.yaml`,
+      projectWorkspaceSourceCodec('records/rooms/new-room.yaml').encode({
+        id: 'new-room',
+        label: 'New Room',
+        data: defaultRoomData('New Room'),
+      }),
     );
     const changed = await owner.open(ROOT);
     expect(changed.ok).toBe(true);
@@ -3355,7 +3365,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'Changed During Snapshot Maintenance';
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${relativePath}`,
       projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
@@ -3405,7 +3415,7 @@ describe('ResidentProjectWorkspaceSession', () => {
 
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'Changed While Dormant';
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(
       `${ROOT}/${relativePath}`,
       projectWorkspaceFiles(changed, changed.editor)[relativePath]!,
@@ -3450,7 +3460,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     expect(first.ok).toBe(true);
     if (!first.ok) throw new Error('Initial Project open failed.');
 
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(`${ROOT}/${relativePath}`, '{');
     const invalid = await workspace.open(ROOT);
     expect(invalid.ok).toBe(false);
@@ -3473,7 +3483,7 @@ describe('ResidentProjectWorkspaceSession', () => {
     const changed = structuredClone(project);
     changed.rooms.foyer.label = 'Changed Foyer';
     const changedFiles = projectWorkspaceFiles(changed, changed.editor);
-    const relativePath = 'records/rooms/foyer.json';
+    const relativePath = 'records/rooms/foyer.yaml';
     await fileSystem.writeTextAtomic(`${ROOT}/${relativePath}`, changedFiles[relativePath]!);
 
     const revision = await session.readFreshRevision(relativePath);

@@ -476,18 +476,8 @@ const localizationAssetsFile = (locale: string) => `i18n/assets/${locale}.json`;
 
 function localizationSourcePath(file: string, sourceFiles?: ReadonlySet<string>): string {
   const yaml = file.replace(/\.json$/u, '.yaml');
-  if (!sourceFiles || sourceFiles.has(file)) return file;
-  if (sourceFiles.has(yaml)) return yaml;
-  // New chunks in an already-YAML locale family retain that family's physical
-  // format. A family's initial owner is still chosen by the full cutover (#467).
-  const parent = file.slice(0, file.lastIndexOf('/') + 1);
-  if (
-    (parent === 'i18n/locales/' || parent === 'i18n/assets/') &&
-    (sourceFiles.has('i18n/project.yaml') ||
-      [...sourceFiles].some((path) => path.startsWith(parent) && path.endsWith('.yaml')))
-  )
-    return yaml;
-  return file;
+  // Existing staged JSON owners retain their paths until the final conversion removal.
+  return sourceFiles?.has(file) ? file : yaml;
 }
 
 function projectWorkspaceLocalizationFile(
@@ -630,54 +620,9 @@ const recordFile = (
   id: string,
   sourceFiles?: ReadonlySet<string>,
 ) => {
-  if (collection === 'layouts') {
-    const json = `records/layouts/${id}/layout.json`;
-    return sourceFiles?.has(json) ||
-      ![...(sourceFiles ?? [])].some((file) =>
-        /^records\/layouts\/[^/]+\/layout\.yaml$/u.test(file),
-      )
-      ? json
-      : `records/layouts/${id}/layout.yaml`;
-  }
-  if (
-    [
-      'assets',
-      'animations',
-      'materials',
-      'archetypes',
-      'scripts',
-      'rooms',
-      'maps',
-      'characters',
-      'interactables',
-      'verbs',
-      'interactions',
-      'dialogues',
-      'scenes',
-      'tests',
-    ].includes(collection)
-  ) {
-    const json = `records/${collection}/${id}.json`;
-    const yaml = `records/${collection}/${id}.yaml`;
-    // During the per-family cutover existing JSON owners keep their physical path.
-    // Once one YAML record is staged, new records in that family join the YAML source.
-    // The cohesive all-YAML project cutover (#467) removes this transitional selection.
-    return sourceFiles?.has(json) ||
-      ![...(sourceFiles ?? [])].some(
-        (file) => file.startsWith(`records/${collection}/`) && file.endsWith('.yaml'),
-      )
-      ? json
-      : yaml;
-  }
-  if (collection !== 'variables' || !sourceFiles) return `records/${collection}/${id}.json`;
-  const json = `records/variables/${id}.json`;
-  const yaml = `records/variables/${id}.yaml`;
-  // Once a tracer Variable is present, additional Variables join its physical format.
-  // Existing JSON Variables retain their paths until the full source-format cutover.
-  return sourceFiles.has(json) ||
-    ![...sourceFiles].some((file) => /^records\/variables\/[^/]+\.yaml$/u.test(file))
-    ? json
-    : yaml;
+  const stem =
+    collection === 'layouts' ? `records/layouts/${id}/layout` : `records/${collection}/${id}`;
+  return sourceFiles?.has(`${stem}.json`) ? `${stem}.json` : `${stem}.yaml`;
 };
 
 function sourceContributionOwnerPaths(
@@ -4005,7 +3950,7 @@ export class ProjectWorkspaceService {
                   // Hydration exposes Lua `none` as empty inline source, not an authored companion.
                   if (
                     /^records\/layouts\/[^/]+\/layout\.(?:json|yaml)$/u.test(file) &&
-                    !admittedSourcePaths.has(file.replace(/\.json$/u, '.lua'))
+                    !admittedSourcePaths.has(file.replace(/\.(?:json|yaml)$/u, '.lua'))
                   )
                     (normalizedSource.data as Record<string, unknown>).lua = { sourceMode: 'none' };
                   parsed = normalizedSource;
