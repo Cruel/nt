@@ -1205,7 +1205,7 @@ describe('project-file-service workspace-v1', () => {
 
     fs.writeFileSync(
       variablePath,
-      fs.readFileSync(variablePath, 'utf8').replace('value: 1', 'value: 1 # agent intent'),
+      fs.readFileSync(variablePath, 'utf8').replace('label: Score', 'label: Score # agent intent'),
     );
     const saved = await saveActiveProjectContent(
       session,
@@ -1219,7 +1219,7 @@ describe('project-file-service workspace-v1', () => {
       opened.editorState,
     );
     expect(saved.success).toBe(true);
-    expect(fs.readFileSync(variablePath, 'utf8')).toContain('value: 2 # agent intent');
+    expect(fs.readFileSync(variablePath, 'utf8')).toContain('label: Score # agent intent');
 
     fs.writeFileSync(variablePath, 'id: [unfinished');
     const rejected = await saveActiveProjectContent(
@@ -1235,6 +1235,96 @@ describe('project-file-service workspace-v1', () => {
     );
     expect(rejected.success).toBe(false);
     expect(fs.readFileSync(variablePath, 'utf8')).toBe('id: [unfinished');
+  });
+
+  it('preflights annotated defaults and honors Keep, Remove, and revision-bound confirmation', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'YAML Confirmation', projectDirectory: root });
+    const file = path.join(root, 'records/variables/score.yaml');
+    fs.mkdirSync(path.dirname(file), { recursive: true });
+    fs.writeFileSync(
+      file,
+      'id: score\nlabel: Score\ndata:\n  type: integer\n  value: 1 # score intent\n  nullable: true # nullability intent\n',
+    );
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+    const base = fs.readFileSync(file, 'utf8');
+    const request: ProjectContentSaveRequest = {
+      saveUnitIds: ['record:variables:score'],
+      affectedPaths: ['/variables/score/data/nullable'],
+      baseValueByPath: { '/variables/score/data/nullable': { exists: true, value: true } },
+      localValueByPath: { '/variables/score/data/nullable': { exists: true, value: false } },
+      operationLabel: 'save nullability',
+    };
+    const preflight = await saveActiveProjectContent(session, request, opened.editorState);
+    expect(preflight.commentConfirmationRequired).toBe(true);
+    expect(preflight.commentImpacts).toEqual([
+      expect.objectContaining({
+        path: '/data/nullable',
+        comment: ' nullability intent',
+        kind: 'changed',
+      }),
+    ]);
+    expect(fs.readFileSync(file, 'utf8')).toBe(base);
+
+    // An agent comment edit after the dialog opens revokes the original approval.
+    fs.writeFileSync(file, base.replace('nullability intent', 'new agent intent'));
+    const oldApproval = await saveActiveProjectContent(
+      session,
+      {
+        ...request,
+        commentConfirmation: { token: preflight.commentConfirmationToken!, decision: 'keep' },
+      },
+      opened.editorState,
+    );
+    expect(oldApproval.success).toBe(false);
+    expect(fs.readFileSync(file, 'utf8')).toContain('new agent intent');
+    const refreshed = await workspace.open(root);
+    expect(refreshed.ok).toBe(true);
+    if (!refreshed.ok) return;
+    const resumed = ActiveProjectWorkspaceSession.fromOpened(refreshed);
+    const renewed = await saveActiveProjectContent(resumed, request, refreshed.editorState);
+    expect(renewed.commentConfirmationRequired).toBe(true);
+    expect(renewed.commentConfirmationToken).not.toBe(preflight.commentConfirmationToken);
+    const kept = await saveActiveProjectContent(
+      resumed,
+      {
+        ...request,
+        commentConfirmation: { token: renewed.commentConfirmationToken!, decision: 'keep' },
+      },
+      refreshed.editorState,
+    );
+    expect(kept.success).toBe(true);
+    expect(fs.readFileSync(file, 'utf8')).toContain('nullable: false # new agent intent');
+
+    const changeValue: ProjectContentSaveRequest = {
+      saveUnitIds: ['record:variables:score'],
+      affectedPaths: ['/variables/score/data/value'],
+      baseValueByPath: { '/variables/score/data/value': { exists: true, value: 1 } },
+      localValueByPath: { '/variables/score/data/value': { exists: true, value: 2 } },
+      operationLabel: 'save value',
+    };
+    const impact = await saveActiveProjectContent(
+      resumed,
+      changeValue,
+      kept.editorState ?? refreshed.editorState,
+    );
+    expect(impact.commentConfirmationRequired).toBe(true);
+    const removed = await saveActiveProjectContent(
+      resumed,
+      {
+        ...changeValue,
+        commentConfirmation: { token: impact.commentConfirmationToken!, decision: 'remove' },
+      },
+      kept.editorState ?? refreshed.editorState,
+    );
+    expect(removed.success).toBe(true);
+    expect(fs.readFileSync(file, 'utf8')).toContain('value: 2');
+    expect(fs.readFileSync(file, 'utf8')).not.toContain('score intent');
+    expect(fs.readFileSync(file, 'utf8')).toContain('new agent intent');
   });
 
   it('does not report a false external Room conflict after reopening tracked record metadata', async () => {

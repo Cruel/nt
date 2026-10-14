@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vite-plus/test';
 import { deleteEntity, renameEntity } from '../../cli/semantic-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { defaultTestData } from '../../shared/project-schema/authoring-tests';
 import {
   cloneAuthoringProject,
@@ -40,6 +41,55 @@ async function fixture() {
 }
 
 describe('source-aware workspace mutations', () => {
+  it('keeps a nested annotated sparse Room default explicitly after changing its value', async () => {
+    const project = createAuthoringProject({ id: 'comments', name: 'Comments' });
+    const data = defaultRoomData('Hall');
+    data.presentationSpace.defaultView.zoom = 2;
+    project.rooms.hall = { id: 'hall', label: 'Hall', data };
+    const path = 'records/rooms/hall.yaml';
+    const sources = projectWorkspaceFiles(project, project.editor, {}, new Set([path]));
+    expect(sources[path]).toContain('zoom: 2');
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(sources).map(([name, source]) => [
+          `${root}/${name}`,
+          name === path ? source.replace('zoom: 2', 'zoom: 2 # camera intent') : source,
+        ]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fs);
+    const opened = await workspace.open(root);
+    if (!opened.ok) throw new Error('Annotated Room did not open');
+    const next = cloneAuthoringProject(opened.snapshot.project);
+    next.rooms.hall!.data.presentationSpace.defaultView.zoom = 1;
+    const preview = await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      next,
+      next.editor,
+      {},
+      {
+        affectedPaths: ['/rooms/hall/data/presentationSpace/defaultView/zoom'],
+        dryRun: true,
+        preflightSnapshot: opened.snapshot,
+      },
+    );
+    expect(preview.commentImpacts).toEqual([
+      expect.objectContaining({ comment: ' camera intent', kind: 'changed' }),
+    ]);
+    await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      next,
+      next.editor,
+      {},
+      {
+        affectedPaths: ['/rooms/hall/data/presentationSpace/defaultView/zoom'],
+        commentDisposition: 'keep',
+      },
+    );
+    expect(await fs.readText(`${root}/${path}`)).toContain('zoom: 1 # camera intent');
+  });
   it('moves record metadata annotations with graph-aware CLI rename', async () => {
     const { fs, workspace } = await fixture();
     await fs.writeTextAtomic(

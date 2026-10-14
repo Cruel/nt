@@ -5,7 +5,11 @@ import {
   type AuthoringLuaSourceDescriptor,
 } from '../authoring-source-analysis';
 import { z } from 'zod';
-import { yamlCommentImpacts, type YamlCommentImpact } from './yaml-comment-impact';
+import {
+  yamlCommentImpacts,
+  removeChangedYamlComments,
+  type YamlCommentImpact,
+} from './yaml-comment-impact';
 import { restoreMissingYamlSource } from './yaml-source-restoration';
 import { remapYamlRecordMetadata } from './structured-yaml-source';
 import {
@@ -1406,6 +1410,7 @@ export function projectWorkspaceFile(
   scriptSourcePaths: Readonly<Record<string, string>>,
   file: string,
   previousText?: string,
+  keepCommentedDefaults = false,
 ): string | undefined {
   if (file === 'project.yaml')
     return projectWorkspaceSourceCodec(file).encode(
@@ -1512,6 +1517,7 @@ export function projectWorkspaceFile(
       record,
       authoringRecordSchemas[collection],
       previousText,
+      keepCommentedDefaults,
     );
   }
   for (const [id, record] of Object.entries(project.scripts)) {
@@ -1599,6 +1605,7 @@ const committedSourceTexts = new WeakMap<
 >();
 
 export interface ProjectWorkspaceWriteOptions {
+  readonly commentDisposition?: 'keep' | 'remove' | 'delete';
   /** Prepare the same source-aware transaction without committing or writing editor state. */
   readonly dryRun?: boolean;
   /** Undo templates seed only recreated nodes, never overwrite live annotations. */
@@ -4070,9 +4077,12 @@ export class ProjectWorkspaceService {
     const nextSourceTexts = new Map<string, string>();
     let sourceMembershipChanged = false;
     for (const file of [...candidates].sort(compareProjectWorkspaceUnicodeCodePoints)) {
-      const currentText = await this.fileSystem
-        .readText(this.fileSystem.joinPath(projectRoot, file))
-        .catch(() => null);
+      const absolute = this.fileSystem.joinPath(projectRoot, file);
+      const currentText = await (
+        file.endsWith('.yaml')
+          ? (this.fileSystem.readTextFresh?.(absolute) ?? this.fileSystem.readText(absolute))
+          : this.fileSystem.readText(absolute)
+      ).catch(() => null);
       const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
       const actualRevision =
         currentText === null
@@ -4096,7 +4106,14 @@ export class ProjectWorkspaceService {
         priorText = remapYamlRecordMetadata(priorText, options.identityRemap);
       let nextText =
         (file.endsWith('.yaml')
-          ? projectWorkspaceFile(project, editorState, projectedSourcePaths, file, priorText)
+          ? projectWorkspaceFile(
+              project,
+              editorState,
+              projectedSourcePaths,
+              file,
+              priorText,
+              options.commentDisposition === 'keep',
+            )
           : fullProjection && !sourceMoves.has(file)
             ? fullProjection[file]
             : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
@@ -4128,10 +4145,75 @@ export class ProjectWorkspaceService {
               (impact) =>
                 !(sourceMoves.has(file) && impact.path === '/id' && impact.kind === 'changed'),
             )
-            .map((impact) => ({ file, ...impact }));
+            .map((impact) => {
+              // A sparse authored field can disappear from YAML while its effective
+              // value still exists as a declared default. This is a change, not an
+              // element deletion, so Keep must remain an available decision.
+              const match = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
+              let effective: unknown =
+                match && isAuthoringCollectionKey(match[1]!)
+                  ? project[match[1] as AuthoringCollectionKey][match[2]!]
+                  : file === 'project.yaml'
+                    ? project
+                    : file === 'editor.yaml'
+                      ? editorState
+                      : file === 'traits.yaml'
+                        ? project.traits
+                        : undefined;
+              let previousEffective: unknown =
+                match && isAuthoringCollectionKey(match[1]!)
+                  ? openedSnapshot.project[match[1] as AuthoringCollectionKey][match[2]!]
+                  : file === 'project.yaml'
+                    ? openedSnapshot.project
+                    : file === 'editor.yaml'
+                      ? openedSnapshot.project.editor
+                      : file === 'traits.yaml'
+                        ? openedSnapshot.project.traits
+                        : undefined;
+              if (impact.kind === 'deleted' && nextText !== null && effective !== undefined) {
+                for (const segment of impact.path.split('/').slice(1)) {
+                  const key = segment.replace(/~1/gu, '/').replace(/~0/gu, '~');
+                  if (Array.isArray(previousEffective) && Array.isArray(effective)) {
+                    const prior = previousEffective[Number(key)] as { id?: unknown } | undefined;
+                    const stableId = prior && typeof prior.id === 'string' ? prior.id : undefined;
+                    effective = stableId
+                      ? effective.find(
+                          (item) => item && typeof item === 'object' && item.id === stableId,
+                        )
+                      : effective[Number(key)];
+                    previousEffective = prior;
+                  } else {
+                    previousEffective =
+                      previousEffective && typeof previousEffective === 'object'
+                        ? (previousEffective as Record<string, unknown>)[key]
+                        : undefined;
+                    effective =
+                      effective && typeof effective === 'object'
+                        ? (effective as Record<string, unknown>)[key]
+                        : undefined;
+                  }
+                  if (effective === undefined) break;
+                }
+              }
+              return {
+                file,
+                ...impact,
+                kind:
+                  impact.kind === 'deleted' && nextText !== null && effective !== undefined
+                    ? ('changed' as const)
+                    : impact.kind,
+              };
+            });
           commentImpacts.push(...impacts);
           if (nextText === null || impacts.some((impact) => impact.kind === 'deleted'))
             deletedSourceTexts[file] = priorText;
+          if (
+            (options.commentDisposition === 'remove' || options.commentDisposition === 'delete') &&
+            nextText !== null
+          ) {
+            nextText = removeChangedYamlComments(nextText, impacts);
+            nextSourceTexts.set(file, nextText);
+          }
         }
       }
       targets.push(

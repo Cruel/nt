@@ -152,6 +152,10 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
     return this.raw.inspect(value);
   }
 
+  readTextFresh(value: string): Promise<string> {
+    return this.raw.readTextFresh?.(value) ?? this.raw.readText(value);
+  }
+
   readPathMetadataFresh(value: string): Promise<ProjectWorkspacePathMetadata> | undefined {
     return this.raw.readPathMetadata?.(value);
   }

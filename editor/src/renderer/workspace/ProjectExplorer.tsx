@@ -41,6 +41,12 @@ import {
   diagnosticSeverityForRecord,
 } from '@/diagnostics/project-diagnostic-severity';
 import { useProjectStore } from '@/project/project-store';
+import {
+  ProjectCommentReviewContents,
+  resolveProjectComments,
+  setInlineProjectCommentOwner,
+  usePendingProjectComments,
+} from '@/project/project-comment-confirmation';
 import { findProjectSourceByAssetId, useProjectSourceStore } from '@/project/project-source-store';
 import {
   MUTATION_SURFACE_ATTRIBUTIONS,
@@ -89,7 +95,7 @@ import {
   buildVariablesEditorTab,
 } from '@/workbench/editor-registry';
 import { useBottomPanelStore } from '@/workbench/bottom-panel-store';
-import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
+import { useDraftDirtyStore, type DraftDirtyEntry } from '@/workbench/draft-dirty-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
 import { dispatchWorkspaceToolbarCommand } from './workspace-toolbar-events';
 import {
@@ -202,6 +208,42 @@ function EntityOperationDialog({
   const [forceDelete, setForceDelete] = useState(false);
   const [replacementByEdgeId, setReplacementByEdgeId] = useState<Record<string, string>>({});
   const [error, setError] = useState<string | null>(null);
+  const [pendingDeleteCommandId, setPendingDeleteCommandId] = useState<string | null>(null);
+  const discardedDrafts = useRef<readonly DraftDirtyEntry[]>([]);
+  const commentConfirmation = usePendingProjectComments();
+  const inlineDeleteComments =
+    pendingDeleteCommandId && commentConfirmation?.operationLabel === 'entity.deleteRecord:forward'
+      ? commentConfirmation.impacts
+      : null;
+
+  useEffect(() => {
+    if (!pendingDeleteCommandId) return;
+    setInlineProjectCommentOwner('entity.deleteRecord:forward');
+    return () => setInlineProjectCommentOwner(null);
+  }, [pendingDeleteCommandId]);
+
+  useEffect(() => {
+    if (!pendingDeleteCommandId || !state || state.action !== 'delete') return;
+    const onPersisted = (event: Event) => {
+      const detail = (event as CustomEvent<{ commandId: string; result: { status: string } }>)
+        .detail;
+      if (detail.commandId !== pendingDeleteCommandId) return;
+      setPendingDeleteCommandId(null);
+      if (detail.result.status === 'persisted') {
+        discardedDrafts.current = [];
+        if (state.entityId) discardRecordTabs(state.collection, state.entityId);
+        onClose();
+      } else if (detail.result.status === 'cancelled') {
+        restoreDiscardedDrafts();
+        onClose();
+      } else {
+        restoreDiscardedDrafts();
+        setError('The deletion could not be saved.');
+      }
+    };
+    window.addEventListener('noveltea-structural-persistence-result', onPersisted);
+    return () => window.removeEventListener('noveltea-structural-persistence-result', onPersisted);
+  }, [pendingDeleteCommandId, state, onClose]);
 
   useEffect(() => {
     setError(null);
@@ -309,7 +351,16 @@ function EntityOperationDialog({
           tab.resource.entityId === entityId,
       )
       .map((tab) => tab.id);
+    discardedDrafts.current = Object.values(useDraftDirtyStore.getState().entriesByKey).filter(
+      (draft) => matchingTabIds.includes(draft.tabId),
+    );
     for (const tabId of matchingTabIds) useDraftDirtyStore.getState().clearDraftDirtyForTab(tabId);
+  }
+
+  function restoreDiscardedDrafts() {
+    const drafts = discardedDrafts.current;
+    discardedDrafts.current = [];
+    for (const { key, ...draft } of drafts) useDraftDirtyStore.getState().setDraftDirty(key, draft);
   }
 
   function discardRecordTabs(collection: AuthoringCollectionKey, entityId: string) {
@@ -373,21 +424,24 @@ function EntityOperationDialog({
       // A confirmed structural deletion owns this record. Drop local drafts first
       // so their recovery overlay cannot recreate the removed record.
       discardRecordDrafts(state.collection, state.entityId);
-      finish(
-        executeCommand({
-          type: 'entity.deleteRecord',
-          label: `Delete ${state.collection}/${state.entityId}`,
-          payload: {
-            collection: state.collection,
-            entityId: state.entityId,
-            force: forceDelete,
-            replacements: replacementByEdgeId,
-          },
-          originSaveUnitId: structuralSaveUnitId(state.collection),
-          persistencePolicy: 'auto-commit',
-        }),
-        () => discardRecordTabs(state.collection, state.entityId!),
-      );
+      const result = executeCommand({
+        type: 'entity.deleteRecord',
+        label: `Delete ${state.collection}/${state.entityId}`,
+        payload: {
+          collection: state.collection,
+          entityId: state.entityId,
+          force: forceDelete,
+          replacements: replacementByEdgeId,
+        },
+        originSaveUnitId: structuralSaveUnitId(state.collection),
+        persistencePolicy: 'auto-commit',
+      });
+      const failure = result.diagnostics.find((diagnostic) => diagnostic.severity === 'error');
+      if (!result.ok || failure) {
+        restoreDiscardedDrafts();
+        setError(failure?.message ?? 'Command failed.');
+      } else if (result.historyEntry?.id) setPendingDeleteCommandId(result.historyEntry.id);
+      else onClose();
     } else if (state.action === 'metadata' && state.entityId) {
       finish(
         executeCommand({
@@ -585,22 +639,32 @@ function EntityOperationDialog({
             </>
           )}
         </div>
-        <div className="flex justify-end gap-2">
-          <Button variant="ghost" onClick={onClose}>
-            Cancel
-          </Button>
-          <Button
-            variant={state.action === 'delete' ? 'destructive' : 'default'}
-            onClick={submit}
-            disabled={
-              state.action === 'delete' &&
-              (!graphSnapshot ||
-                (!forceDelete && deleteRepairPlan !== null && deleteRepairPlan.status !== 'ready'))
-            }
-          >
-            {state.action === 'delete' ? 'Delete' : 'Apply'}
-          </Button>
-        </div>
+        {inlineDeleteComments ? (
+          <ProjectCommentReviewContents
+            impacts={inlineDeleteComments}
+            onDecision={resolveProjectComments}
+          />
+        ) : (
+          <div className="flex justify-end gap-2">
+            <Button variant="ghost" onClick={onClose} disabled={!!pendingDeleteCommandId}>
+              Cancel
+            </Button>
+            <Button
+              variant={state.action === 'delete' ? 'destructive' : 'default'}
+              onClick={submit}
+              disabled={
+                state.action === 'delete' &&
+                (!!pendingDeleteCommandId ||
+                  !graphSnapshot ||
+                  (!forceDelete &&
+                    deleteRepairPlan !== null &&
+                    deleteRepairPlan.status !== 'ready'))
+              }
+            >
+              {pendingDeleteCommandId ? 'Saving…' : state.action === 'delete' ? 'Delete' : 'Apply'}
+            </Button>
+          </div>
+        )}
       </DialogPopup>
     </Dialog>
   );

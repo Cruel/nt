@@ -99,9 +99,13 @@ companions) to the destination, including matching `editor.yaml` record-metadata
 in a staged mixed JSON/YAML family an existing JSON owner retains its `.json` extension on rename.
 Changing the record's own `id` during a safe identity move does not produce a destructive-comment
 impact. Duplication deliberately starts from new, comment-free source. The writer reports affected comments
-with their physical source paths for future centralized editor confirmation; it does not itself
+with their physical source paths for the centralized editor confirmation dialog; it does not itself
 present confirmation UI. CLI entity deletion includes discarded-comment details in both dry-run and
-commit results without requiring interactive acknowledgment.
+commit results without requiring interactive acknowledgment. The editor's shared pre-commit dialog
+uses a read-only dry-run and physical fresh-source check instead of resident cached YAML. A Keep
+decision retains an annotated explicit default even if sparse encoding would normally remove it;
+Remove drops only the reviewed stale annotations. A source revision change after confirmation must
+be reviewed again rather than accepted under the prior approval.
 
 Structural command Undo/Redo retains deleted YAML source templates for recreation, filling only
 missing nodes; annotations still present in current source take precedence over historical ones.

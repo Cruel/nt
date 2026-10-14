@@ -514,6 +514,13 @@ const projectContentSaveRequestSchema = z
     baseValueByPath: z.record(mutationPathSchema, projectMutationPathValueSchema),
     localValueByPath: z.record(mutationPathSchema, projectMutationPathValueSchema),
     operationLabel: z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
+    commentConfirmation: z
+      .object({
+        token: z.string().regex(/^[a-f0-9]{64}$/u),
+        decision: z.enum(['keep', 'remove', 'delete']),
+      })
+      .strict()
+      .optional(),
     recoveryFileOwnershipHints: recoveryFileOwnershipHintsSchema.optional(),
     sourceRestorations: z
       .record(projectRelativePathSchema, z.string().max(MAX_SOURCE_RESTORATION_CHARACTERS))

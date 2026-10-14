@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { createElement } from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { ProjectCommentConfirmationDialog } from '@/project/project-comment-confirmation';
 import {
   buildAutoCommitPlan,
   remapRecoveryForAutoCommit,
@@ -764,6 +767,59 @@ describe('structural command persistence', () => {
     expect(useCommandStore.getState().redo().ok).toBe(true);
     await flushStructuralCommandPersistence();
     await expect(fs.readText(`${root}/${file}`)).rejects.toThrow();
+  });
+
+  it('rolls back structural delete without a tracked write when comment confirmation is canceled', async () => {
+    const project = createAuthoringProject();
+    project.variables.score = {
+      id: 'score',
+      label: 'Score',
+      data: { kind: 'variable', type: 'integer', value: 1, nullable: false, scope: 'global' },
+    };
+    vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      commentConfirmationRequired: true,
+      commentConfirmationToken: 'f'.repeat(64),
+      commentImpacts: [
+        {
+          file: 'records/variables/score.yaml',
+          path: '/label',
+          comment: ' record intent',
+          kind: 'deleted',
+        },
+      ],
+    });
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    const ui = render(createElement(ProjectCommentConfirmationDialog));
+    try {
+      expect(
+        useCommandStore.getState().executeCommand({
+          type: 'entity.deleteRecord',
+          label: 'Delete score',
+          payload: { collection: 'variables', entityId: 'score' },
+          originSaveUnitId: 'structure:variables',
+          persistencePolicy: 'auto-commit',
+        }).ok,
+      ).toBe(true);
+      await screen.findByText('record intent');
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })));
+      await flushStructuralCommandPersistence();
+      expect(useProjectStore.getState().document).toMatchObject({
+        variables: { score: { id: 'score' } },
+      });
+      expect(useProjectStore.getState().savedDocument).toMatchObject({
+        variables: { score: { id: 'score' } },
+      });
+      expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
+      expect(useCommandStore.getState().history.entries).toHaveLength(0);
+    } finally {
+      ui.unmount();
+    }
   });
 
   it('persists structural forward, Undo, and Redo to the saved baseline', async () => {

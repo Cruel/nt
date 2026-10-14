@@ -1,6 +1,7 @@
 import { authoringRecordSchemas } from '../project-schema/authoring-records';
 import { parseRestrictedYamlDocument } from './restricted-yaml-source';
 import { encodeStructuredYaml } from './structured-yaml-source';
+import { annotatedYamlPaths } from './yaml-comment-impact';
 
 /** Restricted YAML is a source spelling of the existing strict Variable record, not a new model. */
 export const variableYamlSourceSchema = authoringRecordSchemas.variables.extend({
@@ -14,7 +15,11 @@ export function decodeVariableYaml(text: string): unknown {
   return authoringRecordSchemas.variables.parse(variableYamlSourceSchema.parse(value));
 }
 
-export function encodeVariableYaml(value: unknown, previousText?: string): string {
+export function encodeVariableYaml(
+  value: unknown,
+  previousText?: string,
+  keepCommentedDefaults = false,
+): string {
   const parsed = authoringRecordSchemas.variables.parse(value);
   const data: Record<string, unknown> = { type: parsed.data.type, value: parsed.data.value };
   if (parsed.data.nullable) data.nullable = true;
@@ -35,9 +40,10 @@ export function encodeVariableYaml(value: unknown, previousText?: string): strin
       if (
         previous.data &&
         Object.hasOwn(previous.data, key) &&
-        previous.data[key] === parsed.data[key]
+        (previous.data[key] === parsed.data[key] ||
+          (keepCommentedDefaults && annotatedYamlPaths(previousText).has(`data.${key}`)))
       )
-        data[key] = previous.data[key];
+        data[key] = parsed.data[key];
     }
   }
   return encodeStructuredYaml(target, previousText);

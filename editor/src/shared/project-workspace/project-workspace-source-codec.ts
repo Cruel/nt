@@ -137,7 +137,12 @@ function canonicalize(value: unknown, schema?: CanonicalSourceSchema): unknown {
 export interface ProjectWorkspaceSourceCodec {
   readonly kind: 'json' | 'text' | 'yaml';
   decode(text: string): unknown;
-  encode(value: unknown, schema?: CanonicalSourceSchema, previousText?: string): string;
+  encode(
+    value: unknown,
+    schema?: CanonicalSourceSchema,
+    previousText?: string,
+    keepCommentedDefaults?: boolean,
+  ): string;
 }
 
 const jsonCodec: ProjectWorkspaceSourceCodec = {
@@ -155,7 +160,7 @@ const textCodec: ProjectWorkspaceSourceCodec = {
 const variableYamlCodec: ProjectWorkspaceSourceCodec = {
   kind: 'yaml',
   decode: decodeVariableYaml,
-  encode: (value, _schema, previousText) => encodeVariableYaml(value, previousText),
+  encode: (value, _schema, previousText, keep) => encodeVariableYaml(value, previousText, keep),
 };
 
 const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
@@ -180,7 +185,8 @@ export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourc
     return {
       kind: 'yaml',
       decode: (text) => decodeSparseRecordYaml(family, text),
-      encode: (value, _schema, previousText) => encodeSparseRecordYaml(family, value, previousText),
+      encode: (value, _schema, previousText, keep) =>
+        encodeSparseRecordYaml(family, value, previousText, keep),
     };
   }
   if (file === 'project.yaml' || file === 'traits.yaml' || file === 'editor.yaml')
