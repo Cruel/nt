@@ -13,11 +13,13 @@ const docsRoot = isLatest ? '/docs' : '/docs/dev';
     Generated from NovelTea's canonical authoring codecs · Project Workspace v{reference.projectWorkspaceVersion} · {isLatest ? `Latest release${releaseVersion ? ` ${releaseVersion}` : ''}` : 'Unreleased development channel'}
   </p>
   <p>
-    Structural notation is documentation, not serialized JSON: <code>?</code> permits omission,
-    <code>= value</code> supplies a default, and named types are local to each section.
-    Numbers are finite JSON numbers. Examples are schema-checked JSON fragments; referenced IDs
-    still need matching Project declarations. Run <code>noveltea validate</code> for contextual
-    and cross-record constraints.
+    Structural notation describes tracked YAML source rather than normalized JSON:
+    <code>?</code> permits omission, <code>? ... = value</code> identifies an omission default,
+    and unmarked fields are required. Collection-qualified references in record YAML use bare IDs;
+    registry/owner-qualified references retain their explicit identity. Numbers are finite.
+    Semantic examples below are checked normalized JSON fragments, not copy-ready source YAML;
+    use the Agent Kit's checked YAML examples for authoring. Run the read-only
+    <code>noveltea validate</code> for contextual and cross-record constraints.
   </p>
 
   {reference.documents.map((document) => (
