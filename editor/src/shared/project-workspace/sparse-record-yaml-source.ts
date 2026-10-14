@@ -5,6 +5,7 @@ import { defaultRoomData } from '../project-schema/authoring-rooms';
 import { defaultMapData } from '../project-schema/authoring-maps';
 import { characterDataSchema } from '../project-schema/authoring-characters';
 import { defaultInteractionProgram } from '../project-schema/authoring-interaction-programs';
+import { defaultDialogueData } from '../project-schema/authoring-dialogues';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
 
 export type SparseRecordFamily =
@@ -13,7 +14,9 @@ export type SparseRecordFamily =
   | 'characters'
   | 'interactables'
   | 'verbs'
-  | 'interactions';
+  | 'interactions'
+  | 'dialogues'
+  | 'scenes';
 type Family = SparseRecordFamily;
 type Shape = Record<string, ZodType>;
 type Dict = Record<string, unknown>;
@@ -191,6 +194,50 @@ const defaults: Record<Family, Readonly<Record<string, unknown>>> = {
     'data.rules.*.offer.rank': 0,
     'data.rules.*.offer.primary': false,
   },
+  dialogues: {
+    'data.displayName': '',
+    'data.defaultSpeaker': null,
+    'data.stageSlots': [],
+    'data.mediaSlots': [],
+    'data.settings': defaultDialogueData().settings,
+    'data.settings.showDisabledChoices': true,
+    'data.settings.logMode': 'everything',
+    'data.edges': [],
+    'data.completion': { kind: 'end' },
+    'data.blocks.*.defaultSpeaker': null,
+    'data.blocks.*.segments.*.speaker': null,
+    'data.blocks.*.segments.*.cues': [],
+    'data.blocks.*.segments.*.effects': [],
+    'data.blocks.*.segments.*.showOnce': false,
+    'data.blocks.*.segments.*.logged': true,
+    'data.blocks.*.segments.*.autosaveSafePoint': false,
+    'data.blocks.*.segments.*.mayYield': true,
+    'data.blocks.*.segments.*.inputs': [],
+    'data.blocks.*.segments.*.uiPolicy': 'conceal',
+    'data.edges.*.effects': [],
+    'data.edges.*.logged': true,
+    'data.edges.*.autosaveSafePoint': false,
+    'data.stageSlots.*.speakerSync': true,
+    'data.stageSlots.*.initial': null,
+    'data.mediaSlots.*.initial': null,
+    'data.mediaSlots.*.visible': true,
+    'data.blocks.*.segments.*.cues.*.waitForCompletion': false,
+    'data.blocks.*.segments.*.cues.*.skippable': true,
+  },
+  scenes: {
+    'data.displayName': '',
+    'data.inputs': [],
+    'data.outcomes': [],
+    'data.events.*.enabled': true,
+    'data.events.*.completionDependencies': [],
+    'data.events.*.autosaveSafePoint': false,
+    'data.events.*.inputs': [],
+    'data.events.*.mayYield': true,
+    'data.events.*.skippable': true,
+    'data.events.*.waitForCompletion': false,
+    'data.events.*.effects': [],
+    'data.events.*.options.*.effects': [],
+  },
 };
 
 /** Source omission values, indexed by normalized record path; '*' is one sequence item. */
@@ -356,6 +403,8 @@ function convert(
           interactables: 'interactable',
           verbs: 'verb',
           interactions: 'interaction',
+          dialogues: 'dialogue',
+          scenes: 'scene',
         }[family];
       continue;
     }

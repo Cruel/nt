@@ -77,6 +77,8 @@ import { defaultCharacterData } from './authoring-characters';
 import { defaultInteractableData } from './authoring-interactables';
 import { defaultVerbData } from './authoring-verbs';
 import { defaultInteractionData } from './authoring-interactions';
+import { defaultDialogueData } from './authoring-dialogues';
+import { defaultSceneData } from './authoring-scenes';
 import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
@@ -422,9 +424,16 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       );
     }
     if (
-      ['rooms', 'maps', 'characters', 'interactables', 'verbs', 'interactions'].some(
-        (family) => document.id === `records/${family}`,
-      )
+      [
+        'rooms',
+        'maps',
+        'characters',
+        'interactables',
+        'verbs',
+        'interactions',
+        'dialogues',
+        'scenes',
+      ].some((family) => document.id === `records/${family}`)
     ) {
       const family = document.id.slice('records/'.length) as SparseRecordFamily;
       const label = {
@@ -434,6 +443,8 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         interactables: 'Example Interactable',
         verbs: 'Example Verb',
         interactions: 'Example Interaction',
+        dialogues: 'Example Dialogue',
+        scenes: 'Example Scene',
       }[family];
       const data = {
         rooms: () => defaultRoomData(label),
@@ -442,6 +453,8 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         interactables: () => defaultInteractableData(label),
         verbs: () => defaultVerbData(label),
         interactions: () => defaultInteractionData(),
+        dialogues: () => defaultDialogueData(label),
+        scenes: () => defaultSceneData(label),
       }[family]();
       const example = encodeSparseRecordYaml(family, {
         id: `example-${family.slice(0, -1)}`,
