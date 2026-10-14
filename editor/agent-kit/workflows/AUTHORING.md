@@ -71,11 +71,17 @@ can involve a Definition, a declared Instance in `project.yaml`, Room placement/
 and Interaction/Verb support. The shared concepts explain those ownership boundaries and the generated
 reference provides the current fields; do not keep a private template that may drift from either.
 
-Finish the complete logical relationship, then run:
+Finish the complete logical relationship, optionally normalize YAML presentation, then validate
+semantics independently (validation never reformats source):
 
 ```sh
+noveltea fmt
 noveltea validate
 ```
+
+For automated style checking without writes, use `noveltea fmt --check`. To format just one
+tracked YAML owner, use `noveltea fmt records/<collection>/<id>.yaml`. Formatting accepts
+syntactically valid YAML even while related Project records are being edited.
 
 Run relevant authored Tests when the behavior is covered by semantic playback. Validation proves
 structural/semantic validity, not visual quality of placement, hotspot geometry, styling, or art.

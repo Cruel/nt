@@ -50,6 +50,7 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
+  fmt [<tracked-yaml-path>] [--check]
   localization sync [--dry-run]
   localization reconcile [--apply]
   localization view <locale> [--status <missing|current|outdated|needs-review|reviewed|human|ai|imported|unknown|attention>]
@@ -95,8 +96,9 @@ Global options:
 
 Normal project editing policy:
   Run 'noveltea agent sync' before an agent session, then read '.noveltea/agent/GUIDE.md'.
-  Edit record JSON, Lua, RML, and RCSS source files directly, run 'noveltea localization sync' after
-  managed localizable source edits, then run 'noveltea validate'. Use semantic CLI commands only for
+  Edit YAML, Lua, RML, and RCSS source files directly, optionally run 'noveltea fmt' and then
+  'noveltea validate' as a separate read-only semantic check. Run 'noveltea localization sync' after
+  managed localizable source edits. Use semantic CLI commands only for
   operations that require project-wide dependency or transaction
   semantics, such as Asset import, create, rename, delete, and usages.
 `;

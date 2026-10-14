@@ -274,6 +274,20 @@ export async function runNovelTeaCli(
     return { fileSystem: resolvedFileSystem, workspace };
   };
 
+  if (globals.command[0] === 'fmt') {
+    const { runNovelTeaFmtCli } = await import('./fmt-command');
+    const result = await runNovelTeaFmtCli(globals, cwd, await projectFileSystem());
+    if (
+      !globals.command.includes('--check') &&
+      result.envelope.changed &&
+      typeof result.envelope.projectRoot === 'string' &&
+      options.residentWorkspace &&
+      !options.trustPinnedResidentSnapshot
+    )
+      await options.residentWorkspace.reconcileAfterOpaqueWrite(result.envelope.projectRoot);
+    return result;
+  }
+
   if (globals.command[0] === 'project' && globals.command[1] === 'create') {
     const services = await workspaceServices();
     const { runNovelTeaProjectCreateCli } = await import('./project-create-cli');
