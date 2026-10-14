@@ -25,6 +25,7 @@ export type SparseRecordFamily =
   | 'scenes'
   | 'tests';
 type Family = SparseRecordFamily;
+type ConversionFamily = Family | 'layouts';
 type Shape = Record<string, ZodType>;
 type Dict = Record<string, unknown>;
 
@@ -39,7 +40,8 @@ const map = defaultMapData();
 // Source omissions are semantic defaults, not UI initialization guesses. Paths are relative
 // to the record and '*' matches a single array element. These are deliberately conservative:
 // geometry, identities, presentation choices and union discriminators remain explicit.
-const defaults: Record<Family, Readonly<Record<string, unknown>>> = {
+const defaults: Record<ConversionFamily, Readonly<Record<string, unknown>>> = {
+  layouts: {},
   archetypes: { 'data.base': null, 'data.overrides': {} },
   scripts: {},
   // Resource metadata carries hashes, provenance and import/renderer settings.
@@ -271,7 +273,7 @@ export function sparseRecordYamlSourceDefaults(family: Family): Readonly<Record<
   return defaults[family];
 }
 
-function sourceDefault(family: Family, path: readonly string[]): unknown {
+function sourceDefault(family: ConversionFamily, path: readonly string[]): unknown {
   const table = defaults[family];
   for (let length = path.length; length > 0; length -= 1) {
     const key = path.slice(0, length).join('.');
@@ -347,8 +349,112 @@ function typedReference(schema: ZodType): string | undefined {
   return Array.isArray(literals) && typeof literals[0] === 'string' ? literals[0] : undefined;
 }
 
+/** The normalized Test schema contains editor-form placeholders; none are authored commands. */
+function assertTestSourceIntent(source: unknown): void {
+  if (!object(source) || !object(source.data)) return;
+  const requireKey = (owner: Dict, key: string, path: string) => {
+    if (!Object.hasOwn(owner, key))
+      throw new Error(`Required Test YAML field ${path}/${key} must be authored explicitly.`);
+  };
+  const requireKeys = (owner: Dict, keys: readonly string[], path: string) =>
+    keys.forEach((key) => requireKey(owner, key, path));
+  const requireDocumentAddress = (owner: Dict, path: string) => {
+    if (!Object.hasOwn(owner, 'documentId') && !Object.hasOwn(owner, 'mountInstanceId'))
+      throw new Error(
+        `Required Test YAML field ${path}/documentId or mountInstanceId must be authored explicitly.`,
+      );
+  };
+  const payloads: Partial<Record<string, readonly [string, string]>> = {
+    'dialogue-choice': ['dialogueChoice', 'edgeId'],
+    'scene-choice': ['sceneChoice', 'optionId'],
+    navigate: ['navigate', 'exitId'],
+    'ui-click': ['uiClick', 'selector'],
+    save: ['saveSlot', 'slotId'],
+    load: ['saveSlot', 'slotId'],
+  };
+  const inspectExpectations = (items: unknown, path: string) => {
+    if (!Array.isArray(items)) return;
+    const owners: Record<string, readonly [string, readonly string[]]> = {
+      property: ['property', ['scope', 'propertyId']],
+      'current-room': ['currentRoom', ['roomId']],
+      location: ['location', ['entityKind', 'entityId', 'locationKind']],
+      quantity: ['quantity', ['interactableId']],
+      trait: ['trait', ['ownerKind', 'ownerId', 'traitId']],
+      'entity-state': ['entityState', ['entityKind', 'entityId', 'field']],
+      'active-flow': ['activeFlow', ['kind', 'flowId']],
+      layout: ['layout', ['layoutId', 'field']],
+      'ui-element': ['uiElement', ['selector', 'field']],
+      event: ['event', ['kind']],
+      diagnostic: ['diagnostic', ['code']],
+    };
+    items.forEach((item, index) => {
+      if (!object(item)) return;
+      const location = `${path}/${index}`;
+      requireKey(item, 'type', location);
+      requireKey(item, 'operator', location);
+      const required = owners[String(item.type)];
+      if (!required) return;
+      const [payload, fields] = required;
+      requireKey(item, payload, location);
+      const detail = item[payload];
+      if (!object(detail)) return; // The normalized schema reports non-object payloads.
+      const nestedPath = `${location}/${payload}`;
+      requireKeys(detail, fields, nestedPath);
+      const comparison = !['present', 'absent'].includes(String(item.operator));
+      if (
+        comparison &&
+        ['property', 'quantity', 'entity-state', 'event'].includes(String(item.type))
+      )
+        requireKey(detail, 'value', nestedPath);
+      if (item.type === 'property' && detail.scope !== 'global')
+        requireKey(detail, 'ownerId', nestedPath);
+      if (item.type === 'location') {
+        if (detail.locationKind === 'room') requireKey(detail, 'roomId', nestedPath);
+        if (detail.locationKind === 'inventory') {
+          requireKeys(detail, ['inventoryOwnerKind', 'inventoryId'], nestedPath);
+          if (detail.inventoryOwnerKind !== 'project')
+            requireKey(detail, 'inventoryOwnerId', nestedPath);
+        }
+      }
+      if (item.type === 'layout' && detail.field === 'state' && comparison)
+        requireKey(detail, 'value', nestedPath);
+      if (item.type === 'ui-element') {
+        requireDocumentAddress(detail, nestedPath);
+        if (detail.field === 'visible' && comparison) requireKey(detail, 'value', nestedPath);
+      }
+    });
+  };
+  if (Array.isArray(source.data.steps))
+    source.data.steps.forEach((step, index) => {
+      if (!object(step)) return;
+      const location = `/data/steps/${index}`;
+      requireKey(step, 'input', location);
+      const required = payloads[String(step.input)];
+      if (required) {
+        requireKey(step, required[0], location);
+        const detail = step[required[0]];
+        if (object(detail)) requireKey(detail, required[1], `${location}/${required[0]}`);
+      }
+      if (step.input === 'run-interaction') {
+        requireKey(step, 'runInteraction', location);
+        if (object(step.runInteraction))
+          requireKeys(step.runInteraction, ['verb', 'bindings'], `${location}/runInteraction`);
+      }
+      if (step.input === 'primary-activate' || step.input === 'open-verb-menu') {
+        requireKey(step, 'subjectAction', location);
+        if (object(step.subjectAction))
+          requireKey(step.subjectAction, 'subject', `${location}/subjectAction`);
+      }
+      if (step.input === 'ui-click' && object(step.uiClick)) {
+        requireDocumentAddress(step.uiClick, `${location}/uiClick`);
+      }
+      inspectExpectations(step.expectations, `${location}/expectations`);
+    });
+  inspectExpectations(source.data.finalExpectations, '/data/finalExpectations');
+}
+
 function convert(
-  family: Family,
+  family: ConversionFamily,
   schemaInput: ZodType,
   value: unknown,
   path: string[],
@@ -436,10 +542,29 @@ function convert(
       );
     });
   }
+  if (def.type === 'record' && object(value)) {
+    return Object.fromEntries(
+      Object.entries(value).map(([key, entry]) => [
+        key,
+        convert(
+          family,
+          def.valueType as ZodType,
+          entry,
+          [...path, '*'],
+          direction,
+          object(previous) ? previous[key] : undefined,
+          object(previousEffective) ? previousEffective[key] : undefined,
+          keepPaths,
+          stripDefaults,
+        ),
+      ]),
+    );
+  }
   if (def.type !== 'object' || !object(value)) return value;
   const shape = def.shape as Shape;
   if (
     family !== 'assets' &&
+    family !== 'layouts' &&
     direction === 'read' &&
     path.join('.') === 'data' &&
     Object.hasOwn(value, 'kind')
@@ -447,7 +572,12 @@ function convert(
     throw new Error(`Redundant data.kind is not supported in ${family} YAML.`);
   const result: Dict = {};
   for (const [key, childSchema] of Object.entries(shape)) {
-    if (family !== 'assets' && path.join('.') === 'data' && key === 'kind') {
+    if (
+      family !== 'assets' &&
+      family !== 'layouts' &&
+      path.join('.') === 'data' &&
+      key === 'kind'
+    ) {
       if (direction === 'read')
         result.kind = {
           archetypes: 'archetype',
@@ -480,13 +610,20 @@ function convert(
     if (child !== undefined) result[key] = child;
   }
   // Let the strict normalized Zod schema diagnose unknown keys, rather than losing them.
-  for (const [key, child] of Object.entries(value)) if (!(key in shape)) result[key] = child;
+  for (const [key, child] of Object.entries(value))
+    if (!Object.hasOwn(shape, key)) result[key] = child;
   return result;
+}
+
+/** Layout source metadata uses file/none selectors, but shares typed reference source spelling. */
+export function convertLayoutYamlReferences(value: unknown, direction: 'read' | 'write'): unknown {
+  return convert('layouts', authoringRecordSchemas.layouts, value, [], direction);
 }
 
 export function decodeSparseRecordYaml(family: Family, text: string): unknown {
   const schema = authoringRecordSchemas[family];
   const source = decodeStructuredYaml(text);
+  if (family === 'tests') assertTestSourceIntent(source);
   // Admission belongs to the workspace projection so Zod errors retain their
   // normalized owner pointers, rather than becoming an opaque source-read error.
   return convert(family, schema, source, [], 'read');

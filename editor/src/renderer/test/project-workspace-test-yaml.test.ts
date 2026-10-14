@@ -20,6 +20,34 @@ const path = 'records/tests/example.yaml';
 const codec = projectWorkspaceSourceCodec(path);
 
 describe('sparse authored Test YAML', () => {
+  it('rejects omitted semantic Test commands and active selector/expectation placeholders', () => {
+    const source = (step: string) =>
+      `id: example\nlabel: Example\ndata:\n  steps:\n    - id: first\n      label: First\n${step}`;
+    for (const input of [
+      '',
+      '      input: dialogue-choice\n',
+      '      input: dialogue-choice\n      dialogueChoice: {}\n',
+      '      input: ui-click\n      uiClick: {}\n',
+      '      input: ui-click\n      uiClick:\n        documentId: runtime_game\n',
+      '      input: ui-click\n      uiClick:\n        selector: "#item"\n',
+      '      input: run-interaction\n      runInteraction:\n        verb: null\n',
+      '      input: primary-activate\n      subjectAction: {}\n',
+      '      input: tick\n      expectations:\n        - id: expected\n          type: diagnostic\n          diagnostic:\n            code: failed\n',
+      '      input: tick\n      expectations:\n        - id: expected\n          type: diagnostic\n          operator: eq\n          diagnostic: {}\n',
+      '      input: tick\n      expectations:\n        - id: expected\n          type: property\n          operator: eq\n          property:\n            propertyId: points\n            value: 2\n',
+      '      input: tick\n      expectations:\n        - id: expected\n          type: location\n          operator: present\n          location:\n            entityId: hero\n            locationKind: room\n            roomId: foyer\n',
+      '      input: tick\n      expectations:\n        - id: expected\n          type: event\n          operator: eq\n          event:\n            kind: notification\n',
+    ])
+      expect(() => codec.decode(source(input)), input).toThrow(/Required Test YAML field/u);
+    const authored = source(
+      '      input: dialogue-choice\n      dialogueChoice:\n        edgeId: next\n',
+    );
+    expect(authoringRecordSchemas.tests.parse(codec.decode(authored)).data.steps[0]).toMatchObject({
+      input: 'dialogue-choice',
+      dialogueChoice: { edgeId: 'next' },
+    });
+  });
+
   it('round-trips Feature Lab semantic and UI Test inputs and expectations', () => {
     const files = featureLabYamlFiles('tests');
     expect(files.length).toBeGreaterThan(5);

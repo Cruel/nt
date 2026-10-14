@@ -63,6 +63,27 @@ import {
 const root = '/projects/headless';
 
 describe('effective entity inspection CLI', () => {
+  it('distinguishes authored empty collections from omitted source defaults', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const omitted = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'rooms', 'start', '--provenance'],
+      options(value),
+    );
+    expect(omitted.exitCode).toBe(0);
+    expect((omitted.envelope.provenance as { data: { cast: unknown } }).data.cast).toBe('default');
+    const source = await value.fileSystem.readText(file);
+    await value.fileSystem.writeTextAtomic(file, source.replace(/^data:$/mu, 'data:\n  cast: []'));
+    const explicit = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'rooms', 'start', '--provenance'],
+      options(value),
+    );
+    expect(explicit.exitCode).toBe(0);
+    expect((explicit.envelope.provenance as { data: { cast: unknown } }).data.cast).toBe(
+      'explicit',
+    );
+  });
+
   it('expands nested Room defaults from sparse YAML without changing the record', async () => {
     const project = validProject();
     const staged = projectWorkspaceFiles(
@@ -189,7 +210,63 @@ describe('effective entity inspection CLI', () => {
   });
 });
 
+describe('YAML identity rename comment notices', () => {
+  it('emits a nonblocking informational diagnostic for retained distinct-token mentions', async () => {
+    const value = fixture();
+    const before = await value.fileSystem.readText(`${root}/records/rooms/start.yaml`);
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/rooms/start.yaml`,
+      `# start is the original room; started is not its ID\n${before}`,
+    );
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'rename', 'rooms', 'start', 'arrival', '--dry-run'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.source_comment.stale_id',
+          severity: 'info',
+          sourceUrl: 'project:/records/rooms/arrival.yaml',
+        }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(`${root}/records/rooms/start.yaml`)).toBe(
+      `# start is the original room; started is not its ID\n${before}`,
+    );
+  });
+});
+
 describe('YAML diagnostic source locations', () => {
+  it('resolves normalized manifest, Trait, editor and localization owner pointers', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/project.yaml`]:
+        'settings:\n  display:\n    referenceResolution:\n      width: 640\n',
+      [`${root}/traits.yaml`]: 'guard:\n  label: Guard\n',
+      [`${root}/editor.yaml`]: 'tags:\n  records:\n    blue:\n      name: Blue\n',
+      [`${root}/i18n/messages.yaml`]: 'messages:\n  title:\n    source: Hello\n',
+    });
+    const pointers = [
+      '/settings/display/referenceResolution/width',
+      '/traits/guard/label',
+      '/editor/tags/records/blue/name',
+      '/localization/messages/title/source',
+    ];
+    const found = await locateYamlCliDiagnostics(
+      fs,
+      root,
+      pointers.map((path) => ({ code: 'test', severity: 'error' as const, path, message: 'test' })),
+    );
+    expect(found.map((diagnostic) => diagnostic.sourceUrl)).toEqual([
+      'project:/project.yaml',
+      'project:/traits.yaml',
+      'project:/editor.yaml',
+      'project:/i18n/messages.yaml',
+    ]);
+    expect(found.every((diagnostic) => typeof diagnostic.line === 'number')).toBe(true);
+  });
+
   it('links a schema-invalid record without changing its logical diagnostic path', async () => {
     const value = fixture();
     const file = `${root}/records/rooms/start.yaml`;
@@ -460,6 +537,39 @@ function validationNativeTools(): NovelTeaCliNativeToolService {
 }
 
 describe('YAML fmt CLI', () => {
+  it('compacts non-record Project/editor omission defaults, retaining annotated values', async () => {
+    const value = fixture();
+    const manifestPath = `${root}/project.yaml`;
+    const manifest = await value.fileSystem.readText(manifestPath);
+    await value.fileSystem.writeTextAtomic(
+      manifestPath,
+      manifest.replace(
+        'interactableInstances:',
+        'undefinedInteractionProgram: null\ninteractableInstances:',
+      ),
+    );
+    const editorPath = `${root}/editor.yaml`;
+    await value.fileSystem.writeTextAtomic(
+      editorPath,
+      'chapters:\n  records: {}\n  assignments: {} # keep assignment default\ntags:\n  records: {}\nrecordMetadata: {}\n',
+    );
+    const dry = await runNovelTeaCli(
+      ['--json', 'fmt', '--strip-defaults', '--check'],
+      options(value),
+    );
+    expect(dry.exitCode).not.toBe(0);
+    const applied = await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value));
+    expect(applied.exitCode, JSON.stringify(applied.envelope.diagnostics)).toBe(0);
+    expect(await value.fileSystem.readText(manifestPath)).not.toContain(
+      'undefinedInteractionProgram: null',
+    );
+    const editor = await value.fileSystem.readText(editorPath);
+    expect(editor).not.toContain('records: {}');
+    expect(editor).toContain('assignments: {} # keep assignment default');
+    const opened = await value.workspace.open(root);
+    expect(opened.ok ? '' : opened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+  });
+
   it('strips Variable source defaults only on explicit request, preserving annotated intent', async () => {
     const value = fixture();
     const file = `${root}/records/variables/counter.yaml`;

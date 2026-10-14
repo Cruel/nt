@@ -165,6 +165,19 @@ Missing known collection directories mean empty collections.
 
 ### Canonical structured YAML
 
+The restricted profile admits YAML 1.2 finite JSON-compatible scalars only.
+YAML 1.1 directives, nonfinite numerics, and unknown keys (including keys
+named like JavaScript inherited properties) are rejected. Statically typed
+Asset references inside Material texture dictionaries and Layout dependency
+metadata/selectors use bare IDs. Archetype arbitrary-JSON override values
+are not automatically shortened.
+
+Full Project Copy / Save As starts from the original YAML source documents,
+retaining comments, authored key ordering, and unchanged explicit defaults.
+Selecting a previously nondefault value's declared omission default instead
+writes sparse source. Entity rename emits nonblocking notices for distinct-token
+old-ID mentions in surviving YAML comments without rewriting their prose.
+
 All Projects and records require `.yaml` for every structured owner, including localization chunks.
 Legacy `.json` Project records, Layout metadata, and localization owners are rejected rather than
 read, retained, or migrated. This does not affect compiled runtime JSON, the transport

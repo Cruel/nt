@@ -18,10 +18,7 @@ data:
       value: 3
   textures:
     s_pattern:
-      source:
-        $ref:
-          collection: assets
-          id: ui-pattern
+      source: ui-pattern
       address: repeat
       filter: nearest
     s_texColor:

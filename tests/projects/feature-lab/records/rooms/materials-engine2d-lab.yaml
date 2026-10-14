@@ -44,10 +44,7 @@ data:
         parameters: {}
         textures:
           s_pattern:
-            source:
-              $ref:
-                collection: assets
-                id: pilot-button-sprite
+            source: pilot-button-sprite
       order: 2
     - id: material-ordering-prop
       placementId: material-ordering-placement

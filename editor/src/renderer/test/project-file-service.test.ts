@@ -1769,6 +1769,43 @@ describe('project-file-service workspace-v1', () => {
     );
   });
 
+  it('preserves authored YAML comments and source spellings when copying an entire Project', async () => {
+    const source = tempProjectRoot();
+    const destination = tempRoot();
+    await createProject({ projectName: 'Annotated Source', projectDirectory: source });
+    const manifestPath = path.join(source, 'project.yaml');
+    const editorPath = path.join(source, 'editor.yaml');
+    const manifest = fs.readFileSync(manifestPath, 'utf8');
+    fs.writeFileSync(
+      manifestPath,
+      `# preserved Project heading\n${manifest.replace(
+        /^(\s*name: [^\n]+)$/mu,
+        '$1 # preserved authored name',
+      )}`,
+    );
+    fs.writeFileSync(
+      editorPath,
+      `# preserved organization heading\n${fs.readFileSync(editorPath, 'utf8')}`,
+    );
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(source);
+    expect(opened.ok ? '' : opened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (!opened.ok) return;
+    dialogs.destination = destination;
+    const saved = await saveProjectCopyAs({} as never, source, opened.snapshot.project, []);
+    expect(saved.success, saved.error).toBe(true);
+    expect(fs.readFileSync(path.join(destination, 'project.yaml'), 'utf8')).toContain(
+      '# preserved Project heading',
+    );
+    expect(fs.readFileSync(path.join(destination, 'project.yaml'), 'utf8')).toContain(
+      '# preserved authored name',
+    );
+    expect(fs.readFileSync(path.join(destination, 'editor.yaml'), 'utf8')).toContain(
+      '# preserved organization heading',
+    );
+    expect((await workspace.open(destination)).ok).toBe(true);
+  });
+
   it('copies referenced shared support attachments through Save As without duplicating sources', async () => {
     const source = tempProjectRoot();
     const destination = tempRoot();

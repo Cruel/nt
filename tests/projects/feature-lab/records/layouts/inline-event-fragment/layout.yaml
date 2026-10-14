@@ -2,23 +2,16 @@ data:
   contract: {}
   dependencies:
     data:
-      - $ref:
-          collection: assets
-          id: notice-board-data
+      - notice-board-data
     fonts:
-      - $ref:
-          collection: assets
-          id: dejavusans
+      - dejavusans
     images: []
     scripts: []
   layoutKind: fragment
   lua:
     sourceMode: none
   rcss:
-    sourceAsset:
-      $ref:
-        collection: assets
-        id: counter-shared-style
+    sourceAsset: counter-shared-style
     sourceMode: asset
   rml:
     sourceMode: file

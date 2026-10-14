@@ -14,6 +14,23 @@ import {
 } from '../../shared/project-workspace';
 
 describe('Asset, Animation and Material YAML source profiles', () => {
+  it('adopts bare IDs inside Material texture dictionaries and rejects wrapper spelling', () => {
+    const codec = projectWorkspaceSourceCodec('records/materials/plain.yaml');
+    const source =
+      'id: plain\nlabel: Plain\ndata:\n  base: {kind: preset, preset: engine-2d}\n  textures:\n    s_texColor:\n      source: sample-image\n';
+    expect(
+      authoringRecordSchemas.materials.parse(codec.decode(source)).data.textures.s_texColor,
+    ).toMatchObject({ source: { $ref: { collection: 'assets', id: 'sample-image' } } });
+    expect(() =>
+      codec.decode(
+        source.replace(
+          'source: sample-image',
+          'source: { $ref: { collection: assets, id: sample-image } }',
+        ),
+      ),
+    ).toThrow(/bare assets reference/u);
+  });
+
   it('round-trips resource records without dropping provenance, hashes or settings', () => {
     for (const family of ['assets', 'animations', 'materials'] as const) {
       const names = featureLabYamlFiles(family);

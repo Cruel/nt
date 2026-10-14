@@ -20,6 +20,41 @@ const identity = (value: unknown) =>
       ? value
       : undefined;
 
+/** Informational rename hints never modify or confirm human-written prose. */
+export function yamlCommentTokenMentions(
+  text: string,
+  token: string,
+): readonly { path: string; comment: string }[] {
+  const doc = parseRestrictedYamlDocument(text);
+  const escaped = token.replace(/[.*+?^${}()|[\]\\]/gu, '\\$&');
+  const distinct = new RegExp(`(?:^|[^\\p{L}\\p{N}_-])${escaped}(?=$|[^\\p{L}\\p{N}_-])`, 'u');
+  const mentions: { path: string; comment: string }[] = [];
+  const check = (comment: string | null | undefined, path: string) => {
+    if (!comment) return;
+    for (const line of comment.split('\n'))
+      if (distinct.test(line)) mentions.push({ path, comment: line.trim() });
+  };
+  const walk = (node: Node | null | undefined, path: string) => {
+    if (!node) return;
+    check(node.commentBefore, path);
+    check(node.comment, path);
+    if (isMap(node))
+      for (const pair of node.items) {
+        if (!isScalar(pair.key)) continue;
+        const childPath = pointer(path, String(pair.key.value));
+        check(pair.key.commentBefore, childPath);
+        check(pair.key.comment, childPath);
+        walk(pair.value as Node | null, childPath);
+      }
+    if (isSeq(node))
+      node.items.forEach((item, index) => walk(item as Node | null, pointer(path, index)));
+  };
+  check(doc.commentBefore, '');
+  walk(doc.contents, '');
+  check(doc.comment, '');
+  return mentions;
+}
+
 /** Compare only changed source subtrees; pure reorder keeps annotations with stable identities. */
 export function yamlCommentImpacts(beforeText: string, afterText?: string): YamlCommentImpact[] {
   const before = parseRestrictedYamlDocument(beforeText);

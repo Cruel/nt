@@ -12,9 +12,37 @@ import {
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { stripLayoutYamlDefaults } from '../../shared/project-workspace/layout-yaml-source';
 import { featureLabYamlFiles, featureLabYamlRecord } from './feature-lab-yaml-fixtures';
 
 describe('Layout, Archetype and Script Module YAML owners', () => {
+  it('compacts valid Layout source selectors and sparsely persists newly selected defaults', () => {
+    const project = createAuthoringProject({ id: 'layout-defaults', name: 'Layout Defaults' });
+    const data = defaultLayoutData('HUD', 'fragment');
+    data.lua = { sourceMode: 'inline', sourceText: '' };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data };
+    const path = 'records/layouts/hud/layout.yaml';
+    const files = projectWorkspaceFiles(project, project.editor, {}, new Set([path]));
+    const original = files[path]!;
+    expect(original).toContain('layoutKind: fragment');
+    expect(original).toContain('sourceMode: file');
+    expect(original).toContain('sourceMode: none');
+    const selectedDefault = structuredClone(project);
+    selectedDefault.layouts.hud!.data.layoutKind = 'document';
+    const changed = projectWorkspaceFiles(
+      selectedDefault,
+      selectedDefault.editor,
+      {},
+      new Set([path]),
+      { [path]: original },
+    )[path]!;
+    expect(changed).not.toContain('layoutKind: document');
+    const explicitDefault = changed.replace(/^data:$/mu, 'data:\n  layoutKind: document');
+    const compacted = stripLayoutYamlDefaults(explicitDefault);
+    expect(compacted).not.toContain('layoutKind: document');
+    expect(stripLayoutYamlDefaults(compacted)).toBe(compacted);
+  });
+
   it('retains Feature Lab Archetype pointers and Script Module file ownership', () => {
     for (const family of ['archetypes', 'scripts'] as const) {
       for (const name of featureLabYamlFiles(family)) {

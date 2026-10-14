@@ -19,6 +19,16 @@ Ordinary authoring is file-first: edit tracked YAML, Lua, RML, and RCSS directly
 
 ## Public command surface
 
+The `fmt --strip-defaults` option compacts declared omission defaults in
+records (including Layout metadata other than its required source selectors) and in eligible Project manifest,
+editor organization, and localization owners while preserving annotated
+explicit values. `--check` reports opportunities without writing; the
+candidate must validate as semantically equivalent before any commit.
+`entity inspect --provenance` distinguishes omitted and explicitly authored
+empty collections as well as scalar shorthand and nested fields. Entity
+renames return informational diagnostics for surviving distinct-token mentions
+of the old ID in YAML comments, without modifying or blocking on the prose.
+
 Core authoring commands are:
 
 ```text

@@ -6,9 +6,7 @@ data:
         fields: {}
   dependencies:
     data:
-      - $ref:
-          collection: assets
-          id: notice-board-data
+      - notice-board-data
     fonts: []
     images: []
     materials: []

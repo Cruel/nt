@@ -2,6 +2,7 @@ import { layoutDataSchema } from '../project-schema/authoring-layouts';
 import { authoringRecordSchemas } from '../project-schema/authoring-records';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
 import { annotatedYamlPaths } from './yaml-comment-impact';
+import { convertLayoutYamlReferences } from './sparse-record-yaml-source';
 
 type Dictionary = Record<string, unknown>;
 const object = (value: unknown): value is Dictionary =>
@@ -18,7 +19,7 @@ const defaults = Object.fromEntries(
 ) as Dictionary;
 
 export function decodeLayoutYaml(text: string): unknown {
-  const record = decodeStructuredYaml(text);
+  const record = convertLayoutYamlReferences(decodeStructuredYaml(text), 'read');
   if (!object(record) || !object(record.data)) return record;
   return { ...record, data: { ...defaults, ...record.data } };
 }
@@ -32,17 +33,48 @@ export function encodeLayoutYaml(value: unknown, previousText?: string): string 
     if (
       Object.hasOwn(defaults, key) &&
       same(field, defaults[key]) &&
-      !Object.hasOwn(priorData, key)
+      (!Object.hasOwn(priorData, key) || !same(priorData[key], field))
     )
       continue;
     data[key] = field;
   }
-  return encodeStructuredYaml({ ...value, data }, previousText);
+  return encodeStructuredYaml(
+    convertLayoutYamlReferences({ ...value, data }, 'write'),
+    previousText,
+  );
+}
+
+function layoutEffectiveProof(text: string): unknown {
+  const source = decodeLayoutYaml(text);
+  if (!object(source) || !object(source.data)) throw new Error('Invalid Layout YAML source.');
+  const record = structuredClone(source);
+  const data = record.data as Dictionary;
+  for (const channel of ['rml', 'rcss', 'lua'] as const) {
+    const selector = data[channel];
+    if (!object(selector)) throw new Error(`Invalid Layout ${channel} selector.`);
+    if (selector.sourceMode === 'file' || (channel === 'lua' && selector.sourceMode === 'none')) {
+      if (Object.keys(selector).join(',') !== 'sourceMode')
+        throw new Error(`Invalid Layout ${channel} file selector.`);
+      data[channel] =
+        channel === 'lua'
+          ? { sourceMode: 'inline', sourceText: '' }
+          : { sourceMode: 'inline', sourceText: '', sourceAsset: null };
+    } else if (
+      selector.sourceMode === 'asset' &&
+      channel !== 'lua' &&
+      Object.keys(selector).sort().join(',') === 'sourceAsset,sourceMode'
+    ) {
+      data[channel] = selector;
+    } else {
+      throw new Error(`Unsupported Layout ${channel} selector.`);
+    }
+  }
+  return authoringRecordSchemas.layouts.parse(record);
 }
 
 /** Explicit CLI-only compaction of Layout's schema-declared source defaults. */
 export function stripLayoutYamlDefaults(text: string): string {
-  const before = authoringRecordSchemas.layouts.parse(decodeLayoutYaml(text));
+  const before = layoutEffectiveProof(text);
   const source = decodeStructuredYaml(text);
   if (!object(source) || !object(source.data)) throw new Error('Invalid Layout YAML source.');
   const annotated = annotatedYamlPaths(text);
@@ -57,7 +89,7 @@ export function stripLayoutYamlDefaults(text: string): string {
       delete data[key];
   }
   const result = encodeStructuredYaml({ ...source, data }, text);
-  const after = authoringRecordSchemas.layouts.parse(decodeLayoutYaml(result));
+  const after = layoutEffectiveProof(result);
   if (!same(before, after)) throw new Error('Layout compaction changed normalized record data.');
   return result;
 }
