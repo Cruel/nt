@@ -53,6 +53,7 @@ add_library(noveltea_tooling_native STATIC
     tooling_native_scriptc.cpp
     tooling_scriptc_gc.cpp
     tooling_image.cpp
+    tooling_alpha_encoder.cpp
     tooling_filesystem.cpp
     tooling_runtime_cache.cpp
     font_coverage_tool.cpp

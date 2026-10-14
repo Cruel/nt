@@ -8,10 +8,22 @@ import { expect, it } from 'vite-plus/test';
 import {
   prepareProductionVideoMotion,
   traceTransparentVideo,
-  WebpAlphaTraceSession,
+  type NativeAlphaEncodeResult,
 } from '../../main/services/transparent-video-tracer';
+import {
+  invokeNovelTeaNativeOperation,
+  resolveNovelTeaCliPath,
+} from '../../shared/noveltea-cli-subprocess';
+import { WebpAlphaTraceSession } from './support/webp-alpha-trace-session';
 
-const ffmpeg = path.resolve(process.cwd(), '../build/cli/linux/tools/ffmpeg/bin/ffmpeg');
+const ffmpeg =
+  process.env.NOVELTEA_FFMPEG ??
+  path.resolve(process.cwd(), '../build/cli/linux/tools/ffmpeg/bin/ffmpeg');
+const hasWebpEncoder =
+  existsSync(ffmpeg) &&
+  /\blibwebp\b/u.test(
+    spawnSync(ffmpeg, ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout ?? '',
+  );
 
 function run(_executable: string, args: readonly string[]) {
   const result = spawnSync(ffmpeg, [...args], { encoding: 'utf8', maxBuffer: 64 * 1024 * 1024 });
@@ -20,11 +32,11 @@ function run(_executable: string, args: readonly string[]) {
   return { stdout: result.stdout ?? '', stderr: result.stderr ?? '' };
 }
 
-it.skipIf(!existsSync(ffmpeg))(
+it.skipIf(!hasWebpEncoder)(
   'traces ProRes 4444 and VP8/VP9 auxiliary alpha through prepared VP9 color and one timed lossless WebP',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-alpha-integration-'));
-    const tool = { executable: ffmpeg, bundled: true };
+    const tool = { executable: ffmpeg, bundled: !process.env.NOVELTEA_FFMPEG };
     try {
       const width = 32,
         height = 24,
@@ -123,6 +135,33 @@ it.skipIf(!existsSync(ffmpeg))(
           );
           expect(streamed.alphaWebp).toBeDefined();
           expect(await readFile(streamed.alphaWebp!.sourcePath)).toEqual(trace.alphaWebp);
+        }
+        if (existsSync(resolveNovelTeaCliPath())) {
+          const native = await traceTransparentVideo(
+            root,
+            {
+              animationId: 'alpha-native-trace',
+              motionId: input,
+              assetId: input,
+              sourcePath: input,
+              canvas: { width: 80, height: 48 },
+            },
+            tool,
+            run,
+            (request) =>
+              invokeNovelTeaNativeOperation(
+                'alpha-encode',
+                request,
+              ) as Promise<NativeAlphaEncodeResult>,
+          );
+          expect(native.colorDurationsMs).toEqual(trace.colorDurationsMs);
+          expect(native.holds).toEqual(trace.holds);
+          const nativeSession = new WebpAlphaTraceSession(native.alphaWebp, native.holds, 80, 48);
+          const referenceSession = new WebpAlphaTraceSession(trace.alphaWebp, trace.holds, 80, 48);
+          for (const hold of trace.holds)
+            expect((await nativeSession.sample(hold.startMs)).alpha).toEqual(
+              (await referenceSession.sample(hold.startMs)).alpha,
+            );
         }
         expect(trace.colorDurationsMs).toEqual([100, 100, 100, 100]);
         expect(trace.holds).toEqual([
@@ -279,6 +318,28 @@ it.skipIf(!existsSync(ffmpeg))(
       );
       expect(vfr.colorDurationsMs).toEqual([200, 100, 100]);
       expect(vfr.holds.map((hold) => hold.durationMs)).toEqual([200, 200]);
+      if (existsSync(resolveNovelTeaCliPath())) {
+        const nativeVfr = await traceTransparentVideo(
+          root,
+          {
+            animationId: 'alpha-native-trace',
+            motionId: 'vfr-native',
+            assetId: 'vfr',
+            sourcePath: 'vfr.webm',
+            canvas: { width: 80, height: 48 },
+          },
+          tool,
+          run,
+          (request) =>
+            invokeNovelTeaNativeOperation(
+              'alpha-encode',
+              request,
+            ) as Promise<NativeAlphaEncodeResult>,
+        );
+        expect(nativeVfr.colorDurationsMs).toEqual([200, 100, 100]);
+        expect(nativeVfr.holds).toEqual(vfr.holds);
+        expect(nativeVfr.alphaWebp).toEqual(vfr.alphaWebp);
+      }
       // Explicitly detect an FFmpeg decoder that returns an opaque pixel format
       // rather than accepting it as a successful auxiliary-alpha import.
       run(ffmpeg, [
@@ -368,7 +429,7 @@ const nativeSmoke = path.resolve(
   '../build/linux-debug/tests/noveltea_native_video_texture_smoke',
 );
 
-it.skipIf(process.platform !== 'linux' || !existsSync(ffmpeg) || !existsSync(nativeSmoke))(
+it.skipIf(process.platform !== 'linux' || !hasWebpEncoder || !existsSync(nativeSmoke))(
   'feeds an actual lossless-WebP-decoded alpha mask and its matching production VP9 color through WorldVideoStream and bgfx R8',
   async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-alpha-gpu-trace-'));
@@ -418,7 +479,7 @@ it.skipIf(process.platform !== 'linux' || !existsSync(ffmpeg) || !existsSync(nat
           sourcePath: 'source.webm',
           canvas: { width, height },
         },
-        { executable: ffmpeg, bundled: true },
+        { executable: ffmpeg, bundled: !process.env.NOVELTEA_FFMPEG },
         run,
       );
       expect(traced.colorDurationsMs).toEqual([50, 50, 50, 50]);

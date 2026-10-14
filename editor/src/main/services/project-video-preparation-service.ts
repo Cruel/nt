@@ -1,5 +1,8 @@
 import { createHash } from 'node:crypto';
-import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
+import {
+  invokeNovelTeaNativeOperation,
+  resolveNovelTeaCliPath,
+} from '../../shared/noveltea-cli-subprocess';
 import type { ActiveProjectSessionService } from './active-project-session-service';
 import { resolveContainedOriginalAsset } from './project-original-asset-service';
 import {
@@ -11,7 +14,10 @@ import {
   probeOpaqueVideoTimeline,
   runVideoMediaToolProcess,
 } from './opaque-video-preparation-service';
-import { prepareProductionVideoMotion } from './transparent-video-tracer';
+import {
+  prepareProductionVideoMotion,
+  type NativeAlphaEncodeResult,
+} from './transparent-video-tracer';
 import type {
   OpaqueVideoPreparationRequest,
   VideoSourceTimingRequest,
@@ -71,7 +77,20 @@ export async function prepareProjectOpaqueVideo(
     )
       throw new Error('Video Asset changed during preparation.');
     sessions.requireActiveAsset(projectSessionId, request.assetId);
-    const result = await prepareProductionVideoMotion(authorized.root, request, tool, run, bytes);
+    const result = await prepareProductionVideoMotion(
+      authorized.root,
+      request,
+      tool,
+      run,
+      bytes,
+      run === runVideoMediaToolProcess
+        ? async (nativeRequest) =>
+            (await invokeNovelTeaNativeOperation(
+              'alpha-encode',
+              nativeRequest,
+            )) as NativeAlphaEncodeResult
+        : undefined,
+    );
     sessions.requireActiveAsset(projectSessionId, request.assetId);
     return result;
   } finally {
