@@ -109,8 +109,12 @@ function constraints(input: JsonSchema): string[] {
   return result;
 }
 
-export function normalizeSchemaReference(schema: z.ZodType, name: string): SchemaReferenceModel {
-  const json = schemaReferenceJson(schema, 'ref');
+export function normalizeSchemaReference(
+  schema: z.ZodType,
+  name: string,
+  sourceJson?: Record<string, unknown>,
+): SchemaReferenceModel {
+  const json = sourceJson ?? schemaReferenceJson(schema, 'ref');
   const definitions: Record<string, SchemaReferenceNode> = {};
   const references = new Map<string, string>([['#', name]]);
   const names = new Set([name]);

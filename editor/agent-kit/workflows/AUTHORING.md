@@ -31,6 +31,14 @@ use absolute paths, parent traversal, or symlink escapes. Tracked structured sou
 Retain existing comments and field presence;
 avoid unrelated formatting churn.
 
+Structured YAML uses the restricted source dialect: one mapping root, string mapping keys,
+no anchors, aliases, merge keys, tags, duplicate keys, directives, or multi-document streams.
+Quote ambiguous scalar strings such as `yes` and `no`. Comments belong only to tracked source,
+not to the effective Project record; keep them when still relevant. To inspect values after
+source defaults have been applied, use `noveltea entity inspect <collection> <id> --json`
+(`--provenance` shows explicit and defaulted values) instead
+of guessing from the sparse YAML alone.
+
 ## Direct edits versus semantic CLI operations
 
 Ordinary field changes are direct source edits. Do not invent field-level setter commands.

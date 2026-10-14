@@ -68,7 +68,6 @@ import {
 import {
   decodeSparseRecordYaml,
   encodeSparseRecordYaml,
-  sparseRecordYamlSourceDefaults,
   type SparseRecordFamily,
 } from '../project-workspace/sparse-record-yaml-source';
 import { defaultRoomData } from './authoring-rooms';
@@ -92,7 +91,7 @@ import {
   type SchemaReferenceModel,
   type SchemaReferenceNode,
 } from './schema-reference-model';
-import { schemaReferenceJson } from './schema-reference-json';
+import { sourceSchemaReferenceJson } from './schema-reference-source';
 import { withSchemaDocumentation } from './schema-documentation';
 
 const trackedEditorSchema = z
@@ -249,12 +248,26 @@ function schemaTitle(relativePath: string): string {
   return `${base.charAt(0).toUpperCase()}${base.slice(1)} record`;
 }
 
+function sourceFamily(relativePath: string): SparseRecordFamily | 'layouts' | undefined {
+  if (!relativePath.startsWith('records/') || relativePath === 'records/variables.schema.json')
+    return undefined;
+  return relativePath.slice('records/'.length).replace('.schema.json', '') as
+    | SparseRecordFamily
+    | 'layouts';
+}
+
 export function createNovelTeaRawSchemaFiles(): Readonly<Record<string, string>> {
   return Object.freeze(
     Object.fromEntries(
       Object.entries(schemaSources).map(([relativePath, schema]) => [
         relativePath,
-        `${JSON.stringify(canonicalizeJson(schemaReferenceJson(schema, 'ref')), null, 2)}\n`,
+        `${JSON.stringify(
+          canonicalizeJson(
+            sourceSchemaReferenceJson(schema, { family: sourceFamily(relativePath) }),
+          ),
+          null,
+          2,
+        )}\n`,
       ]),
     ),
   );
@@ -272,6 +285,7 @@ export function createNovelTeaSchemaReferenceDocuments(): readonly NovelTeaSchem
           .split(' ')
           .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
           .join(''),
+        sourceSchemaReferenceJson(schema, { family: sourceFamily(relativePath) }),
       ),
     })),
   );
@@ -291,7 +305,11 @@ export function createNovelTeaWebsiteSchemaReference(): NovelTeaWebsiteSchemaRef
 function sharedReferenceModels(): readonly SchemaReferenceModel[] {
   sharedReferenceModelsCache ??= Object.freeze(
     Object.entries(sharedReferenceSchemaSources).map(([name, schema]) =>
-      normalizeSchemaReference(schema, name),
+      normalizeSchemaReference(
+        schema,
+        name,
+        sourceSchemaReferenceJson(schema, { sharedType: true }),
+      ),
     ),
   );
   return sharedReferenceModelsCache;
@@ -380,9 +398,9 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       '',
       'Generated from the canonical Project schemas. Read the relevant domain below before consulting raw JSON Schema.',
       '',
-      'Notation is structural documentation, not TypeScript or serialized JSON. `?` permits omission; `= value` supplies a default. Exact examples are JSON. All fields are required unless marked `?`. Numbers are finite JSON numbers. Objects reject unspecified keys unless an index signature (`[key: ...]`) is shown.',
+      'Notation describes tracked YAML source, not TypeScript or normalized runtime JSON. `?` permits omission; `?` without `= value` means absent, while `?` with `= value` uses that typed source default. Unmarked keys are required. Numbers are finite; objects reject unknown keys unless an index signature is shown. Source codecs expand declared defaults into the effective record during project reads, including validation, without writing them into authored YAML.',
       '',
-      'Examples are schema-checked fragments; referenced IDs still require matching Project declarations. Run `noveltea validate` for cross-record and contextual constraints that structural schemas cannot express.',
+      'Copy the checked YAML source examples, not the annotated normalized JSON fragments (which illustrate semantics but are not source templates). Statically collection-qualified references in record YAML are bare IDs; registry and polymorphic references remain qualified. Typed Conditions may use the scalar `always`. Referenced IDs still require matching Project declarations. Run read-only `noveltea validate` for cross-record and contextual constraints that structural schemas cannot express.',
       '',
       '- [Shared authoring types](common.md) — reusable IDs, references, conditions, commands, and other vocabulary used by multiple domains',
       ...documents.map((document) => `- [${document.title}](${document.id}.md)`),
@@ -421,7 +439,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        'Variables use `records/variables/<id>.yaml`, alongside canonical YAML owners for all structured Project source. The `data.kind` field is determined by the record family and must be omitted. `data.nullable` defaults to `false` and `data.scope` to `global`; `data.value` remains required.',
+        'Variables use `records/variables/<id>.yaml`. The `data.kind` field is determined by the record family and must be omitted; the notation above gives the omission defaults for `nullable` and `scope`. `data.value` remains required.',
         '',
         '```yaml',
         example.trimEnd(),
@@ -585,7 +603,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       lines.push(
         '## Minimal YAML source',
         '',
-        `A ${family} YAML owner uses \`records/${family}/<id>.yaml\`; new records always use YAML. This checked example expands to the strict normalized record. The record ID must match the filename, and \`data.kind\` is implicit. Statically typed references use bare IDs (not \`$ref\` wrappers); registry/owner-qualified references retain their explicit identity. A scalar \`always\` is accepted only for typed Conditions. Omitted defaults expand recursively through the paths below. Identities, discriminators, typed Property values and Character-local versus Interactable definition-default Properties are preserved. For Verbs and Interactions, named slots, selector variants, priority tiers and rule/Command order are semantic; Offer discovery is independent from direct execution and Guards, and \`unhandled\` must remain explicit to preserve fallback. Non-default presentation and explicit optional/null fields retain their original semantics. The shape above describes the normalized runtime/editor model; this YAML example describes authored source.`,
+        `A ${family} YAML owner uses \`records/${family}/<id>.yaml\`. This checked example expands to the strict normalized record. The record ID must match the filename; \`data.kind\` is implicit. Collection-qualified references use bare IDs; registry and polymorphic references remain qualified. A scalar \`always\` is accepted only for typed Conditions. The shape above shows source omissions and defaults, without UI starter placeholders. Identity, discriminators, typed Property values, and Character-local versus Interactable definition-default Properties remain explicit when required. For Verbs and Interactions, named slots, priority tiers and rule/Command order are semantic; Offer discovery is independent of direct execution and Guards, and \`unhandled\` must remain explicit to preserve fallback.`,
         '',
         '```yaml',
         example.trimEnd(),
@@ -700,18 +718,6 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
           '',
         );
       }
-      lines.push(
-        '## Source omission defaults',
-        '',
-        'These exact typed values are filled when the corresponding YAML key is absent. Paths are relative to a record; `*` identifies one array element. Identity keys, other required values, and discriminators are never inferred from UI placeholders.',
-        '',
-        '```text',
-        ...Object.entries(sparseRecordYamlSourceDefaults(family))
-          .sort(([a], [b]) => a.localeCompare(b))
-          .map(([path, value]) => `${path} = ${JSON.stringify(value)}`),
-        '```',
-        '',
-      );
     }
     files[`${document.id}.md`] = lines.join('\n');
   }
