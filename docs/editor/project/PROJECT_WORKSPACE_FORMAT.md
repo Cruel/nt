@@ -90,13 +90,12 @@ and record-metadata tag lists may be omitted because their source defaults are e
 other identity and behavioral fields remain explicit. The YAML writer preserves comments and
 unchanged explicit fields through revision-safe selective saves.
 
-For staged YAML owners, the shared workspace writer parses the current document and applies
+For canonical YAML owners, the shared workspace writer parses the current document and applies
 localized changes to its nodes. Unchanged fields retain their authored comments, explicit defaults,
 and mapping order. Sequence comments follow unique stable item IDs through reorder/insert; a
 commented sequence without an unambiguous correspondence fails rather than attaching a note to a
 different item. An explicit record identity rename carries its original YAML source (and Layout
-companions) to the destination, including matching `editor.yaml` record-metadata annotations;
-in a staged mixed JSON/YAML family an existing JSON owner retains its `.json` extension on rename.
+companions) to the destination, including matching `editor.yaml` record-metadata annotations.
 Changing the record's own `id` during a safe identity move does not produce a destructive-comment
 impact. Duplication deliberately starts from new, comment-free source. The writer reports affected comments
 with their physical source paths for the centralized editor confirmation dialog; it does not itself
@@ -166,10 +165,10 @@ Missing known collection directories mean empty collections.
 
 ### Canonical structured YAML
 
-New Projects and new records use `.yaml` for every structured owner, including empty record
-families and new localization chunks. Existing staged `.json` record/localization owners retain
-their physical paths temporarily until the final source conversion removal; they are never emitted
-for new identities. Duplicate JSON/YAML owners for one record or locale are rejected.
+All Projects and records require `.yaml` for every structured owner, including localization chunks.
+Legacy `.json` Project records, Layout metadata, and localization owners are rejected rather than
+read, retained, or migrated. This does not affect compiled runtime JSON, the transport
+`ntproject.json` manifest, or unstructured data Assets.
 
 The YAML Variable source omits the redundant `data.kind: variable`. `data.nullable` may be
 omitted for `false`, and `data.scope` for `global`; `id`, `label`, `data.type`, and `data.value`

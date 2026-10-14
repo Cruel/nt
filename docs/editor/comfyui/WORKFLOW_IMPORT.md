@@ -25,9 +25,9 @@ shows friendly labels for `image.generate` and `image.edit`, and shows the dotte
 workflow ID that is currently unavailable stays selected and is visibly marked unavailable rather than being rewritten.
 
 Project workflows are contextual. The editor includes them when an active saved Project session exists. The CLI includes
-them when `--project` selects a valid Project or upward `project.json` discovery succeeds; absence of a Project does not
+them when `--project` selects a valid Project or upward `project.yaml` discovery succeeds; absence of a Project does not
 prevent built-in or shared-user listing and inspection. Renderer code may retain the Project file path as UI context, but
-it does not send that path across the privileged IPC boundary: main derives the canonical Project root and `project.json`
+it does not send that path across the privileged IPC boundary: main derives the canonical Project root and `project.yaml`
 from the current `projectSessionId`. The editor's Generate Image and Edit Image conveniences require an active saved
 Project session because they publish revision files beneath that Project, but their verification, public-input binding,
 HTTP/history execution, cancellation, media validation, and publication are the same shared headless runner used by the

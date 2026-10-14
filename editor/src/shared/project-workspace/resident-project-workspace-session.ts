@@ -871,8 +871,8 @@ export class ResidentProjectWorkspaceSession {
 
     const invalidOwnerPaths = new Set<string>();
     for (const file of invalidFiles) {
-      const layout = file.match(/^records\/layouts\/([^/]+)\/layout\.(?:json|yaml|rml|rcss|lua)$/);
-      const record = file.match(/^records\/([^/]+)\/([^/]+)\.(?:json|yaml)$/);
+      const layout = file.match(/^records\/layouts\/([^/]+)\/layout\.(?:yaml|rml|rcss|lua)$/);
+      const record = file.match(/^records\/([^/]+)\/([^/]+)\.yaml$/);
       const scriptOwner = Object.entries(this.snapshotValue.scriptSourcePaths).find(
         ([, sourcePath]) => sourcePath === file,
       );

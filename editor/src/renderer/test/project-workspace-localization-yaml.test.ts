@@ -45,7 +45,7 @@ describe('tracked localization YAML ownership', () => {
     expect(yaml).toMatch(/["']0123["']/u);
   });
 
-  it('creates new locale chunks as YAML when that locale family is already YAML', () => {
+  it('creates new locale chunks using only canonical YAML', () => {
     const project = createAuthoringProject({ id: 'localized', name: 'Localized' });
     const translation = {
       text: 'Bonjour',
@@ -56,12 +56,7 @@ describe('tracked localization YAML ownership', () => {
     const id = '25700000-0000-4000-8000-000000000001';
     project.localization.translations.fr = { [id]: translation };
     project.localization.translations['fr-CA'] = { [id]: { ...translation, text: 'Salut' } };
-    const files = projectWorkspaceFiles(
-      project,
-      project.editor,
-      {},
-      new Set(['i18n/locales/fr.yaml']),
-    );
+    const files = projectWorkspaceFiles(project, project.editor);
     expect(files['i18n/locales/fr.yaml']).toBeDefined();
     expect(files['i18n/locales/fr-CA.yaml']).toBeDefined();
     expect(files['i18n/locales/fr-CA.json']).toBeUndefined();
@@ -69,19 +64,12 @@ describe('tracked localization YAML ownership', () => {
 
   it('opens YAML fragments, preserves their comments and saves only YAML owners', async () => {
     const project = createAuthoringProject({ id: 'localized', name: 'Localized' });
-    const jsonFiles = projectWorkspaceFiles(project, project.editor);
-    const yamlPaths = Object.keys(jsonFiles)
-      .filter((path) => path.startsWith('i18n/'))
-      .map((path) => path.replace(/\.json$/u, '.yaml'));
+    const yamlFiles = projectWorkspaceFiles(project, project.editor);
+    const yamlPaths = Object.keys(yamlFiles).filter((path) => path.startsWith('i18n/'));
     const sources = Object.fromEntries(
-      Object.entries(jsonFiles).map(([path, source]) => {
+      Object.entries(yamlFiles).map(([path, source]) => {
         if (!path.startsWith('i18n/')) return [path, source];
-        const yamlPath = path.replace(/\.json$/u, '.yaml');
-        const value = projectWorkspaceSourceCodec(path).decode(source);
-        return [
-          yamlPath,
-          `# localization note\n${projectWorkspaceSourceCodec(yamlPath).encode(value)}`,
-        ];
+        return [path, `# localization note\n${source}`];
       }),
     );
     const fs = new InMemoryProjectWorkspaceFileSystem(

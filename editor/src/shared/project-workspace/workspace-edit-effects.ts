@@ -9,11 +9,11 @@ import {
 import { classifyAuthoringGraphInputPath } from '../project-schema/authoring-graph-field-metadata';
 import type { AuthoringProject } from '../project-schema/authoring-project';
 
-const MESSAGES = 'i18n/messages.json';
-const POLICY = 'i18n/project.json';
-const TRACKING = 'i18n/tracking.json';
-const ORPHANS = 'i18n/orphans.json';
-const NOTES = 'i18n/usage-notes.json';
+const MESSAGES = 'i18n/messages.yaml';
+const POLICY = 'i18n/project.yaml';
+const TRACKING = 'i18n/tracking.yaml';
+const ORPHANS = 'i18n/orphans.yaml';
+const NOTES = 'i18n/usage-notes.yaml';
 const phases = ['references', 'identities', 'translations'] as const;
 type LocalizationPhase = (typeof phases)[number];
 interface RecordEdit {
@@ -49,9 +49,7 @@ function recordEdit(
   after: AuthoringProject,
   path: string,
 ): RecordEdit | null {
-  const match = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.(?:json|yaml))$/u.exec(
-    path,
-  );
+  const match = /^records\/([^/]+)\/([^/]+)(?:\.yaml|\/layout\.yaml)$/u.exec(path);
   if (!match || !isAuthoringCollectionKey(match[1]!)) return null;
   const collection = match[1];
   const id = match[2]!;
@@ -167,7 +165,7 @@ function semanticMembershipChanged(
   )
     return true;
   return paths.some((path) => {
-    const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(path)?.[1];
+    const locale = /^i18n\/locales\/([^/]+)\.yaml$/u.exec(path)?.[1];
     return (
       locale !== undefined &&
       membershipChanged(
@@ -237,9 +235,7 @@ export function classifyWorkspaceEditEffects(
   after: AuthoringProject,
   semanticInputsUnchanged: boolean,
 ): WorkspaceEditEffects {
-  const paths = changedPaths.map((path) =>
-    path.startsWith('i18n/') ? path.replace(/\.yaml$/u, '.json') : path,
-  );
+  const paths = changedPaths;
   const every = (predicate: (path: string) => boolean) =>
     paths.length > 0 && paths.every(predicate);
   const records = paths.map((path) => recordEdit(before, after, path));
@@ -259,11 +255,11 @@ export function classifyWorkspaceEditEffects(
     every((path) => nonLocalizingSources.has(path)) ||
     every(
       (path) =>
-        path === 'editor.yaml' || path === NOTES || /^i18n\/assets\/[^/]+\.json$/u.test(path),
+        path === 'editor.yaml' || path === NOTES || /^i18n\/assets\/[^/]+\.yaml$/u.test(path),
     )
   )
     localizationPhases = [];
-  else if (every((path) => /^i18n\/locales\/[^/]+\.json$/u.test(path)) || stableMessages)
+  else if (every((path) => /^i18n\/locales\/[^/]+\.yaml$/u.test(path)) || stableMessages)
     localizationPhases = ['translations'];
   else if (every((path) => path === ORPHANS)) localizationPhases = ['identities'];
   else if (every((path) => path === TRACKING)) localizationPhases = ['identities', 'translations'];
@@ -277,7 +273,7 @@ export function classifyWorkspaceEditEffects(
         nonLocalizingSources.has(path) ||
         path === ORPHANS ||
         path === NOTES ||
-        /^i18n\/assets\/[^/]+\.json$/u.test(path)
+        /^i18n\/assets\/[^/]+\.yaml$/u.test(path)
       )
         return true;
       if (path === 'traits.yaml') return equal(before.traits, after.traits);
@@ -307,7 +303,7 @@ export function classifyWorkspaceEditEffects(
           [before.localization.sourceLocale, before.localization.locales],
           [after.localization.sourceLocale, after.localization.locales],
         );
-      const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(path)?.[1];
+      const locale = /^i18n\/locales\/([^/]+)\.yaml$/u.exec(path)?.[1];
       if (locale)
         return equal(
           before.localization.translations[locale],
@@ -324,7 +320,7 @@ export function classifyWorkspaceEditEffects(
     stableMessages ||
     every((path) => /^shaders\/.+\.sc$/u.test(path)) ||
     every((path) => {
-      const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(path)?.[1];
+      const locale = /^i18n\/locales\/([^/]+)\.yaml$/u.exec(path)?.[1];
       return (
         !!locale &&
         !membershipChanged(

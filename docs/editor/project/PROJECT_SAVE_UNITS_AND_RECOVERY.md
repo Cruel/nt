@@ -51,8 +51,8 @@ field-level pending input in recovery metadata.
   whose canonical workspace projection actually changes for those exact paths, then exact-CAS checks
   those targets immediately before replacement. Physical file ownership is therefore not inferred
   only from the visual tab: for example a Room-owned `/interactableInstances/<id>` edit also targets
-  `project.json`, and the Traits collection targets `traits.json`. A disjoint external edit can
-  therefore survive even when it shares a Room record file or `editor.json` with the local save; an
+  `project.yaml`, and the Traits collection targets `traits.yaml`. A disjoint external edit can
+  therefore survive even when it shares a Room record file or `editor.yaml` with the local save; an
   overlapping path fails closed instead.
 - A successful content write returns a targeted acknowledgement, not a reopened whole-workspace
   snapshot. It contains the committed logical units, exact revisions for physical authoring files
@@ -129,7 +129,7 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | `map-detail` | Savable record | `record:maps:<entityId>` | `/maps/<entityId>` plus matching record metadata |
 | `script-module-detail` | Savable record | `record:scripts:<entityId>` | `/scripts/<entityId>` plus matching record metadata |
 | `variables` | Savable collection | `collection:variables` | `/variables` plus `/editor/recordMetadata/variables` |
-| `traits` | Savable collection | `collection:traits` | `/traits`; physically projected to `traits.json` |
+| `traits` | Savable collection | `collection:traits` | `/traits`; physically projected to `traits.yaml` |
 | `components` | Non-content | `tool:components` | Documentation/reference surface only |
 | `settings` | Non-content | `tool:settings` | Editor preferences, not project content |
 | `project-settings` | Savable project unit | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint` |
@@ -202,7 +202,7 @@ fallback recovery ownership only for otherwise unattributed dirty paths; they ne
 overlapping recovery owner for a path already attributed by a command, workflow, pending input,
 repair, or persisted recovery entry. Discard restores both the registry-owned paths and the recovery
 entry's actual affected paths. Recovery baseline hints likewise include physical files discovered by
-projecting those affected paths, so a Room-owned Instance edit tracks `project.json` even though the
+projecting those affected paths, so a Room-owned Instance edit tracks `project.yaml` even though the
 Room's static record descriptor does not claim the entire manifest. This prevents a structural
 workflow such as New Entity or Asset Import
 from being blocked merely because its resulting editor tab is already open when asynchronous

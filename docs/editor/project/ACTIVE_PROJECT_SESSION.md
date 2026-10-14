@@ -9,7 +9,7 @@ path back to the main process.
 ## Lifecycle
 
 A successful current-schema Project open or saved-Project creation canonicalizes the returned
-`project.json` path and activates its canonical Project Workspace root. A successful content save
+`project.yaml` path and activates its canonical Project Workspace root. A successful content save
 does not nominate or replace authority; session-bound persistence refresh belongs to the persistence
 boundary. Refreshing the same canonical root retains the session id; activating a different root
 replaces it with a new cryptographically random id. Canonicalization or manifest file failure leaves

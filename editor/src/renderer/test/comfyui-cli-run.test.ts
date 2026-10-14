@@ -1038,8 +1038,8 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
       projectRelativePath: expect.stringMatching(/^assets\/generated\//),
     });
     const assetId = output.assetId as string;
-    const recordPath = path.join(root, 'records', 'assets', `${assetId}.json`);
-    const record = JSON.parse(fs.readFileSync(recordPath, 'utf8')) as Record<string, unknown>;
+    const recordPath = path.join(root, 'records', 'assets', `${assetId}.yaml`);
+    const record = parseYaml(fs.readFileSync(recordPath, 'utf8')) as Record<string, unknown>;
     expect(record).toMatchObject({
       id: assetId,
       data: { source: { type: 'project-file', path: output.projectRelativePath } },
@@ -1217,8 +1217,8 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
     const rightId = (envelope(right).outputs as Record<string, Record<string, unknown>>).image
       .assetId as string;
     expect(leftId).not.toBe(rightId);
-    expect(fs.existsSync(path.join(root, 'records', 'assets', `${leftId}.json`))).toBe(true);
-    expect(fs.existsSync(path.join(root, 'records', 'assets', `${rightId}.json`))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'records', 'assets', `${leftId}.yaml`))).toBe(true);
+    expect(fs.existsSync(path.join(root, 'records', 'assets', `${rightId}.yaml`))).toBe(true);
   });
 
   it('supports named mixed routing with one/many and optional output semantics', async () => {
@@ -1593,7 +1593,7 @@ describe('noveltea comfyui run scalar filesystem execution', () => {
     }>;
     expect(variants).toHaveLength(1);
     expect(
-      fs.existsSync(path.join(root, 'records', 'assets', `${variants[0]!.assetId}.json`)),
+      fs.existsSync(path.join(root, 'records', 'assets', `${variants[0]!.assetId}.yaml`)),
     ).toBe(true);
   });
 

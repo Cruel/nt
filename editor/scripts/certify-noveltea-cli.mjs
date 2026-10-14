@@ -19,11 +19,36 @@ import os from 'node:os';
 import path from 'node:path';
 import process from 'node:process';
 import { fileURLToPath } from 'node:url';
-import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
-
+import { Document, isMap, isScalar, isSeq, parse as parseYaml } from 'yaml';
 import { readNovelTeaBuildIdentity, readNovelTeaVersion } from '../../scripts/noveltea-version.mjs';
 import { waitForDaemonState } from './cli-certification-synchronization.mjs';
 import { resolvePnpmInvocation } from './pnpm-invocation.mjs';
+
+// Certification fixtures must use the same restricted scalar spelling as tracked
+// Project YAML; YAML 1.2 would otherwise emit keys such as `y` unquoted.
+function stringifyYaml(value) {
+  const document = new Document(value);
+  const ambiguous = /^(?:yes|no|on|off|y|n|~|true|false|null|[-+]?0[0-9]+|\.inf|\.nan)$/iu;
+  const quote = (node) => {
+    if (isMap(node)) {
+      for (const pair of node.items) {
+        if (
+          isScalar(pair.key) &&
+          typeof pair.key.value === 'string' &&
+          ambiguous.test(pair.key.value)
+        )
+          pair.key.type = 'QUOTE_DOUBLE';
+        quote(pair.value);
+      }
+    } else if (isSeq(node)) {
+      for (const item of node.items) quote(item);
+    } else if (isScalar(node) && typeof node.value === 'string' && ambiguous.test(node.value)) {
+      node.type = 'QUOTE_DOUBLE';
+    }
+  };
+  quote(document.contents);
+  return document.toString();
+}
 
 const editorRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const repositoryRoot = path.resolve(editorRoot, '..');
@@ -3716,8 +3741,8 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
       withFileTypes: true,
     })
   )
-    .filter((entry) => entry.isFile() && entry.name.endsWith('.json'))
-    .map((entry) => entry.name.slice(0, -'.json'.length))
+    .filter((entry) => entry.isFile() && entry.name.endsWith('.yaml'))
+    .map((entry) => entry.name.slice(0, -'.yaml'.length))
     .sort();
   const root = path.join(tempRoot, 'feature-lab');
   await rm(root, { recursive: true, force: true });
