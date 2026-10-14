@@ -180,7 +180,7 @@ export function localizationMessageSourceViews(
 }
 
 /**
- * Exact source-view projection for an i18n/messages.json-only edit. The
+ * Exact source-view projection for an i18n/messages record-only edit. The
  * workspace must prove that other authored and external source inputs did
  * not change before using this function. Conflicting or new Message
  * identities always fall back to the full source extractor.

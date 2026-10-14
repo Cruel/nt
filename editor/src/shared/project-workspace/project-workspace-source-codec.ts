@@ -182,6 +182,12 @@ const layoutYamlCodec: ProjectWorkspaceSourceCodec = {
 
 /** The single physical-format selection used by cold open, reconciliation and projection. */
 export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourceCodec {
+  if (
+    /^i18n\/(?:project|messages|usage-notes|tracking|orphans|(?:locales|assets)\/[^/]+)\.yaml$/u.test(
+      file,
+    )
+  )
+    return structuredYamlCodec;
   if (/^records\/layouts\/[^/]+\/layout\.yaml$/u.test(file)) return layoutYamlCodec;
   if (/^records\/variables\/[^/]+\.yaml$/u.test(file)) return variableYamlCodec;
   const record =

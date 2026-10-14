@@ -146,7 +146,9 @@ function preparedLocalizationCoverageLocales(
       )
     : [];
   const messageOnlyChange =
-    changed.length === 1 && changed[0] === 'i18n/messages.json' && sourceWork.readTextSources === 0;
+    changed.length === 1 &&
+    (changed[0] === 'i18n/messages.json' || changed[0] === 'i18n/messages.yaml') &&
+    sourceWork.readTextSources === 0;
   const incremental =
     cached && messageOnlyChange
       ? updateFontCoverageForMessageEdits(cached.snapshot.project, snapshot.project, cached.locales)

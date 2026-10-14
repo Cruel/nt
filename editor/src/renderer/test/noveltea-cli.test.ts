@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
 import { parse as parseYaml } from 'yaml';
 import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -569,6 +570,152 @@ function projectWithSourceReference() {
 }
 
 describe('NovelTea headless CLI', () => {
+  it('reconciles ambiguous tracked occurrences in YAML without losing orphan provenance', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Original", nil, { note = "Keep this" })\n',
+    };
+    const tracked = synchronizeLocalizationMessageTracking(project).project;
+    const messageId = Object.values(tracked.localization.sourceMessageTracking)[0]!.occurrences[0]!
+      .messageId;
+    tracked.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    const view = localizationMessageWorkflowView(tracked, messageId)!;
+    tracked.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Texte conservé', 'human', {
+        review: 'reviewed',
+      }),
+    };
+    tracked.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: [
+        'local a = Text.tr("Original", nil, { note = "Keep this" })',
+        'local b = Text.tr("Original", nil, { note = "Keep this" })',
+        'return a .. b',
+        '',
+      ].join('\n'),
+    };
+    const sourceFiles = projectWorkspaceFiles(tracked, tracked.editor);
+    const staged = Object.fromEntries(
+      Object.entries(sourceFiles).map(([file, source]) => {
+        if (!file.startsWith('i18n/')) return [`${root}/${file}`, source];
+        const yaml = file.replace(/\.json$/u, '.yaml');
+        return [
+          `${root}/${yaml}`,
+          `# source note\n${projectWorkspaceSourceCodec(yaml).encode(JSON.parse(source))}`,
+        ];
+      }),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = {
+      project: tracked,
+      fileSystem,
+      workspace: new ProjectWorkspaceService(fileSystem),
+    };
+    const planned = await runNovelTeaCli(['--json', 'localization', 'reconcile'], options(value));
+    expect(planned.exitCode, planned.stdout).toBe(0);
+    const plan = JSON.parse(planned.stdout).plan as {
+      expectedWorkspaceRevision: string;
+      expectedFingerprint: string;
+      groups: Array<{ currentOccurrences: Array<{ id: string }> }>;
+    };
+    const resolutions = Object.fromEntries(
+      plan.groups[0]!.currentOccurrences.map(({ id }) => [id, 'new']),
+    );
+    const applied = await runNovelTeaCli(['--json', 'localization', 'reconcile', '--apply'], {
+      ...options(value),
+      stdinText: JSON.stringify({
+        expectedWorkspaceRevision: plan.expectedWorkspaceRevision,
+        expectedFingerprint: plan.expectedFingerprint,
+        resolutions,
+      }),
+    });
+    expect(applied.exitCode, applied.stdout).toBe(0);
+    expect(JSON.parse(applied.stdout)).toMatchObject({
+      orphanedMessageIds: [messageId],
+      writes: ['i18n/locales/fr.yaml', 'i18n/orphans.yaml', 'i18n/tracking.yaml'],
+    });
+    const orphans = projectWorkspaceSourceCodec('i18n/orphans.yaml').decode(
+      await fileSystem.readText(`${root}/i18n/orphans.yaml`),
+    ) as Record<string, { translations: Record<string, unknown> }>;
+    expect(orphans[messageId]?.translations).toHaveProperty('fr');
+    expect(await fileSystem.readText(`${root}/i18n/orphans.yaml`)).toContain('# source note');
+    expect(await fileSystem.inspect(`${root}/i18n/orphans.json`)).toBe('missing');
+  });
+  it('synchronizes tracked message provenance through YAML and keeps source files untouched', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Hello")\n',
+    };
+    const originals = projectWorkspaceFiles(project, project.editor);
+    const staged = Object.fromEntries(
+      Object.entries(originals).map(([file, source]) => {
+        if (!file.startsWith('i18n/')) return [`${root}/${file}`, source];
+        const yaml = file.replace(/\.json$/u, '.yaml');
+        return [
+          `${root}/${yaml}`,
+          `# provenance note\n${projectWorkspaceSourceCodec(yaml).encode(JSON.parse(source))}`,
+        ];
+      }),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const lua = await fileSystem.readText(`${root}/scripts/bootstrap.lua`);
+    const synced = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
+    expect(synced.exitCode, synced.stdout).toBe(0);
+    expect(JSON.parse(synced.stdout)).toMatchObject({
+      changed: true,
+      writes: ['i18n/tracking.yaml'],
+    });
+    expect(await fileSystem.readText(`${root}/i18n/tracking.yaml`)).toContain('# provenance note');
+    expect(await fileSystem.inspect(`${root}/i18n/tracking.json`)).toBe('missing');
+    expect(await fileSystem.readText(`${root}/scripts/bootstrap.lua`)).toBe(lua);
+    const repeated = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
+    expect(JSON.parse(repeated.stdout)).toMatchObject({ changed: false, writes: [] });
+  });
+  it('accepts and reviews translations in YAML without creating JSON owners', async () => {
+    const project = validProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f099';
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.greeting',
+      source: 'Hello',
+    };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Bonjour', 'ai'),
+    };
+    project.localization.messages[messageId]!.source = 'Hello there';
+    const original = projectWorkspaceFiles(project, project.editor);
+    const staged = Object.fromEntries(
+      Object.entries(original).map(([file, source]) => {
+        if (!file.startsWith('i18n/')) return [`${root}/${file}`, source];
+        const yaml = file.replace(/\.json$/u, '.yaml');
+        return [
+          `${root}/${yaml}`,
+          `# authored note\n${projectWorkspaceSourceCodec(yaml).encode(JSON.parse(source))}`,
+        ];
+      }),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const accepted = await runNovelTeaCli(
+      ['--json', 'localization', 'accept', 'fr', messageId],
+      options(value),
+    );
+    expect(accepted.exitCode, accepted.stdout).toBe(0);
+    expect(JSON.parse(accepted.stdout)).toMatchObject({ writes: ['i18n/locales/fr.yaml'] });
+    const reviewed = await runNovelTeaCli(
+      ['--json', 'localization', 'review', 'fr', messageId],
+      options(value),
+    );
+    expect(reviewed.exitCode, reviewed.stdout).toBe(0);
+    expect(await fileSystem.readText(`${root}/i18n/locales/fr.yaml`)).toContain('# authored note');
+    expect(await fileSystem.inspect(`${root}/i18n/locales/fr.json`)).toBe('missing');
+    expect((await value.workspace.open(root)).ok).toBe(true);
+  });
   it('joins localization work queues and keeps accept independent from human review', async () => {
     const project = validProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f099';
