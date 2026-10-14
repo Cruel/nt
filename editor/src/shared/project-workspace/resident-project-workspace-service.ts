@@ -1273,7 +1273,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     const logicalRoot = this.residentFileSystem.resolvePath(projectRoot);
     const canonicalRoot = await this.canonicalProjectRoot(logicalRoot);
     const entry = canonicalRoot ? this.sessions.get(canonicalRoot) : undefined;
-    if (!entry)
+    if (!entry || options.dryRun)
       return super.write(
         projectRoot,
         expectedRevision,

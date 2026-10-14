@@ -364,6 +364,8 @@ async function writeWorkspaceProject(
   contentProject: unknown;
   editorState: EditorProjectState;
   scriptSourcePaths: Record<string, string>;
+  commentImpacts: Awaited<ReturnType<ProjectWorkspaceService['write']>>['commentImpacts'];
+  deletedSourceTexts: Readonly<Record<string, string>>;
   assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[];
   snapshot: LoadedProjectWorkspaceSnapshot;
 }> {
@@ -517,6 +519,8 @@ async function writeWorkspaceProject(
       expectedFileRevisions,
       targetFiles,
       operationLabel: commitOptions?.operationLabel ?? 'project save',
+      identityRemap: commitOptions?.identityRemap,
+      sourceRestorations: commitOptions?.sourceRestorations,
       extraTargets,
       preflightSnapshot: openedSnapshot,
       refreshAfterCommit,
@@ -530,6 +534,8 @@ async function writeWorkspaceProject(
     scriptSourcePaths: { ...written.snapshot.scriptSourcePaths },
     assetTrashMoves,
     snapshot: written.snapshot,
+    commentImpacts: written.commentImpacts,
+    deletedSourceTexts: written.deletedSourceTexts,
   };
 }
 
@@ -966,6 +972,8 @@ async function saveProjectContentFromSnapshot(
     editorState: written.editorState,
     scriptSourcePaths: written.scriptSourcePaths,
     assetTrashMoves: written.assetTrashMoves,
+    commentImpacts: written.commentImpacts,
+    deletedSourceTexts: written.deletedSourceTexts,
     diagnostics: [],
     committedSnapshot: written.snapshot,
   };
@@ -1158,6 +1166,8 @@ export async function saveActiveProjectContent(
           saveUnitIds: [...request.saveUnitIds],
           affectedPaths: [...request.affectedPaths],
           operationLabel: request.operationLabel,
+          identityRemap: request.identityRemap,
+          sourceRestorations: request.sourceRestorations,
           structural: request.structural,
           assetTransition: request.assetTransition,
         };
@@ -1206,6 +1216,8 @@ export async function saveActiveProjectContent(
               : undefined,
           scriptSourcePaths: { ...result.committedSnapshot.scriptSourcePaths },
           assetTrashMoves: result.assetTrashMoves,
+          commentImpacts: result.commentImpacts,
+          deletedSourceTexts: result.deletedSourceTexts,
           diagnostics: result.diagnostics,
         };
       } catch (error) {

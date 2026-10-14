@@ -860,19 +860,20 @@ export async function renameEntity(
     patches.map((patch) => patch.path),
     patches.map((patch) => patch.path),
   );
-  if (!options.dryRun) {
-    await workspace.write(
-      snapshot.projectRoot,
-      snapshot.workspaceRevision,
-      candidate,
-      candidate.editor,
-      sourcePaths,
-      {
-        operationLabel: `cli entity rename ${collection}/${fromId} -> ${toId}`,
-        affectedPaths: patches.map((patch) => patch.path),
-      },
-    );
-  }
+  const written = await workspace.write(
+    snapshot.projectRoot,
+    snapshot.workspaceRevision,
+    candidate,
+    candidate.editor,
+    sourcePaths,
+    {
+      dryRun: options.dryRun,
+      preflightSnapshot: snapshot,
+      operationLabel: `cli entity rename ${collection}/${fromId} -> ${toId}`,
+      identityRemap: [{ fromPath: `/${collection}/${fromId}`, toPath: `/${collection}/${toId}` }],
+      affectedPaths: patches.map((patch) => patch.path),
+    },
+  );
   return {
     ok: true,
     diagnostics: possible.map((usage) =>
@@ -892,6 +893,7 @@ export async function renameEntity(
       collection,
       fromId,
       toId,
+      commentImpacts: written.commentImpacts,
       dryRun: options.dryRun,
       plan,
       usages: usages.map(sourceUsageFields),
@@ -1000,19 +1002,19 @@ export async function deleteEntity(
     repair.plan.preview.map((item) => `${item.sourcePath}: ${item.action}`),
     repair.plan.patches.map((patch) => patch.path),
   );
-  if (!options.dryRun) {
-    await workspace.write(
-      snapshot.projectRoot,
-      snapshot.workspaceRevision,
-      candidate,
-      candidate.editor,
-      snapshot.scriptSourcePaths,
-      {
-        operationLabel: `cli entity delete ${collection}/${id}`,
-        affectedPaths: repair.plan.patches.map((patch) => patch.path),
-      },
-    );
-  }
+  const written = await workspace.write(
+    snapshot.projectRoot,
+    snapshot.workspaceRevision,
+    candidate,
+    candidate.editor,
+    snapshot.scriptSourcePaths,
+    {
+      dryRun: options.dryRun,
+      preflightSnapshot: snapshot,
+      operationLabel: `cli entity delete ${collection}/${id}`,
+      affectedPaths: repair.plan.patches.map((patch) => patch.path),
+    },
+  );
   return {
     ok: true,
     diagnostics: [
@@ -1036,6 +1038,7 @@ export async function deleteEntity(
     fields: {
       collection,
       id,
+      commentImpacts: written.commentImpacts,
       dryRun: options.dryRun,
       force: options.force,
       plan,

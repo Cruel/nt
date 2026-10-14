@@ -1191,6 +1191,52 @@ describe('project-file-service workspace-v1', () => {
     expect(persisted.description).toBe('Local description');
   });
 
+  it('rebases an active YAML field save over an agent comment edit but never overwrites malformed source', async () => {
+    const root = tempProjectRoot();
+    await createProject({ projectName: 'Comment Rebase', projectDirectory: root });
+    const variablePath = path.join(root, 'records/variables/score.yaml');
+    fs.mkdirSync(path.dirname(variablePath), { recursive: true });
+    fs.writeFileSync(variablePath, 'id: score\nlabel: Score\ndata:\n  type: integer\n  value: 1\n');
+    const workspace = new ProjectWorkspaceService(createNodeProjectWorkspaceFileSystem());
+    const opened = await workspace.open(root);
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+    const session = ActiveProjectWorkspaceSession.fromOpened(opened);
+
+    fs.writeFileSync(
+      variablePath,
+      fs.readFileSync(variablePath, 'utf8').replace('value: 1', 'value: 1 # agent intent'),
+    );
+    const saved = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['record:variables:score'],
+        affectedPaths: ['/variables/score/data/value'],
+        baseValueByPath: { '/variables/score/data/value': { exists: true, value: 1 } },
+        localValueByPath: { '/variables/score/data/value': { exists: true, value: 2 } },
+        operationLabel: 'save score',
+      },
+      opened.editorState,
+    );
+    expect(saved.success).toBe(true);
+    expect(fs.readFileSync(variablePath, 'utf8')).toContain('value: 2 # agent intent');
+
+    fs.writeFileSync(variablePath, 'id: [unfinished');
+    const rejected = await saveActiveProjectContent(
+      session,
+      {
+        saveUnitIds: ['record:variables:score'],
+        affectedPaths: ['/variables/score/data/value'],
+        baseValueByPath: { '/variables/score/data/value': { exists: true, value: 2 } },
+        localValueByPath: { '/variables/score/data/value': { exists: true, value: 3 } },
+        operationLabel: 'save score again',
+      },
+      saved.editorState ?? opened.editorState,
+    );
+    expect(rejected.success).toBe(false);
+    expect(fs.readFileSync(variablePath, 'utf8')).toBe('id: [unfinished');
+  });
+
   it('does not report a false external Room conflict after reopening tracked record metadata', async () => {
     const root = tempProjectRoot();
     await createProject({ projectName: 'Room Metadata', projectDirectory: root });

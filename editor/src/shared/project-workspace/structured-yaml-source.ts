@@ -1,5 +1,5 @@
 import { Document, isMap, isSeq, isScalar, Scalar, type Node, type Pair } from 'yaml';
-import { parseVariableYamlDocument } from './variable-yaml-source';
+import { parseRestrictedYamlDocument } from './restricted-yaml-source';
 
 function ambiguous(value: string): boolean {
   return /^(?:yes|no|on|off|y|n|~|true|false|null|[-+]?0[0-9]+|\.inf|\.nan)$/iu.test(value);
@@ -59,7 +59,13 @@ function updateNode(doc: Document, node: Node, before: unknown, after: unknown):
         if (typeof oldNode.value !== typeof next || next === null) oldNode.type = undefined;
         oldNode.value = next;
       } else {
-        node.set(key, doc.createNode(next));
+        const replacement = doc.createNode(next);
+        if (oldNode) {
+          replacement.comment = oldNode.comment;
+          replacement.commentBefore = oldNode.commentBefore;
+          replacement.spaceBefore = oldNode.spaceBefore;
+        }
+        node.set(key, replacement);
       }
     }
   } else if (isSeq(node) && Array.isArray(before) && Array.isArray(after)) {
@@ -99,8 +105,30 @@ function updateNode(doc: Document, node: Node, before: unknown, after: unknown):
   }
 }
 
+export function remapYamlRecordMetadata(
+  text: string,
+  remaps: readonly { fromPath: string; toPath: string }[],
+): string {
+  const doc = parseRestrictedYamlDocument(text);
+  let changed = false;
+  for (const { fromPath, toPath } of remaps) {
+    const [, collection, fromId] = fromPath.split('/');
+    const toId = toPath.split('/')[2];
+    const entries = doc.getIn(['recordMetadata', collection], true);
+    if (!isMap(entries) || !entries.has(fromId)) continue;
+    if (entries.has(toId))
+      throw new Error('Cannot overwrite YAML metadata during an identity move.');
+    const pair = entries.items.find((entry) => isScalar(entry.key) && entry.key.value === fromId);
+    if (pair && isScalar(pair.key)) {
+      pair.key.value = toId;
+      changed = true;
+    }
+  }
+  return changed ? doc.toString({ indent: 2, lineWidth: 0 }) : text;
+}
+
 export function decodeStructuredYaml(text: string): unknown {
-  return parseVariableYamlDocument(text).toJS();
+  return parseRestrictedYamlDocument(text).toJS();
 }
 
 export function encodeStructuredYaml(value: unknown, previousText?: string): string {
@@ -109,11 +137,22 @@ export function encodeStructuredYaml(value: unknown, previousText?: string): str
     quoteAmbiguous(doc.contents);
     return doc.toString({ indent: 2, lineWidth: 0 });
   }
-  const doc = parseVariableYamlDocument(previousText);
+  const doc = parseRestrictedYamlDocument(previousText);
   const before = doc.toJS() as unknown;
   if (same(before, value)) return previousText;
   if (!doc.contents || !isMap(doc.contents) || !isObject(before) || !isObject(value))
     throw new Error('Cannot update a YAML document whose root mapping has changed shape.');
+  const first = doc.contents.items[0];
+  if (
+    first &&
+    isScalar(first.key) &&
+    !Object.hasOwn(value, String(first.key.value)) &&
+    first.key.commentBefore
+  ) {
+    // Root-leading prose is a document header, not an annotation on its first key.
+    doc.commentBefore = [doc.commentBefore, first.key.commentBefore].filter(Boolean).join('\n');
+    first.key.commentBefore = undefined;
+  }
   updateNode(doc, doc.contents, before, value);
   quoteAmbiguous(doc.contents);
   return doc.toString({ indent: 2, lineWidth: 0 });

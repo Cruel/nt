@@ -5,6 +5,9 @@ import {
   type AuthoringLuaSourceDescriptor,
 } from '../authoring-source-analysis';
 import { z } from 'zod';
+import { yamlCommentImpacts, type YamlCommentImpact } from './yaml-comment-impact';
+import { restoreMissingYamlSource } from './yaml-source-restoration';
+import { remapYamlRecordMetadata } from './structured-yaml-source';
 import {
   localizationMessageSourceViews,
   updateLocalizationMessageSourceViews,
@@ -1585,11 +1588,27 @@ export async function createProjectWorkspaceSnapshot(
   });
 }
 
+export interface ProjectWorkspaceCommentImpact extends YamlCommentImpact {
+  readonly file: string;
+}
+
+// Exact committed source belongs to the snapshot generation, never reconstructed from semantics.
+const committedSourceTexts = new WeakMap<
+  LoadedProjectWorkspaceSnapshot,
+  ReadonlyMap<string, string>
+>();
+
 export interface ProjectWorkspaceWriteOptions {
+  /** Prepare the same source-aware transaction without committing or writing editor state. */
+  readonly dryRun?: boolean;
+  /** Undo templates seed only recreated nodes, never overwrite live annotations. */
+  readonly sourceRestorations?: Readonly<Record<string, string>>;
   readonly transactionId?: string;
   readonly expectedFileRevisions?: Readonly<Record<string, ProjectWorkspaceExpectedRevision>>;
   readonly targetFiles?: readonly string[];
   readonly operationLabel?: string;
+  /** Explicit identity moves, never inferred from similar record values (duplicates are fresh source). */
+  readonly identityRemap?: readonly { fromPath: string; toPath: string }[];
   readonly extraTargets?: readonly ProjectWorkspaceTransactionTargetInput[];
   /** Semantic mutation ownership used by resident-session dependency safety. */
   readonly saveUnitIds?: readonly string[];
@@ -2849,13 +2868,15 @@ export class ProjectWorkspaceService {
       compareProjectWorkspaceUnicodeCodePoints,
     )) {
       const prior = base.sourceContributions[relativePath];
-      const text = projectWorkspaceFile(
-        committedSnapshot.project,
-        committedSnapshot.project.editor,
-        committedSnapshot.scriptSourcePaths,
-        relativePath,
-        prior?.kind === 'json' ? prior.sourceText : undefined,
-      );
+      const text =
+        committedSourceTexts.get(committedSnapshot)?.get(relativePath) ??
+        projectWorkspaceFile(
+          committedSnapshot.project,
+          committedSnapshot.project.editor,
+          committedSnapshot.scriptSourcePaths,
+          relativePath,
+          prior?.kind === 'json' ? prior.sourceText : undefined,
+        );
       const revision = committedSnapshot.fileRevisions[relativePath];
       if (text === undefined || !revision) {
         if (prior) changedOwnerPaths.set(relativePath, prior.ownerPaths);
@@ -3940,6 +3961,8 @@ export class ProjectWorkspaceService {
     workspaceRevision: string;
     snapshot: LoadedProjectWorkspaceSnapshot;
     contentProject: unknown;
+    commentImpacts: readonly ProjectWorkspaceCommentImpact[];
+    deletedSourceTexts: Readonly<Record<string, string>>;
   }> {
     let openedSnapshot = options.preflightSnapshot;
     if (openedSnapshot) {
@@ -3986,6 +4009,46 @@ export class ProjectWorkspaceService {
     const candidates = new Set(
       explicitCandidates ?? [...Object.keys(priorFullProjection!), ...Object.keys(fullProjection!)],
     );
+    for (const file of Object.keys(options.sourceRestorations ?? {})) {
+      if (!/^(?:records\/[^/]+\/[^/]+|project|editor|traits)\.yaml$/u.test(file))
+        throw new Error('Source restoration must name a canonical YAML owner.');
+      const stagedJson = file.replace(/\.yaml$/u, '.json');
+      if (candidates.has(stagedJson) && !openedSnapshot.fileRevisions[stagedJson]) {
+        candidates.delete(stagedJson);
+        candidates.add(file);
+      }
+    }
+    const sourceMoves = new Map<string, string>();
+    const sourceFiles = new Set(openedSnapshot.canonicalSourceFiles);
+    for (const { fromPath, toPath } of options.identityRemap ?? []) {
+      const from = /^\/([^/]+)\/([^/]+)$/u.exec(fromPath);
+      const to = /^\/([^/]+)\/([^/]+)$/u.exec(toPath);
+      if (!from || !to || from[1] !== to[1] || !isAuthoringCollectionKey(from[1]!))
+        throw new Error('Invalid workspace record identity move.');
+      const collection = from[1];
+      if (
+        !openedSnapshot.project[collection][from[2]!] ||
+        openedSnapshot.project[collection][to[2]!] ||
+        project[collection][from[2]!] ||
+        !project[collection][to[2]!]
+      )
+        throw new Error(
+          'Workspace identity move must remove an existing record and create a new identity.',
+        );
+      const oldFile = recordFile(collection, from[2]!, sourceFiles);
+      const selectedNewFile = recordFile(collection, to[2]!, sourceFiles);
+      // In the staged mixed-family cutover, a rename is a path move, not an
+      // implicit JSON-to-YAML conversion of an existing source owner.
+      const newFile = oldFile.endsWith('.json')
+        ? selectedNewFile.replace(/\.yaml$/u, '.json')
+        : selectedNewFile;
+      if (sourceMoves.has(newFile) || [...sourceMoves.values()].includes(oldFile))
+        throw new Error('Ambiguous workspace record identity move.');
+      if (newFile !== selectedNewFile) candidates.delete(selectedNewFile);
+      sourceMoves.set(newFile, oldFile);
+      candidates.add(oldFile);
+      candidates.add(newFile);
+    }
     const expected =
       options.expectedFileRevisions ??
       (explicitCandidates
@@ -4002,27 +4065,75 @@ export class ProjectWorkspaceService {
             ]),
           ));
     const targets: ProjectWorkspaceTransactionTargetInput[] = [];
+    const commentImpacts: ProjectWorkspaceCommentImpact[] = [];
+    const deletedSourceTexts: Record<string, string> = {};
+    const nextSourceTexts = new Map<string, string>();
     let sourceMembershipChanged = false;
     for (const file of [...candidates].sort(compareProjectWorkspaceUnicodeCodePoints)) {
       const currentText = await this.fileSystem
         .readText(this.fileSystem.joinPath(projectRoot, file))
         .catch(() => null);
-      const nextText =
+      const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+      const actualRevision =
+        currentText === null
+          ? PROJECT_WORKSPACE_ABSENT_REVISION
+          : await sha256PrefixedUtf8(currentText);
+      // YAML source is read-and-edited as a document even when the semantic projection
+      // would be unchanged. Non-YAML no-op candidates may legitimately be stale after
+      // a separately admitted source-file operation; changed targets still use journal CAS.
+      if (file.endsWith('.yaml') && actualRevision !== expectedRevision)
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_REVISION_CONFLICT',
+          `Project source '${file}' changed outside the editor.`,
+          file,
+        );
+      let priorText = sourceMoves.has(file)
+        ? await this.fileSystem.readText(
+            this.fileSystem.joinPath(projectRoot, sourceMoves.get(file)!),
+          )
+        : (currentText ?? options.sourceRestorations?.[file]);
+      if (file === 'editor.yaml' && priorText !== undefined && options.identityRemap?.length)
+        priorText = remapYamlRecordMetadata(priorText, options.identityRemap);
+      let nextText =
         (file.endsWith('.yaml')
-          ? projectWorkspaceFile(
-              project,
-              editorState,
-              projectedSourcePaths,
-              file,
-              currentText ?? undefined,
-            )
-          : fullProjection
+          ? projectWorkspaceFile(project, editorState, projectedSourcePaths, file, priorText)
+          : fullProjection && !sourceMoves.has(file)
             ? fullProjection[file]
             : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
+      const restoration = options.sourceRestorations?.[file];
+      if (
+        file.endsWith('.yaml') &&
+        currentText !== null &&
+        nextText !== null &&
+        restoration !== undefined
+      ) {
+        nextText =
+          projectWorkspaceFile(
+            project,
+            editorState,
+            projectedSourcePaths,
+            file,
+            restoreMissingYamlSource(currentText, nextText, restoration),
+          ) ?? null;
+      }
       sourceMembershipChanged ||=
         (openedSnapshot.fileRevisions[file] !== undefined) !== (nextText !== null);
+      if (nextText !== null) nextSourceTexts.set(file, nextText);
       if (currentText === nextText) continue;
-      const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+      if (file.endsWith('.yaml') && priorText !== undefined) {
+        const movedAway = [...sourceMoves.values()].includes(file);
+        if (!movedAway) {
+          const impacts = yamlCommentImpacts(priorText, nextText ?? undefined)
+            .filter(
+              (impact) =>
+                !(sourceMoves.has(file) && impact.path === '/id' && impact.kind === 'changed'),
+            )
+            .map((impact) => ({ file, ...impact }));
+          commentImpacts.push(...impacts);
+          if (nextText === null || impacts.some((impact) => impact.kind === 'deleted'))
+            deletedSourceTexts[file] = priorText;
+        }
+      }
       targets.push(
         nextText === null
           ? { path: file, operation: 'delete', expectedRevision }
@@ -4030,6 +4141,16 @@ export class ProjectWorkspaceService {
       );
     }
     targets.push(...(options.extraTargets ?? []));
+    if (options.dryRun)
+      return withLazyWriteContent(
+        {
+          workspaceRevision: openedSnapshot.workspaceRevision,
+          snapshot: openedSnapshot,
+          commentImpacts,
+          deletedSourceTexts,
+        },
+        project,
+      );
     let projectedSnapshot: LoadedProjectWorkspaceSnapshot | null = null;
     if (options.refreshAfterCommit === false) {
       // A resident generation must own a stable authoring value. Mutation callers intentionally
@@ -4049,9 +4170,7 @@ export class ProjectWorkspaceService {
       } else {
         canonicalSourceFileSet = new Set(openedSnapshot.canonicalSourceFiles);
         for (const file of candidates) {
-          const nextText = fullProjection
-            ? fullProjection[file]
-            : projectWorkspaceFile(project, editorState, projectedSourcePaths, file);
+          const nextText = nextSourceTexts.get(file);
           if (nextText === undefined) canonicalSourceFileSet.delete(file);
           else canonicalSourceFileSet.add(file);
         }
@@ -4122,6 +4241,7 @@ export class ProjectWorkspaceService {
           ? openedSnapshot.scriptSourcePaths
           : Object.freeze(sortKeys(projectedSourcePaths)),
       });
+      committedSourceTexts.set(projectedSnapshot, nextSourceTexts);
       snapshotRevisionStates.set(projectedSnapshot, aggregate.state);
       if (descriptorAdvance)
         this.snapshotExternalDescriptorIndexes.set(projectedSnapshot, descriptorAdvance.index);
@@ -4142,6 +4262,8 @@ export class ProjectWorkspaceService {
         {
           workspaceRevision: projectedSnapshot.workspaceRevision,
           snapshot: projectedSnapshot,
+          commentImpacts,
+          deletedSourceTexts,
         },
         project,
       );
@@ -4153,6 +4275,8 @@ export class ProjectWorkspaceService {
       workspaceRevision: refreshed.snapshot.workspaceRevision,
       snapshot: refreshed.snapshot,
       contentProject: refreshed.contentProject,
+      commentImpacts,
+      deletedSourceTexts,
     };
   }
   async writeEditorLocalState(projectRoot: string, editorState: EditorProjectState): Promise<void> {
