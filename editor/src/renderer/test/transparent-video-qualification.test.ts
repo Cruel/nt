@@ -15,16 +15,26 @@ import { expect, it } from 'vite-plus/test';
 import {
   prepareProductionVideoMotion,
   traceTransparentVideo,
-  WebpAlphaTraceSession,
+  type NativeAlphaEncodeResult,
 } from '../../main/services/transparent-video-tracer';
+import {
+  invokeNovelTeaNativeOperation,
+  resolveNovelTeaCliPath,
+} from '../../shared/noveltea-cli-subprocess';
+import { WebpAlphaTraceSession } from './support/webp-alpha-trace-session';
 
-const ffmpeg = path.resolve(process.cwd(), '../build/cli/linux/tools/ffmpeg/bin/ffmpeg');
+const ffmpeg =
+  process.env.NOVELTEA_FFMPEG ??
+  path.resolve(process.cwd(), '../build/cli/linux/tools/ffmpeg/bin/ffmpeg');
 const probe = path.resolve(process.cwd(), '../tests/media/webp_alpha_persistent_probe.py');
 const persistentAvailable =
   spawnSync('python3', ['-c', 'import ctypes.util; assert ctypes.util.find_library("webpdemux")'])
     .status === 0;
 const enabled =
   process.env.NOVELTEA_ALPHA_QUALIFY === '1' &&
+  /\blibwebp\b/u.test(
+    spawnSync(ffmpeg, ['-hide_banner', '-encoders'], { encoding: 'utf8' }).stdout ?? '',
+  ) &&
   process.platform === 'linux' &&
   existsSync(ffmpeg) &&
   existsSync(probe) &&
@@ -110,10 +120,32 @@ it.skipIf(!enabled)(
             sourcePath: 'source.mov',
             canvas: { width: width!, height: height! },
           },
-          { executable: ffmpeg, bundled: true },
+          { executable: ffmpeg, bundled: !process.env.NOVELTEA_FFMPEG },
           ffmpegRun,
         );
         const prepareMs = performance.now() - start;
+        if (existsSync(resolveNovelTeaCliPath())) {
+          const nativePrepared = await traceTransparentVideo(
+            root,
+            {
+              animationId: 'qualification',
+              motionId: 'native-color-alpha',
+              assetId: 'source',
+              sourcePath: 'source.mov',
+              canvas: { width: width!, height: height! },
+            },
+            { executable: ffmpeg, bundled: !process.env.NOVELTEA_FFMPEG },
+            ffmpegRun,
+            (request) =>
+              invokeNovelTeaNativeOperation(
+                'alpha-encode',
+                request,
+              ) as Promise<NativeAlphaEncodeResult>,
+          );
+          expect(nativePrepared.colorDurationsMs).toEqual(prepared.colorDurationsMs);
+          expect(nativePrepared.holds).toEqual(prepared.holds);
+          expect(nativePrepared.alphaWebp).toEqual(prepared.alphaWebp);
+        }
         // Production export takes the streaming FFmpeg pipe path, independently
         // from the test-runner-file tracer, even for full 4K original media.
         const exported = await prepareProductionVideoMotion(
@@ -125,7 +157,7 @@ it.skipIf(!enabled)(
             sourcePath: 'source.mov',
             canvas: { width: width!, height: height! },
           },
-          { executable: ffmpeg, bundled: true },
+          { executable: ffmpeg, bundled: !process.env.NOVELTEA_FFMPEG },
         );
         expect(exported.alphaWebp).toBeDefined();
         expect(await readFile(exported.alphaWebp!.sourcePath)).toEqual(prepared.alphaWebp);

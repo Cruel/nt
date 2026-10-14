@@ -4,12 +4,15 @@
  * player reads the same private sidecar through its WebP alpha session.
  */
 import { createHash } from 'node:crypto';
-import { mkdtemp, rm, writeFile } from 'node:fs/promises';
+import { mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { dirname, join } from 'node:path';
-import sharp from 'sharp';
-import { encodeAlphaMasks, readAlphaMasksFile } from './animated-webp-alpha-encoder';
-import { encodeAlphaFromFfmpeg } from './alpha-ffmpeg-stream';
+import {
+  encodeAlphaMasksWithFfmpegFiles,
+  inspectAlphaWebp,
+  readAlphaMasksFile,
+  verifyAlphaWebp,
+} from './animated-webp-alpha-encoder';
 import type {
   OpaqueVideoPreparationRequest,
   OpaqueVideoPreparationResult,
@@ -30,6 +33,28 @@ export interface AlphaHold {
   startMs: number;
   durationMs: number;
 }
+
+export interface NativeAlphaEncodeRequest {
+  executable: string;
+  arguments: string[];
+  durationsMs: number[];
+  width: number;
+  height: number;
+  outputPath: string;
+}
+
+export interface NativeAlphaEncodeResult {
+  ok: boolean;
+  hasAlpha?: boolean;
+  stderr?: string;
+  holds?: AlphaHold[];
+  frameCount?: number;
+  error?: string;
+}
+
+export type NativeAlphaEncoder = (
+  request: NativeAlphaEncodeRequest,
+) => NativeAlphaEncodeResult | Promise<NativeAlphaEncodeResult>;
 
 export interface TransparentVideoTrace {
   colorVideoPath: string;
@@ -72,49 +97,6 @@ function alphaSourceDecoder(
   return ['-c:v', codec === 'vp8' ? 'libvpx' : 'libvpx-vp9'];
 }
 
-/** Decode a single page into a bounded, reusable 8-bit CPU mask for tracing hit coverage. */
-export class WebpAlphaTraceSession {
-  private page = -1;
-  private mask: Buffer | null = null;
-
-  constructor(
-    private readonly webp: Buffer,
-    private readonly holds: readonly AlphaHold[],
-    private readonly width: number,
-    private readonly height: number,
-  ) {}
-
-  async sample(timeMs: number): Promise<{ page: number; alpha: Buffer }> {
-    if (!Number.isFinite(timeMs) || timeMs < 0) throw new Error('Invalid alpha sample time.');
-    const page = this.holds.findIndex((hold) => timeMs < hold.startMs + hold.durationMs);
-    if (page < 0) throw new Error('Alpha sample is outside the motion endpoint.');
-    if (page !== this.page) {
-      const { data, info } = await sharp(this.webp, { page, pages: 1 })
-        .ensureAlpha()
-        .raw()
-        .toBuffer({ resolveWithObject: true });
-      if (info.width !== this.width || info.height !== this.height || info.channels !== 4)
-        throw new Error('Decoded WebP mask dimensions differ from the prepared canvas.');
-      const alpha = Buffer.alloc(this.width * this.height);
-      for (let pixel = 0; pixel < alpha.length; pixel += 1) alpha[pixel] = data[pixel * 4 + 3]!;
-      this.mask = alpha;
-      this.page = page;
-    }
-    return { page, alpha: this.mask! };
-  }
-
-  hit(timeMs: number, x: number, y: number): Promise<boolean> {
-    return this.sample(timeMs).then(
-      ({ alpha }) =>
-        x >= 0 &&
-        y >= 0 &&
-        x < this.width &&
-        y < this.height &&
-        alpha[Math.floor(y) * this.width + Math.floor(x)]! > 0,
-    );
-  }
-}
-
 /**
  * Check a source with the real color preparation, then normalize/decode its
  * alpha with the same source-range, sampling, scale and centered padding.
@@ -126,6 +108,7 @@ export async function prepareOptionalVideoAlpha(
   sourceBytes: Uint8Array,
   tool: MediaTool = installedMediaTool(),
   run: MediaToolRunner = runVideoMediaToolProcess,
+  nativeAlphaEncoder?: NativeAlphaEncoder,
 ): Promise<TransparentVideoTrace | null> {
   const temporary = await mkdtemp(join(tmpdir(), 'noveltea-alpha-trace-'));
   try {
@@ -205,9 +188,58 @@ export async function prepareOptionalVideoAlpha(
     ];
     let extractionLog: string;
     let encoded;
-    if (run === runVideoMediaToolProcess) {
+    if (nativeAlphaEncoder) {
+      // A permanent C++ tool operation streams compressed VP8L pages directly
+      // from FFmpeg. QuickJS passes only the request and result metadata.
+      const nativeFilter = filter.split(',').slice(0, -1);
+      // The native path turns grayscale coverage into white-RGB VP8L pixels
+      // without changing the R8 alpha plane or source sampling timeline.
+      nativeFilter.push('format=rgba', 'geq=r=255:g=255:b=255:a=r(X\\,Y)', 'showinfo');
+      const outputPath = join(temporary, 'alpha.webp');
+      const native = await nativeAlphaEncoder({
+        executable: tool.executable,
+        arguments: [
+          '-nostdin',
+          '-hide_banner',
+          '-y',
+          ...decoderOptions,
+          '-i',
+          source,
+          '-map',
+          '0:v:0',
+          '-an',
+          '-sn',
+          '-dn',
+          '-vf',
+          nativeFilter.join(','),
+          '-fps_mode',
+          'passthrough',
+          '-c:v',
+          'libwebp',
+          '-lossless',
+          '1',
+          '-pix_fmt',
+          'bgra',
+          '-f',
+          'image2pipe',
+          'pipe:1',
+        ],
+        durationsMs: color.frameDurationsMs,
+        width,
+        height,
+        outputPath,
+      });
+      if (!native.ok) throw new Error(native.error ?? 'Native alpha encoding failed.');
+      extractionLog = native.stderr ?? '';
+      encoded = {
+        alphaWebp: native.hasAlpha ? await readFile(outputPath) : null,
+        holds: native.holds ?? [],
+        pageHashes: [],
+      };
+    } else if (run === runVideoMediaToolProcess) {
       // Native production jobs consume FFmpeg's stdout under backpressure:
       // one uncompressed mask in memory, no multi-gigabyte scratch file.
+      const { encodeAlphaFromFfmpeg } = await import('./alpha-ffmpeg-stream');
       const streamed = await encodeAlphaFromFfmpeg(
         tool.executable,
         ['-nostdin', '-hide_banner', ...extractArguments, '-'],
@@ -222,11 +254,13 @@ export async function prepareOptionalVideoAlpha(
       // being replaced by an unmockable host child process.
       const extracted = runMediaPreparation(tool, [...extractArguments, maskPath], run);
       extractionLog = extracted.stderr;
-      encoded = await encodeAlphaMasks(
+      encoded = await encodeAlphaMasksWithFfmpegFiles(
         readAlphaMasksFile(maskPath, width, height, color.frameDurationsMs.length),
         color.frameDurationsMs,
         width,
         height,
+        tool.executable,
+        run,
       );
     }
     const samples = readSampleTimes(extractionLog);
@@ -238,22 +272,8 @@ export async function prepareOptionalVideoAlpha(
       throw new Error('Prepared alpha and VP9 color disagree on sample timestamps or endpoint.');
     const { alphaWebp, holds, pageHashes } = encoded;
     if (!alphaWebp) return null;
-    const metadata = await sharp(alphaWebp, { animated: true }).metadata();
-    if (
-      (metadata.pages ?? 1) !== holds.length ||
-      metadata.width !== width ||
-      (metadata.pageHeight ?? metadata.height) !== height ||
-      (holds.length > 1 &&
-        JSON.stringify(metadata.delay ?? []) !==
-          JSON.stringify(holds.map((hold) => hold.durationMs)))
-    )
-      throw new Error('WebP animation did not retain exact page durations and canvas.');
-    const decoder = new WebpAlphaTraceSession(alphaWebp, holds, width, height);
-    for (let page = 0; page < holds.length; page += 1) {
-      const decodedPage = (await decoder.sample(holds[page]!.startMs)).alpha;
-      if (createHash('sha256').update(decodedPage).digest('hex') !== pageHashes[page])
-        throw new Error(`Lossless WebP mask differs at page ${page}.`);
-    }
+    if (nativeAlphaEncoder) inspectAlphaWebp(alphaWebp, holds, width, height);
+    else await verifyAlphaWebp(alphaWebp, holds, pageHashes, width, height, tool.executable, run);
     return {
       colorVideoPath: color.browserVideo.sourcePath,
       colorDurationsMs: color.frameDurationsMs,
@@ -275,10 +295,18 @@ export async function prepareProductionVideoMotion(
   tool: MediaTool = installedMediaTool(),
   run: MediaToolRunner = runVideoMediaToolProcess,
   admittedSourceBytes?: Uint8Array,
+  nativeAlphaEncoder?: NativeAlphaEncoder,
 ): Promise<OpaqueVideoPreparationResult> {
   const bytes = admittedSourceBytes ?? (await readContainedVideoSource(root, request.sourcePath));
   const color = await prepareOpaqueVideoMotion(root, request, tool, run, bytes);
-  const alpha = await prepareOptionalVideoAlpha(request, color, bytes, tool, run);
+  const alpha = await prepareOptionalVideoAlpha(
+    request,
+    color,
+    bytes,
+    tool,
+    run,
+    nativeAlphaEncoder,
+  );
   if (!alpha) return color;
   const sourcePath = join(dirname(color.browserVideo.sourcePath), 'alpha.webp');
   await writeFile(sourcePath, alpha.alphaWebp);
@@ -304,10 +332,18 @@ export async function traceTransparentVideo(
   request: OpaqueVideoPreparationRequest,
   tool: MediaTool = installedMediaTool(),
   run: MediaToolRunner = runVideoMediaToolProcess,
+  nativeAlphaEncoder?: NativeAlphaEncoder,
 ): Promise<TransparentVideoTrace> {
   const sourceBytes = await readContainedVideoSource(root, request.sourcePath);
   const color = await prepareOpaqueVideoMotion(root, request, tool, run, sourceBytes);
-  const alpha = await prepareOptionalVideoAlpha(request, color, sourceBytes, tool, run);
+  const alpha = await prepareOptionalVideoAlpha(
+    request,
+    color,
+    sourceBytes,
+    tool,
+    run,
+    nativeAlphaEncoder,
+  );
   if (!alpha)
     throw new Error('Source decoder discarded alpha or alpha source has no nonopaque coverage.');
   return alpha;

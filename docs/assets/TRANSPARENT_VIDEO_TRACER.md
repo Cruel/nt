@@ -20,20 +20,20 @@ and remaining qualification limits.
   source-byte snapshot even if the original Project file changes during
   preparation. Frame durations and endpoint must match the production
   color representation exactly or tracing fails.
-- Alpha is extracted as 8-bit gray and encoded by the editor's existing
-  Sharp/libwebp dependency into **one lossless animated WebP**, with
-  millisecond page durations. Identical consecutive masks are coalesced
-  into one timed hold, not duplicated to align with video color frames.
-  WebP metadata, delays, all page pixels, and byte-for-byte alpha
-  round-tripping are verified. The temporary raw masks are removed. The
-  production path subsequently replaced its all-frames buffer with
-  backpressured FFmpeg streaming, one R8 canvas at a time.
-- `WebpAlphaTraceSession` holds the compressed WebP plus at most one
-  decoded CPU alpha mask at a time, reuses that mask for held intervals,
-  and exposes the same R8 bytes to CPU hit queries (`alpha > 0`). Sharp
-  opens a new decoder for each changed page and is intentionally **not**
-  proposed as the #409 runtime decoder. Independent test-only
-  `tests/media/webp_alpha_persistent_probe.py` uses libwebp's actual
+- Production Node/Electron and standalone ScriptC exports use one shared
+  native C++ alpha encoder (`tooling_alpha_encoder.cpp`). FFmpeg extracts the
+  8-bit alpha, normalizes RGB to white, and writes lossless VP8L pages directly
+  through a bounded stdout pipe. Native code validates each page using the
+  engine's bimg decoder, coalesces byte-identical consecutive pages, and
+  assembles animated WebP with the authored millisecond holds. The original
+  color sampling and alpha sampling logs must agree. Neither raw R8 nor BGRA
+  intermediates are written to disk. The immutable source snapshot and final
+  compressed output remain file-backed. Sharp is test-only.
+- The test-only `WebpAlphaTraceSession` reference helper holds the compressed
+  WebP plus at most one decoded CPU alpha mask at a time and exposes the same
+  R8 bytes to CPU hit queries (`alpha > 0`). Sharp is used only as an
+  independent test reference, never in the production export pipeline.
+  The independent test-only `tests/media/webp_alpha_persistent_probe.py` uses libwebp's actual
   `WebPAnimDecoder` to decode all pages using **one retained decoder**,
   repeatedly reset/replay and seek backward/forward, check presentation
   millisecond durations and exact R8 bytes, and report peak/steady RSS.
@@ -63,10 +63,13 @@ and remaining qualification limits.
 
 ### Automated checks
 
-Run the traced-media and conditional large-mask checks using the pinned
-Linux FFmpeg tool distributed with the built CLI:
+Run the traced-media and conditional large-mask checks with a local FFmpeg
+that has `libwebp` enabled (until the next FFmpeg release is pinned):
 
 ```sh
+export NOVELTEA_FFMPEG="$HOME/dev/nt-tools/ffmpeg-build/stage/bin/ffmpeg"
+pnpm -C editor exec vp test run src/renderer/test/animated-webp-alpha-encoder.test.ts
+pnpm -C editor exec vp test run src/renderer/test/native-alpha-encoder.test.ts
 pnpm -C editor exec vp test run src/renderer/test/transparent-video-tracer.test.ts
 NOVELTEA_ALPHA_STRESS=1 pnpm -C editor exec vp test run src/renderer/test/transparent-video-tracer.test.ts --reporter=verbose --silent=false
 NOVELTEA_ALPHA_QUALIFY=1 pnpm -C editor exec vp test run src/renderer/test/transparent-video-qualification.test.ts --reporter=verbose --silent=false --testTimeout=480000
@@ -86,8 +89,9 @@ preparer, checks pixel-exact 8-bit WebP round trips, 2 mask holds across
 4 color frames, padding, CPU hits, holds, and end-of-motion rejection.
 It also covers 20 FPS and 30000/1001 FPS conversion, Retain 50%, source-range cropping,
 a genuinely VFR alpha stream, a source-replacement race, and fail-closed
-alpha decoding of an opaque VP9 source. Tests are skipped when the pinned FFmpeg executable is not
-present. No separate authored hit-mask sidecar is generated.
+alpha decoding of an opaque VP9 source. Tests requiring the new encoder
+are skipped if FFmpeg lacks `libwebp`. No separate authored hit-mask sidecar
+is generated.
 
 ### Illustrative stress observation (2026-10-13, Linux)
 
@@ -131,11 +135,18 @@ late color samples retain the previous displayed color/alpha pair. A missing
 alpha texture suppresses rendering instead of silently treating the video as
 opaque. The built-in video quad shader composites this pair without chroma key.
 
-Production alpha preparation streams grayscale frames through a single R8
-canvas under FFmpeg pipe backpressure. A separate test-runner file path reads
-one frame at a time. Both paths deduplicate held masks and assemble lossless
-VP8L pages into one animated-WebP RIFF without a whole-video raw atlas; the
-compressed output is bounded to 128 MiB.
+Production alpha preparation runs one native-owned FFmpeg subprocess,
+producing lossless VP8L frames directly through a bounded pipe. Consecutive
+identical compressed pages are coalesced; the native assembler retains the
+prepared color timeline, checks frames against the engine bimg decoder, and
+writes only the finished `alpha.webp` to disk. Node/Electron invoke the same
+native service through the static `__editor-native alpha-encode` operation;
+standalone ScriptC uses its existing native FFI host. Neither path requires
+QuickJS-specific streaming or raw-alpha scratch files. The current test-only
+and directly invoked tracing fallback retains bounded BGRA batches so that
+injected media runners can be tested without a native binary. Compressed
+output is capped at 128 MiB; FFmpeg stderr capture and process lifetime are
+bounded. Raw video is not transferred through JSON or QuickJS.
 
 Engine2D Materials now retain their authored fragment output before the
 renderer-owned compositor multiplies their premultiplied RGBA by the actual
@@ -148,8 +159,9 @@ Missing masks are not replaced with opaque draws.
 
 `scripts/certify-transparent-video-package-scenarios.mjs --native --web`
 synthesizes a ProRes 4444 MOV with a changing alpha strip, exports it using
-the Node CLI, verifies the single animated-WebP sidecar and shared 2-second
-color timeline in the package, then launches native and Web players. The Web
+the Node CLI by default or standalone ScriptC with
+`NOVELTEA_ALPHA_STANDALONE_CLI=1`, and verifies the single animated-WebP
+sidecar and shared 2-second color timeline in the package, then launches native and Web players. The Web
 smoke instruments R8 GPU uploads and compares transparent/half/opaque strips
 within rendered WebGL screenshots **with an authored Engine2D Material**. It
 proves startup, source packaging, repeated alpha uploads, and actual
@@ -158,10 +170,14 @@ Xvfb/llvmpipe; the native packaged player exercises initial playback/shutdown.
 Shaderc builds the wrapped Material for GLSL 330, WebGL2 ESSL 300 and Metal.
 The native and Web decoder reuse identical animated-WebP logic.
 
-The standalone ScriptC CLI is separately selectable with
-`NOVELTEA_ALPHA_STANDALONE_CLI=1`; it currently fails even ordinary `validate`
-with `Could not find export 'default' in module 'scr:import-trap:0'`,
-independent of transparent video. The production Node CLI export passes.
+The standalone ScriptC CLI uses the same canonical transparency preparation
+without loading Sharp or Node streams. Its `scr:import-trap:0` error was
+resolved by removing production Sharp imports; the rebuilt standalone CLI and
+Node CLI each successfully export transparent MOV to native and Web packages
+with the local FFmpeg override. The native service survives any future QuickJS
+removal unchanged. Windows and macOS process-path qualification is still due.
+The checked-in `ffmpeg-r2` binary does not yet provide the required `libwebp` encoder, so set `NOVELTEA_FFMPEG` to the local build
+until a certified replacement release is pinned.
 Real Mac/Windows/Android device execution, hardware GPU timings and
 unbounded-duration memory profiling are additional release certification,
 not claims made by the Linux/Web tests.

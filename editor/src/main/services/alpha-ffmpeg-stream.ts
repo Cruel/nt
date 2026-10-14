@@ -1,6 +1,10 @@
-/** Streams FFmpeg's gray alpha plane through one R8 canvas of Node memory. */
+/** Node-only bounded FFmpeg alpha extraction, feeding the shared file-batch VP8L encoder. */
 import { spawn } from 'node:child_process';
-import { encodeAlphaMasks, type EncodedAlphaMotion } from './animated-webp-alpha-encoder';
+import {
+  encodeAlphaMasksWithFfmpegFiles,
+  type EncodedAlphaMotion,
+} from './animated-webp-alpha-encoder';
+import { runVideoMediaToolProcess } from './opaque-video-preparation-service';
 
 export interface StreamedAlphaMotion {
   result: EncodedAlphaMotion;
@@ -31,8 +35,6 @@ export async function encodeAlphaFromFfmpeg(
       child.kill();
     } else diagnostics.push(piece);
   });
-  // Attach this listener immediately; the tool may exit before the
-  // streaming iterator consumes its final byte.
   const exit = new Promise<number>((resolve, reject) => {
     child.once('error', reject);
     child.once('close', (code) => resolve(code ?? -1));
@@ -65,7 +67,14 @@ export async function encodeAlphaFromFfmpeg(
   };
 
   try {
-    const result = await encodeAlphaMasks(frames(), durations, width, height);
+    const result = await encodeAlphaMasksWithFfmpegFiles(
+      frames(),
+      durations,
+      width,
+      height,
+      executable,
+      runVideoMediaToolProcess,
+    );
     const code = await exit;
     if (logOverflow)
       throw new Error('FFmpeg emitted more than 64 MiB of alpha timeline diagnostics.');
