@@ -59,6 +59,7 @@ Commands:
   asset audit
   asset import <path>... [--dry-run]
   entity create <collection> <id> [--dry-run]
+  entity inspect <collection> <id> [--provenance]
   entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
   entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]
   usages <collection> <id>
