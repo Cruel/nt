@@ -136,7 +136,7 @@ function assetAuthorityPathsAfterChanges(
 ): readonly string[] {
   if (structural) return Object.freeze(assetSourcePaths(after));
   for (const path of changedSources) {
-    const match = /^records\/assets\/([^/]+)\.json$/u.exec(path);
+    const match = /^records\/assets\/([^/]+)\.(?:json|yaml)$/u.exec(path);
     if (!match) continue;
     const id = match[1]!;
     if (assetRecordSourcePath(before, id) !== assetRecordSourcePath(after, id))
