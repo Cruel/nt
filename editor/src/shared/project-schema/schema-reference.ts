@@ -79,6 +79,7 @@ import { defaultVerbData } from './authoring-verbs';
 import { defaultInteractionData } from './authoring-interactions';
 import { defaultDialogueData } from './authoring-dialogues';
 import { defaultSceneData } from './authoring-scenes';
+import { defaultTestData } from './authoring-tests';
 import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
@@ -433,6 +434,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         'interactions',
         'dialogues',
         'scenes',
+        'tests',
       ].some((family) => document.id === `records/${family}`)
     ) {
       const family = document.id.slice('records/'.length) as SparseRecordFamily;
@@ -445,6 +447,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         interactions: 'Example Interaction',
         dialogues: 'Example Dialogue',
         scenes: 'Example Scene',
+        tests: 'Example Test',
       }[family];
       const data = {
         rooms: () => defaultRoomData(label),
@@ -455,6 +458,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         interactions: () => defaultInteractionData(),
         dialogues: () => defaultDialogueData(label),
         scenes: () => defaultSceneData(label),
+        tests: () => defaultTestData(label),
       }[family]();
       const example = encodeSparseRecordYaml(family, {
         id: `example-${family.slice(0, -1)}`,

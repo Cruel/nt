@@ -582,6 +582,7 @@ const recordFile = (
       'interactions',
       'dialogues',
       'scenes',
+      'tests',
     ].includes(collection)
   ) {
     const json = `records/${collection}/${id}.json`;
@@ -733,7 +734,7 @@ export function projectWorkspaceAffectedFiles(
     if (!candidateFiles) return null;
     candidateFiles.forEach((file) => {
       const record =
-        /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes)\/([^/]+)\.(?:json|yaml)$/u.exec(
+        /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
           file,
         );
       files.add(
@@ -748,7 +749,8 @@ export function projectWorkspaceAffectedFiles(
                 | 'verbs'
                 | 'interactions'
                 | 'dialogues'
-                | 'scenes',
+                | 'scenes'
+                | 'tests',
               record[2]!,
               new Set(snapshot.canonicalSourceFiles),
             )
@@ -1489,6 +1491,7 @@ export function projectWorkspaceFile(
         'interactions',
         'dialogues',
         'scenes',
+        'tests',
       ].includes(collection)
     )
       return undefined;
@@ -2177,7 +2180,7 @@ export class ProjectWorkspaceService {
       if (!candidateFiles) return null;
       candidateFiles.forEach((file) => {
         const variableMatch =
-          /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes)\/([^/]+)\.(?:json|yaml)$/u.exec(
+          /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
             file,
           );
         files.add(
@@ -2192,7 +2195,8 @@ export class ProjectWorkspaceService {
                   | 'verbs'
                   | 'interactions'
                   | 'dialogues'
-                  | 'scenes',
+                  | 'scenes'
+                  | 'tests',
                 variableMatch[2]!,
                 new Set(snapshot.canonicalSourceFiles),
               )
@@ -3533,6 +3537,7 @@ export class ProjectWorkspaceService {
                     'interactions',
                     'dialogues',
                     'scenes',
+                    'tests',
                   ].includes(collection) && entry.endsWith('.yaml')
                 )
               )
