@@ -144,6 +144,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
   }
 
   if (family === 'entity') {
+    if (operation === 'inspect') return projectRead;
     if (operation === 'create' || operation === 'rename' || operation === 'delete')
       return projectMutation(command);
     return null;

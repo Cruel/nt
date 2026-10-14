@@ -21,13 +21,18 @@ async function commandDefinitions(
       return [];
     }
     case 'entity': {
-      const [{ entityCreateCommand }, { entityRenameCommand }, { entityDeleteCommand }] =
-        await Promise.all([
-          import('./entity-create-command'),
-          import('./entity-rename-command'),
-          import('./entity-delete-command'),
-        ]);
-      return [entityCreateCommand, entityRenameCommand, entityDeleteCommand];
+      const [
+        { entityCreateCommand },
+        { entityRenameCommand },
+        { entityDeleteCommand },
+        { entityInspectCommand },
+      ] = await Promise.all([
+        import('./entity-create-command'),
+        import('./entity-rename-command'),
+        import('./entity-delete-command'),
+        import('./entity-inspect-command'),
+      ]);
+      return [entityCreateCommand, entityRenameCommand, entityDeleteCommand, entityInspectCommand];
     }
     case 'localization': {
       const [sync, reconcile, workflow] = await Promise.all([

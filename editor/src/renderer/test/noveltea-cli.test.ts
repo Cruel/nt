@@ -62,6 +62,80 @@ import {
 
 const root = '/projects/headless';
 
+describe('effective entity inspection CLI', () => {
+  it('expands nested Room defaults from sparse YAML without changing the record', async () => {
+    const project = validProject();
+    const staged = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/rooms/start.yaml']),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(staged).map(([file, text]) => [`${root}/${file}`, text])),
+    );
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const file = `${root}/records/rooms/start.yaml`;
+    const source = (await value.fileSystem.readText(file)).replace(
+      /^data:$/mu,
+      'data:\n  background:\n    asset: artwork\n    materialApplication: null\n    fit: cover\n    color: null',
+    );
+    await value.fileSystem.writeTextAtomic(file, source);
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'rooms', 'start', '--provenance'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.record).toMatchObject({
+      id: 'start',
+      data: {
+        background: { asset: { $ref: { collection: 'assets', id: 'artwork' } } },
+        presentationSpace: { defaultView: { zoom: 1, rotationDegrees: 0 } },
+      },
+    });
+    expect(result.envelope.provenance).toMatchObject({
+      data: {
+        background: { asset: { $ref: 'explicit' }, fit: 'explicit' },
+        presentationSpace: { defaultView: { zoom: 'default', rotationDegrees: 'default' } },
+      },
+    });
+    expect(await value.fileSystem.readText(file)).toBe(source);
+  });
+
+  it('inspects an effective Variable and optional default provenance without writing source', async () => {
+    const value = fixture();
+    const file = `${root}/records/variables/flag.yaml`;
+    const source = 'id: flag\nlabel: Flag\ndata:\n  type: boolean\n  value: false\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'variables', 'flag', '--provenance'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.record).toMatchObject({
+      id: 'flag',
+      data: { nullable: false, scope: 'global' },
+    });
+    expect(result.envelope.provenance).toMatchObject({
+      id: 'explicit',
+      data: { type: 'explicit', nullable: 'default', scope: 'default' },
+    });
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'inspect', 'variables', 'nonexistent'],
+          options(value),
+        )
+      ).exitCode,
+    ).not.toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'inspect', 'unknown', 'flag'], options(value)))
+        .exitCode,
+    ).not.toBe(0);
+  });
+});
+
 describe('YAML diagnostic source locations', () => {
   it('links a schema-invalid record without changing its logical diagnostic path', async () => {
     const value = fixture();
