@@ -392,11 +392,11 @@ export async function prepareCliProject(
         }
         for (const entry of [...(await fileSystem.listDirectory(assetsRoot))].sort()) {
           const diagnosticPath = `/records/assets/${entry}`;
-          if (!entry.endsWith('.json'))
+          if (!/\.(?:json|yaml)$/u.test(entry))
             return failure(
               'WORKSPACE_SOURCE_READ',
               diagnosticPath,
-              'Record files must use canonical .json names.',
+              'Record files must use canonical .json or .yaml names.',
             );
           const id = entry.slice(0, -5);
           if (!entityIdSchema.safeParse(id).success)
@@ -409,7 +409,9 @@ export async function prepareCliProject(
           let raw: unknown;
           try {
             await assertProjectWorkspacePathContained(fileSystem, projectRoot, absolute);
-            raw = JSON.parse(await fileSystem.readText(absolute)) as unknown;
+            raw = projectWorkspaceSourceCodec(`records/assets/${entry}`).decode(
+              await fileSystem.readText(absolute),
+            );
           } catch {
             return failure('WORKSPACE_SOURCE_READ', diagnosticPath, 'Record is malformed.');
           }

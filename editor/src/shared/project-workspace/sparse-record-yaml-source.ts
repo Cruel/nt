@@ -10,6 +10,9 @@ import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-so
 import { annotatedYamlPaths } from './yaml-comment-impact';
 
 export type SparseRecordFamily =
+  | 'assets'
+  | 'animations'
+  | 'materials'
   | 'rooms'
   | 'maps'
   | 'characters'
@@ -35,6 +38,11 @@ const map = defaultMapData();
 // to the record and '*' matches a single array element. These are deliberately conservative:
 // geometry, identities, presentation choices and union discriminators remain explicit.
 const defaults: Record<Family, Readonly<Record<string, unknown>>> = {
+  // Resource metadata carries hashes, provenance and import/renderer settings.
+  // No resource fields are presumed safe to omit without explicit schema defaults.
+  assets: {},
+  animations: {},
+  materials: {},
   rooms: {
     'data.background': room.background,
     'data.description': room.description,
@@ -423,13 +431,20 @@ function convert(
   }
   if (def.type !== 'object' || !object(value)) return value;
   const shape = def.shape as Shape;
-  if (direction === 'read' && path.join('.') === 'data' && Object.hasOwn(value, 'kind'))
+  if (
+    family !== 'assets' &&
+    direction === 'read' &&
+    path.join('.') === 'data' &&
+    Object.hasOwn(value, 'kind')
+  )
     throw new Error(`Redundant data.kind is not supported in ${family} YAML.`);
   const result: Dict = {};
   for (const [key, childSchema] of Object.entries(shape)) {
-    if (path.join('.') === 'data' && key === 'kind') {
+    if (family !== 'assets' && path.join('.') === 'data' && key === 'kind') {
       if (direction === 'read')
         result.kind = {
+          animations: 'animation',
+          materials: 'material',
           rooms: 'room',
           maps: 'map',
           characters: 'character',

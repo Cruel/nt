@@ -581,6 +581,9 @@ const recordFile = (
   if (collection === 'layouts') return `records/layouts/${id}/layout.json`;
   if (
     [
+      'assets',
+      'animations',
+      'materials',
       'rooms',
       'maps',
       'characters',
@@ -741,7 +744,7 @@ export function projectWorkspaceAffectedFiles(
     if (!candidateFiles) return null;
     candidateFiles.forEach((file) => {
       const record =
-        /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
+        /^records\/(variables|assets|animations|materials|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
           file,
         );
       files.add(
@@ -749,6 +752,9 @@ export function projectWorkspaceAffectedFiles(
           ? recordFile(
               record[1] as
                 | 'variables'
+                | 'assets'
+                | 'animations'
+                | 'materials'
                 | 'rooms'
                 | 'maps'
                 | 'characters'
@@ -1491,6 +1497,9 @@ export function projectWorkspaceFile(
       recordMatch[3] === 'yaml' &&
       ![
         'variables',
+        'assets',
+        'animations',
+        'materials',
         'rooms',
         'maps',
         'characters',
@@ -2206,7 +2215,7 @@ export class ProjectWorkspaceService {
       if (!candidateFiles) return null;
       candidateFiles.forEach((file) => {
         const variableMatch =
-          /^records\/(variables|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
+          /^records\/(variables|assets|animations|materials|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
             file,
           );
         files.add(
@@ -2214,6 +2223,9 @@ export class ProjectWorkspaceService {
             ? recordFile(
                 variableMatch[1] as
                   | 'variables'
+                  | 'assets'
+                  | 'animations'
+                  | 'materials'
                   | 'rooms'
                   | 'maps'
                   | 'characters'
@@ -2654,7 +2666,7 @@ export class ProjectWorkspaceService {
     let externalSourceDescriptors = base.snapshot.externalSourceDescriptors;
     const changedRecordKeys = new Set<string>();
     for (const path of changedPaths) {
-      const match = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(path);
+      const match = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.json)$/u.exec(path);
       if (match && isAuthoringCollectionKey(match[1]!))
         changedRecordKeys.add(recordContributionKey(match[1], match[2]!));
     }
@@ -3557,6 +3569,9 @@ export class ProjectWorkspaceService {
                 !(collection === 'variables' && entry.endsWith('.yaml')) &&
                 !(
                   [
+                    'assets',
+                    'animations',
+                    'materials',
                     'rooms',
                     'maps',
                     'characters',

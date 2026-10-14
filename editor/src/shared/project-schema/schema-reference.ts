@@ -80,6 +80,7 @@ import { defaultInteractionData } from './authoring-interactions';
 import { defaultDialogueData } from './authoring-dialogues';
 import { defaultSceneData } from './authoring-scenes';
 import { defaultTestData } from './authoring-tests';
+import { defaultMaterialData } from './authoring-materials';
 import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
@@ -137,6 +138,7 @@ export const schemaSources = {
   'localization.schema.json': authoringLocalizationSchema,
   'editor.schema.json': trackedEditorSchema,
   'records/assets.schema.json': authoringRecordSchemas.assets,
+  'records/animations.schema.json': authoringRecordSchemas.animations,
   'records/variables.schema.json': variableYamlSourceSchema,
   'records/materials.schema.json': authoringRecordSchemas.materials,
   'records/layouts.schema.json': persistedLayoutRecordSchema,
@@ -425,6 +427,53 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       );
     }
     if (
+      ['assets', 'animations', 'materials'].some((family) => document.id === `records/${family}`)
+    ) {
+      const family = document.id.slice('records/'.length) as 'assets' | 'animations' | 'materials';
+      const examples = {
+        assets: {
+          id: 'example-image',
+          label: 'Example Image',
+          data: {
+            kind: 'image',
+            source: { type: 'project-file', path: 'assets/example.png' },
+            aliases: [],
+            imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+          },
+        },
+        animations: {
+          id: 'example-animation',
+          label: 'Example Animation',
+          data: {
+            kind: 'animation',
+            canvas: { width: 64, height: 64 },
+            defaultMotionId: 'idle',
+            motions: [{ id: 'idle', kind: 'sprite-sequence', frames: [], markers: [] }],
+          },
+        },
+        materials: {
+          id: 'example-material',
+          label: 'Example Material',
+          data: defaultMaterialData('Example Material'),
+        },
+      };
+      const exampleRecord = authoringRecordSchemas[family].parse(examples[family]);
+      const example = encodeSparseRecordYaml(family, exampleRecord);
+      const decoded = decodeSparseRecordYaml(family, example);
+      if (!authoringRecordSchemas[family].safeParse(decoded).success)
+        throw new Error(`Generated ${family} YAML source violates its normalized schema.`);
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        `A staged ${family} record uses \`records/${family}/<id>.yaml\`; existing JSON owners remain until the project-wide cutover. The record ID matches the filename. Asset \`data.kind\` is required because it identifies the asset type; Animation and Material kinds are implicit. Resource identity, import provenance, content hashes, animation timing, and material/shader settings are not discarded. Structured source uses restricted YAML; referenced media and shader files keep their original paths.`,
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+      );
+    }
+    if (
       [
         'rooms',
         'maps',
@@ -437,7 +486,10 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         'tests',
       ].some((family) => document.id === `records/${family}`)
     ) {
-      const family = document.id.slice('records/'.length) as SparseRecordFamily;
+      const family = document.id.slice('records/'.length) as Exclude<
+        SparseRecordFamily,
+        'assets' | 'animations' | 'materials'
+      >;
       const label = {
         rooms: 'Example Room',
         maps: 'Example Map',
