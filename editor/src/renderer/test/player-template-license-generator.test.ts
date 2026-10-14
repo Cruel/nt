@@ -213,7 +213,8 @@ function webFixture() {
 function androidFixture() {
   const fixture = webFixture();
   write(fixture.build, 'CMakeCache.txt', '');
-  rmSync(path.join(fixture.build, '_deps/libva_headers-src'), { recursive: true });
+  // Keep the Linux NVDEC/libva source trees present to prove Android
+  // metadata ignores desktop-only fetches without weakening its inventory.
   const stage = path.join(fixture.root, 'stage');
   const sdlAar = 'source/android/app/libs/SDL3-3.4.10.aar';
   const prefabRoot = path.join(fixture.root, 'sdl-prefab');
@@ -259,6 +260,8 @@ describe('resolved player-template license generation', () => {
         expect(names).toContain(name);
       expect(names).not.toContain('imgui');
       expect(names).not.toContain('rmlui_bgfx');
+      expect(names).not.toContain('nv-codec-headers');
+      expect(names).not.toContain('libva (headers)');
       const sdl = index.components.find((item) => item.component === 'SDL3')!;
       expect(sdl.version).toBe('3.4.10');
       expect(readFileSync(path.join(first.stage, sdl.files[0]!.path))).toEqual(

@@ -14,6 +14,8 @@ const android = process.argv[6] === '--android';
 const cacheFile = path.join(buildRoot, 'CMakeCache.txt');
 const cacheContents = existsSync(cacheFile) ? readFileSync(cacheFile, 'utf8') : '';
 const web = /^CMAKE_TOOLCHAIN_FILE:[^=]*=.*emscripten/im.test(cacheContents);
+const systemName = /^CMAKE_SYSTEM_NAME:[^=]*=(.+)$/m.exec(cacheContents)?.[1]?.trim();
+const linux = !android && !web && (systemName ? systemName === 'Linux' : process.platform === 'linux');
 if (!process.argv[2] || !process.argv[3] || !version)
   throw new Error('Usage: generate-player-template-metadata.mjs <vcpkg_installed> <stage> <version> [build-root]');
 
@@ -292,6 +294,10 @@ if (existsSync(deps)) {
     if (rule.player === false) continue;
     if (rule.androidOnly && !android) continue;
     if (rule.nativeOnly && web) continue;
+    // Linux-only NVDEC/libva headers are fetched for the desktop renderer.
+    // They are not linked into Android (or Web) player binaries even when a
+    // shared build inventory happens to contain their source directories.
+    if (rule.linuxOnly && !linux) continue;
     if (android) {
       if (!androidRequired.has(name))
         throw new Error(`Unclassified Android runtime source dependency ${name}.`);

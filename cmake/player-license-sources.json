@@ -34,8 +34,8 @@
     "libunibreak_src": { "name": "libunibreak", "version": "7.0", "paths": ["LICENCE"] },
     "libwebm": { "nativeOnly": true, "version": "1.0.0.32", "paths": ["LICENSE.TXT", "PATENTS.TXT"] },
     "libvpx": { "androidOnly": true, "version": "1.16.0", "paths": ["LICENSE", "PATENTS"] },
-    "libva_headers": { "name": "libva (headers)", "nativeOnly": true, "version": "2.23.0", "paths": ["COPYING"] },
-    "nvcodec_headers": { "name": "nv-codec-headers", "nativeOnly": true, "version": "13.0.19.1", "paths": ["@repo/cmake/licenses/nv-codec-headers-13.0.19.1.txt"] },
+    "libva_headers": { "name": "libva (headers)", "linuxOnly": true, "version": "2.23.0", "paths": ["COPYING"] },
+    "nvcodec_headers": { "name": "nv-codec-headers", "linuxOnly": true, "version": "13.0.19.1", "paths": ["@repo/cmake/licenses/nv-codec-headers-13.0.19.1.txt"] },
     "lua_src": {
       "name": "lua", "version": "5.5.0",
       "paths": ["@repo/cmake/licenses/lua-5.5.0-license.txt"],
