@@ -2,7 +2,6 @@ import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { runVideoMediaToolProcess } from './opaque-video-preparation-service';
-import { prepareProductionVideoMotion } from './transparent-video-tracer';
 import { installedMediaTool, type MediaToolRunner } from './media-preparation-service';
 import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
@@ -24,6 +23,10 @@ export function createNodeRuntimeArtifactPaths(
     },
     async prepareOpaqueVideo(projectRoot, request) {
       if (!projectRoot) throw new Error('Video preparation requires a Project root.');
+      // Native Sharp is unavailable in ScriptC's QuickJS runtime. Import the
+      // video-preparation implementation only for an actual video request,
+      // never while opening an ordinary CLI command or project workspace.
+      const { prepareProductionVideoMotion } = await import('./transparent-video-tracer');
       return prepareProductionVideoMotion(
         projectRoot,
         request,
