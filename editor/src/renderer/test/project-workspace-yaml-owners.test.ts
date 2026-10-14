@@ -9,6 +9,8 @@ import {
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
+import { parseRestrictedYamlDocument } from '../../shared/project-workspace/restricted-yaml-source';
 
 const root = '/project';
 
@@ -38,6 +40,23 @@ function sources() {
 }
 
 describe('YAML manifest, Traits, and collaborator metadata', () => {
+  it('rejects infinite numerics, YAML 1.1 type coercion and inherited-object-key evasion', () => {
+    expect(() => parseRestrictedYamlDocument('x: 1e999\n')).toThrow(/finite JSON-compatible/u);
+    expect(() => parseRestrictedYamlDocument('%YAML 1.1\n---\nx: 2001-12-15\n')).toThrow(
+      /YAML 1.2/u,
+    );
+    const codec = projectWorkspaceSourceCodec('records/tests/example.yaml');
+    for (const extra of [
+      'constructor: unintended',
+      'toString: unintended',
+      'hasOwnProperty: unintended',
+    ])
+      expect(() => importRecord(extra)).toThrow();
+    function importRecord(extra: string) {
+      const yaml = `id: example\nlabel: Example\ndata:\n  steps: []\n  ${extra}\n`;
+      return authoringRecordSchemas.tests.parse(codec.decode(yaml));
+    }
+  });
   it('projects canonical YAML with strict normalized contracts and reopens selective edits without losing comments', async () => {
     const files = sources();
     const fs = new InMemoryProjectWorkspaceFileSystem(files);

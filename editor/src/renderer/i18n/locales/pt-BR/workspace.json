@@ -1,4 +1,19 @@
 {
+  "commentReview": {
+    "affectedComments": "Comentários YAML afetados",
+    "cancel": "Cancelar",
+    "deleteComments": "Excluir incluindo comentários",
+    "keepComments": "Salvar e manter comentários",
+    "removeComments": "Salvar e remover comentários",
+    "deleteTitle": "Excluir incluindo comentários YAML?",
+    "saveTitle": "Revisar comentários YAML antes de salvar",
+    "deleteDescription": "Esta operação remove os seguintes comentários associados. Revise-os antes de excluir.",
+    "saveDescription": "As alterações podem tornar estes comentários desatualizados. Escolha se deseja mantê-los ou removê-los.",
+    "kind": {
+      "changed": "alterado",
+      "deleted": "excluído"
+    }
+  },
   "assetAttachments": {
     "title": "Anexos",
     "description": "Associe arquivos do projeto sem registrá-los como Assets. Importações externas copiam os arquivos para o projeto; remover uma associação mantém o arquivo.",

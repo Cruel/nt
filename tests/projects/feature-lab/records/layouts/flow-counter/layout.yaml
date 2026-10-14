@@ -62,40 +62,24 @@ data:
       type: object
   dependencies:
     data:
-      - $ref:
-          collection: assets
-          id: notice-board-data
+      - notice-board-data
     fonts:
-      - $ref:
-          collection: assets
-          id: dejavusans
+      - dejavusans
     images:
-      - $ref:
-          collection: assets
-          id: ui-pattern
+      - ui-pattern
     scripts:
       - scripts/layout-counter-ui.lua
     stylesheets:
-      - $ref:
-          collection: assets
-          id: counter-shared-style
+      - counter-shared-style
     templates:
-      - $ref:
-          collection: assets
-          id: counter-template
+      - counter-template
   lua:
     sourceMode: file
   rcss:
-    sourceAsset:
-      $ref:
-        collection: assets
-        id: counter-style
+    sourceAsset: counter-style
     sourceMode: asset
   rml:
-    sourceAsset:
-      $ref:
-        collection: assets
-        id: counter-document
+    sourceAsset: counter-document
     sourceMode: asset
   sampleState:
     inputs:

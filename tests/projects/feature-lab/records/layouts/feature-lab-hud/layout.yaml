@@ -1,9 +1,7 @@
 data:
   dependencies:
     data:
-      - $ref:
-          collection: assets
-          id: feature-lab-catalog
+      - feature-lab-catalog
     fonts: []
     images: []
     materials: []

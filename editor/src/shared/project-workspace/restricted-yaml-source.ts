@@ -45,6 +45,13 @@ function inspectNode(node: Node | null | undefined, mappingKey = false): void {
     }
     for (const item of node.items) inspectNode(item as Node | null);
   } else if (isScalar(node)) {
+    if (
+      node.value !== null &&
+      typeof node.value !== 'string' &&
+      typeof node.value !== 'boolean' &&
+      !(typeof node.value === 'number' && Number.isFinite(node.value))
+    )
+      invalid('YAML scalars must be finite JSON-compatible values.', node);
     if (mappingKey && node.type === 'PLAIN' && typeof node.value !== 'string')
       invalid('YAML mapping keys must be strings.', node);
     if (node.type !== 'PLAIN') return;
@@ -71,6 +78,8 @@ export function parseRestrictedYamlDocument(text: string) {
       docs[0]?.errors[0]?.pos[0],
     );
   const doc = docs[0]!;
+  if (doc.directives?.yaml?.version !== '1.2')
+    throw new RestrictedYamlSourceError('Only YAML 1.2 documents are supported.', 0);
   inspectNode(doc.contents);
   return doc;
 }

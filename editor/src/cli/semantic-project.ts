@@ -876,24 +876,36 @@ export async function renameEntity(
   );
   return {
     ok: true,
-    diagnostics: possible.map((usage) =>
-      cliDiagnostic(
-        'authoring.source_reference.possible',
-        usage.edge.sourcePath,
-        'Possible source reference was acknowledged and requires manual review.',
-        'warning',
-        {
-          sourceUrl: usage.sourceUrl,
-          line: usage.sourceLocation?.line,
-          column: usage.sourceLocation?.column,
-        },
+    diagnostics: [
+      ...possible.map((usage) =>
+        cliDiagnostic(
+          'authoring.source_reference.possible',
+          usage.edge.sourcePath,
+          'Possible source reference was acknowledged and requires manual review.',
+          'warning',
+          {
+            sourceUrl: usage.sourceUrl,
+            line: usage.sourceLocation?.line,
+            column: usage.sourceLocation?.column,
+          },
+        ),
       ),
-    ),
+      ...written.commentNotices.map((notice) =>
+        cliDiagnostic(
+          'authoring.source_comment.stale_id',
+          notice.path,
+          `YAML comment still mentions renamed ID '${notice.oldId}'; review the prose manually.`,
+          'info',
+          { sourceUrl: `project:/${notice.file}` },
+        ),
+      ),
+    ],
     fields: {
       collection,
       fromId,
       toId,
       commentImpacts: written.commentImpacts,
+      commentNotices: written.commentNotices,
       dryRun: options.dryRun,
       plan,
       usages: usages.map(sourceUsageFields),

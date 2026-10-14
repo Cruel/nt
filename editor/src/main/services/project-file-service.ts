@@ -385,6 +385,7 @@ async function writeWorkspaceProject(
   editorState: EditorProjectState;
   scriptSourcePaths: Record<string, string>;
   commentImpacts: Awaited<ReturnType<ProjectWorkspaceService['write']>>['commentImpacts'];
+  commentNotices: Awaited<ReturnType<ProjectWorkspaceService['write']>>['commentNotices'];
   deletedSourceTexts: Readonly<Record<string, string>>;
   assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[];
   snapshot: LoadedProjectWorkspaceSnapshot;
@@ -597,6 +598,7 @@ async function writeWorkspaceProject(
     assetTrashMoves,
     snapshot: written.snapshot,
     commentImpacts: written.commentImpacts,
+    commentNotices: written.commentNotices,
     deletedSourceTexts: written.deletedSourceTexts,
   };
 }
@@ -1036,7 +1038,15 @@ async function saveProjectContentFromSnapshot(
     assetTrashMoves: written.assetTrashMoves,
     commentImpacts: written.commentImpacts,
     deletedSourceTexts: written.deletedSourceTexts,
-    diagnostics: [],
+    diagnostics: written.commentNotices.map(
+      (notice): ToolDiagnostic => ({
+        code: 'authoring.source_comment.stale_id',
+        severity: 'info',
+        category: 'Project save',
+        path: `/${notice.file}${notice.path}`,
+        message: `A YAML comment still mentions renamed ID '${notice.oldId}'. Review it manually.`,
+      }),
+    ),
     committedSnapshot: written.snapshot,
   };
 }
@@ -1370,12 +1380,22 @@ export async function saveProjectCopyAs(
     const projectedScriptSourcePaths = sourcePaths.ok
       ? { ...sourcePaths.snapshot.scriptSourcePaths, ...scriptSourcePaths }
       : scriptSourcePaths;
+    if (!sourcePaths.ok)
+      throw new Error(sourcePaths.diagnostics[0]?.message ?? 'Source Project is invalid.');
+    const originalYaml = Object.fromEntries(
+      await Promise.all(
+        sourcePaths.snapshot.canonicalSourceFiles
+          .filter((file) => file.endsWith('.yaml'))
+          .map(async (file) => [file, await fs.readFile(path.join(sourceRoot, file), 'utf8')]),
+      ),
+    );
     for (const [relativePath, text] of Object.entries(
       projectWorkspaceFiles(
         normalized as Parameters<typeof projectWorkspaceFiles>[0],
         editor,
         projectedScriptSourcePaths,
         sourcePaths.ok ? new Set(sourcePaths.snapshot.canonicalSourceFiles) : undefined,
+        originalYaml,
       ),
     ))
       await writeContainedText(root, path.join(root, relativePath), text);

@@ -3,16 +3,10 @@ data:
   dependencies:
     data: []
     fonts:
-      - $ref:
-          collection: assets
-          id: dejavusans
-      - $ref:
-          collection: assets
-          id: ipag
+      - dejavusans
+      - ipag
     images:
-      - $ref:
-          collection: assets
-          id: ui-pattern
+      - ui-pattern
     scripts: []
     stylesheets: []
   lua:

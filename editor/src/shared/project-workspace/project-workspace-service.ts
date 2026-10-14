@@ -7,6 +7,7 @@ import {
 import { z } from 'zod';
 import {
   yamlCommentImpacts,
+  yamlCommentTokenMentions,
   removeChangedYamlComments,
   type YamlCommentImpact,
 } from './yaml-comment-impact';
@@ -1333,12 +1334,24 @@ function sparseTrackedEditorOrganization(
   const chapterAssignments = editorState.chapters?.assignments ?? {};
   const tagRecords = editorState.tags?.records ?? {};
   const chapters: Record<string, unknown> = {};
-  if (Object.keys(chapterRecords).length || Object.hasOwn(previousChapters, 'records'))
+  if (
+    Object.keys(chapterRecords).length ||
+    (Object.hasOwn(previousChapters, 'records') &&
+      JSON.stringify(previousChapters.records) === JSON.stringify(chapterRecords))
+  )
     chapters.records = chapterRecords;
-  if (Object.keys(chapterAssignments).length || Object.hasOwn(previousChapters, 'assignments'))
+  if (
+    Object.keys(chapterAssignments).length ||
+    (Object.hasOwn(previousChapters, 'assignments') &&
+      JSON.stringify(previousChapters.assignments) === JSON.stringify(chapterAssignments))
+  )
     chapters.assignments = chapterAssignments;
   const tags: Record<string, unknown> = {};
-  if (Object.keys(tagRecords).length || Object.hasOwn(previousTags, 'records'))
+  if (
+    Object.keys(tagRecords).length ||
+    (Object.hasOwn(previousTags, 'records') &&
+      JSON.stringify(previousTags.records) === JSON.stringify(tagRecords))
+  )
     tags.records = tagRecords;
   const previousMetadata = (previous.recordMetadata ?? {}) as Record<string, unknown>;
   const recordMetadata = Object.fromEntries(
@@ -1353,7 +1366,9 @@ function sparseTrackedEditorOrganization(
             return [
               id,
               {
-                ...(assignedTags.length || Object.hasOwn(prior, 'tags')
+                ...(assignedTags.length ||
+                (Object.hasOwn(prior, 'tags') &&
+                  JSON.stringify(prior.tags) === JSON.stringify(assignedTags))
                   ? { tags: assignedTags }
                   : {}),
                 ...other,
@@ -1364,7 +1379,18 @@ function sparseTrackedEditorOrganization(
       ];
     }),
   );
-  return { chapters, tags, recordMetadata };
+  return {
+    chapters,
+    tags,
+    recordMetadata: Object.fromEntries(
+      Object.entries(recordMetadata).filter(
+        ([collection, records]) =>
+          Object.keys(records as Record<string, unknown>).length > 0 ||
+          (Object.hasOwn(previousMetadata, collection) &&
+            JSON.stringify(previousMetadata[collection]) === JSON.stringify(records)),
+      ),
+    ),
+  };
 }
 
 /** Do not materialize defaults that were absent in the admitted YAML source on unrelated edits. */
@@ -1430,7 +1456,9 @@ export function projectWorkspaceFile(
             Object.hasOwn(
               projectWorkspaceSourceCodec(file).decode(previousText) as object,
               'undefinedInteractionProgram',
-            ))
+            ) &&
+            workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
+              .undefinedInteractionProgram === null)
             ? { undefinedInteractionProgram: project.undefinedInteractionProgram }
             : {}),
           ...(project.entrypoint !== null ||
@@ -1438,7 +1466,9 @@ export function projectWorkspaceFile(
             Object.hasOwn(
               projectWorkspaceSourceCodec(file).decode(previousText) as object,
               'entrypoint',
-            ))
+            ) &&
+            workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
+              .entrypoint === null)
             ? { entrypoint: project.entrypoint }
             : {}),
           inventories: project.inventories,
@@ -1537,6 +1567,7 @@ export function projectWorkspaceFiles(
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
   sourceFiles?: ReadonlySet<string>,
+  previousTexts?: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
   const files: Record<string, string> = {};
   const add = (file: string) => {
@@ -1545,7 +1576,7 @@ export function projectWorkspaceFiles(
       editorState,
       scriptSourcePaths,
       file,
-      undefined,
+      previousTexts?.[file],
       false,
       sourceFiles,
     );
@@ -1606,6 +1637,13 @@ export async function createProjectWorkspaceSnapshot(
 
 export interface ProjectWorkspaceCommentImpact extends YamlCommentImpact {
   readonly file: string;
+}
+
+export interface ProjectWorkspaceCommentNotice {
+  readonly file: string;
+  readonly path: string;
+  readonly comment: string;
+  readonly oldId: string;
 }
 
 // Exact committed source belongs to the snapshot generation, never reconstructed from semantics.
@@ -4007,6 +4045,7 @@ export class ProjectWorkspaceService {
     snapshot: LoadedProjectWorkspaceSnapshot;
     contentProject: unknown;
     commentImpacts: readonly ProjectWorkspaceCommentImpact[];
+    commentNotices: readonly ProjectWorkspaceCommentNotice[];
     deletedSourceTexts: Readonly<Record<string, string>>;
   }> {
     let openedSnapshot = options.preflightSnapshot;
@@ -4125,6 +4164,7 @@ export class ProjectWorkspaceService {
           ));
     const targets: ProjectWorkspaceTransactionTargetInput[] = [];
     const commentImpacts: ProjectWorkspaceCommentImpact[] = [];
+    const commentNotices: ProjectWorkspaceCommentNotice[] = [];
     const deletedSourceTexts: Record<string, string> = {};
     const nextSourceTexts = new Map<string, string>();
     let sourceMembershipChanged = false;
@@ -4296,6 +4336,26 @@ export class ProjectWorkspaceService {
           : utf8WorkspaceTransactionTarget(file, expectedRevision, nextText),
       );
     }
+    if (options.identityRemap?.length) {
+      const finalFiles = new Set(openedSnapshot.canonicalSourceFiles);
+      for (const target of targets) {
+        if (target.operation === 'delete') finalFiles.delete(target.path);
+        else if (target.path.endsWith('.yaml')) finalFiles.add(target.path);
+      }
+      for (const file of [...finalFiles].filter((name) => name.endsWith('.yaml')).sort()) {
+        const text =
+          nextSourceTexts.get(file) ??
+          (await this.fileSystem
+            .readText(this.fileSystem.joinPath(projectRoot, file))
+            .catch(() => ''));
+        for (const identity of options.identityRemap) {
+          const oldId = identity.fromPath.split('/')[2];
+          if (!oldId) continue;
+          for (const mention of yamlCommentTokenMentions(text, oldId))
+            commentNotices.push({ file, oldId, ...mention });
+        }
+      }
+    }
     targets.push(...(options.extraTargets ?? []));
     if (options.dryRun)
       return withLazyWriteContent(
@@ -4303,6 +4363,7 @@ export class ProjectWorkspaceService {
           workspaceRevision: openedSnapshot.workspaceRevision,
           snapshot: openedSnapshot,
           commentImpacts,
+          commentNotices,
           deletedSourceTexts,
         },
         project,
@@ -4419,6 +4480,7 @@ export class ProjectWorkspaceService {
           workspaceRevision: projectedSnapshot.workspaceRevision,
           snapshot: projectedSnapshot,
           commentImpacts,
+          commentNotices,
           deletedSourceTexts,
         },
         project,
@@ -4432,6 +4494,7 @@ export class ProjectWorkspaceService {
       snapshot: refreshed.snapshot,
       contentProject: refreshed.contentProject,
       commentImpacts,
+      commentNotices,
       deletedSourceTexts,
     };
   }

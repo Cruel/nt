@@ -1,5 +1,10 @@
 import path from 'node:path';
 import { parseRestrictedYamlDocument } from '../shared/project-workspace/restricted-yaml-source';
+import {
+  decodeStructuredYaml,
+  encodeStructuredYaml,
+} from '../shared/project-workspace/structured-yaml-source';
+import { annotatedYamlPaths } from '../shared/project-workspace/yaml-comment-impact';
 import { NodeProjectWorkspaceProcessLiveness } from '../shared/project-workspace/node-project-workspace-file-system';
 import {
   ProjectWorkspaceTransactionService,
@@ -25,6 +30,55 @@ function isTrackedYaml(file: string): boolean {
     /^i18n\/[a-zA-Z0-9_-]+\/[^/]+\.yaml$/u.test(file) ||
     /^layouts\/[^/]+\/layout\.yaml$/u.test(file)
   );
+}
+
+/** Compact only source-declared omission defaults; preserve annotated explicit values. */
+function stripOwnerYamlDefaults(file: string, text: string): string {
+  if (!['project.yaml', 'editor.yaml', 'i18n/project.yaml'].includes(file)) return text;
+  const source = decodeStructuredYaml(text);
+  if (!source || typeof source !== 'object' || Array.isArray(source)) return text;
+  const root = structuredClone(source) as Record<string, unknown>;
+  const annotated = annotatedYamlPaths(text);
+  const canStrip = (path: string) =>
+    ![...annotated].some((note) => note === path || note.startsWith(`${path}.`));
+  const omit = (owner: Record<string, unknown>, key: string, path: string, fallback: unknown) => {
+    if (
+      Object.hasOwn(owner, key) &&
+      JSON.stringify(owner[key]) === JSON.stringify(fallback) &&
+      canStrip(path)
+    )
+      delete owner[key];
+  };
+  if (file === 'project.yaml') {
+    omit(root, 'entrypoint', 'entrypoint', null);
+    omit(root, 'undefinedInteractionProgram', 'undefinedInteractionProgram', null);
+  } else if (file === 'i18n/project.yaml') {
+    omit(root, 'sourceLocaleLock', 'sourceLocaleLock', null);
+  } else {
+    const chapters = root.chapters as Record<string, unknown> | undefined;
+    if (chapters && typeof chapters === 'object') {
+      omit(chapters, 'records', 'chapters.records', {});
+      omit(chapters, 'assignments', 'chapters.assignments', {});
+    }
+    const tags = root.tags as Record<string, unknown> | undefined;
+    if (tags && typeof tags === 'object') omit(tags, 'records', 'tags.records', {});
+    const metadata = root.recordMetadata as Record<string, unknown> | undefined;
+    if (metadata && typeof metadata === 'object')
+      for (const [collection, records] of Object.entries(metadata)) {
+        if (records && typeof records === 'object' && !Array.isArray(records))
+          for (const [id, entry] of Object.entries(records)) {
+            if (entry && typeof entry === 'object' && !Array.isArray(entry))
+              omit(
+                entry as Record<string, unknown>,
+                'tags',
+                `recordMetadata.${collection}.${id}.tags`,
+                [],
+              );
+          }
+        omit(metadata, collection, `recordMetadata.${collection}`, {});
+      }
+  }
+  return encodeStructuredYaml(root, text);
 }
 
 async function collect(fileSystem: ProjectWorkspaceFileSystem, root: string): Promise<string[]> {
@@ -152,6 +206,8 @@ export async function runNovelTeaFmtCli(
               candidate = stripSparseRecordYamlDefaults(record[1]!, candidate);
             }
           }
+        } else {
+          candidate = stripOwnerYamlDefaults(file, candidate);
         }
       }
       const doc = parseRestrictedYamlDocument(candidate);

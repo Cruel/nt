@@ -47,6 +47,39 @@ export async function locateYamlCliDiagnostics(
       } else if (['project.yaml', 'editor.yaml', 'traits.yaml'].includes(segments[0] ?? '')) {
         file = segments[0];
         sourcePath = segments.slice(1);
+      } else if (
+        /^(schema|schemaVersion|project|settings|export|bootstrapModule|undefinedInteractionProgram|entrypoint|inventories|interactableInstances)$/u.test(
+          segments[0] ?? '',
+        )
+      ) {
+        file = 'project.yaml';
+      } else if (segments[0] === 'traits') {
+        file = 'traits.yaml';
+        sourcePath = segments.slice(1);
+      } else if (segments[0] === 'editor') {
+        file = 'editor.yaml';
+        sourcePath = segments.slice(1);
+      } else if (segments[0] === 'localization') {
+        const owner = segments[1];
+        if (['translations', 'assets'].includes(owner ?? '') && segments[2]) {
+          file = `i18n/${owner === 'translations' ? 'locales' : 'assets'}/${segments[2]}.yaml`;
+          sourcePath = segments.slice(3);
+        } else if (['messages', 'structuredMessageIds'].includes(owner ?? '')) {
+          file = 'i18n/messages.yaml';
+          sourcePath = segments.slice(1);
+        } else if (owner === 'usageNotes') {
+          file = 'i18n/usage-notes.yaml';
+          sourcePath = segments.slice(2);
+        } else if (owner === 'sourceMessageTracking') {
+          file = 'i18n/tracking.yaml';
+          sourcePath = segments.slice(2);
+        } else if (owner === 'orphanedMessages') {
+          file = 'i18n/orphans.yaml';
+          sourcePath = segments.slice(2);
+        } else {
+          file = 'i18n/project.yaml';
+          sourcePath = segments.slice(1);
+        }
       } else if (segments[0] === 'records' && segments[1] && segments[2]?.endsWith('.yaml')) {
         file = segments.slice(0, 3).join('/');
         sourcePath = segments.slice(3);

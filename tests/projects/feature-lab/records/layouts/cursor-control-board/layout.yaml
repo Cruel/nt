@@ -4,12 +4,8 @@ data:
     data: []
     fonts: []
     images:
-      - $ref:
-          collection: assets
-          id: cursor-marked
-      - $ref:
-          collection: assets
-          id: cursor-oversized
+      - cursor-marked
+      - cursor-oversized
     scripts: []
     stylesheets: []
   displayName: cursor-control-board

@@ -1,4 +1,5 @@
 import { useSyncExternalStore } from 'react';
+import { useTranslation } from 'react-i18next';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogDescription, DialogPopup, DialogTitle } from '@/components/ui/dialog';
 import type { ProjectWorkspaceCommentImpact } from '../../shared/project-workspace/project-workspace-service';
@@ -56,13 +57,14 @@ export function ProjectCommentReviewContents({
   impacts: readonly ProjectWorkspaceCommentImpact[];
   onDecision: (decision: CommentDecision) => void;
 }) {
+  const { t } = useTranslation('workspace');
   const deleting = impacts.some((impact) => impact.kind === 'deleted');
   return (
     <>
       <div
         className="max-h-72 space-y-2 overflow-auto rounded border p-2"
         role="list"
-        aria-label="Affected YAML comments"
+        aria-label={t('commentReview.affectedComments')}
       >
         {impacts.map((impact, index) => (
           <div
@@ -72,7 +74,7 @@ export function ProjectCommentReviewContents({
           >
             <div className="break-all font-mono text-[10px] text-muted-foreground">
               {impact.file}
-              {impact.path} · {impact.kind}
+              {impact.path} · {t(`commentReview.kind.${impact.kind}`)}
             </div>
             <div className="whitespace-pre-wrap break-words text-xs">{impact.comment.trim()}</div>
           </div>
@@ -80,18 +82,20 @@ export function ProjectCommentReviewContents({
       </div>
       <div className="flex flex-wrap justify-end gap-2">
         <Button variant="outline" onClick={() => onDecision('cancel')}>
-          Cancel
+          {t('commentReview.cancel')}
         </Button>
         {deleting ? (
           <Button variant="destructive" onClick={() => onDecision('delete')}>
-            Delete including comments
+            {t('commentReview.deleteComments')}
           </Button>
         ) : (
           <>
             <Button variant="outline" onClick={() => onDecision('keep')}>
-              Save and keep comments
+              {t('commentReview.keepComments')}
             </Button>
-            <Button onClick={() => onDecision('remove')}>Save and remove comments</Button>
+            <Button onClick={() => onDecision('remove')}>
+              {t('commentReview.removeComments')}
+            </Button>
           </>
         )}
       </div>
@@ -100,6 +104,7 @@ export function ProjectCommentReviewContents({
 }
 
 export function ProjectCommentConfirmationDialog() {
+  const { t } = useTranslation('workspace');
   const pending = usePendingProjectComments();
   const inline = useSyncExternalStore(
     subscribe,
@@ -117,12 +122,10 @@ export function ProjectCommentConfirmationDialog() {
     >
       <DialogPopup className="sm:max-w-lg" showCloseButton={false}>
         <DialogTitle>
-          {deleting ? 'Delete including YAML comments?' : 'Review YAML comments before saving'}
+          {deleting ? t('commentReview.deleteTitle') : t('commentReview.saveTitle')}
         </DialogTitle>
         <DialogDescription>
-          {deleting
-            ? 'This operation removes the following attached comments. Review them before deleting.'
-            : 'The edited values may make these comments outdated. Choose whether to keep or remove them.'}
+          {deleting ? t('commentReview.deleteDescription') : t('commentReview.saveDescription')}
         </DialogDescription>
         <ProjectCommentReviewContents
           impacts={pending.impacts}
