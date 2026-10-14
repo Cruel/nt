@@ -48,3 +48,17 @@ export function encodeVariableYaml(
   }
   return encodeStructuredYaml(target, previousText);
 }
+
+/** Explicit opt-in removal of the two Variable source defaults. */
+export function stripVariableYamlDefaults(text: string): string {
+  const before = decodeVariableYaml(text);
+  const source = parseRestrictedYamlDocument(text).toJS() as { data: Record<string, unknown> };
+  const annotated = annotatedYamlPaths(text);
+  const data = { ...source.data };
+  if (data.nullable === false && !annotated.has('data.nullable')) delete data.nullable;
+  if (data.scope === 'global' && !annotated.has('data.scope')) delete data.scope;
+  const result = encodeStructuredYaml({ ...source, data }, text);
+  if (JSON.stringify(decodeVariableYaml(result)) !== JSON.stringify(before))
+    throw new Error('Variable compaction changed normalized record data.');
+  return result;
+}

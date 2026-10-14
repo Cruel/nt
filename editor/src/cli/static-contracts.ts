@@ -50,7 +50,7 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
-  fmt [<tracked-yaml-path>] [--check]
+  fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
   localization sync [--dry-run]
   localization reconcile [--apply]
   localization view <locale> [--status <missing|current|outdated|needs-review|reviewed|human|ai|imported|unknown|attention>]

@@ -356,11 +356,12 @@ function convert(
   previous?: unknown,
   previousEffective?: unknown,
   keepPaths?: ReadonlySet<string>,
+  stripDefaults = false,
 ): unknown {
   const fallback = sourceDefault(family, path);
   if (direction === 'read' && value === undefined) return structuredClone(fallback);
   if (direction === 'write') {
-    if (previous !== undefined && same(value, previousEffective)) return previous;
+    if (!stripDefaults && previous !== undefined && same(value, previousEffective)) return previous;
     // A default value does not make a union's identity optional. Only data.kind,
     // which is statically fixed by the record family, is omitted.
     const sourcePath = path.join('.');
@@ -391,6 +392,7 @@ function convert(
         undefined,
         undefined,
         keepPaths,
+        stripDefaults,
       );
       return option.safeParse(candidate).success ? [candidate] : [];
     });
@@ -430,6 +432,7 @@ function convert(
         formerIndex >= 0 ? prior[formerIndex] : undefined,
         formerIndex >= 0 ? priorEffective[formerIndex] : undefined,
         keepPaths,
+        stripDefaults,
       );
     });
   }
@@ -472,6 +475,7 @@ function convert(
       object(previous) ? previous[key] : undefined,
       object(previousEffective) ? previousEffective[key] : undefined,
       keepPaths,
+      stripDefaults,
     );
     if (child !== undefined) result[key] = child;
   }
@@ -513,4 +517,26 @@ export function encodeSparseRecordYaml(
     keepCommentedDefaults && previousText ? annotatedYamlPaths(previousText) : undefined,
   );
   return encodeStructuredYaml(source, previousText);
+}
+
+/** Explicit CLI-only compaction, with a normalized record proof rather than a source-text guess. */
+export function stripSparseRecordYamlDefaults(family: Family, text: string): string {
+  const schema = authoringRecordSchemas[family];
+  const before = schema.parse(decodeSparseRecordYaml(family, text));
+  const source = decodeStructuredYaml(text);
+  const stripped = convert(
+    family,
+    schema,
+    before,
+    [],
+    'write',
+    source,
+    before,
+    annotatedYamlPaths(text),
+    true,
+  );
+  const result = encodeStructuredYaml(stripped, text);
+  const after = schema.parse(decodeSparseRecordYaml(family, result));
+  if (!same(before, after)) throw new Error('Default compaction changed normalized record data.');
+  return result;
 }

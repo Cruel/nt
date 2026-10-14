@@ -26,7 +26,7 @@ noveltea project create <directory> --name <project-name>
 noveltea project export --output <bundle.ntproject>
 noveltea project import <bundle.ntproject> <destination-directory>
 noveltea validate
-noveltea fmt [<tracked-yaml-path>] [--check]
+noveltea fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
 noveltea localization sync [--dry-run]
 noveltea localization reconcile [--apply]
 noveltea localization view <locale> [--status <missing|current|outdated|needs-review|reviewed|human|ai|imported|unknown|attention>]

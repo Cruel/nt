@@ -437,6 +437,35 @@ const localizationAssetsLocaleFragmentSchema = z.record(
   localizationAssetTargetSchema,
 );
 
+/** Local source-schema admission for explicit fmt compaction; never resolves Project references. */
+export function validateYamlCompactionSource(file: string, text: string): unknown {
+  const value = projectWorkspaceSourceCodec(file).decode(text);
+  if (file === 'project.yaml') return workspaceManifestSchema.parse(value);
+  if (file === 'traits.yaml') return traitsWorkspaceSchema.parse(value);
+  if (file === 'editor.yaml') return trackedEditorOrganizationSchema.parse(value);
+  const fragments: Readonly<Record<string, z.ZodType>> = {
+    'i18n/project.yaml': localizationPolicyFragmentSchema,
+    'i18n/messages.yaml': localizationMessagesFragmentSchema,
+    'i18n/usage-notes.yaml': localizationUsageNotesFragmentSchema,
+    'i18n/tracking.yaml': localizationTrackingFragmentSchema,
+    'i18n/orphans.yaml': localizationOrphansFragmentSchema,
+  };
+  if (fragments[file]) return fragments[file].parse(value);
+  const locale = /^i18n\/(locales|assets)\/([^/]+)\.yaml$/u.exec(file);
+  if (locale) {
+    localeIdSchema.parse(locale[2]);
+    const schema =
+      locale[1] === 'locales'
+        ? localizationTranslationSchema
+        : localizationAssetsLocaleFragmentSchema;
+    const parsed = schema.parse(value);
+    if (Object.keys(parsed).length === 0)
+      throw new Error('Empty localization chunk is not a valid tracked source.');
+    return parsed;
+  }
+  return value;
+}
+
 const LOCALIZATION_POLICY_FILE = 'i18n/project.json';
 const LOCALIZATION_MESSAGES_FILE = 'i18n/messages.json';
 const LOCALIZATION_USAGE_NOTES_FILE = 'i18n/usage-notes.json';
