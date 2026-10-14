@@ -1,0 +1,5 @@
+id: gate-unlocked
+label: Gate Unlocked
+data:
+  type: boolean
+  value: false

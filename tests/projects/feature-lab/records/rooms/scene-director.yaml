@@ -1,0 +1,43 @@
+id: scene-director
+label: scene-director
+data:
+  displayName: scene-director
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Follow the Scene captions. Reopen Feature Lab for acceptance instructions.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  interactables:
+    - id: director-gate-lever
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: gate-lever-1
+      placementId: director-gate-lever-placement
+      order: 10
+  lifecycle:
+    afterEnter:
+      - id: begin
+        kind: call-scene
+        scene: scene-director
+  placements:
+    - id: director-gate-lever-placement
+      bounds:
+        x: 0.82
+        "y": 0.72
+        width: 0.08
+        height: 0.14
+      presentation:
+        label: null
+        layout: null

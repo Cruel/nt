@@ -1,0 +1,25 @@
+id: director-staged
+label: director-staged
+data:
+  displayName: director-staged
+  stage:
+    kind: staged-room
+    room: dialogue-presentation-stage
+  events:
+    - id: staged
+      label: staged
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Staged Room: only presentation changes. Current Room remains Scene Director. Continue to the blank child."
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

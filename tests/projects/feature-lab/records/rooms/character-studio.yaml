@@ -1,0 +1,25 @@
+id: character-studio
+label: Character Studio
+data:
+  displayName: Character Studio
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Use Continue and the conversation choices. Reopen Feature Lab for check instructions.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: begin
+        kind: call-dialogue
+        dialogue: character-studio

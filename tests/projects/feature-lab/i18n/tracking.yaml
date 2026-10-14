@@ -1,0 +1,90 @@
+lua:record:layouts:language-board:/layouts/language-board/data/lua/sourceText:
+  family: lua
+  occurrences:
+    - anchorFingerprint: fnv1a:1bc151d94778c4453d4023fb33be4f49
+      messageId: e3a2ce3a-9719-5096-bd67-e5501cc441ca
+      ordinal: 0
+      sourceFingerprint: fnv1a:c61952338487dc572733ca251ff1fdc3
+      sourceSnapshot: lab.letters
+      structuralFingerprint: fnv1a:04ee656d773f1c91368b1f2b04d32cfd
+  ownerKey: record:layouts:language-board
+  sourcePath: /layouts/language-board/data/lua/sourceText
+  sourceSnapshotFingerprint: fnv1a:d96d4dcc4fb3d2f8b7342ec2f8f19ddc
+lua:record:scenes:localized-story:/scenes/localized-story/data/events/0/source:
+  family: lua
+  occurrences:
+    - anchorFingerprint: fnv1a:a6ce89145ddcd630111738fe26dcf364
+      messageId: b53eb3fe-d4ef-5d92-b827-d0289a708e2e
+      ordinal: 0
+      sourceFingerprint: fnv1a:a92bd93d6302f671fc60066be6ef8ded
+      sourceSnapshot: lab.greeting
+      structuralFingerprint: fnv1a:a9615b425f566a66a6b571d8650b1b32
+    - anchorFingerprint: fnv1a:7b34352811cf339431291ac239688678
+      messageId: 9a53c6c6-c7ce-5c62-907d-7d6c124e7456
+      ordinal: 1
+      sourceFingerprint: fnv1a:300ec673211841dfb97da3f5777aad43
+      sourceSnapshot: "{value} letters"
+      structuralFingerprint: fnv1a:06d428fd9bb5bbe927d76ea3cdb81b0d
+    - anchorFingerprint: fnv1a:8acf4b2d20077141b19b83bb2f79433d
+      messageId: 6d6f1ca5-025d-57f9-b3a3-f05ff37eeef5
+      ordinal: 2
+      sourceFingerprint: fnv1a:7d8b512fb833c2bbdd67316d772b58bf
+      sourceSnapshot: Open letter
+      structuralFingerprint: fnv1a:c68ec07444cafe982ee79ed294279a24
+    - anchorFingerprint: fnv1a:004f49d3a7fbfcc74e464be5ebb5b203
+      messageId: 48d01321-b758-5fcd-8380-42872aef0bd1
+      ordinal: 3
+      sourceFingerprint: fnv1a:8f3ca1ca8547208634f33c942b1f67da
+      sourceSnapshot: Managed letter for {name}
+      structuralFingerprint: fnv1a:72e73047dd86cbc3bcaadb71b0153eb7
+  ownerKey: record:scenes:localized-story
+  sourcePath: /scenes/localized-story/data/events/0/source
+  sourceSnapshotFingerprint: fnv1a:8e31a732b9fb1ce6fc3708d088daf6a2
+lua:record:scenes:localized-story:/scenes/localized-story/data/events/1/text/source/source:
+  family: lua
+  occurrences:
+    - anchorFingerprint: fnv1a:6a79ac14133c38e0e8950dc2cfb48f64
+      messageId: 21a44ecc-4e5c-56c0-961a-6ffe7862967c
+      ordinal: 0
+      sourceFingerprint: fnv1a:a92bd93d6302f671fc60066be6ef8ded
+      sourceSnapshot: lab.greeting
+      structuralFingerprint: fnv1a:a9615b425f566a66a6b571d8650b1b32
+  ownerKey: record:scenes:localized-story
+  sourcePath: /scenes/localized-story/data/events/1/text/source/source
+  sourceSnapshotFingerprint: fnv1a:6febfd5ef58d11d295784e4894343d8e
+lua:record:scenes:localized-story:/scenes/localized-story/data/events/2/source:
+  family: lua
+  occurrences:
+    - anchorFingerprint: fnv1a:1a668ae2e59a7316b011acc0c3ff34f2
+      messageId: a8282d5e-af08-55fa-a3ee-4e18bdb0260e
+      ordinal: 0
+      sourceFingerprint: fnv1a:c61952338487dc572733ca251ff1fdc3
+      sourceSnapshot: lab.letters
+      structuralFingerprint: fnv1a:04ee656d773f1c91368b1f2b04d32cfd
+  ownerKey: record:scenes:localized-story
+  sourcePath: /scenes/localized-story/data/events/2/source
+  sourceSnapshotFingerprint: fnv1a:5818564d7a20049192455347b99ed89d
+rml:record:layouts:lab-pause:/layouts/lab-pause/data/rml/sourceText:
+  family: rml
+  occurrences:
+    - anchorFingerprint: fnv1a:219b91d840fff25458b31882c7450b08
+      messageId: b97bfd6f-e54d-5a4b-9c0f-5b157f56b1bf
+      ordinal: 0
+      sourceFingerprint: fnv1a:ff2a5bc0cb8bad8c0e0b85eed36ee430
+      sourceSnapshot: Feature Lab paused
+      structuralFingerprint: fnv1a:be38cf111f1ae7154ca8090b4f044681
+  ownerKey: record:layouts:lab-pause
+  sourcePath: /layouts/lab-pause/data/rml/sourceText
+  sourceSnapshotFingerprint: fnv1a:4425cd88015db684c392a92a7ec8e4b8
+rml:record:layouts:language-board:/layouts/language-board/data/rml/sourceText:
+  family: rml
+  occurrences:
+    - anchorFingerprint: fnv1a:261073b554c20011553a9fd7c75e02a5
+      messageId: f0b75a61-85b2-53fd-9d5f-5b43eb6bb8f1
+      ordinal: 0
+      sourceFingerprint: fnv1a:7e82b19b51371e5724b5b9ddb5be254b
+      sourceSnapshot: Managed reading desk
+      structuralFingerprint: fnv1a:253973624885eaa6c23914c0cefb1492
+  ownerKey: record:layouts:language-board
+  sourcePath: /layouts/language-board/data/rml/sourceText
+  sourceSnapshotFingerprint: fnv1a:abadc76bb1e00cc73d6924d15961e7bb

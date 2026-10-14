@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import {
   cloneAuthoringProject,
@@ -14,6 +12,7 @@ import {
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { featureLabYamlFiles, featureLabYamlRecord } from './feature-lab-yaml-fixtures';
 
 const root = '/project';
 const characterPath = 'records/characters/guide.yaml';
@@ -80,14 +79,10 @@ function stagedSources(project = sample()) {
 describe('staged sparse Character and Interactable YAML', () => {
   it('round-trips existing Feature Lab Characters and Interactables through the admitted schemas', () => {
     for (const collection of ['characters', 'interactables'] as const) {
-      const directory = resolve(
-        process.cwd(),
-        `../tests/projects/feature-lab/records/${collection}`,
-      );
-      const names = readdirSync(directory).filter((name) => name.endsWith('.json'));
+      const names = featureLabYamlFiles(collection);
       expect(names.length).toBeGreaterThan(4);
       for (const name of names) {
-        const original = JSON.parse(readFileSync(resolve(directory, name), 'utf8')) as unknown;
+        const original = featureLabYamlRecord(collection, name);
         const normalized = authoringRecordSchemas[collection].parse(original);
         const codec = projectWorkspaceSourceCodec(
           `records/${collection}/${name.slice(0, -5)}.yaml`,

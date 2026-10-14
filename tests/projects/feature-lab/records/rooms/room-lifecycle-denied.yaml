@@ -1,0 +1,42 @@
+id: room-lifecycle-denied
+label: Lifecycle Denied Target
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Lifecycle Denied Target
+  background:
+    asset: pilot-room-backdrop
+    color: "#291315"
+  description:
+    source:
+      kind: inline
+      text: This Room rejects ordinary entry.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  scriptHooks:
+    - hook: reject-enter
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_reject_enter
+  lifecycle:
+    canEnter:
+      kind: variable-comparison
+      variable: policy-entry-allowed
+      operator: truthy
+    onEnterRejected:
+      - id: target-rejected
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Target can-enter rejection program ran.
+          markup: plain

@@ -1,0 +1,50 @@
+id: inventory-delivery
+label: Inventory Delivery Room
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Inventory Delivery Room
+  background:
+    color: "#1b2731"
+  description:
+    source:
+      kind: inline
+      text: The filled container is moved here while its direct child remains in the container Inventory.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  interactables:
+    - id: container
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-container
+      placementId: container
+      order: 10
+  exits:
+    - id: return-workbench
+      label: Return to workbench
+      direction: west
+      target: inventory-workbench
+  placements:
+    - id: container
+      bounds:
+        x: 0.44
+        "y": 0.44
+        width: 0.12
+        height: 0.18
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Delivered container
+          markup: plain
+        layout: null

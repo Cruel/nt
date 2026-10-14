@@ -1,0 +1,9 @@
+id: lab-decorator
+label: lab-decorator
+data:
+  base:
+    kind: preset
+    preset: rmlui-decorator
+  displayName: lab-decorator
+  parameters: {}
+  textures: {}

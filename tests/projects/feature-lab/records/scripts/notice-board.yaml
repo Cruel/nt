@@ -1,0 +1,6 @@
+id: notice-board
+label: notice-board
+data:
+  source:
+    kind: project-file
+    path: scripts/notice-board.lua

@@ -1,0 +1,7 @@
+id: runtime-workshop-character
+label: Runtime Workshop Character Archetype
+data:
+  instanceKind: character
+  overrides:
+    /data/dialogue/name: Runtime Assistant
+    /data/displayName: Runtime assistant

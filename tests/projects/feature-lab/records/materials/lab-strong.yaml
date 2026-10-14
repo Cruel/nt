@@ -1,0 +1,11 @@
+id: lab-strong
+label: lab-strong
+data:
+  base:
+    kind: material
+    material: engine2d-draw-contract
+  displayName: lab-strong
+  parameters:
+    u_strength:
+      value: 0.9
+  textures: {}

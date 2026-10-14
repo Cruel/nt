@@ -1,0 +1,21 @@
+data:
+  contract: {}
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  displayName: trigger-panel
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: trigger_panel
+  target: menu-ui
+id: trigger-panel
+label: trigger-panel

@@ -1,0 +1,96 @@
+id: room-lifecycle-start
+label: Room Lifecycle Lab
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Make a round trip
+  background:
+    asset: pilot-room-backdrop
+    color: "#101820"
+  description:
+    source:
+      kind: inline
+      text: Exercise source, exit, and target rejection, then make a successful round trip and compare transition policies.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  scriptHooks:
+    - hook: can-leave
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_can_leave
+    - hook: before-leave
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_before_leave
+    - hook: after-leave
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_after_leave
+    - hook: reject-leave
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_reject_leave
+  lifecycle:
+    beforeLeave:
+      - id: before-leave-program
+        kind: set-global-property
+        variable: lifecycle-before-leave-marker
+        value: true
+    afterLeave:
+      - id: after-leave-program
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Program after-leave ran.
+          markup: plain
+    onLeaveRejected:
+      - id: source-rejected
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Source can-leave rejection program ran.
+          markup: plain
+  exits:
+    - id: reject-source
+      label: Reject at source
+      direction: north
+      target: room-lifecycle-roundtrip
+    - id: reject-exit
+      label: Reject selected exit
+      direction: south
+      target: room-lifecycle-roundtrip
+      condition:
+        kind: variable-comparison
+        variable: policy-entry-allowed
+        operator: truthy
+      onRejected:
+        - id: exit-rejected
+          kind: notify
+          message:
+            source:
+              kind: inline
+              text: Selected exit rejection program ran.
+            markup: plain
+    - id: reject-target
+      label: Reject at target
+      direction: west
+      target: room-lifecycle-denied
+    - id: round-trip
+      label: Successful round trip
+      direction: east
+      target: room-lifecycle-roundtrip
+      transition:
+        kind: dissolve
+        durationMs: 450
+        color: null
+        skippable: true

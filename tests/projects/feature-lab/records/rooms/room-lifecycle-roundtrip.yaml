@@ -1,0 +1,110 @@
+id: room-lifecycle-roundtrip
+label: Lifecycle Round Trip
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Lifecycle Round Trip Destination
+  background:
+    asset: pilot-room-backdrop
+    fit: contain
+    color: "#10212a"
+  description:
+    source:
+      kind: inline
+      text: Return to the lifecycle start, or enter the child-flow room.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  cast:
+    - id: guide
+      character: pilot-guide
+      placementId: guide
+      profileId: stage
+      poseId: standing
+      expressionId: smile
+      appearanceId: null
+      order: 10
+  scriptHooks:
+    - hook: before-enter
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_before_enter
+    - hook: after-enter
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_after_enter
+    - hook: before-leave
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_before_leave
+    - hook: after-leave
+      handler:
+        module: feature-lab-bootstrap
+        export: lifecycle_after_leave
+  lifecycle:
+    beforeEnter:
+      - id: before-enter-program
+        kind: set-global-property
+        variable: lifecycle-before-enter-marker
+        value: true
+    afterEnter:
+      - id: after-enter-program
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Program after-enter ran.
+          markup: plain
+    beforeLeave:
+      - id: before-leave-program
+        kind: set-global-property
+        variable: lifecycle-before-leave-marker
+        value: true
+    afterLeave:
+      - id: after-leave-program
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Program after-leave ran.
+          markup: plain
+  exits:
+    - id: return-start
+      label: Return to lifecycle start
+      direction: west
+      target: room-lifecycle-start
+      transition:
+        kind: cut
+        durationMs: 0
+        color: null
+        skippable: true
+    - id: child-flow
+      label: Enter child flow
+      direction: east
+      target: room-lifecycle-child
+      transition:
+        kind: fade
+        durationMs: 250
+        color: "#081018"
+        skippable: true
+    - id: self-loop
+      label: Self loop
+      direction: north
+      target: room-lifecycle-roundtrip
+  placements:
+    - id: guide
+      bounds:
+        x: 0.38
+        "y": 0.18
+        width: 0.24
+        height: 0.72
+      presentation:
+        label: null
+        layout: null

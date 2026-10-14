@@ -1,0 +1,31 @@
+id: interview-room
+label: Interview Room
+data:
+  displayName: Interview Room
+  defaultSpeaker: pilot-guide
+  settings:
+    showDisabledChoices: false
+  entryBlockId: intro
+  blocks:
+    - id: intro
+      type: sequence
+      label: intro
+      segments:
+        - id: interview-room-line
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "interview-room: acknowledge to follow the completion destination."
+            markup: plain
+        - id: interview-room-private
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Private transcript item: never in History."
+            markup: plain
+          logged: false
+  completion:
+    kind: room
+    id: conversation-paths-finish

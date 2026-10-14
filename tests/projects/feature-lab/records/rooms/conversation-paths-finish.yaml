@@ -1,0 +1,25 @@
+id: conversation-paths-finish
+label: Interview complete
+data:
+  displayName: Interview complete
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Room completion reached. Open History to compare logging policies, or choose Append / Clear below.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: log-tools
+        kind: call-dialogue
+        dialogue: interview-log-tools

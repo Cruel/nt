@@ -1,0 +1,45 @@
+id: unavailable-probe
+label: Unavailable Probe
+data:
+  slots:
+    - id: target
+      label:
+        source:
+          kind: inline
+          text: target
+        markup: plain
+      prompt:
+        source:
+          kind: inline
+          text: Choose target
+        markup: plain
+      selectors:
+        - kind: exact
+          subject:
+            kind: interactable
+            interactable:
+              $ref:
+                registry: interactableInstances
+                id: offer-suppressed
+  bindingOrder:
+    - target
+  actionText:
+    source:
+      kind: inline
+      text: Unavailable
+    markup: plain
+  completedCommandText:
+    source:
+      kind: inline
+      text: Unavailable {target}
+    markup: plain
+  availability:
+    kind: variable-comparison
+    variable: commands-offer-enabled
+    operator: truthy
+  defaultProgram:
+    instructions:
+      - id: should-not-run
+        kind: set-global-property
+        variable: commands-result
+        value: unavailable-ran

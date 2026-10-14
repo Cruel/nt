@@ -1,0 +1,5 @@
+id: conditions-hit
+label: Recursive Conditions Hit
+data:
+  type: boolean
+  value: false

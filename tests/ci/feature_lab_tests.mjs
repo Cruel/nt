@@ -1,11 +1,12 @@
 import assert from 'node:assert/strict';
-import { mkdir, mkdtemp, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, mkdtemp, readFile, readdir, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import {
   FEATURE_LAB_MANIFEST_RELATIVE_PATH,
   validateFeatureLabManifest,
+  readFeatureLabYamlRecord,
 } from '../../tools/feature-lab/validate.mjs';
 
 const root = process.cwd();
@@ -15,6 +16,29 @@ const manifestPath = path.join(projectRoot, FEATURE_LAB_MANIFEST_RELATIVE_PATH);
 async function manifest() {
   return JSON.parse(await readFile(manifestPath, 'utf8'));
 }
+
+test('Feature Lab tracked authoring owners are YAML without mixed JSON siblings', async () => {
+  let records = 0;
+  let localization = 0;
+  for (const group of ['records', 'i18n']) {
+    const visit = async (directory) => {
+      for (const entry of await readdir(directory, { withFileTypes: true })) {
+        const file = path.join(directory, entry.name);
+        if (entry.isDirectory()) await visit(file);
+        else if (entry.name.endsWith('.json'))
+          assert.fail(`Retired JSON authoring owner: ${path.relative(projectRoot, file)}`);
+        else if (entry.name.endsWith('.yaml')) {
+          if (group === 'records') records++;
+          else localization++;
+        }
+      }
+    };
+    await visit(path.join(projectRoot, group));
+  }
+  assert(records > 200);
+  assert(localization > 0);
+  assert((await readdir(path.join(projectRoot, 'assets', 'data'))).includes('feature-lab.json'));
+});
 
 test('canonical Feature Lab manifest satisfies the project-specific contract', async () => {
   const catalog = await manifest();
@@ -38,8 +62,8 @@ test('Feature Lab HUD preserves world input and presents active Dialogue text', 
     readFile(path.join(layoutRoot, 'layout.rml'), 'utf8'),
     readFile(path.join(layoutRoot, 'layout.rcss'), 'utf8'),
     readFile(path.join(layoutRoot, 'layout.lua'), 'utf8'),
-    readFile(path.join(projectRoot, 'records', 'rooms', 'rooms-interactions-workshop.json'), 'utf8').then(JSON.parse),
-    readFile(path.join(projectRoot, 'records', 'interactables', 'gate-lever.json'), 'utf8').then(JSON.parse),
+    readFeatureLabYamlRecord(projectRoot, 'rooms', 'rooms-interactions-workshop'),
+    readFeatureLabYamlRecord(projectRoot, 'interactables', 'gate-lever'),
   ]);
 
   assert.match(rml, /<nt-active-text\s+id="rt_body"/u);
@@ -119,9 +143,9 @@ test('realizations and automation resolve record identities and existing source 
   t.after(() => rm(temporaryRoot, { recursive: true, force: true }));
   for (const collection of ['rooms', 'assets', 'tests'])
     await mkdir(path.join(temporaryRoot, 'records', collection), { recursive: true });
-  await writeFile(path.join(temporaryRoot, 'records/rooms/workshop.json'), JSON.stringify({ id: 'workshop', data: { kind: 'room' } }));
-  await writeFile(path.join(temporaryRoot, 'records/assets/image.json'), JSON.stringify({ id: 'wrong-image', data: { kind: 'audio', source: { type: 'project-file', path: 'missing.png' } } }));
-  await writeFile(path.join(temporaryRoot, 'records/tests/flow.json'), JSON.stringify({ id: 'wrong-flow', data: { kind: 'room' } }));
+  await writeFile(path.join(temporaryRoot, 'records/rooms/workshop.yaml'), 'id: workshop\ndata: {}\n');
+  await writeFile(path.join(temporaryRoot, 'records/assets/image.yaml'), 'id: wrong-image\ndata:\n  kind: audio\n  source:\n    type: project-file\n    path: missing.png\n');
+  await writeFile(path.join(temporaryRoot, 'records/tests/flow.yaml'), 'id: wrong-flow\ndata:\n  kind: room\n');
   const catalog = await manifest();
   catalog.launches = [{ id: 'workshop', roomId: 'workshop' }];
   catalog.assetRequirements = [{ id: 'picture', purpose: 'Landmark', source: 'curated', properties: { kind: 'image' }, realizations: [{ assetId: 'image', quality: 'reference' }] }];

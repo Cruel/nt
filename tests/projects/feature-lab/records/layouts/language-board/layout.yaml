@@ -1,0 +1,28 @@
+data:
+  contract: {}
+  dependencies:
+    data: []
+    fonts:
+      - $ref:
+          collection: assets
+          id: dejavusans
+      - $ref:
+          collection: assets
+          id: ipag
+    images:
+      - $ref:
+          collection: assets
+          id: ui-pattern
+    scripts: []
+    stylesheets: []
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: language_board
+id: language-board
+label: Language board

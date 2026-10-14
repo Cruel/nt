@@ -1,0 +1,36 @@
+id: radio-operator
+label: Radio operator
+data:
+  displayName: Radio operator
+  dialogue:
+    name: Radio
+    nameColor: "#ffd080"
+    textColor: "#fff2c2"
+  profiles:
+    - id: stage
+      label: Stage
+      layers:
+        - id: body
+          label: Body
+          role: body
+      defaultPoseId: standing
+      poses:
+        - id: standing
+          label: Standing
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-neutral
+  expressions:
+    - id: neutral
+      label: Neutral
+    - id: smile
+      label: Smile
+      profiles:
+        - profileId: stage
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-smile

@@ -1,0 +1,25 @@
+data:
+  contract:
+    inputs:
+      caption:
+        defaultValue: normal
+        type: string
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  displayName: input-policy-probe
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: input_policy_probe
+  target: menu-ui
+id: input-policy-probe
+label: input-policy-probe

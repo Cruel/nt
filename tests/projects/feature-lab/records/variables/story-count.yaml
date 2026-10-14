@@ -1,0 +1,5 @@
+id: story-count
+label: Story count
+data:
+  type: integer
+  value: 1

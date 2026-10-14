@@ -4,6 +4,8 @@ Feature Lab is NovelTea's canonical in-tree authored acceptance and working-refe
 
 The Project root is `tests/projects/feature-lab/`; this README lives beside `project.yaml`. Its authoritative catalog is the registered JSON `data` Asset `feature-lab-catalog`, backed by `assets/data/feature-lab.json`. The persistent Game HUD Layout reads that exact Asset at runtime; do not introduce a second Lua or generated catalog.
 
+All tracked structured Project owners are canonical sparse YAML: `project.yaml`, `editor.yaml`, `traits.yaml`, `records/<family>/<id>.yaml`, `records/layouts/<id>/layout.yaml`, and `i18n/*.yaml` (including locale and asset translation chunks). Layout companion Lua/RML/RCSS and other raw source assets are unchanged. JSON under `assets/data/` is game data, not a Project authoring owner. Source-format certification should use the CLI and authored Tests, not regenerate JSON records.
+
 ## Comprehensive baseline
 
 The [baseline certification](../../../docs/runtime/certifications/FEATURE_LAB_BASELINE.md) records

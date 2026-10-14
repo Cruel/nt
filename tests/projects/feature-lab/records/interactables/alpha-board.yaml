@@ -1,0 +1,33 @@
+id: alpha-board
+label: Alpha board
+archetype: null
+archetypeOverrides: {}
+traits: []
+defaultProperties: []
+data:
+  displayName: Alpha board
+  stackable: false
+  stackLimit: null
+  presentation:
+    visual:
+      kind: animation
+      animation: alpha-occupancy-loop
+      motionId: null
+      playback: null
+    cursor:
+      kind: system
+      cursor: crosshair
+    hotspots:
+      kind: visual-alpha
+      hotspot:
+        id: button
+        label: Wall Button
+        condition: always
+        inputOrder: 0
+        highlight:
+          kind: default
+        target:
+          kind: owner
+  features:
+    - id: badge
+      label: Shared badge

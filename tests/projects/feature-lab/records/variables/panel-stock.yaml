@@ -1,0 +1,5 @@
+id: panel-stock
+label: Panel stock
+data:
+  type: integer
+  value: 3

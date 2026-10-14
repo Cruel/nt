@@ -1,0 +1,32 @@
+id: display-and-accessibility
+label: display-and-accessibility
+data:
+  displayName: display-and-accessibility
+  stage:
+    kind: inherited
+  events:
+    - id: samples
+      label: samples
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.layouts.mount('scale-inherit-panel', 'scale-inherit', {owner='session'})); assert(noveltea.layouts.mount('scale-ignore-panel', 'scale-ignore', {owner='session'}))
+      mayYield: false
+    - id: resize
+      label: resize
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Use Pause → Settings to change UI Scale and Text Scale independently (1–2). Compare inherit and ignore rulers and responsive labels. Resize wide/tall/HiDPI: the bedroom landmarks stay in the fitted world viewport, bars reject world input, and UI text stays native-resolution. Reuse the Rooms & Interactions wall-button station for real edge/world picking; this caption is not a picking surrogate."
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

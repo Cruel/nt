@@ -1,0 +1,54 @@
+id: quick-action
+label: Quick Action
+data:
+  slots:
+    - id: target
+      label:
+        source:
+          kind: inline
+          text: target
+        markup: plain
+      prompt:
+        source:
+          kind: inline
+          text: Choose target
+        markup: plain
+      selectors:
+        - kind: exact
+          subject:
+            kind: interactable
+            interactable:
+              $ref:
+                registry: interactableInstances
+                id: primary-target
+  bindingOrder:
+    - target
+  actionText:
+    source:
+      kind: inline
+      text: Quick
+    markup: plain
+  completedCommandText:
+    source:
+      kind: inline
+      text: Quick {target}
+    markup: plain
+  offers:
+    - id: primary
+      slotId: target
+      selectors:
+        - kind: exact
+          subject:
+            kind: interactable
+            interactable:
+              $ref:
+                registry: interactableInstances
+                id: primary-target
+      rank: 100
+      primary: true
+  defaultProgram:
+    instructions:
+      - id: mark
+        kind: set-global-property
+        variable: commands-result
+        value: quick

@@ -1,0 +1,5 @@
+id: presentation-accepted
+label: Presentation Accepted
+data:
+  type: boolean
+  value: false

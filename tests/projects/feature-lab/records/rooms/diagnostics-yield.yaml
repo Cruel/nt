@@ -1,0 +1,25 @@
+id: diagnostics-yield
+label: diagnostics-yield
+data:
+  displayName: diagnostics-yield
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Opt-in checks only. Restart returns this station to clean defaults; Feature Lab opens the catalog without running workloads.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  scriptHooks:
+    - hook: before-enter
+      handler:
+        module: diagnostics-hooks
+        export: before_enter_yield

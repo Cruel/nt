@@ -1,0 +1,26 @@
+id: diagnostics-pure
+label: diagnostics-pure
+data:
+  displayName: diagnostics-pure
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Opt-in checks only. Restart returns this station to clean defaults; Feature Lab opens the catalog without running workloads.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    canEnter:
+      kind: lua-predicate
+      source: (function() assert(Game.set_prop('diagnostics-progress',99)); return true end)()
+      additionalDependencies:
+        targets: []

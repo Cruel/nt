@@ -1,0 +1,5 @@
+id: diagnostics-progress
+label: diagnostics-progress
+data:
+  type: integer
+  value: 0

@@ -1,0 +1,28 @@
+id: runtime-workshop-annex-b
+label: Runtime Workshop Annex B
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Retargeted Annex
+  background:
+    color: "#2a2033"
+  description:
+    source:
+      kind: inline
+      text: After retargeting, ordinary Room navigation through the annex Exit arrives here.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  exits:
+    - id: return-workshop
+      label: Return to workshop
+      direction: west
+      target: runtime-workshop

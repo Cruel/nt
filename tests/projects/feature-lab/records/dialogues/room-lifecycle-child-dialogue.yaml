@@ -1,0 +1,22 @@
+id: room-lifecycle-child-dialogue
+label: Room Lifecycle Child Dialogue
+data:
+  displayName: Room Lifecycle Child Dialogue
+  defaultSpeaker: pilot-guide
+  entryBlockId: child-line
+  blocks:
+    - id: child-line
+      type: sequence
+      label: Child flow
+      defaultSpeaker: pilot-guide
+      segments:
+        - id: line
+          type: line
+          speaker: pilot-guide
+          text:
+            source:
+              kind: inline
+              text: This Dialogue returns to the Room lifecycle that called it.
+            markup: plain
+  completion:
+    kind: return

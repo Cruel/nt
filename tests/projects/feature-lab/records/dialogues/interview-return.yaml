@@ -1,0 +1,31 @@
+id: interview-return
+label: Interview Return
+data:
+  displayName: Interview Return
+  defaultSpeaker: pilot-guide
+  settings:
+    showDisabledChoices: false
+    logMode: only-lines
+  entryBlockId: intro
+  blocks:
+    - id: intro
+      type: sequence
+      label: intro
+      segments:
+        - id: interview-return-line
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "interview-return: acknowledge to follow the completion destination."
+            markup: plain
+        - id: interview-return-private
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Private transcript item: never in History."
+            markup: plain
+          logged: false
+  completion:
+    kind: return

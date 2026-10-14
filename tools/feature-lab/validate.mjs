@@ -1,6 +1,10 @@
 import { readFile, stat } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { createRequire } from 'node:module';
+
+const editorRequire = createRequire(new URL('../../editor/package.json', import.meta.url));
+const { parseDocument } = editorRequire('yaml');
 
 export const FEATURE_LAB_MANIFEST_RELATIVE_PATH = 'assets/data/feature-lab.json';
 const VALID_STATUSES = new Set(['ready', 'provisional', 'blocked']);
@@ -103,23 +107,33 @@ async function readRecord(projectRoot, collection, id, kind, pathName, missingCo
     errors.push(error('invalid-reference-id', pathName, 'Record references must use lowercase kebab-case IDs.'));
     return null;
   }
-  const filename = path.join(projectRoot, 'records', collection, `${id}.json`);
+  const filename = path.join(projectRoot, 'records', collection, `${id}.yaml`);
   if (!(await fileExists(filename))) {
     errors.push(error(missingCode, pathName, `Missing ${collection} record '${id}'.`));
     return null;
   }
   let record;
   try {
-    record = JSON.parse(await readFile(filename, 'utf8'));
+    record = await readFeatureLabYamlRecord(projectRoot, collection, id);
   } catch {
-    errors.push(error('invalid-record', pathName, `Cannot read JSON record '${id}'.`));
+    errors.push(error('invalid-record', pathName, `Cannot read YAML record '${id}'.`));
     return null;
   }
   if (record?.id !== id)
     errors.push(error('record-identity-mismatch', pathName, `Record '${id}' declares a different identity.`));
-  if (kind && record?.data?.kind !== kind)
+  // In sparse YAML, non-Asset record kinds are determined by their family path.
+  if (kind && (collection === 'assets'
+    ? record?.data?.kind !== kind
+    : !isObject(record?.data) || record.data.kind !== undefined))
     errors.push(error('record-kind-mismatch', pathName, `Record '${id}' must have kind '${kind}'.`));
   return record;
+}
+
+export async function readFeatureLabYamlRecord(projectRoot, collection, id) {
+  const source = await readFile(path.join(projectRoot, 'records', collection, `${id}.yaml`), 'utf8');
+  const document = parseDocument(source, { uniqueKeys: true });
+  if (document.errors.length) throw new Error(document.errors[0].message);
+  return document.toJS();
 }
 
 export async function validateFeatureLabManifest(catalog, options = {}) {

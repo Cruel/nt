@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import {
@@ -18,6 +16,7 @@ import {
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { featureLabYamlFiles, featureLabYamlRecord } from './feature-lab-yaml-fixtures';
 
 const root = '/project';
 const verbPath = 'records/verbs/inspect.yaml';
@@ -139,13 +138,10 @@ function sourceFiles(project = sample()) {
 describe('staged sparse Verb and Interaction YAML', () => {
   it('round-trips all current Feature Lab Verbs and Interactions through strict source codecs', () => {
     for (const family of ['verbs', 'interactions'] as const) {
-      const directory = resolve(process.cwd(), `../tests/projects/feature-lab/records/${family}`);
-      const names = readdirSync(directory).filter((name) => name.endsWith('.json'));
+      const names = featureLabYamlFiles(family);
       expect(names.length).toBeGreaterThan(6);
       for (const name of names) {
-        const record = authoringRecordSchemas[family].parse(
-          JSON.parse(readFileSync(resolve(directory, name), 'utf8')),
-        );
+        const record = authoringRecordSchemas[family].parse(featureLabYamlRecord(family, name));
         const codec = projectWorkspaceSourceCodec(`records/${family}/${name.slice(0, -5)}.yaml`);
         const source = codec.encode(record);
         expect(source, name).not.toMatch(/^  kind: (verb|interaction)$/mu);

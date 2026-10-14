@@ -1,0 +1,25 @@
+id: diagnostics-post
+label: diagnostics-post
+data:
+  displayName: diagnostics-post
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Opt-in checks only. Restart returns this station to clean defaults; Feature Lab opens the catalog without running workloads.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: intentional-fault
+        kind: run-lua
+        source: error('Feature Lab afterEnter failure')

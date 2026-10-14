@@ -1,0 +1,25 @@
+id: director-annex
+label: director-annex
+data:
+  displayName: director-annex
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: The Scene caller is still active across normal Room lifecycle.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  exits:
+    - id: finish
+      label: Finish the play
+      direction: east
+      target: scene-director

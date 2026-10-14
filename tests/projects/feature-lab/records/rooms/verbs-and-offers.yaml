@@ -1,0 +1,295 @@
+id: verbs-and-offers
+label: Verbs & Offers
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Verbs & Offers
+  background:
+    color: "#15212a"
+  description:
+    source:
+      kind: inline
+      text: Exercise Primary Activate, explicit and rule-derived Offers, specificity/rank suppression, and the named-slot Command Builder.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  cast:
+    - id: guide
+      character: verbs-recipient
+      placementId: guide
+      profileId: stage
+      poseId: standing
+      expressionId: neutral
+      appearanceId: null
+      order: 5
+  interactables:
+    - id: primary
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: primary-target
+      placementId: primary
+      order: 10
+    - id: menu
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: menu-target
+      placementId: menu
+      order: 11
+    - id: ambiguous
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: ambiguous-target
+      placementId: ambiguous
+      order: 12
+    - id: exact
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-exact
+      placementId: exact
+      order: 20
+    - id: prefix
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-prefix-one
+      placementId: prefix
+      order: 21
+    - id: trait
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-trait
+      placementId: trait
+      order: 22
+    - id: definition
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-definition
+      placementId: definition
+      order: 23
+    - id: feature
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-feature-owner
+      placementId: feature
+      order: 24
+    - id: rank
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-ranked
+      placementId: rank
+      order: 25
+    - id: rule-derived
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-rule-derived
+      placementId: rule-derived
+      order: 26
+    - id: suppressed
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: offer-suppressed
+      placementId: suppressed
+      order: 27
+    - id: self-parcel
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: builder-self-parcel
+      placementId: self-parcel
+      order: 30
+  exits:
+    - id: interaction-rules-test-entry
+      label: Interaction rules (automation entry)
+      direction: east
+      target: interaction-rules
+    - id: return-home
+      label: Return to Feature Lab home
+      direction: west
+      target: feature-lab-home
+  placements:
+    - id: guide
+      bounds:
+        x: 0.82
+        "y": 0.22
+        width: 0.14
+        height: 0.58
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Recipient
+          markup: plain
+        layout: null
+    - id: primary
+      bounds:
+        x: 0.04
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Primary
+          markup: plain
+        layout: null
+    - id: menu
+      bounds:
+        x: 0.005
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Menu
+          markup: plain
+        layout: null
+    - id: ambiguous
+      bounds:
+        x: 0.22
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Ambiguous
+          markup: plain
+        layout: null
+    - id: exact
+      bounds:
+        x: 0.04
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Exact
+          markup: plain
+        layout: null
+    - id: prefix
+      bounds:
+        x: 0.13
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Prefix
+          markup: plain
+        layout: null
+    - id: trait
+      bounds:
+        x: 0.22
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Trait
+          markup: plain
+        layout: null
+    - id: definition
+      bounds:
+        x: 0.31
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Definition
+          markup: plain
+        layout: null
+    - id: feature
+      bounds:
+        x: 0.4
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Feature owner
+          markup: plain
+        layout: null
+    - id: rank
+      bounds:
+        x: 0.49
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Rank
+          markup: plain
+        layout: null
+    - id: rule-derived
+      bounds:
+        x: 0.58
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Rule Offer
+          markup: plain
+        layout: null
+    - id: suppressed
+      bounds:
+        x: 0.67
+        "y": 0.36
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Suppressed
+          markup: plain
+        layout: null
+    - id: self-parcel
+      bounds:
+        x: 0.36
+        "y": 0.65
+        width: 0.09
+        height: 0.14
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Builder parcel
+          markup: plain
+        layout: null

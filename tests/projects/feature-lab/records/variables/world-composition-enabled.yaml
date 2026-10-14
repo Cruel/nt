@@ -1,0 +1,5 @@
+id: world-composition-enabled
+label: World Composition Enabled
+data:
+  type: boolean
+  value: false

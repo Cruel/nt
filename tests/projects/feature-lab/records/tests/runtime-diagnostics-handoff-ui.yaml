@@ -1,0 +1,372 @@
+id: runtime-diagnostics-handoff-ui
+label: Direct Handoff warning and completion
+data:
+  displayName: Direct Handoff warning and completion
+  steps:
+    - id: start
+      input: tick
+      label: Fresh home
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: category
+      input: ui-click
+      label: Open diagnostics category
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-category-edge-host"
+    - id: launch
+      input: ui-click
+      label: Launch safe diagnostics station
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-launch-runtime-diagnostics"
+    - id: direct
+      input: scene-choice
+      label: Replace Scene with direct Dialogue
+      expectations:
+        - id: dialogue
+          type: active-flow
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: dialogue
+            flowId: diagnostics-handoff
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: handoff
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: handoff
+      input: continue
+      label: Warning still advances to next line
+      expectations:
+        - id: warning
+          type: diagnostic
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: execution.dialogue_handoff_without_awaiting_scene
+        - id: continued
+          type: active-flow
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: dialogue
+            flowId: diagnostics-handoff
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: complete
+      input: continue
+      label: Complete ordinary continuation
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+  finalExpectations:
+    - id: finished
+      type: active-flow
+      operator: absent
+      property:
+        scope: global
+        ownerId: ""
+        propertyId: property
+        value: null
+      currentRoom:
+        roomId: ""
+      location:
+        entityKind: interactable
+        entityId: ""
+        locationKind: unplaced
+        roomId: ""
+        inventoryOwnerKind: project
+        inventoryOwnerId: ""
+        inventoryId: ""
+      quantity:
+        interactableId: ""
+        value: 0
+      trait:
+        ownerKind: interactable
+        ownerId: ""
+        traitId: trait
+      entityState:
+        entityKind: interactable
+        entityId: ""
+        field: enabled
+        value: true
+      activeFlow:
+        kind: dialogue
+        flowId: diagnostics-handoff
+      layout:
+        layoutId: ""
+        field: mounted
+        value: null
+      uiElement:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+        field: present
+        value: true
+      event:
+        kind: notification
+        value: ""
+      diagnostic:
+        code: ""
+    - id: room
+      type: current-room
+      operator: eq
+      property:
+        scope: global
+        ownerId: ""
+        propertyId: property
+        value: null
+      currentRoom:
+        roomId: runtime-diagnostics
+      location:
+        entityKind: interactable
+        entityId: ""
+        locationKind: unplaced
+        roomId: ""
+        inventoryOwnerKind: project
+        inventoryOwnerId: ""
+        inventoryId: ""
+      quantity:
+        interactableId: ""
+        value: 0
+      trait:
+        ownerKind: interactable
+        ownerId: ""
+        traitId: trait
+      entityState:
+        entityKind: interactable
+        entityId: ""
+        field: enabled
+        value: true
+      activeFlow:
+        kind: scene
+        flowId: ""
+      layout:
+        layoutId: ""
+        field: mounted
+        value: null
+      uiElement:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+        field: present
+        value: true
+      event:
+        kind: notification
+        value: ""
+      diagnostic:
+        code: ""
+  preview:
+    selectedStepId: start
+    selectedObservationIndex: null
+    autoOpenReport: true
