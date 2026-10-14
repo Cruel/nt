@@ -10,6 +10,8 @@ import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-so
 import { annotatedYamlPaths } from './yaml-comment-impact';
 
 export type SparseRecordFamily =
+  | 'archetypes'
+  | 'scripts'
   | 'assets'
   | 'animations'
   | 'materials'
@@ -38,6 +40,8 @@ const map = defaultMapData();
 // to the record and '*' matches a single array element. These are deliberately conservative:
 // geometry, identities, presentation choices and union discriminators remain explicit.
 const defaults: Record<Family, Readonly<Record<string, unknown>>> = {
+  archetypes: { 'data.base': null, 'data.overrides': {} },
+  scripts: {},
   // Resource metadata carries hashes, provenance and import/renderer settings.
   // No resource fields are presumed safe to omit without explicit schema defaults.
   assets: {},
@@ -443,6 +447,8 @@ function convert(
     if (family !== 'assets' && path.join('.') === 'data' && key === 'kind') {
       if (direction === 'read')
         result.kind = {
+          archetypes: 'archetype',
+          scripts: 'script-module',
           animations: 'animation',
           materials: 'material',
           rooms: 'room',

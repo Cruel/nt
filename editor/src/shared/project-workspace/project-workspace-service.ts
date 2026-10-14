@@ -578,12 +578,22 @@ const recordFile = (
   id: string,
   sourceFiles?: ReadonlySet<string>,
 ) => {
-  if (collection === 'layouts') return `records/layouts/${id}/layout.json`;
+  if (collection === 'layouts') {
+    const json = `records/layouts/${id}/layout.json`;
+    return sourceFiles?.has(json) ||
+      ![...(sourceFiles ?? [])].some((file) =>
+        /^records\/layouts\/[^/]+\/layout\.yaml$/u.test(file),
+      )
+      ? json
+      : `records/layouts/${id}/layout.yaml`;
+  }
   if (
     [
       'assets',
       'animations',
       'materials',
+      'archetypes',
+      'scripts',
       'rooms',
       'maps',
       'characters',
@@ -653,11 +663,13 @@ function sourceContributionOwnerPaths(
   if (localizedAssetMatch)
     return [`/localization/assets/${escapeJsonPointerSegment(localizedAssetMatch[1]!)}`];
 
-  const layoutMatch = file.match(/^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u);
+  const layoutMatch = file.match(/^records\/layouts\/([^/]+)\/layout\.(json|yaml|rml|rcss|lua)$/u);
   if (layoutMatch) {
     const id = escapeJsonPointerSegment(layoutMatch[1]!);
     const channel = layoutMatch[2]!;
-    return channel === 'json' ? [`/layouts/${id}`] : [`/layouts/${id}/data/${channel}`];
+    return channel === 'json' || channel === 'yaml'
+      ? [`/layouts/${id}`]
+      : [`/layouts/${id}/data/${channel}`];
   }
   const recordMatch = file.match(/^records\/([^/]+)\/([^/]+)\.(?:json|yaml)$/u);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!))
@@ -743,8 +755,13 @@ export function projectWorkspaceAffectedFiles(
     );
     if (!candidateFiles) return null;
     candidateFiles.forEach((file) => {
+      const layout = /^records\/layouts\/([^/]+)\/layout\.(?:json|yaml)$/u.exec(file);
+      if (layout) {
+        files.add(recordFile('layouts', layout[1]!, new Set(snapshot.canonicalSourceFiles)));
+        return;
+      }
       const record =
-        /^records\/(variables|assets|animations|materials|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
+        /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
           file,
         );
       files.add(
@@ -755,6 +772,8 @@ export function projectWorkspaceAffectedFiles(
                 | 'assets'
                 | 'animations'
                 | 'materials'
+                | 'archetypes'
+                | 'scripts'
                 | 'rooms'
                 | 'maps'
                 | 'characters'
@@ -1466,13 +1485,13 @@ export function projectWorkspaceFile(
     );
   const localization = projectWorkspaceLocalizationFile(project.localization, file);
   if (localization !== undefined) return localization;
-  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u.exec(file);
+  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|yaml|rml|rcss|lua)$/u.exec(file);
   if (layoutMatch) {
     const id = layoutMatch[1]!;
     const channel = layoutMatch[2]!;
     const original = project.layouts[id];
     if (!original) return undefined;
-    if (channel !== 'json') {
+    if (channel !== 'json' && channel !== 'yaml') {
       const source = original.data[channel as 'rml' | 'rcss' | 'lua'];
       return source.sourceMode === 'inline'
         ? projectWorkspaceSourceCodec(file).encode(source.sourceText)
@@ -1487,7 +1506,11 @@ export function projectWorkspaceFile(
         data[sourceChannel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
       else data[sourceChannel] = { sourceMode: 'none' };
     }
-    return projectWorkspaceSourceCodec(file).encode(record, authoringRecordSchemas.layouts);
+    return projectWorkspaceSourceCodec(file).encode(
+      record,
+      authoringRecordSchemas.layouts,
+      previousText,
+    );
   }
   const recordMatch = /^records\/([^/]+)\/([^/]+)\.(json|yaml)$/u.exec(file);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
@@ -1500,6 +1523,8 @@ export function projectWorkspaceFile(
         'assets',
         'animations',
         'materials',
+        'archetypes',
+        'scripts',
         'rooms',
         'maps',
         'characters',
@@ -2214,8 +2239,13 @@ export class ProjectWorkspaceService {
       );
       if (!candidateFiles) return null;
       candidateFiles.forEach((file) => {
+        const layout = /^records\/layouts\/([^/]+)\/layout\.(?:json|yaml)$/u.exec(file);
+        if (layout) {
+          files.add(recordFile('layouts', layout[1]!, new Set(snapshot.canonicalSourceFiles)));
+          return;
+        }
         const variableMatch =
-          /^records\/(variables|assets|animations|materials|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
+          /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.(?:json|yaml)$/u.exec(
             file,
           );
         files.add(
@@ -2226,6 +2256,8 @@ export class ProjectWorkspaceService {
                   | 'assets'
                   | 'animations'
                   | 'materials'
+                  | 'archetypes'
+                  | 'scripts'
                   | 'rooms'
                   | 'maps'
                   | 'characters'
@@ -2285,9 +2317,10 @@ export class ProjectWorkspaceService {
           contentHash: await sha256PrefixedBytes(bytes),
           byteSize: bytes.byteLength,
         };
-        const recordMatch = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.json)$/u.exec(
-          relativePath,
-        );
+        const recordMatch =
+          /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.(?:json|yaml))$/u.exec(
+            relativePath,
+          );
         const layoutSourceMatch = /^records\/layouts\/([^/]+)\/layout\.(rml|rcss|lua)$/u.exec(
           relativePath,
         );
@@ -2666,7 +2699,9 @@ export class ProjectWorkspaceService {
     let externalSourceDescriptors = base.snapshot.externalSourceDescriptors;
     const changedRecordKeys = new Set<string>();
     for (const path of changedPaths) {
-      const match = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.json)$/u.exec(path);
+      const match = /^records\/([^/]+)\/([^/]+)(?:\.(?:json|yaml)|\/layout\.(?:json|yaml))$/u.exec(
+        path,
+      );
       if (match && isAuthoringCollectionKey(match[1]!))
         changedRecordKeys.add(recordContributionKey(match[1], match[2]!));
     }
@@ -3203,8 +3238,8 @@ export class ProjectWorkspaceService {
                 textSourceValues.set(relativePath, contribution.sourceText);
               const requiresMutableProjection =
                 relativePath === 'project.yaml' ||
-                /^records\/layouts\/[^/]+\/layout\.json$/u.test(relativePath) ||
-                /^records\/scripts\/[^/]+\.json$/u.test(relativePath);
+                /^records\/layouts\/[^/]+\/layout\.(?:json|yaml)$/u.test(relativePath) ||
+                /^records\/scripts\/[^/]+\.(?:json|yaml)$/u.test(relativePath);
               return requiresMutableProjection
                 ? structuredClone(contribution.parsed)
                 : contribution.parsed;
@@ -3463,19 +3498,28 @@ export class ProjectWorkspaceService {
                     'Layout path does not contain a valid record ID.',
                     `/records/layouts/${entry}`,
                   );
-                const file = this.fileSystem.joinPath(layoutPath, 'layout.json');
+                const hasJson =
+                  (await this.fileSystem.inspect(
+                    this.fileSystem.joinPath(layoutPath, 'layout.json'),
+                  )) !== 'missing';
+                const hasYaml =
+                  (await this.fileSystem.inspect(
+                    this.fileSystem.joinPath(layoutPath, 'layout.yaml'),
+                  )) !== 'missing';
+                if (hasJson === hasYaml)
+                  return fail(
+                    'Layout requires exactly one metadata owner.',
+                    `/records/layouts/${entry}`,
+                  );
+                const metadataName = hasJson ? 'layout.json' : 'layout.yaml';
+                const relativeRecordPath = `records/layouts/${entry}/${metadataName}`;
+                const file = this.fileSystem.joinPath(layoutPath, metadataName);
                 let raw: Record<string, unknown>;
                 try {
                   await this.assertContained(discovered.projectRoot, file);
-                  raw = (await readJsonSource(`records/layouts/${entry}/layout.json`)) as Record<
-                    string,
-                    unknown
-                  >;
+                  raw = (await readJsonSource(relativeRecordPath)) as Record<string, unknown>;
                 } catch {
-                  return fail(
-                    'Layout record is malformed.',
-                    `/records/layouts/${entry}/layout.json`,
-                  );
+                  return fail('Layout record is malformed.', `/${relativeRecordPath}`);
                 }
                 if (raw.id !== entry)
                   return fail(
@@ -3483,7 +3527,6 @@ export class ProjectWorkspaceService {
                     `/records/layouts/${entry}`,
                   );
                 const data = raw.data as Record<string, Record<string, unknown>>;
-                const relativeRecordPath = `records/layouts/${entry}/layout.json`;
                 for (const channel of ['rml', 'rcss', 'lua'] as const) {
                   const source = data?.[channel];
                   if (!source || typeof source !== 'object')
@@ -3572,6 +3615,8 @@ export class ProjectWorkspaceService {
                     'assets',
                     'animations',
                     'materials',
+                    'archetypes',
+                    'scripts',
                     'rooms',
                     'maps',
                     'characters',
@@ -3880,7 +3925,7 @@ export class ProjectWorkspaceService {
                   ) as Record<string, unknown>;
                   // Hydration exposes Lua `none` as empty inline source, not an authored companion.
                   if (
-                    /^records\/layouts\/[^/]+\/layout\.json$/u.test(file) &&
+                    /^records\/layouts\/[^/]+\/layout\.(?:json|yaml)$/u.test(file) &&
                     !admittedSourcePaths.has(file.replace(/\.json$/u, '.lua'))
                   )
                     (normalizedSource.data as Record<string, unknown>).lua = { sourceMode: 'none' };
@@ -4032,7 +4077,7 @@ export class ProjectWorkspaceService {
       explicitCandidates ?? [...Object.keys(priorFullProjection!), ...Object.keys(fullProjection!)],
     );
     for (const file of Object.keys(options.sourceRestorations ?? {})) {
-      if (!/^(?:records\/[^/]+\/[^/]+|project|editor|traits)\.yaml$/u.test(file))
+      if (!/^(?:records\/[^/]+\/[^/]+(?:\/layout)?|project|editor|traits)\.yaml$/u.test(file))
         throw new Error('Source restoration must name a canonical YAML owner.');
       const stagedJson = file.replace(/\.yaml$/u, '.json');
       if (candidates.has(stagedJson) && !openedSnapshot.fileRevisions[stagedJson]) {
@@ -4070,6 +4115,21 @@ export class ProjectWorkspaceService {
       sourceMoves.set(newFile, oldFile);
       candidates.add(oldFile);
       candidates.add(newFile);
+      if (collection === 'scripts') {
+        const former = openedSnapshot.project.scripts[from[2]!]?.data.source;
+        const latter = project.scripts[to[2]!]?.data.source;
+        if (
+          former?.kind === 'project-file' &&
+          latter?.kind === 'project-file' &&
+          former.path !== latter.path
+        ) {
+          if (sourceMoves.has(latter.path) || [...sourceMoves.values()].includes(former.path))
+            throw new Error('Ambiguous Script Module Lua ownership move.');
+          sourceMoves.set(latter.path, former.path);
+          candidates.add(former.path);
+          candidates.add(latter.path);
+        }
+      }
     }
     const expected =
       options.expectedFileRevisions ??
@@ -4132,6 +4192,17 @@ export class ProjectWorkspaceService {
           : fullProjection && !sourceMoves.has(file)
             ? fullProjection[file]
             : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
+      // File-backed Script Modules own their Lua file without embedding it in the
+      // record projection. Do not delete a still-owned source on metadata edits,
+      // and carry its bytes when an explicit identity remap moves the Lua path.
+      if (
+        nextText === null &&
+        Object.values(project.scripts).some(
+          (record) =>
+            record.data.source.kind === 'project-file' && record.data.source.path === file,
+        )
+      )
+        nextText = sourceMoves.has(file) ? (priorText ?? null) : currentText;
       const restoration = options.sourceRestorations?.[file];
       if (
         file.endsWith('.yaml') &&
