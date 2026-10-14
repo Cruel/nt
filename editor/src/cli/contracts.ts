@@ -129,7 +129,12 @@ export function formatCliResult(
     };
   }
   const diagnosticText = diagnostics
-    .map((item) => `[${item.severity}] ${item.code} ${item.path}: ${item.message}`)
+    .map((item) => {
+      const location = item.sourceUrl
+        ? ` (${item.sourceUrl}${item.line !== undefined ? `:${item.line}${item.column !== undefined ? `:${item.column}` : ''}` : ''})`
+        : '';
+      return `[${item.severity}] ${item.code} ${item.path}${location}: ${item.message}`;
+    })
     .join('\n');
   const message = envelope.success ? (human?.success ?? '') : (human?.failure ?? '');
   return {

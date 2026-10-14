@@ -5,6 +5,7 @@ import { parse as parseYaml } from 'yaml';
 import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli, type AuthoringValidationInstrumentation } from '../../cli/application';
+import { locateYamlCliDiagnostics } from '../../cli/yaml-diagnostic-locations';
 import {
   createNovelTeaAgentKitPayload,
   createNovelTeaCompactReferenceFiles,
@@ -60,6 +61,213 @@ import {
 } from '../../shared/project-workspace';
 
 const root = '/projects/headless';
+
+describe('YAML diagnostic source locations', () => {
+  it('links a schema-invalid record without changing its logical diagnostic path', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const original = 'id: start\nlabel: Start\ndata:\n  unexpected: true\n';
+    await value.fileSystem.writeTextAtomic(file, original);
+    const result = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceUrl: 'project:/records/rooms/start.yaml' }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(file)).toBe(original);
+  });
+
+  it('links malformed manifest diagnostics during Project discovery', async () => {
+    const value = fixture();
+    const file = `${root}/project.yaml`;
+    await value.fileSystem.writeTextAtomic(file, 'schema: [unfinished\n');
+    const result = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceUrl: 'project:/project.yaml', line: 2 }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(file)).toBe('schema: [unfinished\n');
+  });
+
+  it('refreshes cached positions after a comment-only source edit', async () => {
+    const file = `${root}/records/rooms/start.yaml`;
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [file]: 'id: start\ndata:\n  target: lamp\n',
+    });
+    const raw = [
+      {
+        code: 'reference',
+        severity: 'error' as const,
+        path: '/rooms/start/data/target',
+        message: 'missing reference',
+      },
+    ];
+    const [first] = await locateYamlCliDiagnostics(fs, root, raw);
+    expect(first?.line).toBe(3);
+    await fs.writeTextAtomic(file, '# comment-only change\nid: start\ndata:\n  target: lamp\n');
+    const [second] = await locateYamlCliDiagnostics(fs, root, [first!]);
+    expect(second).toMatchObject({ code: first?.code, path: first?.path, line: 4 });
+    expect(second?.column).toBe(first?.column);
+  });
+
+  it('projects sparse conditions, expanded references, escaped keys and separate YAML owners', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/interactions/talk.yaml`]:
+        'id: talk\ndata:\n  rules:\n    - id: first\n      condition: always\n      target: lamp\n      options:\n        "a/b~c": true\n',
+      [`${root}/i18n/project.yaml`]:
+        'sourceLocale: en\ndefaultLocale: en\nsourceLocaleLock: null\n',
+    });
+    const diagnostics = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'condition',
+        severity: 'error',
+        path: '/interactions/talk/data/rules/0/condition/kind',
+        message: 'condition',
+      },
+      {
+        code: 'reference',
+        severity: 'error',
+        path: '/interactions/talk/data/rules/0/target/$ref/id',
+        message: 'reference',
+      },
+      {
+        code: 'key',
+        severity: 'error',
+        path: '/interactions/talk/data/rules/0/options/a~1b~0c',
+        message: 'key',
+      },
+      {
+        code: 'locale',
+        severity: 'error',
+        path: '/defaultLocale',
+        sourceUrl: 'project:/i18n/project.yaml',
+        message: 'locale',
+      },
+    ]);
+    expect(diagnostics.map((item) => item.line)).toEqual([5, 6, 8, 2]);
+    expect(diagnostics[0]?.column).toBe(18);
+    expect(diagnostics[1]?.column).toBe(15);
+    expect(diagnostics[2]?.sourceUrl).toBe('project:/records/interactions/talk.yaml');
+    expect(diagnostics[3]?.sourceUrl).toBe('project:/i18n/project.yaml');
+  });
+
+  it('locates restricted-YAML profile violations at the offending scalar', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/variables/flag.yaml`]: 'id: flag\ndata:\n  type: string\n  value: yes\n',
+    });
+    const [result] = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'WORKSPACE_SOURCE_READ',
+        severity: 'error',
+        path: '/records/variables/flag.yaml',
+        message: 'invalid',
+      },
+    ]);
+    expect(result).toMatchObject({
+      sourceUrl: 'project:/records/variables/flag.yaml',
+      line: 4,
+      column: 10,
+    });
+  });
+
+  it('links real read-only CLI validation syntax failures to the authored YAML file', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const original = 'id: start\ndata: [unterminated\n';
+    await value.fileSystem.writeTextAtomic(file, original);
+    const validated = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(validated.exitCode).not.toBe(0);
+    expect(validated.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceUrl: 'project:/records/rooms/start.yaml',
+          line: 3,
+          column: expect.any(Number),
+        }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(file)).toBe(original);
+    const textValidated = await runNovelTeaCli(
+      ['validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(textValidated.stderr).toContain('project:/records/rooms/start.yaml:3:');
+    expect(await value.fileSystem.readText(file)).toBe(original);
+  });
+
+  it('locates nested array fields, scalar references and missing fields without inventing nodes', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/rooms/start.yaml`]:
+        'id: start\ndata:\n  placements:\n    - id: first\n      target: lamp\n      enabled: true\n',
+    });
+    const diagnostics = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'x',
+        severity: 'error',
+        path: '/rooms/start/data/placements/0/target',
+        message: 'ref',
+      },
+      {
+        code: 'y',
+        severity: 'error',
+        path: '/rooms/start/data/placements/0/missing',
+        message: 'missing',
+      },
+      {
+        code: 'z',
+        severity: 'error',
+        path: '/rooms/start/data/placements/0/enabled',
+        message: 'field',
+      },
+    ]);
+    expect(diagnostics[0]).toMatchObject({
+      sourceUrl: 'project:/records/rooms/start.yaml',
+      line: 5,
+      column: 15,
+    });
+    expect(diagnostics[1]).toMatchObject({
+      sourceUrl: 'project:/records/rooms/start.yaml',
+      line: 4,
+    });
+    expect(diagnostics[2]).toMatchObject({
+      sourceUrl: 'project:/records/rooms/start.yaml',
+      line: 6,
+      column: 16,
+    });
+    expect(diagnostics.map(({ path, code }) => ({ path, code }))).toEqual([
+      { path: '/rooms/start/data/placements/0/target', code: 'x' },
+      { path: '/rooms/start/data/placements/0/missing', code: 'y' },
+      { path: '/rooms/start/data/placements/0/enabled', code: 'z' },
+    ]);
+  });
+
+  it('reports parser error source coordinates even when document parsing fails', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/rooms/start.yaml`]: 'id: start\ndata: [invalid\n',
+    });
+    const [diagnostic] = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'WORKSPACE_SOURCE_READ',
+        severity: 'error',
+        path: '/records/rooms/start.yaml',
+        message: 'invalid',
+      },
+    ]);
+    expect(diagnostic).toMatchObject({ sourceUrl: 'project:/records/rooms/start.yaml', line: 3 });
+  });
+});
 
 function validProject() {
   const project = createAuthoringProject({ id: 'headless', name: 'Headless' });

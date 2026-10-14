@@ -269,6 +269,14 @@ diagnostic expectation cannot turn a real runtime error into success. See the
 
 ## Persistent validation cache
 
+`validate` reports YAML source coordinates when a logical diagnostic can be attributed to
+an authored source field. `--json` preserves the stable diagnostic `code` and logical
+`path` while adding `sourceUrl`, `line`, and `column` where available; human-readable
+diagnostics display the same location. Missing sparse fields point to the nearest
+existing containing source field rather than to a fabricated location. Coordinates
+are refreshed from current source on validation cache hits, without making comment-only
+edits into semantic Project changes. Validation never edits the source.
+
 `validate` can reuse an unchanged exact disk-authoritative validation result from
 `.noveltea/cache/authoring/current.json`. This is deliberately a narrow restart accelerator, not a
 persisted semantic Project generation. The strict current contract contains only the Project root,

@@ -608,13 +608,21 @@ export async function runNovelTeaCli(
     ? await validateExplicitProjectRoot(fileSystemService, path.resolve(cwd, globals.project))
     : await discoverProjectRoot(fileSystemService, cwd);
   const discoveryMs = Date.now() - discoveryStarted;
-  if (!discovery.ok)
+  if (!discovery.ok) {
+    const diagnostics = [cliDiagnostic(discovery.code, discovery.path, discovery.message)];
+    const located =
+      globals.command[0] === 'validate' && discovery.projectRoot
+        ? await (
+            await import('./yaml-diagnostic-locations')
+          ).locateYamlCliDiagnostics(fileSystemService, discovery.projectRoot, diagnostics)
+        : diagnostics;
     return failure(
       NOVELTEA_CLI_EXIT_CODES.workspace,
-      [cliDiagnostic(discovery.code, discovery.path, discovery.message)],
+      located,
       globals.json,
       discovery.projectRoot ? { projectRoot: discovery.projectRoot } : {},
     );
+  }
 
   if (command.projectPreparation) {
     try {
@@ -749,17 +757,27 @@ export async function runNovelTeaCli(
     : authoringCacheAdmission?.result;
   if (cachedValidation) {
     const { editorDiagnostics, ...cachedEnvelope } = cachedValidation;
+    const { locateYamlCliDiagnostics } = await import('./yaml-diagnostic-locations');
+    const diagnostics = await locateYamlCliDiagnostics(
+      services.fileSystem,
+      discovery.projectRoot,
+      cachedValidation.diagnostics,
+    );
     if (!cachedValidation.success)
       return {
-        ...failure(cachedValidation.exitCode, cachedValidation.diagnostics, globals.json, {
+        ...failure(cachedValidation.exitCode, diagnostics, globals.json, {
           projectRoot: discovery.projectRoot,
         }),
         editorDiagnostics,
       };
     return {
-      ...formatCliResult({ ...cachedEnvelope, projectRoot: discovery.projectRoot }, globals.json, {
-        success: 'NovelTea validate succeeded.',
-      }),
+      ...formatCliResult(
+        { ...cachedEnvelope, diagnostics, projectRoot: discovery.projectRoot },
+        globals.json,
+        {
+          success: 'NovelTea validate succeeded.',
+        },
+      ),
       editorDiagnostics,
     };
   }
@@ -787,10 +805,17 @@ export async function runNovelTeaCli(
       : {}),
   });
   const workspaceAdmissionMs = Date.now() - workspaceAdmissionStarted;
-  if (!opened.ok)
-    return failure(workspaceOpenExitCode(opened.diagnostics), opened.diagnostics, globals.json, {
+  if (!opened.ok) {
+    const diagnostics =
+      globals.command[0] === 'validate'
+        ? await (
+            await import('./yaml-diagnostic-locations')
+          ).locateYamlCliDiagnostics(services.fileSystem, discovery.projectRoot, opened.diagnostics)
+        : opened.diagnostics;
+    return failure(workspaceOpenExitCode(diagnostics), diagnostics, globals.json, {
       projectRoot: discovery.projectRoot,
     });
+  }
 
   try {
     const activeOpened = opened;
@@ -916,7 +941,15 @@ export async function runNovelTeaCli(
     }
 
     const diagnosticProjectionStarted = Date.now();
-    const diagnostics = [...activeOpened.diagnostics, ...semantic.diagnostics];
+    const diagnostics =
+      globals.command[0] === 'validate'
+        ? await (
+            await import('./yaml-diagnostic-locations')
+          ).locateYamlCliDiagnostics(services.fileSystem, discovery.projectRoot, [
+            ...activeOpened.diagnostics,
+            ...semantic.diagnostics,
+          ])
+        : [...activeOpened.diagnostics, ...semantic.diagnostics];
     let editorDiagnostics = activeOpened.opened.authoringDiagnostics;
     if (validationCache) {
       const [validation, settings] = await Promise.all([
