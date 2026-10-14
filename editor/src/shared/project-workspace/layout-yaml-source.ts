@@ -1,5 +1,7 @@
 import { layoutDataSchema } from '../project-schema/authoring-layouts';
+import { authoringRecordSchemas } from '../project-schema/authoring-records';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
+import { annotatedYamlPaths } from './yaml-comment-impact';
 
 type Dictionary = Record<string, unknown>;
 const object = (value: unknown): value is Dictionary =>
@@ -36,4 +38,26 @@ export function encodeLayoutYaml(value: unknown, previousText?: string): string 
     data[key] = field;
   }
   return encodeStructuredYaml({ ...value, data }, previousText);
+}
+
+/** Explicit CLI-only compaction of Layout's schema-declared source defaults. */
+export function stripLayoutYamlDefaults(text: string): string {
+  const before = authoringRecordSchemas.layouts.parse(decodeLayoutYaml(text));
+  const source = decodeStructuredYaml(text);
+  if (!object(source) || !object(source.data)) throw new Error('Invalid Layout YAML source.');
+  const annotated = annotatedYamlPaths(text);
+  const data = { ...source.data };
+  for (const [key, fallback] of Object.entries(defaults)) {
+    const path = `data.${key}`;
+    if (
+      Object.hasOwn(data, key) &&
+      same(data[key], fallback) &&
+      ![...annotated].some((note) => note === path || note.startsWith(`${path}.`))
+    )
+      delete data[key];
+  }
+  const result = encodeStructuredYaml({ ...source, data }, text);
+  const after = authoringRecordSchemas.layouts.parse(decodeLayoutYaml(result));
+  if (!same(before, after)) throw new Error('Layout compaction changed normalized record data.');
+  return result;
 }

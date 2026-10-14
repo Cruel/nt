@@ -1,5 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import { parse as parseYaml } from 'yaml';
 import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
@@ -124,6 +125,112 @@ function validationNativeTools(): NovelTeaCliNativeToolService {
 }
 
 describe('YAML fmt CLI', () => {
+  it('strips Variable source defaults only on explicit request, preserving annotated intent', async () => {
+    const value = fixture();
+    const file = `${root}/records/variables/counter.yaml`;
+    const source =
+      'id: counter\nlabel: Counter\ndata:\n  type: number\n  value: 0\n  nullable: false\n  scope: global # intentionally global\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const before = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/variables/counter.yaml'],
+      options(value),
+    );
+    expect(before.exitCode).toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const check = await runNovelTeaCli(
+      ['--json', 'fmt', '--strip-defaults', '--check'],
+      options(value),
+    );
+    expect(check.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const applied = await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value));
+    expect(applied.exitCode).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          [
+            '--project',
+            root,
+            '--json',
+            'fmt',
+            'records/variables/counter.yaml',
+            '--strip-defaults',
+            '--check',
+          ],
+          options(value, '/projects'),
+        )
+      ).exitCode,
+    ).toBe(0);
+    const result = await value.fileSystem.readText(file);
+    expect(result).not.toContain('nullable: false');
+    expect(result).toContain('scope: global # intentionally global');
+    expect(
+      (await runNovelTeaCli(['--json', 'fmt', '--strip-defaults', '--check'], options(value)))
+        .exitCode,
+    ).toBe(0);
+  });
+
+  it('strips only proven nested Room defaults and leaves malformed source untouched', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const starter = projectWorkspaceFiles(
+      value.project,
+      value.project.editor,
+      {},
+      new Set(['records/rooms/start.yaml']),
+    )['records/rooms/start.yaml']!;
+    const source = starter.replace(
+      /^(\s*)defaultView:$/mu,
+      (_match, indent: string) =>
+        `${indent}defaultView:\n${indent}  zoom: 1\n${indent}  rotationDegrees: 0 # authored rotation`,
+    );
+    expect(source).not.toBe(starter);
+    await value.fileSystem.writeTextAtomic(file, source);
+    const normalizedBefore = authoringRecordSchemas.rooms.parse(
+      projectWorkspaceSourceCodec('records/rooms/start.yaml').decode(source),
+    );
+    const checked = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/rooms/start.yaml', '--strip-defaults', '--check'],
+      options(value),
+    );
+    expect(checked.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const applied = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/rooms/start.yaml', '--strip-defaults'],
+      options(value),
+    );
+    expect(applied.exitCode).toBe(0);
+    const result = await value.fileSystem.readText(file);
+    expect(result).not.toContain('zoom: 1');
+    expect(result).toContain('rotationDegrees: 0 # authored rotation');
+    expect(
+      authoringRecordSchemas.rooms.parse(
+        projectWorkspaceSourceCodec('records/rooms/start.yaml').decode(result),
+      ),
+    ).toEqual(normalizedBefore);
+    const invalid = 'id: start\ndata: [malformed';
+    await value.fileSystem.writeTextAtomic(file, invalid);
+    expect(
+      (await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value))).exitCode,
+    ).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(invalid);
+  });
+
+  it('rejects schema-invalid records and leaves other compaction candidates untouched', async () => {
+    const value = fixture();
+    const variablePath = `${root}/records/variables/count.yaml`;
+    const source =
+      'id: count\nlabel: Count\ndata:\n  type: number\n  value: 0\n  nullable: false\n';
+    const roomPath = `${root}/records/rooms/start.yaml`;
+    const invalidRoom = 'id: start\nlabel: Start\ndata:\n  unknownRoomField: true\n';
+    await value.fileSystem.writeTextAtomic(variablePath, source);
+    await value.fileSystem.writeTextAtomic(roomPath, invalidRoom);
+    const result = await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value));
+    expect(result.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(variablePath)).toBe(source);
+    expect(await value.fileSystem.readText(roomPath)).toBe(invalidRoom);
+  });
+
   it('formats nested Layout YAML while retaining block scalars and null versus empty', async () => {
     const value = fixture();
     const file = `${root}/records/layouts/dialog/layout.yaml`;

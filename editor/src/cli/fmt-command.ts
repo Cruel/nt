@@ -66,14 +66,16 @@ export async function runNovelTeaFmtCli(
 ) {
   const args = globals.command.slice(1);
   const check = args.includes('--check');
-  const paths = args.filter((item) => item !== '--check');
+  const stripDefaults = args.includes('--strip-defaults');
+  const paths = args.filter((item) => item !== '--check' && item !== '--strip-defaults');
   if (
     paths.length > 1 ||
     args.filter((item) => item === '--check').length > 1 ||
+    args.filter((item) => item === '--strip-defaults').length > 1 ||
     paths.some((item) => item.startsWith('--'))
   )
     return novelTeaCliUsageFailure(
-      'Usage: noveltea fmt [<tracked-yaml-path>] [--check]',
+      'Usage: noveltea fmt [<tracked-yaml-path>] [--check] [--strip-defaults]',
       globals.json,
     );
 
@@ -107,7 +109,8 @@ export async function runNovelTeaFmtCli(
   const tracked = await collect(fs, root);
   let selected = tracked;
   if (paths.length) {
-    const target = path.resolve(cwd, paths[0]!);
+    // Tracked source paths are project-relative even when --project points elsewhere.
+    const target = path.resolve(root, paths[0]!);
     const relative = path.relative(root, target).split(path.sep).join('/');
     if (!isTrackedYaml(relative) || !tracked.includes(relative))
       return error(
@@ -124,9 +127,44 @@ export async function runNovelTeaFmtCli(
     try {
       const bytes = await fs.readBytes(absolute);
       const original = new TextDecoder('utf-8', { fatal: true }).decode(bytes);
-      const doc = parseRestrictedYamlDocument(original);
+      let candidate = original;
+      if (stripDefaults) {
+        const record = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
+        if (/^records\/layouts\/[^/]+\/layout\.yaml$/u.test(file)) {
+          const { stripLayoutYamlDefaults } =
+            await import('../shared/project-workspace/layout-yaml-source');
+          candidate = stripLayoutYamlDefaults(candidate);
+        } else if (record) {
+          if (record[1] === 'variables') {
+            const { stripVariableYamlDefaults } =
+              await import('../shared/project-workspace/variable-yaml-source');
+            candidate = stripVariableYamlDefaults(candidate);
+          } else {
+            const { isAuthoringCollectionKey } =
+              await import('../shared/project-schema/authoring-collections');
+            if (
+              isAuthoringCollectionKey(record[1]!) &&
+              record[1] !== 'layouts' &&
+              record[1] !== 'variables'
+            ) {
+              const { stripSparseRecordYamlDefaults } =
+                await import('../shared/project-workspace/sparse-record-yaml-source');
+              candidate = stripSparseRecordYamlDefaults(record[1]!, candidate);
+            }
+          }
+        }
+      }
+      const doc = parseRestrictedYamlDocument(candidate);
       const before = doc.toJS();
       const formatted = doc.toString({ indent: 2, lineWidth: 0 });
+      if (stripDefaults && !file.startsWith('records/')) {
+        const { validateYamlCompactionSource } =
+          await import('../shared/project-workspace/project-workspace-service');
+        const effectiveBefore = validateYamlCompactionSource(file, original);
+        const effectiveAfter = validateYamlCompactionSource(file, formatted);
+        if (JSON.stringify(effectiveBefore) !== JSON.stringify(effectiveAfter))
+          throw new Error('Default compaction changed normalized source data.');
+      }
       if (JSON.stringify(before) !== JSON.stringify(parseRestrictedYamlDocument(formatted).toJS()))
         throw new Error('Formatting altered the YAML data.');
       if (original !== formatted)

@@ -82,6 +82,9 @@ noveltea validate
 For automated style checking without writes, use `noveltea fmt --check`. To format just one
 tracked YAML owner, use `noveltea fmt records/<collection>/<id>.yaml`. Formatting accepts
 syntactically valid YAML even while related Project records are being edited.
+When compact source is explicitly desired, use `noveltea fmt --strip-defaults` (optionally
+combined with `--check` or a selected source path). This removes only proven, uncommented
+source defaults; ordinary `fmt`, editor saves, and `validate` never strip authored defaults.
 
 Run relevant authored Tests when the behavior is covered by semantic playback. Validation proves
 structural/semantic validity, not visual quality of placement, hotspot geometry, styling, or art.
