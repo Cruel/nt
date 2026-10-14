@@ -219,4 +219,92 @@ describe('Layout, Archetype and Script Module YAML owners', () => {
       expect(await fs.inspect('/project/scripts/fresh.lua')).toBe('missing');
     }
   });
+
+  it('preserves a Layout Lua none selector across scoped and full YAML saves', async () => {
+    const project = createAuthoringProject({ id: 'layout-none', name: 'Layout None' });
+    project.layouts.hud = {
+      id: 'hud',
+      label: 'HUD',
+      data: defaultLayoutData('HUD'),
+    };
+    const metadata = 'records/layouts/hud/layout.yaml';
+    const companion = 'records/layouts/hud/layout.lua';
+    const files = { ...projectWorkspaceFiles(project, project.editor) };
+    files[metadata] = files[metadata]!.replace(
+      'lua:\n    sourceMode: file',
+      'lua:\n    sourceMode: none',
+    );
+    expect(files[metadata]).toContain('lua:\n    sourceMode: none');
+    delete files[companion];
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(files).map(([file, text]) => [`/project/${file}`, text])),
+    );
+    const workspace = new ProjectWorkspaceService(fs);
+    const opened = await workspace.open('/project');
+    expect(opened.ok).toBe(true);
+    if (!opened.ok) return;
+
+    const projected = projectWorkspaceFiles(
+      opened.snapshot.project,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
+      new Set(opened.snapshot.canonicalSourceFiles),
+    );
+    expect(projected[metadata]).toContain('lua:\n    sourceMode: none');
+    expect(projected[companion]).toBeUndefined();
+
+    const edited = cloneAuthoringProject(opened.snapshot.project);
+    edited.layouts.hud!.label = 'HUD edited';
+    const scoped = await workspace.write(
+      '/project',
+      opened.snapshot.workspaceRevision,
+      edited,
+      opened.editorState,
+      opened.snapshot.scriptSourcePaths,
+      { affectedPaths: ['/layouts/hud/label'] },
+    );
+    expect(await fs.readText(`/project/${metadata}`)).toContain('lua:\n    sourceMode: none');
+    expect(await fs.inspect(`/project/${companion}`)).toBe('missing');
+
+    const full = cloneAuthoringProject(scoped.snapshot.project);
+    full.project.name = 'Layout None Updated';
+    await workspace.write(
+      '/project',
+      scoped.workspaceRevision,
+      full,
+      scoped.snapshot.project.editor,
+    );
+    const reopened = await workspace.open('/project');
+    expect(reopened.ok).toBe(true);
+    if (reopened.ok) {
+      expect(reopened.snapshot.project.layouts.hud!.label).toBe('HUD edited');
+      expect(reopened.snapshot.project.project.name).toBe('Layout None Updated');
+    }
+    expect(await fs.readText(`/project/${metadata}`)).toContain('lua:\n    sourceMode: none');
+    expect(await fs.inspect(`/project/${companion}`)).toBe('missing');
+    if (!reopened.ok) return;
+
+    const renamedProject = cloneAuthoringProject(reopened.snapshot.project);
+    renamedProject.layouts.renamed = { ...renamedProject.layouts.hud!, id: 'renamed' };
+    delete renamedProject.layouts.hud;
+    const renamed = await workspace.write(
+      '/project',
+      reopened.snapshot.workspaceRevision,
+      renamedProject,
+      renamedProject.editor,
+      {},
+      {
+        affectedPaths: ['/layouts/hud', '/layouts/renamed'],
+        identityRemap: [{ fromPath: '/layouts/hud', toPath: '/layouts/renamed' }],
+      },
+    );
+    expect(await fs.inspect(`/project/${metadata}`)).toBe('missing');
+    expect(await fs.inspect(`/project/${companion}`)).toBe('missing');
+    expect(await fs.readText('/project/records/layouts/renamed/layout.yaml')).toContain(
+      'lua:\n    sourceMode: none',
+    );
+    expect(await fs.inspect('/project/records/layouts/renamed/layout.lua')).toBe('missing');
+    expect((await workspace.open('/project')).ok).toBe(true);
+    expect(renamed.snapshot.project.layouts.renamed?.id).toBe('renamed');
+  });
 });

@@ -1439,6 +1439,7 @@ export function projectWorkspaceFile(
   file: string,
   previousText?: string,
   keepCommentedDefaults = false,
+  sourceFiles?: ReadonlySet<string>,
 ): string | undefined {
   if (file === 'project.yaml')
     return projectWorkspaceSourceCodec(file).encode(
@@ -1494,8 +1495,18 @@ export function projectWorkspaceFile(
     const channel = layoutMatch[2]!;
     const original = project.layouts[id];
     if (!original) return undefined;
+    // A loaded Lua `none` selector is represented by empty inline Lua in the
+    // effective Project. Retain the physical absence of its companion on saves.
+    const preservesAbsentLua =
+      original.data.lua.sourceMode === 'inline' &&
+      original.data.lua.sourceText === '' &&
+      sourceFiles !== undefined &&
+      (sourceFiles.has(`records/layouts/${id}/layout.yaml`) ||
+        sourceFiles.has(`records/layouts/${id}/layout.json`)) &&
+      !sourceFiles.has(layoutFile(id, 'lua'));
     if (channel !== 'json' && channel !== 'yaml') {
       const source = original.data[channel as 'rml' | 'rcss' | 'lua'];
+      if (channel === 'lua' && preservesAbsentLua) return undefined;
       return source.sourceMode === 'inline'
         ? projectWorkspaceSourceCodec(file).encode(source.sourceText)
         : undefined;
@@ -1504,7 +1515,9 @@ export function projectWorkspaceFile(
     const data = record.data as Record<string, Record<string, unknown>>;
     for (const sourceChannel of ['rml', 'rcss', 'lua'] as const) {
       const source = data[sourceChannel]!;
-      if (source.sourceMode === 'inline') data[sourceChannel] = { sourceMode: 'file' };
+      if (sourceChannel === 'lua' && preservesAbsentLua)
+        data[sourceChannel] = { sourceMode: 'none' };
+      else if (source.sourceMode === 'inline') data[sourceChannel] = { sourceMode: 'file' };
       else if (source.sourceMode === 'asset')
         data[sourceChannel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
       else data[sourceChannel] = { sourceMode: 'none' };
@@ -1575,7 +1588,15 @@ export function projectWorkspaceFiles(
 ): Readonly<Record<string, string>> {
   const files: Record<string, string> = {};
   const add = (file: string) => {
-    const text = projectWorkspaceFile(project, editorState, scriptSourcePaths, file);
+    const text = projectWorkspaceFile(
+      project,
+      editorState,
+      scriptSourcePaths,
+      file,
+      undefined,
+      false,
+      sourceFiles,
+    );
     if (text !== undefined) files[file] = text;
   };
   add('project.yaml');
@@ -4072,6 +4093,21 @@ export class ProjectWorkspaceService {
       scriptSourcePathOverrideKeys.length === 0
         ? openedSnapshot.scriptSourcePaths
         : { ...openedSnapshot.scriptSourcePaths, ...scriptSourcePathOverrides };
+    const sourceFiles = new Set(openedSnapshot.canonicalSourceFiles);
+    const projectedOwnerFiles = new Set(sourceFiles);
+    for (const { fromPath, toPath } of options.identityRemap ?? []) {
+      const from = /^\/layouts\/([^/]+)$/u.exec(fromPath);
+      const to = /^\/layouts\/([^/]+)$/u.exec(toPath);
+      if (!from || !to) continue;
+      const oldMetadata = recordFile('layouts', from[1]!, sourceFiles);
+      if (sourceFiles.has(oldMetadata))
+        projectedOwnerFiles.add(
+          oldMetadata.replace(`records/layouts/${from[1]!}/`, `records/layouts/${to[1]!}/`),
+        );
+      for (const channel of ['rml', 'rcss', 'lua'] as const)
+        if (sourceFiles.has(layoutFile(from[1]!, channel)))
+          projectedOwnerFiles.add(layoutFile(to[1]!, channel));
+    }
     const affectedCandidates = options.affectedPaths
       ? this.affectedWorkspaceFiles(
           openedSnapshot,
@@ -4083,19 +4119,14 @@ export class ProjectWorkspaceService {
     const explicitCandidates = options.targetFiles ?? affectedCandidates;
     const fullProjection = explicitCandidates
       ? null
-      : projectWorkspaceFiles(
-          project,
-          editorState,
-          projectedSourcePaths,
-          new Set(openedSnapshot.canonicalSourceFiles),
-        );
+      : projectWorkspaceFiles(project, editorState, projectedSourcePaths, projectedOwnerFiles);
     const priorFullProjection = explicitCandidates
       ? null
       : projectWorkspaceFiles(
           openedSnapshot.project,
           openedSnapshot.project.editor,
           openedSnapshot.scriptSourcePaths,
-          new Set(openedSnapshot.canonicalSourceFiles),
+          sourceFiles,
         );
     const candidates = new Set(
       explicitCandidates ?? [...Object.keys(priorFullProjection!), ...Object.keys(fullProjection!)],
@@ -4110,7 +4141,6 @@ export class ProjectWorkspaceService {
       }
     }
     const sourceMoves = new Map<string, string>();
-    const sourceFiles = new Set(openedSnapshot.canonicalSourceFiles);
     for (const { fromPath, toPath } of options.identityRemap ?? []) {
       const from = /^\/([^/]+)\/([^/]+)$/u.exec(fromPath);
       const to = /^\/([^/]+)\/([^/]+)$/u.exec(toPath);
@@ -4212,10 +4242,19 @@ export class ProjectWorkspaceService {
               file,
               priorText,
               options.commentDisposition === 'keep',
+              projectedOwnerFiles,
             )
           : fullProjection && !sourceMoves.has(file)
             ? fullProjection[file]
-            : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
+            : projectWorkspaceFile(
+                project,
+                editorState,
+                projectedSourcePaths,
+                file,
+                undefined,
+                false,
+                projectedOwnerFiles,
+              )) ?? null;
       // File-backed Script Modules own their Lua file without embedding it in the
       // record projection. Do not delete a still-owned source on metadata edits,
       // and carry its bytes when an explicit identity remap moves the Lua path.
@@ -4241,6 +4280,8 @@ export class ProjectWorkspaceService {
             projectedSourcePaths,
             file,
             restoreMissingYamlSource(currentText, nextText, restoration),
+            false,
+            projectedOwnerFiles,
           ) ?? null;
       }
       sourceMembershipChanged ||=
