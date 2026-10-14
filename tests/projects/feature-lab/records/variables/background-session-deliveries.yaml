@@ -1,0 +1,5 @@
+id: background-session-deliveries
+label: background-session-deliveries
+data:
+  type: integer
+  value: 0

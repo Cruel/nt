@@ -1,5 +1,3 @@
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import {
@@ -16,19 +14,17 @@ import {
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { featureLabYamlFiles, featureLabYamlRecord } from './feature-lab-yaml-fixtures';
 
 const path = 'records/tests/example.yaml';
 const codec = projectWorkspaceSourceCodec(path);
 
 describe('sparse authored Test YAML', () => {
   it('round-trips Feature Lab semantic and UI Test inputs and expectations', () => {
-    const directory = resolve(process.cwd(), '../tests/projects/feature-lab/records/tests');
-    const files = readdirSync(directory).filter((name) => name.endsWith('.json'));
+    const files = featureLabYamlFiles('tests');
     expect(files.length).toBeGreaterThan(5);
     for (const name of files) {
-      const record = authoringRecordSchemas.tests.parse(
-        JSON.parse(readFileSync(resolve(directory, name), 'utf8')),
-      );
+      const record = authoringRecordSchemas.tests.parse(featureLabYamlRecord('tests', name));
       const source = codec.encode(record);
       expect(codec.decode(source), name).toEqual(record);
       expect(source, name).not.toMatch(/^  kind: test$/mu);

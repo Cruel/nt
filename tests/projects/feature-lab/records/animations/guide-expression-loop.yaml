@@ -1,0 +1,22 @@
+id: guide-expression-loop
+label: Guide Expression Loop
+data:
+  canvas:
+    width: 384
+    height: 768
+  defaultMotionId: expressions
+  motions:
+    - id: expressions
+      kind: sprite-sequence
+      frames:
+        - image: pilot-character-neutral
+          durationMs: 700
+        - image: pilot-character-smile
+          durationMs: 300
+      markers: []
+    - id: still
+      kind: sprite-sequence
+      frames:
+        - image: pilot-character-neutral
+          durationMs: 1000
+      markers: []

@@ -1,0 +1,108 @@
+data:
+  contract:
+    inputs:
+      caption:
+        defaultValue: Flow panel
+        type: string
+      current_room:
+        defaultValue: null
+        nullable: true
+        type: string
+      mode:
+        defaultValue: playing
+        type: string
+      owner_label:
+        defaultValue: Scene defaults
+        type: string
+      paused:
+        defaultValue: false
+        type: boolean
+      scope:
+        defaultValue: flow
+        type: string
+      stock:
+        defaultValue: 3
+        type: integer
+    signals:
+      accepted:
+        fields:
+          count:
+            type: integer
+    state:
+      defaultValue:
+        count: 0
+        details:
+          label: default
+          optional: null
+        samples:
+          - 1
+          - null
+          - 2.5
+      fields:
+        count:
+          shape:
+            type: integer
+        details:
+          shape:
+            fields:
+              label:
+                shape:
+                  type: string
+              optional:
+                shape:
+                  nullable: true
+                  type: string
+            type: object
+        samples:
+          shape:
+            items:
+              nullable: true
+              type: number
+            type: array
+      type: object
+  dependencies:
+    data:
+      - $ref:
+          collection: assets
+          id: notice-board-data
+    fonts:
+      - $ref:
+          collection: assets
+          id: dejavusans
+    images:
+      - $ref:
+          collection: assets
+          id: ui-pattern
+    scripts:
+      - scripts/layout-counter-ui.lua
+    stylesheets:
+      - $ref:
+          collection: assets
+          id: counter-shared-style
+    templates:
+      - $ref:
+          collection: assets
+          id: counter-template
+  lua:
+    sourceMode: file
+  rcss:
+    sourceAsset:
+      $ref:
+        collection: assets
+        id: counter-style
+    sourceMode: asset
+  rml:
+    sourceAsset:
+      $ref:
+        collection: assets
+        id: counter-document
+    sourceMode: asset
+  sampleState:
+    inputs:
+      caption: Flow panel
+      scope: flow
+  script:
+    enabled: true
+    namespace: layout_counter_ui
+id: flow-counter
+label: Flow counter

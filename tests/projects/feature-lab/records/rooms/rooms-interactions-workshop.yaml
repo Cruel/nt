@@ -1,0 +1,128 @@
+id: rooms-interactions-workshop
+# The catalog launches this Room by ID; its display label may change independently.
+label: Rooms & Interactions Workshop
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Rooms & Interactions Workshop
+  background:
+    asset: pilot-room-backdrop
+    color: "#10202b"
+  description:
+    source:
+      kind: inline
+      text: The bedroom door is locked. Press the wall button, then try the door again.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  interactables:
+    - id: gate-lever
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: gate-lever-1
+      placementId: gate-lever-placement
+      order: 10
+    - id: navigation-policy-button
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: navigation-policy-button
+      placementId: navigation-policy-button-placement
+      order: 20
+  exits:
+    - id: east-gate
+      label: Bedroom Door
+      direction: east
+      target: rooms-interactions-destination
+      condition:
+        kind: variable-comparison
+        variable: gate-unlocked
+        operator: truthy
+      transition:
+        kind: fade
+        durationMs: 300
+        color: "#000000"
+        skippable: true
+      onRejected:
+        - id: gate-locked
+          kind: notify
+          message:
+            source:
+              kind: inline
+              text: The bedroom door is locked.
+            markup: plain
+    - id: policy-door
+      label: Guarded policy door
+      direction: north
+      target: rooms-interactions-policy-target
+  placements:
+    - id: gate-lever-placement
+      bounds:
+        x: 0.69
+        "y": 0.25
+        width: 0.08
+        height: 0.14
+      presentation:
+        label: null
+        layout: null
+    - id: navigation-policy-button-placement
+      bounds:
+        x: 0.12
+        "y": 0.68
+        width: 0.08
+        height: 0.14
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Directed relocation
+          markup: plain
+        layout: null
+  features:
+    - id: east-gate-control
+      label: Bedroom Door
+      traits: []
+      localProperties: []
+      defaultProperties: []
+      inventories: []
+  hotspots:
+    - id: east-gate-control-hotspot
+      label: Bedroom Door
+      condition: always
+      inputOrder: 1
+      highlight:
+        kind: default
+      shape:
+        kind: rect
+        bounds:
+          x: 0.76
+          "y": 0.02
+          width: 0.19
+          height: 0.82
+      target:
+        kind: exit
+        exitId: east-gate
+    - id: policy-door-hotspot
+      label: Guarded policy door
+      condition: always
+      inputOrder: 2
+      highlight:
+        kind: default
+      shape:
+        kind: rect
+        bounds:
+          x: 0.02
+          "y": 0.02
+          width: 0.18
+          height: 0.45
+      target:
+        kind: exit
+        exitId: policy-door

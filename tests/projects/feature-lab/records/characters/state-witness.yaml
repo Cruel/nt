@@ -1,0 +1,51 @@
+id: state-witness
+label: State Witness
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties:
+  - id: shared-state
+    label: Shared key
+    type: integer
+    nullable: false
+    value: 7
+data:
+  displayName: State Witness
+  dialogue:
+    name: State Witness
+    nameColor: "#8fd8ff"
+  profiles:
+    - id: stage
+      label: Stage
+      layers:
+        - id: body
+          label: Body
+          role: body
+      defaultPoseId: standing
+      poses:
+        - id: standing
+          label: Standing
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-neutral
+  expressions:
+    - id: neutral
+      label: Neutral
+    - id: smile
+      label: Smile
+      profiles:
+        - profileId: stage
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-smile
+  inventories:
+    - id: bag
+      label: Witness bag
+  initialWorldState:
+    location:
+      kind: room
+      room: properties-and-traits

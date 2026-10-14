@@ -1,0 +1,34 @@
+id: effects-owner-child
+label: effects-owner-child
+data:
+  displayName: effects-owner-child
+  stage:
+    kind: inherited
+  events:
+    - id: owners
+      label: owners
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.set_background({owner='session',color='#152530'})); assert(noveltea.presentation.set_actor('visit-guide','pilot-guide','stage','standing','smile',{owner='current-room',position='left'})); assert(noveltea.presentation.set_actor('owner-guide','pilot-guide','stage','standing','neutral',{owner='scene',position='right'})); assert(noveltea.presentation.set_prop('visit-button',{owner='current-room',asset='pilot-button-sprite',x=0.2,y=0.3,width=0.1,height=0.1})); assert(noveltea.presentation.set_environment('session-light','engine2d-draw-contract',{owner='session',opacity=0.1})); assert(audio.set_loop('visit-loop','pilot-cue-audio','ambience',{owner='current-room',gain=0.08})); assert(audio.set_loop('session-loop','music-loop','music',{owner='session',gain=0.1}))
+      mayYield: false
+    - id: return
+      label: return
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Owner sample: Scene actor at right, visit button, session textureless light and two loops. Continue to return from this child: only its actor disappears."
+        markup: active-text
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

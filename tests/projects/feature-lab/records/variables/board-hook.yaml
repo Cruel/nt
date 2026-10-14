@@ -1,0 +1,5 @@
+id: board-hook
+label: board-hook
+data:
+  type: string
+  value: none

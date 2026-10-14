@@ -18,20 +18,18 @@ describe('tracked localization YAML ownership', () => {
   it('preserves Feature Lab messages, provenance, source tracking and every locale fragment', () => {
     const root = resolve(process.cwd(), '../tests/projects/feature-lab/i18n');
     for (const name of ['project', 'messages', 'usage-notes', 'tracking', 'orphans']) {
-      const original = JSON.parse(readFileSync(resolve(root, `${name}.json`), 'utf8'));
       const codec = projectWorkspaceSourceCodec(`i18n/${name}.yaml`);
+      const original = codec.decode(readFileSync(resolve(root, `${name}.yaml`), 'utf8'));
       const source = codec.encode(original);
       expect(codec.decode(source), name).toEqual(original);
       expect(codec.encode(codec.decode(source), undefined, source)).toBe(source);
     }
     for (const category of ['locales', 'assets']) {
       for (const filename of readdirSync(resolve(root, category)).filter((name) =>
-        name.endsWith('.json'),
+        name.endsWith('.yaml'),
       )) {
-        const original = JSON.parse(readFileSync(resolve(root, category, filename), 'utf8'));
-        const codec = projectWorkspaceSourceCodec(
-          `i18n/${category}/${filename.replace(/\.json$/u, '.yaml')}`,
-        );
+        const codec = projectWorkspaceSourceCodec(`i18n/${category}/${filename}`);
+        const original = codec.decode(readFileSync(resolve(root, category, filename), 'utf8'));
         expect(codec.decode(codec.encode(original)), `${category}/${filename}`).toEqual(original);
       }
     }

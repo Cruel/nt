@@ -1,0 +1,24 @@
+id: director-continue-dialogue
+label: director-continue-dialogue
+data:
+  displayName: director-continue-dialogue
+  stage:
+    kind: inherited
+  events:
+    - id: replace
+      label: replace
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Continue replaces this invocation with a Dialogue while retaining its Room caller.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: continue-dialogue
+    dialogue: interview-return

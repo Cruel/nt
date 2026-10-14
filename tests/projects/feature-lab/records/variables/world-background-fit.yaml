@@ -1,0 +1,5 @@
+id: world-background-fit
+label: World Background Fit
+data:
+  type: string
+  value: contain

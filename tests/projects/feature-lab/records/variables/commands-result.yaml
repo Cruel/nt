@@ -1,0 +1,5 @@
+id: commands-result
+label: Commands & Discovery Result
+data:
+  type: string
+  value: idle

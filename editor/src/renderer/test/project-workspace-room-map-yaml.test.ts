@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
   cloneAuthoringProject,
   createAuthoringProject,
@@ -14,6 +12,11 @@ import {
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
+import {
+  featureLabYamlFiles,
+  featureLabYamlRecord,
+  featureLabYamlSource,
+} from './feature-lab-yaml-fixtures';
 
 const root = '/project';
 
@@ -69,12 +72,76 @@ function yamlFiles(project: ReturnType<typeof fixture>) {
 }
 
 describe('Room and Map restricted sparse YAML workspace', () => {
+  it('preserves a real Feature Lab note through editor saves and reopens', async () => {
+    const roomPath = 'records/rooms/rooms-interactions-workshop.yaml';
+    const source = featureLabYamlSource('rooms', 'rooms-interactions-workshop.yaml');
+    const codec = projectWorkspaceSourceCodec(roomPath);
+    const record = authoringRecordSchemas.rooms.parse(codec.decode(source));
+    const note =
+      '# The catalog launches this Room by ID; its display label may change independently.';
+    expect(source).toContain(note);
+    const project = createAuthoringProject({ id: 'feature-lab-notes', name: 'Notes' });
+    project.rooms[record.id] = record;
+    const files = {
+      ...projectWorkspaceFiles(project, project.editor, {}, new Set([roomPath])),
+      [roomPath]: source,
+    };
+    const root = '/feature-lab-notes';
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(files).map(([path, text]) => [`${root}/${path}`, text])),
+    );
+    const service = new ProjectWorkspaceService(fs);
+    const opened = await service.open(root);
+    expect(opened.ok ? '' : JSON.stringify(opened.diagnostics)).toBe('');
+    if (!opened.ok) return;
+
+    const relabeled = cloneAuthoringProject(opened.snapshot.project);
+    relabeled.rooms[record.id]!.label = 'Workshop (edited)';
+    await service.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      relabeled,
+      relabeled.editor,
+      {},
+      { affectedPaths: [`/rooms/${record.id}/label`] },
+    );
+    const changed = await fs.readText(`${root}/${roomPath}`);
+    expect(changed).toContain(note);
+    expect(codec.decode(changed)).toEqual(relabeled.rooms[record.id]);
+
+    const reopened = await service.open(root);
+    expect(reopened.ok ? '' : JSON.stringify(reopened.diagnostics)).toBe('');
+    if (!reopened.ok) return;
+    const editedDescription = cloneAuthoringProject(reopened.snapshot.project);
+    editedDescription.rooms[record.id]!.data.description.source = {
+      kind: 'inline',
+      text: 'Updated introduction',
+    };
+    await service.write(
+      root,
+      reopened.snapshot.workspaceRevision,
+      editedDescription,
+      editedDescription.editor,
+      {},
+      { affectedPaths: [`/rooms/${record.id}/data/description/source/text`] },
+    );
+    const unchanged = await fs.readText(`${root}/${roomPath}`);
+    expect(unchanged).toContain(note);
+    expect(codec.decode(unchanged)).toEqual(editedDescription.rooms[record.id]);
+
+    const finalOpen = await service.open(root);
+    expect(finalOpen.ok ? '' : JSON.stringify(finalOpen.diagnostics)).toBe('');
+    if (finalOpen.ok)
+      expect(finalOpen.snapshot.project.rooms[record.id]).toEqual(
+        editedDescription.rooms[record.id],
+      );
+  }, 30_000);
+
   it('preserves all existing Feature Lab Room semantics when projected into canonical YAML', () => {
-    const directory = resolve(process.cwd(), '../tests/projects/feature-lab/records/rooms');
-    const names = readdirSync(directory).filter((name) => name.endsWith('.json'));
+    const names = featureLabYamlFiles('rooms');
     expect(names.length).toBeGreaterThan(40);
     for (const name of names) {
-      const original = JSON.parse(readFileSync(resolve(directory, name), 'utf8')) as unknown;
+      const original = featureLabYamlRecord('rooms', name);
       const normalized = authoringRecordSchemas.rooms.parse(original);
       const codec = projectWorkspaceSourceCodec(`records/rooms/${name.slice(0, -5)}.yaml`);
       const source = codec.encode(normalized);

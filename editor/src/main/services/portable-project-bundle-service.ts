@@ -192,6 +192,9 @@ async function portableProjectOwnedPaths(
   };
   for (const sourcePath of assetSourcePaths(snapshot.project))
     addOwnedSourcePath(sourcePath, 'Asset');
+  for (const layout of Object.values(snapshot.project.layouts))
+    for (const scriptPath of layout.data.dependencies.scripts)
+      addOwnedSourcePath(scriptPath, 'Layout script dependency');
   for (const sourcePath of projectAttachmentPaths(snapshot.project))
     addOwnedSourcePath(sourcePath, 'Asset attachment');
   for (const notice of snapshot.project.settings.distributionNotices)

@@ -1,0 +1,132 @@
+id: script-and-data
+label: script-and-data
+data:
+  displayName: script-and-data
+  stage:
+    kind: inherited
+  events:
+    - id: load-board
+      label: load-board
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: local epoch = os.time(); noveltea.notify('Gameplay local ' .. os.date('%Y-%m-%d %H:%M:%S', epoch) .. ' / UTC ' .. os.date('!%Y-%m-%d %H:%M:%S', epoch) .. ' / difference ' .. tostring(os.difftime(epoch, epoch - 60)))
+      mayYield: false
+    - id: board-layout
+      label: board-layout
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-layout
+      owner: invocation
+      layout: notice-board
+      action: show
+      slot: custom
+      transition: none
+      durationMs: 0
+    - id: ready-caption
+      label: ready-caption
+      condition:
+        kind: lua-predicate
+        source: type(Game.prop('board-title')) == 'string'
+        additionalDependencies:
+          targets: []
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: lua-expression
+          source: "return 'Data board title from a synchronous text expression: ' .. assert(Game.prop('board-title'))"
+          additionalDependencies:
+            targets: []
+        markup: plain
+      speaker: null
+      wait: input
+    - id: seed
+      label: seed
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: "math.randomseed(77); local first = math.random(1, 1000); assert(Game.set_prop('board-ticket', first)); noveltea.notify('First ticket: ' .. tostring(first))"
+      mayYield: false
+    - id: save-boundary
+      label: save-boundary
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Save here before drawing the next ticket. Continue to draw; load that save and Continue again to repeat the same next ticket.
+        markup: plain
+      speaker: null
+      wait: input
+    - id: ready-proof
+      label: ready-proof
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: local invalid, invalid_error = noveltea.random.integer(9, 1); assert(invalid == nil and type(invalid_error) == 'string')
+      mayYield: false
+    - id: draw
+      label: draw
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: "local next_ticket = assert(noveltea.random.integer(1, 1000)); assert(Game.set_prop('board-ticket', next_ticket)); noveltea.notify('Next ticket: ' .. tostring(next_ticket))"
+      mayYield: false
+    - id: next-ticket
+      label: next-ticket
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: lua-expression
+          source: "return 'Next ticket: ' .. tostring(Game.prop('board-ticket')) .. '. Restore your save to repeat it, or Continue for an explicitly yielding audio effect.'"
+          additionalDependencies:
+            targets: []
+        markup: plain
+      speaker: null
+      wait: input
+    - id: yield-audio
+      label: yield-audio
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(audio.play_and_wait('pilot-cue-audio', 'sound-effect')); noveltea.notify('Yielding notice completed after its exact audio operation.')
+    - id: complete
+      label: complete
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: The yielding effect resumed. The data board, calendar and saved random stream use ordinary public APIs.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

@@ -1,0 +1,152 @@
+id: director-waits
+label: director-waits
+data:
+  displayName: director-waits
+  stage:
+    kind: inherited
+  events:
+    - id: background
+      label: background
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-background
+      owner: invocation
+      asset: null
+      materialApplication: null
+      color: "#254848"
+      fit: cover
+      transition: fade
+      durationMs: 250
+    - id: settle-background
+      label: settle-background
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: operation
+      eventId: background
+      skippable: true
+    - id: sound
+      label: sound
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: audio-cue
+      owner: invocation
+      asset: pilot-cue-audio
+      purpose: sound-effect
+      action: play
+      lifetime: one-shot
+      pausePolicy: owner
+      gain: 1
+      pan: 0
+      panSource: null
+      fadeMs: 0
+      causality: causal
+      synchronized: false
+      skipBehavior: suppress
+      instanceId: null
+      replacementGroup: null
+    - id: settle-sound
+      label: settle-sound
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: audio
+      eventId: sound
+      skippable: true
+    - id: duration
+      label: duration
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: duration
+      durationMs: 250
+      skippable: true
+    - id: condition
+      label: condition
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: condition
+      waitCondition:
+        kind: lua-predicate
+        source: return true
+        additionalDependencies:
+          targets: []
+      skippable: false
+    - id: input
+      label: input
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Finite background and audio completed, then a duration and pure Condition wait. Continue to wait for the declared Layout signal.
+        markup: plain
+      speaker: null
+      wait: input
+    - id: panel
+      label: panel
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-layout
+      owner: invocation
+      layout: notice-board
+      action: show
+      slot: custom
+      transition: none
+      durationMs: 0
+    - id: signal
+      label: signal
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: layout-signal
+      owner: invocation
+      slot: custom
+      signalId: accepted
+      skippable: false
+    - id: signal-completed
+      label: signal-completed
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: The exact mounted notice board accepted the Scene signal. Continue to release its invocation-owned panel.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

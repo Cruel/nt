@@ -1,0 +1,20 @@
+id: active-text-finish
+label: Notice acknowledged
+data:
+  displayName: Notice acknowledged
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: All notice lines acknowledged. Restart to inspect paging and effects again.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540

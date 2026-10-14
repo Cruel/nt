@@ -1,0 +1,17 @@
+id: lab-dynamic-conflict
+label: Dynamic Property Conflict
+archetype: null
+archetypeOverrides: {}
+traits: []
+defaultProperties:
+  - id: dynamic-key
+    label: Dynamic key
+    type: boolean
+    nullable: false
+    defaultValue: false
+data:
+  displayName: Dynamic conflict specimen
+  stackable: false
+  stackLimit: null
+  presentation:
+    cursor: null

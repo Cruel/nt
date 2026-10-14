@@ -1,0 +1,30 @@
+id: rules-recipient
+label: Rules Recipient
+data:
+  displayName: Rules Recipient
+  dialogue:
+    name: Rules Recipient
+    nameColor: "#8fd8ff"
+  profiles:
+    - id: stage
+      label: Stage
+      layers:
+        - id: body
+          label: Body
+          role: body
+      defaultPoseId: standing
+      poses:
+        - id: standing
+          label: Standing
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-neutral
+  expressions:
+    - id: neutral
+      label: Neutral
+  initialWorldState:
+    location:
+      kind: room
+      room: interaction-rules

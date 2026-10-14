@@ -1,0 +1,5 @@
+id: commands-offer-enabled
+label: Commands Offer Enabled
+data:
+  type: boolean
+  value: false

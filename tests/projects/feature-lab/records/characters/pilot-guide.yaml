@@ -1,0 +1,39 @@
+id: pilot-guide
+label: Pilot Guide
+data:
+  displayName: Pilot Guide
+  dialogue:
+    name: Guide
+    nameColor: "#8fd8ff"
+  profiles:
+    - id: stage
+      label: Stage
+      layers:
+        - id: body
+          label: Body
+          role: body
+      defaultPoseId: standing
+      poses:
+        - id: standing
+          label: Standing
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-neutral
+  expressions:
+    - id: neutral
+      label: Neutral
+    - id: smile
+      label: Smile
+      profiles:
+        - profileId: stage
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-smile
+  initialWorldState:
+    location:
+      kind: room
+      room: world-composition

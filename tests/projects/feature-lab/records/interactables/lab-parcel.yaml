@@ -1,0 +1,29 @@
+id: lab-parcel
+label: Delivery Parcel
+archetype: null
+archetypeOverrides: {}
+traits: []
+defaultProperties: []
+data:
+  displayName: Delivery Parcel
+  stackable: false
+  stackLimit: null
+  presentation:
+    visual:
+      kind: image
+      image: pilot-button-sprite
+    cursor: null
+    hotspots:
+      kind: visual-alpha
+      hotspot:
+        id: parcel
+        label: Delivery parcel
+        condition: always
+        inputOrder: 0
+        highlight:
+          kind: default
+        target:
+          kind: owner
+  features:
+    - id: seal
+      label: Parcel seal

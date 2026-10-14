@@ -1,0 +1,68 @@
+id: background-stories
+label: background-stories
+data:
+  displayName: background-stories
+  stage:
+    kind: inherited
+  events:
+    - id: launch-background-clock-a
+      label: launch-background-clock-a
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: start-detached-scene
+      scene: background-clock-a
+      owner: runtime-session
+    - id: launch-background-clock-b
+      label: launch-background-clock-b
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: start-detached-scene
+      scene: background-clock-b
+      owner: runtime-session
+    - id: launch-background-flow-clock
+      label: launch-background-flow-clock
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: start-detached-scene
+      scene: background-flow-clock
+      owner: flow
+    - id: launch-background-visit-clock
+      label: launch-background-visit-clock
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: start-detached-scene
+      scene: background-visit-clock
+      owner: active-room
+    - id: launch-background-session-clock
+      label: launch-background-session-clock
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: start-detached-scene
+      scene: background-session-clock
+      owner: runtime-session
+    - id: foreground
+      label: foreground
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Two deliveries arrive after one second while this caption remains playable. Continue to end the launching Flow, then use Leave to end this Room visit. Only the session clock delivers after five seconds.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

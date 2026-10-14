@@ -1,0 +1,37 @@
+id: gate-lever
+label: Gate Button
+archetype: null
+archetypeOverrides: {}
+traits: []
+defaultProperties: []
+data:
+  displayName: Gate Button
+  stackable: false
+  stackLimit: null
+  presentation:
+    visual:
+      kind: image
+      image: pilot-button-sprite
+    materialApplication:
+      material: engine2d-draw-contract
+      parameters:
+        u_strength:
+          type: float
+          source:
+            kind: literal
+            value: 0.25
+      textures: {}
+    hotspots:
+      kind: visual-alpha
+      hotspot:
+        id: button
+        label: Wall Button
+        condition: always
+        inputOrder: 0
+        highlight:
+          kind: default
+        target:
+          kind: owner
+  features:
+    - id: handle
+      label: Button Face

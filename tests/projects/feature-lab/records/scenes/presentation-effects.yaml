@@ -1,0 +1,685 @@
+id: presentation-effects
+label: presentation-effects
+data:
+  displayName: presentation-effects
+  stage:
+    kind: staged-room
+    room: presentation-effects
+  events:
+    - id: owner-child
+      label: owner-child
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-scene
+      scene: effects-owner-child
+    - id: owner-query
+      label: owner-query
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(not noveltea.presentation.actor('owner-guide',{owner='scene'})); assert(noveltea.presentation.actor('visit-guide') and noveltea.presentation.background({owner='session'})); assert(noveltea.presentation.prop('visit-button') and noveltea.presentation.environment('session-light',{owner='session'})); noveltea.notify('Scene actor absent; visit Prop and session Environment retained.')
+      mayYield: false
+    - id: owners
+      label: owners
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Visit Prop and session Environment remain after Return. Continue to leave the Room: visit loop/Prop end; session light/Music remain. Restart removes everything."
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: leave-owners
+      label: leave-owners
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: directed-room-change
+      room: feature-lab-home
+    - id: visit-query
+      label: visit-query
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(not noveltea.presentation.prop('visit-button')); assert(not noveltea.presentation.actor('visit-guide') and noveltea.presentation.background({owner='session'})); assert(not audio.state('visit-loop',{owner='current-room'})); assert(audio.state('session-loop') and noveltea.presentation.environment('session-light',{owner='session'})); noveltea.notify('Visit Prop and loop absent; session Environment and Music retained.')
+      mayYield: false
+    - id: visit-ended
+      label: visit-ended
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Now Current Room is home; this Flow continues with invocation-local visual effects without rerunning a Room lifecycle.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: camera
+      label: Camera emphasis
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-dialogue
+      dialogue: effects-camera
+      startBlockId: null
+    - id: clear-owner-demo
+      label: clear-owner-demo
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.clear_background({owner='session'})); assert(audio.clear_loop('session-loop')); assert(noveltea.presentation.clear_environment('session-light',{owner='session'}))
+      mayYield: false
+    - id: baseline
+      label: baseline
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-background
+      owner: invocation
+      asset: pilot-room-backdrop
+      materialApplication: null
+      color: "#172033"
+      fit: cover
+      transition: none
+      durationMs: 0
+    - id: guide
+      label: guide
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: actor-cue
+      owner: invocation
+      slotId: guide
+      character: pilot-guide
+      action: show
+      profileId: stage
+      poseId: standing
+      expressionId: neutral
+      appearanceId: null
+      position: left
+      offset:
+        x: 0
+        "y": 0
+      scale: 1
+      transition: none
+      durationMs: 0
+    - id: panel
+      label: panel
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-layout
+      owner: invocation
+      layout: effects-panel
+      action: show
+      slot: overlay
+      transition: none
+      durationMs: 0
+    - id: finite-intro
+      label: finite-intro
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Continue to start a background fade, actor slide and Layout fade/swap concurrently, then immediately replace only the actor target. Background and Layout must continue; the actor reaches its complete replacement target.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: background-fade
+      label: background-fade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-background
+      owner: invocation
+      asset: null
+      materialApplication: null
+      color: "#512033"
+      fit: cover
+      transition: fade
+      durationMs: 1500
+    - id: actor-slide
+      label: actor-slide
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: actor-cue
+      owner: invocation
+      slotId: guide
+      character: pilot-guide
+      action: move
+      profileId: stage
+      poseId: standing
+      expressionId: smile
+      appearanceId: null
+      position: right
+      offset:
+        x: 0
+        "y": 0
+      scale: 1
+      transition: slide
+      durationMs: 1500
+    - id: panel-fade
+      label: panel-fade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-layout
+      owner: invocation
+      layout: effects-panel-swap
+      action: swap
+      slot: overlay
+      transition: fade
+      durationMs: 1500
+    - id: actor-replace
+      label: actor-replace
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: actor-cue
+      owner: invocation
+      slotId: guide
+      character: pilot-guide
+      action: move
+      profileId: stage
+      poseId: standing
+      expressionId: neutral
+      appearanceId: null
+      position: center
+      offset:
+        x: 0
+        "y": 0
+      scale: 1
+      transition: fade
+      durationMs: 600
+    - id: finite-watch
+      label: finite-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Watch until the unrelated fade completes. Continue through Cut, Fade and Dissolve: background, actor and WorldOverlay marker share one world target; HUD/Scene Text/menu and bars stay outside capture."
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: group-cut
+      label: group-cut
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: transition-group
+      owner: invocation
+      transitionKind: cut
+      durationMs: 0
+      color: null
+      children:
+        - id: background
+          type: set-background
+          asset: pilot-room-backdrop
+          materialApplication: null
+          color: "#204050"
+          fit: cover
+        - id: actor
+          type: actor-cue
+          slotId: guide
+          character: pilot-guide
+          action: show
+          profileId: stage
+          poseId: standing
+          expressionId: neutral
+          appearanceId: null
+          position: right
+          offset:
+            x: 0
+            "y": 0
+          scale: 1
+        - id: overlay
+          type: set-layout
+          layout: effects-panel
+          action: show
+          slot: overlay
+    - id: inspect-cut
+      label: inspect-cut
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Inspect cut world group. Continue for the next effect; try skip during animated groups on a separate restart.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: group-fade
+      label: group-fade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: transition-group
+      owner: invocation
+      transitionKind: fade
+      durationMs: 1200
+      color: "#000000"
+      waitForCompletion: true
+      children:
+        - id: background
+          type: set-background
+          asset: null
+          materialApplication: null
+          color: "#204050"
+          fit: cover
+        - id: actor
+          type: actor-cue
+          slotId: guide
+          character: pilot-guide
+          action: show
+          profileId: stage
+          poseId: standing
+          expressionId: smile
+          appearanceId: null
+          position: left
+          offset:
+            x: 0
+            "y": 0
+          scale: 1
+        - id: overlay
+          type: set-layout
+          layout: effects-panel
+          action: show
+          slot: overlay
+    - id: inspect-fade
+      label: inspect-fade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Inspect fade world group. Continue for the next effect; try skip during animated groups on a separate restart.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: group-dissolve
+      label: group-dissolve
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: transition-group
+      owner: invocation
+      transitionKind: dissolve
+      durationMs: 1200
+      color: null
+      waitForCompletion: true
+      children:
+        - id: background
+          type: set-background
+          asset: pilot-room-backdrop
+          materialApplication: null
+          color: "#204050"
+          fit: cover
+        - id: actor
+          type: actor-cue
+          slotId: guide
+          character: pilot-guide
+          action: show
+          profileId: stage
+          poseId: standing
+          expressionId: neutral
+          appearanceId: null
+          position: right
+          offset:
+            x: 0
+            "y": 0
+          scale: 1
+        - id: overlay
+          type: set-layout
+          layout: effects-panel
+          action: show
+          slot: overlay
+    - id: inspect-dissolve
+      label: inspect-dissolve
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Inspect dissolve world group. Continue for the next effect; try skip during animated groups on a separate restart.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: text-material
+      label: text-material
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: '[mat id="lab-text" u_amount="1" u_tint="1,0.27,0,1"]Outer orange [mat id="lab-text" u_amount="0"]inner default white[/mat] orange again[/mat].[page][mat id="lab-text" u_amount="1" u_tint="0,0.87,1,1"]Page two cyan overrides survive pagination.[/mat]'
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: world-grade
+      label: world-grade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: upsert
+      instanceId: grade
+      materialApplication:
+        material: lab-grade
+        parameters: {}
+        textures: {}
+      scope: world
+      order: 0
+      clock: gameplay
+    - id: world-grade-watch
+      label: world-grade-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: World grade tints background/actor/WorldOverlay but not HUD/Scene Text. Continue to replace the same identity with full-game scope.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: full-grade
+      label: full-grade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: upsert
+      instanceId: grade
+      materialApplication:
+        material: lab-grade
+        parameters: {}
+        textures: {}
+      scope: full-game-viewport
+      order: 0
+      clock: gameplay
+    - id: full-grade-watch
+      label: full-grade-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Full-game scope now tints admitted UI too, not letterbox bars. Continue to add a second effect in world scope; ordered stacks remain independent.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: world-second
+      label: world-second
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: upsert
+      instanceId: world-second
+      materialApplication:
+        material: lab-grade
+        parameters: {}
+        textures: {}
+      scope: world
+      order: 1
+      clock: gameplay
+    - id: stack-watch
+      label: stack-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Inspect stacked scopes. Continue clears the world effect while retaining full-game grade.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: ordered-invert
+      label: Add inversion after tint
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: upsert
+      instanceId: invert
+      materialApplication:
+        material: lab-invert
+        parameters: {}
+        textures: {}
+      scope: full-game-viewport
+      order: 1
+      clock: gameplay
+    - id: ordered-watch
+      label: Compare effect order
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Full-game tint then inversion: inspect the colors. Continue reorders inversion before tint; the noncommuting pair must visibly change, while the separate world effect remains."
+        markup: plain
+      speaker: null
+      wait: input
+    - id: reorder-invert
+      label: Move inversion before tint
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: upsert
+      instanceId: invert
+      materialApplication:
+        material: lab-invert
+        parameters: {}
+        textures: {}
+      scope: full-game-viewport
+      order: -1
+      clock: gameplay
+    - id: reordered-watch
+      label: Inspect reordered effects
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Inversion then tint now differs from tint then inversion. Continue removes inversion and the separate world effect while retaining full-game grade.
+        markup: plain
+      speaker: null
+      wait: input
+    - id: remove-invert
+      label: Remove inversion
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: remove
+      instanceId: invert
+      materialApplication: null
+      scope: full-game-viewport
+      order: 0
+      clock: gameplay
+    - id: keep-grade
+      label: keep-grade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: upsert
+      instanceId: grade
+      materialApplication:
+        material: lab-grade
+        parameters: {}
+        textures: {}
+      scope: full-game-viewport
+      order: 0
+      clock: gameplay
+    - id: clear-second
+      label: clear-second
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: remove
+      instanceId: world-second
+      materialApplication: null
+      scope: world
+      order: 0
+      clock: gameplay
+    - id: tween-background
+      label: tween-background
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-background
+      owner: invocation
+      asset: pilot-room-backdrop
+      materialApplication:
+        material: engine2d-draw-contract
+        parameters: {}
+        textures: {}
+      color: "#172033"
+      fit: cover
+      transition: none
+      durationMs: 0
+    - id: inspect-grade
+      label: inspect-grade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.postprocess('grade',{owner='scene'})); noveltea.notify('Full-game grade retained after world effect removal.')
+      mayYield: false
+    - id: tween-watch
+      label: tween-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Full-game grade remains. Continue to clear it. Occurrence parameter tween/replacement/skip is exercised in the Materials & Engine2D station with a real preset u_tint Scene flow and semantic Fast Forward witness.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: clear-grade
+      label: clear-grade
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.clear_postprocess('grade',{owner='scene'}))
+      mayYield: false
+    - id: finish
+      label: finish
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Grade cleared. Continue ends Flow and removes its background, actor and Layout. Shake/punch were exercised by the child Dialogue over this staged Room's zoomed Camera View; flash remains intentionally shared with the Dialogue pilot.
+        markup: active-text
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

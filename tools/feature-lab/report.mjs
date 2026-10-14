@@ -1,7 +1,7 @@
 import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { FEATURE_LAB_MANIFEST_RELATIVE_PATH, validateFeatureLabManifest } from './validate.mjs';
+import { FEATURE_LAB_MANIFEST_RELATIVE_PATH, readFeatureLabYamlRecord, validateFeatureLabManifest } from './validate.mjs';
 
 export async function generateFeatureLabAccounting(catalog, options) {
   const { errors, derived } = await validateFeatureLabManifest(catalog, options);
@@ -18,9 +18,9 @@ export async function generateFeatureLabAccounting(catalog, options) {
   })));
   const testRoot = path.join(options.projectRoot, 'records', 'tests');
   const tests = [];
-  for (const filename of (await readdir(testRoot)).filter((name) => name.endsWith('.json')).sort()) {
-    const record = JSON.parse(await readFile(path.join(testRoot, filename), 'utf8'));
-    if (record.id !== filename.slice(0, -5) || record.data?.kind !== 'test' || !Array.isArray(record.data.steps))
+  for (const filename of (await readdir(testRoot)).filter((name) => name.endsWith('.yaml')).sort()) {
+    const record = await readFeatureLabYamlRecord(options.projectRoot, 'tests', filename.slice(0, -5));
+    if (record.id !== filename.slice(0, -5) || record.data?.kind !== undefined || !Array.isArray(record.data?.steps))
       throw new Error(`Invalid authored Test record '${filename}'.`);
     tests.push({
       id: record.id,

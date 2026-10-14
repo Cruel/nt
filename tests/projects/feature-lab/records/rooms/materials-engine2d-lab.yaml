@@ -1,0 +1,130 @@
+id: materials-engine2d-lab
+label: Materials · Engine2D Draw Contract
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Materials · Engine2D Draw Contract
+  background:
+    color: "#101827"
+  description:
+    source:
+      kind: inline
+      text: Both sprites use one Engine2D Material that samples the renderer-owned draw texture. Left inherits the Definition strength; right specializes it at the Instance.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  props:
+    - id: clamp-nearest
+      placementId: sample-a
+      asset: ui-pattern
+      materialApplication:
+        material: lab-clamp-nearest
+        parameters: {}
+        textures: {}
+    - id: repeat-linear
+      placementId: sample-b
+      asset: ui-pattern
+      materialApplication:
+        material: lab-repeat-linear
+        parameters: {}
+        textures: {}
+      order: 1
+    - id: repeat-inherit
+      placementId: sample-c
+      asset: ui-pattern
+      materialApplication:
+        material: lab-repeat-inherit
+        parameters: {}
+        textures:
+          s_pattern:
+            source:
+              $ref:
+                collection: assets
+                id: pilot-button-sprite
+      order: 2
+    - id: material-ordering-prop
+      placementId: material-ordering-placement
+      asset: pilot-button-sprite
+      order: 15
+  interactables:
+    - id: material-definition-sample
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: material-definition-sample
+      placementId: material-definition-placement
+      order: 10
+    - id: material-instance-sample
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: material-instance-sample
+      placementId: material-instance-placement
+      order: 20
+  lifecycle:
+    afterEnter:
+      - id: inspect
+        kind: call-scene
+        scene: materials-engine2d
+  placements:
+    - id: sample-a
+      bounds:
+        x: 0.34
+        "y": 0.15
+        width: 0.14
+        height: 0.18
+      presentation:
+        label: null
+        layout: null
+    - id: sample-b
+      bounds:
+        x: 0.52
+        "y": 0.15
+        width: 0.14
+        height: 0.18
+      presentation:
+        label: null
+        layout: null
+    - id: sample-c
+      bounds:
+        x: 0.7
+        "y": 0.15
+        width: 0.14
+        height: 0.18
+      presentation:
+        label: null
+        layout: null
+    - id: material-definition-placement
+      bounds:
+        x: 0.28
+        "y": 0.38
+        width: 0.16
+        height: 0.24
+      presentation:
+        label: null
+        layout: null
+    - id: material-instance-placement
+      bounds:
+        x: 0.56
+        "y": 0.38
+        width: 0.16
+        height: 0.24
+      presentation:
+        label: null
+        layout: null
+    - id: material-ordering-placement
+      bounds:
+        x: 0.36
+        "y": 0.38
+        width: 0.32
+        height: 0.24
+      presentation:
+        label: null
+        layout: null

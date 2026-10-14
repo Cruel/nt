@@ -1,0 +1,6 @@
+id: story-message
+label: Story Message
+data:
+  type: message
+  value:
+    $message: lab.greeting

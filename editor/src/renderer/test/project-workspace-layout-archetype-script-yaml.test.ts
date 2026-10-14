@@ -1,6 +1,4 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import {
   cloneAuthoringProject,
   createAuthoringProject,
@@ -14,15 +12,13 @@ import {
   projectWorkspaceFiles,
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { featureLabYamlFiles, featureLabYamlRecord } from './feature-lab-yaml-fixtures';
 
 describe('Layout, Archetype and Script Module YAML owners', () => {
   it('retains Feature Lab Archetype pointers and Script Module file ownership', () => {
     for (const family of ['archetypes', 'scripts'] as const) {
-      const directory = resolve(process.cwd(), `../tests/projects/feature-lab/records/${family}`);
-      for (const name of readdirSync(directory).filter((entry) => entry.endsWith('.json'))) {
-        const record = authoringRecordSchemas[family].parse(
-          JSON.parse(readFileSync(resolve(directory, name), 'utf8')),
-        );
+      for (const name of featureLabYamlFiles(family)) {
+        const record = authoringRecordSchemas[family].parse(featureLabYamlRecord(family, name));
         const codec = projectWorkspaceSourceCodec(`records/${family}/${name.slice(0, -5)}.yaml`);
         const yaml = codec.encode(record);
         expect(codec.decode(yaml), name).toEqual(record);

@@ -1,0 +1,5 @@
+id: control-activations
+label: Control activations
+data:
+  type: integer
+  value: 0

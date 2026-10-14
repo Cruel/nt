@@ -1,0 +1,29 @@
+id: lab-pattern
+label: lab-pattern
+data:
+  base:
+    kind: preset
+    preset: engine-2d
+  displayName: lab-pattern
+  shader:
+    fragment:
+      kind: project
+      path: shaders/lab-pattern.fs.sc
+  parameters:
+    u_mix:
+      type: float
+      value: 0.4
+    u_tiles:
+      type: float
+      value: 3
+  textures:
+    s_pattern:
+      source:
+        $ref:
+          collection: assets
+          id: ui-pattern
+      address: repeat
+      filter: nearest
+    s_texColor:
+      address: clamp
+      filter: inherit

@@ -1,0 +1,5 @@
+id: material-level
+label: Material Level
+data:
+  type: number
+  value: 0.2

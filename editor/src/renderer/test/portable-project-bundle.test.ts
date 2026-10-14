@@ -227,6 +227,31 @@ async function createPortableFixture(root: string): Promise<{
   await fs.writeFile(path.join(projectRoot, 'shaders', 'portable.vs.sc'), 'void main() {}\n');
   await fs.writeFile(path.join(projectRoot, 'shaders', 'portable.fs.sc'), 'void main() {}\n');
 
+  // A Layout's direct script dependency is owned source even when no Script Module
+  // record or Asset record points to the same file.
+  const layoutRoot = path.join(projectRoot, 'records', 'layouts', 'hud');
+  await fs.mkdir(layoutRoot, { recursive: true });
+  await fs.mkdir(path.join(projectRoot, 'scripts'), { recursive: true });
+  await fs.writeFile(path.join(projectRoot, 'scripts/hud-helper.lua'), 'return {}\n');
+  await fs.writeFile(path.join(layoutRoot, 'layout.rml'), '<rml><head/><body/></rml>\n');
+  await fs.writeFile(path.join(layoutRoot, 'layout.rcss'), 'body { color: white; }\n');
+  await fs.writeFile(
+    path.join(layoutRoot, 'layout.yaml'),
+    stringifyYaml({
+      id: 'hud',
+      label: 'HUD',
+      data: {
+        layoutKind: 'document',
+        displayName: 'HUD',
+        target: 'default-ui',
+        rml: { sourceMode: 'file' },
+        rcss: { sourceMode: 'file' },
+        lua: { sourceMode: 'none' },
+        dependencies: { scripts: ['scripts/hud-helper.lua'] },
+      },
+    }),
+  );
+
   await fs.mkdir(path.join(projectRoot, 'workflows', 'image'), { recursive: true });
   await fs.writeFile(
     path.join(projectRoot, 'workflows', 'image', 'manifest.json'),
@@ -294,6 +319,9 @@ describe('portable .ntproject Project bundle', () => {
     );
     expect(await fs.readFile(path.join(destination, 'support/other/raw.dat'))).toEqual(
       Buffer.from([0, 255, 128]),
+    );
+    expect(await fs.readFile(path.join(destination, 'scripts/hud-helper.lua'), 'utf8')).toBe(
+      'return {}\n',
     );
     await expect(
       fs.stat(path.join(destination, 'support/other/unreferenced.dat')),

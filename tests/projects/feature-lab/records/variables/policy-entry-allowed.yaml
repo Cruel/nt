@@ -1,0 +1,5 @@
+id: policy-entry-allowed
+label: Policy Entry Allowed
+data:
+  type: boolean
+  value: false

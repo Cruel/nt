@@ -1,0 +1,54 @@
+id: layout-counter
+label: Layout owner workshop
+data:
+  displayName: Layout owner workshop
+  stage:
+    kind: inherited
+  events:
+    - id: mount-panels
+      label: mount-panels
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: |-
+        local function checked(ok, err) if not ok then error(err) end end
+        for _, scope in ipairs({'visit', 'room', 'session'}) do
+          local owner = scope == 'visit' and 'current-room' or scope
+          checked(noveltea.layouts.mount(scope .. '-panel', scope .. '-counter', {owner=owner, room=scope == 'room' and 'layout-counter' or nil, clock='unscaled-presentation', inputs={scope=scope, caption=scope .. ' panel', stock={variable='panel-stock'}, owner_label={property='panel-label', target={kind='room',id='layout-counter'}}, mode={facet='runtime-mode'}, current_room={facet='current-room'}, paused={facet='gameplay-paused'}}, signals={'accepted'}}))
+        end
+        checked(noveltea.layouts.mount('resource-fragment', 'counter-fragment', {owner='current-room', input='normal'}))
+        checked(noveltea.layouts.mount('inline-event-fragment', 'inline-event-fragment', {owner='current-room'}))
+      mayYield: false
+    - id: flow-panel
+      label: flow-panel
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-layout
+      owner: invocation
+      layout: flow-counter
+      action: show
+      slot: custom
+      transition: none
+      durationMs: 0
+    - id: panel-boundary
+      label: panel-boundary
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Commit a Slot in each panel. Save at this boundary, hide/unmount and reopen, or Continue to end the Flow owner. Leave and revisit through the HUD exit to renew the visit; named Room and session panels survive.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

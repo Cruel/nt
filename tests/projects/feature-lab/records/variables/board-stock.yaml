@@ -1,0 +1,5 @@
+id: board-stock
+label: board-stock
+data:
+  type: integer
+  value: 0

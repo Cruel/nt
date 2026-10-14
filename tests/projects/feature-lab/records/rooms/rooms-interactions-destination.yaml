@@ -1,0 +1,32 @@
+id: rooms-interactions-destination
+label: Rooms & Interactions Destination
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Rooms & Interactions Destination
+  background:
+    asset: pilot-room-backdrop
+    color: "#172f3d"
+  description:
+    source:
+      kind: inline
+      text: The unlocked bedroom door leads here. Returning to the Lab starts a fresh session.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: announce-destination
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Destination Room after-enter lifecycle ran.
+          markup: plain

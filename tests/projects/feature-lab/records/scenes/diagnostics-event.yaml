@@ -1,0 +1,55 @@
+id: diagnostics-event
+label: diagnostics-event
+data:
+  displayName: diagnostics-event
+  stage:
+    kind: inherited
+  events:
+    - id: committed-earlier-event
+      label: committed-earlier-event
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(Game.set_prop('diagnostics-progress',1)); noveltea.notify('Earlier Scene Event committed diagnostics-progress=1.')
+      mayYield: false
+    - id: boundary
+      label: boundary
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Progress is 1. Continue to fail the NEXT Event. Earlier Event must remain committed; the later caption must never appear.
+        markup: plain
+      speaker: null
+      wait: input
+    - id: intentional-fault
+      label: intentional-fault
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: error('Feature Lab later Scene Event failure')
+      mayYield: false
+    - id: must-not-appear
+      label: must-not-appear
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "FAIL: cursor advanced past the fault."
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

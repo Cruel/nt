@@ -1,0 +1,23 @@
+id: host-behavior
+label: host-behavior
+data:
+  displayName: host-behavior
+  stage:
+    kind: inherited
+  events:
+    - id: prerequisites
+      label: prerequisites
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "ACTUAL PACKAGED PLAYER ONLY. Use Feature Lab to launch the shared check station named in the guide. Web: retained-canvas resize + Rooms & Interactions; persistence + Save & Resume. Touch: Verbs & Offers / Menus & Input. Desktop cursor: Hotspots & Cursors. Suspend: Sound Desk / Menus & Input. Cold title/Start/display: restart the packaged application. No host privileges or simulated pass flags. Continue to exploration."
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

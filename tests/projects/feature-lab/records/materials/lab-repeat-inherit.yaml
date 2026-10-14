@@ -1,0 +1,15 @@
+id: lab-repeat-inherit
+label: lab-repeat-inherit
+data:
+  base:
+    kind: material
+    material: lab-pattern
+  displayName: lab-repeat-inherit
+  parameters: {}
+  textures:
+    s_pattern:
+      address: repeat
+      filter: nearest
+    s_texColor:
+      address: repeat
+      filter: inherit

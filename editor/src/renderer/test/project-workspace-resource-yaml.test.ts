@@ -1,9 +1,8 @@
 import { describe, expect, it } from 'vite-plus/test';
-import { readdirSync, readFileSync } from 'node:fs';
-import { resolve } from 'node:path';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { featureLabYamlFiles, featureLabYamlRecord } from './feature-lab-yaml-fixtures';
 import {
   cloneAuthoringProject,
   createAuthoringProject,
@@ -17,13 +16,10 @@ import {
 describe('Asset, Animation and Material YAML source profiles', () => {
   it('round-trips resource records without dropping provenance, hashes or settings', () => {
     for (const family of ['assets', 'animations', 'materials'] as const) {
-      const directory = resolve(process.cwd(), `../tests/projects/feature-lab/records/${family}`);
-      const names = readdirSync(directory).filter((name) => name.endsWith('.json'));
+      const names = featureLabYamlFiles(family);
       expect(names.length, family).toBeGreaterThan(0);
       for (const name of names) {
-        const record = authoringRecordSchemas[family].parse(
-          JSON.parse(readFileSync(resolve(directory, name), 'utf8')),
-        );
+        const record = authoringRecordSchemas[family].parse(featureLabYamlRecord(family, name));
         const codec = projectWorkspaceSourceCodec(`records/${family}/${name.slice(0, -5)}.yaml`);
         const source = codec.encode(record);
         expect(codec.decode(source), `${family}/${name}`).toEqual(record);
@@ -36,11 +32,8 @@ describe('Asset, Animation and Material YAML source profiles', () => {
 
   it('keeps comments and explicit metadata while updating other resource fields', () => {
     const family = 'assets';
-    const directory = resolve(process.cwd(), '../tests/projects/feature-lab/records/assets');
-    const name = readdirSync(directory).find((entry) => entry.endsWith('.json'))!;
-    const record = authoringRecordSchemas.assets.parse(
-      JSON.parse(readFileSync(resolve(directory, name), 'utf8')),
-    );
+    const name = featureLabYamlFiles('assets')[0]!;
+    const record = authoringRecordSchemas.assets.parse(featureLabYamlRecord('assets', name));
     const codec = projectWorkspaceSourceCodec(`records/${family}/${name.slice(0, -5)}.yaml`);
     const source = codec.encode(record).replace('label:', '# author note\nlabel:');
     const updated = { ...record, label: `${record.label} updated` };
@@ -50,11 +43,8 @@ describe('Asset, Animation and Material YAML source profiles', () => {
   });
 
   it('opens, edits and reopens YAML Asset metadata through the workspace service', async () => {
-    const directory = resolve(process.cwd(), '../tests/projects/feature-lab/records/assets');
-    const name = readdirSync(directory).find((entry) => entry.endsWith('.json'))!;
-    const asset = authoringRecordSchemas.assets.parse(
-      JSON.parse(readFileSync(resolve(directory, name), 'utf8')),
-    );
+    const name = featureLabYamlFiles('assets')[0]!;
+    const asset = authoringRecordSchemas.assets.parse(featureLabYamlRecord('assets', name));
     const project = createAuthoringProject({ id: 'resources', name: 'Resources' });
     project.assets[asset.id] = asset;
     project.animations.idle = {

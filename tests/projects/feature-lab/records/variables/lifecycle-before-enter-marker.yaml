@@ -1,0 +1,5 @@
+id: lifecycle-before-enter-marker
+label: Lifecycle Before Enter Marker
+data:
+  type: boolean
+  value: false

@@ -1,0 +1,24 @@
+id: interaction-boundary-child
+label: Interaction Boundary Child
+data:
+  displayName: Interaction Boundary Child
+  stage:
+    kind: inherited
+  events:
+    - id: acknowledge
+      label: Acknowledge child
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Acknowledge the child Flow; the parent Interaction resumes at its nested command cursor.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

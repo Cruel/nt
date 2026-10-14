@@ -1,0 +1,431 @@
+id: inventory-workbench
+label: Inventory Workbench
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Inventory Workbench
+  background:
+    color: "#12202b"
+  description:
+    source:
+      kind: inline
+      text: Pack the two labeled specimens, inspect owner-qualified inventories, then exercise the stack controls from left to right.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  interactables:
+    - id: identity-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-identity-control
+      placementId: identity-control
+      order: 10
+    - id: inventory-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-inventory-control
+      placementId: inventory-control
+      order: 11
+    - id: containment-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-containment-control
+      placementId: containment-control
+      order: 12
+    - id: state-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-state-control
+      placementId: state-control
+      order: 13
+    - id: create-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-create-control
+      placementId: create-control
+      order: 14
+    - id: split-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-split-control
+      placementId: split-control
+      order: 15
+    - id: transfer-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-transfer-control
+      placementId: transfer-control
+      order: 16
+    - id: aggregate-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-aggregate-control
+      placementId: aggregate-control
+      order: 17
+    - id: rejection-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-rejection-control
+      placementId: rejection-control
+      order: 18
+    - id: feature-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-feature-control
+      placementId: feature-control
+      order: 19
+    - id: object-a
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-object-a
+      placementId: object-a
+      order: 30
+    - id: object-b
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-object-b
+      placementId: object-b
+      order: 31
+    - id: container
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-container
+      placementId: container
+      order: 32
+    - id: aggregate-bin
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workbench-aggregate-bin
+      placementId: aggregate-bin
+      order: 33
+    - id: split-stack
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: supply-split-stack
+      placementId: split-stack
+      order: 34
+    - id: transfer-whole
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: supply-transfer-whole
+      placementId: transfer-whole
+      order: 35
+    - id: transfer-partial
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: supply-transfer-partial
+      placementId: transfer-partial
+      order: 36
+    - id: reject-stack
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: supply-reject
+      placementId: reject-stack
+      order: 37
+  exits:
+    - id: save-and-resume-test-entry
+      label: Save and resume
+      direction: northwest
+      target: save-and-resume
+    - id: script-and-data-test-entry
+      label: Script & Data
+      direction: southwest
+      target: script-and-data
+    - id: background-stories-test-entry
+      label: Background Stories
+      direction: southeast
+      target: background-stories
+    - id: scene-director-test-entry
+      label: Scene Director
+      direction: northeast
+      target: scene-director
+    - id: return-home
+      label: Return to Feature Lab home
+      direction: west
+      target: feature-lab-home
+    - id: delivery-room
+      label: Delivery room
+      direction: east
+      target: inventory-delivery
+    - id: properties-and-traits-test-entry
+      label: Properties & Traits (automation entry)
+      direction: north
+      target: properties-and-traits
+    - id: runtime-workshop-test-entry
+      label: Runtime Workshop (automation entry)
+      direction: south
+      target: runtime-workshop
+  placements:
+    - id: identity-control
+      bounds:
+        x: 0.05
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Identity
+          markup: plain
+        layout: null
+    - id: inventory-control
+      bounds:
+        x: 0.14
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Inventories
+          markup: plain
+        layout: null
+    - id: containment-control
+      bounds:
+        x: 0.23
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Containment
+          markup: plain
+        layout: null
+    - id: state-control
+      bounds:
+        x: 0.32
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Enabled / visible
+          markup: plain
+        layout: null
+    - id: create-control
+      bounds:
+        x: 0.41
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Create quantity
+          markup: plain
+        layout: null
+    - id: split-control
+      bounds:
+        x: 0.5
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Split / merge
+          markup: plain
+        layout: null
+    - id: transfer-control
+      bounds:
+        x: 0.59
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Exact transfer
+          markup: plain
+        layout: null
+    - id: aggregate-control
+      bounds:
+        x: 0.68
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Aggregate
+          markup: plain
+        layout: null
+    - id: rejection-control
+      bounds:
+        x: 0.77
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Rejections
+          markup: plain
+        layout: null
+    - id: feature-control
+      bounds:
+        x: 0.86
+        "y": 0.12
+        width: 0.07
+        height: 0.11
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Feature owners
+          markup: plain
+        layout: null
+    - id: object-a
+      bounds:
+        x: 0.08
+        "y": 0.58
+        width: 0.09
+        height: 0.14
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Specimen A
+          markup: plain
+        layout: null
+    - id: object-b
+      bounds:
+        x: 0.2
+        "y": 0.58
+        width: 0.09
+        height: 0.14
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Specimen B
+          markup: plain
+        layout: null
+    - id: container
+      bounds:
+        x: 0.34
+        "y": 0.58
+        width: 0.11
+        height: 0.16
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Filled container
+          markup: plain
+        layout: null
+    - id: aggregate-bin
+      bounds:
+        x: 0.48
+        "y": 0.58
+        width: 0.1
+        height: 0.15
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Aggregate bin
+          markup: plain
+        layout: null
+    - id: split-stack
+      bounds:
+        x: 0.6
+        "y": 0.58
+        width: 0.07
+        height: 0.12
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Split stack
+          markup: plain
+        layout: null
+    - id: transfer-whole
+      bounds:
+        x: 0.69
+        "y": 0.58
+        width: 0.07
+        height: 0.12
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Whole stack
+          markup: plain
+        layout: null
+    - id: transfer-partial
+      bounds:
+        x: 0.78
+        "y": 0.58
+        width: 0.07
+        height: 0.12
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Partial stack
+          markup: plain
+        layout: null
+    - id: reject-stack
+      bounds:
+        x: 0.87
+        "y": 0.58
+        width: 0.07
+        height: 0.12
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Reject stack
+          markup: plain
+        layout: null
+  features:
+    - id: slot
+      label: Room slot
+      traits: []
+      localProperties:
+        - id: shared-state
+          label: Shared key
+          type: string
+          nullable: false
+          value: room-feature-shared
+      defaultProperties: []
+      inventories:
+        - id: feature-pocket
+          label: Room feature pocket

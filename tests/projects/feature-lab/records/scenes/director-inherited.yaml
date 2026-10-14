@@ -1,0 +1,24 @@
+id: director-inherited
+label: director-inherited
+data:
+  displayName: director-inherited
+  stage:
+    kind: inherited
+  events:
+    - id: inherited
+      label: inherited
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Inherited Stage: the bedroom remains visible. Continue to the staged child."
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

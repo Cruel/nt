@@ -1,0 +1,25 @@
+id: director-continue-scene
+label: director-continue-scene
+data:
+  displayName: director-continue-scene
+  stage:
+    kind: inherited
+  events:
+    - id: replace
+      label: replace
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Continue replaces this invocation with a new Scene while retaining its Room caller.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: continue-scene
+    scene: director-inherited
+    inputs: []

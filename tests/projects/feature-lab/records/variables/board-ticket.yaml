@@ -1,0 +1,5 @@
+id: board-ticket
+label: board-ticket
+data:
+  type: integer
+  value: 0

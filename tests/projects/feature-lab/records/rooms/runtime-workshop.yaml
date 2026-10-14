@@ -1,0 +1,191 @@
+id: runtime-workshop
+label: Runtime Workshop
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Runtime Workshop
+  background:
+    color: "#13221b"
+  description:
+    source:
+      kind: inline
+      text: Build temporary Rooms, Characters and Interactables, replace structural configuration, retarget the annex door, and test non-cascading destruction.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  cast:
+    - id: guide
+      character: pilot-guide
+      placementId: guide
+      profileId: stage
+      poseId: standing
+      expressionId: smile
+      appearanceId: null
+      order: 5
+  interactables:
+    - id: archetype-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workshop-archetype-control
+      placementId: archetype-control
+      order: 10
+    - id: create-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workshop-create-control
+      placementId: create-control
+      order: 11
+    - id: config-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workshop-config-control
+      placementId: config-control
+      order: 12
+    - id: retarget-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workshop-retarget-control
+      placementId: retarget-control
+      order: 13
+    - id: destroy-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workshop-destroy-control
+      placementId: destroy-control
+      order: 14
+    - id: config-target
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workshop-config-target
+      placementId: config-target
+      order: 30
+    - id: dependent-owner
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: workshop-dependent-owner
+      placementId: dependent-owner
+      order: 31
+  exits:
+    - id: annex
+      label: Annex door
+      direction: east
+      target: runtime-workshop-annex-a
+    - id: return-home
+      label: Return to Feature Lab home
+      direction: west
+      target: feature-lab-home
+  placements:
+    - id: guide
+      bounds:
+        x: 0.72
+        "y": 0.25
+        width: 0.2
+        height: 0.6
+      presentation:
+        label: null
+        layout: null
+    - id: archetype-control
+      bounds:
+        x: 0.05
+        "y": 0.14
+        width: 0.09
+        height: 0.13
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Materialize
+          markup: plain
+        layout: null
+    - id: create-control
+      bounds:
+        x: 0.17
+        "y": 0.14
+        width: 0.09
+        height: 0.13
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Create / clone
+          markup: plain
+        layout: null
+    - id: config-control
+      bounds:
+        x: 0.29
+        "y": 0.14
+        width: 0.09
+        height: 0.13
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Replace / clear
+          markup: plain
+        layout: null
+    - id: retarget-control
+      bounds:
+        x: 0.41
+        "y": 0.14
+        width: 0.09
+        height: 0.13
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Retarget annex
+          markup: plain
+        layout: null
+    - id: destroy-control
+      bounds:
+        x: 0.53
+        "y": 0.14
+        width: 0.09
+        height: 0.13
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Destroy
+          markup: plain
+        layout: null
+    - id: config-target
+      bounds:
+        x: 0.15
+        "y": 0.58
+        width: 0.11
+        height: 0.16
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Configuration target
+          markup: plain
+        layout: null
+    - id: dependent-owner
+      bounds:
+        x: 0.36
+        "y": 0.58
+        width: 0.11
+        height: 0.16
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Owner with dependent
+          markup: plain
+        layout: null
