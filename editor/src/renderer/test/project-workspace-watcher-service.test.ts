@@ -109,7 +109,7 @@ describe('project workspace watcher policy', () => {
       true,
     );
     expect(
-      shouldIgnoreProjectWorkspaceWatchPath(root, '/project/records/rooms/hall.json.tmp'),
+      shouldIgnoreProjectWorkspaceWatchPath(root, '/project/records/rooms/hall.yaml.tmp'),
     ).toBe(true);
   });
 
@@ -335,7 +335,7 @@ describe('project workspace watcher policy', () => {
       }),
     );
     project.assets.owned.data.attachments = [];
-    watcherHarness.emit('change', path.join(root, 'records/assets/owned.json'));
+    watcherHarness.emit('change', path.join(root, 'records/assets/owned.yaml'));
     await waitForWatcherFlush();
     expect(send).toHaveBeenLastCalledWith(
       expect.any(String),
@@ -355,7 +355,7 @@ describe('project workspace watcher policy', () => {
         new Set(['images/custom/source.webp']),
       ),
     ).toBe('asset');
-    expect(classifyProjectWorkspaceWatchPath(root, '/project/records/rooms/hall.json')).toBe(
+    expect(classifyProjectWorkspaceWatchPath(root, '/project/records/rooms/hall.yaml')).toBe(
       'authoring',
     );
     expect(classifyProjectWorkspaceWatchPath(root, '/project/shaders/effects/main.sc')).toBe(
@@ -383,8 +383,8 @@ describe('project workspace watcher policy', () => {
   it('reconciles an authoring batch only when it carries affected authoring paths', () => {
     const event = {
       projectSessionId: 'session-a',
-      changedPaths: ['records/rooms/hall.json'],
-      authoringChangedPaths: ['records/rooms/hall.json'],
+      changedPaths: ['records/rooms/hall.yaml'],
+      authoringChangedPaths: ['records/rooms/hall.yaml'],
       assetChangedPaths: [],
       authoring: {
         success: true,
@@ -394,7 +394,7 @@ describe('project workspace watcher policy', () => {
           '/rooms/hall/label': { exists: true as const, value: 'Hallway' },
         },
         fileRevisions: {
-          'records/rooms/hall.json': `sha256:${'a'.repeat(64)}` as const,
+          'records/rooms/hall.yaml': `sha256:${'a'.repeat(64)}` as const,
         },
         scriptSourcePaths: {},
       },
@@ -414,7 +414,7 @@ describe('project workspace watcher policy', () => {
     const snapshot = {
       projectRoot: root,
       project,
-      canonicalSourceFiles: ['records/rooms/hall.json'],
+      canonicalSourceFiles: ['records/rooms/hall.yaml'],
       fileRevisions: {},
       scriptSourcePaths: {},
     };
@@ -431,7 +431,7 @@ describe('project workspace watcher policy', () => {
           editorState: emptyEditorProjectState(),
           diagnostics: [],
         },
-        changedPaths: ['records/rooms/hall.json'],
+        changedPaths: ['records/rooms/hall.yaml'],
       };
     });
     const session = {
@@ -464,7 +464,7 @@ describe('project workspace watcher policy', () => {
       isSessionCurrent,
       refreshSession,
     );
-    watcherHarness.emit('change', path.join(root, 'records/rooms/hall.json'));
+    watcherHarness.emit('change', path.join(root, 'records/rooms/hall.yaml'));
 
     await waitForWatcherFlush();
     expect(readFreshRevision).toHaveBeenCalledTimes(1);
@@ -475,7 +475,7 @@ describe('project workspace watcher policy', () => {
     expect(resynchronizeAuthoring).toHaveBeenCalledTimes(1);
     expect(send).toHaveBeenCalledWith(
       expect.any(String),
-      expect.objectContaining({ authoringChangedPaths: ['records/rooms/hall.json'] }),
+      expect.objectContaining({ authoringChangedPaths: ['records/rooms/hall.yaml'] }),
     );
   });
 

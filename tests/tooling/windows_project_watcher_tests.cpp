@@ -47,10 +47,10 @@ ProjectAuthorityRequest project_authority_request(const std::filesystem::path& r
             {
                 ProjectSourceDiscoveryScope{
                     .root = "records",
-                    .extensions = {".json", ".lua", ".rcss", ".rml"},
+                    .extensions = {".yaml", ".lua", ".rcss", ".rml"},
                 },
                 ProjectSourceDiscoveryScope{.root = "scripts", .extensions = {".lua"}},
-                ProjectSourceDiscoveryScope{.root = "i18n", .extensions = {".json"}},
+                ProjectSourceDiscoveryScope{.root = "i18n", .extensions = {".yaml"}},
             },
     };
 }
@@ -81,9 +81,9 @@ int main()
                             "schema: noveltea.project.workspace\nschemaVersion: 1\n") ||
         !write_project_file(root.path / "editor.yaml", "{}\n") ||
         !write_project_file(root.path / "traits.yaml", "{}\n") ||
-        !write_project_file(root.path / "records/room.json", "{\"id\":\"room\"}\n") ||
+        !write_project_file(root.path / "records/room.yaml", "id: room\n") ||
         !write_project_file(root.path / "scripts/main.lua", "return true\n") ||
-        !write_project_file(root.path / "i18n/en.json", "{}\n") ||
+        !write_project_file(root.path / "i18n/locales/en.yaml", "{}\n") ||
         !write_project_file(root.path / "records/ignored.txt", "ignored\n"))
         return fail("could not create the Project fixture");
 

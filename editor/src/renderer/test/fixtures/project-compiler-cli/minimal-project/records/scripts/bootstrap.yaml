@@ -1,0 +1,7 @@
+id: bootstrap
+label: Bootstrap
+description: Project bootstrap module.
+data:
+  source:
+    kind: project-file
+    path: scripts/bootstrap.lua

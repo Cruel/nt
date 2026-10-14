@@ -32,7 +32,7 @@ function reconcile(
     localDocument,
     externalDocument,
     recovery: recoveryState,
-    externalFileRevisions: { 'records/rooms/hall.json': externalRevision },
+    externalFileRevisions: { 'records/rooms/hall.yaml': externalRevision },
   });
 }
 
@@ -86,7 +86,7 @@ describe('external project reconciliation', () => {
       value: 'Disk',
     });
     expect(conflict?.externalFileRevisions).toEqual({
-      'records/rooms/hall.json': REVISION,
+      'records/rooms/hall.yaml': REVISION,
     });
   });
 
@@ -200,7 +200,7 @@ describe('external project reconciliation', () => {
       value: 'Disk 2',
     });
     expect(conflict?.externalFileRevisions).toEqual({
-      'records/rooms/hall.json': newerRevision,
+      'records/rooms/hall.yaml': newerRevision,
     });
   });
 });
