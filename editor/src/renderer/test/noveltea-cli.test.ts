@@ -123,6 +123,47 @@ function validationNativeTools(): NovelTeaCliNativeToolService {
   };
 }
 
+describe('YAML fmt CLI', () => {
+  it('formats nested Layout YAML while retaining block scalars and null versus empty', async () => {
+    const value = fixture();
+    const file = `${root}/records/layouts/dialog/layout.yaml`;
+    const source =
+      '# layout note\nid: dialog\ndata:\n    script: |\n      hello\n      world\n    omitted: null\n    empty: ""\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const result = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/layouts/dialog/layout.yaml'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    const actual = await value.fileSystem.readText(file);
+    expect(actual).toContain('# layout note');
+    expect(actual).toContain('|');
+    expect(parseYaml(actual)).toEqual(parseYaml(source));
+  });
+
+  it('checks without writing, formats source with schema errors, and preserves comments', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const source = '# room note\nid: start\nlabel: "a room"\ndata:\n    unexpected: true\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const checked = await runNovelTeaCli(['--json', 'fmt', '--check'], options(value));
+    expect(checked.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const formatted = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/rooms/start.yaml'],
+      options(value),
+    );
+    expect(formatted.exitCode).toBe(0);
+    const result = await value.fileSystem.readText(file);
+    expect(result).toContain('# room note');
+    expect(parseYaml(result)).toEqual(parseYaml(source));
+    expect((await runNovelTeaCli(['--json', 'fmt', '--check'], options(value))).exitCode).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'fmt', '../outside.yaml'], options(value))).exitCode,
+    ).not.toBe(0);
+  });
+});
+
 describe('staged YAML Variables CLI tracer', () => {
   it('validates a hand-authored Variable and creates the next Variable as sparse YAML', async () => {
     const value = fixture();
@@ -1823,7 +1864,7 @@ describe('NovelTea headless CLI', () => {
     const help = await runNovelTeaCli(['--help'], { cwd: '/missing' });
     expect(help.exitCode).toBe(0);
     expect(help.stderr).toBe('');
-    expect(help.stdout).toContain('Edit record JSON, Lua, RML, and RCSS source files directly');
+    expect(help.stdout).toContain('Edit YAML, Lua, RML, and RCSS source files directly');
     expect(help.stdout).toContain('noveltea validate');
     expect(help.stdout).toContain('--allow-localization-warnings');
     expect(help.stdout).toContain('--no-daemon');
