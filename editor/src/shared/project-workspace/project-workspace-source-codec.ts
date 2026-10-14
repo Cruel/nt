@@ -1,4 +1,5 @@
 import { decodeVariableYaml, encodeVariableYaml } from './variable-yaml-source';
+import { decodeLayoutYaml, encodeLayoutYaml } from './layout-yaml-source';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
 import {
   decodeSparseRecordYaml,
@@ -173,11 +174,18 @@ const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
     ),
 };
 
+const layoutYamlCodec: ProjectWorkspaceSourceCodec = {
+  kind: 'yaml',
+  decode: decodeLayoutYaml,
+  encode: (value, _schema, previousText) => encodeLayoutYaml(value, previousText),
+};
+
 /** The single physical-format selection used by cold open, reconciliation and projection. */
 export function projectWorkspaceSourceCodec(file: string): ProjectWorkspaceSourceCodec {
+  if (/^records\/layouts\/[^/]+\/layout\.yaml$/u.test(file)) return layoutYamlCodec;
   if (/^records\/variables\/[^/]+\.yaml$/u.test(file)) return variableYamlCodec;
   const record =
-    /^records\/(assets|animations|materials|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/[^/]+\.yaml$/u.exec(
+    /^records\/(assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/[^/]+\.yaml$/u.exec(
       file,
     );
   if (record) {

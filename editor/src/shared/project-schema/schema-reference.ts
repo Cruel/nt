@@ -81,6 +81,9 @@ import { defaultDialogueData } from './authoring-dialogues';
 import { defaultSceneData } from './authoring-scenes';
 import { defaultTestData } from './authoring-tests';
 import { defaultMaterialData } from './authoring-materials';
+import { defaultArchetypeData } from './authoring-archetypes';
+import { defaultLayoutData } from './authoring-layouts';
+import { projectWorkspaceSourceCodec } from '../project-workspace/project-workspace-source-codec';
 import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
@@ -473,6 +476,65 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
         '',
       );
     }
+    if (['records/layouts', 'records/archetypes', 'records/scripts'].includes(document.id)) {
+      const label = 'Example';
+      let example: string;
+      if (document.id === 'records/layouts') {
+        const layout = defaultLayoutData(label);
+        const normalized = {
+          id: 'example-layout',
+          label,
+          data: {
+            ...layout,
+            rml: { sourceMode: 'file' },
+            rcss: { sourceMode: 'file' },
+            lua: { sourceMode: 'file' },
+          },
+        };
+        if (!persistedLayoutRecordSchema.safeParse(normalized).success)
+          throw new Error('Generated Layout YAML source violates the persisted source schema.');
+        example = projectWorkspaceSourceCodec('records/layouts/example-layout/layout.yaml').encode(
+          normalized,
+        );
+        if (
+          !persistedLayoutRecordSchema.safeParse(
+            projectWorkspaceSourceCodec('records/layouts/example-layout/layout.yaml').decode(
+              example,
+            ),
+          ).success
+        )
+          throw new Error('Generated Layout YAML example cannot be decoded.');
+      } else {
+        const family = document.id.slice('records/'.length) as 'archetypes' | 'scripts';
+        const record =
+          family === 'archetypes'
+            ? { id: 'example-archetype', label, data: defaultArchetypeData('room') }
+            : {
+                id: 'example-script',
+                label,
+                data: {
+                  kind: 'script-module',
+                  source: { kind: 'project-file', path: 'scripts/example-script.lua' },
+                },
+              };
+        const normalized = authoringRecordSchemas[family].parse(record);
+        example = encodeSparseRecordYaml(family, normalized);
+        if (
+          !authoringRecordSchemas[family].safeParse(decodeSparseRecordYaml(family, example)).success
+        )
+          throw new Error(`Generated ${family} YAML source is invalid.`);
+      }
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        'These records use restricted YAML with stable record identities and comments. Existing JSON owners remain valid during the staged cutover. Layout metadata lives in `records/layouts/<id>/layout.yaml`; RML, RCSS, and Lua remain separate companion files with explicit ownership selectors. Script Module YAML references canonical `scripts/*.lua` project files, never embeds Lua. Archetype overrides remain JSON Pointers, and inheritance and default-property semantics are unchanged.',
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+      );
+    }
     if (
       [
         'rooms',
@@ -488,7 +550,7 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
     ) {
       const family = document.id.slice('records/'.length) as Exclude<
         SparseRecordFamily,
-        'assets' | 'animations' | 'materials'
+        'assets' | 'animations' | 'materials' | 'archetypes' | 'scripts'
       >;
       const label = {
         rooms: 'Example Room',
