@@ -700,6 +700,39 @@ try {
     cwd: tmpdir(),
     env: { ...process.env, NOVELTEA_FFMPEG: undefined },
   });
+  // The media-tool probe is handled by the static host. Also exercise an
+  // actual dynamic Project command: a transitive native-only import must not
+  // make all ordinary ScriptC workspace operations fail at module link time.
+  const smokeProject = path.join(relocatedMediaRoot, 'scriptc-project');
+  run(
+    relocatedCli,
+    ['--no-daemon', '--json', 'project', 'create', smokeProject, '--name', 'Smoke'],
+    {
+      cwd: tmpdir(),
+    },
+  );
+  const validation = spawnSync(
+    relocatedCli,
+    ['--no-daemon', '--json', '--project', smokeProject, 'validate'],
+    { cwd: tmpdir(), encoding: 'utf8' },
+  );
+  if (validation.error) throw validation.error;
+  // A newly created Project intentionally has no gameplay entrypoint. It
+  // must report that semantic diagnostic, not fail to import the ScriptC
+  // workspace or runtime-artifact modules.
+  let validationResponse;
+  try {
+    validationResponse = JSON.parse(validation.stdout);
+  } catch {
+    throw new Error(`Standalone CLI validation returned malformed JSON: ${validation.stdout}`);
+  }
+  if (
+    validation.status !== 4 ||
+    !validationResponse.diagnostics?.some((item) => item.code === 'COMPILER_ENTRYPOINT_REQUIRED')
+  )
+    throw new Error(
+      `Standalone CLI fresh Project validation failed to reach semantic checks: ${validation.stdout} ${validation.stderr}`,
+    );
 } finally {
   await rm(relocatedMediaRoot, { recursive: true, force: true });
 }
