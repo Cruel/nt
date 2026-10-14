@@ -2,10 +2,12 @@ import assert from 'node:assert/strict';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
+import { createRequire } from 'node:module';
 import test from 'node:test';
 import {
   diagnosticOptions, prepareShaderFreeFixture, recordCommand,
 } from '../../scripts/diagnostics/run-cli-diagnostics.mjs';
+const { parse: parseYaml } = createRequire(new URL('../../editor/package.json', import.meta.url))('yaml');
 
 async function temporary(t) {
   const root = await mkdtemp(path.join(os.tmpdir(), 'nt-diagnostics-test-'));
@@ -69,14 +71,13 @@ test('shader-free diagnostic fixture preserves unrelated room and layout data', 
   const root = await temporary(t);
   for (const directory of ['shaders', 'materials', 'rooms', 'layouts/fixture-hud'])
     await mkdir(path.join(root, 'records', directory), { recursive: true });
-  await writeFile(path.join(root, 'records/rooms/foyer.json'), JSON.stringify({
-    id: 'foyer', data: { background: { material: 'test', image: 'keep' }, name: 'preserve' },
-  }));
+  await writeFile(path.join(root, 'records/rooms/foyer.yaml'),
+    'id: foyer\ndata:\n  background:\n    materialApplication: test\n    asset: keep\n  name: preserve\n');
   await writeFile(path.join(root, 'records/layouts/fixture-hud/layout.rml'), '<div/>');
   await prepareShaderFreeFixture(root);
-  const foyer = JSON.parse(await readFile(path.join(root, 'records/rooms/foyer.json'), 'utf8'));
-  assert.equal(foyer.data.background.material, null);
-  assert.equal(foyer.data.background.image, 'keep');
+  const foyer = parseYaml(await readFile(path.join(root, 'records/rooms/foyer.yaml'), 'utf8'));
+  assert.equal(foyer.data.background.materialApplication, null);
+  assert.equal(foyer.data.background.asset, 'keep');
   assert.equal(foyer.data.name, 'preserve');
   await assert.rejects(readFile(path.join(root, 'records/shaders')), { code: 'ENOENT' });
   assert.equal(await readFile(path.join(root, 'records/layouts/fixture-hud/layout.rml'), 'utf8'), '<div/>');

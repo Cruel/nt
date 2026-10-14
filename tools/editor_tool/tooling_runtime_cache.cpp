@@ -278,13 +278,13 @@ bool discovery_contract_matches(const Json& scopes)
 {
     const Json expected =
         Json::array({{{"root", "records"},
-                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                      {"extensions", Json::array({".yaml", ".json", ".lua", ".rcss", ".rml"})},
                       {"excludedPrefixes", Json::array({"records/tests/"})}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "i18n"},
-                      {"extensions", Json::array({".json"})},
+                      {"extensions", Json::array({".yaml", ".json"})},
                       {"excludedPrefixes", Json::array()}}});
     return scopes == expected;
 }
@@ -406,7 +406,8 @@ std::optional<std::set<std::string>> test_files(const std::filesystem::path& roo
         const auto status = iterator->symlink_status(error);
         if (error || std::filesystem::is_symlink(status))
             return std::nullopt;
-        if (std::filesystem::is_regular_file(status) && iterator->path().extension() == ".json") {
+        if (std::filesystem::is_regular_file(status) &&
+            (iterator->path().extension() == ".yaml" || iterator->path().extension() == ".json")) {
             const auto relative = std::filesystem::relative(iterator->path(), root, error);
             if (error)
                 return std::nullopt;
@@ -733,10 +734,10 @@ Json probe_authoring(const Json& request)
 
     const Json scopes =
         Json::array({{{"root", "i18n"},
-                      {"extensions", Json::array({".json"})},
+                      {"extensions", Json::array({".yaml", ".json"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "records"},
-                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                      {"extensions", Json::array({".yaml", ".json", ".lua", ".rcss", ".rml"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},

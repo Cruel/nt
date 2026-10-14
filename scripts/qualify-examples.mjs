@@ -8,6 +8,7 @@ import {
   mkdirSync,
   mkdtempSync,
   readFileSync,
+  readdirSync,
   rmSync,
   statSync,
   writeFileSync,
@@ -69,6 +70,58 @@ export function parseExamplesRevision(text) {
     throw new Error("NovelTea examples pin must be an exact lowercase 40-character Git commit SHA");
   }
   return text.trimEnd();
+}
+
+// External examples are independently versioned. Fail before invoking their builder when the
+// pinned checkout still uses the retired authored JSON layout; asset data stays independent.
+export function verifyPinnedYamlExampleProjects(examplesRoot, manifest) {
+  if (!Array.isArray(manifest?.examples) || manifest.examples.length === 0)
+    throw new Error("Examples catalog must declare at least one Project.");
+  for (const example of manifest.examples) {
+    const sourcePath = example?.sourcePath;
+    if (typeof sourcePath !== "string" || !sourcePath.startsWith("projects/"))
+      throw new Error("Examples catalog contains an invalid Project source path.");
+    const root = resolve(examplesRoot, sourcePath);
+    const relativeRoot = relative(examplesRoot, root);
+    if (relativeRoot.startsWith("../") || isAbsolute(relativeRoot))
+      throw new Error("Examples catalog Project path escapes the examples checkout.");
+    for (const owner of [
+      "project.yaml", "editor.yaml", "traits.yaml",
+      "i18n/project.yaml", "i18n/messages.yaml", "i18n/tracking.yaml",
+      "i18n/orphans.yaml", "i18n/usage-notes.yaml",
+    ]) {
+      if (!existsSync(resolve(root, owner))) {
+        throw new Error(
+          `External example '${example.id}' is missing ${sourcePath}/${owner}. ` +
+          "Convert the example to canonical YAML in Cruel/noveltea-examples, " +
+          "then update examples/noveltea-examples.revision in nt.",
+        );
+      }
+    }
+    for (const obsolete of ["project.json", "editor.json", "traits.json", "localization.json"]) {
+      if (existsSync(resolve(root, obsolete))) {
+        throw new Error(
+          `External example '${example.id}' retains retired ${sourcePath}/${obsolete}; ` +
+          "convert before repinning.",
+        );
+      }
+    }
+    for (const directory of ["records", "i18n"]) {
+      const pending = [resolve(root, directory)];
+      while (pending.length) {
+        const current = pending.pop();
+        if (!existsSync(current)) continue;
+        for (const entry of readdirSync(current, { withFileTypes: true })) {
+          if (entry.isDirectory()) pending.push(resolve(current, entry.name));
+          else if (entry.isFile() && entry.name.endsWith(".json"))
+            throw new Error(
+              `External example '${example.id}' retains authored JSON at ` +
+              `${relative(examplesRoot, resolve(current, entry.name))}; convert before repinning.`,
+            );
+        }
+      }
+    }
+  }
 }
 
 export function validateQualifiedExamplesCatalog(
@@ -356,6 +409,8 @@ export function qualifyExamples({
 
   const builder = resolve(examplesRoot, "scripts/build-examples.mjs");
   assertRegularFile(builder, "Shared examples build entrypoint");
+  const manifest = JSON.parse(readFileSync(resolve(examplesRoot, "examples.json"), "utf8"));
+  verifyPinnedYamlExampleProjects(examplesRoot, manifest);
   const temporaryRoot = mkdtempSync(resolve(tmpdir(), "nt-publication-"));
   try {
     const externalOutput = resolve(temporaryRoot, "external");

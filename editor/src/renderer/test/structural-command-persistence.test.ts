@@ -1164,8 +1164,8 @@ describe('structural command persistence', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
       fileRevisions: {
-        'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
-        'records/rooms/hall.json': `sha256:${'f'.repeat(64)}`,
+        'records/rooms/foyer.yaml': `sha256:${'e'.repeat(64)}`,
+        'records/rooms/hall.yaml': `sha256:${'f'.repeat(64)}`,
       },
       externalValueByPath: {
         '/rooms/foyer/label': { exists: true, value: 'External Foyer' },

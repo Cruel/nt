@@ -1,0 +1,126 @@
+schema: noveltea.project.workspace
+schemaVersion: 1
+project:
+  id: golden-minimal
+  name: Golden Minimal
+  version: 0.1.0
+  author: ''
+  description: ''
+settings:
+  distributionNotices: []
+  ui:
+    systemLayouts: {}
+  inventory:
+    defaultLayout: null
+  interaction:
+    defaultVerbMenuLayout: null
+  text:
+    defaultFont: null
+    fontStack: []
+  titleScreen:
+    titleImage: null
+    showProjectTitle: true
+    showAuthor: false
+    subtitle: ''
+    startLabel: Start
+  app:
+    displayName: Golden Minimal
+    localized: {}
+    applicationId: org.noveltea.golden-minimal
+    saveNamespace: org.noveltea.golden-minimal
+    versionName: 0.1.0
+    icon: null
+    launchImage: null
+    desktop: {}
+    web: {}
+    android: {}
+  display:
+    referenceResolution:
+      width: 1920
+      height: 1080
+    worldRasterPolicy: capped
+    barColor: '#000000'
+  accessibility:
+    uiScale:
+      enabled: true
+      minimum: 1
+      maximum: 2
+    textScale:
+      enabled: true
+      minimum: 1
+      maximum: 2
+  audio:
+    purposes:
+      music:
+        volume: 1
+        muted: false
+      ambience:
+        volume: 1
+        muted: false
+      voice:
+        volume: 1
+        muted: false
+      sound-effect:
+        volume: 1
+        muted: false
+      ui-sound:
+        volume: 1
+        muted: false
+    voiceDucking:
+      enabled: false
+      musicGain: 0.5
+      ambienceGain: 0.5
+  cursors:
+    defaults:
+      default:
+        kind: system
+        cursor: default
+      pointer:
+        kind: system
+        cursor: pointer
+      hotspot:
+        kind: inherit
+        semantic: pointer
+    named: []
+  presentation:
+    roomNavigationTransition:
+      kind: cut
+      durationMs: 0
+      color: null
+      skippable: true
+export:
+  runtime:
+    id: runtime-default
+    label: Runtime Package
+    kind: runtime
+    outputPath: ''
+    includeChecksums: true
+    stripEditorData: true
+    stripShaderSources: true
+    compileShadersBeforeExport: true
+    shaderVariants:
+      - glsl-330
+      - essl-300
+      - metal
+    excludeUnusedAssets: true
+    includeShaderSources: false
+    includeTests: false
+    previewAfterExport: false
+    localization:
+      locales:
+        - en
+      defaultLocale: en
+      quality: development
+  profiles: []
+  assetMemoryPolicies: []
+bootstrapModule:
+  $ref:
+    collection: scripts
+    id: bootstrap
+entrypoint:
+  kind: room
+  id: start
+inventories:
+  - id: inventory
+    label: Inventory
+interactableInstances: {}

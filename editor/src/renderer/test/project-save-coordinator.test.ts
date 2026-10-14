@@ -417,8 +417,8 @@ describe('project save coordinator', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/project.yaml',
       fileRevisions: {
-        'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
-        'records/rooms/kitchen.json': `sha256:${'f'.repeat(64)}`,
+        'records/rooms/foyer.yaml': `sha256:${'e'.repeat(64)}`,
+        'records/rooms/kitchen.yaml': `sha256:${'f'.repeat(64)}`,
       },
       externalValueByPath: {
         '/rooms/kitchen/label': { exists: true, value: 'Disk Kitchen' },
@@ -465,7 +465,7 @@ describe('project save coordinator', () => {
     ).toMatchObject({
       conflictingPaths: ['/rooms/kitchen/label'],
       externalFileRevisions: {
-        'records/rooms/kitchen.json': `sha256:${'f'.repeat(64)}`,
+        'records/rooms/kitchen.yaml': `sha256:${'f'.repeat(64)}`,
       },
     });
   });
@@ -518,7 +518,7 @@ describe('project save coordinator', () => {
             '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
           },
           conflictingPaths: ['/rooms/foyer/label'],
-          externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
+          externalFileRevisions: { 'records/rooms/foyer.yaml': roomFileRevision },
         },
       },
     });
@@ -567,7 +567,7 @@ describe('project save coordinator', () => {
             '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
           },
           conflictingPaths: ['/rooms/foyer/label'],
-          externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
+          externalFileRevisions: { 'records/rooms/foyer.yaml': roomFileRevision },
         },
       },
     });
@@ -580,7 +580,7 @@ describe('project save coordinator', () => {
         {
           code: 'WORKSPACE_REVISION_CONFLICT',
           severity: 'error',
-          path: '/records/rooms/foyer.json',
+          path: '/records/rooms/foyer.yaml',
           message: 'Project source changed on disk before this save could commit.',
         },
       ],
@@ -625,7 +625,7 @@ describe('project save coordinator', () => {
             '/rooms/foyer/label': { exists: true, value: 'Disk Foyer' },
           },
           conflictingPaths: ['/rooms/foyer/label'],
-          externalFileRevisions: { 'records/rooms/foyer.json': roomFileRevision },
+          externalFileRevisions: { 'records/rooms/foyer.yaml': roomFileRevision },
         },
       },
     });

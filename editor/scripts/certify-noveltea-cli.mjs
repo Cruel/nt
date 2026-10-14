@@ -224,10 +224,10 @@ async function materializeFixture(root) {
 async function makeShaderFree(root) {
   await rm(path.join(root, 'records', 'shaders'), { recursive: true, force: true });
   await rm(path.join(root, 'records', 'materials'), { recursive: true, force: true });
-  const foyerPath = path.join(root, 'records', 'rooms', 'foyer.json');
-  const foyer = JSON.parse(await readFile(foyerPath, 'utf8'));
+  const foyerPath = path.join(root, 'records', 'rooms', 'foyer.yaml');
+  const foyer = parseYaml(await readFile(foyerPath, 'utf8'));
   foyer.data.background.materialApplication = null;
-  await writeJson(foyerPath, foyer);
+  await writeFile(foyerPath, stringifyYaml(foyer));
   await writeFile(
     path.join(root, 'records', 'layouts', 'fixture-hud', 'layout.lua'),
     'local room_id = "gallery"\nfunction save_and_reload() Game.save("fixture"); Game.load("fixture") end\n',
@@ -691,12 +691,12 @@ function certifyBootstrapOnlyIslandFailures() {
 }
 
 async function prepareWritingRecovery(root) {
-  const target = 'records/rooms/gallery.json';
+  const target = 'records/rooms/gallery.yaml';
   const absolute = path.join(root, target);
   const before = await readFile(absolute);
-  const afterJson = JSON.parse(before.toString('utf8'));
-  afterJson.label = 'Interrupted Gallery';
-  const after = Buffer.from(`${JSON.stringify(afterJson, null, 2)}\n`);
+  const afterYaml = parseYaml(before.toString('utf8'));
+  afterYaml.label = 'Interrupted Gallery';
+  const after = Buffer.from(stringifyYaml(afterYaml));
   const transactionId = 'certification-recovery';
   const transactionRoot = path.join(root, '.noveltea', 'transactions', transactionId);
   await mkdir(path.join(transactionRoot, 'before'), { recursive: true });
@@ -830,7 +830,7 @@ const differentialCases = [
       await writeProjectManifest(root, manifest);
       const dialoguesRoot = path.join(root, 'records', 'dialogues');
       await mkdir(dialoguesRoot, { recursive: true });
-      await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
+      await writeFile(path.join(dialoguesRoot, 'broken.yaml'), 'id: [');
     },
   },
   {
@@ -839,26 +839,29 @@ const differentialCases = [
     prepare: async (root) => {
       const assetsRoot = path.join(root, 'records', 'assets');
       await mkdir(assetsRoot, { recursive: true });
-      await writeJson(path.join(assetsRoot, 'broken.json'), {
-        id: 'broken',
-        label: 'Broken',
-        data: {
-          kind: 'not-an-asset-kind',
-          source: { type: 'project-file', path: 'assets/text/broken.txt' },
-          aliases: [],
-          imageMetadata: null,
-        },
-      });
+      await writeFile(
+        path.join(assetsRoot, 'broken.yaml'),
+        stringifyYaml({
+          id: 'broken',
+          label: 'Broken',
+          data: {
+            kind: 'not-an-asset-kind',
+            source: { type: 'project-file', path: 'assets/text/broken.txt' },
+            aliases: [],
+            imageMetadata: null,
+          },
+        }),
+      );
     },
   },
   {
     name: 'asset-import-execute',
     mutation: true,
     normalizeTree(relativePath, bytes) {
-      if (relativePath !== 'records/assets/daemon-parity.json') return bytes;
-      const record = JSON.parse(bytes.toString('utf8'));
+      if (relativePath !== 'records/assets/daemon-parity.yaml') return bytes;
+      const record = parseYaml(bytes.toString('utf8'));
       delete record.data.importedAt;
-      return Buffer.from(JSON.stringify(record));
+      return Buffer.from(stringifyYaml(record));
     },
     prepare: async (root) => {
       const source = path.join(root, 'assets', 'text', 'daemon-parity.txt');
@@ -994,7 +997,7 @@ const differentialCases = [
       await writeProjectManifest(root, manifest);
       const dialoguesRoot = path.join(root, 'records', 'dialogues');
       await mkdir(dialoguesRoot, { recursive: true });
-      await writeFile(path.join(dialoguesRoot, 'broken.json'), '{"id":');
+      await writeFile(path.join(dialoguesRoot, 'broken.yaml'), 'id: [');
     },
   },
   {
@@ -1545,16 +1548,16 @@ async function certifyTestCommandParity(tempRoot, pristine) {
         ),
       );
       if (test.blocked) {
-        const testRecordPath = path.join(baseline, 'records', 'tests', 'cache-certification.json');
-        const testRecord = JSON.parse(await readFile(testRecordPath, 'utf8'));
+        const testRecordPath = path.join(baseline, 'records', 'tests', 'cache-certification.yaml');
+        const testRecord = parseYaml(await readFile(testRecordPath, 'utf8'));
         testRecord.data.steps = [];
-        await writeJson(testRecordPath, testRecord);
+        await writeFile(testRecordPath, stringifyYaml(testRecord));
       }
     }
-    const warningRoomPath = path.join(baseline, 'records', 'rooms', 'gallery.json');
-    const warningRoom = JSON.parse(await readFile(warningRoomPath, 'utf8'));
+    const warningRoomPath = path.join(baseline, 'records', 'rooms', 'gallery.yaml');
+    const warningRoom = parseYaml(await readFile(warningRoomPath, 'utf8'));
     warningRoom.data.description.source.text = '';
-    await writeJson(warningRoomPath, warningRoom);
+    await writeFile(warningRoomPath, stringifyYaml(warningRoom));
 
     const args = ['--project', root, '--json', ...test.command];
     const invokeNode = () =>
@@ -2034,7 +2037,9 @@ function requireIncrementalValidationWork(label, profile) {
   if (!profile?.usefulWork) fail(`${label} did not emit validation useful-work counters.`);
   const work = profile.usefulWork;
   if (work.authoredFilesReread !== 1 || work.jsonSourcesParsed !== 1 || work.textSourcesRead !== 0)
-    fail(`${label} reread more than the isolated changed JSON source: ${JSON.stringify(work)}`);
+    fail(
+      `${label} reread more than the isolated changed structured source: ${JSON.stringify(work)}`,
+    );
   if (
     work.fullProjectTraversals !== 0 ||
     work.fullProjectProjections !== 0 ||
@@ -2050,24 +2055,27 @@ function maxUsefulWork(profiles, field) {
 }
 
 async function inflateValidationBenchmark(root, count = 120) {
-  const source = JSON.parse(
-    await readFile(path.join(root, 'records', 'rooms', 'foyer.json'), 'utf8'),
+  const source = parseYaml(
+    await readFile(path.join(root, 'records', 'rooms', 'foyer.yaml'), 'utf8'),
   );
   for (let index = 0; index < count; index += 1) {
     const id = `validation-benchmark-${String(index).padStart(3, '0')}`;
-    await writeJson(path.join(root, 'records', 'rooms', `${id}.json`), {
-      ...source,
-      id,
-      label: `Validation benchmark ${index}`,
-    });
+    await writeFile(
+      path.join(root, 'records', 'rooms', `${id}.yaml`),
+      stringifyYaml({
+        ...source,
+        id,
+        label: `Validation benchmark ${index}`,
+      }),
+    );
   }
 }
 
 async function editValidationBenchmarkRecord(root, label) {
-  const file = path.join(root, 'records', 'rooms', 'validation-benchmark-000.json');
-  const record = JSON.parse(await readFile(file, 'utf8'));
+  const file = path.join(root, 'records', 'rooms', 'validation-benchmark-000.yaml');
+  const record = parseYaml(await readFile(file, 'utf8'));
   record.label = label;
-  await writeJson(file, record);
+  await writeFile(file, stringifyYaml(record));
 }
 
 async function daemonRssBytes(pid) {
@@ -2655,8 +2663,8 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     NOVELTEA_CLI_CERTIFICATION_PROJECT_SESSION_IDLE_MS: '60000',
   };
   const traceEnvironment = { ...environment, NOVELTEA_CLI_TRACE: '1' };
-  const galleryPath = path.join(root, 'records', 'rooms', 'gallery.json');
-  const originalGallery = JSON.parse(await readFile(galleryPath, 'utf8'));
+  const galleryPath = path.join(root, 'records', 'rooms', 'gallery.yaml');
+  const originalGallery = parseYaml(await readFile(galleryPath, 'utf8'));
   runNative(['daemon', 'stop'], { env: environment });
   try {
     requireSuccess(
@@ -2669,7 +2677,7 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
 
     const overflowGallery = structuredClone(originalGallery);
     overflowGallery.label = `${overflowGallery.label} overflow recovery`;
-    await writeJson(galleryPath, overflowGallery);
+    await writeFile(galleryPath, stringifyYaml(overflowGallery));
     const overflow = requireSuccess(
       'watcher overflow/unknown bulk-rescan recovery',
       runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
@@ -2703,9 +2711,9 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     let churnIndex = 0;
     const churnTask = (async () => {
       while (churn) {
-        const current = JSON.parse(await readFile(galleryPath, 'utf8'));
+        const current = parseYaml(await readFile(galleryPath, 'utf8'));
         current.label = `authority churn ${churnIndex++}`;
-        await writeJson(galleryPath, current);
+        await writeFile(galleryPath, stringifyYaml(current));
         await new Promise((resolve) => setTimeout(resolve, 50));
       }
     })();
@@ -2734,7 +2742,7 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     });
     if (scopedChurn.status === 0)
       fail(`Scoped read authority churn unexpectedly succeeded: ${scopedChurn.stdout}`);
-    await writeJson(galleryPath, originalGallery);
+    await writeFile(galleryPath, stringifyYaml(originalGallery));
     requireSuccess(
       'authority churn repair',
       runNative(['--project', root, '--json', 'usages', 'rooms', 'gallery'], {
@@ -2754,7 +2762,7 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
       }),
     );
     const mutationProfile = schedulerProfile(mutation);
-    const mutationRecord = path.join(root, 'records', 'assets', 'mutation-proof.json');
+    const mutationRecord = path.join(root, 'records', 'assets', 'mutation-proof.yaml');
     if (
       !mutationProfile ||
       mutationProfile.generationPromotions < 1 ||
@@ -2776,17 +2784,17 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
         },
       },
     );
-    await waitForFile(path.join(root, 'records', 'assets', 'mutation-race-proof.json'));
-    const externalGallery = JSON.parse(await readFile(galleryPath, 'utf8'));
+    await waitForFile(path.join(root, 'records', 'assets', 'mutation-race-proof.yaml'));
+    const externalGallery = parseYaml(await readFile(galleryPath, 'utf8'));
     externalGallery.label = 'external mutation race edit';
-    await writeJson(galleryPath, externalGallery);
+    await writeFile(galleryPath, stringifyYaml(externalGallery));
     const mutationRace = await mutationRaceStarted.result();
     if (mutationRace.status === 0)
       fail(`External edit race incorrectly promoted the mutation: ${mutationRace.stdout}`);
     const mutationRaceProfile = schedulerProfile(mutationRace);
     if ((mutationRaceProfile?.generationPromotions ?? 0) !== 0)
       fail(`Failed mutation race promoted a resident generation: ${mutationRace.stderr}`);
-    const preservedExternalGallery = JSON.parse(await readFile(galleryPath, 'utf8'));
+    const preservedExternalGallery = parseYaml(await readFile(galleryPath, 'utf8'));
     if (preservedExternalGallery.label !== 'external mutation race edit')
       fail('Owner mutation race overwrote the concurrent external Project edit.');
     requireSuccess(
@@ -3363,11 +3371,11 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
       env: profileEnvironment,
     }),
   );
-  const featureLabRecord = path.join(featureLabRoot, 'records', 'rooms', 'feature-lab-home.json');
+  const featureLabRecord = path.join(featureLabRoot, 'records', 'rooms', 'feature-lab-home.yaml');
   {
-    const room = JSON.parse(await readFile(featureLabRecord, 'utf8'));
+    const room = parseYaml(await readFile(featureLabRecord, 'utf8'));
     room.label = 'Feature Lab Home benchmark warmup';
-    await writeJson(featureLabRecord, room);
+    await writeFile(featureLabRecord, stringifyYaml(room));
     const warmup = requireSuccess(
       'Feature Lab resident one-record benchmark warmup',
       runNative(['--project', featureLabRoot, '--json', 'validate'], {
@@ -3385,9 +3393,9 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
   // Keep enough observations to characterize the resident tail without making
   // the certification unnecessarily expensive. Hosted-runner timing is telemetry only.
   for (let index = 0; index < 15; index += 1) {
-    const room = JSON.parse(await readFile(featureLabRecord, 'utf8'));
+    const room = parseYaml(await readFile(featureLabRecord, 'utf8'));
     room.label = `Feature Lab Home benchmark ${index}`;
-    await writeJson(featureLabRecord, room);
+    await writeFile(featureLabRecord, stringifyYaml(room));
     const measured = elapsedMilliseconds(() =>
       runNative(['--project', featureLabRoot, '--json', 'validate'], {
         cwd: featureLabRoot,
@@ -3428,9 +3436,9 @@ async function certifyPerformanceEnvelope(tempRoot, pristine) {
         `Samples: ${JSON.stringify(report.cases.featureLabResidentOneRecord.samples)}`,
     );
 
-  const featureLabRoom = JSON.parse(await readFile(featureLabRecord, 'utf8'));
+  const featureLabRoom = parseYaml(await readFile(featureLabRecord, 'utf8'));
   featureLabRoom.label = 'Feature Lab Home scheduler diagnostics';
-  await writeJson(featureLabRecord, featureLabRoom);
+  await writeFile(featureLabRecord, stringifyYaml(featureLabRoom));
   const featureLabSchedulerResult = requireSuccess(
     'Feature Lab scheduler diagnostics',
     runNative(['--project', featureLabRoot, '--json', 'validate'], {
@@ -3691,7 +3699,7 @@ async function certifyRuntimeCacheInvalidation(tempRoot, pristine) {
       cwd: deletionRoot,
     }),
   );
-  await rm(path.join(deletionRoot, 'records', 'rooms', 'gallery.json'));
+  await rm(path.join(deletionRoot, 'records', 'rooms', 'gallery.yaml'));
   const deleted = runNative(
     ['--project', deletionRoot, '--json', 'test', 'run', 'cache-certification'],
     { cwd: deletionRoot, env: tracedEnvironment },
@@ -3822,13 +3830,13 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
     )
       fail(`Feature Lab daemon suite did not publish/reuse its unchanged inputs: ${result.stdout}`);
   }
-  const addedRoom = JSON.parse(
-    await readFile(path.join(daemonRoot, 'records/rooms/feature-lab-home.json'), 'utf8'),
+  const addedRoom = parseYaml(
+    await readFile(path.join(daemonRoot, 'records/rooms/feature-lab-home.yaml'), 'utf8'),
   );
   addedRoom.id = 'audit-source-addition';
   await writeFile(
-    path.join(daemonRoot, 'records/rooms/audit-source-addition.json'),
-    JSON.stringify(addedRoom),
+    path.join(daemonRoot, 'records/rooms/audit-source-addition.yaml'),
+    stringifyYaml(addedRoom),
   );
   const afterAddition = requireSuccess(
     'Feature Lab daemon playback after structural source addition with Lua-less Layouts',
@@ -3843,13 +3851,14 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
   const precommitRoot = path.join(tempRoot, 'feature-lab-precommit-admission');
   await cp(source, precommitRoot, { recursive: true });
   await rm(path.join(precommitRoot, '.noveltea'), { recursive: true, force: true });
-  const precommitPath = path.join(precommitRoot, 'records/rooms/diagnostics-pre.json');
-  const precommitRoom = JSON.parse(await readFile(precommitPath, 'utf8'));
+  const precommitPath = path.join(precommitRoot, 'records/rooms/diagnostics-pre.yaml');
+  const precommitRoom = parseYaml(await readFile(precommitPath, 'utf8'));
   precommitRoom.data.scriptHooks = [];
+  precommitRoom.data.lifecycle ??= {};
   precommitRoom.data.lifecycle.beforeEnter = [
     { id: 'fault', kind: 'run-lua', source: "error('certification pre-commit fault')" },
   ];
-  await writeFile(precommitPath, JSON.stringify(precommitRoom));
+  await writeFile(precommitPath, stringifyYaml(precommitRoom));
   const precommitResult = runNative(
     ['--no-daemon', '--project', precommitRoot, '--json', 'validate'],
     { cwd: precommitRoot },
@@ -3879,11 +3888,11 @@ async function certifyFeatureLabAuthoredTests(tempRoot) {
       "  error('certification callback failure')\n  local result =",
     ),
   );
-  const callbackTestPath = path.join(callbackRoot, 'records/tests/localized-story-ui.json');
-  const callbackTest = JSON.parse(await readFile(callbackTestPath, 'utf8'));
+  const callbackTestPath = path.join(callbackRoot, 'records/tests/localized-story-ui.yaml');
+  const callbackTest = parseYaml(await readFile(callbackTestPath, 'utf8'));
   for (const step of callbackTest.data.steps) step.expectations = [];
   callbackTest.data.finalExpectations = [];
-  await writeFile(callbackTestPath, JSON.stringify(callbackTest));
+  await writeFile(callbackTestPath, stringifyYaml(callbackTest));
   const callbackResult = runNative(
     ['--no-daemon', '--project', callbackRoot, '--json', 'test', 'run', 'localized-story-ui'],
     { cwd: callbackRoot },
@@ -4045,13 +4054,13 @@ async function certifyNativeOperations(tempRoot, pristine) {
       finalExpectations: failedExpectations.map((expectation) => ({ ...expectation, roomId: '' })),
     }),
   );
-  const failedTestPath = path.join(root, 'records/tests/cache-failure.json');
-  const failedTest = JSON.parse(
-    await readFile(path.join(root, 'records/tests/cache-certification.json'), 'utf8'),
+  const failedTestPath = path.join(root, 'records/tests/cache-failure.yaml');
+  const failedTest = parseYaml(
+    await readFile(path.join(root, 'records/tests/cache-certification.yaml'), 'utf8'),
   );
   failedTest.id = 'cache-failure';
   failedTest.data.finalExpectations = failedExpectations;
-  await writeFile(failedTestPath, JSON.stringify(failedTest));
+  await writeFile(failedTestPath, stringifyYaml(failedTest));
   for (const operation of ['run', 'run-spec', 'run-ui-spec']) {
     await rm(cacheRoot, { recursive: true, force: true });
     for (const cold of [true, false]) {
@@ -4141,10 +4150,10 @@ async function certifyNativeOperations(tempRoot, pristine) {
   if (suitePayload.native?.report?.counts?.total !== 1)
     fail(`Cached authored test suite returned an unexpected report: ${suite.stdout}`);
 
-  const testRecordPath = path.join(root, 'records', 'tests', 'cache-certification.json');
-  const testRecord = JSON.parse(await readFile(testRecordPath, 'utf8'));
+  const testRecordPath = path.join(root, 'records', 'tests', 'cache-certification.yaml');
+  const testRecord = parseYaml(await readFile(testRecordPath, 'utf8'));
   testRecord.label = 'Cache certification refreshed';
-  await writeFile(testRecordPath, `${JSON.stringify(testRecord, null, 2)}\n`);
+  await writeFile(testRecordPath, stringifyYaml(testRecord));
   const staleFallback = requireSuccess(
     'runtime-cache stale fallback',
     runNative(['--project', root, '--json', 'test', 'run', 'cache-certification'], {
@@ -4162,7 +4171,7 @@ async function certifyNativeOperations(tempRoot, pristine) {
 
   const runnableSteps = testRecord.data.steps;
   testRecord.data.steps = [];
-  await writeFile(testRecordPath, `${JSON.stringify(testRecord, null, 2)}\n`);
+  await writeFile(testRecordPath, stringifyYaml(testRecord));
   const blockedRefresh = runNative(
     ['--project', root, '--json', 'test', 'run', 'cache-certification'],
     { cwd: root, env: tracedEnvironment },
@@ -4231,11 +4240,11 @@ async function certifyNativeOperations(tempRoot, pristine) {
     staleCatalogRoot,
     'records',
     'tests',
-    'cache-certification.json',
+    'cache-certification.yaml',
   );
-  const staleCatalogTest = JSON.parse(await readFile(staleCatalogTestPath, 'utf8'));
+  const staleCatalogTest = parseYaml(await readFile(staleCatalogTestPath, 'utf8'));
   staleCatalogTest.label = 'Changed without changing runtime';
-  await writeJson(staleCatalogTestPath, staleCatalogTest);
+  await writeFile(staleCatalogTestPath, stringifyYaml(staleCatalogTest));
   const staleCatalogSpec = requireSuccess(
     'runtime-cache stdin playback with stale authored-test catalog',
     runNativeWithStdinFile(

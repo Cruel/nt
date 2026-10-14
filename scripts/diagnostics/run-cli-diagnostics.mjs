@@ -1,10 +1,13 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { closeSync, openSync } from 'node:fs';
 import { cp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const repositoryRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
+const { parse: parseYaml, stringify: stringifyYaml } =
+  createRequire(new URL('../../editor/package.json', import.meta.url))('yaml');
 
 export function diagnosticOptions(env = process.env) {
   const scenario = env.NT_DIAGNOSTIC_SCENARIO ?? 'empty-playback';
@@ -66,10 +69,10 @@ export async function recordCommand({ command, args, cwd, env, root, label, stdi
 export async function prepareShaderFreeFixture(root) {
   for (const collection of ['shaders', 'materials'])
     await rm(path.join(root, 'records', collection), { recursive: true, force: true });
-  const foyerPath = path.join(root, 'records/rooms/foyer.json');
-  const foyer = JSON.parse(await readFile(foyerPath, 'utf8'));
-  foyer.data.background.material = null;
-  await writeFile(foyerPath, `${JSON.stringify(foyer, null, 2)}\n`);
+  const foyerPath = path.join(root, 'records/rooms/foyer.yaml');
+  const foyer = parseYaml(await readFile(foyerPath, 'utf8'));
+  foyer.data.background.materialApplication = null;
+  await writeFile(foyerPath, stringifyYaml(foyer));
   await writeFile(path.join(root, 'records/layouts/fixture-hud/layout.lua'),
     'local room_id = "gallery"\nfunction save_and_reload() Game.save("fixture"); Game.load("fixture") end\n');
 }

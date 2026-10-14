@@ -508,8 +508,8 @@ describe('WorkspacePage new project modal', () => {
     act(() => {
       callback?.({
         projectSessionId: 'opened-project-session',
-        changedPaths: ['records/rooms/hall.json'],
-        authoringChangedPaths: ['records/rooms/hall.json'],
+        changedPaths: ['records/rooms/hall.yaml'],
+        authoringChangedPaths: ['records/rooms/hall.yaml'],
         assetChangedPaths: [],
         authoring: {
           success: false,
@@ -540,15 +540,15 @@ describe('WorkspacePage new project modal', () => {
     act(() => {
       callback?.({
         projectSessionId: 'opened-project-session',
-        changedPaths: ['records/rooms/hall.json'],
-        authoringChangedPaths: ['records/rooms/hall.json'],
+        changedPaths: ['records/rooms/hall.yaml'],
+        authoringChangedPaths: ['records/rooms/hall.yaml'],
         assetChangedPaths: [],
         authoring: {
           success: true,
           diagnostics: [],
           affectedPaths: [],
           externalValueByPath: {},
-          fileRevisions: { 'records/rooms/hall.json': revision },
+          fileRevisions: { 'records/rooms/hall.yaml': revision },
           scriptSourcePaths: {},
         },
       });
@@ -596,8 +596,8 @@ describe('WorkspacePage new project modal', () => {
     act(() => {
       callback?.({
         projectSessionId: 'opened-project-session',
-        changedPaths: ['records/rooms/hall.json'],
-        authoringChangedPaths: ['records/rooms/hall.json'],
+        changedPaths: ['records/rooms/hall.yaml'],
+        authoringChangedPaths: ['records/rooms/hall.yaml'],
         assetChangedPaths: [],
         authoring: {
           success: true,
@@ -609,7 +609,7 @@ describe('WorkspacePage new project modal', () => {
               value: 'Changed outside NovelTea',
             },
           },
-          fileRevisions: { 'records/rooms/hall.json': roomRevision },
+          fileRevisions: { 'records/rooms/hall.yaml': roomRevision },
           scriptSourcePaths: {},
         },
       });

@@ -3,14 +3,17 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
-import { parse as parseYaml } from 'yaml';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { ActiveProjectWorkspaceSession } from '../../main/services/active-project-workspace-session';
 import { advanceExternallyUpdatedAssetSourceBaselines } from '../../main/services/project-authoring-source-freshness-service';
 import { openProject } from '../../main/services/editor-tool-service';
 import { createProject } from '../../main/services/project-file-service';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
-import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  parseAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { projectWorkspaceFiles } from '../../shared/project-workspace/project-workspace-service';
@@ -38,6 +41,18 @@ function sha256(bytes: Uint8Array): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
+function materialYaml(
+  id: string,
+  label: string,
+  data: ReturnType<typeof defaultMaterialData>,
+): string {
+  const project = createAuthoringProject();
+  project.materials[id] = { id, label, data };
+  const yaml = projectWorkspaceFiles(project, project.editor)[`records/materials/${id}.yaml`];
+  if (!yaml) throw new Error(`Cannot materialize Material fixture '${id}'`);
+  return yaml;
+}
+
 describe('active Project session lifecycle', () => {
   it('persists independent Authoring Source revision advances across workspace reopen', async () => {
     const root = await createWorkspace('source-revision-persistence');
@@ -49,8 +64,8 @@ describe('active Project session lifecycle', () => {
       const bytes = Buffer.from(`${id} before`);
       await fs.writeFile(path.join(root, `assets/${id}.bin`), bytes);
       await fs.writeFile(
-        path.join(root, `records/assets/${id}.json`),
-        JSON.stringify({
+        path.join(root, `records/assets/${id}.yaml`),
+        stringifyYaml({
           id,
           label: id,
           data: {
@@ -83,7 +98,7 @@ describe('active Project session lifecycle', () => {
       await advanceExternallyUpdatedAssetSourceBaselines(session, {
         'assets/alpha.bin': changedAssetRevision,
       }),
-    ).toEqual(['records/assets/alpha.json']);
+    ).toEqual(['records/assets/alpha.yaml']);
     const reopened = await createNodeProjectWorkspaceService().open(root);
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) return;
@@ -105,11 +120,11 @@ describe('active Project session lifecycle', () => {
     await fs.mkdir(path.join(root, 'scripts/original'), { recursive: true });
     await fs.writeFile(path.join(root, 'scripts/original/example.lua'), 'return {}\n');
     await fs.writeFile(path.join(root, 'assets/owned.bin'), 'asset data');
-    const assetPath = path.join(root, 'records/assets/owned.json');
-    const sourceAssetPath = path.join(root, 'records/assets/script.json');
+    const assetPath = path.join(root, 'records/assets/owned.yaml');
+    const sourceAssetPath = path.join(root, 'records/assets/script.yaml');
     await fs.writeFile(
       sourceAssetPath,
-      JSON.stringify({
+      stringifyYaml({
         id: 'script',
         label: 'Script',
         data: {
@@ -123,7 +138,7 @@ describe('active Project session lifecycle', () => {
     );
     await fs.writeFile(
       assetPath,
-      JSON.stringify({
+      stringifyYaml({
         id: 'owned',
         label: 'Owned',
         data: {
@@ -149,10 +164,10 @@ describe('active Project session lifecycle', () => {
         },
       }),
     ).toMatchObject({ success: true });
-    expect(JSON.parse(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
+    expect(parseYaml(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
       { path: 'scripts/original/renamed.lua', purpose: 'reference' },
     ]);
-    expect(JSON.parse(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
+    expect(parseYaml(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
       source: { path: 'scripts/original/renamed.lua' },
       attachments: [{ path: 'scripts/original/renamed.lua', purpose: 'reference' }],
     });
@@ -166,10 +181,10 @@ describe('active Project session lifecycle', () => {
         },
       }),
     ).toMatchObject({ success: true });
-    expect(JSON.parse(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
+    expect(parseYaml(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
       { path: 'scripts/moved/renamed.lua', purpose: 'reference' },
     ]);
-    expect(JSON.parse(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
+    expect(parseYaml(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
       source: { path: 'scripts/moved/renamed.lua' },
       attachments: [{ path: 'scripts/moved/renamed.lua', purpose: 'reference' }],
     });
@@ -185,8 +200,8 @@ describe('active Project session lifecycle', () => {
     for (const id of ['first', 'second']) {
       await fs.writeFile(path.join(project, 'assets', `${id}.bin`), 'asset data');
       await fs.writeFile(
-        path.join(records, `${id}.json`),
-        `${JSON.stringify({
+        path.join(records, `${id}.yaml`),
+        `${stringifyYaml({
           id,
           label: id,
           data: {
@@ -222,7 +237,7 @@ describe('active Project session lifecycle', () => {
     );
     await expect(fs.access(path.join(project, 'support/references/source.md'))).rejects.toThrow();
     for (const id of ['first', 'second']) {
-      const record = JSON.parse(await fs.readFile(path.join(records, `${id}.json`), 'utf8'));
+      const record = parseYaml(await fs.readFile(path.join(records, `${id}.yaml`), 'utf8'));
       expect(record.data.attachments).toEqual([
         { path: 'support/references/renamed.md', purpose: 'reference' },
       ]);
@@ -254,8 +269,8 @@ describe('active Project session lifecycle', () => {
     await fs.writeFile(path.join(root, source), 'Shared attribution\n');
     await fs.writeFile(path.join(root, 'assets/cover.bin'), 'image data');
     await fs.writeFile(
-      path.join(root, 'records/assets/cover.json'),
-      JSON.stringify({
+      path.join(root, 'records/assets/cover.yaml'),
+      stringifyYaml({
         id: 'cover',
         label: 'Cover',
         data: {
@@ -278,8 +293,8 @@ describe('active Project session lifecycle', () => {
       previous.scriptSourcePaths ?? {},
       new Set(previous._workspaceSnapshot.canonicalSourceFiles),
     );
-    expect(projection).toHaveProperty('records/assets/cover.json');
-    expect(projection).not.toHaveProperty('records/assets/cover.yaml');
+    expect(projection).toHaveProperty('records/assets/cover.yaml');
+    expect(projection).not.toHaveProperty('records/assets/cover.json');
     for (const [relative, contents] of Object.entries(projection)) {
       await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
       await fs.writeFile(path.join(root, relative), contents);
@@ -914,12 +929,14 @@ describe('active Project session lifecycle', () => {
     const data = defaultMaterialData('FX');
     data.shader = { fragment: { kind: 'project', path: 'shaders/effects/main.sc' } };
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'fx.json'),
-      `${JSON.stringify({ id: 'fx', label: 'FX', data }, null, 2)}\n`,
+      path.join(project, 'records', 'materials', 'fx.yaml'),
+      materialYaml('fx', 'FX', data),
     );
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
-    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const fixtureOpened = await openProject(project);
+    expect(fixtureOpened.success, JSON.stringify(fixtureOpened.diagnostics)).toBe(true);
+    const attached = await service.attachToSuccessfulResult(fixtureOpened, activation);
     const projectSessionId = attached.projectSessionId!;
 
     const moved = await service.mutateProjectSources({
@@ -932,8 +949,8 @@ describe('active Project session lifecycle', () => {
     });
 
     expect(moved.success).toBe(true);
-    const material = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'materials', 'fx.json'), 'utf8'),
+    const material = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'materials', 'fx.yaml'), 'utf8'),
     ) as { data: { shader: { fragment: { path: string } } } };
     expect(material.data.shader.fragment.path).toBe('shaders/effects/moved.sc');
     expect(await fs.readFile(path.join(project, 'shaders', 'consumer.sc'), 'utf8')).toContain(
@@ -1049,8 +1066,8 @@ describe('active Project session lifecycle', () => {
     const data = defaultMaterialData('Panel', 'engine-2d');
     data.shader = { fragment: { kind: 'project', path: 'shaders/shared/main.sc' } };
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'panel.json'),
-      `${JSON.stringify({ id: 'panel', label: 'Panel', data }, null, 2)}\n`,
+      path.join(project, 'records', 'materials', 'panel.yaml'),
+      materialYaml('panel', 'Panel', data),
     );
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
@@ -1076,12 +1093,8 @@ describe('active Project session lifecycle', () => {
     const project = await createWorkspace('material-shader-copy');
     await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'panel.json'),
-      `${JSON.stringify(
-        { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'engine-2d') },
-        null,
-        2,
-      )}\n`,
+      path.join(project, 'records', 'materials', 'panel.yaml'),
+      materialYaml('panel', 'Panel', defaultMaterialData('Panel', 'engine-2d')),
     );
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
@@ -1109,8 +1122,8 @@ describe('active Project session lifecycle', () => {
     expect(copied).toBe(
       await fs.readFile(path.resolve('..', 'engine/shaders/bgfx/fs_postprocess_tint.sc'), 'utf8'),
     );
-    const material = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'materials', 'panel.json'), 'utf8'),
+    const material = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'materials', 'panel.yaml'), 'utf8'),
     ) as { data: { shader?: { vertex?: unknown; fragment?: { kind: string; path: string } } } };
     expect(material.data.shader).toEqual({
       fragment: { kind: 'project', path: 'shaders/materials/panel/fs.sc' },
@@ -1122,12 +1135,8 @@ describe('active Project session lifecycle', () => {
     const project = await createWorkspace('material-shader-copy-containment');
     await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'panel.json'),
-      `${JSON.stringify(
-        { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'engine-2d') },
-        null,
-        2,
-      )}\n`,
+      path.join(project, 'records', 'materials', 'panel.yaml'),
+      materialYaml('panel', 'Panel', defaultMaterialData('Panel', 'engine-2d')),
     );
     const outside = path.join(path.dirname(project), 'outside.sc');
     await fs.writeFile(outside, 'void outside() {}\n');
