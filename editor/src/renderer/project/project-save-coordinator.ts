@@ -48,6 +48,7 @@ import {
 } from './project-external-reconciliation';
 import { rebaseRecoveryOverlays } from './project-recovery-rebase';
 import { applyProjectMutationValues, buildProjectContentSaveRequest } from './project-save-request';
+import { saveProjectContentWithComments } from './save-project-content-with-comments';
 
 export type ProjectSaveCoordinatorStatus =
   | 'saved'
@@ -327,7 +328,7 @@ async function commitSelectedSaveUnits(
     candidateContent,
   ).map((patch) => patch.path);
   useProjectStore.getState().setSaving(true);
-  const response = await window.noveltea.saveProjectContent(
+  const { response, cancelled } = await saveProjectContentWithComments(
     projectSessionId,
     buildProjectContentSaveRequest({
       baselineDocument: projectState.savedDocument,
@@ -340,6 +341,16 @@ async function commitSelectedSaveUnits(
     }),
     editorStateForWrite,
   );
+  if (cancelled) {
+    useProjectStore.getState().setSaving(false);
+    return {
+      success: false,
+      status: 'cancelled',
+      diagnostics: [],
+      savedSaveUnitIds: [],
+      remainingDirtySaveUnitIds: Object.keys(snapshot.recovery.saveUnitsById).sort(),
+    };
+  }
   if (!response.success) {
     useProjectStore.getState().setSaveError(response.error ?? 'Project save failed.');
     return {

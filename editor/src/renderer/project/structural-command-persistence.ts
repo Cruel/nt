@@ -42,6 +42,7 @@ import {
   buildProjectContentSaveRequest,
   buildRecoveryFileOwnershipHints,
 } from './project-save-request';
+import { saveProjectContentWithComments } from './save-project-content-with-comments';
 
 export type UnsafeRebasePolicy = 'reject-command' | 'convert-to-manual-save';
 export type AutoCommitPersistenceTarget = 'project-content' | 'editor-metadata';
@@ -102,7 +103,7 @@ export type AutoCommitPlanBuildResult =
   | { status: 'rejected'; diagnostic: ToolDiagnostic };
 
 export interface StructuralPersistenceResult {
-  status: 'persisted' | 'converted-to-manual-save' | 'rejected' | 'failed';
+  status: 'persisted' | 'converted-to-manual-save' | 'rejected' | 'failed' | 'cancelled';
   diagnostics: ToolDiagnostic[];
 }
 
@@ -733,7 +734,7 @@ export async function persistAutoCommitPlan(
     scriptSourcePaths[target[1]] = scriptSourcePaths[match[1]]!;
     delete scriptSourcePaths[match[1]];
   }
-  const response = await window.noveltea.saveProjectContent(
+  const { response, cancelled } = await saveProjectContentWithComments(
     projectState.projectSessionId,
     buildProjectContentSaveRequest({
       baselineDocument: projectState.savedDocument,
@@ -752,6 +753,7 @@ export async function persistAutoCommitPlan(
     }),
     editorState,
   );
+  if (cancelled) return { status: 'cancelled', diagnostics: [] };
   if (!response.success) {
     const cleanupDiagnostics =
       direction === 'forward'

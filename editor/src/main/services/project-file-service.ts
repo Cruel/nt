@@ -65,6 +65,26 @@ function mutationFailureDiagnostic(error: ProjectWorkspaceMutationError): ToolDi
   };
 }
 
+class ProjectCommentConfirmationRequired extends Error {
+  constructor(
+    readonly impacts: Awaited<ReturnType<ProjectWorkspaceService['write']>>['commentImpacts'],
+    readonly token: string,
+  ) {
+    super('Review the affected YAML comments before saving.');
+  }
+}
+
+function commentConfirmationResponse(error: ProjectCommentConfirmationRequired) {
+  return {
+    ok: false as const,
+    success: false as const,
+    commentConfirmationRequired: true,
+    commentConfirmationToken: error.token,
+    commentImpacts: error.impacts,
+    diagnostics: [],
+  };
+}
+
 function contentSaveConflictDiagnostic(): ToolDiagnostic {
   return createProjectValidationDiagnostic({
     code: 'editor.content-save.content-conflict',
@@ -508,6 +528,47 @@ async function writeWorkspaceProject(
       'A structural command target changed outside the editor.',
     );
   assertAuthority?.();
+  if (commitOptions?.requireCommentConfirmation) {
+    const preview = await workspace.write(
+      projectRoot,
+      expectedWorkspaceRevision,
+      projectForWrite,
+      editorStateForWrite,
+      scriptSourcePaths,
+      {
+        dryRun: true,
+        expectedFileRevisions,
+        targetFiles,
+        identityRemap: commitOptions.identityRemap,
+        sourceRestorations: commitOptions.sourceRestorations,
+        preflightSnapshot: openedSnapshot,
+      },
+    );
+    if (preview.commentImpacts.length > 0) {
+      // Bind approval to the exact source revisions AND proposed semantic operation.
+      // An agent edit while the dialog is open must force a new review.
+      const token = createHash('sha256')
+        .update(
+          JSON.stringify([
+            preview.commentImpacts,
+            preview.commentImpacts.map((impact) => [
+              impact.file,
+              openedSnapshot.fileRevisions[impact.file]?.contentHash ?? 'absent',
+            ]),
+            commitOptions.affectedPaths,
+            projectForWrite,
+          ]),
+        )
+        .digest('hex');
+      const approved = commitOptions.commentConfirmation;
+      const includesDeletion = preview.commentImpacts.some((impact) => impact.kind === 'deleted');
+      if (
+        approved?.token !== token ||
+        (includesDeletion ? approved.decision !== 'delete' : approved.decision === 'delete')
+      )
+        throw new ProjectCommentConfirmationRequired(preview.commentImpacts, token);
+    }
+  }
   const written = await workspace.write(
     projectRoot,
     expectedWorkspaceRevision,
@@ -520,6 +581,7 @@ async function writeWorkspaceProject(
       targetFiles,
       operationLabel: commitOptions?.operationLabel ?? 'project save',
       identityRemap: commitOptions?.identityRemap,
+      commentDisposition: commitOptions?.commentConfirmation?.decision,
       sourceRestorations: commitOptions?.sourceRestorations,
       extraTargets,
       preflightSnapshot: openedSnapshot,
@@ -1162,6 +1224,8 @@ export async function saveActiveProjectContent(
           request.recoveryFileOwnershipHints,
         );
         const internalOptions: ProjectWorkspaceCommitOptions = {
+          requireCommentConfirmation: true,
+          commentConfirmation: request.commentConfirmation,
           expectedFileRevisions: snapshotFileRevisions(before),
           saveUnitIds: [...request.saveUnitIds],
           affectedPaths: [...request.affectedPaths],
@@ -1221,8 +1285,11 @@ export async function saveActiveProjectContent(
           diagnostics: result.diagnostics,
         };
       } catch (error) {
+        if (error instanceof ProjectCommentConfirmationRequired)
+          return commentConfirmationResponse(error);
         if (
           attempt === 0 &&
+          !request.commentConfirmation &&
           error instanceof ProjectWorkspaceMutationError &&
           error.code === 'WORKSPACE_REVISION_CONFLICT' &&
           error.targetPath &&

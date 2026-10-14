@@ -77,3 +77,60 @@ export function yamlCommentImpacts(beforeText: string, afterText?: string): Yaml
   }
   return impacts;
 }
+
+/** Physical YAML source paths with attached notes, including notes on mapping keys. */
+export function annotatedYamlPaths(text: string): ReadonlySet<string> {
+  const doc = parseRestrictedYamlDocument(text);
+  const paths = new Set<string>();
+  const visit = (node: Node | null | undefined, path: string) => {
+    if (!node) return;
+    if (node.comment || node.commentBefore) paths.add(path);
+    if (isMap(node)) {
+      for (const pair of node.items) {
+        if (!isScalar(pair.key)) continue;
+        const childPath = path ? `${path}.${String(pair.key.value)}` : String(pair.key.value);
+        if (pair.key.comment || pair.key.commentBefore) paths.add(childPath);
+        visit(pair.value as Node, childPath);
+      }
+    } else if (isSeq(node)) {
+      for (const item of node.items) visit(item as Node, `${path}.*`);
+    }
+  };
+  visit(doc.contents, '');
+  return paths;
+}
+
+/** Remove only explicitly reviewed changed annotations; unaffected prose stays attached. */
+export function removeChangedYamlComments(
+  text: string,
+  impacts: readonly YamlCommentImpact[],
+): string {
+  const doc = parseRestrictedYamlDocument(text);
+  for (const impact of impacts) {
+    if (impact.kind !== 'changed') continue;
+    const parts = impact.path
+      .split('/')
+      .slice(1)
+      .map((part) => part.replace(/~1/gu, '/').replace(/~0/gu, '~'));
+    let node: Node | null | undefined = doc.contents;
+    let keyNode: Node | null | undefined;
+    for (const part of parts) {
+      if (isMap(node)) {
+        const pair = node.items.find((entry) => isScalar(entry.key) && entry.key.value === part);
+        keyNode = pair?.key as Node | undefined;
+        node = pair?.value as Node | undefined;
+      } else if (isSeq(node)) {
+        keyNode = undefined;
+        node = node.items[Number(part)] as Node | undefined;
+      } else {
+        node = undefined;
+        break;
+      }
+    }
+    for (const target of [node, keyNode]) {
+      if (target?.comment === impact.comment) target.comment = undefined;
+      if (target?.commentBefore === impact.comment) target.commentBefore = undefined;
+    }
+  }
+  return doc.toString({ indent: 2, lineWidth: 0 });
+}

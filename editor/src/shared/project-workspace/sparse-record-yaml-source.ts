@@ -7,6 +7,7 @@ import { characterDataSchema } from '../project-schema/authoring-characters';
 import { defaultInteractionProgram } from '../project-schema/authoring-interaction-programs';
 import { defaultDialogueData } from '../project-schema/authoring-dialogues';
 import { decodeStructuredYaml, encodeStructuredYaml } from './structured-yaml-source';
+import { annotatedYamlPaths } from './yaml-comment-impact';
 
 export type SparseRecordFamily =
   | 'rooms'
@@ -342,6 +343,7 @@ function convert(
   direction: 'read' | 'write',
   previous?: unknown,
   previousEffective?: unknown,
+  keepPaths?: ReadonlySet<string>,
 ): unknown {
   const fallback = sourceDefault(family, path);
   if (direction === 'read' && value === undefined) return structuredClone(fallback);
@@ -349,7 +351,15 @@ function convert(
     if (previous !== undefined && same(value, previousEffective)) return previous;
     // A default value does not make a union's identity optional. Only data.kind,
     // which is statically fixed by the record family, is omitted.
-    if (path.at(-1) !== 'kind' && fallback !== undefined && same(value, fallback)) return undefined;
+    const sourcePath = path.join('.');
+    const annotated =
+      previous !== undefined &&
+      keepPaths !== undefined &&
+      [...keepPaths].some(
+        (notePath) => notePath === sourcePath || notePath.startsWith(`${sourcePath}.`),
+      );
+    if (path.at(-1) !== 'kind' && fallback !== undefined && same(value, fallback) && !annotated)
+      return undefined;
   }
   if (value === null || value === undefined) return value;
   let schema = unwrap(schemaInput);
@@ -360,7 +370,16 @@ function convert(
   const selected = variant(schema, value);
   if (selected === schema && definition(schema).type === 'union') {
     const matches = (definition(schema).options as ZodType[]).flatMap((option) => {
-      const candidate = convert(family, option, value, path, direction);
+      const candidate = convert(
+        family,
+        option,
+        value,
+        path,
+        direction,
+        undefined,
+        undefined,
+        keepPaths,
+      );
       return option.safeParse(candidate).success ? [candidate] : [];
     });
     if (matches.length === 1) return matches[0];
@@ -398,6 +417,7 @@ function convert(
         direction,
         formerIndex >= 0 ? prior[formerIndex] : undefined,
         formerIndex >= 0 ? priorEffective[formerIndex] : undefined,
+        keepPaths,
       );
     });
   }
@@ -430,6 +450,7 @@ function convert(
       direction,
       object(previous) ? previous[key] : undefined,
       object(previousEffective) ? previousEffective[key] : undefined,
+      keepPaths,
     );
     if (child !== undefined) result[key] = child;
   }
@@ -450,6 +471,7 @@ export function encodeSparseRecordYaml(
   family: Family,
   value: unknown,
   previousText?: string,
+  keepCommentedDefaults = false,
 ): string {
   const schema = authoringRecordSchemas[family];
   const normalized = schema.parse(value);
@@ -467,6 +489,7 @@ export function encodeSparseRecordYaml(
     'write',
     previousSource,
     previousEffective,
+    keepCommentedDefaults && previousText ? annotatedYamlPaths(previousText) : undefined,
   );
   return encodeStructuredYaml(source, previousText);
 }

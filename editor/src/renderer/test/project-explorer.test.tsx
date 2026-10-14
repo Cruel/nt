@@ -1,7 +1,9 @@
 import { act, fireEvent, render, screen } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
 import { useCommandStore } from '@/commands/command-store';
+import { flushStructuralCommandPersistence } from '@/commands/command-store';
+import { ProjectCommentConfirmationDialog } from '@/project/project-comment-confirmation';
 import { useProjectStore } from '@/project/project-store';
 import {
   createAuthoringProject,
@@ -17,13 +19,17 @@ import { defaultHotspotBehavior } from '../../shared/project-schema/authoring-ho
 import { ProjectExplorer } from '@/workspace/ProjectExplorer';
 import { useRecentProjectsStore } from '@/workspace/recent-projects-store';
 import { useWorkbenchStore } from '@/workbench/workbench-store';
+import { useDraftDirtyStore } from '@/workbench/draft-dirty-store';
 import {
   dispatchWorkspaceToolbarCommand,
   WORKSPACE_TOOLBAR_COMMAND_EVENT,
   type WorkspaceToolbarCommandDetail,
 } from '@/workspace/workspace-toolbar-events';
 import { useProjectExplorerStore } from '@/workspace/project-explorer-store';
-import { authoringDependencyGraphService } from '@/project/authoring-dependency-graph-runtime';
+import {
+  authoringDependencyGraphService,
+  startAuthoringDependencyGraphService,
+} from '@/project/authoring-dependency-graph-runtime';
 import { useWorkspaceStore } from '@/stores/workspace-store';
 
 function loadProject(project: AuthoringProject = createAuthoringProject()) {
@@ -31,6 +37,11 @@ function loadProject(project: AuthoringProject = createAuthoringProject()) {
 }
 
 describe('ProjectExplorer', () => {
+  let stopGraphService: (() => void) | null = null;
+  afterEach(() => {
+    stopGraphService?.();
+    stopGraphService = null;
+  });
   beforeEach(() => {
     useProjectStore.getState().clearProject();
     useCommandStore.getState().resetCommandHistory();
@@ -458,5 +469,76 @@ describe('ProjectExplorer', () => {
     ).toBeInTheDocument();
     await user.click(forceDelete);
     expect(screen.getByRole('button', { name: /^delete$/i })).toBeEnabled();
+  });
+
+  it('reviews attached YAML comments inside the existing record deletion dialog', async () => {
+    const user = userEvent.setup();
+    stopGraphService = startAuthoringDependencyGraphService();
+    const project = createAuthoringProject();
+    project.rooms.target = { id: 'target', label: 'Target', data: defaultRoomData('Target') };
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: '11111111-1111-4111-8111-111111111111',
+    });
+    const publication = useProjectStore.getState().lastMutationPublication;
+    if (!publication) throw new Error('Expected graph publication');
+    await authoringDependencyGraphService.publish(publication);
+    vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      commentConfirmationRequired: true,
+      commentConfirmationToken: 'a'.repeat(64),
+      commentImpacts: [
+        {
+          file: 'records/rooms/target.yaml',
+          path: '/label',
+          comment: ' author note',
+          kind: 'deleted',
+        },
+      ],
+    });
+    render(
+      <>
+        <ProjectCommentConfirmationDialog />
+        <ProjectExplorer nodes={[]} />
+      </>,
+    );
+    await user.click(screen.getByRole('button', { name: /^rooms/i }));
+    const target = screen.getByText('Target').closest('button');
+    if (!target) throw new Error('Missing target');
+    fireEvent.contextMenu(target);
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    act(() => {
+      useWorkbenchStore.getState().openTab({
+        id: 'tab:target',
+        title: 'Target',
+        editorType: 'room-detail',
+        resource: {
+          kind: 'record',
+          stableId: 'record:rooms:target',
+          collection: 'rooms',
+          entityId: 'target',
+        },
+      });
+      useDraftDirtyStore.getState().setDraftDirty('target-draft', {
+        tabId: 'tab:target',
+        dirty: true,
+        label: 'Uncommitted draft',
+      });
+    });
+    await user.click(screen.getByRole('button', { name: /^delete$/i }));
+    expect(await screen.findByText('author note')).toBeInTheDocument();
+    expect(screen.getAllByRole('dialog')).toHaveLength(1);
+    await user.click(screen.getByRole('button', { name: 'Cancel' }));
+    await flushStructuralCommandPersistence();
+    expect(useProjectStore.getState().document).toMatchObject({
+      rooms: { target: { id: 'target' } },
+    });
+    expect(useDraftDirtyStore.getState().entriesByKey['target-draft']).toMatchObject({
+      dirty: true,
+    });
+    expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
   });
 });

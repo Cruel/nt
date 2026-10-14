@@ -82,6 +82,13 @@ field-level pending input in recovery metadata.
   final dirty view uses the shared Save / Don't Save / Cancel dialog for the logical save unit.
 
 The renderer exposes only scoped content Save, metadata-only persistence, and Save As copy IPC.
+For YAML owners, Save and Save All first perform a non-mutating source-aware comment preflight
+in main. Changed comments offer Save and keep, Save and remove, or Cancel; deletion offers Delete
+including comments or Cancel. The grouped dialog shows affected files, paths and prose. Cancel
+leaves the selected units dirty and never submits a write. Approval is bound to the reviewed source
+revisions and semantic operation, so agent edits during review invalidate the decision. Keep retains
+commented explicit defaults even when sparse YAML encoding would ordinarily omit them. This requires
+no per-field comment controls and does not change headless CLI deletion behavior.
 Content commits cross that boundary with selected save-unit IDs, affected logical paths, and their
 baseline/local values; recovery ownership hints are included only where needed to establish a dirty
 unit's physical baseline dependencies. The main-owned active workspace session performs final path

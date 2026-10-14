@@ -167,9 +167,10 @@ function rollbackFailedStructuralPersistence(
     lastDiagnostics: diagnostics,
     history,
   });
-  useProjectStore
-    .getState()
-    .setSaveError(diagnostics[0]?.message ?? 'Structural project persistence failed.');
+  if (result.status !== 'cancelled')
+    useProjectStore
+      .getState()
+      .setSaveError(diagnostics[0]?.message ?? 'Structural project persistence failed.');
   dispatchPersistenceResult(entry.id, result);
 }
 
