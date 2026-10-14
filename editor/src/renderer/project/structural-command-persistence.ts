@@ -504,6 +504,13 @@ function unsafeRecoveryUnits(
 }
 
 const filesystemStateByCommandId = new Map<string, ProjectAssetTrashMove[]>();
+const sourceHistoryByPlan = new WeakMap<
+  AutoCommitPlan,
+  {
+    undo?: Record<string, string>;
+    redo?: Record<string, string>;
+  }
+>();
 
 function normalizeToolDiagnostics(
   diagnostics: ReadonlyArray<{
@@ -619,7 +626,16 @@ export async function persistAutoCommitPlan(
       diagnostics: [],
     };
   }
-  const remappedRecovery = remapRecoveryForAutoCommit(snapshot.recovery, plan.identityRemap);
+  const identityRemap =
+    direction === 'undo'
+      ? plan.identityRemap.map(({ fromPath, toPath, fromSaveUnitId, toSaveUnitId }) => ({
+          fromPath: toPath,
+          toPath: fromPath,
+          fromSaveUnitId: toSaveUnitId,
+          toSaveUnitId: fromSaveUnitId,
+        }))
+      : plan.identityRemap;
+  const remappedRecovery = remapRecoveryForAutoCommit(snapshot.recovery, identityRemap);
   const discardedRecoverySaveUnitIds = new Set<SaveUnitId>(
     direction === 'undo' ? [] : plan.discardRecoverySaveUnitIds,
   );
@@ -710,7 +726,7 @@ export async function persistAutoCommitPlan(
   );
   const editorState = editorStateForContentCandidate(snapshot, candidateContent, rebasedRecovery);
   const scriptSourcePaths = { ...projectState.scriptSourcePaths };
-  for (const remap of plan.identityRemap) {
+  for (const remap of identityRemap) {
     const match = remap.fromPath.match(/^\/scripts\/([^/]+)$/);
     const target = remap.toPath.match(/^\/scripts\/([^/]+)$/);
     if (!match || !target || !scriptSourcePaths[match[1]]) continue;
@@ -726,7 +742,9 @@ export async function persistAutoCommitPlan(
       saveUnitIds: [plan.originSaveUnitId],
       affectedPaths: plan.affectedPaths,
       operationLabel: `${plan.commandType}:${direction}`,
-      identityRemap: plan.identityRemap.map(({ fromPath, toPath }) => ({ fromPath, toPath })),
+      identityRemap: identityRemap.map(({ fromPath, toPath }) => ({ fromPath, toPath })),
+      sourceRestorations:
+        direction === 'forward' ? undefined : sourceHistoryByPlan.get(plan)?.[direction],
       structural: true,
       assetTransition: assetTransitionFor(commandId, plan, direction),
       baselineScriptSourcePaths: projectState.scriptSourcePaths,
@@ -751,6 +769,10 @@ export async function persistAutoCommitPlan(
       ],
     };
   }
+  sourceHistoryByPlan.set(plan, {
+    ...sourceHistoryByPlan.get(plan),
+    [direction === 'undo' ? 'redo' : 'undo']: { ...response.deletedSourceTexts },
+  });
   if (response.assetTrashMoves && response.assetTrashMoves.length > 0)
     filesystemStateByCommandId.set(commandId, response.assetTrashMoves);
   const authoritativeEditorState = response.editorState ?? editorState;

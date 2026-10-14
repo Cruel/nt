@@ -16,7 +16,16 @@ import {
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  authoringProjectSchema,
+} from '../../shared/project-schema/authoring-project';
+import {
+  InMemoryProjectWorkspaceFileSystem,
+  ProjectWorkspaceService,
+  projectWorkspaceFiles,
+} from '../../shared/project-workspace';
+import { applyProjectMutationValues } from '@/project/project-save-request';
 import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { toJsonValue } from '@/project/json-value';
@@ -682,6 +691,81 @@ describe('structural command persistence', () => {
     );
   });
 
+  it('restores deleted YAML comments through the editor command Undo and Redo transport', async () => {
+    const project = createAuthoringProject();
+    project.variables.score = {
+      id: 'score',
+      label: 'Score',
+      data: { kind: 'variable', type: 'integer', value: 1, nullable: false, scope: 'global' },
+    };
+    const file = 'records/variables/score.yaml';
+    const root = '/mock/project';
+    const source = 'id: score\nlabel: Score # score note\ndata:\n  type: integer\n  value: 1\n';
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(projectWorkspaceFiles(project, project.editor, {}, new Set([file]))).map(
+          ([path, text]) => [`${root}/${path}`, path === file ? source : text],
+        ),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fs);
+    const save: typeof window.noveltea.saveProjectContent = async (
+      _session,
+      request,
+      editorState,
+    ) => {
+      const opened = await workspace.open(root);
+      if (!opened.ok) throw new Error('Cannot open test workspace');
+      const candidate = authoringProjectSchema.parse(
+        applyProjectMutationValues(toJsonValue(opened.snapshot.project), request.localValueByPath),
+      );
+      const result = await workspace.write(
+        root,
+        opened.snapshot.workspaceRevision,
+        candidate,
+        editorState,
+        {},
+        {
+          affectedPaths: request.affectedPaths,
+          identityRemap: request.identityRemap,
+          sourceRestorations: request.sourceRestorations,
+        },
+      );
+      return {
+        ok: true,
+        success: true,
+        editorState,
+        deletedSourceTexts: result.deletedSourceTexts,
+      };
+    };
+    vi.mocked(window.noveltea.saveProjectContent)
+      .mockImplementationOnce(save)
+      .mockImplementationOnce(save)
+      .mockImplementationOnce(save);
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      projectPath: root,
+      projectFilePath: `${root}/project.yaml`,
+    });
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.deleteRecord',
+        label: 'Delete score',
+        payload: { collection: 'variables', entityId: 'score' },
+        originSaveUnitId: 'structure:variables',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+    await expect(fs.readText(`${root}/${file}`)).rejects.toThrow();
+    expect(useCommandStore.getState().undo().ok).toBe(true);
+    await flushStructuralCommandPersistence();
+    expect(await fs.readText(`${root}/${file}`)).toBe(source);
+    expect(useCommandStore.getState().redo().ok).toBe(true);
+    await flushStructuralCommandPersistence();
+    await expect(fs.readText(`${root}/${file}`)).rejects.toThrow();
+  });
+
   it('persists structural forward, Undo, and Redo to the saved baseline', async () => {
     const project = projectWithRoom();
     await loadProjectDocumentWithGraph({
@@ -720,6 +804,13 @@ describe('structural command persistence', () => {
       rooms: { hall: { id: 'hall' } },
     });
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(3);
+    expect(
+      vi.mocked(window.noveltea.saveProjectContent).mock.calls.map((call) => call[1].identityRemap),
+    ).toEqual([
+      [{ fromPath: '/rooms/foyer', toPath: '/rooms/hall' }],
+      [{ fromPath: '/rooms/hall', toPath: '/rooms/foyer' }],
+      [{ fromPath: '/rooms/foyer', toPath: '/rooms/hall' }],
+    ]);
   });
 
   it('does not let an open asset-library tab block asset-import auto-commit', async () => {

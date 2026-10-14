@@ -90,6 +90,28 @@ and record-metadata tag lists may be omitted because their source defaults are e
 other identity and behavioral fields remain explicit. The YAML writer preserves comments and
 unchanged explicit fields through revision-safe selective saves.
 
+For staged YAML owners, the shared workspace writer parses the current document and applies
+localized changes to its nodes. Unchanged fields retain their authored comments, explicit defaults,
+and mapping order. Sequence comments follow unique stable item IDs through reorder/insert; a
+commented sequence without an unambiguous correspondence fails rather than attaching a note to a
+different item. An explicit record identity rename carries its original YAML source (and Layout
+companions) to the destination, including matching `editor.yaml` record-metadata annotations;
+in a staged mixed JSON/YAML family an existing JSON owner retains its `.json` extension on rename.
+Changing the record's own `id` during a safe identity move does not produce a destructive-comment
+impact. Duplication deliberately starts from new, comment-free source. The writer reports affected comments
+with their physical source paths for future centralized editor confirmation; it does not itself
+present confirmation UI. CLI entity deletion includes discarded-comment details in both dry-run and
+commit results without requiring interactive acknowledgment.
+
+Structural command Undo/Redo retains deleted YAML source templates for recreation, filling only
+missing nodes; annotations still present in current source take precedence over historical ones.
+The exact committed source text is retained outside the normalized Project for resident snapshot
+adoption. Before editing an existing YAML document the writer checks its exact-byte source revision,
+including comment-only changes, and refuses stale writes. The active editor session may reconcile
+and retry nonoverlapping semantic changes using the established external-conflict machinery; invalid
+external YAML is not overwritten. Ordinary non-YAML source ownership and transactional target CAS
+remain unchanged.
+
 Staged Room and Map records use `records/rooms/<id>.yaml` and `records/maps/<id>.yaml`.
 During the family cutover (#453), once one YAML owner exists in the collection, new records
 in that collection use YAML; existing JSON Room/Map owners retain their file names;

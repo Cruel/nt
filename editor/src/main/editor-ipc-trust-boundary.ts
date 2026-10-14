@@ -67,6 +67,7 @@ const MAX_ASSET_OPERATION_PATHS = 10_000;
 const MAX_SAVE_SOURCE_PATHS = 10_000;
 const MAX_SAVE_UNITS = 10_000;
 const MAX_SAVE_LABEL_LENGTH = 1_024;
+const MAX_SOURCE_RESTORATION_CHARACTERS = 64 * 1024 * 1024;
 const MAX_PLAYBACK_TEST_ID_LENGTH = 1_024;
 const MAX_PLAYBACK_STEPS = 100_000;
 const MAX_SHADER_VARIANTS = 256;
@@ -514,6 +515,15 @@ const projectContentSaveRequestSchema = z
     localValueByPath: z.record(mutationPathSchema, projectMutationPathValueSchema),
     operationLabel: z.string().min(1).max(MAX_SAVE_LABEL_LENGTH),
     recoveryFileOwnershipHints: recoveryFileOwnershipHintsSchema.optional(),
+    sourceRestorations: z
+      .record(projectRelativePathSchema, z.string().max(MAX_SOURCE_RESTORATION_CHARACTERS))
+      .refine(
+        (value) =>
+          Object.keys(value).length <= MAX_SAVE_SOURCE_PATHS &&
+          Object.values(value).reduce((total, text) => total + text.length, 0) <=
+            MAX_SOURCE_RESTORATION_CHARACTERS,
+      )
+      .optional(),
     identityRemap: z
       .array(z.object({ fromPath: mutationPathSchema, toPath: mutationPathSchema }).strict())
       .max(MAX_SAVE_UNITS)
