@@ -472,6 +472,14 @@ describe('Prepared Runtime Artifact module', () => {
               height: 180,
             },
             frameDurationsMs: [500, 500],
+            alphaWebp: {
+              sourcePath: '/project/.noveltea/build/prepared-media/a/alpha.webp',
+              projectRelativePath: '.noveltea/build/prepared-media/a/alpha.webp',
+              contentHash: 'e'.repeat(64),
+              byteSize: 21,
+              width: 320,
+              height: 180,
+            },
           };
         },
       },
@@ -491,6 +499,10 @@ describe('Prepared Runtime Artifact module', () => {
         expect.objectContaining({
           kind: 'prepared-media',
           packagePath: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/opaque.webm',
+        }),
+        expect.objectContaining({
+          kind: 'prepared-media',
+          packagePath: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/alpha.webp',
         }),
       ]),
     );
@@ -513,6 +525,7 @@ describe('Prepared Runtime Artifact module', () => {
             height: 180,
           },
           frames: [{ durationMs: 500 }, { durationMs: 500 }],
+          alphaWebp: { path: 'assets/.prepared-media/portrait/idle/aaaaaaaaaaaaaaaa/alpha.webp' },
         },
       ],
     });

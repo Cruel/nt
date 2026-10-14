@@ -1186,15 +1186,15 @@ void Renderer::submit_quad(const QuadCommand& command, std::uint16_t view, float
 {
     QuadCommand adjusted = command;
     adjusted.color.a *= opacity;
-    if (adjusted.material.valid() && adjusted.video_alpha_mask) {
-        // The tracer compositor cannot replace an authored Engine2D Material.
-        // Production transparent Material binding belongs to #409.
-        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                     "[renderer] video alpha masks with authored Materials are not supported");
+    if (adjusted.video_alpha_required && !adjusted.video_alpha_mask)
         return;
-    }
-    if (adjusted.material.valid() && submit_material_quad(adjusted, view)) {
-        return;
+    if (adjusted.material.valid()) {
+        if (submit_material_quad(adjusted, view))
+            return;
+        // Do not discard authored Material behavior by silently substituting
+        // the default transparent-video shader on an invalid Material.
+        if (adjusted.video_alpha_required)
+            return;
     }
     submit_default_quad(adjusted, view);
 }
@@ -1259,6 +1259,37 @@ bool Renderer::submit_material_quad(const QuadCommand& command, std::uint16_t vi
     }
     if (!bound.ok || !bgfx::isValid(bound.program))
         return false;
+
+    if (!hotspot_overlay) {
+        const auto mask = command.video_alpha_mask
+                              ? bgfx::TextureHandle{command.video_alpha_mask->handle}
+                              : bgfx::TextureHandle{m_white_texture};
+        if (!bgfx::isValid(mask) || !bgfx::isValid(bgfx::UniformHandle{m_video_alpha_sampler}))
+            return false;
+        // System engine-2d preset shaders are precompiled and share the
+        // built-in fragment program, which already knows the alpha compositor.
+        // Source-compiled authored shaders are wrapped after their own main()
+        // and bind the same renderer-owned sampler at reserved stage 15.
+        bool system_quad = false;
+        if (m_shader_materials && m_shader_program_cache) {
+            const auto resolved = resolve_material_shader_program(
+                *m_shader_materials, command.material, m_shader_program_cache->active_variant());
+            if (resolved.program)
+                system_quad =
+                    resolved.program->fragment.path.starts_with("system:/shaders/bgfx/") &&
+                    resolved.program->fragment.path.ends_with("/quad.fs.bin");
+        }
+        if (system_quad && command.video_alpha_mask) {
+            if (!bgfx::isValid(bgfx::ProgramHandle{m_video_alpha_program}))
+                return false;
+            bound.program = bgfx::ProgramHandle{m_video_alpha_program};
+        }
+        const auto stage = system_quad ? 1u : 15u;
+        bgfx::setTexture(static_cast<std::uint8_t>(stage),
+                         bgfx::UniformHandle{m_video_alpha_sampler}, mask,
+                         BGFX_SAMPLER_U_CLAMP | BGFX_SAMPLER_V_CLAMP | BGFX_SAMPLER_MIN_POINT |
+                             BGFX_SAMPLER_MAG_POINT | BGFX_SAMPLER_MIP_POINT);
+    }
 
     (void)command.depth;
     if (!set_quad_buffers(command))

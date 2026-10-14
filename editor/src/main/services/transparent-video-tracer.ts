@@ -1,14 +1,19 @@
 /**
- * #408 integration tracer, deliberately NOT a package representation or player decoder.
- * It consumes the production VP9 preparation and emits independent, single lossless
- * animated-WebP alpha bytes for validation before #409 adds the runtime contract.
+ * Private lossless animated-WebP alpha preparation and #408 integration tracing.
+ * The production export adapter reuses these verified alpha bytes; the native
+ * player reads the same private sidecar through its WebP alpha session.
  */
 import { createHash } from 'node:crypto';
-import { mkdtemp, readFile, rm, stat, writeFile } from 'node:fs/promises';
+import { mkdtemp, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import sharp from 'sharp';
-import type { OpaqueVideoPreparationRequest } from '../../shared/prepared-media-contracts';
+import { encodeAlphaMasks, readAlphaMasksFile } from './animated-webp-alpha-encoder';
+import { encodeAlphaFromFfmpeg } from './alpha-ffmpeg-stream';
+import type {
+  OpaqueVideoPreparationRequest,
+  OpaqueVideoPreparationResult,
+} from '../../shared/prepared-media-contracts';
 import type { MediaTool, MediaToolRunner } from './media-preparation-service';
 import { installedMediaTool, runMediaPreparation } from './media-preparation-service';
 import {
@@ -67,10 +72,6 @@ function alphaSourceDecoder(
   return ['-c:v', codec === 'vp8' ? 'libvpx' : 'libvpx-vp9'];
 }
 
-function equalBytes(a: Uint8Array, b: Uint8Array): boolean {
-  return a.length === b.length && Buffer.compare(a, b) === 0;
-}
-
 /** Decode a single page into a bounded, reusable 8-bit CPU mask for tracing hit coverage. */
 export class WebpAlphaTraceSession {
   private page = -1;
@@ -119,14 +120,13 @@ export class WebpAlphaTraceSession {
  * alpha with the same source-range, sampling, scale and centered padding.
  * This is trace evidence, not a second authoring or export route.
  */
-export async function traceTransparentVideo(
-  root: string,
+export async function prepareOptionalVideoAlpha(
   request: OpaqueVideoPreparationRequest,
+  color: { browserVideo: { sourcePath: string }; frameDurationsMs: number[] },
+  sourceBytes: Uint8Array,
   tool: MediaTool = installedMediaTool(),
   run: MediaToolRunner = runVideoMediaToolProcess,
-): Promise<TransparentVideoTrace> {
-  const sourceBytes = await readContainedVideoSource(root, request.sourcePath);
-  const color = await prepareOpaqueVideoMotion(root, request, tool, run, sourceBytes);
+): Promise<TransparentVideoTrace | null> {
   const temporary = await mkdtemp(join(tmpdir(), 'noveltea-alpha-trace-'));
   try {
     // Both color and alpha must derive from one admitted source snapshot,
@@ -155,10 +155,15 @@ export async function traceTransparentVideo(
       ],
       run,
     );
-    if (!sourceHasAlpha(probe.stderr))
-      throw new Error(
-        'Source decoder discarded alpha (decoded frames do not carry an alpha plane).',
-      );
+    if (!sourceHasAlpha(probe.stderr)) {
+      // A source that advertises auxiliary alpha must fail closed if its decoder drops it.
+      // Ordinary opaque sources have no WebP sidecar.
+      if (/alpha_mode\s*:\s*1\b/u.test(probe.stderr))
+        throw new Error(
+          'Source decoder discarded alpha (decoded frames do not carry an alpha plane).',
+        );
+      return null;
+    }
     const timeline = sourceTimeline(request, readSampleTimes(probe.stderr), probe.stderr);
     const sampling = samplingFilter(
       request.frameSampling ?? { mode: 'source' },
@@ -179,95 +184,74 @@ export async function traceTransparentVideo(
       'format=gray',
       'showinfo',
     ].join(',');
-    const extracted = runMediaPreparation(
-      tool,
-      [
-        '-y',
-        ...decoderOptions,
-        '-i',
-        source,
-        '-map',
-        '0:v:0',
-        '-an',
-        '-sn',
-        '-dn',
-        '-vf',
-        filter,
-        '-fps_mode',
-        'passthrough',
-        '-f',
-        'rawvideo',
-        '-pix_fmt',
-        'gray',
-        maskPath,
-      ],
-      run,
-    );
-    const samples = readSampleTimes(extracted.stderr);
+    const extractArguments = [
+      '-y',
+      ...decoderOptions,
+      '-i',
+      source,
+      '-map',
+      '0:v:0',
+      '-an',
+      '-sn',
+      '-dn',
+      '-vf',
+      filter,
+      '-fps_mode',
+      'passthrough',
+      '-f',
+      'rawvideo',
+      '-pix_fmt',
+      'gray',
+    ];
+    let extractionLog: string;
+    let encoded;
+    if (run === runVideoMediaToolProcess) {
+      // Native production jobs consume FFmpeg's stdout under backpressure:
+      // one uncompressed mask in memory, no multi-gigabyte scratch file.
+      const streamed = await encodeAlphaFromFfmpeg(
+        tool.executable,
+        ['-nostdin', '-hide_banner', ...extractArguments, '-'],
+        color.frameDurationsMs,
+        width,
+        height,
+      );
+      extractionLog = streamed.stderr;
+      encoded = streamed.result;
+    } else {
+      // Injected test runners can write their declared output file without
+      // being replaced by an unmockable host child process.
+      const extracted = runMediaPreparation(tool, [...extractArguments, maskPath], run);
+      extractionLog = extracted.stderr;
+      encoded = await encodeAlphaMasks(
+        readAlphaMasksFile(maskPath, width, height, color.frameDurationsMs.length),
+        color.frameDurationsMs,
+        width,
+        height,
+      );
+    }
+    const samples = readSampleTimes(extractionLog);
     const durations = frameDurations(samples, timeline.endpointMs);
     if (
       durations.length !== color.frameDurationsMs.length ||
       durations.some((duration, index) => duration !== color.frameDurationsMs[index])
     )
       throw new Error('Prepared alpha and VP9 color disagree on sample timestamps or endpoint.');
-    const pixels = width * height;
-    const expectedBytes = pixels * durations.length;
-    // The validation tracer materializes raw frames for comparison; #409's
-    // production decoder must stream them. Never permit unbounded allocations.
-    if (!Number.isSafeInteger(expectedBytes) || expectedBytes > 64 * 1024 * 1024)
-      throw new Error('Alpha tracer exceeds its 64 MiB decoded-frame budget.');
-    if ((await stat(maskPath)).size !== expectedBytes)
-      throw new Error('Alpha extraction produced an incomplete or differently-sized canvas.');
-    const decoded = await readFile(maskPath);
-    if (decoded.every((value) => value === 255))
-      throw new Error(
-        'Alpha source has no nonopaque coverage; cannot prove auxiliary alpha decoding.',
-      );
-
-    // Consecutive identical masks become a single timed WebP page. The GPU can
-    // therefore keep one R8 upload across multiple independently timed color frames.
-    const masks: Buffer[] = [];
-    const holds: AlphaHold[] = [];
-    let startMs = 0;
-    for (let frame = 0; frame < durations.length; frame += 1) {
-      const mask = decoded.subarray(frame * pixels, (frame + 1) * pixels);
-      if (masks.length && equalBytes(masks.at(-1)!, mask)) {
-        holds.at(-1)!.durationMs += durations[frame]!;
-      } else {
-        masks.push(Buffer.from(mask));
-        holds.push({ startMs, durationMs: durations[frame]! });
-      }
-      startMs += durations[frame]!;
-    }
-    // Sharp/libwebp accepts animation frame delays as integer milliseconds;
-    // no synthetic output frames are needed to represent a long alpha hold.
-    const rgba = Buffer.alloc(masks.length * pixels * 4);
-    masks.forEach((mask, page) => {
-      for (let pixel = 0; pixel < pixels; pixel += 1) {
-        const offset = (page * pixels + pixel) * 4;
-        rgba[offset] = 255;
-        rgba[offset + 1] = 255;
-        rgba[offset + 2] = 255;
-        rgba[offset + 3] = mask[pixel]!;
-      }
-    });
-    const alphaWebp = await sharp(rgba, {
-      raw: { width, height: height * masks.length, channels: 4, pageHeight: height },
-    })
-      .webp({ lossless: true, effort: 4, loop: 0, delay: holds.map((hold) => hold.durationMs) })
-      .toBuffer();
+    const { alphaWebp, holds, pageHashes } = encoded;
+    if (!alphaWebp) return null;
     const metadata = await sharp(alphaWebp, { animated: true }).metadata();
     if (
-      metadata.pages !== masks.length ||
+      (metadata.pages ?? 1) !== holds.length ||
       metadata.width !== width ||
-      metadata.pageHeight !== height ||
-      JSON.stringify(metadata.delay ?? []) !== JSON.stringify(holds.map((hold) => hold.durationMs))
+      (metadata.pageHeight ?? metadata.height) !== height ||
+      (holds.length > 1 &&
+        JSON.stringify(metadata.delay ?? []) !==
+          JSON.stringify(holds.map((hold) => hold.durationMs)))
     )
       throw new Error('WebP animation did not retain exact page durations and canvas.');
     const decoder = new WebpAlphaTraceSession(alphaWebp, holds, width, height);
-    for (let page = 0; page < masks.length; page += 1) {
+    for (let page = 0; page < holds.length; page += 1) {
       const decodedPage = (await decoder.sample(holds[page]!.startMs)).alpha;
-      if (!equalBytes(decodedPage, masks[page]!))
+      if (createHash('sha256').update(decodedPage).digest('hex') !== pageHashes[page])
         throw new Error(`Lossless WebP mask differs at page ${page}.`);
     }
     return {
@@ -282,4 +266,49 @@ export async function traceTransparentVideo(
   } finally {
     await rm(temporary, { recursive: true, force: true });
   }
+}
+
+/** Production preparation shares the immutable input snapshot and color timeline with WebP. */
+export async function prepareProductionVideoMotion(
+  root: string,
+  request: OpaqueVideoPreparationRequest,
+  tool: MediaTool = installedMediaTool(),
+  run: MediaToolRunner = runVideoMediaToolProcess,
+  admittedSourceBytes?: Uint8Array,
+): Promise<OpaqueVideoPreparationResult> {
+  const bytes = admittedSourceBytes ?? (await readContainedVideoSource(root, request.sourcePath));
+  const color = await prepareOpaqueVideoMotion(root, request, tool, run, bytes);
+  const alpha = await prepareOptionalVideoAlpha(request, color, bytes, tool, run);
+  if (!alpha) return color;
+  const sourcePath = join(dirname(color.browserVideo.sourcePath), 'alpha.webp');
+  await writeFile(sourcePath, alpha.alphaWebp);
+  return {
+    ...color,
+    alphaWebp: {
+      sourcePath,
+      projectRelativePath: join(
+        dirname(color.browserVideo.projectRelativePath),
+        'alpha.webp',
+      ).replaceAll('\\', '/'),
+      contentHash: alpha.alphaSha256,
+      byteSize: alpha.alphaWebp.byteLength,
+      width: alpha.width,
+      height: alpha.height,
+    },
+  };
+}
+
+/** Strict proof helper: opaque input is not a valid transparent-video trace. */
+export async function traceTransparentVideo(
+  root: string,
+  request: OpaqueVideoPreparationRequest,
+  tool: MediaTool = installedMediaTool(),
+  run: MediaToolRunner = runVideoMediaToolProcess,
+): Promise<TransparentVideoTrace> {
+  const sourceBytes = await readContainedVideoSource(root, request.sourcePath);
+  const color = await prepareOpaqueVideoMotion(root, request, tool, run, sourceBytes);
+  const alpha = await prepareOptionalVideoAlpha(request, color, sourceBytes, tool, run);
+  if (!alpha)
+    throw new Error('Source decoder discarded alpha or alpha source has no nonopaque coverage.');
+  return alpha;
 }

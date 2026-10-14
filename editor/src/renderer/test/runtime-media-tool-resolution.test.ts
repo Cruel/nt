@@ -118,7 +118,9 @@ describe('runtime video media-tool discovery', () => {
       });
       expect(result.frameDurationsMs).toHaveLength(1);
       expect(result.browserVideo.byteSize).toBeGreaterThan(0);
-      expect(calls).toHaveLength(12);
+      expect(result.alphaWebp).toBeUndefined();
+      // Even an opaque source is inspected for auxiliary alpha before omitting the sidecar.
+      expect(calls).toHaveLength(16);
       expect(new Set(calls)).toEqual(
         new Set([
           path.join(

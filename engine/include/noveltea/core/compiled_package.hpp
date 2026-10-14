@@ -105,12 +105,18 @@ struct PreparedBrowserVideo {
     bool operator==(const PreparedBrowserVideo&) const = default;
 };
 
+struct PreparedVideoAlpha {
+    std::string path;
+    bool operator==(const PreparedVideoAlpha&) const = default;
+};
+
 struct PreparedVideoMotion {
     AnimationId animation;
     AnimationMotionId motion;
     std::string content_hash;
     std::vector<PreparedRasterMediaFrame> frames;
     std::optional<PreparedBrowserVideo> browser_video = std::nullopt;
+    std::optional<PreparedVideoAlpha> alpha_webp = std::nullopt;
     bool operator==(const PreparedVideoMotion&) const = default;
 };
 

@@ -409,7 +409,8 @@ bool run(Fixture& fixture)
 
 bool run_alpha_trace(Fixture& fixture, const std::filesystem::path& directory)
 {
-    const auto media = representation();
+    auto media = representation();
+    media.alpha_webp = core::PreparedVideoAlpha{"alpha.webp"};
     const auto initial = assets::prepared_video_texture_request(media, 0);
     auto requested = fixture.assets.request_texture(initial, assets::AssetRequestReason::Demand);
     if (!check(static_cast<bool>(requested), "trace initial sample request"))
@@ -490,6 +491,19 @@ bool run_alpha_trace(Fixture& fixture, const std::filesystem::path& directory)
             return false;
         if (!check(sample_at(times[page]), "trace color frame seeks to matching alpha hold"))
             return false;
+        if (!check(stream->alpha_upload_count() == page + 1,
+                   "production alpha uploads only when the WebP hold changes"))
+            return false;
+        const auto produced_alpha = stream->alpha_mask();
+        if (!check(stream->has_alpha_mask() && produced_alpha.has_value() &&
+                       bgfx::isValid(bgfx::TextureHandle{produced_alpha->handle}),
+                   "production video stream publishes a decoded GPU alpha mask"))
+            return false;
+        if (!check(stream->alpha_hit(4.0f / 32.0f, 8.0f / 16.0f) == (page == 1) &&
+                       stream->alpha_hit(12.0f / 32.0f, 8.0f / 16.0f) &&
+                       stream->alpha_hit(24.0f / 32.0f, 8.0f / 16.0f) == (page == 0),
+                   "CPU alpha hit testing matches the same displayed WebP frame"))
+            return false;
         // Keep the preceding complete sample alive while preparing the next
         // color/mask pair, just as the production video color path does.
         masks.buffers[page] = bgfx::createTexture2D(
@@ -504,7 +518,7 @@ bool run_alpha_trace(Fixture& fixture, const std::filesystem::path& directory)
             return false;
         std::optional<RendererScreenshotCapture> capture;
         for (unsigned tick = 0; tick < 32 && !capture; ++tick) {
-            fixture.draw_masked(color, masks.buffers[page].idx);
+            fixture.draw_masked(color, produced_alpha->handle);
             capture = fixture.renderer.take_screenshot_capture();
         }
         if (!check(capture.has_value(), "trace complete masked GPU presentation"))
@@ -531,6 +545,22 @@ bool run_alpha_trace(Fixture& fixture, const std::filesystem::path& directory)
             return false;
         }
     }
+    // A second occurrence must allocate and own a different alpha plane; it
+    // must not publish or upload another occurrence's sampled WebP page.
+    auto independent = resources.resolve_visual(
+        core::compiled::Visual{core::compiled::AnimationVisual{media.animation, media.motion}},
+        std::nullopt, "second-transparent-occurrence");
+    if (!check(static_cast<bool>(independent) && independent.value().video_stream &&
+                   independent.value().video_stream != stream,
+               "transparent occurrences retain independent decoder owners"))
+        return false;
+    auto separate = independent.value().video_stream;
+    auto independent_first = separate->sample(0);
+    if (!check(static_cast<bool>(independent_first) && separate->alpha_mask().has_value() &&
+                   separate->alpha_mask()->handle != stream->alpha_mask()->handle &&
+                   separate->alpha_upload_count() == 1 && stream->alpha_upload_count() == 2,
+               "separate alpha GPU textures and upload counters do not leak between occurrences"))
+        return false;
     // Inspect a partially covered edge over both dark and light backdrops.
     // The same WebP-derived alpha must blend without a green-screen/chroma key.
     for (unsigned background = 0; background < 2; ++background) {
@@ -559,9 +589,8 @@ bool run_alpha_trace(Fixture& fixture, const std::filesystem::path& directory)
             return false;
         }
     }
-    // Validate repeated holds, backward seeks, and loop/reset advances with the
-    // same two R8 textures. This remains a deliberate test-side pairing: #409
-    // will own automatic synchronized publication and hit-test presentation.
+    // Validate automatic, held WebP R8 publication over seeks, loop/reset and
+    // unchanged intervals without redundant GPU uploads.
     constexpr std::array<std::pair<std::uint64_t, unsigned>, 7> revisits{{
         {25, 0},
         {75, 0},
@@ -571,16 +600,27 @@ bool run_alpha_trace(Fixture& fixture, const std::filesystem::path& directory)
         {175, 1},
         {0, 0},
     }};
+    unsigned previous_page = 1;
+    auto alpha_uploads = stream->alpha_upload_count();
     for (unsigned step = 0; step < revisits.size(); ++step) {
         const auto [time, page] = revisits[step];
         if (!check(sample_at(time), "trace frame hold/seek/loop prepared color"))
             return false;
+        if (page != previous_page)
+            ++alpha_uploads;
+        if (!check(stream->alpha_upload_count() == alpha_uploads,
+                   "held alpha pages avoid repeat R8 uploads on color-only samples"))
+            return false;
+        previous_page = page;
         if (!check(fixture.renderer.request_screenshot_capture({30 + step, 64, 16}),
                    "trace held/seek GPU pair capture"))
             return false;
         std::optional<RendererScreenshotCapture> capture;
         for (unsigned tick = 0; tick < 32 && !capture; ++tick) {
-            fixture.draw_masked(color, masks.buffers[page].idx);
+            const auto alpha = stream->alpha_mask();
+            if (!check(alpha.has_value(), "alpha mask remains available over held seeks"))
+                return false;
+            fixture.draw_masked(color, alpha->handle);
             capture = fixture.renderer.take_screenshot_capture();
         }
         if (!check(capture.has_value(), "trace held/seek GPU pair readback"))

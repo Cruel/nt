@@ -33,6 +33,13 @@ public:
     [[nodiscard]] virtual std::string fallback_reason() const { return {}; }
     [[nodiscard]] virtual bool frame_addressable() const noexcept { return false; }
     [[nodiscard]] virtual bool sample_ready(std::uint64_t) const noexcept { return false; }
+    [[nodiscard]] virtual bool has_alpha_mask() const noexcept { return false; }
+    [[nodiscard]] virtual std::uint64_t alpha_upload_count() const noexcept { return 0; }
+    [[nodiscard]] virtual std::optional<Texture> alpha_mask() const noexcept
+    {
+        return std::nullopt;
+    }
+    [[nodiscard]] virtual bool alpha_hit(float, float) const noexcept { return false; }
 };
 
 struct WorldPreparedVisual {
@@ -247,6 +254,7 @@ struct WorldHotspotHitTarget {
     std::variant<core::AlphaHotspotShape, core::compiled::NormalizedRect> shape;
     bool active = true;
     std::optional<assets::AssetLease<assets::TextureAsset>> source_texture_lease;
+    std::shared_ptr<WorldVideoStream> source_video_stream;
     std::optional<core::compiled::CursorTarget> cursor;
 };
 

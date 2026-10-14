@@ -6,6 +6,7 @@ import path from 'node:path';
 import sharp from 'sharp';
 import { expect, it } from 'vite-plus/test';
 import {
+  prepareProductionVideoMotion,
   traceTransparentVideo,
   WebpAlphaTraceSession,
 } from '../../main/services/transparent-video-tracer';
@@ -92,6 +93,37 @@ it.skipIf(!existsSync(ffmpeg))(
           tool,
           run,
         );
+        if (input === 'alpha.mov') {
+          const production = await prepareProductionVideoMotion(
+            root,
+            {
+              animationId: 'alpha-production',
+              motionId: input,
+              assetId: input,
+              sourcePath: input,
+              canvas: { width: 80, height: 48 },
+            },
+            tool,
+            run,
+          );
+          expect(production.alphaWebp?.projectRelativePath).toMatch(/\/alpha\.webp$/u);
+          expect(production.alphaWebp?.byteSize).toBeGreaterThan(0);
+          expect(await readFile(production.alphaWebp!.sourcePath)).toEqual(trace.alphaWebp);
+          // Exercise the real FFmpeg pipe, not the injected file-output runner.
+          const streamed = await prepareProductionVideoMotion(
+            root,
+            {
+              animationId: 'alpha-production-streamed',
+              motionId: input,
+              assetId: input,
+              sourcePath: input,
+              canvas: { width: 80, height: 48 },
+            },
+            tool,
+          );
+          expect(streamed.alphaWebp).toBeDefined();
+          expect(await readFile(streamed.alphaWebp!.sourcePath)).toEqual(trace.alphaWebp);
+        }
         expect(trace.colorDurationsMs).toEqual([100, 100, 100, 100]);
         expect(trace.holds).toEqual([
           { startMs: 0, durationMs: 200 },
@@ -166,6 +198,53 @@ it.skipIf(!existsSync(ffmpeg))(
         expect(rational.colorDurationsMs.reduce((sum, duration) => sum + duration, 0)).toBe(400);
         expect(rational.holds.map((hold) => hold.durationMs)).toEqual([200, 200]);
       }
+      // Constant nonopaque coverage is a single timed lossless VP8L still,
+      // not an ANIM container; it must remain a valid production sidecar.
+      const constantRgba = Buffer.from(rgba);
+      for (let frame = 1; frame < frames; frame += 1)
+        for (let pixel = 0; pixel < width * height; pixel += 1)
+          constantRgba[(frame * width * height + pixel) * 4 + 3] = constantRgba[pixel * 4 + 3]!;
+      await writeFile(path.join(root, 'constant.rgba'), constantRgba);
+      run(ffmpeg, [
+        '-y',
+        '-f',
+        'rawvideo',
+        '-pixel_format',
+        'rgba',
+        '-video_size',
+        `${width}x${height}`,
+        '-framerate',
+        '10',
+        '-i',
+        path.join(root, 'constant.rgba'),
+        '-an',
+        '-c:v',
+        'libvpx-vp9',
+        '-pix_fmt',
+        'yuva420p',
+        '-lossless',
+        '1',
+        '-threads',
+        '1',
+        path.join(root, 'constant.webm'),
+      ]);
+      const constant = await prepareProductionVideoMotion(
+        root,
+        {
+          animationId: 'alpha-production',
+          motionId: 'constant',
+          assetId: 'constant',
+          sourcePath: 'constant.webm',
+          canvas: { width: 80, height: 48 },
+        },
+        tool,
+        run,
+      );
+      expect(constant.frameDurationsMs).toEqual([100, 100, 100, 100]);
+      expect(constant.alphaWebp).toBeDefined();
+      expect(
+        (await sharp(await readFile(constant.alphaWebp!.sourcePath)).metadata()).pages,
+      ).toBeUndefined();
       // A VFR alpha track must keep its original presentation times, not
       // repeat/retime the mask to match an assumed constant frame rate.
       run(ffmpeg, [
@@ -223,6 +302,19 @@ it.skipIf(!existsSync(ffmpeg))(
         '1',
         path.join(root, 'stripped.webm'),
       ]);
+      const opaque = await prepareProductionVideoMotion(
+        root,
+        {
+          animationId: 'alpha-production',
+          motionId: 'stripped',
+          assetId: 'stripped',
+          sourcePath: 'stripped.webm',
+          canvas: { width: 80, height: 48 },
+        },
+        tool,
+        run,
+      );
+      expect(opaque.alphaWebp).toBeUndefined();
       await expect(
         traceTransparentVideo(
           root,

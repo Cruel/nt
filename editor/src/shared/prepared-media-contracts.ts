@@ -37,4 +37,12 @@ export interface OpaqueVideoPreparationResult {
     height: number;
   };
   frameDurationsMs: number[];
+  alphaWebp?: {
+    sourcePath: string;
+    projectRelativePath: string;
+    contentHash: string;
+    byteSize: number;
+    width: number;
+    height: number;
+  };
 }

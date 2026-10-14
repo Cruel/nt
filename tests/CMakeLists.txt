@@ -651,6 +651,7 @@ add_executable(noveltea_render_backend_tests
     render/screenshot_capture_tests.cpp
     render/shader_variant_tests.cpp
     render/webp_decode_tests.cpp
+    render/animated_webp_alpha_tests.cpp
     render/world_presentation_tests.cpp
     render/world_transition_tests.cpp
 )
