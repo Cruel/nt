@@ -1,4 +1,4 @@
-# Standalone Graphics Benchmark (Linux dashboard and runner, #422–#424)
+# Standalone Graphics Benchmark (Linux reference workloads, #422–#425)
 
 The dedicated `noveltea-benchmark-app` measures an SDL3/bgfx reference workload
 without creating a NovelTea Engine, sandbox, player, or RmlUi. Interactive
@@ -13,9 +13,10 @@ the foundation for later Android/Web ports and additional scenario hosts.
 Launch with no CLI arguments to open the standalone SDL3/bgfx Dear ImGui
 dashboard, or use `--ui` with CLI run settings or a configuration containing
 `"no_ui": false`. The dashboard has Scenarios, Run Settings, Results,
-and Advanced tabs. It previews the current empty-bgfx reference (an intentionally
-empty view); Clean and Diagnostic runs are separate actions. The Quick Suite
-currently contains only `raw-bgfx-empty`; other workloads are separate tickets.
+and Advanced tabs. Preview shows the selected reference content without contributing
+to measurements; Clean and Diagnostic runs are separate actions. The scenario
+selector includes `raw-bgfx-empty` and `raw-bgfx-geometry`; other workloads
+are separate tickets.
 
 Changing resolution or VSync applies at the next run. Before the runner
 enters Preparation, the dashboard completely releases its ImGui context, SDL
@@ -79,8 +80,8 @@ Results, and Cleanup. It begins timing only after the scenario reports Ready.
 All scenarios clean up even if preparation, readiness, a frame, or completion
 fails, and independent suite scenarios continue after failure. A CPU-only
 scenario may implement the same interface without initializing graphics.
-The Linux app currently supports only the `raw-bgfx-empty` scenario. The
-scenario is shared by both CLI and interactive modes.
+The Linux app supports `raw-bgfx-empty` and `raw-bgfx-geometry`, using the
+same runner in CLI and interactive modes.
 
 CLI run-setting invocations still default to no-UI, with `--no-ui` explicit.
 An unqualified invocation opens the dashboard. The `--profile diagnostic`
@@ -90,6 +91,41 @@ frames per trial are accepted. Duration runs also use a fixed 300,000-sample
 capacity; exceeding it fails with an explicit error rather than allocating
 during sampling or silently dropping samples. No logger or JSON encoder runs
 inside the measurement loop.
+
+## Raw bgfx geometry and shared reference scenes (#425)
+
+The new `raw-bgfx-geometry` scenario draws solid-color rectangular geometry
+using bgfx directly, without initializing NovelTea Engine/Renderer or RmlUi.
+A deliberately small renderer-neutral scene description in
+`apps/benchmark/reference_scene.hpp` defines identified colored rectangles,
+optional text descriptors, a 1×1 white texture with sampling options,
+reference-space dimensions (1280×720), and a background clear color. The first
+three rectangles are a stable fixed reference; additional deterministic tiles
+and uniform rectangle scale support basic exploration. All GPU resources and
+initial shader compilation are prepared before Ready; measured frames only
+submit an indexed draw and advance bgfx. The scene definition is
+benchmark-only, not a general production rendering abstraction. Text descriptors
+are available for later RmlUi scenes, but this geometry workload draws no text.
+
+Scene coordinates scale to actual host framebuffer pixels. Result JSON records
+`graphics.width_pixels` and `height_pixels` together with
+`render_width_pixels`, `render_height_pixels`, and
+`internal_render_scale` (currently 1.0). These are effective framebuffer
+dimensions, not requested logical window dimensions.
+
+```sh
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-geometry \
+    --rect-count 3 --rect-scale 1.0 --smoke
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-geometry \
+    --rect-count 64 --rect-scale 0.5 --frames 300
+```
+
+The dashboard can preview the geometry without contaminating benchmark samples.
+A real-GPU `--dashboard-smoke --scenario raw-bgfx-geometry` checks three
+preview → teardown → run → restore cycles. The
+`noveltea_benchmark_reference_scene` CTest covers reference geometry and
+parameter bounds; additional geometry GPU CTTests cover direct drawing and
+dashboard resource lifetimes, not performance thresholds.
 
 ## Current JSON contracts
 
@@ -125,8 +161,10 @@ inventory (no legacy aliases or unknown fields):
 The `--config` file is validated before graphics init and cannot be mixed
 with run-setting flags; `--output` can override the file's destination.
 The raw empty workload has a fixed scenario version (1), no parameters,
-and real-time wall-clock policy; alternative values are rejected until an
-owning scenario implements them.
+and real-time wall-clock policy. The geometry workload also has scenario
+version 1, with a strict `parameters` object containing `rect_count` (integer
+1..256, default 3) and `rect_scale` (finite number 0.25..1.0, default 1.0).
+Unknown scenario IDs and parameters are rejected.
 All configurations emitted in reports use exactly this shape.
 
 Results use `noveltea.benchmark.result` version 1, containing the full

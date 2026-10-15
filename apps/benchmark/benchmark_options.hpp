@@ -20,10 +20,14 @@ struct Options {
     bool help = false;
     bool dashboard_smoke = false;
     std::string scenario = "raw-bgfx-empty";
+    uint32_t rect_count = 3;
+    double rect_scale = 1.0;
     std::string output_path;
     std::string config_path;
 };
 
 bool parse_options(int argc, const char* const argv[], Options& options, std::string& error);
+// App-specific reference selection; the portable runner accepts other Scenario IDs.
+[[nodiscard]] bool validate_reference_options(const Options& options, std::string& reason);
 
 } // namespace noveltea::benchmark

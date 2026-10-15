@@ -1,4 +1,5 @@
 #include "benchmark_options.hpp"
+#include "reference_scene.hpp"
 
 #include <charconv>
 #include <cerrno>
@@ -75,7 +76,8 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.raw_samples = true;
             continue;
         }
-        if (flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
+        if (flag != "--scenario" && flag != "--rect-count" && flag != "--rect-scale" &&
+            flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
             flag != "--seconds" && flag != "--frames" && flag != "--output" &&
             flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
             flag != "--config") {
@@ -93,6 +95,21 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 return false;
             }
             options.config_path = value;
+            continue;
+        }
+        if (flag == "--scenario") {
+            has_cli_settings = true;
+            options.scenario = value;
+            continue;
+        }
+        if (flag == "--rect-scale") {
+            has_cli_settings = true;
+            double scale = 0.0;
+            if (!parse_duration(value, scale) || scale < 0.25 || scale > 1.0) {
+                error = "--rect-scale must be in 0.25..1.0";
+                return false;
+            }
+            options.rect_scale = scale;
             continue;
         }
         if (flag == "--profile") {
@@ -133,7 +150,13 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             error = "invalid positive integer for " + std::string(flag);
             return false;
         }
-        if (flag == "--frames") {
+        if (flag == "--rect-count") {
+            if (number > kMaxReferenceRects) {
+                error = "--rect-count exceeds 256";
+                return false;
+            }
+            options.rect_count = static_cast<uint32_t>(number);
+        } else if (flag == "--frames") {
             if (number > 300000) {
                 error = "--frames exceeds maximum (300000)";
                 return false;
@@ -163,6 +186,22 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         return false;
     }
     return true;
+}
+
+bool validate_reference_options(const Options& options, std::string& reason)
+{
+    if (options.scenario == "raw-bgfx-geometry" &&
+        valid_geometry_parameters(options.rect_count, options.rect_scale)) {
+        reason.clear();
+        return true;
+    }
+    if (options.scenario == "raw-bgfx-empty" && options.rect_count == kReferenceRectCount &&
+        options.rect_scale == kReferenceRectScale) {
+        reason.clear();
+        return true;
+    }
+    reason = "unsupported scenario or geometry parameters";
+    return false;
 }
 
 } // namespace noveltea::benchmark

@@ -36,6 +36,11 @@ int main()
     const char* const diagnostic[] = {"benchmark", "--profile", "diagnostic"};
     const char* const invalid_profile[] = {"benchmark", "--profile", "unknown"};
     const char* const ui[] = {"benchmark", "--ui", "--frames", "30"};
+    const char* const geometry[] = {"benchmark",    "--scenario", "raw-bgfx-geometry",
+                                    "--rect-count", "12",         "--rect-scale",
+                                    "0.75"};
+    const char* const invalid_geometry[] = {"benchmark", "--rect-count", "257"};
+    const char* const invalid_scale[] = {"benchmark", "--rect-scale", "0.1"};
     const char* const lifecycle[] = {"benchmark", "--dashboard-smoke"};
     const char* const config_only[] = {"benchmark", "--config", "run.json", "--output",
                                        "other.json"};
@@ -48,8 +53,9 @@ int main()
         !expect_options(repeats, 5, true) || !expect_options(invalid_repeats, 3, false) ||
         !expect_options(invalid_large_frames, 3, false) || !expect_options(diagnostic, 3, true) ||
         !expect_options(ui, 4, true, 30) || !expect_options(lifecycle, 2, true, 30) ||
-        !expect_options(invalid_profile, 3, false) || !expect_options(config_only, 5, true) ||
-        !expect_options(mixed_config, 4, false))
+        !expect_options(invalid_profile, 3, false) || !expect_options(geometry, 7, true) ||
+        !expect_options(invalid_geometry, 3, false) || !expect_options(invalid_scale, 3, false) ||
+        !expect_options(config_only, 5, true) || !expect_options(mixed_config, 4, false))
         return 1;
 
     noveltea::benchmark::Options options;
@@ -60,6 +66,17 @@ int main()
         options.profile != "diagnostic" ||
         !noveltea::benchmark::parse_options(2, lifecycle, options, error) ||
         !options.dashboard_smoke || options.no_ui)
+        return 1;
+    if (!noveltea::benchmark::parse_options(7, geometry, options, error) ||
+        options.scenario != "raw-bgfx-geometry" || options.rect_count != 12 ||
+        options.rect_scale != 0.75 ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.scenario = "raw-bgfx-empty";
+    if (noveltea::benchmark::validate_reference_options(options, error) || error.empty())
+        return 1;
+    options.scenario = "synthetic";
+    if (noveltea::benchmark::validate_reference_options(options, error) || error.empty())
         return 1;
     return 0;
 }

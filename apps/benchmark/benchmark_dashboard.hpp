@@ -7,6 +7,7 @@
 #include <bgfx/bgfx.h>
 
 #include <array>
+#include <functional>
 #include <string>
 #include <string_view>
 
@@ -32,7 +33,8 @@ public:
     void shutdown();
     void process_event(const SDL_Event& event);
     DashboardAction frame(Options& options, const SuiteResult* last_result,
-                          std::string_view report_path, std::string_view error);
+                          std::string_view report_path, std::string_view error,
+                          const std::function<void()>& preview = {});
     [[nodiscard]] bool initialized() const { return initialized_; }
 
 private:

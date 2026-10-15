@@ -16,7 +16,7 @@ add_custom_target(noveltea-benchmark-source-identity
     VERBATIM)
 
 add_library(noveltea-benchmark-runner STATIC
-    benchmark_options.cpp benchmark_runner.cpp benchmark_report.cpp)
+    benchmark_options.cpp benchmark_runner.cpp benchmark_report.cpp reference_scene.cpp)
 add_dependencies(noveltea-benchmark-runner noveltea-benchmark-source-identity)
 target_include_directories(noveltea-benchmark-runner PRIVATE
     "${CMAKE_CURRENT_BINARY_DIR}/generated")
@@ -32,7 +32,7 @@ noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 
 # Benchmark ImGui is independent of engine devtools, including in optimized builds.
 find_package(imgui CONFIG REQUIRED)
-add_executable(noveltea-benchmark-app main.cpp benchmark_dashboard.cpp)
+add_executable(noveltea-benchmark-app main.cpp benchmark_dashboard.cpp raw_bgfx_geometry.cpp)
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
     imgui::imgui noveltea-benchmark-runner)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
@@ -60,13 +60,19 @@ if(BUILD_TESTING)
     noveltea_apply_policy_warnings(noveltea-benchmark-report-tests)
     add_test(NAME noveltea_benchmark_report COMMAND noveltea-benchmark-report-tests)
 
+    add_executable(noveltea-benchmark-scene-tests reference_scene_tests.cpp)
+    target_link_libraries(noveltea-benchmark-scene-tests PRIVATE noveltea-benchmark-runner)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-scene-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-scene-tests)
+    add_test(NAME noveltea_benchmark_reference_scene COMMAND noveltea-benchmark-scene-tests)
+
     add_executable(noveltea-benchmark-options-tests benchmark_options_tests.cpp)
     target_link_libraries(noveltea-benchmark-options-tests PRIVATE noveltea-benchmark-runner)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-options-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_options COMMAND noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_app_help COMMAND noveltea-benchmark-app --help)
-    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_app_help
+    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_app_help
         PROPERTIES LABELS "benchmark;graphics")
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
@@ -78,6 +84,22 @@ if(BUILD_TESTING)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 30 frames"
             TIMEOUT 45)
+        add_test(NAME noveltea_benchmark_geometry_graphics_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario raw-bgfx-geometry --rect-count 24 --rect-scale 0.75 --smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-geometry-smoke.json")
+        set_tests_properties(noveltea_benchmark_geometry_graphics_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 30 frames"
+            TIMEOUT 45)
+        add_test(NAME noveltea_benchmark_geometry_dashboard_lifecycle_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario raw-bgfx-geometry --dashboard-smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-geometry-dashboard-smoke.json")
+        set_tests_properties(noveltea_benchmark_geometry_dashboard_lifecycle_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
+            TIMEOUT 60)
         add_test(NAME noveltea_benchmark_dashboard_lifecycle_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --dashboard-smoke

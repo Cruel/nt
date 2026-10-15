@@ -1,4 +1,5 @@
 #include "benchmark_report.hpp"
+#include "reference_scene.hpp"
 #include "benchmark_source_identity.hpp"
 
 #include <nlohmann/json.hpp>
@@ -16,11 +17,15 @@ constexpr std::string_view kResultFormat = "noveltea.benchmark.result";
 
 Json configuration(const Options& options)
 {
+    const Json parameters =
+        options.scenario == "raw-bgfx-geometry"
+            ? Json{{"rect_count", options.rect_count}, {"rect_scale", options.rect_scale}}
+            : Json::object();
     return {{"format", kConfigFormat},
             {"version", 1},
             {"scenario", options.scenario},
             {"scenario_version", 1},
-            {"parameters", Json::object()},
+            {"parameters", parameters},
             {"clock_policy", "realtime"},
             {"settings",
              {{"width", options.width},
@@ -103,9 +108,30 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         !root["version"].is_number_integer() || root["version"] != 1 ||
         !root["scenario"].is_string() || root["scenario"].get<std::string>().empty() ||
         !root["scenario_version"].is_number_integer() || root["scenario_version"] != 1 ||
-        !root["parameters"].is_object() || !root["parameters"].empty() ||
-        !root["clock_policy"].is_string() || root["clock_policy"] != "realtime") {
+        !root["parameters"].is_object() || !root["clock_policy"].is_string() ||
+        root["clock_policy"] != "realtime") {
         reason = "invalid or unsupported benchmark configuration schema";
+        return false;
+    }
+    const std::string scenario = root["scenario"].get<std::string>();
+    const auto& parameters = root["parameters"];
+    if (scenario == "raw-bgfx-empty") {
+        if (!parameters.empty()) {
+            reason = "empty scenario does not take geometry parameters";
+            return false;
+        }
+    } else if (scenario == "raw-bgfx-geometry") {
+        if (!has_fields(parameters, {"rect_count", "rect_scale"}) ||
+            !unsigned_integer(parameters, "rect_count") || !numeric(parameters, "rect_scale") ||
+            parameters["rect_count"].get<uint64_t>() > kMaxReferenceRects ||
+            !valid_geometry_parameters(
+                static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>()),
+                parameters["rect_scale"].get<double>())) {
+            reason = "invalid geometry reference parameters";
+            return false;
+        }
+    } else {
+        reason = "unsupported benchmark scenario";
         return false;
     }
     const auto& settings = root["settings"];
@@ -131,7 +157,11 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         return false;
     }
     Options next;
-    next.scenario = root["scenario"].get<std::string>();
+    next.scenario = scenario;
+    if (scenario == "raw-bgfx-geometry") {
+        next.rect_count = static_cast<uint32_t>(parameters["rect_count"].get<uint64_t>());
+        next.rect_scale = parameters["rect_scale"].get<double>();
+    }
     next.width = static_cast<int>(width);
     next.height = static_cast<int>(height);
     next.warmup_seconds = settings["warmup_seconds"].get<double>();
@@ -213,6 +243,12 @@ std::string encode_result(const Options& options, const Environment& environment
         {"width_pixels",
          environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
         {"height_pixels",
+         environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)},
+        {"internal_render_scale",
+         environment.width_pixels > 0 && environment.height_pixels > 0 ? Json(1.0) : Json(nullptr)},
+        {"render_width_pixels",
+         environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
+        {"render_height_pixels",
          environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)}};
     const Json report = {
         {"format", kResultFormat},

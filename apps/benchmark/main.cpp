@@ -6,6 +6,8 @@
 #include "benchmark_options.hpp"
 #include "benchmark_report.hpp"
 #include "benchmark_runner.hpp"
+#include "raw_bgfx_geometry.hpp"
+#include "reference_scene.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -29,7 +31,8 @@ void print_usage()
     std::puts("       [--frames N] [--repeats N] [--ready-timeout-seconds N]");
     std::puts(
         "       [--width N] [--height N] [--vsync] [--profile clean|diagnostic] [--no-ui|--ui]");
-    std::puts("       [--raw-samples] [--config PATH] [--output PATH]");
+    std::puts("       [--scenario raw-bgfx-empty|raw-bgfx-geometry] [--rect-count N]");
+    std::puts("       [--rect-scale 0.25..1.0] [--raw-samples] [--config PATH] [--output PATH]");
     std::puts("  --smoke         30 measured frames, no warmup");
     std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
     std::puts("  --frames        Fixed frames per trial; maximum 300000");
@@ -39,7 +42,7 @@ void print_usage()
     std::puts("  --output        Report path (defaults to build/<preset>/benchmarks)");
     std::puts("  --help          Print help without initializing graphics");
     std::puts("Without arguments, opens the dashboard; CLI settings default to no-UI.");
-    std::puts("Only raw-bgfx-empty is implemented; GPU execution timing is unavailable.");
+    std::puts("Reference scenes: raw-bgfx-empty and raw-bgfx-geometry; GPU timing unavailable.");
 }
 
 struct SteadyClock final : Clock {
@@ -195,10 +198,11 @@ struct Graphics {
     }
 };
 
-struct EmptyBgfxScenario final : Scenario {
+struct EmptyBgfxScenario : Scenario {
     explicit EmptyBgfxScenario(Graphics* shared = nullptr) : shared_graphics(shared) {}
     Graphics graphics;
     Graphics* shared_graphics = nullptr;
+    Graphics& host() { return shared_graphics ? *shared_graphics : graphics; }
 
     const char* id() const override { return "raw-bgfx-empty"; }
     const char* description() const override
@@ -252,6 +256,47 @@ struct EmptyBgfxScenario final : Scenario {
     }
 };
 
+struct GeometryBgfxScenario final : EmptyBgfxScenario {
+    explicit GeometryBgfxScenario(Graphics* shared = nullptr) : EmptyBgfxScenario(shared) {}
+    noveltea::benchmark::RawBgfxGeometry geometry;
+
+    const char* id() const override { return "raw-bgfx-geometry"; }
+    const char* description() const override
+    {
+        return "deterministic reference rectangles using a raw bgfx indexed draw";
+    }
+    bool prepare(const Options& options, std::string& reason) override
+    {
+        if (!EmptyBgfxScenario::prepare(options, reason))
+            return false;
+        const auto scene =
+            noveltea::benchmark::geometry_reference_scene(options.rect_count, options.rect_scale);
+        if (!geometry.initialize(scene, host().environment.width_pixels,
+                                 host().environment.height_pixels, reason))
+            return false;
+        // Upload buffers and compile the shader before reporting Ready. This is
+        // outside Warmup and Measurement, including for zero-warmup smoke runs.
+        for (int i = 0; i < 4; ++i) {
+            if (!geometry.submit(reason))
+                return false;
+            bgfx::frame();
+        }
+        return true;
+    }
+    bool frame(std::string& reason) override
+    {
+        if (!poll(reason) || !geometry.submit(reason))
+            return false;
+        bgfx::frame();
+        return true;
+    }
+    bool cleanup(std::string& reason) override
+    {
+        geometry.shutdown();
+        return EmptyBgfxScenario::cleanup(reason);
+    }
+};
+
 bool write_report(const Options& options, const Environment& environment, const SuiteResult& result,
                   std::string& output)
 {
@@ -262,7 +307,7 @@ bool write_report(const Options& options, const Environment& environment, const 
                                std::chrono::system_clock::now().time_since_epoch())
                                .count();
         path = fs::path(NOVELTEA_BENCHMARK_RESULTS_DIR) /
-               ("raw-bgfx-empty-" + std::to_string(stamp) + ".json");
+               (options.scenario + "-" + std::to_string(stamp) + ".json");
     } else {
         path = options.output_path;
     }
@@ -291,7 +336,7 @@ bool write_report(const Options& options, const Environment& environment, const 
 
 int run_dashboard(Options options)
 {
-    if (options.scenario != "raw-bgfx-empty") {
+    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry") {
         std::fprintf(stderr, "[benchmark] unsupported scenario: %s\n", options.scenario.c_str());
         return 2;
     }
@@ -311,13 +356,43 @@ int run_dashboard(Options options)
     bool has_result = false;
     std::string report_path;
     std::string feedback;
+    noveltea::benchmark::RawBgfxGeometry preview_geometry;
+    uint32_t preview_count = 0;
+    double preview_scale = 0;
+    int preview_width = 0;
+    int preview_height = 0;
+    const auto draw_preview = [&]() {
+        if (options.scenario != "raw-bgfx-geometry") {
+            preview_geometry.shutdown();
+            return;
+        }
+        const int width = graphics.environment.width_pixels;
+        const int height = graphics.environment.height_pixels;
+        if (!preview_geometry.initialized() || preview_count != options.rect_count ||
+            preview_scale != options.rect_scale || preview_width != width ||
+            preview_height != height) {
+            const auto scene = noveltea::benchmark::geometry_reference_scene(options.rect_count,
+                                                                             options.rect_scale);
+            if (!preview_geometry.initialize(scene, width, height, feedback))
+                return;
+            preview_count = options.rect_count;
+            preview_scale = options.rect_scale;
+            preview_width = width;
+            preview_height = height;
+        }
+        if (!preview_geometry.submit(feedback))
+            return;
+    };
 
     const auto benchmark_once = [&]() {
         std::string validation;
-        if (!noveltea::benchmark::validate_run_options(options, validation)) {
+        if (!noveltea::benchmark::validate_run_options(options, validation) ||
+            !noveltea::benchmark::validate_reference_options(options, validation)) {
             feedback = validation;
             return;
         }
+        // Preview GPU geometry also has to be released before the strict run.
+        preview_geometry.shutdown();
         // No context, ImGui CPU frame, backend, atlas, shader or draw submissions
         // exist while the runner enters Preparation, Warmup or Measurement.
         dashboard.shutdown();
@@ -338,8 +413,12 @@ int run_dashboard(Options options)
                 bgfx::touch(0);
                 bgfx::frame();
             }
-            EmptyBgfxScenario scenario(&graphics);
-            last_result = noveltea::benchmark::run_suite(options, {&scenario}, clock);
+            EmptyBgfxScenario empty(&graphics);
+            GeometryBgfxScenario geometry(&graphics);
+            Scenario* selected = options.scenario == "raw-bgfx-geometry"
+                                     ? static_cast<Scenario*>(&geometry)
+                                     : static_cast<Scenario*>(&empty);
+            last_result = noveltea::benchmark::run_suite(options, {selected}, clock);
             has_result = true;
             report_path.clear();
             if (!write_report(options, graphics.environment, last_result, report_path)) {
@@ -375,14 +454,14 @@ int run_dashboard(Options options)
     if (options.dashboard_smoke) {
         for (int cycle = 0; cycle < 3; ++cycle) {
             (void)dashboard.frame(options, has_result ? &last_result : nullptr, report_path,
-                                  feedback);
+                                  feedback, draw_preview);
             benchmark_once();
             if (!dashboard.initialized() || !has_result || last_result.outcome != "complete" ||
                 !feedback.empty())
                 return 4;
             std::printf("[benchmark] dashboard cycle %d complete\n", cycle + 1);
         }
-        (void)dashboard.frame(options, &last_result, report_path, feedback);
+        (void)dashboard.frame(options, &last_result, report_path, feedback, draw_preview);
         return 0;
     }
 
@@ -398,8 +477,8 @@ int run_dashboard(Options options)
         }
         if (exit_requested)
             break;
-        const auto action =
-            dashboard.frame(options, has_result ? &last_result : nullptr, report_path, feedback);
+        const auto action = dashboard.frame(options, has_result ? &last_result : nullptr,
+                                            report_path, feedback, draw_preview);
         if (action == noveltea::benchmark::DashboardAction::Exit)
             break;
         if (action == noveltea::benchmark::DashboardAction::Run ||
@@ -407,19 +486,24 @@ int run_dashboard(Options options)
             benchmark_once();
         SDL_Delay(10);
     }
+    preview_geometry.shutdown();
     return 0;
 }
 
 int run(const Options& options)
 {
-    if (options.scenario != "raw-bgfx-empty") {
+    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry") {
         std::fprintf(stderr, "[benchmark] unsupported scenario: %s\n", options.scenario.c_str());
         return 2;
     }
     SteadyClock clock;
-    EmptyBgfxScenario scenario;
-    const SuiteResult result = noveltea::benchmark::run_suite(options, {&scenario}, clock);
-    const Environment environment = scenario.graphics.environment;
+    EmptyBgfxScenario empty;
+    GeometryBgfxScenario geometry;
+    EmptyBgfxScenario* selected = options.scenario == "raw-bgfx-geometry"
+                                      ? static_cast<EmptyBgfxScenario*>(&geometry)
+                                      : &empty;
+    const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock);
+    const Environment environment = selected->graphics.environment;
     std::string output;
     if (!write_report(options, environment, result, output))
         return 3;
@@ -475,7 +559,8 @@ int main(int argc, char* argv[])
         if (!output_override.empty())
             options.output_path = output_override;
     }
-    if (!noveltea::benchmark::validate_run_options(options, error)) {
+    if (!noveltea::benchmark::validate_run_options(options, error) ||
+        !noveltea::benchmark::validate_reference_options(options, error)) {
         std::fprintf(stderr, "[benchmark] %s\n", error.c_str());
         return 2;
     }
