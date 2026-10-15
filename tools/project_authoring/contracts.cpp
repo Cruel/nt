@@ -6,14 +6,18 @@
 #include <jsoncons_ext/jsonschema/jsonschema.hpp>
 
 #include <algorithm>
+#include <cstdint>
+#include <limits>
 #include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <vector>
 
 namespace noveltea::authoring {
 namespace {
-using Json = jsoncons::json;
+// Preserve source key order so overwrites after record-key normalization match Zod.
+using Json = jsoncons::ojson;
 using Value = std::optional<Json>;
 using CompiledSchema = jsoncons::jsonschema::json_schema<Json>;
 
@@ -29,6 +33,22 @@ std::string pointer_token(std::string_view token)
             result += c;
     }
     return result;
+}
+
+std::optional<std::uint32_t> javascript_array_index(std::string_view key)
+{
+    // Object.keys() enumerates canonical array-index names first, in numeric order.
+    if (key.empty() || (key.size() > 1 && key.front() == '0'))
+        return std::nullopt;
+    std::uint64_t number = 0;
+    for (const auto digit : key) {
+        if (digit < '0' || digit > '9')
+            return std::nullopt;
+        number = number * 10 + static_cast<unsigned>(digit - '0');
+        if (number >= std::numeric_limits<std::uint32_t>::max())
+            return std::nullopt;
+    }
+    return static_cast<std::uint32_t>(number);
 }
 
 const std::set<std::string> implemented_operations{"value.default", "string.trim",
@@ -338,15 +358,32 @@ public:
                     issue(errors, path, "schema.type", "Expected object.");
                     return;
                 }
-                for (auto& entry : value->object_range()) {
-                    const std::string key(entry.key());
+                Json normalized = Json::object();
+                std::vector<std::string> keys;
+                keys.reserve(value->size());
+                for (const auto& entry : value->object_range())
+                    keys.emplace_back(entry.key());
+                std::stable_sort(keys.begin(), keys.end(), [](const auto& a, const auto& b) {
+                    const auto left = javascript_array_index(a);
+                    const auto right = javascript_array_index(b);
+                    return left ? (!right || *left < *right) : false;
+                });
+                for (const auto& key : keys) {
                     Value parsed_key = key;
                     descend("key", parsed_key, path + "/" + pointer_token(key));
-                    Value nested = entry.value();
+                    Value nested = value->at(key);
                     descend("value", nested, path + "/" + pointer_token(key));
-                    if (nested)
-                        entry.value() = std::move(*nested);
+                    if (!parsed_key || !parsed_key->is_string()) {
+                        issue(errors, path + "/" + pointer_token(key), "schema.key",
+                              "Record key must normalize to a string.");
+                    } else if (nested) {
+                        // Like Zod, the last input key to normalize to a name wins.
+                        normalized.insert_or_assign(parsed_key->as<std::string>(),
+                                                    std::move(*nested));
+                    }
                 }
+                if (errors.size() == before)
+                    value = std::move(normalized);
             }
         }
         if (errors.size() != before)

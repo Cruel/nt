@@ -1,12 +1,13 @@
 import { spawnSync } from 'node:child_process';
 import { describe, expect, it } from 'vite-plus/test';
 import { mapRecordSchema } from '../../shared/project-schema/authoring-records';
+import { certificationRecordKeysSchema } from '../../../scripts/native-schema/sources';
 import fixture from '../../../../tools/project_authoring/tests/map.json';
 
 const executable = process.env.NOVELTEA_SCHEMA_CERTIFY;
-const native = (value: unknown, contract = 'MapsRecord') => {
+const nativeJson = (source: string, contract = 'MapsRecord') => {
   const result = spawnSync(executable!, [contract], {
-    input: JSON.stringify(value),
+    input: source,
     encoding: 'utf8',
   });
   expect(result.error).toBeUndefined();
@@ -17,11 +18,31 @@ const native = (value: unknown, contract = 'MapsRecord') => {
     diagnostics: { path: string; code: string; message: string }[];
   };
 };
+const native = (value: unknown, contract = 'MapsRecord') =>
+  nativeJson(JSON.stringify(value), contract);
 const predicatePath = 'data/locations/0/visibility/conditions/0/condition';
 const target = { kind: 'record', collection: 'rooms', id: 'station' };
 
 // CI sets this to the separately built, Node-independent host certification executable.
 describe.skipIf(!executable)('native/Zod authored Map record certification', () => {
+  it.each([{ ' a ': 1, b: 2 }, { a: 1, ' a ': 2 }, { ' a ': 1, a: 2 }, { '  ': 1 }])(
+    'normalizes record keys and collisions in input order: %j',
+    (input) => {
+      const reference = certificationRecordKeysSchema.safeParse(input);
+      const result = native(input, 'ZodRecordKeyCertification');
+      expect(result.accepted, JSON.stringify(result.diagnostics)).toBe(reference.success);
+      if (reference.success) expect(result.value).toEqual(reference.data);
+    },
+  );
+
+  it('matches JavaScript integer-key enumeration for differently ordered JSON sources', () => {
+    const source = '{" 1 ":5,"1":9," 10 ":3,"10":2}';
+    const reference = certificationRecordKeysSchema.parse(JSON.parse(source));
+    const result = nativeJson(source, 'ZodRecordKeyCertification');
+    expect(result.accepted, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(result.value).toEqual(reference);
+  });
+
   it('preserves recursive Conditions, default arrays, overwrites, and ECMAScript trims', () => {
     const input = structuredClone(fixture);
     input.data.locations[0]!.style = '\ufeff\u2009highlighted\u00a0\u2029';

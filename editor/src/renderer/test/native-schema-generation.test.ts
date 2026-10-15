@@ -74,6 +74,35 @@ describe('native Project schema generation', () => {
     expect(generated.operations).toContainEqual({ id: 'string.utf16-length', kind: 'refinement' });
   });
 
+  it('preserves numeric and boolean literal alternatives as discrete native types', () => {
+    const generated = generateNativeContracts({
+      Record: z.object({ enabled: z.literal(true), version: z.literal(2) }),
+    });
+    expect(generated.types).toMatch(/std::array<bool, 1> literals\{true\}/);
+    expect(generated.types).toMatch(/std::array<double, 1> literals\{2\}/);
+    expect(generated.types).toMatch(/enum class Value \{ choice0 \}/);
+    expect(generated.types).not.toMatch(/\bbool field_enabled;/);
+    expect(generated.types).not.toMatch(/\bdouble field_version;/);
+  });
+
+  it('associates plural/select semantic operation IDs with the correct branches', () => {
+    const generated = generateNativeContracts(nativeSchemaSources);
+    const nodes = Object.values(generated.nodes);
+    for (const [kind, expectedId] of [
+      ['plural', 'localization.pattern.plural'],
+      ['select', 'localization.pattern.select'],
+    ] as const) {
+      const branch = nodes.find(
+        (node) =>
+          node.type === 'object' &&
+          node.children.kind &&
+          generated.nodes[node.children.kind]?.values?.includes(kind) &&
+          node.operations.some((operation) => operation.id === expectedId),
+      );
+      expect(branch, `Missing native semantic registration for ${kind}`).toBeDefined();
+    }
+  });
+
   it('generates deterministic structural and semantic contracts for real recursive Map records', () => {
     const generated = generateNativeContracts({ MapRecord: mapRecordSchema });
     expect(generated).toEqual(generateNativeContracts({ MapRecord: mapRecordSchema }));

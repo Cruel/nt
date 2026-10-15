@@ -188,7 +188,7 @@ export const messagePatternSchema: z.ZodType<MessagePattern> = withSchemaDocumen
       z.discriminatedUnion('kind', [
         z.object({ kind: z.literal('text'), text: z.string() }).strict(),
         nativeOperation(
-          'localization.pattern.select',
+          'localization.pattern.plural',
           z
             .object({
               kind: z.literal('plural'),
@@ -206,7 +206,7 @@ export const messagePatternSchema: z.ZodType<MessagePattern> = withSchemaDocumen
             }),
         ),
         nativeOperation(
-          'localization.pattern.plural',
+          'localization.pattern.select',
           z
             .object({
               kind: z.literal('select'),
