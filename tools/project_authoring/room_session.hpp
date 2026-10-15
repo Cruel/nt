@@ -3,6 +3,7 @@
 #include "contracts.hpp"
 #include "source_authority.hpp"
 #include "yaml_codec.hpp"
+#include "yaml_transaction.hpp"
 
 #include <cstdint>
 #include <filesystem>
@@ -104,6 +105,12 @@ public:
     }
     RoomSessionResult save(std::string_view disk_revision)
     {
+        if (source_authority_->uncertain()) {
+            RoomSessionResult blocked;
+            blocked.error = "Cannot save while Project source watcher authority is uncertain.";
+            blocked.snapshot = source_->snapshot();
+            return blocked;
+        }
         const auto prior_revision = source_->snapshot().disk_source_revision;
         auto result = source_->save(disk_revision);
         if (result.accepted && result.snapshot.disk_source_revision != prior_revision &&

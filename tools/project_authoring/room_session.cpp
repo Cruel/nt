@@ -11,7 +11,6 @@
 #include <cstring>
 #include <fstream>
 #include <iomanip>
-#include <random>
 #include <regex>
 #include <sstream>
 #include <stdexcept>
@@ -231,19 +230,14 @@ void source_diff(const Json* before, const Json* after, const std::string& point
     edits.push_back(std::move(edit));
 }
 
-std::filesystem::path temporary_path(const std::filesystem::path& path)
+std::optional<Json> at_pointer(const Json& value, std::string_view pointer)
 {
-    // A random staging name is sufficient for this single-source certification seam;
-    // #480 supplies exclusive writer coordination and crash-safe persistence.
-    std::random_device entropy;
-    for (unsigned int attempt = 0; attempt < 20; ++attempt) {
-        auto candidate = path;
-        candidate += ".noveltea-session-" + std::to_string(entropy()) + "-" +
-                     std::to_string(attempt) + ".tmp";
-        if (!std::filesystem::exists(candidate))
-            return candidate;
+    try {
+        return Json(
+            jsoncons::jsonpointer::get(value, jsoncons::jsonpointer::json_pointer(pointer)));
+    } catch (...) {
+        return std::nullopt;
     }
-    throw std::runtime_error("Could not select a Room staging path.");
 }
 
 bool is_id(std::string_view id)
@@ -608,8 +602,6 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision)
             return result(false, "Cannot save a Room whose ID does not match its filename.");
         if (is_project_ && !snapshot().valid)
             return result(false, "Cannot save a structurally invalid Project manifest.");
-        if (read_bytes(path_) != disk_source_)
-            return result(false, "Room source changed on disk since admission.");
         // Persist the final source-space delta, never temporary invalid intermediate
         // edits from the dirty session. This also preserves undo and generic batching.
         std::vector<YamlValueEdit> edits;
@@ -621,26 +613,44 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision)
         if (Json::parse(edited.source_json) != Json::parse(working_json_))
             return result(false, "Room source projection does not match the working Project.");
 
-        // #477 is a single-source certification seam. The full multi-file locking,
-        // journaling, and cross-process transaction coordinator belongs to #480.
-        const auto staged = temporary_path(path_);
-        try {
-            {
-                std::ofstream output(staged, std::ios::binary | std::ios::trunc);
-                if (!output || !(output << edited.source) || !output.flush())
-                    throw std::runtime_error("Cannot stage Room source.");
-            }
-            if (read_bytes(path_) != disk_source_)
-                throw std::runtime_error("Room source changed during scoped Save.");
-            std::filesystem::rename(staged, path_);
-        } catch (...) {
-            std::error_code ignored;
-            std::filesystem::remove(staged, ignored);
-            throw;
-        }
-        disk_source_ = edited.source;
+        // The same journaling writer handles both a standalone Room and Project manifest;
+        // it never reopens or hashes unrelated workspace source/Asset files.
+        const auto project_root =
+            is_project_ ? path_.parent_path() : path_.parent_path().parent_path().parent_path();
+        YamlTransactionService writer(project_root);
+        YamlTransactionTarget target{path_.lexically_relative(project_root).generic_string(),
+                                     disk_revision_, disk_source_, std::move(edits)};
+        const auto preflight = writer.prepare({target}, TransactionDecision::UseEditDecisions);
+        if (!preflight.accepted)
+            return result(false, preflight.error);
+        if (preflight.targets.size() != 1)
+            return result(false, "Dirty source produced no physical transaction target.");
+        const auto& proposed = preflight.targets.front();
+        if (proposed.before_revision == disk_revision_ && proposed.after_source != edited.source)
+            return result(false,
+                          "Native YAML transaction projection disagrees with working source.");
+        const auto merged = open_yaml_source(proposed.after_source);
+        if (!merged.accepted)
+            return result(false, "Native merged YAML source cannot be reopened.");
+        const auto merged_json = Json::parse(merged.source_json);
+        for (const auto& edit : target.edits)
+            if (at_pointer(merged_json, edit.path) != at_pointer(working, edit.path))
+                return result(false, "Rebased YAML source does not preserve the local mutation.");
+        if (is_project_ && !validate_record("WorkspaceManifest", merged.source_json).accepted)
+            return result(false, "Rebased Project manifest failed validation.");
+        if (!is_project_ && (!merged_json.is_object() || !merged_json.contains("id") ||
+                             !merged_json.at("id").is_string() || merged_json.at("id") != room_id_))
+            return result(false, "Rebased Room source ID does not match filename.");
+        const auto committed = writer.commit(preflight, TransactionDecision::UseEditDecisions);
+        if (!committed.accepted)
+            return result(false, committed.error);
+        disk_source_ = proposed.after_source;
         disk_revision_ = exact_source_revision(disk_source_);
-        disk_json_ = edited.source_json;
+        disk_json_ = merged.source_json;
+        if (Json::parse(working_json_) != merged_json) {
+            working_json_ = merged.source_json;
+            ++working_revision_;
+        }
         unsaved_patches_.clear();
         return result(true, {}, true);
     } catch (const std::exception& e) {
