@@ -33,7 +33,10 @@ int main()
     const char* const repeats[] = {"benchmark", "--repeats", "3", "--ready-timeout-seconds", "1"};
     const char* const invalid_repeats[] = {"benchmark", "--repeats", "21"};
     const char* const invalid_large_frames[] = {"benchmark", "--frames", "300001"};
-    const char* const invalid_profile[] = {"benchmark", "--profile", "diagnostic"};
+    const char* const diagnostic[] = {"benchmark", "--profile", "diagnostic"};
+    const char* const invalid_profile[] = {"benchmark", "--profile", "unknown"};
+    const char* const ui[] = {"benchmark", "--ui", "--frames", "30"};
+    const char* const lifecycle[] = {"benchmark", "--dashboard-smoke"};
     const char* const config_only[] = {"benchmark", "--config", "run.json", "--output",
                                        "other.json"};
     const char* const mixed_config[] = {"benchmark", "--config", "run.json", "--smoke"};
@@ -43,10 +46,20 @@ int main()
         !expect_options(invalid_float, 3, false) || !expect_options(invalid_width, 3, false) ||
         !expect_options(invalid_missing, 2, false) || !expect_options(invalid_unknown, 2, false) ||
         !expect_options(repeats, 5, true) || !expect_options(invalid_repeats, 3, false) ||
-        !expect_options(invalid_large_frames, 3, false) ||
+        !expect_options(invalid_large_frames, 3, false) || !expect_options(diagnostic, 3, true) ||
+        !expect_options(ui, 4, true, 30) || !expect_options(lifecycle, 2, true, 30) ||
         !expect_options(invalid_profile, 3, false) || !expect_options(config_only, 5, true) ||
         !expect_options(mixed_config, 4, false))
         return 1;
 
+    noveltea::benchmark::Options options;
+    std::string error;
+    if (!noveltea::benchmark::parse_options(1, defaults, options, error) || options.no_ui ||
+        !noveltea::benchmark::parse_options(2, smoke, options, error) || !options.no_ui ||
+        !noveltea::benchmark::parse_options(3, diagnostic, options, error) ||
+        options.profile != "diagnostic" ||
+        !noveltea::benchmark::parse_options(2, lifecycle, options, error) ||
+        !options.dashboard_smoke || options.no_ui)
+        return 1;
     return 0;
 }

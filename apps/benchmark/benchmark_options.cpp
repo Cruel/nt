@@ -42,6 +42,14 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.help = true;
             return true;
         }
+        if (flag == "--dashboard-smoke") {
+            has_cli_settings = true;
+            options.dashboard_smoke = true;
+            options.no_ui = false;
+            options.warmup_seconds = 0.0;
+            options.measurement_frames = 30;
+            continue;
+        }
         if (flag == "--smoke") {
             has_cli_settings = true;
             options.warmup_seconds = 0.0;
@@ -53,8 +61,15 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.vsync = true;
             continue;
         }
-        if (flag == "--no-ui")
+        if (flag == "--no-ui") {
+            options.no_ui = true;
             continue;
+        }
+        if (flag == "--ui") {
+            has_cli_settings = true;
+            options.no_ui = false;
+            continue;
+        }
         if (flag == "--raw-samples") {
             has_cli_settings = true;
             options.raw_samples = true;
@@ -82,8 +97,9 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         }
         if (flag == "--profile") {
             has_cli_settings = true;
-            if (std::string_view(value) != "clean") {
-                error = "only the clean profile is available in the Linux runner";
+            options.profile = value;
+            if (options.profile != "clean" && options.profile != "diagnostic") {
+                error = "profile must be clean or diagnostic";
                 return false;
             }
             continue;
@@ -140,6 +156,8 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 options.height = static_cast<int>(number);
         }
     }
+    if (argc == 1)
+        options.no_ui = false;
     if (!options.config_path.empty() && has_cli_settings) {
         error = "--config cannot be combined with run settings; --output is allowed";
         return false;

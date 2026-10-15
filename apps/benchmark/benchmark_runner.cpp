@@ -161,8 +161,8 @@ bool validate_run_options(const Options& options, std::string& reason)
         reason = "repeat count must be in 1..20";
     } else if (options.measurement_frames > kMaxSamplesPerTrial) {
         reason = "fixed frame count exceeds sample capacity (300000)";
-    } else if (!options.no_ui) {
-        reason = "benchmark dashboard not available until its dedicated frontend is implemented";
+    } else if (options.profile != "clean" && options.profile != "diagnostic") {
+        reason = "profile must be clean or diagnostic";
     }
     return reason.empty();
 }
