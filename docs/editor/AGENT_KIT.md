@@ -26,16 +26,19 @@ related concepts, and examples. Obvious fields need no annotation. Metadata uses
 registry/metadata conversion boundary, not a second schema system. Generated Markdown is never
 checked in as a source corpus.
 
-An example contains exact JSON input and a title; larger examples may import a checked JSON fixture
+Semantic annotation examples contain exact normalized JSON fragments and a title; larger examples may import a checked JSON fixture
 and carry its source path. Generation rejects non-JSON values and examples that fail the annotated
 canonical schema. Source attribution is not an unchecked example link: the imported value is still
-embedded and validated. These are structural fragments, not proof of project-wide reference or
-runtime validity; `noveltea validate` remains the contextual authority. The Interactable metadata
+embedded and validated. These are semantic fragments, not copy-ready YAML templates or proof of project-wide reference or
+runtime validity; the generated references include codec-checked YAML source examples. `noveltea validate` remains the contextual authority. The Interactable metadata
 covers quantity versus aggregate creation, stackability restrictions, Location semantics, and a
 complete Instance example.
 
 `schema-reference-json.ts` isolates conversion and example checking for all outputs. It uses
-`z.toJSONSchema` with input semantics. One narrow Zod tuple-definition lookup repairs the converter's
+`z.toJSONSchema` with input semantics. `schema-reference-source.ts` projects the same converted schema
+through the tracked YAML codec's omissions, typed reference spellings, and Condition shorthand for
+the compact reference, website, and raw fallback alike. Zod and the executable codecs remain
+authoritative; no second admission schema is created. One narrow Zod tuple-definition lookup repairs the converter's
 omitted tuple cardinality; it is not a general Zod-internals walker. JSON Schema still cannot express
 all refinements or contextual checks, so generated guidance explicitly retains executable validation.
 Explicitly named structures reused by multiple schema documents are emitted once in
@@ -54,7 +57,7 @@ New projects contain a root `AGENTS.md` with a clearly marked NovelTea-managed b
 
 Sync creates the canonical root `.gitignore` when it is absent. When an existing regular file contains both `.noveltea` and `dist` anywhere, NovelTea assumes the required rules are handled; when either is missing, sync succeeds with `AGENT_LOCAL_STATE_NOT_IGNORED` and leaves the file untouched. `--fix` does not modify an existing `.gitignore`. A non-file `AGENTS.md` or `.gitignore` is an error.
 
-The generated kit tells agents to edit ordinary JSON/Lua/RML/RCSS source directly, complete coherent multi-record authoring edits before treating validation as final, run `noveltea validate`, and reserve semantic CLI commands for operations requiring canonical initialization, whole-project knowledge, transactions, external tooling, or execution. `GUIDE.md` explicitly routes the normal reasoning path through shared `concepts/` first, generated `reference/` second, initialized/existing records third, and raw `schemas/` only as an exhaustive fallback. `workflows/AUTHORING.md` contains the small agent-only operating procedure. `technical/` contains only authoring-language/runtime material the Project schema cannot express. `.noveltea/` is never a compilation input or authoring source.
+The generated kit tells agents to edit tracked YAML/Lua/RML/RCSS source directly, complete coherent multi-record authoring edits before treating validation as final, optionally run `noveltea fmt` (`--strip-defaults` only on explicit request), inspect expanded records with `noveltea entity inspect`, run read-only `noveltea validate`, and reserve semantic CLI commands for operations requiring canonical initialization, whole-project knowledge, transactions, external tooling, or execution. `GUIDE.md` explicitly routes the normal reasoning path through shared `concepts/` first, generated `reference/` second, initialized/existing records third, and raw `schemas/` only as an exhaustive fallback. `workflows/AUTHORING.md` contains the small agent-only operating procedure. `technical/` contains only authoring-language/runtime material the Project schema cannot express. `.noveltea/` is never a compilation input or authoring source.
 
 ## Editor coexistence
 

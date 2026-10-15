@@ -1,0 +1,32 @@
+id: background-visit-clock
+label: background-visit-clock
+data:
+  displayName: background-visit-clock
+  stage:
+    kind: inherited
+  events:
+    - id: delay
+      label: delay
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: duration
+      durationMs: 5000
+      skippable: false
+    - id: deliver
+      label: deliver
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: run-lua
+      source: local count = assert(Game.prop('background-visit-deliveries')); assert(Game.set_prop('background-visit-deliveries', count + 1)); noveltea.notify('background-visit-clock delivered.')
+      mayYield: false
+  terminal:
+    kind: return
+    outcome: null

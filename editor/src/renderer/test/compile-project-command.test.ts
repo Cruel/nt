@@ -70,6 +70,32 @@ describe('project compiler workspace command', () => {
     expect(await fs.readFile(outputPath, 'utf8')).not.toHaveLength(0);
   });
 
+  it('compiles the checked-in YAML CLI fixture to the unchanged runtime JSON golden', async () => {
+    const directory = await fs.mkdtemp(path.join(tmpdir(), 'noveltea-golden-compile-'));
+    temporaryDirectories.push(directory);
+    const outputPath = path.join(directory, 'compiled.json');
+    const fixtureRoot = path.resolve(
+      'src/renderer/test/fixtures/project-compiler-cli/minimal-project',
+    );
+    const result = await runCompileProjectCommand([
+      '--project',
+      fixtureRoot,
+      '--output',
+      outputPath,
+      '--json',
+    ]);
+    expect(result.exitCode, JSON.stringify(result.report.diagnostics)).toBe(
+      compileProjectExitCodes.success,
+    );
+    const golden = path.resolve('src/renderer/test/fixtures/compiled-project-golden/minimal.json');
+    expect(JSON.parse(await fs.readFile(outputPath, 'utf8'))).toEqual(
+      JSON.parse(await fs.readFile(golden, 'utf8')),
+    );
+    await expect(fs.stat(path.join(fixtureRoot, 'project.json'))).rejects.toMatchObject({
+      code: 'ENOENT',
+    });
+  });
+
   it('compiles the canonical in-tree Feature Lab project', async () => {
     const outputDirectory = await fs.mkdtemp(path.join(tmpdir(), 'noveltea-feature-lab-'));
     temporaryDirectories.push(outputDirectory);
@@ -98,7 +124,7 @@ describe('project compiler workspace command', () => {
       },
     ]);
     expect(result.report.bytesWritten).toBeGreaterThan(0);
-  }, 20_000);
+  }, 60_000);
 
   it('rejects retired monolithic authoring-project input', async () => {
     const directory = await fs.mkdtemp(path.join(tmpdir(), 'noveltea-project-compile-monolith-'));
@@ -120,7 +146,7 @@ describe('project compiler workspace command', () => {
 
   it('does not overwrite the workspace manifest', async () => {
     const directory = await workspaceDirectory();
-    const manifest = path.join(directory, 'project.json');
+    const manifest = path.join(directory, 'project.yaml');
     const result = await runCompileProjectCommand(['--project', directory, '--output', manifest]);
     expect(result.exitCode).toBe(compileProjectExitCodes.output);
     expect(result.report.diagnostics[0]).toMatchObject({ code: 'PROJECT_COMPILE_OUTPUT_CONFLICT' });

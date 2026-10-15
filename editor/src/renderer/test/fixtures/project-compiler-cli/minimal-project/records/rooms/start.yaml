@@ -1,0 +1,17 @@
+id: start
+label: Start
+data:
+  displayName: Start
+  description:
+    source:
+      kind: inline
+      text: Minimal room.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        'y': 540

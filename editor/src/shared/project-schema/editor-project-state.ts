@@ -500,7 +500,7 @@ export function isTrackedEditorProjectStatePath(path: string): boolean {
 
 /**
  * Removes ignored/session-only editor state while retaining the authoring organization persisted in
- * tracked editor.json. This is the content view used by dirty recovery, scoped saves, and external
+ * tracked editor.yaml. This is the content view used by dirty recovery, scoped saves, and external
  * reconciliation; compiler-facing callers that intentionally ignore all editor state should keep
  * using stripEditorProjectState().
  */

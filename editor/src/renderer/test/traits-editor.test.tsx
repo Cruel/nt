@@ -21,7 +21,7 @@ function loadProject() {
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock',
-    projectFilePath: '/mock/project.json',
+    projectFilePath: '/mock/project.yaml',
   });
   return project;
 }
@@ -63,7 +63,7 @@ describe('TraitsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<TraitsEditor tab={tab} />);
 
@@ -127,7 +127,7 @@ describe('TraitsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<TraitsEditor tab={tab} />);

@@ -1,0 +1,5 @@
+id: world-activations
+label: World activations
+data:
+  type: integer
+  value: 0

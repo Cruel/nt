@@ -1,0 +1,21 @@
+data:
+  contract: {}
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  displayName: lab-pause
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: lab_pause
+  target: menu-ui
+id: lab-pause
+label: lab-pause

@@ -125,7 +125,7 @@ export function classifyProjectWorkspaceWatchPath(
   // Unregistered files under support/ must not enter source-change diagnostics.
   if (relative === 'shaders' || relative.startsWith('shaders/')) return 'source';
   if (
-    ['project.json', 'traits.json', 'editor.json'].includes(relative) ||
+    ['project.yaml', 'traits.yaml', 'editor.yaml'].includes(relative) ||
     relative === 'i18n' ||
     relative.startsWith('i18n/') ||
     relative === 'records' ||
@@ -569,7 +569,7 @@ async function flushWatcher(
   const changedPaths = [
     ...new Set([...authoringChangedPaths, ...publishedAssetChangedPaths, ...sourceChangedPaths]),
   ].sort();
-  const manifestPath = path.join(watcher.projectRoot, 'project.json');
+  const manifestPath = path.join(watcher.projectRoot, 'project.yaml');
   const project = authoring?.success ? watcher.workspaceSession.project() : null;
   if (project) {
     try {
@@ -734,7 +734,7 @@ function staleWatcherResponse(): ProjectAssetFileOperationResponse {
   return {
     ok: false,
     success: false,
-    diagnostics: [{ severity: 'error', path: '/project.json', message }],
+    diagnostics: [{ severity: 'error', path: '/project.yaml', message }],
     error: message,
   };
 }

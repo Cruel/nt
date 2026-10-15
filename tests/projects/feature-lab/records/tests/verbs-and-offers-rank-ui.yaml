@@ -1,0 +1,212 @@
+id: verbs-and-offers-rank-ui
+label: Verbs & Offers lower-rank discovery
+data:
+  displayName: Verbs & Offers lower-rank discovery
+  steps:
+    - id: start
+      input: tick
+      label: Fresh Lab home
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: category
+      input: ui-click
+      label: Bring Commands & Discovery into view
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-category-commands-discovery"
+    - id: launch
+      input: ui-click
+      label: Launch Verbs & Offers
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-launch-verbs-and-offers"
+    - id: rank-primary
+      input: primary-activate
+      label: Lower-ranked non-primary Offer opens a menu without executing Probe
+      expectations:
+        - id: no-primary-execution
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: commands-result
+            value: idle
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject:
+          kind: interactable
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: offer-ranked
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: choose-ranked-probe
+      input: ui-click
+      label: Execute the discovered Probe through its real menu action
+      expectations:
+        - id: ranked-menu-ran
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: commands-result
+            value: probe
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_verb_menu
+        mountInstanceId: null
+        selector: "#nt-verb-menu-action-probe"
+  preview:
+    selectedStepId: start
+    selectedObservationIndex: null
+    autoOpenReport: true

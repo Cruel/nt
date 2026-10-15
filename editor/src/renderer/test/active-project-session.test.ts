@@ -3,13 +3,17 @@ import { promises as fs } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, describe, expect, it, vi } from 'vite-plus/test';
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { ActiveProjectSessionService } from '../../main/services/active-project-session-service';
 import { ActiveProjectWorkspaceSession } from '../../main/services/active-project-workspace-session';
 import { advanceExternallyUpdatedAssetSourceBaselines } from '../../main/services/project-authoring-source-freshness-service';
 import { openProject } from '../../main/services/editor-tool-service';
 import { createProject } from '../../main/services/project-file-service';
 import { PROJECT_TEXT_SOURCE_LIMITS } from '../../shared/project-text-sources';
-import { parseAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  parseAuthoringProject,
+} from '../../shared/project-schema/authoring-project';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
 import { projectWorkspaceFiles } from '../../shared/project-workspace/project-workspace-service';
@@ -37,6 +41,18 @@ function sha256(bytes: Uint8Array): `sha256:${string}` {
   return `sha256:${createHash('sha256').update(bytes).digest('hex')}`;
 }
 
+function materialYaml(
+  id: string,
+  label: string,
+  data: ReturnType<typeof defaultMaterialData>,
+): string {
+  const project = createAuthoringProject();
+  project.materials[id] = { id, label, data };
+  const yaml = projectWorkspaceFiles(project, project.editor)[`records/materials/${id}.yaml`];
+  if (!yaml) throw new Error(`Cannot materialize Material fixture '${id}'`);
+  return yaml;
+}
+
 describe('active Project session lifecycle', () => {
   it('persists independent Authoring Source revision advances across workspace reopen', async () => {
     const root = await createWorkspace('source-revision-persistence');
@@ -48,8 +64,8 @@ describe('active Project session lifecycle', () => {
       const bytes = Buffer.from(`${id} before`);
       await fs.writeFile(path.join(root, `assets/${id}.bin`), bytes);
       await fs.writeFile(
-        path.join(root, `records/assets/${id}.json`),
-        JSON.stringify({
+        path.join(root, `records/assets/${id}.yaml`),
+        stringifyYaml({
           id,
           label: id,
           data: {
@@ -82,7 +98,7 @@ describe('active Project session lifecycle', () => {
       await advanceExternallyUpdatedAssetSourceBaselines(session, {
         'assets/alpha.bin': changedAssetRevision,
       }),
-    ).toEqual(['records/assets/alpha.json']);
+    ).toEqual(['records/assets/alpha.yaml']);
     const reopened = await createNodeProjectWorkspaceService().open(root);
     expect(reopened.ok).toBe(true);
     if (!reopened.ok) return;
@@ -104,11 +120,11 @@ describe('active Project session lifecycle', () => {
     await fs.mkdir(path.join(root, 'scripts/original'), { recursive: true });
     await fs.writeFile(path.join(root, 'scripts/original/example.lua'), 'return {}\n');
     await fs.writeFile(path.join(root, 'assets/owned.bin'), 'asset data');
-    const assetPath = path.join(root, 'records/assets/owned.json');
-    const sourceAssetPath = path.join(root, 'records/assets/script.json');
+    const assetPath = path.join(root, 'records/assets/owned.yaml');
+    const sourceAssetPath = path.join(root, 'records/assets/script.yaml');
     await fs.writeFile(
       sourceAssetPath,
-      JSON.stringify({
+      stringifyYaml({
         id: 'script',
         label: 'Script',
         data: {
@@ -122,7 +138,7 @@ describe('active Project session lifecycle', () => {
     );
     await fs.writeFile(
       assetPath,
-      JSON.stringify({
+      stringifyYaml({
         id: 'owned',
         label: 'Owned',
         data: {
@@ -148,10 +164,10 @@ describe('active Project session lifecycle', () => {
         },
       }),
     ).toMatchObject({ success: true });
-    expect(JSON.parse(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
+    expect(parseYaml(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
       { path: 'scripts/original/renamed.lua', purpose: 'reference' },
     ]);
-    expect(JSON.parse(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
+    expect(parseYaml(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
       source: { path: 'scripts/original/renamed.lua' },
       attachments: [{ path: 'scripts/original/renamed.lua', purpose: 'reference' }],
     });
@@ -165,10 +181,10 @@ describe('active Project session lifecycle', () => {
         },
       }),
     ).toMatchObject({ success: true });
-    expect(JSON.parse(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
+    expect(parseYaml(await fs.readFile(assetPath, 'utf8')).data.attachments).toEqual([
       { path: 'scripts/moved/renamed.lua', purpose: 'reference' },
     ]);
-    expect(JSON.parse(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
+    expect(parseYaml(await fs.readFile(sourceAssetPath, 'utf8')).data).toMatchObject({
       source: { path: 'scripts/moved/renamed.lua' },
       attachments: [{ path: 'scripts/moved/renamed.lua', purpose: 'reference' }],
     });
@@ -184,8 +200,8 @@ describe('active Project session lifecycle', () => {
     for (const id of ['first', 'second']) {
       await fs.writeFile(path.join(project, 'assets', `${id}.bin`), 'asset data');
       await fs.writeFile(
-        path.join(records, `${id}.json`),
-        `${JSON.stringify({
+        path.join(records, `${id}.yaml`),
+        `${stringifyYaml({
           id,
           label: id,
           data: {
@@ -221,7 +237,7 @@ describe('active Project session lifecycle', () => {
     );
     await expect(fs.access(path.join(project, 'support/references/source.md'))).rejects.toThrow();
     for (const id of ['first', 'second']) {
-      const record = JSON.parse(await fs.readFile(path.join(records, `${id}.json`), 'utf8'));
+      const record = parseYaml(await fs.readFile(path.join(records, `${id}.yaml`), 'utf8'));
       expect(record.data.attachments).toEqual([
         { path: 'support/references/renamed.md', purpose: 'reference' },
       ]);
@@ -253,8 +269,8 @@ describe('active Project session lifecycle', () => {
     await fs.writeFile(path.join(root, source), 'Shared attribution\n');
     await fs.writeFile(path.join(root, 'assets/cover.bin'), 'image data');
     await fs.writeFile(
-      path.join(root, 'records/assets/cover.json'),
-      JSON.stringify({
+      path.join(root, 'records/assets/cover.yaml'),
+      stringifyYaml({
         id: 'cover',
         label: 'Cover',
         data: {
@@ -267,13 +283,19 @@ describe('active Project session lifecycle', () => {
       }),
     );
     const previous = await openProject(root);
-    if (!previous.success || !previous.contentProject)
+    if (!previous.success || !previous.contentProject || !previous._workspaceSnapshot)
       throw new Error('Project fixture open failed.');
     const authored = parseAuthoringProject(previous.contentProject);
     authored.settings.distributionNotices = [{ path: source, displayName: 'Attribution' }];
-    for (const [relative, contents] of Object.entries(
-      projectWorkspaceFiles(authored, authored.editor, previous.scriptSourcePaths ?? {}),
-    )) {
+    const projection = projectWorkspaceFiles(
+      authored,
+      authored.editor,
+      previous.scriptSourcePaths ?? {},
+      new Set(previous._workspaceSnapshot.canonicalSourceFiles),
+    );
+    expect(projection).toHaveProperty('records/assets/cover.yaml');
+    expect(projection).not.toHaveProperty('records/assets/cover.json');
+    for (const [relative, contents] of Object.entries(projection)) {
       await fs.mkdir(path.dirname(path.join(root, relative)), { recursive: true });
       await fs.writeFile(path.join(root, relative), contents);
     }
@@ -304,11 +326,11 @@ describe('active Project session lifecycle', () => {
     const service = new ActiveProjectSessionService();
     await fs.symlink('.', path.join(projectA, 'alias'), 'dir');
 
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const refreshedSessionA = await service.activateProjectFile(
-      path.join(projectA, 'alias', 'project.json'),
+      path.join(projectA, 'alias', 'project.yaml'),
     );
-    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.json'));
+    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.yaml'));
 
     expect(sessionA).toMatch(/^[0-9a-f-]{36}$/u);
     expect(refreshedSessionA).toBe(sessionA);
@@ -344,7 +366,7 @@ describe('active Project session lifecycle', () => {
       {
         ok: false,
         success: false,
-        projectFilePath: path.join(projectB, 'project.json'),
+        projectFilePath: path.join(projectB, 'project.yaml'),
       },
       failedActivation,
     );
@@ -363,11 +385,11 @@ describe('active Project session lifecycle', () => {
     const projectA = await createWorkspace('preserved');
     const projectB = await createWorkspace('failed');
     const service = new ActiveProjectSessionService();
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
-    await fs.rm(path.join(projectB, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
+    await fs.rm(path.join(projectB, 'project.yaml'));
 
     await expect(
-      service.activateProjectFile(path.join(projectB, 'project.json')),
+      service.activateProjectFile(path.join(projectB, 'project.yaml')),
     ).rejects.toThrow();
 
     expect(service.currentSessionId()).toBe(sessionA);
@@ -375,7 +397,7 @@ describe('active Project session lifecycle', () => {
 
   it('refreshes admitted Asset metadata atomically and preserves it after a malformed candidate', async () => {
     const project = await createWorkspace('asset-snapshot');
-    const projectFilePath = path.join(project, 'project.json');
+    const projectFilePath = path.join(project, 'project.yaml');
     const opened = await openProject(project);
     if (!opened.success || !opened.contentProject) throw new Error('Project fixture open failed.');
     const contentProject = parseAuthoringProject(opened.contentProject);
@@ -421,17 +443,17 @@ describe('active Project session lifecycle', () => {
     const projectA = await createWorkspace('refresh-a');
     const projectB = await createWorkspace('refresh-b');
     const service = new ActiveProjectSessionService();
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
 
     expect(service.requireActiveProjectRoot(sessionA)).toBe(await fs.realpath(projectA));
-    expect(await service.refreshActiveProject(sessionA, path.join(projectA, 'project.json'))).toBe(
+    expect(await service.refreshActiveProject(sessionA, path.join(projectA, 'project.yaml'))).toBe(
       sessionA,
     );
     await expect(
-      service.refreshActiveProject('stale-session', path.join(projectB, 'project.json')),
+      service.refreshActiveProject('stale-session', path.join(projectB, 'project.yaml')),
     ).rejects.toThrow('Project session is stale or unknown.');
     await expect(
-      service.refreshActiveProject(sessionA, path.join(projectB, 'project.json')),
+      service.refreshActiveProject(sessionA, path.join(projectB, 'project.yaml')),
     ).rejects.toThrow('Project result does not belong to the active Project session.');
     expect(service.currentSessionId()).toBe(sessionA);
     expect(service.requireActiveProjectRoot(sessionA)).toBe(await fs.realpath(projectA));
@@ -439,7 +461,7 @@ describe('active Project session lifecycle', () => {
 
   it('does not reactivate a Project when close revokes an in-flight lifecycle activation', async () => {
     const project = await createWorkspace('close-in-flight');
-    const projectFilePath = path.join(project, 'project.json');
+    const projectFilePath = path.join(project, 'project.yaml');
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
     const originalRealpath = fs.realpath.bind(fs);
@@ -479,12 +501,12 @@ describe('active Project session lifecycle', () => {
     const activationB = service.beginProjectActivation();
 
     const resultB = await service.attachToSuccessfulResult(
-      { success: true, projectFilePath: path.join(projectB, 'project.json') },
+      { success: true, projectFilePath: path.join(projectB, 'project.yaml') },
       activationB,
     );
     await expect(
       service.attachToSuccessfulResult(
-        { success: true, projectFilePath: path.join(projectA, 'project.json') },
+        { success: true, projectFilePath: path.join(projectA, 'project.yaml') },
         activationA,
       ),
     ).rejects.toThrow('Project activation was superseded.');
@@ -499,7 +521,7 @@ describe('active Project session lifecycle', () => {
     await fs.mkdir(path.join(projectA, 'assets'), { recursive: true });
     await fs.writeFile(path.join(projectA, 'assets', 'script.lua'), source);
     const service = new ActiveProjectSessionService();
-    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const sessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const request = {
       projectSessionId: sessionA,
       entries: [
@@ -532,11 +554,11 @@ describe('active Project session lifecycle', () => {
     };
 
     await expectRejectedWithoutFileAccess('random-session');
-    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.json'));
+    const sessionB = await service.activateProjectFile(path.join(projectB, 'project.yaml'));
     await expectRejectedWithoutFileAccess(sessionA);
     service.closeActiveProject();
     await expectRejectedWithoutFileAccess(sessionB);
-    const reopenedSessionA = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const reopenedSessionA = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     service.dispose();
     await expectRejectedWithoutFileAccess(reopenedSessionA);
   });
@@ -549,7 +571,7 @@ describe('active Project session lifecycle', () => {
     await fs.mkdir(path.join(projectB, 'assets'), { recursive: true });
     await fs.writeFile(path.join(projectB, 'assets', 'script.lua'), source);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
 
     await fs.rename(projectA, movedProjectA);
     await fs.symlink(projectB, projectA, 'dir');
@@ -584,7 +606,7 @@ describe('active Project session lifecycle', () => {
     await fs.writeFile(sourcePath, 'return "inside"\n', 'utf8');
     await fs.writeFile(outsidePath, outside);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const originalOpen = fs.open.bind(fs);
     vi.spyOn(fs, 'open').mockImplementationOnce(async (value, flags) => {
       await fs.rm(sourcePath);
@@ -616,7 +638,7 @@ describe('active Project session lifecycle', () => {
     const sourcePath = path.join(projectA, 'assets', 'script.lua');
     await fs.writeFile(sourcePath, source);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(projectA, 'project.yaml'));
     const originalRealpath = fs.realpath.bind(fs);
     let entered!: () => void;
     let release!: () => void;
@@ -645,7 +667,7 @@ describe('active Project session lifecycle', () => {
       ],
     });
     await enteredGate;
-    await service.activateProjectFile(path.join(projectB, 'project.json'));
+    await service.activateProjectFile(path.join(projectB, 'project.yaml'));
     release();
 
     await expect(pending).resolves.toEqual({
@@ -667,7 +689,7 @@ describe('active Project session lifecycle', () => {
       fs.writeFile(path.join(project, 'assets', 'oversized.lua'), oversizedSource),
     ]);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.yaml'));
 
     const response = await service.read({
       projectSessionId,
@@ -733,7 +755,7 @@ describe('active Project session lifecycle', () => {
     await fs.writeFile(path.join(project, 'assets', 'note.txt'), 'asset text\n');
     await fs.writeFile(path.join(project, 'records', 'internal', 'hidden.lua'), 'return false\n');
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.yaml'));
 
     const response = await service.listProjectSourceFiles({ projectSessionId });
 
@@ -821,8 +843,8 @@ describe('active Project session lifecycle', () => {
     expect(await fs.readFile(path.join(project, 'scripts', 'core', 'bootstrap.lua'), 'utf8')).toBe(
       'return {}\n',
     );
-    const record = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'scripts', 'bootstrap.json'), 'utf8'),
+    const record = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'scripts', 'bootstrap.yaml'), 'utf8'),
     ) as { data: { source: { path: string } } };
     expect(record.data.source.path).toBe('scripts/core/bootstrap.lua');
     expect((await openProject(project)).success).toBe(true);
@@ -843,9 +865,11 @@ describe('active Project session lifecycle', () => {
       authored.editor,
       opened.scriptSourcePaths ?? {},
     );
+    expect(projected).toHaveProperty('records/layouts/hud/layout.yaml');
+    expect(projected).not.toHaveProperty('records/layouts/hud/layout.json');
     await fs.mkdir(path.join(project, 'records', 'layouts', 'hud'), { recursive: true });
     for (const relative of [
-      'records/layouts/hud/layout.json',
+      'records/layouts/hud/layout.yaml',
       'records/layouts/hud/layout.rml',
       'records/layouts/hud/layout.rcss',
       'records/layouts/hud/layout.lua',
@@ -883,8 +907,8 @@ describe('active Project session lifecycle', () => {
     });
 
     expect(moved.success).toBe(true);
-    const layoutRecord = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'layouts', 'hud', 'layout.json'), 'utf8'),
+    const layoutRecord = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'layouts', 'hud', 'layout.yaml'), 'utf8'),
     ) as { data: { dependencies: { scripts: string[] } } };
     expect(layoutRecord.data.dependencies.scripts).toEqual(['scripts/ui/hud-renamed.lua']);
     expect(
@@ -905,12 +929,14 @@ describe('active Project session lifecycle', () => {
     const data = defaultMaterialData('FX');
     data.shader = { fragment: { kind: 'project', path: 'shaders/effects/main.sc' } };
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'fx.json'),
-      `${JSON.stringify({ id: 'fx', label: 'FX', data }, null, 2)}\n`,
+      path.join(project, 'records', 'materials', 'fx.yaml'),
+      materialYaml('fx', 'FX', data),
     );
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
-    const attached = await service.attachToSuccessfulResult(await openProject(project), activation);
+    const fixtureOpened = await openProject(project);
+    expect(fixtureOpened.success, JSON.stringify(fixtureOpened.diagnostics)).toBe(true);
+    const attached = await service.attachToSuccessfulResult(fixtureOpened, activation);
     const projectSessionId = attached.projectSessionId!;
 
     const moved = await service.mutateProjectSources({
@@ -923,8 +949,8 @@ describe('active Project session lifecycle', () => {
     });
 
     expect(moved.success).toBe(true);
-    const material = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'materials', 'fx.json'), 'utf8'),
+    const material = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'materials', 'fx.yaml'), 'utf8'),
     ) as { data: { shader: { fragment: { path: string } } } };
     expect(material.data.shader.fragment.path).toBe('shaders/effects/moved.sc');
     expect(await fs.readFile(path.join(project, 'shaders', 'consumer.sc'), 'utf8')).toContain(
@@ -1040,8 +1066,8 @@ describe('active Project session lifecycle', () => {
     const data = defaultMaterialData('Panel', 'engine-2d');
     data.shader = { fragment: { kind: 'project', path: 'shaders/shared/main.sc' } };
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'panel.json'),
-      `${JSON.stringify({ id: 'panel', label: 'Panel', data }, null, 2)}\n`,
+      path.join(project, 'records', 'materials', 'panel.yaml'),
+      materialYaml('panel', 'Panel', data),
     );
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
@@ -1067,12 +1093,8 @@ describe('active Project session lifecycle', () => {
     const project = await createWorkspace('material-shader-copy');
     await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'panel.json'),
-      `${JSON.stringify(
-        { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'engine-2d') },
-        null,
-        2,
-      )}\n`,
+      path.join(project, 'records', 'materials', 'panel.yaml'),
+      materialYaml('panel', 'Panel', defaultMaterialData('Panel', 'engine-2d')),
     );
     const service = new ActiveProjectSessionService();
     const activation = service.beginProjectActivation();
@@ -1100,8 +1122,8 @@ describe('active Project session lifecycle', () => {
     expect(copied).toBe(
       await fs.readFile(path.resolve('..', 'engine/shaders/bgfx/fs_postprocess_tint.sc'), 'utf8'),
     );
-    const material = JSON.parse(
-      await fs.readFile(path.join(project, 'records', 'materials', 'panel.json'), 'utf8'),
+    const material = parseYaml(
+      await fs.readFile(path.join(project, 'records', 'materials', 'panel.yaml'), 'utf8'),
     ) as { data: { shader?: { vertex?: unknown; fragment?: { kind: string; path: string } } } };
     expect(material.data.shader).toEqual({
       fragment: { kind: 'project', path: 'shaders/materials/panel/fs.sc' },
@@ -1113,12 +1135,8 @@ describe('active Project session lifecycle', () => {
     const project = await createWorkspace('material-shader-copy-containment');
     await fs.mkdir(path.join(project, 'records', 'materials'), { recursive: true });
     await fs.writeFile(
-      path.join(project, 'records', 'materials', 'panel.json'),
-      `${JSON.stringify(
-        { id: 'panel', label: 'Panel', data: defaultMaterialData('Panel', 'engine-2d') },
-        null,
-        2,
-      )}\n`,
+      path.join(project, 'records', 'materials', 'panel.yaml'),
+      materialYaml('panel', 'Panel', defaultMaterialData('Panel', 'engine-2d')),
     );
     const outside = path.join(path.dirname(project), 'outside.sc');
     await fs.writeFile(outside, 'void outside() {}\n');
@@ -1136,7 +1154,7 @@ describe('active Project session lifecycle', () => {
           kind: 'material-shader-copy',
           materialId: 'panel',
           stage: 'fragment',
-          sourceIdentity: 'project:/shaders/../project.json',
+          sourceIdentity: 'project:/shaders/../project.yaml',
         },
       }),
     ).resolves.toMatchObject({ success: false });
@@ -1192,7 +1210,7 @@ describe('active Project session lifecycle', () => {
     const source = Buffer.alloc(PROJECT_TEXT_SOURCE_LIMITS.maxSourceBytes + 1, 0x61);
     await fs.writeFile(path.join(project, 'assets', 'growing.lua'), source);
     const service = new ActiveProjectSessionService();
-    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.json'));
+    const projectSessionId = await service.activateProjectFile(path.join(project, 'project.yaml'));
     const originalOpen = fs.open.bind(fs);
     vi.spyOn(fs, 'open').mockImplementationOnce(async (value, flags) => {
       const file = await originalOpen(value, flags);

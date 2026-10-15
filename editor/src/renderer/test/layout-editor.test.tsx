@@ -137,7 +137,7 @@ describe('LayoutEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LayoutEditor tab={tab} />);
@@ -166,7 +166,7 @@ describe('LayoutEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LayoutEditor tab={tab} />);
@@ -194,7 +194,7 @@ describe('LayoutEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LayoutEditor tab={tab} />);
@@ -227,7 +227,7 @@ describe('LayoutEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<LayoutEditor tab={tab} />);
@@ -252,7 +252,7 @@ describe('LayoutEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<LayoutEditor tab={tab} />);
     expect(screen.getByRole('button', { name: 'Set as Title UI' })).toBeDisabled();
@@ -268,7 +268,7 @@ describe('LayoutEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     const view = render(<LayoutEditor tab={tab} />);

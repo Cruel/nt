@@ -1,0 +1,21 @@
+data:
+  contract: {}
+  dependencies:
+    data:
+      - notice-board-data
+    fonts:
+      - dejavusans
+    images: []
+    scripts: []
+  layoutKind: fragment
+  lua:
+    sourceMode: none
+  rcss:
+    sourceAsset: counter-shared-style
+    sourceMode: asset
+  rml:
+    sourceMode: file
+  script:
+    enabled: false
+id: inline-event-fragment
+label: Inline event fragment

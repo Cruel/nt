@@ -6,10 +6,24 @@ import {
 } from '../authoring-source-analysis';
 import { z } from 'zod';
 import {
+  yamlCommentImpacts,
+  yamlCommentTokenMentions,
+  annotatedYamlPaths,
+  removeChangedYamlComments,
+  type YamlCommentImpact,
+} from './yaml-comment-impact';
+import { restoreMissingYamlSource } from './yaml-source-restoration';
+import { remapYamlRecordMetadata } from './structured-yaml-source';
+import {
   localizationMessageSourceViews,
   updateLocalizationMessageSourceViews,
 } from '../authoring-localization-workflow';
 import { workspaceManifestSchema } from './workspace-manifest-schema';
+import {
+  compareProjectWorkspaceUnicodeCodePoints,
+  projectWorkspaceSourceCodec,
+  type CanonicalSourceSchema,
+} from './project-workspace-source-codec';
 import { buildAuthoringDependencyGraph } from '../authoring-dependency-graph';
 import {
   assembleAuthoringDependencyGraph,
@@ -141,6 +155,7 @@ export {
   PROJECT_WORKSPACE_SCHEMA,
   PROJECT_WORKSPACE_SCHEMA_VERSION,
 } from './project-workspace-contracts';
+export { compareProjectWorkspaceUnicodeCodePoints } from './project-workspace-source-codec';
 
 /* This is deliberately a distinct persistence codec.  The assembled editor state
  * remains the old in-memory shape, but no workspace file is read as that retired
@@ -157,7 +172,17 @@ const editorLocalStateSchema = editorProjectStateSchema
   })
   .strict();
 
-const traitsWorkspaceSchema = z.record(entityIdSchema, traitDefinitionSchema);
+const traitsWorkspaceSchema = z
+  .record(entityIdSchema, traitDefinitionSchema)
+  .superRefine((traits, ctx) => {
+    for (const [key, trait] of Object.entries(traits))
+      if (trait.id !== key)
+        ctx.addIssue({
+          code: 'custom',
+          path: [key, 'id'],
+          message: `Trait id '${trait.id}' must match its map key '${key}'.`,
+        });
+  });
 
 const trackedEditorOrganizationSchema = z
   .object({
@@ -222,6 +247,8 @@ export type ProjectWorkspaceSourceContribution =
       Readonly<{
         kind: 'json';
         parsed: unknown;
+        /** Original YAML document, including comment nodes. */
+        sourceText?: string;
       }>)
   | (ProjectWorkspaceSourceContributionBase &
       Readonly<{
@@ -377,138 +404,13 @@ function withLazyWriteContent<T extends object>(
   return result as T & Readonly<{ contentProject: unknown }>;
 }
 
-export function compareProjectWorkspaceUnicodeCodePoints(left: string, right: string): number {
-  const leftPoints = Array.from(left, (character) => character.codePointAt(0)!);
-  const rightPoints = Array.from(right, (character) => character.codePointAt(0)!);
-  for (let index = 0; index < Math.min(leftPoints.length, rightPoints.length); index += 1) {
-    const difference = leftPoints[index]! - rightPoints[index]!;
-    if (difference !== 0) return difference;
-  }
-  return leftPoints.length - rightPoints.length;
-}
 const sortKeys = <T>(value: Record<string, T>) =>
   Object.fromEntries(
     Object.entries(value).sort(([a], [b]) => compareProjectWorkspaceUnicodeCodePoints(a, b)),
   ) as Record<string, T>;
-type CanonicalSchema = {
-  readonly _zod?: { readonly def?: unknown };
-  safeParse?(value: unknown): { readonly success: boolean };
-};
 
-function schemaDefinition(
-  schema: CanonicalSchema | undefined,
-): Record<string, unknown> | undefined {
-  const definition = schema?._zod?.def;
-  return definition && typeof definition === 'object'
-    ? (definition as Record<string, unknown>)
-    : undefined;
-}
-
-function objectShape(schema: CanonicalSchema): Record<string, CanonicalSchema> | undefined {
-  const definition = schemaDefinition(schema);
-  return definition?.type === 'object'
-    ? (definition.shape as Record<string, CanonicalSchema>)
-    : undefined;
-}
-
-function literalValues(schema: CanonicalSchema | undefined): readonly unknown[] | undefined {
-  const definition = schemaDefinition(schema);
-  if (definition?.type === 'literal') return definition.values as readonly unknown[];
-  if (
-    definition?.type === 'optional' ||
-    definition?.type === 'nullable' ||
-    definition?.type === 'default' ||
-    definition?.type === 'catch' ||
-    definition?.type === 'readonly' ||
-    definition?.type === 'nonoptional'
-  )
-    return literalValues(definition.innerType as CanonicalSchema);
-  return undefined;
-}
-
-function matchingUnionSchema(
-  value: unknown,
-  options: readonly CanonicalSchema[],
-  discriminator?: unknown,
-): CanonicalSchema | undefined {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return undefined;
-  const object = value as Record<string, unknown>;
-  if (typeof discriminator === 'string') {
-    const matched = options.find((option) =>
-      literalValues(objectShape(option)?.[discriminator])?.includes(object[discriminator]),
-    );
-    if (matched) return matched;
-  }
-  const parsed = options.filter((option) => option.safeParse?.(value).success);
-  if (parsed.length > 0) return parsed[0];
-  const structurallyMatched = options.filter((option) => {
-    const shape = objectShape(option);
-    return shape !== undefined && Object.keys(object).every((key) => key in shape);
-  });
-  return structurallyMatched.length === 1 ? structurallyMatched[0] : undefined;
-}
-
-/**
- * A schema object is an ordered product; a Zod record (and an untyped JSON value)
- * is a dictionary.  Keeping that distinction at the codec boundary avoids a
- * parent-key convention that inevitably misses newly added maps.
- */
-function canonicalize(value: unknown, schema?: CanonicalSchema): unknown {
-  const definition = schemaDefinition(schema);
-  const type = definition?.type;
-  if (type === 'optional' || type === 'nullable' || type === 'default' || type === 'catch')
-    return canonicalize(value, definition?.innerType as CanonicalSchema);
-  if (type === 'readonly' || type === 'nonoptional')
-    return canonicalize(value, definition?.innerType as CanonicalSchema);
-  if (type === 'pipe') return canonicalize(value, definition?.out as CanonicalSchema);
-  if (type === 'lazy') {
-    const getter = definition?.getter;
-    return typeof getter === 'function'
-      ? canonicalize(value, (getter as () => CanonicalSchema)())
-      : canonicalize(value);
-  }
-  if (type === 'array') {
-    const element = definition?.element as CanonicalSchema;
-    return Array.isArray(value) ? value.map((item) => canonicalize(item, element)) : value;
-  }
-  if (type === 'record') {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-    const item = definition?.valueType as CanonicalSchema;
-    return Object.fromEntries(
-      Object.entries(value as Record<string, unknown>)
-        .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
-        .map(([key, nested]) => [key, canonicalize(nested, item)]),
-    );
-  }
-  if (type === 'union' || type === 'discriminatedUnion') {
-    const options = (definition?.options ?? []) as readonly CanonicalSchema[];
-    return canonicalize(value, matchingUnionSchema(value, options, definition?.discriminator));
-  }
-  if (type === 'object') {
-    if (!value || typeof value !== 'object' || Array.isArray(value)) return value;
-    const shape = definition?.shape as Record<string, CanonicalSchema>;
-    const object = value as Record<string, unknown>;
-    const known = Object.keys(shape)
-      .filter((key) => object[key] !== undefined)
-      .map((key) => [key, canonicalize(object[key], shape[key])] as const);
-    const unknown = Object.keys(object)
-      .filter((key) => !(key in shape) && object[key] !== undefined)
-      .sort(compareProjectWorkspaceUnicodeCodePoints)
-      .map((key) => [key, canonicalize(object[key])] as const);
-    return Object.fromEntries([...known, ...unknown]);
-  }
-  if (Array.isArray(value)) return value.map((item) => canonicalize(item));
-  if (!value || typeof value !== 'object') return value;
-  return Object.fromEntries(
-    Object.entries(value as Record<string, unknown>)
-      .sort(([left], [right]) => compareProjectWorkspaceUnicodeCodePoints(left, right))
-      .map(([key, nested]) => [key, canonicalize(nested)]),
-  );
-}
-
-const canonicalJson = (value: unknown, schema?: CanonicalSchema): string =>
-  `${JSON.stringify(canonicalize(value, schema), null, 2)}\n`;
-
+const canonicalJson = (value: unknown, schema?: CanonicalSourceSchema): string =>
+  projectWorkspaceSourceCodec('machine.json').encode(value, schema);
 const localizationPolicyFragmentSchema = z
   .object({
     sourceLocale: localeIdSchema,
@@ -537,19 +439,52 @@ const localizationAssetsLocaleFragmentSchema = z.record(
   localizationAssetTargetSchema,
 );
 
-const LOCALIZATION_POLICY_FILE = 'i18n/project.json';
-const LOCALIZATION_MESSAGES_FILE = 'i18n/messages.json';
-const LOCALIZATION_USAGE_NOTES_FILE = 'i18n/usage-notes.json';
-const LOCALIZATION_TRACKING_FILE = 'i18n/tracking.json';
-const LOCALIZATION_ORPHANS_FILE = 'i18n/orphans.json';
-const localizationTranslationFile = (locale: string) => `i18n/locales/${locale}.json`;
-const localizationAssetsFile = (locale: string) => `i18n/assets/${locale}.json`;
+/** Local source-schema admission for explicit fmt compaction; never resolves Project references. */
+export function validateYamlCompactionSource(file: string, text: string): unknown {
+  const value = projectWorkspaceSourceCodec(file).decode(text);
+  if (file === 'project.yaml') return workspaceManifestSchema.parse(value);
+  if (file === 'traits.yaml') return traitsWorkspaceSchema.parse(value);
+  if (file === 'editor.yaml') return trackedEditorOrganizationSchema.parse(value);
+  const fragments: Readonly<Record<string, z.ZodType>> = {
+    'i18n/project.yaml': localizationPolicyFragmentSchema,
+    'i18n/messages.yaml': localizationMessagesFragmentSchema,
+    'i18n/usage-notes.yaml': localizationUsageNotesFragmentSchema,
+    'i18n/tracking.yaml': localizationTrackingFragmentSchema,
+    'i18n/orphans.yaml': localizationOrphansFragmentSchema,
+  };
+  if (fragments[file]) return fragments[file].parse(value);
+  const locale = /^i18n\/(locales|assets)\/([^/]+)\.yaml$/u.exec(file);
+  if (locale) {
+    localeIdSchema.parse(locale[2]);
+    const schema =
+      locale[1] === 'locales'
+        ? localizationTranslationSchema
+        : localizationAssetsLocaleFragmentSchema;
+    const parsed = schema.parse(value);
+    if (Object.keys(parsed).length === 0)
+      throw new Error('Empty localization chunk is not a valid tracked source.');
+    return parsed;
+  }
+  return value;
+}
 
-export function projectWorkspaceLocalizationFiles(
+const LOCALIZATION_POLICY_FILE = 'i18n/project.yaml';
+const LOCALIZATION_MESSAGES_FILE = 'i18n/messages.yaml';
+const LOCALIZATION_USAGE_NOTES_FILE = 'i18n/usage-notes.yaml';
+const LOCALIZATION_TRACKING_FILE = 'i18n/tracking.yaml';
+const LOCALIZATION_ORPHANS_FILE = 'i18n/orphans.yaml';
+const localizationTranslationFile = (locale: string) => `i18n/locales/${locale}.yaml`;
+const localizationAssetsFile = (locale: string) => `i18n/assets/${locale}.yaml`;
+
+function projectWorkspaceLocalizationFile(
   localization: AuthoringLocalization,
-): Readonly<Record<string, string>> {
-  const files: Record<string, string> = {
-    [LOCALIZATION_POLICY_FILE]: canonicalJson(
+  file: string,
+  previousText?: string,
+): string | undefined {
+  const encode = (value: unknown, schema: CanonicalSourceSchema) =>
+    projectWorkspaceSourceCodec(file).encode(value, schema, previousText);
+  if (file === LOCALIZATION_POLICY_FILE)
+    return encode(
       {
         sourceLocale: localization.sourceLocale,
         sourceLocaleLock:
@@ -559,42 +494,64 @@ export function projectWorkspaceLocalizationFiles(
         locales: localization.locales,
       },
       localizationPolicyFragmentSchema,
-    ),
-    [LOCALIZATION_MESSAGES_FILE]: canonicalJson(
+    );
+  if (file === LOCALIZATION_MESSAGES_FILE)
+    return encode(
       {
         messages: localization.messages,
         structuredMessageIds: localization.structuredMessageIds,
       },
       localizationMessagesFragmentSchema,
-    ),
-    [LOCALIZATION_USAGE_NOTES_FILE]: canonicalJson(
-      localization.usageNotes,
-      localizationUsageNotesFragmentSchema,
-    ),
-    [LOCALIZATION_TRACKING_FILE]: canonicalJson(
-      localization.sourceMessageTracking,
-      localizationTrackingFragmentSchema,
-    ),
-    [LOCALIZATION_ORPHANS_FILE]: canonicalJson(
-      localization.orphanedMessages,
-      localizationOrphansFragmentSchema,
-    ),
-  };
-  for (const [locale, translations] of Object.entries(localization.translations))
-    if (Object.keys(translations).length > 0)
-      files[localizationTranslationFile(locale)] = canonicalJson(
-        translations,
-        localizationTranslationSchema,
-      );
-  for (const [locale, assets] of Object.entries(localization.assets))
-    if (Object.keys(assets).length > 0)
-      files[localizationAssetsFile(locale)] = canonicalJson(
-        assets,
-        localizationAssetsLocaleFragmentSchema,
-      );
-  return sortKeys(files);
+    );
+  if (file === LOCALIZATION_USAGE_NOTES_FILE)
+    return encode(localization.usageNotes, localizationUsageNotesFragmentSchema);
+  if (file === LOCALIZATION_TRACKING_FILE)
+    return encode(localization.sourceMessageTracking, localizationTrackingFragmentSchema);
+  if (file === LOCALIZATION_ORPHANS_FILE)
+    return encode(localization.orphanedMessages, localizationOrphansFragmentSchema);
+  const translation = /^i18n\/locales\/([^/]+)\.yaml$/u.exec(file);
+  if (translation) {
+    const translations = localization.translations[translation[1]!] ?? {};
+    return Object.keys(translations).length > 0
+      ? encode(translations, localizationTranslationSchema)
+      : undefined;
+  }
+  const localizedAssets = /^i18n\/assets\/([^/]+)\.yaml$/u.exec(file);
+  if (localizedAssets) {
+    const assets = localization.assets[localizedAssets[1]!] ?? {};
+    return Object.keys(assets).length > 0
+      ? encode(assets, localizationAssetsLocaleFragmentSchema)
+      : undefined;
+  }
+  return undefined;
 }
 
+function projectWorkspaceLocalizationPaths(localization: AuthoringLocalization): readonly string[] {
+  return [
+    LOCALIZATION_POLICY_FILE,
+    LOCALIZATION_MESSAGES_FILE,
+    LOCALIZATION_USAGE_NOTES_FILE,
+    LOCALIZATION_TRACKING_FILE,
+    LOCALIZATION_ORPHANS_FILE,
+    ...Object.entries(localization.translations)
+      .filter(([, translations]) => Object.keys(translations).length > 0)
+      .map(([locale]) => localizationTranslationFile(locale)),
+    ...Object.entries(localization.assets)
+      .filter(([, assets]) => Object.keys(assets).length > 0)
+      .map(([locale]) => localizationAssetsFile(locale)),
+  ];
+}
+
+export function projectWorkspaceLocalizationFiles(
+  localization: AuthoringLocalization,
+): Readonly<Record<string, string>> {
+  const files: Record<string, string> = {};
+  for (const file of projectWorkspaceLocalizationPaths(localization)) {
+    const text = projectWorkspaceLocalizationFile(localization, file);
+    if (text !== undefined) files[file] = text;
+  }
+  return sortKeys(files);
+}
 export function projectWorkspaceChangedLocalizationFiles(
   before: AuthoringLocalization,
   after: AuthoringLocalization,
@@ -648,16 +605,17 @@ const hasExactKeys = (value: unknown, keys: readonly string[]) =>
     .join('\0') === [...keys].sort(compareProjectWorkspaceUnicodeCodePoints).join('\0');
 const layoutFile = (id: string, channel: 'rml' | 'rcss' | 'lua') =>
   `records/layouts/${id}/layout.${channel}`;
-const recordFile = (collection: AuthoringCollectionKey, id: string) =>
-  collection === 'layouts'
-    ? `records/layouts/${id}/layout.json`
-    : `records/${collection}/${id}.json`;
+const recordFile = (collection: AuthoringCollectionKey, id: string) => {
+  const stem =
+    collection === 'layouts' ? `records/layouts/${id}/layout` : `records/${collection}/${id}`;
+  return `${stem}.yaml`;
+};
 
 function sourceContributionOwnerPaths(
   file: string,
   scriptSourcePaths: Readonly<Record<string, string>>,
 ): readonly string[] {
-  if (file === 'project.json')
+  if (file === 'project.yaml')
     return [
       '/project',
       '/settings',
@@ -667,8 +625,8 @@ function sourceContributionOwnerPaths(
       '/inventories',
       '/interactableInstances',
     ];
-  if (file === 'traits.json') return ['/traits'];
-  if (file === 'editor.json') return ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'];
+  if (file === 'traits.yaml') return ['/traits'];
+  if (file === 'editor.yaml') return ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'];
   if (file === LOCALIZATION_POLICY_FILE)
     return [
       '/localization/sourceLocale',
@@ -681,20 +639,20 @@ function sourceContributionOwnerPaths(
   if (file === LOCALIZATION_USAGE_NOTES_FILE) return ['/localization/usageNotes'];
   if (file === LOCALIZATION_TRACKING_FILE) return ['/localization/sourceMessageTracking'];
   if (file === LOCALIZATION_ORPHANS_FILE) return ['/localization/orphanedMessages'];
-  const localeMatch = file.match(/^i18n\/locales\/([^/]+)\.json$/u);
+  const localeMatch = file.match(/^i18n\/locales\/([^/]+)\.yaml$/u);
   if (localeMatch)
     return [`/localization/translations/${escapeJsonPointerSegment(localeMatch[1]!)}`];
-  const localizedAssetMatch = file.match(/^i18n\/assets\/([^/]+)\.json$/u);
+  const localizedAssetMatch = file.match(/^i18n\/assets\/([^/]+)\.yaml$/u);
   if (localizedAssetMatch)
     return [`/localization/assets/${escapeJsonPointerSegment(localizedAssetMatch[1]!)}`];
 
-  const layoutMatch = file.match(/^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u);
+  const layoutMatch = file.match(/^records\/layouts\/([^/]+)\/layout\.(yaml|rml|rcss|lua)$/u);
   if (layoutMatch) {
     const id = escapeJsonPointerSegment(layoutMatch[1]!);
     const channel = layoutMatch[2]!;
-    return channel === 'json' ? [`/layouts/${id}`] : [`/layouts/${id}/data/${channel}`];
+    return channel === 'yaml' ? [`/layouts/${id}`] : [`/layouts/${id}/data/${channel}`];
   }
-  const recordMatch = file.match(/^records\/([^/]+)\/([^/]+)\.json$/u);
+  const recordMatch = file.match(/^records\/([^/]+)\/([^/]+)\.yaml$/u);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!))
     return [`/${recordMatch[1]}/${escapeJsonPointerSegment(recordMatch[2]!)}`];
   for (const [id, sourcePath] of Object.entries(scriptSourcePaths))
@@ -737,10 +695,10 @@ function candidateWorkspaceFilesForAffectedPath(
     }
     return [...files];
   }
-  if (head === 'editor') return ['editor.json'];
+  if (head === 'editor') return ['editor.yaml'];
   if (head === 'localization')
     return Object.keys(projectWorkspaceLocalizationFiles(project.localization));
-  if (head === 'traits') return ['traits.json'];
+  if (head === 'traits') return ['traits.yaml'];
   if (
     head === 'project' ||
     head === 'settings' ||
@@ -750,7 +708,7 @@ function candidateWorkspaceFilesForAffectedPath(
     head === 'inventories' ||
     head === 'interactableInstances'
   )
-    return ['project.json'];
+    return ['project.yaml'];
   return null;
 }
 
@@ -777,7 +735,40 @@ export function projectWorkspaceAffectedFiles(
       affectedPath,
     );
     if (!candidateFiles) return null;
-    candidateFiles.forEach((file) => files.add(file));
+    candidateFiles.forEach((file) => {
+      const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/u.exec(file);
+      if (layout) {
+        files.add(recordFile('layouts', layout[1]!));
+        return;
+      }
+      const record =
+        /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.yaml$/u.exec(
+          file,
+        );
+      files.add(
+        record
+          ? recordFile(
+              record[1] as
+                | 'variables'
+                | 'assets'
+                | 'animations'
+                | 'materials'
+                | 'archetypes'
+                | 'scripts'
+                | 'rooms'
+                | 'maps'
+                | 'characters'
+                | 'interactables'
+                | 'verbs'
+                | 'interactions'
+                | 'dialogues'
+                | 'scenes'
+                | 'tests',
+              record[2]!,
+            )
+          : file,
+      );
+    });
   }
   return [...files].sort(compareProjectWorkspaceUnicodeCodePoints);
 }
@@ -1156,7 +1147,7 @@ function ownershipFor(
 ): Readonly<Record<string, ProjectWorkspaceSaveUnitFileOwnership>> {
   const result: Record<string, ProjectWorkspaceSaveUnitFileOwnership> = {
     'project:settings': {
-      files: ['project.json'],
+      files: ['project.yaml'],
       paths: [
         '/project',
         '/settings',
@@ -1167,22 +1158,22 @@ function ownershipFor(
         '/export/assetMemoryPolicies',
       ],
     },
-    'collection:traits': { files: ['traits.json'], paths: ['/traits'] },
+    'collection:traits': { files: ['traits.yaml'], paths: ['/traits'] },
     'project:localization': {
       files: Object.keys(projectWorkspaceLocalizationFiles(project.localization)),
       paths: ['/localization'],
     },
     'project:chapters': {
-      files: ['editor.json'],
+      files: ['editor.yaml'],
       paths: ['/editor/chapters'],
     },
-    'project:tags': { files: ['editor.json'], paths: ['/editor/tags'] },
+    'project:tags': { files: ['editor.yaml'], paths: ['/editor/tags'] },
     'project:platform-export-profiles': {
-      files: ['project.json'],
+      files: ['project.yaml'],
       paths: ['/export/runtime', '/export/profiles'],
     },
     'editor:organization': {
-      files: ['editor.json'],
+      files: ['editor.yaml'],
       paths: ['/editor/chapters', '/editor/tags', '/editor/recordMetadata'],
     },
     'editor:state': {
@@ -1216,7 +1207,7 @@ function ownershipFor(
             : source.path,
         );
       }
-      files.push('editor.json');
+      files.push('editor.yaml');
       result[`record:${collection}:${id}`] = {
         files: Object.freeze([...new Set(files)].sort(compareProjectWorkspaceUnicodeCodePoints)),
         paths: [`/${collection}/${id}`, `/editor/recordMetadata/${collection}/${id}`],
@@ -1331,105 +1322,237 @@ function externalSearchSources(
   );
 }
 
+function sparseTrackedEditorOrganization(
+  editorState: EditorProjectState,
+  previousText?: string,
+  keepCommentedDefaults = false,
+): Record<string, unknown> {
+  const previous = previousText
+    ? (projectWorkspaceSourceCodec('editor.yaml').decode(previousText) as Record<string, unknown>)
+    : {};
+  const notes =
+    keepCommentedDefaults && previousText ? annotatedYamlPaths(previousText) : new Set<string>();
+  const keep = (path: string) =>
+    [...notes].some((note) => note === path || note.startsWith(`${path}.`));
+  const previousChapters = (previous.chapters ?? {}) as Record<string, unknown>;
+  const previousTags = (previous.tags ?? {}) as Record<string, unknown>;
+  const chapterRecords = editorState.chapters?.records ?? {};
+  const chapterAssignments = editorState.chapters?.assignments ?? {};
+  const tagRecords = editorState.tags?.records ?? {};
+  const chapters: Record<string, unknown> = {};
+  if (
+    Object.keys(chapterRecords).length ||
+    (Object.hasOwn(previousChapters, 'records') &&
+      (JSON.stringify(previousChapters.records) === JSON.stringify(chapterRecords) ||
+        keep('chapters.records')))
+  )
+    chapters.records = chapterRecords;
+  if (
+    Object.keys(chapterAssignments).length ||
+    (Object.hasOwn(previousChapters, 'assignments') &&
+      (JSON.stringify(previousChapters.assignments) === JSON.stringify(chapterAssignments) ||
+        keep('chapters.assignments')))
+  )
+    chapters.assignments = chapterAssignments;
+  const tags: Record<string, unknown> = {};
+  if (
+    Object.keys(tagRecords).length ||
+    (Object.hasOwn(previousTags, 'records') &&
+      (JSON.stringify(previousTags.records) === JSON.stringify(tagRecords) || keep('tags.records')))
+  )
+    tags.records = tagRecords;
+  const previousMetadata = (previous.recordMetadata ?? {}) as Record<string, unknown>;
+  const recordMetadata = Object.fromEntries(
+    Object.entries(editorState.recordMetadata ?? {}).map(([collection, entries]) => {
+      const priorRecords = (previousMetadata[collection] ?? {}) as Record<string, unknown>;
+      return [
+        collection,
+        Object.fromEntries(
+          Object.entries(entries).map(([id, metadata]) => {
+            const prior = (priorRecords[id] ?? {}) as Record<string, unknown>;
+            const { tags: assignedTags, ...other } = metadata;
+            return [
+              id,
+              {
+                ...(assignedTags.length ||
+                (Object.hasOwn(prior, 'tags') &&
+                  (JSON.stringify(prior.tags) === JSON.stringify(assignedTags) ||
+                    keep(`recordMetadata.${collection}.${id}.tags`)))
+                  ? { tags: assignedTags }
+                  : {}),
+                ...other,
+              },
+            ];
+          }),
+        ),
+      ];
+    }),
+  );
+  return {
+    chapters,
+    tags,
+    recordMetadata: Object.fromEntries(
+      Object.entries(recordMetadata).filter(
+        ([collection, records]) =>
+          Object.keys(records as Record<string, unknown>).length > 0 ||
+          (Object.hasOwn(previousMetadata, collection) &&
+            (JSON.stringify(previousMetadata[collection]) === JSON.stringify(records) ||
+              keep(`recordMetadata.${collection}`))),
+      ),
+    ),
+  };
+}
+
+/** Do not materialize defaults that were absent in the admitted YAML source on unrelated edits. */
+function preserveManifestOmissions(
+  projected: Record<string, unknown>,
+  previousText?: string,
+): Record<string, unknown> {
+  if (previousText === undefined) return projected;
+  const previousSource = projectWorkspaceSourceCodec('project.yaml').decode(previousText);
+  const normalized = workspaceManifestSchema.parse(previousSource);
+  const object = (value: unknown): value is Record<string, unknown> =>
+    value !== null && typeof value === 'object' && !Array.isArray(value);
+  const preserve = (source: unknown, before: unknown, next: unknown): unknown => {
+    if (Array.isArray(source) && Array.isArray(before) && Array.isArray(next)) {
+      // Preserve provenance only where the original item can be matched unambiguously.
+      const byId = new Map<string, number>();
+      for (let i = 0; i < before.length; i += 1) {
+        if (object(before[i]) && typeof before[i].id === 'string') byId.set(before[i].id, i);
+      }
+      return next.map((item, i) => {
+        const oldIndex = object(item) && typeof item.id === 'string' ? byId.get(item.id) : i;
+        return oldIndex !== undefined && oldIndex < source.length && oldIndex < before.length
+          ? preserve(source[oldIndex], before[oldIndex], item)
+          : item;
+      });
+    }
+    if (!object(source) || !object(before) || !object(next)) return next;
+    const result = { ...next };
+    for (const [key, value] of Object.entries(next)) {
+      if (!Object.hasOwn(source, key)) {
+        if (Object.hasOwn(before, key) && JSON.stringify(before[key]) === JSON.stringify(value))
+          delete result[key];
+      } else if (Object.hasOwn(before, key)) {
+        result[key] = preserve(source[key], before[key], value);
+      }
+    }
+    return result;
+  };
+  return preserve(previousSource, normalized, projected) as Record<string, unknown>;
+}
+
 export function projectWorkspaceFile(
   project: AuthoringProject,
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>>,
   file: string,
+  previousText?: string,
+  keepCommentedDefaults = false,
+  sourceFiles?: ReadonlySet<string>,
 ): string | undefined {
-  if (file === 'project.json')
-    return canonicalJson(
-      {
-        schema: PROJECT_WORKSPACE_SCHEMA,
-        schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
-        project: project.project,
-        settings: project.settings,
-        export: project.export,
-        bootstrapModule: project.bootstrapModule,
-        undefinedInteractionProgram: project.undefinedInteractionProgram,
-        entrypoint: project.entrypoint,
-        inventories: project.inventories,
-        interactableInstances: project.interactableInstances,
-      },
+  if (file === 'project.yaml')
+    return projectWorkspaceSourceCodec(file).encode(
+      preserveManifestOmissions(
+        {
+          schema: PROJECT_WORKSPACE_SCHEMA,
+          schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
+          project: project.project,
+          settings: project.settings,
+          export: project.export,
+          bootstrapModule: project.bootstrapModule,
+          ...(project.undefinedInteractionProgram !== null ||
+          (previousText !== undefined &&
+            Object.hasOwn(
+              projectWorkspaceSourceCodec(file).decode(previousText) as object,
+              'undefinedInteractionProgram',
+            ) &&
+            (workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
+              .undefinedInteractionProgram === null ||
+              (keepCommentedDefaults &&
+                [...annotatedYamlPaths(previousText)].some(
+                  (note) =>
+                    note === 'undefinedInteractionProgram' ||
+                    note.startsWith('undefinedInteractionProgram.'),
+                ))))
+            ? { undefinedInteractionProgram: project.undefinedInteractionProgram }
+            : {}),
+          ...(project.entrypoint !== null ||
+          (previousText !== undefined &&
+            Object.hasOwn(
+              projectWorkspaceSourceCodec(file).decode(previousText) as object,
+              'entrypoint',
+            ) &&
+            (workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
+              .entrypoint === null ||
+              (keepCommentedDefaults &&
+                [...annotatedYamlPaths(previousText)].some(
+                  (note) => note === 'entrypoint' || note.startsWith('entrypoint.'),
+                ))))
+            ? { entrypoint: project.entrypoint }
+            : {}),
+          inventories: project.inventories,
+          interactableInstances: project.interactableInstances,
+        },
+        previousText,
+      ),
       workspaceManifestSchema,
+      previousText,
     );
-  if (file === 'traits.json') return canonicalJson(project.traits, traitsWorkspaceSchema);
-  if (file === 'editor.json')
-    return canonicalJson(
-      {
-        chapters: editorState.chapters,
-        tags: editorState.tags,
-        recordMetadata: editorState.recordMetadata,
-      },
+  if (file === 'traits.yaml')
+    return projectWorkspaceSourceCodec(file).encode(
+      project.traits,
+      traitsWorkspaceSchema,
+      previousText,
+    );
+  if (file === 'editor.yaml')
+    return projectWorkspaceSourceCodec(file).encode(
+      sparseTrackedEditorOrganization(editorState, previousText, keepCommentedDefaults),
       trackedEditorOrganizationSchema,
+      previousText,
     );
-  if (file === LOCALIZATION_POLICY_FILE)
-    return canonicalJson(
-      {
-        sourceLocale: project.localization.sourceLocale,
-        sourceLocaleLock:
-          project.localization.sourceLocaleLock ??
-          (hasSubstantiveLocalizationWork(project.localization)
-            ? project.localization.sourceLocale
-            : null),
-        defaultLocale: project.localization.defaultLocale,
-        locales: project.localization.locales,
-      },
-      localizationPolicyFragmentSchema,
-    );
-  if (file === LOCALIZATION_MESSAGES_FILE)
-    return canonicalJson(
-      {
-        messages: project.localization.messages,
-        structuredMessageIds: project.localization.structuredMessageIds,
-      },
-      localizationMessagesFragmentSchema,
-    );
-  if (file === LOCALIZATION_USAGE_NOTES_FILE)
-    return canonicalJson(project.localization.usageNotes, localizationUsageNotesFragmentSchema);
-  if (file === LOCALIZATION_TRACKING_FILE)
-    return canonicalJson(
-      project.localization.sourceMessageTracking,
-      localizationTrackingFragmentSchema,
-    );
-  if (file === LOCALIZATION_ORPHANS_FILE)
-    return canonicalJson(project.localization.orphanedMessages, localizationOrphansFragmentSchema);
-  const translation = /^i18n\/locales\/([^/]+)\.json$/u.exec(file);
-  if (translation) {
-    const translations = project.localization.translations[translation[1]!] ?? {};
-    return Object.keys(translations).length > 0
-      ? canonicalJson(translations, localizationTranslationSchema)
-      : undefined;
-  }
-  const localizedAssets = /^i18n\/assets\/([^/]+)\.json$/u.exec(file);
-  if (localizedAssets) {
-    const assets = project.localization.assets[localizedAssets[1]!] ?? {};
-    return Object.keys(assets).length > 0
-      ? canonicalJson(assets, localizationAssetsLocaleFragmentSchema)
-      : undefined;
-  }
-  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(json|rml|rcss|lua)$/u.exec(file);
+  const localization = projectWorkspaceLocalizationFile(project.localization, file, previousText);
+  if (localization !== undefined) return localization;
+  const layoutMatch = /^records\/layouts\/([^/]+)\/layout\.(yaml|rml|rcss|lua)$/u.exec(file);
   if (layoutMatch) {
     const id = layoutMatch[1]!;
     const channel = layoutMatch[2]!;
     const original = project.layouts[id];
     if (!original) return undefined;
-    if (channel !== 'json') {
+    // A loaded Lua `none` selector is represented by empty inline Lua in the
+    // effective Project. Retain the physical absence of its companion on saves.
+    const preservesAbsentLua =
+      original.data.lua.sourceMode === 'inline' &&
+      original.data.lua.sourceText === '' &&
+      sourceFiles !== undefined &&
+      sourceFiles.has(`records/layouts/${id}/layout.yaml`) &&
+      !sourceFiles.has(layoutFile(id, 'lua'));
+    if (channel !== 'yaml') {
       const source = original.data[channel as 'rml' | 'rcss' | 'lua'];
-      return source.sourceMode === 'inline' ? source.sourceText : undefined;
+      if (channel === 'lua' && preservesAbsentLua) return undefined;
+      return source.sourceMode === 'inline'
+        ? projectWorkspaceSourceCodec(file).encode(source.sourceText)
+        : undefined;
     }
     const record = structuredClone(original) as Record<string, unknown>;
     const data = record.data as Record<string, Record<string, unknown>>;
     for (const sourceChannel of ['rml', 'rcss', 'lua'] as const) {
       const source = data[sourceChannel]!;
-      if (source.sourceMode === 'inline') data[sourceChannel] = { sourceMode: 'file' };
+      if (sourceChannel === 'lua' && preservesAbsentLua)
+        data[sourceChannel] = { sourceMode: 'none' };
+      else if (source.sourceMode === 'inline') data[sourceChannel] = { sourceMode: 'file' };
       else if (source.sourceMode === 'asset')
         data[sourceChannel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
       else data[sourceChannel] = { sourceMode: 'none' };
     }
-    return canonicalJson(record, authoringRecordSchemas.layouts);
+    return projectWorkspaceSourceCodec(file).encode(
+      record,
+      authoringRecordSchemas.layouts,
+      previousText,
+      keepCommentedDefaults,
+    );
   }
-  const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
+  const recordMatch = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
   if (recordMatch && isAuthoringCollectionKey(recordMatch[1]!)) {
     const collection = recordMatch[1] as AuthoringCollectionKey;
     const id = recordMatch[2]!;
@@ -1440,84 +1563,64 @@ export function projectWorkspaceFile(
       const data = record.data as { source: { kind: string; source?: string; path?: string } };
       if (data.source.kind === 'inline-lua') {
         const sourcePath = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
-        data.source = { kind: 'file', path: sourcePath };
+        data.source = { kind: 'project-file', path: sourcePath };
       }
     }
-    return canonicalJson(record, authoringRecordSchemas[collection]);
+    return projectWorkspaceSourceCodec(file).encode(
+      record,
+      authoringRecordSchemas[collection],
+      previousText,
+      keepCommentedDefaults,
+    );
   }
   for (const [id, record] of Object.entries(project.scripts)) {
     const source = record.data.source;
     if (source.kind !== 'inline-lua') continue;
-    if ((scriptSourcePaths[id] ?? `scripts/${id}.lua`) === file) return source.source;
+    if ((scriptSourcePaths[id] ?? `scripts/${id}.lua`) === file)
+      return projectWorkspaceSourceCodec(file).encode(source.source);
   }
   return undefined;
 }
 
-/** Projection is the only writer for tracked workspace files. */
+/** Full projection enumerates paths, then uses the same file codec as selective saves. */
 export function projectWorkspaceFiles(
   project: AuthoringProject,
   editorState: EditorProjectState,
   scriptSourcePaths: Readonly<Record<string, string>> = {},
+  sourceFiles?: ReadonlySet<string>,
+  previousTexts?: Readonly<Record<string, string>>,
 ): Readonly<Record<string, string>> {
   const files: Record<string, string> = {};
-  files['project.json'] = canonicalJson(
-    {
-      schema: PROJECT_WORKSPACE_SCHEMA,
-      schemaVersion: PROJECT_WORKSPACE_SCHEMA_VERSION,
-      project: project.project,
-      settings: project.settings,
-      export: project.export,
-      bootstrapModule: project.bootstrapModule,
-      undefinedInteractionProgram: project.undefinedInteractionProgram,
-      entrypoint: project.entrypoint,
-      inventories: project.inventories,
-      interactableInstances: project.interactableInstances,
-    },
-    workspaceManifestSchema,
-  );
-  files['traits.json'] = canonicalJson(project.traits, traitsWorkspaceSchema);
-  Object.assign(files, projectWorkspaceLocalizationFiles(project.localization));
-  files['editor.json'] = canonicalJson(
-    {
-      chapters: editorState.chapters,
-      tags: editorState.tags,
-      recordMetadata: editorState.recordMetadata,
-    },
-    trackedEditorOrganizationSchema,
-  );
+  const add = (file: string) => {
+    const text = projectWorkspaceFile(
+      project,
+      editorState,
+      scriptSourcePaths,
+      file,
+      previousTexts?.[file],
+      false,
+      sourceFiles,
+    );
+    if (text !== undefined) files[file] = text;
+  };
+  add('project.yaml');
+  add('traits.yaml');
+  add('editor.yaml');
+  for (const file of projectWorkspaceLocalizationPaths(project.localization)) add(file);
   for (const collection of authoringCollectionKeys)
-    for (const [id, original] of Object.entries(project[collection]).sort(([a], [b]) =>
-      compareProjectWorkspaceUnicodeCodePoints(a, b),
+    for (const id of Object.keys(project[collection]).sort(
+      compareProjectWorkspaceUnicodeCodePoints,
     )) {
-      const record = structuredClone(original) as Record<string, unknown>;
+      add(recordFile(collection, id));
       if (collection === 'layouts') {
-        const data = record.data as Record<string, Record<string, unknown>>;
-        for (const channel of ['rml', 'rcss', 'lua'] as const) {
-          const source = data[channel]!;
-          if (source.sourceMode === 'inline') {
-            files[layoutFile(id, channel)] =
-              typeof source.sourceText === 'string' ? source.sourceText : '';
-            data[channel] = { sourceMode: 'file' };
-          } else if (source.sourceMode === 'asset')
-            data[channel] = { sourceMode: 'asset', sourceAsset: source.sourceAsset };
-          else data[channel] = { sourceMode: 'none' };
-        }
+        for (const channel of ['rml', 'rcss', 'lua'] as const) add(layoutFile(id, channel));
+      } else if (collection === 'scripts') {
+        const source = project.scripts[id]?.data.source;
+        if (source?.kind === 'inline-lua') add(scriptSourcePaths[id] ?? `scripts/${id}.lua`);
       }
-      if (collection === 'scripts') {
-        const data = record.data as {
-          source: { kind: string; source?: string; path?: string };
-        };
-        if (data.source.kind === 'inline-lua') {
-          const file = scriptSourcePaths[id] ?? `scripts/${id}.lua`;
-          files[file] = data.source.source ?? '';
-          data.source = { kind: 'project-file', path: file };
-        }
-      }
-      files[recordFile(collection, id)] = canonicalJson(record, authoringRecordSchemas[collection]);
     }
   return sortKeys(files);
 }
-
 export function projectWorkspaceLocalStateFile(editorState: EditorProjectState): string {
   const {
     chapters: _chapters,
@@ -1553,11 +1656,35 @@ export async function createProjectWorkspaceSnapshot(
   });
 }
 
+export interface ProjectWorkspaceCommentImpact extends YamlCommentImpact {
+  readonly file: string;
+}
+
+export interface ProjectWorkspaceCommentNotice {
+  readonly file: string;
+  readonly path: string;
+  readonly comment: string;
+  readonly oldId: string;
+}
+
+// Exact committed source belongs to the snapshot generation, never reconstructed from semantics.
+const committedSourceTexts = new WeakMap<
+  LoadedProjectWorkspaceSnapshot,
+  ReadonlyMap<string, string>
+>();
+
 export interface ProjectWorkspaceWriteOptions {
+  readonly commentDisposition?: 'keep' | 'remove' | 'delete';
+  /** Prepare the same source-aware transaction without committing or writing editor state. */
+  readonly dryRun?: boolean;
+  /** Undo templates seed only recreated nodes, never overwrite live annotations. */
+  readonly sourceRestorations?: Readonly<Record<string, string>>;
   readonly transactionId?: string;
   readonly expectedFileRevisions?: Readonly<Record<string, ProjectWorkspaceExpectedRevision>>;
   readonly targetFiles?: readonly string[];
   readonly operationLabel?: string;
+  /** Explicit identity moves, never inferred from similar record values (duplicates are fresh source). */
+  readonly identityRemap?: readonly { fromPath: string; toPath: string }[];
   readonly extraTargets?: readonly ProjectWorkspaceTransactionTargetInput[];
   /** Semantic mutation ownership used by resident-session dependency safety. */
   readonly saveUnitIds?: readonly string[];
@@ -1726,7 +1853,7 @@ function createSnapshotValidationState(
   });
 }
 
-/** Compare the schema-projected file, not its physical JSON formatting or object identity. */
+/** Compare schema-projected semantics, not physical JSON/YAML style or source comments. */
 function semanticWorkspaceJsonUnchanged(
   changedPaths: readonly string[],
   before: AuthoringProject,
@@ -1736,7 +1863,7 @@ function semanticWorkspaceJsonUnchanged(
   return (
     changedPaths.length > 0 &&
     changedPaths.every((path) => {
-      if (!path.endsWith('.json')) return false;
+      if (projectWorkspaceSourceCodec(path).kind === 'text') return false;
       const previous = projectWorkspaceFile(before, before.editor, scriptSourcePaths, path);
       return (
         previous !== undefined &&
@@ -1777,12 +1904,12 @@ function changedValidationContributionKeys(
   }
   for (const phase of ['references', 'identities', 'translations'] as const)
     if (!effects.localizationPhases.includes(phase)) keys.delete(`workspace:localization-${phase}`);
-  // The editor-metadata check validates only editor.json recordMetadata membership. Existing-source
-  // reconciliation cannot add/remove a record identity; traits.json is the one non-structural file
+  // The editor-metadata check validates only editor.yaml recordMetadata membership. Existing-source
+  // reconciliation cannot add/remove a record identity; traits.yaml is the one non-structural file
   // whose contents can change metadata target membership, so unrelated source edits can reuse it.
   if (
     keys.has('workspace:editor-metadata') &&
-    changedSourcePaths.every((path) => path !== 'editor.json' && path !== 'traits.json')
+    changedSourcePaths.every((path) => path !== 'editor.yaml' && path !== 'traits.yaml')
   )
     keys.delete('workspace:editor-metadata');
   if (process.env.NOVELTEA_CLI_VALIDATION_PROFILE === '1') {
@@ -2146,7 +2273,40 @@ export class ProjectWorkspaceService {
         affectedPath,
       );
       if (!candidateFiles) return null;
-      candidateFiles.forEach((file) => files.add(file));
+      candidateFiles.forEach((file) => {
+        const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/u.exec(file);
+        if (layout) {
+          files.add(recordFile('layouts', layout[1]!));
+          return;
+        }
+        const variableMatch =
+          /^records\/(variables|assets|animations|materials|archetypes|scripts|rooms|maps|characters|interactables|verbs|interactions|dialogues|scenes|tests)\/([^/]+)\.yaml$/u.exec(
+            file,
+          );
+        files.add(
+          variableMatch
+            ? recordFile(
+                variableMatch[1] as
+                  | 'variables'
+                  | 'assets'
+                  | 'animations'
+                  | 'materials'
+                  | 'archetypes'
+                  | 'scripts'
+                  | 'rooms'
+                  | 'maps'
+                  | 'characters'
+                  | 'interactables'
+                  | 'verbs'
+                  | 'interactions'
+                  | 'dialogues'
+                  | 'scenes'
+                  | 'tests',
+                variableMatch[2]!,
+              )
+            : file,
+        );
+      });
     }
     return [...files].sort(compareProjectWorkspaceUnicodeCodePoints);
   }
@@ -2156,7 +2316,7 @@ export class ProjectWorkspaceService {
   }
   async discover(projectRoot: string): Promise<{ projectRoot: string; manifestPath: string }> {
     const root = this.fileSystem.resolvePath(projectRoot);
-    return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.json') };
+    return { projectRoot: root, manifestPath: this.fileSystem.joinPath(root, 'project.yaml') };
   }
   async reconcileExistingSources(
     base: Extract<ProjectWorkspaceOpenResult, { ok: true }>,
@@ -2191,7 +2351,7 @@ export class ProjectWorkspaceService {
           contentHash: await sha256PrefixedBytes(bytes),
           byteSize: bytes.byteLength,
         };
-        const recordMatch = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(
+        const recordMatch = /^records\/([^/]+)\/([^/]+)(?:\.yaml|\/layout\.yaml)$/u.exec(
           relativePath,
         );
         const layoutSourceMatch = /^records\/layouts\/([^/]+)\/layout\.(rml|rcss|lua)$/u.exec(
@@ -2201,8 +2361,10 @@ export class ProjectWorkspaceService {
           .map((path) => parseJsonPointer(path))
           .find((segments) => segments[0] === 'scripts' && segments.length >= 2)?.[1];
 
-        if (relativePath === 'project.json') {
-          const parsed = workspaceManifestSchema.safeParse(JSON.parse(text));
+        if (relativePath === 'project.yaml') {
+          const parsed = workspaceManifestSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
@@ -2215,47 +2377,64 @@ export class ProjectWorkspaceService {
             inventories: parsed.data.inventories,
             interactableInstances: parsed.data.interactableInstances,
           };
-        } else if (relativePath === 'traits.json') {
-          const parsed = traitsWorkspaceSchema.safeParse(JSON.parse(text));
+        } else if (relativePath === 'traits.yaml') {
+          const parsed = traitsWorkspaceSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = { ...project, traits: parsed.data };
-        } else if (relativePath === 'editor.json') {
-          const raw = JSON.parse(text) as Record<string, unknown>;
+        } else if (relativePath === 'editor.yaml') {
+          const raw = projectWorkspaceSourceCodec(relativePath).decode(text) as Record<
+            string,
+            unknown
+          >;
           const parsed = parseTrackedEditorOrganization(raw);
           if (!parsed) return null;
           project = { ...project, editor: { ...project.editor, ...parsed } };
         } else if (relativePath === LOCALIZATION_POLICY_FILE) {
-          const parsed = localizationPolicyFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationPolicyFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = { ...project, localization: { ...project.localization, ...parsed.data } };
         } else if (relativePath === LOCALIZATION_MESSAGES_FILE) {
-          const parsed = localizationMessagesFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationMessagesFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = { ...project, localization: { ...project.localization, ...parsed.data } };
         } else if (relativePath === LOCALIZATION_USAGE_NOTES_FILE) {
-          const parsed = localizationUsageNotesFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationUsageNotesFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
             localization: { ...project.localization, usageNotes: parsed.data },
           };
         } else if (relativePath === LOCALIZATION_TRACKING_FILE) {
-          const parsed = localizationTrackingFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationTrackingFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
             localization: { ...project.localization, sourceMessageTracking: parsed.data },
           };
         } else if (relativePath === LOCALIZATION_ORPHANS_FILE) {
-          const parsed = localizationOrphansFragmentSchema.safeParse(JSON.parse(text));
+          const parsed = localizationOrphansFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success) return null;
           project = {
             ...project,
             localization: { ...project.localization, orphanedMessages: parsed.data },
           };
-        } else if (/^i18n\/locales\/([^/]+)\.json$/u.test(relativePath)) {
-          const locale = /^i18n\/locales\/([^/]+)\.json$/u.exec(relativePath)![1]!;
-          const parsed = localizationTranslationSchema.safeParse(JSON.parse(text));
+        } else if (/^i18n\/locales\/([^/]+)\.yaml$/u.test(relativePath)) {
+          const locale = /^i18n\/locales\/([^/]+)\.yaml$/u.exec(relativePath)![1]!;
+          const parsed = localizationTranslationSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success || !project.localization.translations[locale]) return null;
           project = {
             ...project,
@@ -2268,9 +2447,11 @@ export class ProjectWorkspaceService {
               ),
             },
           };
-        } else if (/^i18n\/assets\/([^/]+)\.json$/u.test(relativePath)) {
-          const locale = /^i18n\/assets\/([^/]+)\.json$/u.exec(relativePath)![1]!;
-          const parsed = localizationAssetsLocaleFragmentSchema.safeParse(JSON.parse(text));
+        } else if (/^i18n\/assets\/([^/]+)\.yaml$/u.test(relativePath)) {
+          const locale = /^i18n\/assets\/([^/]+)\.yaml$/u.exec(relativePath)![1]!;
+          const parsed = localizationAssetsLocaleFragmentSchema.safeParse(
+            projectWorkspaceSourceCodec(relativePath).decode(text),
+          );
           if (!parsed.success || !project.localization.assets[locale]) return null;
           project = {
             ...project,
@@ -2287,7 +2468,10 @@ export class ProjectWorkspaceService {
           const collection = recordMatch[1] as AuthoringCollectionKey;
           const id = recordMatch[2]!;
           if (!project[collection][id]) return null;
-          const raw = JSON.parse(text) as Record<string, unknown>;
+          const raw = projectWorkspaceSourceCodec(relativePath).decode(text) as Record<
+            string,
+            unknown
+          >;
           if (raw.id !== id) return null;
           if (collection === 'layouts') {
             const prior = project.layouts[id];
@@ -2393,7 +2577,7 @@ export class ProjectWorkspaceService {
         fileRevisionChanges[relativePath] = revision;
         const ownerPaths = priorContribution.ownerPaths;
         changedOwnerPaths.set(relativePath, ownerPaths);
-        if (relativePath.endsWith('.json')) {
+        if (projectWorkspaceSourceCodec(relativePath).kind !== 'text') {
           parsedJsonSources += 1;
           projectedJsonSources += 1;
           const normalizedText = projectWorkspaceFile(
@@ -2407,7 +2591,8 @@ export class ProjectWorkspaceService {
             path: relativePath,
             ...revision,
             kind: 'json' as const,
-            parsed: JSON.parse(normalizedText) as unknown,
+            parsed: projectWorkspaceSourceCodec(relativePath).decode(normalizedText),
+            ...(relativePath.endsWith('.yaml') ? { sourceText: text } : {}),
             schemaValid: true as const,
             ownerPaths,
             localDiagnostics: Object.freeze([]),
@@ -2472,7 +2657,7 @@ export class ProjectWorkspaceService {
         if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
           for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
             files.add(file);
-        } else if (overlappingFiles.length === 0) files.add('project.json');
+        } else if (overlappingFiles.length === 0) files.add('project.yaml');
       }
       return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
         path,
@@ -2547,7 +2732,7 @@ export class ProjectWorkspaceService {
     let externalSourceDescriptors = base.snapshot.externalSourceDescriptors;
     const changedRecordKeys = new Set<string>();
     for (const path of changedPaths) {
-      const match = /^records\/([^/]+)\/([^/]+)(?:\.json|\/layout\.json)$/u.exec(path);
+      const match = /^records\/([^/]+)\/([^/]+)(?:\.yaml|\/layout\.yaml)$/u.exec(path);
       if (match && isAuthoringCollectionKey(match[1]!))
         changedRecordKeys.add(recordContributionKey(match[1], match[2]!));
     }
@@ -2768,12 +2953,15 @@ export class ProjectWorkspaceService {
       compareProjectWorkspaceUnicodeCodePoints,
     )) {
       const prior = base.sourceContributions[relativePath];
-      const text = projectWorkspaceFile(
-        committedSnapshot.project,
-        committedSnapshot.project.editor,
-        committedSnapshot.scriptSourcePaths,
-        relativePath,
-      );
+      const text =
+        committedSourceTexts.get(committedSnapshot)?.get(relativePath) ??
+        projectWorkspaceFile(
+          committedSnapshot.project,
+          committedSnapshot.project.editor,
+          committedSnapshot.scriptSourcePaths,
+          relativePath,
+          prior?.kind === 'json' ? prior.sourceText : undefined,
+        );
       const revision = committedSnapshot.fileRevisions[relativePath];
       if (text === undefined || !revision) {
         if (prior) changedOwnerPaths.set(relativePath, prior.ownerPaths);
@@ -2786,14 +2974,15 @@ export class ProjectWorkspaceService {
       );
       sourceMembershipChanged ||= prior === undefined;
       changedOwnerPaths.set(relativePath, ownerPaths);
-      if (relativePath.endsWith('.json')) {
+      if (projectWorkspaceSourceCodec(relativePath).kind !== 'text') {
         parsedJsonSources += 1;
         projectedJsonSources += 1;
         sourceContributionChanges[relativePath] = Object.freeze({
           path: relativePath,
           ...revision,
           kind: 'json' as const,
-          parsed: JSON.parse(text) as unknown,
+          parsed: projectWorkspaceSourceCodec(relativePath).decode(text),
+          ...(relativePath.endsWith('.yaml') ? { sourceText: text } : {}),
           schemaValid: true as const,
           ownerPaths,
           localDiagnostics: Object.freeze([]),
@@ -2875,7 +3064,7 @@ export class ProjectWorkspaceService {
         if (overlappingFiles.length === 0 && isAuthoringCollectionKey(collection)) {
           for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
             resolvedFiles.add(file);
-        } else if (overlappingFiles.length === 0) resolvedFiles.add('project.json');
+        } else if (overlappingFiles.length === 0) resolvedFiles.add('project.yaml');
       }
       return [...resolvedFiles].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
         path,
@@ -3076,10 +3265,12 @@ export class ProjectWorkspaceService {
             if (contribution?.kind === 'json') {
               sourceWork.reusedJsonSources++;
               reusedJsonSourcePaths.add(relativePath);
+              if (contribution.sourceText !== undefined)
+                textSourceValues.set(relativePath, contribution.sourceText);
               const requiresMutableProjection =
-                relativePath === 'project.json' ||
-                /^records\/layouts\/[^/]+\/layout\.json$/u.test(relativePath) ||
-                /^records\/scripts\/[^/]+\.json$/u.test(relativePath);
+                relativePath === 'project.yaml' ||
+                /^records\/layouts\/[^/]+\/layout\.yaml$/u.test(relativePath) ||
+                /^records\/scripts\/[^/]+\.yaml$/u.test(relativePath);
               return requiresMutableProjection
                 ? structuredClone(contribution.parsed)
                 : contribution.parsed;
@@ -3087,7 +3278,9 @@ export class ProjectWorkspaceService {
             sourceWork.authoredFilesReread++;
             sourceWork.parsedJsonSources++;
             freshJsonSourcePaths.add(relativePath);
-            return JSON.parse(await readSourceText(relativePath));
+            const text = await readSourceText(relativePath);
+            if (relativePath.endsWith('.yaml')) textSourceValues.set(relativePath, text);
+            return projectWorkspaceSourceCodec(relativePath).decode(text);
           };
           const parseJsonSource = async <Schema extends z.ZodType>(
             relativePath: string,
@@ -3108,7 +3301,9 @@ export class ProjectWorkspaceService {
             }
             sourceWork.authoredFilesReread++;
             sourceWork.readTextSources++;
-            const text = await readSourceText(relativePath);
+            const text = projectWorkspaceSourceCodec(relativePath).decode(
+              await readSourceText(relativePath),
+            ) as string;
             textSourceValues.set(relativePath, text);
             return text;
           };
@@ -3135,17 +3330,39 @@ export class ProjectWorkspaceService {
               throw error;
             }
           }
+          // Retired tracked JSON owners must invalidate admission even when the
+          // corresponding YAML source exists. Unrelated machine JSON is not source.
+          for (const file of [
+            'project.json',
+            'traits.json',
+            'editor.json',
+            'i18n/project.json',
+            'i18n/messages.json',
+            'i18n/usage-notes.json',
+            'i18n/tracking.json',
+            'i18n/orphans.json',
+          ]) {
+            if (
+              (await this.fileSystem.inspect(
+                this.fileSystem.joinPath(discovered.projectRoot, file),
+              )) !== 'missing'
+            )
+              return fail(
+                `Retired tracked JSON source '${file}' is not supported; use canonical .yaml Project files.`,
+                `/${file}`,
+              );
+          }
           let manifest: Record<string, unknown>;
           try {
             await this.assertContained(discovered.projectRoot, discovered.manifestPath);
-            const value = await readJsonSource('project.json');
+            const value = await readJsonSource('project.yaml');
             if (!value || typeof value !== 'object' || Array.isArray(value))
-              return fail('project.json must be an object.');
+              return fail('project.yaml must be an object.');
             manifest = value as Record<string, unknown>;
           } catch {
             return fail(
-              'Current project discovery requires a readable workspace-v1 project.json.',
-              '/project.json',
+              'Current project discovery requires a readable workspace-v1 project.yaml.',
+              '/project.yaml',
             );
           }
           if (
@@ -3158,19 +3375,27 @@ export class ProjectWorkspaceService {
             'settings',
             'export',
             'bootstrapModule',
-            'undefinedInteractionProgram',
-            'entrypoint',
             'inventories',
             'interactableInstances',
           ];
           const manifestKeys = Object.keys(manifest);
           if (
-            manifestKeys.length !== 10 ||
+            manifestKeys.length < 8 ||
+            manifestKeys.length > 10 ||
             !required.every((key) => key in manifest) ||
-            manifestKeys.some((key) => !['schema', 'schemaVersion', ...required].includes(key))
+            manifestKeys.some(
+              (key) =>
+                ![
+                  'schema',
+                  'schemaVersion',
+                  ...required,
+                  'undefinedInteractionProgram',
+                  'entrypoint',
+                ].includes(key),
+            )
           )
-            return fail('project.json has an unsupported workspace-v1 shape.');
-          if (freshJsonSourcePaths.has('project.json')) {
+            return fail('project.yaml has an unsupported workspace-v1 shape.');
+          if (freshJsonSourcePaths.has('project.yaml')) {
             const parsedManifest = workspaceManifestSchema.safeParse(manifest);
             if (parsedManifest.success) manifest = parsedManifest.data;
             else requiresFullSchemaParse = true;
@@ -3182,7 +3407,7 @@ export class ProjectWorkspaceService {
           try {
             await this.assertContained(
               discovered.projectRoot,
-              this.fileSystem.joinPath(discovered.projectRoot, 'traits.json'),
+              this.fileSystem.joinPath(discovered.projectRoot, 'traits.yaml'),
             );
             for (const file of [
               LOCALIZATION_POLICY_FILE,
@@ -3197,13 +3422,14 @@ export class ProjectWorkspaceService {
               );
             await this.assertContained(
               discovered.projectRoot,
-              this.fileSystem.joinPath(discovered.projectRoot, 'editor.json'),
+              this.fileSystem.joinPath(discovered.projectRoot, 'editor.yaml'),
             );
-            traits = await readJsonSource('traits.json');
-            if (freshJsonSourcePaths.has('traits.json')) {
+            traits = await readJsonSource('traits.yaml');
+            if (freshJsonSourcePaths.has('traits.yaml')) {
               const parsedTraits = traitsWorkspaceSchema.safeParse(traits);
               if (parsedTraits.success) traits = parsedTraits.data;
-              else requiresFullSchemaParse = true;
+              else
+                throw new Error(parsedTraits.error.issues.map((issue) => issue.message).join('; '));
             }
             const policy = await parseJsonSource(
               LOCALIZATION_POLICY_FILE,
@@ -3234,13 +3460,17 @@ export class ProjectWorkspaceService {
             ) => {
               const root = this.fileSystem.joinPath(discovered.projectRoot, directory);
               for (const entry of await this.fileSystem.listDirectory(root)) {
-                if (!entry.endsWith('.json'))
-                  throw new Error(`${directory} contains a non-JSON localization chunk.`);
+                if (!entry.endsWith('.yaml'))
+                  throw new Error(
+                    `${directory} contains a non-YAML localization chunk '${entry}'.`,
+                  );
                 const locale = entry.slice(0, -5);
                 if (!localeIdSchema.safeParse(locale).success)
                   throw new Error(`${directory} contains an invalid locale chunk '${entry}'.`);
                 const absolute = this.fileSystem.joinPath(root, entry);
                 await this.assertContained(discovered.projectRoot, absolute);
+                if (target[locale] !== undefined)
+                  throw new Error(`${directory} contains duplicate locale owners for '${locale}'.`);
                 const parsed = await parseJsonSource(`${directory}/${entry}`, schema);
                 if (Object.keys(parsed as object).length === 0)
                   throw new Error(`${directory}/${entry} must not persist an empty sparse chunk.`);
@@ -3263,20 +3493,20 @@ export class ProjectWorkspaceService {
               if (parsedLocalization.success) localization = parsedLocalization.data;
               else requiresFullSchemaParse = true;
             }
-            const value = await readJsonSource('editor.json');
+            const value = await readJsonSource('editor.yaml');
             if (!value || typeof value !== 'object' || Array.isArray(value))
-              return fail('editor.json must be an object.', '/editor.json');
+              return fail('editor.yaml must be an object.', '/editor.yaml');
             editor = value as Record<string, unknown>;
             if (Object.keys(editor).sort().join(',') !== 'chapters,recordMetadata,tags')
               return fail(
-                'editor.json must contain exactly tracked organization fields.',
-                '/editor.json',
+                'editor.yaml must contain exactly tracked organization fields.',
+                '/editor.yaml',
               );
-            trackedEditor = reusedJsonSourcePaths.has('editor.json')
+            trackedEditor = reusedJsonSourcePaths.has('editor.yaml')
               ? (editor as NonNullable<ReturnType<typeof parseTrackedEditorOrganization>>)
               : parseTrackedEditorOrganization(editor);
             if (!trackedEditor)
-              return fail('editor.json tracked organization fields are malformed.', '/editor.json');
+              return fail('editor.yaml tracked organization fields are malformed.', '/editor.yaml');
           } catch (error) {
             const detail = error instanceof Error ? error.message : String(error);
             return fail(`Required workspace fragments are missing or malformed: ${detail}`);
@@ -3325,19 +3555,33 @@ export class ProjectWorkspaceService {
                     'Layout path does not contain a valid record ID.',
                     `/records/layouts/${entry}`,
                   );
-                const file = this.fileSystem.joinPath(layoutPath, 'layout.json');
+                if (
+                  (await this.fileSystem.inspect(
+                    this.fileSystem.joinPath(layoutPath, 'layout.json'),
+                  )) !== 'missing'
+                )
+                  return fail(
+                    'Retired Layout metadata layout.json is not supported; use layout.yaml.',
+                    `/records/layouts/${entry}/layout.json`,
+                  );
+                const hasYaml =
+                  (await this.fileSystem.inspect(
+                    this.fileSystem.joinPath(layoutPath, 'layout.yaml'),
+                  )) !== 'missing';
+                if (!hasYaml)
+                  return fail(
+                    'Layout requires canonical layout.yaml metadata.',
+                    `/records/layouts/${entry}`,
+                  );
+                const metadataName = 'layout.yaml';
+                const relativeRecordPath = `records/layouts/${entry}/${metadataName}`;
+                const file = this.fileSystem.joinPath(layoutPath, metadataName);
                 let raw: Record<string, unknown>;
                 try {
                   await this.assertContained(discovered.projectRoot, file);
-                  raw = (await readJsonSource(`records/layouts/${entry}/layout.json`)) as Record<
-                    string,
-                    unknown
-                  >;
+                  raw = (await readJsonSource(relativeRecordPath)) as Record<string, unknown>;
                 } catch {
-                  return fail(
-                    'Layout record is malformed.',
-                    `/records/layouts/${entry}/layout.json`,
-                  );
+                  return fail('Layout record is malformed.', `/${relativeRecordPath}`);
                 }
                 if (raw.id !== entry)
                   return fail(
@@ -3345,7 +3589,6 @@ export class ProjectWorkspaceService {
                     `/records/layouts/${entry}`,
                   );
                 const data = raw.data as Record<string, Record<string, unknown>>;
-                const relativeRecordPath = `records/layouts/${entry}/layout.json`;
                 for (const channel of ['rml', 'rcss', 'lua'] as const) {
                   const source = data?.[channel];
                   if (!source || typeof source !== 'object')
@@ -3426,9 +3669,9 @@ export class ProjectWorkspaceService {
                 collections.layouts[entry] = raw;
                 continue;
               }
-              if (!entry.endsWith('.json'))
+              if (!entry.endsWith('.yaml'))
                 return fail(
-                  'Record files must use canonical .json names.',
+                  'Record files must use canonical .yaml names.',
                   `/records/${collection}/${entry}`,
                 );
               const id = entry.slice(0, -5);
@@ -3453,6 +3696,11 @@ export class ProjectWorkspaceService {
               if (raw.id !== id)
                 return fail(
                   'Record ID does not match its path.',
+                  `/records/${collection}/${entry}`,
+                );
+              if (collections[collection][id])
+                return fail(
+                  'Duplicate record identity across source files.',
                   `/records/${collection}/${entry}`,
                 );
               const relativeRecordPath = `records/${collection}/${entry}`;
@@ -3648,7 +3896,7 @@ export class ProjectWorkspaceService {
                   for (const file of sourceOwnerPathIndex.descendantFiles(`/${collection}`))
                     files.add(file);
                 } else if (overlappingFiles.length === 0) {
-                  files.add('project.json');
+                  files.add('project.yaml');
                 }
               }
               return [...files].sort(compareProjectWorkspaceUnicodeCodePoints).map((path) => ({
@@ -3681,11 +3929,11 @@ export class ProjectWorkspaceService {
             const localDiagnostics = reused
               ? reused.localDiagnostics
               : Object.freeze([...(localDiagnosticsByFile.get(file) ?? [])]);
-            if (file.endsWith('.json')) {
+            if (projectWorkspaceSourceCodec(file).kind !== 'text') {
               let parsed: unknown;
               if (reused?.kind === 'json') parsed = reused.parsed;
               else {
-                const recordMatch = /^records\/([^/]+)\/([^/]+)\.json$/u.exec(file);
+                const recordMatch = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
                 const collection = recordMatch?.[1];
                 const recordId = recordMatch?.[2];
                 if (
@@ -3709,13 +3957,15 @@ export class ProjectWorkspaceService {
                       `Authoritative source file '${file}' was not projected.`,
                       `/${file}`,
                     );
-                  const normalizedSource = JSON.parse(normalizedText);
+                  const normalizedSource = projectWorkspaceSourceCodec(file).decode(
+                    normalizedText,
+                  ) as Record<string, unknown>;
                   // Hydration exposes Lua `none` as empty inline source, not an authored companion.
                   if (
-                    /^records\/layouts\/[^/]+\/layout\.json$/u.test(file) &&
-                    !admittedSourcePaths.has(file.replace(/\.json$/u, '.lua'))
+                    /^records\/layouts\/[^/]+\/layout\.yaml$/u.test(file) &&
+                    !admittedSourcePaths.has(file.replace(/\.yaml$/u, '.lua'))
                   )
-                    normalizedSource.data.lua = { sourceMode: 'none' };
+                    (normalizedSource.data as Record<string, unknown>).lua = { sourceMode: 'none' };
                   parsed = normalizedSource;
                 }
               }
@@ -3725,6 +3975,7 @@ export class ProjectWorkspaceService {
                 byteSize: revision.byteSize,
                 kind: 'json' as const,
                 parsed,
+                ...(file.endsWith('.yaml') ? { sourceText: textSourceValues.get(file) } : {}),
                 schemaValid: true as const,
                 ownerPaths,
                 localDiagnostics,
@@ -3814,6 +4065,9 @@ export class ProjectWorkspaceService {
     workspaceRevision: string;
     snapshot: LoadedProjectWorkspaceSnapshot;
     contentProject: unknown;
+    commentImpacts: readonly ProjectWorkspaceCommentImpact[];
+    commentNotices: readonly ProjectWorkspaceCommentNotice[];
+    deletedSourceTexts: Readonly<Record<string, string>>;
   }> {
     let openedSnapshot = options.preflightSnapshot;
     if (openedSnapshot) {
@@ -3832,6 +4086,21 @@ export class ProjectWorkspaceService {
       scriptSourcePathOverrideKeys.length === 0
         ? openedSnapshot.scriptSourcePaths
         : { ...openedSnapshot.scriptSourcePaths, ...scriptSourcePathOverrides };
+    const sourceFiles = new Set(openedSnapshot.canonicalSourceFiles);
+    const projectedOwnerFiles = new Set(sourceFiles);
+    for (const { fromPath, toPath } of options.identityRemap ?? []) {
+      const from = /^\/layouts\/([^/]+)$/u.exec(fromPath);
+      const to = /^\/layouts\/([^/]+)$/u.exec(toPath);
+      if (!from || !to) continue;
+      const oldMetadata = recordFile('layouts', from[1]!);
+      if (sourceFiles.has(oldMetadata))
+        projectedOwnerFiles.add(
+          oldMetadata.replace(`records/layouts/${from[1]!}/`, `records/layouts/${to[1]!}/`),
+        );
+      for (const channel of ['rml', 'rcss', 'lua'] as const)
+        if (sourceFiles.has(layoutFile(from[1]!, channel)))
+          projectedOwnerFiles.add(layoutFile(to[1]!, channel));
+    }
     const affectedCandidates = options.affectedPaths
       ? this.affectedWorkspaceFiles(
           openedSnapshot,
@@ -3843,17 +4112,62 @@ export class ProjectWorkspaceService {
     const explicitCandidates = options.targetFiles ?? affectedCandidates;
     const fullProjection = explicitCandidates
       ? null
-      : projectWorkspaceFiles(project, editorState, projectedSourcePaths);
+      : projectWorkspaceFiles(project, editorState, projectedSourcePaths, projectedOwnerFiles);
     const priorFullProjection = explicitCandidates
       ? null
       : projectWorkspaceFiles(
           openedSnapshot.project,
           openedSnapshot.project.editor,
           openedSnapshot.scriptSourcePaths,
+          sourceFiles,
         );
     const candidates = new Set(
       explicitCandidates ?? [...Object.keys(priorFullProjection!), ...Object.keys(fullProjection!)],
     );
+    for (const file of Object.keys(options.sourceRestorations ?? {})) {
+      if (!/^(?:records\/[^/]+\/[^/]+(?:\/layout)?|project|editor|traits)\.yaml$/u.test(file))
+        throw new Error('Source restoration must name a canonical YAML owner.');
+      candidates.add(file);
+    }
+    const sourceMoves = new Map<string, string>();
+    for (const { fromPath, toPath } of options.identityRemap ?? []) {
+      const from = /^\/([^/]+)\/([^/]+)$/u.exec(fromPath);
+      const to = /^\/([^/]+)\/([^/]+)$/u.exec(toPath);
+      if (!from || !to || from[1] !== to[1] || !isAuthoringCollectionKey(from[1]!))
+        throw new Error('Invalid workspace record identity move.');
+      const collection = from[1];
+      if (
+        !openedSnapshot.project[collection][from[2]!] ||
+        openedSnapshot.project[collection][to[2]!] ||
+        project[collection][from[2]!] ||
+        !project[collection][to[2]!]
+      )
+        throw new Error(
+          'Workspace identity move must remove an existing record and create a new identity.',
+        );
+      const oldFile = recordFile(collection, from[2]!);
+      const newFile = recordFile(collection, to[2]!);
+      if (sourceMoves.has(newFile) || [...sourceMoves.values()].includes(oldFile))
+        throw new Error('Ambiguous workspace record identity move.');
+      sourceMoves.set(newFile, oldFile);
+      candidates.add(oldFile);
+      candidates.add(newFile);
+      if (collection === 'scripts') {
+        const former = openedSnapshot.project.scripts[from[2]!]?.data.source;
+        const latter = project.scripts[to[2]!]?.data.source;
+        if (
+          former?.kind === 'project-file' &&
+          latter?.kind === 'project-file' &&
+          former.path !== latter.path
+        ) {
+          if (sourceMoves.has(latter.path) || [...sourceMoves.values()].includes(former.path))
+            throw new Error('Ambiguous Script Module Lua ownership move.');
+          sourceMoves.set(latter.path, former.path);
+          candidates.add(former.path);
+          candidates.add(latter.path);
+        }
+      }
+    }
     const expected =
       options.expectedFileRevisions ??
       (explicitCandidates
@@ -3870,26 +4184,214 @@ export class ProjectWorkspaceService {
             ]),
           ));
     const targets: ProjectWorkspaceTransactionTargetInput[] = [];
+    const commentImpacts: ProjectWorkspaceCommentImpact[] = [];
+    const commentNotices: ProjectWorkspaceCommentNotice[] = [];
+    const deletedSourceTexts: Record<string, string> = {};
+    const nextSourceTexts = new Map<string, string>();
     let sourceMembershipChanged = false;
     for (const file of [...candidates].sort(compareProjectWorkspaceUnicodeCodePoints)) {
-      const currentText = await this.fileSystem
-        .readText(this.fileSystem.joinPath(projectRoot, file))
-        .catch(() => null);
-      const nextText =
-        (fullProjection
-          ? fullProjection[file]
-          : projectWorkspaceFile(project, editorState, projectedSourcePaths, file)) ?? null;
+      const absolute = this.fileSystem.joinPath(projectRoot, file);
+      const currentText = await (
+        file.endsWith('.yaml')
+          ? (this.fileSystem.readTextFresh?.(absolute) ?? this.fileSystem.readText(absolute))
+          : this.fileSystem.readText(absolute)
+      ).catch(() => null);
+      const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+      const actualRevision =
+        currentText === null
+          ? PROJECT_WORKSPACE_ABSENT_REVISION
+          : await sha256PrefixedUtf8(currentText);
+      // YAML source is read-and-edited as a document even when the semantic projection
+      // would be unchanged. Non-YAML no-op candidates may legitimately be stale after
+      // a separately admitted source-file operation; changed targets still use journal CAS.
+      if (file.endsWith('.yaml') && actualRevision !== expectedRevision)
+        throw new ProjectWorkspaceMutationError(
+          'WORKSPACE_REVISION_CONFLICT',
+          `Project source '${file}' changed outside the editor.`,
+          file,
+        );
+      let priorText = sourceMoves.has(file)
+        ? await this.fileSystem.readText(
+            this.fileSystem.joinPath(projectRoot, sourceMoves.get(file)!),
+          )
+        : (currentText ?? options.sourceRestorations?.[file]);
+      if (file === 'editor.yaml' && priorText !== undefined && options.identityRemap?.length)
+        priorText = remapYamlRecordMetadata(priorText, options.identityRemap);
+      let nextText =
+        (file.endsWith('.yaml')
+          ? projectWorkspaceFile(
+              project,
+              editorState,
+              projectedSourcePaths,
+              file,
+              priorText,
+              options.commentDisposition === 'keep',
+              projectedOwnerFiles,
+            )
+          : fullProjection && !sourceMoves.has(file)
+            ? fullProjection[file]
+            : projectWorkspaceFile(
+                project,
+                editorState,
+                projectedSourcePaths,
+                file,
+                undefined,
+                false,
+                projectedOwnerFiles,
+              )) ?? null;
+      // File-backed Script Modules own their Lua file without embedding it in the
+      // record projection. Do not delete a still-owned source on metadata edits,
+      // and carry its bytes when an explicit identity remap moves the Lua path.
+      if (
+        nextText === null &&
+        Object.values(project.scripts).some(
+          (record) =>
+            record.data.source.kind === 'project-file' && record.data.source.path === file,
+        )
+      )
+        nextText = sourceMoves.has(file) ? (priorText ?? null) : currentText;
+      const restoration = options.sourceRestorations?.[file];
+      if (
+        file.endsWith('.yaml') &&
+        currentText !== null &&
+        nextText !== null &&
+        restoration !== undefined
+      ) {
+        nextText =
+          projectWorkspaceFile(
+            project,
+            editorState,
+            projectedSourcePaths,
+            file,
+            restoreMissingYamlSource(currentText, nextText, restoration),
+            options.commentDisposition === 'keep',
+            projectedOwnerFiles,
+          ) ?? null;
+      }
       sourceMembershipChanged ||=
         (openedSnapshot.fileRevisions[file] !== undefined) !== (nextText !== null);
+      if (nextText !== null) nextSourceTexts.set(file, nextText);
       if (currentText === nextText) continue;
-      const expectedRevision = expected[file] ?? PROJECT_WORKSPACE_ABSENT_REVISION;
+      if (file.endsWith('.yaml') && priorText !== undefined) {
+        const movedAway = [...sourceMoves.values()].includes(file);
+        if (!movedAway) {
+          const impacts = yamlCommentImpacts(priorText, nextText ?? undefined)
+            .filter(
+              (impact) =>
+                !(sourceMoves.has(file) && impact.path === '/id' && impact.kind === 'changed'),
+            )
+            .map((impact) => {
+              // A sparse authored field can disappear from YAML while its effective
+              // value still exists as a declared default. This is a change, not an
+              // element deletion, so Keep must remain an available decision.
+              const match = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
+              const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/u.exec(file);
+              let effective: unknown = layout
+                ? project.layouts[layout[1]!]
+                : match && isAuthoringCollectionKey(match[1]!)
+                  ? project[match[1] as AuthoringCollectionKey][match[2]!]
+                  : file === 'project.yaml'
+                    ? project
+                    : file === 'editor.yaml'
+                      ? editorState
+                      : file === 'traits.yaml'
+                        ? project.traits
+                        : undefined;
+              let previousEffective: unknown = layout
+                ? openedSnapshot.project.layouts[layout[1]!]
+                : match && isAuthoringCollectionKey(match[1]!)
+                  ? openedSnapshot.project[match[1] as AuthoringCollectionKey][match[2]!]
+                  : file === 'project.yaml'
+                    ? openedSnapshot.project
+                    : file === 'editor.yaml'
+                      ? openedSnapshot.project.editor
+                      : file === 'traits.yaml'
+                        ? openedSnapshot.project.traits
+                        : undefined;
+              if (impact.kind === 'deleted' && nextText !== null && effective !== undefined) {
+                for (const segment of impact.path.split('/').slice(1)) {
+                  const key = segment.replace(/~1/gu, '/').replace(/~0/gu, '~');
+                  if (Array.isArray(previousEffective) && Array.isArray(effective)) {
+                    const prior = previousEffective[Number(key)] as { id?: unknown } | undefined;
+                    const stableId = prior && typeof prior.id === 'string' ? prior.id : undefined;
+                    effective = stableId
+                      ? effective.find(
+                          (item) => item && typeof item === 'object' && item.id === stableId,
+                        )
+                      : effective[Number(key)];
+                    previousEffective = prior;
+                  } else {
+                    previousEffective =
+                      previousEffective && typeof previousEffective === 'object'
+                        ? (previousEffective as Record<string, unknown>)[key]
+                        : undefined;
+                    effective =
+                      effective && typeof effective === 'object'
+                        ? (effective as Record<string, unknown>)[key]
+                        : undefined;
+                  }
+                  if (effective === undefined) break;
+                }
+              }
+              return {
+                file,
+                ...impact,
+                kind:
+                  impact.kind === 'deleted' && nextText !== null && effective !== undefined
+                    ? ('changed' as const)
+                    : impact.kind,
+              };
+            });
+          commentImpacts.push(...impacts);
+          if (nextText === null || impacts.some((impact) => impact.kind === 'deleted'))
+            deletedSourceTexts[file] = priorText;
+          if (
+            (options.commentDisposition === 'remove' || options.commentDisposition === 'delete') &&
+            nextText !== null
+          ) {
+            nextText = removeChangedYamlComments(nextText, impacts);
+            nextSourceTexts.set(file, nextText);
+          }
+        }
+      }
       targets.push(
         nextText === null
           ? { path: file, operation: 'delete', expectedRevision }
           : utf8WorkspaceTransactionTarget(file, expectedRevision, nextText),
       );
     }
+    if (options.identityRemap?.length) {
+      const finalFiles = new Set(openedSnapshot.canonicalSourceFiles);
+      for (const target of targets) {
+        if (target.operation === 'delete') finalFiles.delete(target.path);
+        else if (target.path.endsWith('.yaml')) finalFiles.add(target.path);
+      }
+      for (const file of [...finalFiles].filter((name) => name.endsWith('.yaml')).sort()) {
+        const text =
+          nextSourceTexts.get(file) ??
+          (await this.fileSystem
+            .readText(this.fileSystem.joinPath(projectRoot, file))
+            .catch(() => ''));
+        for (const identity of options.identityRemap) {
+          const oldId = identity.fromPath.split('/')[2];
+          if (!oldId) continue;
+          for (const mention of yamlCommentTokenMentions(text, oldId))
+            commentNotices.push({ file, oldId, ...mention });
+        }
+      }
+    }
     targets.push(...(options.extraTargets ?? []));
+    if (options.dryRun)
+      return withLazyWriteContent(
+        {
+          workspaceRevision: openedSnapshot.workspaceRevision,
+          snapshot: openedSnapshot,
+          commentImpacts,
+          commentNotices,
+          deletedSourceTexts,
+        },
+        project,
+      );
     let projectedSnapshot: LoadedProjectWorkspaceSnapshot | null = null;
     if (options.refreshAfterCommit === false) {
       // A resident generation must own a stable authoring value. Mutation callers intentionally
@@ -3909,9 +4411,7 @@ export class ProjectWorkspaceService {
       } else {
         canonicalSourceFileSet = new Set(openedSnapshot.canonicalSourceFiles);
         for (const file of candidates) {
-          const nextText = fullProjection
-            ? fullProjection[file]
-            : projectWorkspaceFile(project, editorState, projectedSourcePaths, file);
+          const nextText = nextSourceTexts.get(file);
           if (nextText === undefined) canonicalSourceFileSet.delete(file);
           else canonicalSourceFileSet.add(file);
         }
@@ -3982,6 +4482,7 @@ export class ProjectWorkspaceService {
           ? openedSnapshot.scriptSourcePaths
           : Object.freeze(sortKeys(projectedSourcePaths)),
       });
+      committedSourceTexts.set(projectedSnapshot, nextSourceTexts);
       snapshotRevisionStates.set(projectedSnapshot, aggregate.state);
       if (descriptorAdvance)
         this.snapshotExternalDescriptorIndexes.set(projectedSnapshot, descriptorAdvance.index);
@@ -4002,6 +4503,9 @@ export class ProjectWorkspaceService {
         {
           workspaceRevision: projectedSnapshot.workspaceRevision,
           snapshot: projectedSnapshot,
+          commentImpacts,
+          commentNotices,
+          deletedSourceTexts,
         },
         project,
       );
@@ -4013,6 +4517,9 @@ export class ProjectWorkspaceService {
       workspaceRevision: refreshed.snapshot.workspaceRevision,
       snapshot: refreshed.snapshot,
       contentProject: refreshed.contentProject,
+      commentImpacts,
+      commentNotices,
+      deletedSourceTexts,
     };
   }
   async writeEditorLocalState(projectRoot: string, editorState: EditorProjectState): Promise<void> {

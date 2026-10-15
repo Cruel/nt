@@ -1,0 +1,81 @@
+id: scene-director
+label: scene-director
+data:
+  displayName: scene-director
+  stage:
+    kind: inherited
+  events:
+    - id: call-inherited
+      label: call-inherited
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-scene
+      scene: director-inherited
+    - id: call-staged
+      label: call-staged
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-scene
+      scene: director-staged
+    - id: call-blank
+      label: call-blank
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-scene
+      scene: director-blank
+    - id: choose
+      label: choose
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: choice
+      prompt:
+        source:
+          kind: inline
+          text: Pick the blue play.
+        markup: plain
+      options:
+        - id: blue
+          label:
+            source:
+              kind: inline
+              text: Blue
+            markup: plain
+          effects:
+            - id: color
+              kind: set-global-property
+              variable: director-color
+              value: blue
+          targetStepId: selected
+    - id: selected
+      label: selected
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Blue was selected through the Scene Choice role. Continue into the nested input, Dialogue handoff, transaction, and navigation play.
+        markup: plain
+      speaker: null
+      wait: input
+    - id: call-flow-child
+      label: call-flow-child
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-scene
+      scene: director-flow-child
+  terminal:
+    kind: release-to-exploration

@@ -1,0 +1,32 @@
+id: background-clock-b
+label: background-clock-b
+data:
+  displayName: background-clock-b
+  stage:
+    kind: inherited
+  events:
+    - id: delay
+      label: delay
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: duration
+      durationMs: 1000
+      skippable: false
+    - id: deliver
+      label: deliver
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: run-lua
+      source: local count = assert(Game.prop('background-deliveries')); assert(Game.set_prop('background-deliveries', count + 1)); noveltea.notify('background-clock-b delivered.')
+      mayYield: false
+  terminal:
+    kind: return
+    outcome: null

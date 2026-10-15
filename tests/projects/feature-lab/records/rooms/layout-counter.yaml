@@ -1,0 +1,35 @@
+id: layout-counter
+label: Reusable Layout control panel
+localProperties:
+  - id: panel-label
+    type: string
+    nullable: false
+    value: Room-owned label
+data:
+  displayName: Reusable Layout control panel
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Four reusable panels have independent owners and explicit State Slots. Continue the Scene to end Flow; leave and revisit to end Visit. Reopen panels after hiding or unmounting.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: begin
+        kind: call-scene
+        scene: layout-counter
+  exits:
+    - id: leave
+      label: Leave and return from home
+      direction: west
+      target: world-composition

@@ -24,7 +24,7 @@ describe.runIf(runStress)('image thumbnail 500-image stress evidence', () => {
     roots.push(root);
     const imageRoot = path.join(root, 'assets', 'images');
     const cacheRoot = path.join(root, 'cache');
-    const projectFilePath = path.join(root, 'project.json');
+    const projectFilePath = path.join(root, 'project.yaml');
     await fs.mkdir(imageRoot, { recursive: true });
 
     const templates = await Promise.all([

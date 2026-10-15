@@ -187,8 +187,20 @@ export function projectSourceDiscoveryScopesEqual(
   right: readonly ProjectSourceDiscoveryScope[],
 ): boolean {
   if (left.length !== right.length) return false;
-  return left.every((scope, index) => {
-    const other = right[index];
+  // JS workspace and native authority persistence differ in source-order and
+  // extension-order; only the exact discovered families and exclusions matter.
+  const canonical = (scopes: readonly ProjectSourceDiscoveryScope[]) =>
+    scopes
+      .map((scope) => ({
+        root: scope.root,
+        extensions: [...scope.extensions].sort(),
+        excludedPrefixes: [...scope.excludedPrefixes].sort(),
+      }))
+      .sort((a, b) => (a.root < b.root ? -1 : a.root > b.root ? 1 : 0));
+  const orderedLeft = canonical(left);
+  const orderedRight = canonical(right);
+  return orderedLeft.every((scope, index) => {
+    const other = orderedRight[index];
     return (
       other !== undefined &&
       scope.root === other.root &&

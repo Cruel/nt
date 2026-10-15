@@ -36,7 +36,7 @@ describe('TestSuiteEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'project-session',
     });
     const runPlaybackSuite = vi.mocked(window.noveltea.runPlaybackSuite);
@@ -105,7 +105,7 @@ describe('TestSuiteEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'project-session',
     });
     vi.mocked(window.noveltea.runPlaybackSuite).mockResolvedValue({

@@ -1,0 +1,15 @@
+id: lab-clamp-nearest
+label: lab-clamp-nearest
+data:
+  base:
+    kind: material
+    material: lab-pattern
+  displayName: lab-clamp-nearest
+  parameters: {}
+  textures:
+    s_pattern:
+      address: clamp
+      filter: nearest
+    s_texColor:
+      address: clamp
+      filter: nearest

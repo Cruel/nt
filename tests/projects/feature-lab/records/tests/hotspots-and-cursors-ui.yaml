@@ -1,0 +1,467 @@
+id: hotspots-and-cursors-ui
+label: Control-board and contextual Layout realization
+data:
+  displayName: Control-board and contextual Layout realization
+  steps:
+    - id: start
+      input: tick
+      label: Fresh home
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: category
+      input: ui-click
+      label: Bring Layouts into view
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-category-layouts-interfaces"
+    - id: launch
+      input: ui-click
+      label: Real catalog launch realizes the cursor board
+      expectations:
+        - id: room
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: hotspots-and-cursors
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: board
+          type: layout
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: cursor-control-board
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-launch-hotspots-and-cursors"
+    - id: activate-alpha
+      input: primary-activate
+      label: Semantic setup for a pointer-less contextual popup, not a picking assertion
+      expectations:
+        - id: popup
+          type: layout
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: trigger-panel
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject:
+          kind: interactable
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: alpha-board
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: remove-alpha
+      input: ui-click
+      label: Remove the source through the actual frontend control
+      expectations:
+        - id: alpha-unplaced
+          type: location
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: alpha-board
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: inventory-ui
+        selector: "#trigger-remove-source"
+    - id: remove-custom
+      input: ui-click
+      label: Remove the custom source through the actual frontend control
+      expectations:
+        - id: custom-unplaced
+          type: location
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: custom-board
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: inventory-ui
+        selector: "#trigger-remove-custom"
+    - id: open
+      input: ui-click
+      label: Reopen catalog without capturing world input
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-open"
+    - id: finish
+      input: ui-click
+      label: Fresh session retires contextual Inventory
+      expectations:
+        - id: popup-ended
+          type: layout
+          operator: absent
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: trigger-panel
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-home"
+  preview:
+    selectedStepId: start
+    selectedObservationIndex: null
+    autoOpenReport: true

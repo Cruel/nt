@@ -1,0 +1,32 @@
+id: lab-archetype-specimen
+label: Layered Interactable Archetype
+data:
+  instanceKind: interactable
+  overrides:
+    /data/displayName: Archetype specimen
+    /data/presentation/hotspots:
+      hotspot:
+        condition:
+          kind: always
+        highlight:
+          kind: default
+        id: archetype-backed
+        inputOrder: 0
+        label: Archetype-backed specimen
+        target:
+          kind: owner
+      kind: visual-alpha
+    /data/presentation/visual:
+      image:
+        $ref:
+          collection: assets
+          id: pilot-button-sprite
+      kind: image
+    /defaultProperties:
+      - defaultValue: archetype-default
+        id: layered
+        label: Layered value
+        nullable: true
+        type: string
+    /traits:
+      - lab-layered

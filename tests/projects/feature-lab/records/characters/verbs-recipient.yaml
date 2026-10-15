@@ -1,0 +1,33 @@
+id: verbs-recipient
+label: Verbs Recipient
+data:
+  defaults:
+    profileId: stage
+    expressionId: neutral
+  displayName: Verbs Recipient
+  dialogue:
+    name: Recipient
+    nameColor: "#8fd8ff"
+  profiles:
+    - id: stage
+      label: Stage
+      layers:
+        - id: body
+          label: Body
+          role: body
+      defaultPoseId: standing
+      poses:
+        - id: standing
+          label: Standing
+          layers:
+            - layerId: body
+              visual:
+                kind: image
+                image: pilot-character-neutral
+  expressions:
+    - id: neutral
+      label: Neutral
+  initialWorldState:
+    location:
+      kind: room
+      room: verbs-and-offers

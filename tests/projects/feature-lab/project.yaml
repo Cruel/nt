@@ -1,0 +1,2296 @@
+schema: noveltea.project.workspace
+schemaVersion: 1
+project:
+  id: feature-lab
+  name: Feature Lab
+  version: 0.1.0
+  author: NovelTea
+  description: Canonical in-tree authored acceptance and reference Project.
+settings:
+  distributionNotices: []
+  ui:
+    systemLayouts:
+      game-hud:
+        $ref:
+          collection: layouts
+          id: feature-lab-hud
+      pause-menu:
+        $ref:
+          collection: layouts
+          id: lab-pause
+  inventory:
+    defaultLayout: null
+  interaction:
+    defaultVerbMenuLayout: null
+  text:
+    defaultFont: null
+    fontStack:
+      - $ref:
+          collection: assets
+          id: dejavusans
+      - $ref:
+          collection: assets
+          id: ipag
+  titleScreen:
+    titleImage: null
+    showProjectTitle: true
+    showAuthor: false
+    subtitle: Runtime acceptance and working reference
+    startLabel: Open Feature Lab
+  app:
+    displayName: Feature Lab
+    localized: {}
+    applicationId: org.noveltea.featurelab
+    saveNamespace: org.noveltea.featurelab
+    versionName: 0.1.0
+    icon:
+      $ref:
+        collection: assets
+        id: pilot-button-sprite
+    launchImage: null
+    desktop: {}
+    web: {}
+    android: {}
+  display:
+    referenceResolution:
+      width: 1920
+      height: 1080
+    worldRasterPolicy: capped
+    barColor: "#071018"
+  accessibility:
+    uiScale:
+      enabled: true
+      minimum: 1
+      maximum: 2
+    textScale:
+      enabled: true
+      minimum: 1
+      maximum: 2
+  audio:
+    purposes:
+      music:
+        volume: 1
+        muted: false
+      ambience:
+        volume: 1
+        muted: false
+      voice:
+        volume: 1
+        muted: false
+      sound-effect:
+        volume: 1
+        muted: false
+      ui-sound:
+        volume: 1
+        muted: false
+    voiceDucking:
+      enabled: true
+      musicGain: 0.5
+      ambienceGain: 0.5
+  cursors:
+    defaults:
+      default:
+        kind: system
+        cursor: default
+      pointer:
+        kind: system
+        cursor: pointer
+      hotspot:
+        kind: inherit
+        semantic: pointer
+    named:
+      - id: lab-marked
+        image:
+          $ref:
+            collection: assets
+            id: cursor-marked
+        hotspotX: 4
+        hotspotY: 5
+  presentation:
+    roomNavigationTransition:
+      kind: cut
+      durationMs: 0
+      color: null
+      skippable: true
+export:
+  runtime:
+    id: runtime-default
+    label: Runtime Package
+    kind: runtime
+    outputPath: ""
+    includeChecksums: true
+    stripEditorData: true
+    stripShaderSources: true
+    compileShadersBeforeExport: true
+    shaderVariants:
+      - glsl-330
+      - essl-300
+    excludeUnusedAssets: true
+    includeShaderSources: false
+    includeTests: true
+    previewAfterExport: false
+    localization:
+      locales:
+        - en
+        - fr
+        - fr-CA
+        - ja
+        - ar
+      defaultLocale: en
+      quality: development
+  profiles:
+    - format: noveltea.platform-export-profile
+      id: android-arm64-debug
+      label: Android ARM64 Debug
+      buildFlavor: debug
+      compression: default
+      includeDebugSymbols: true
+      excludeUnusedAssets: true
+      includeShaderSources: false
+      assetMemory:
+        kind: builtin
+        preset: balanced
+      localization:
+        locales:
+          - en
+          - fr
+          - fr-CA
+          - ja
+          - ar
+        defaultLocale: en
+        quality: development
+      target: android
+      architecture: arm64
+      packageAccess: android-private-copy
+      android:
+        artifact: apk
+        abi: arm64-v8a
+        minSdk: 24
+    - format: noveltea.platform-export-profile
+      id: android-emulator-debug
+      label: Android Emulator Debug
+      buildFlavor: debug
+      compression: default
+      includeDebugSymbols: true
+      excludeUnusedAssets: true
+      includeShaderSources: false
+      assetMemory:
+        kind: builtin
+        preset: balanced
+      localization:
+        locales:
+          - en
+          - fr
+          - fr-CA
+          - ja
+          - ar
+        defaultLocale: en
+        quality: development
+      target: android
+      architecture: x86_64
+      packageAccess: android-private-copy
+      android:
+        artifact: apk
+        abi: x86_64
+        minSdk: 24
+    - format: noveltea.platform-export-profile
+      id: web-threaded
+      label: Web Threaded
+      buildFlavor: release
+      compression: default
+      includeDebugSymbols: false
+      excludeUnusedAssets: true
+      includeShaderSources: false
+      assetMemory:
+        kind: builtin
+        preset: balanced
+      localization:
+        locales:
+          - en
+          - fr
+          - fr-CA
+          - ja
+          - ar
+        defaultLocale: en
+        quality: development
+      target: web
+      architecture: wasm32
+      packageAccess: web-fetch
+      web:
+        artifact: directory-zip
+        threaded: true
+        pwa: true
+        display: standalone
+        basePath: /
+        serviceWorker: disabled
+    - format: noveltea.platform-export-profile
+      id: android
+      label: Android ARM64 Release
+      buildFlavor: release
+      compression: default
+      includeDebugSymbols: false
+      excludeUnusedAssets: true
+      includeShaderSources: false
+      assetMemory:
+        kind: builtin
+        preset: balanced
+      localization:
+        locales:
+          - en
+          - fr
+          - fr-CA
+          - ja
+          - ar
+        defaultLocale: en
+        quality: development
+      target: android
+      architecture: arm64
+      packageAccess: android-private-copy
+      android:
+        artifact: apk
+        abi: arm64-v8a
+        minSdk: 24
+  assetMemoryPolicies: []
+bootstrapModule:
+  $ref:
+    collection: scripts
+    id: feature-lab-bootstrap
+undefinedInteractionProgram:
+  instructions: []
+  completion:
+    kind: return
+  outcome: unhandled
+entrypoint:
+  kind: room
+  id: feature-lab-home
+inventories:
+  - id: inventory
+    label: Inventory
+interactableInstances:
+  alpha-board:
+    id: alpha-board
+    definition:
+      $ref:
+        collection: interactables
+        id: alpha-board
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: hotspots-and-cursors
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  ambiguous-target:
+    id: ambiguous-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  atomic-target:
+    id: atomic-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  boundary-target:
+    id: boundary-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  builder-inventory-parcel:
+    id: builder-inventory-parcel
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-parcel
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: project
+        inventoryId: inventory
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  builder-self-parcel:
+    id: builder-self-parcel
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-parcel
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  custom-board:
+    id: custom-board
+    definition:
+      $ref:
+        collection: interactables
+        id: custom-board
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: hotspots-and-cursors
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  fallback-target:
+    id: fallback-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  gate-lever-1:
+    id: gate-lever-1
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: rooms-interactions-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  guard-target:
+    id: guard-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  guard-toggle-target:
+    id: guard-toggle-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  input-world-button:
+    id: input-world-button
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: menus-and-input
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  material-definition-sample:
+    id: material-definition-sample
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: materials-engine2d-lab
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  material-instance-sample:
+    id: material-instance-sample
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: materials-engine2d-lab
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters:
+        u_strength:
+          type: float
+          source:
+            kind: literal
+            value: 0.8
+      textures: {}
+    featureOverrides: []
+  menu-target:
+    id: menu-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  navigation-policy-button:
+    id: navigation-policy-button
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: rooms-interactions-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  notice-button:
+    id: notice-button
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: active-text
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-definition:
+    id: offer-definition
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-parcel
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-exact:
+    id: offer-exact
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-feature-owner:
+    id: offer-feature-owner
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-parcel
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-prefix-one:
+    id: offer-prefix-one
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-ranked:
+    id: offer-ranked
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-rule-derived:
+    id: offer-rule-derived
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-suppressed:
+    id: offer-suppressed
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  offer-trait:
+    id: offer-trait
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add:
+        - lab-marker
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  primary-target:
+    id: primary-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: verbs-and-offers
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  rule-definition-target:
+    id: rule-definition-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-parcel
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  rule-exact-target:
+    id: rule-exact-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  rule-feature-owner:
+    id: rule-feature-owner
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-parcel
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  rule-trait-target:
+    id: rule-trait-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add:
+        - lab-marker
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-archetype-instance:
+    id: state-archetype-instance
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-archetype-instance-definition
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-condition-control:
+    id: state-condition-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-definition-instance:
+    id: state-definition-instance
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-dynamic-conflict-source:
+    id: state-dynamic-conflict-source
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-dynamic-conflict
+    location:
+      kind: unplaced
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-dynamic-control:
+    id: state-dynamic-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-dynamic-instance:
+    id: state-dynamic-instance
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-owner-control:
+    id: state-owner-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-precedence-control:
+    id: state-precedence-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-specimen-instance:
+    id: state-specimen-instance
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties:
+      - id: layered
+        type: string
+        nullable: true
+        value: instance-value
+      - id: shared-state
+        type: string
+        nullable: false
+        value: instance-shared
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides:
+      - featureId: slot
+        traits:
+          add: []
+          remove: []
+        properties:
+          - propertyId: shared-state
+            value: feature-shared
+  state-trait-control:
+    id: state-trait-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-trait-instance:
+    id: state-trait-instance
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-trait-only-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  state-typed-control:
+    id: state-typed-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: properties-and-traits
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  supply-aggregate-a:
+    id: supply-aggregate-a
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-supply
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: interactable
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: workbench-aggregate-bin
+        inventoryId: pocket
+    enabled: true
+    visible: true
+    quantity: 2
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  supply-aggregate-b:
+    id: supply-aggregate-b
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-supply
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: interactable
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: workbench-aggregate-bin
+        inventoryId: pocket
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  supply-incompatible:
+    id: supply-incompatible
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-supply
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: character
+          character:
+            $ref:
+              collection: characters
+              id: state-witness
+        inventoryId: bag
+    enabled: true
+    visible: true
+    quantity: 2
+    traits:
+      add: []
+      remove: []
+    localProperties:
+      - id: grade
+        type: string
+        nullable: false
+        value: premium
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  supply-reject:
+    id: supply-reject
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-supply
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 2
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  supply-split-stack:
+    id: supply-split-stack
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-supply
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 4
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  supply-transfer-partial:
+    id: supply-transfer-partial
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-supply
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 4
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  supply-transfer-whole:
+    id: supply-transfer-whole
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-supply
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 2
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  verify-target:
+    id: verify-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-command-target
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: interaction-rules
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-aggregate-bin:
+    id: workbench-aggregate-bin
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-aggregate-control:
+    id: workbench-aggregate-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-character-item:
+    id: workbench-character-item
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: character
+          character:
+            $ref:
+              collection: characters
+              id: state-witness
+        inventoryId: bag
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-contained-child:
+    id: workbench-contained-child
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: interactable
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: workbench-container
+        inventoryId: pocket
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-container:
+    id: workbench-container
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-containment-control:
+    id: workbench-containment-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-create-control:
+    id: workbench-create-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-feature-control:
+    id: workbench-feature-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-feature-item-a:
+    id: workbench-feature-item-a
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: interactable-feature
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: workbench-object-a
+          featureId: slot
+        inventoryId: feature-pocket
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-feature-item-b:
+    id: workbench-feature-item-b
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: interactable-feature
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: workbench-object-b
+          featureId: slot
+        inventoryId: feature-pocket
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-identity-control:
+    id: workbench-identity-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-inventory-control:
+    id: workbench-inventory-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-object-a:
+    id: workbench-object-a
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties:
+      - id: identity-tag
+        type: string
+        nullable: false
+        value: A
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides:
+      - featureId: slot
+        traits:
+          add: []
+          remove: []
+        properties:
+          - propertyId: shared-state
+            value: feature-a
+  workbench-object-b:
+    id: workbench-object-b
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties:
+      - id: identity-tag
+        type: string
+        nullable: false
+        value: B
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides:
+      - featureId: slot
+        traits:
+          add: []
+          remove: []
+        properties:
+          - propertyId: shared-state
+            value: feature-b
+  workbench-player-item:
+    id: workbench-player-item
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: project
+        inventoryId: inventory
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-rejection-control:
+    id: workbench-rejection-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-room-feature-item:
+    id: workbench-room-feature-item
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: room-feature
+          room:
+            $ref:
+              collection: rooms
+              id: inventory-workbench
+          featureId: slot
+        inventoryId: feature-pocket
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-split-control:
+    id: workbench-split-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-state-control:
+    id: workbench-state-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workbench-transfer-control:
+    id: workbench-transfer-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: inventory-workbench
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-archetype-control:
+    id: workshop-archetype-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: runtime-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-config-control:
+    id: workshop-config-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: runtime-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-config-target:
+    id: workshop-config-target
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: runtime-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties:
+      - id: identity-tag
+        type: string
+        nullable: false
+        value: config-target
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-create-control:
+    id: workshop-create-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: runtime-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-dependent-child:
+    id: workshop-dependent-child
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: inventory
+      inventory:
+        owner:
+          kind: interactable
+          interactable:
+            $ref:
+              registry: interactableInstances
+              id: workshop-dependent-owner
+        inventoryId: pocket
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-dependent-owner:
+    id: workshop-dependent-owner
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: runtime-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-destroy-control:
+    id: workshop-destroy-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: runtime-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-free-object:
+    id: workshop-free-object
+    definition:
+      $ref:
+        collection: interactables
+        id: lab-specimen
+    location:
+      kind: unplaced
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  workshop-retarget-control:
+    id: workshop-retarget-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: runtime-workshop
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  world-composition-sample:
+    id: world-composition-sample
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: world-composition
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []
+  world-fit-control:
+    id: world-fit-control
+    definition:
+      $ref:
+        collection: interactables
+        id: gate-lever
+    location:
+      kind: room
+      room:
+        $ref:
+          collection: rooms
+          id: world-composition
+    enabled: true
+    visible: true
+    quantity: 1
+    traits:
+      add: []
+      remove: []
+    localProperties: []
+    materialApplication:
+      material: null
+      parameters: {}
+      textures: {}
+    featureOverrides: []

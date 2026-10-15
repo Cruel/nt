@@ -1,3 +1,4 @@
+import { parse as parseYaml } from 'yaml';
 import {
   chmod,
   mkdtemp,
@@ -174,7 +175,7 @@ describe('persistent runtime build cache', () => {
       'scripts/helpers/unreferenced.lua': 'return {}\n',
       'scripts/README.md': '# ignored\n',
       'records/layouts/unreferenced/controller.rml': '<rml/>\n',
-      'i18n/extra.json': '{}\n',
+      'i18n/extra.yaml': '{}\n',
       'outside.lua': 'return {}\n',
     };
     for (const [file, text] of Object.entries(extras)) {
@@ -223,7 +224,7 @@ describe('persistent runtime build cache', () => {
 
     expect((await runCachedTest(root, nativeTools([]), fileSystem)).exitCode).toBe(0);
     const generation = await currentGeneration(root);
-    const manifest = JSON.parse(
+    const manifest = parseYaml(
       await readFile(generationPath(root, generation, 'manifest.json'), 'utf8'),
     ) as {
       inputs: readonly { path: string; byteSize: number; mtimeNanoseconds: string }[];
@@ -267,8 +268,8 @@ describe('persistent runtime build cache', () => {
       );
     expect(await publishPinned()).toEqual({ published: true });
 
-    const roomPath = path.join(root, 'records/rooms/start.json');
-    const room = JSON.parse(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
+    const roomPath = path.join(root, 'records/rooms/start.yaml');
+    const room = parseYaml(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
     room.label = 'Newer live generation';
     await writeFile(roomPath, `${JSON.stringify(room)}\n`, 'utf8');
     expect((await runCachedTest(root, nativeTools([]), fileSystem)).exitCode).toBe(0);
@@ -388,7 +389,7 @@ describe('persistent runtime build cache', () => {
     const tools = nativeTools([]);
     expect((await runCachedTest(root, tools)).exitCode).toBe(0);
 
-    const projectJson = path.join(root, 'project.json');
+    const projectJson = path.join(root, 'project.yaml');
     const before = await stat(projectJson);
     const moved = new Date(before.mtimeMs + 5000);
     await utimes(projectJson, moved, moved);
@@ -418,8 +419,8 @@ describe('persistent runtime build cache', () => {
       'utf8',
     );
 
-    const testFile = path.join(root, 'records/tests/smoke.json');
-    const testRecord = JSON.parse(await readFile(testFile, 'utf8')) as Record<string, unknown>;
+    const testFile = path.join(root, 'records/tests/smoke.yaml');
+    const testRecord = parseYaml(await readFile(testFile, 'utf8')) as Record<string, unknown>;
     testRecord.label = 'Renamed smoke test';
     await writeFile(testFile, `${JSON.stringify(testRecord, null, 2)}\n`, 'utf8');
 
@@ -453,8 +454,8 @@ describe('persistent runtime build cache', () => {
       'utf8',
     );
 
-    const projectJson = path.join(root, 'project.json');
-    const manifest = JSON.parse(await readFile(projectJson, 'utf8')) as {
+    const projectJson = path.join(root, 'project.yaml');
+    const manifest = parseYaml(await readFile(projectJson, 'utf8')) as {
       project: { name: string };
     };
     manifest.project.name = 'Runtime Recompiled';
@@ -483,8 +484,8 @@ describe('persistent runtime build cache', () => {
     expect((await runCachedTest(root, tools)).exitCode).toBe(0);
     expect(projects).toHaveLength(1);
 
-    const testFile = path.join(root, 'records/tests/smoke.json');
-    const testRecord = JSON.parse(await readFile(testFile, 'utf8')) as {
+    const testFile = path.join(root, 'records/tests/smoke.yaml');
+    const testRecord = parseYaml(await readFile(testFile, 'utf8')) as {
       data: { steps: unknown[] };
     };
     testRecord.data.steps = [];
@@ -500,7 +501,7 @@ describe('persistent runtime build cache', () => {
     expect(projects).toHaveLength(1);
 
     const generation = await currentGeneration(root);
-    const catalog = JSON.parse(
+    const catalog = parseYaml(
       await readFile(generationPath(root, generation, 'tests.json'), 'utf8'),
     ) as {
       schema: string;
@@ -604,7 +605,7 @@ describe('persistent runtime build cache', () => {
     await utimes(publishedMarker, old, old);
     await utimes(overwritten, old, old);
 
-    const projectJson = path.join(root, 'project.json');
+    const projectJson = path.join(root, 'project.yaml');
     const before = await stat(projectJson);
     const moved = new Date(before.mtimeMs + 5000);
     await utimes(projectJson, moved, moved);
@@ -640,7 +641,7 @@ describe('persistent runtime build cache', () => {
     await utimes(writer, old, old);
     await utimes(live, old, old);
 
-    const projectJson = path.join(root, 'project.json');
+    const projectJson = path.join(root, 'project.yaml');
     const before = await stat(projectJson);
     const moved = new Date(before.mtimeMs + 5000);
     await utimes(projectJson, moved, moved);
@@ -660,7 +661,7 @@ describe('persistent runtime build cache', () => {
       firstGeneration,
       'manifest.json',
     );
-    const manifest = JSON.parse(await readFile(firstManifestPath, 'utf8')) as Record<
+    const manifest = parseYaml(await readFile(firstManifestPath, 'utf8')) as Record<
       string,
       unknown
     >;
@@ -693,7 +694,7 @@ describe('persistent runtime build cache', () => {
       digestGeneration,
       'artifact.json',
     );
-    const schemaValidArtifact = JSON.parse(await readFile(artifactPath, 'utf8')) as {
+    const schemaValidArtifact = parseYaml(await readFile(artifactPath, 'utf8')) as {
       compiledProject: { project: { name: string } };
     };
     schemaValidArtifact.compiledProject.project.name = 'Tampered but schema-valid';
@@ -795,7 +796,7 @@ describe('persistent runtime build cache', () => {
       await chmod(generations, 0o500);
       await chmod(runtimeRoot, 0o500);
       try {
-        const projectJson = path.join(root, 'project.json');
+        const projectJson = path.join(root, 'project.yaml');
         const before = await stat(projectJson);
         const moved = new Date(before.mtimeMs + 5000);
         await utimes(projectJson, moved, moved);

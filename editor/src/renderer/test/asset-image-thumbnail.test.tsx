@@ -34,7 +34,7 @@ describe('AssetImageThumbnail', () => {
     useProjectStore.getState().loadProjectDocument({
       document: { project: { schema: 'noveltea.authoring.project', version: 2 } },
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId,
     });
     vi.mocked(window.noveltea.requestImageThumbnail).mockReset();

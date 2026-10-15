@@ -1,0 +1,817 @@
+id: save-and-resume-ui
+label: Committed Layout state, restore and fresh restart
+data:
+  displayName: Committed Layout state, restore and fresh restart
+  steps:
+    - id: start
+      input: tick
+      label: Fresh home
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: category
+      input: ui-click
+      label: Category
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-category-language-display-persistence"
+    - id: launch
+      input: ui-click
+      label: Launch
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-launch-save-and-resume"
+    - id: commit
+      input: ui-click
+      label: Commit shaped session Slot
+      expectations:
+        - id: slot
+          type: layout
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: session-counter
+            field: state
+            value:
+              count: 1
+              details:
+                label: committed
+                optional: null
+              samples:
+                - 1
+                - null
+                - 2.5
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: resume-panel
+        selector: "#counter-commit"
+    - id: save
+      input: save
+      label: Save committed Slot
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: slot-58
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: dirty-slot
+      input: ui-click
+      label: Dirty Slot
+      expectations:
+        - id: slot
+          type: layout
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: session-counter
+            field: state
+            value:
+              count: 2
+              details:
+                label: committed
+                optional: null
+              samples:
+                - 1
+                - null
+                - 2.5
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: resume-panel
+        selector: "#counter-commit"
+    - id: dirty-world
+      input: continue
+      label: Dirty world
+      expectations:
+        - id: delivery
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: resume-deliveries
+            value: 2
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: load
+      input: load
+      label: Restore Slot and gameplay
+      expectations:
+        - id: slot
+          type: layout
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: session-counter
+            field: state
+            value:
+              count: 1
+              details:
+                label: committed
+                optional: null
+              samples:
+                - 1
+                - null
+                - 2.5
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: delivery
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: resume-deliveries
+            value: 1
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: slot-58
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: restart
+      input: ui-click
+      label: Restart without implicitly loading
+      expectations:
+        - id: delivery
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: resume-deliveries
+            value: 1
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#feature-lab-restart"
+    - id: fresh-commit
+      input: ui-click
+      label: First commit after restart starts from default zero
+      expectations:
+        - id: slot
+          type: layout
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: session-counter
+            field: state
+            value:
+              count: 1
+              details:
+                label: committed
+                optional: null
+              samples:
+                - 1
+                - null
+                - 2.5
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: resume-panel
+        selector: "#counter-commit"
+    - id: load-after-restart
+      input: load
+      label: Restart retained saved slots
+      expectations:
+        - id: slot
+          type: layout
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: session-counter
+            field: state
+            value:
+              count: 1
+              details:
+                label: committed
+                optional: null
+              samples:
+                - 1
+                - null
+                - 2.5
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: slot-58
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: clear
+      input: ui-click
+      label: Clear committed Slot
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: resume-panel
+        selector: "#counter-clear"
+    - id: save-cleared
+      input: save
+      label: Persist cleared Slot
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: slot-60
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: dirty-cleared
+      input: ui-click
+      label: Recreate after cleared checkpoint
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: resume-panel
+        selector: "#counter-commit"
+    - id: load-cleared
+      input: load
+      label: Restore clear, not previous committed tree
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: slot-60
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: commit-cleared
+      input: ui-click
+      label: Restored default begins again at zero
+      expectations:
+        - id: slot
+          type: layout
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: session-counter
+            field: state
+            value:
+              count: 1
+              details:
+                label: committed
+                optional: null
+              samples:
+                - 1
+                - null
+                - 2.5
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: null
+        mountInstanceId: resume-panel
+        selector: "#counter-commit"
+  preview:
+    selectedStepId: start
+    selectedObservationIndex: null
+    autoOpenReport: true

@@ -17,7 +17,7 @@ export const undefinedInteractionProgramSchema = withSchemaDocumentation(
   interactionProgramSchema.nullable(),
   {
     description:
-      'Project-owned fallback in project.json, tried after the selected Verb defaultProgram returns Unhandled. Null skips to the engine undefined-interaction response; a handled Project program stops the chain.',
+      'Project-owned fallback in project.yaml, tried after the selected Verb defaultProgram returns Unhandled. Null skips to the engine undefined-interaction response; a handled Project program stops the chain.',
     examples: [
       {
         title: 'Project fallback that declines to the engine response',

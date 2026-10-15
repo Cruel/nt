@@ -1,0 +1,31 @@
+data:
+  contract:
+    inputs: {}
+    signals:
+      accepted:
+        fields: {}
+  dependencies:
+    data:
+      - notice-board-data
+    fonts: []
+    images: []
+    materials: []
+    scripts: []
+    stylesheets: []
+  displayName: Data notice board
+  lua:
+    sourceMode: file
+  mount:
+    defaultParent: nt-layout-preview-mount
+    scopedStyles: true
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    additionalDependencies:
+      targets: []
+    enabled: true
+    namespace: notice_board_ui
+id: notice-board
+label: Data notice board

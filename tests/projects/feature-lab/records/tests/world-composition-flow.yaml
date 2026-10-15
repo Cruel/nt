@@ -1,0 +1,615 @@
+id: world-composition-flow
+label: World composition semantic flow
+data:
+  displayName: World composition semantic flow
+  steps:
+    - id: start
+      input: tick
+      label: Fresh Lab home
+      expectations:
+        - id: home
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: feature-lab-home
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: composition-disabled
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: world-composition-enabled
+            value: false
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: background-fit-starts-contain
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: world-background-fit
+            value: contain
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: enter-world-lab
+      input: navigate
+      label: Enter world composition station
+      expectations:
+        - id: world-room
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: world-composition
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: sample-location
+          type: location
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: world-composition-sample
+            locationKind: room
+            roomId: world-composition
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: world-composition-test-entry
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: cycle-background-fit
+      input: run-interaction
+      label: Advance background fit using authored presentation API
+      expectations:
+        - id: background-fit-advanced
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: world-background-fit
+            value: cover
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: background-fit-notification
+          type: event
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: Background fit advanced to the next mode.
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: use
+        bindings:
+          - slotId: target
+            subject:
+              kind: interactable
+              interactable:
+                $ref:
+                  registry: interactableInstances
+                  id: world-fit-control
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: toggle-world
+      input: run-interaction
+      label: Toggle conditional composition and runtime environment
+      expectations:
+        - id: composition-enabled
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: world-composition-enabled
+            value: true
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: composition-notification
+          type: event
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: World composition and the runtime environment changed.
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: use
+        bindings:
+          - slotId: target
+            subject:
+              kind: interactable
+              interactable:
+                $ref:
+                  registry: interactableInstances
+                  id: world-composition-sample
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: toggle-world-off
+      input: run-interaction
+      label: Stop keyed runtime environment
+      expectations:
+        - id: composition-disabled-again
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: world-composition-enabled
+            value: false
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: use
+        bindings:
+          - slotId: target
+            subject:
+              kind: interactable
+              interactable:
+                $ref:
+                  registry: interactableInstances
+                  id: world-composition-sample
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+  preview:
+    selectedStepId: start
+    selectedObservationIndex: null
+    autoOpenReport: true

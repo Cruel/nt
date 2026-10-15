@@ -1,0 +1,26 @@
+data:
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    materials: []
+    scripts: []
+    stylesheets: []
+  displayName: World Placement Marker
+  layoutKind: fragment
+  lua:
+    sourceMode: file
+  mount:
+    defaultParent: nt-layout-preview-mount
+    scopedStyles: true
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    additionalDependencies:
+      targets: []
+    enabled: true
+    namespace: world_placement_marker
+id: world-placement-marker
+label: World Placement Marker

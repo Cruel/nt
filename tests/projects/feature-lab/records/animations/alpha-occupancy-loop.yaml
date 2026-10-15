@@ -1,0 +1,22 @@
+id: alpha-occupancy-loop
+label: Animated alpha occupancy
+data:
+  canvas:
+    width: 192
+    height: 128
+  defaultMotionId: alternate
+  motions:
+    - id: alternate
+      kind: sprite-sequence
+      frames:
+        - image: ui-pattern
+          durationMs: 1500
+        - image: pilot-button-sprite
+          durationMs: 1500
+      markers:
+        - id: second
+          timeMs: 1500
+        - id: loop-in
+          timeMs: 750
+        - id: loop-out
+          timeMs: 2250

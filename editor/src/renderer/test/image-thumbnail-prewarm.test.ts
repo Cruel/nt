@@ -33,19 +33,19 @@ describe('image thumbnail prewarm coordinator', () => {
     };
 
     const coordinator = new ImageThumbnailPrewarmCoordinator();
-    coordinator.publish(project, '/project/project.json');
+    coordinator.publish(project, '/project/project.yaml');
     expect(window.noveltea.prewarmImageThumbnails).toHaveBeenCalledTimes(1);
     const first = vi.mocked(window.noveltea.prewarmImageThumbnails).mock.calls[0]![0];
     expect(first.sources).toHaveLength(1);
 
-    coordinator.publish(project, '/project/project.json');
+    coordinator.publish(project, '/project/project.yaml');
     expect(window.noveltea.prewarmImageThumbnails).toHaveBeenCalledTimes(1);
 
     project.assets.logo.data.contentHash = `sha256:${'b'.repeat(64)}`;
-    coordinator.publish(project, '/project/project.json');
+    coordinator.publish(project, '/project/project.yaml');
     expect(window.noveltea.prewarmImageThumbnails).toHaveBeenCalledTimes(2);
 
-    coordinator.publish(project, '/copy/project.json');
+    coordinator.publish(project, '/copy/project.yaml');
     expect(window.noveltea.cancelImageThumbnailPrewarm).toHaveBeenCalledWith({
       projectGeneration: first.projectGeneration,
     });
@@ -88,7 +88,7 @@ describe('image thumbnail prewarm coordinator', () => {
     }
     const imageConstructor = vi.spyOn(globalThis, 'Image');
     const coordinator = new ImageThumbnailPrewarmCoordinator();
-    coordinator.publish(project, '/stress/project.json');
+    coordinator.publish(project, '/stress/project.yaml');
     const calls = vi.mocked(window.noveltea.prewarmImageThumbnails).mock.calls;
     expect(calls).toHaveLength(1);
     expect(calls[0]?.[0].sources).toHaveLength(500);

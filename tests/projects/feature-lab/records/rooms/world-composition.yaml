@@ -1,0 +1,328 @@
+id: world-composition
+label: World Composition Lab
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Arrange the display window
+  background:
+    asset: pilot-room-backdrop
+    fit: contain
+    color: "#09131c"
+  description:
+    source:
+      kind: inline
+      text: Compare the camera-framed background, overlapping world occurrences, spatial Layout marker, and scrolling environments. Press either cyan sample to toggle conditional composition.
+  presentationSpace:
+    size:
+      width: 2400
+      height: 1350
+    bounds:
+      x: 0
+      "y": 0
+      width: 2400
+      height: 1350
+    defaultView:
+      center:
+        x: 1200
+        "y": 675
+      zoom: 1.15
+      rotationDegrees: 4
+    views:
+      - id: wide
+        view:
+          center:
+            x: 1200
+            "y": 675
+          zoom: 0.8
+          rotationDegrees: 0
+      - id: detail
+        view:
+          center:
+            x: 1550
+            "y": 600
+          zoom: 1.6
+          rotationDegrees: -7
+  anchors:
+    - id: center-stage
+      bounds:
+        x: 0.42
+        "y": 0.22
+        width: 0.16
+        height: 0.58
+    - id: right-detail
+      bounds:
+        x: 0.68
+        "y": 0.3
+        width: 0.18
+        height: 0.35
+  overlays:
+    - id: conditional-overlay
+      layout: world-placement-marker
+      condition:
+        kind: variable-comparison
+        variable: world-composition-enabled
+        operator: truthy
+      order: 60
+  cast:
+    - id: guide
+      character: pilot-guide
+      placementId: guide-placement
+      profileId: stage
+      poseId: standing
+      expressionId: smile
+      appearanceId: null
+      order: 20
+  props:
+    - id: middle-prop
+      placementId: middle-prop-placement
+      asset: pilot-button-sprite
+      order: 30
+    - id: conditional-prop
+      condition:
+        kind: variable-comparison
+        variable: world-composition-enabled
+        operator: truthy
+      placementId: conditional-prop-placement
+      asset: pilot-button-sprite
+      order: 45
+  interactables:
+    - id: sample-left
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: world-composition-sample
+      placementId: sample-left-placement
+      order: 10
+    - id: sample-right
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: world-composition-sample
+      placementId: sample-right-placement
+      order: 40
+    - id: fit-control
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: world-fit-control
+      placementId: fit-control-placement
+      order: 55
+  environments:
+    - id: video-gameplay
+      visual:
+        kind: animation
+        animation: opaque-color-loop
+        motionId: null
+        playback: null
+      materialApplication:
+        material: engine2d-draw-contract
+        parameters: {}
+        textures: {}
+      bounds:
+        x: 0.62
+        "y": 0.34
+        width: 0.13
+        height: 0.15
+      plane: world-overlay
+      order: 67
+    - id: video-unscaled
+      condition:
+        kind: variable-comparison
+        variable: world-composition-enabled
+        operator: truthy
+      visual:
+        kind: animation
+        animation: opaque-color-loop
+        motionId: null
+        playback: null
+      materialApplication:
+        material: engine2d-draw-contract
+        parameters: {}
+        textures: {}
+      bounds:
+        x: 0.79
+        "y": 0.34
+        width: 0.13
+        height: 0.15
+      plane: world-overlay
+      order: 68
+      clock: unscaled-presentation
+    - id: animation-gameplay
+      visual:
+        kind: animation
+        animation: guide-expression-loop
+        motionId: null
+        playback: null
+      materialApplication:
+        material: engine2d-draw-contract
+        parameters: {}
+        textures: {}
+      bounds:
+        x: 0.37
+        "y": 0.12
+        width: 0.06
+        height: 0.21
+      plane: world-overlay
+      order: 65
+    - id: animation-unscaled
+      visual:
+        kind: animation
+        animation: guide-expression-loop
+        motionId: expressions
+        playback: null
+      materialApplication:
+        material: engine2d-draw-contract
+        parameters: {}
+        textures: {}
+      bounds:
+        x: 0.45
+        "y": 0.12
+        width: 0.06
+        height: 0.21
+      plane: world-overlay
+      order: 66
+      clock: unscaled-presentation
+    - id: slow-pattern
+      visual:
+        kind: image
+        image: pilot-room-backdrop
+      materialApplication:
+        material: engine2d-draw-contract
+        parameters: {}
+        textures: {}
+      bounds:
+        x: 0.02
+        "y": 0.05
+        width: 0.32
+        height: 0.28
+      plane: world-background
+      order: 5
+      scrollPerSecond:
+        x: 0.025
+      opacity: 0.35
+    - id: unscaled-pattern
+      visual:
+        kind: image
+        image: pilot-room-backdrop
+      materialApplication:
+        material: engine2d-draw-contract
+        parameters:
+          u_strength:
+            type: float
+            source:
+              kind: literal
+              value: 0.6
+        textures: {}
+      bounds:
+        x: 0.62
+        "y": 0.06
+        width: 0.34
+        height: 0.22
+      plane: world-overlay
+      order: 50
+      clock: unscaled-presentation
+      scrollPerSecond:
+        x: -0.04
+        "y": 0.015
+      opacity: 0.5
+  scriptHooks:
+    - hook: compose
+      handler:
+        module: feature-lab-bootstrap
+        export: compose_world_lab
+  exits:
+    - id: sound-desk-test-entry
+      label: Sound Desk
+      direction: north
+      target: sound-desk
+    - id: presentation-effects-test-entry
+      label: Presentation Effects
+      direction: south
+      target: presentation-effects
+    - id: materials-engine2d-test-entry
+      label: Material Samples
+      direction: northeast
+      target: materials-engine2d-lab
+    - id: layout-counter-test-entry
+      label: Reusable Layout panels
+      direction: east
+      target: layout-counter
+    - id: return-home
+      label: Return to Feature Lab home
+      direction: west
+      target: feature-lab-home
+  placements:
+    - id: sample-left-placement
+      bounds:
+        x: 0.2
+        "y": 0.5
+        width: 0.12
+        height: 0.18
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Occurrence A
+          markup: plain
+        layout: null
+    - id: guide-placement
+      bounds:
+        x: 0.36
+        "y": 0.18
+        width: 0.24
+        height: 0.68
+      presentation:
+        label: null
+        layout: null
+    - id: middle-prop-placement
+      bounds:
+        x: 0.45
+        "y": 0.48
+        width: 0.12
+        height: 0.18
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Spatial Layout
+          markup: plain
+        layout: world-placement-marker
+        layoutOrder: 35
+    - id: sample-right-placement
+      bounds:
+        x: 0.58
+        "y": 0.5
+        width: 0.12
+        height: 0.18
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Occurrence B
+          markup: plain
+        layout: null
+    - id: conditional-prop-placement
+      bounds:
+        x: 0.73
+        "y": 0.52
+        width: 0.1
+        height: 0.15
+      presentation:
+        label: null
+        layout: null
+    - id: fit-control-placement
+      bounds:
+        x: 0.84
+        "y": 0.72
+        width: 0.1
+        height: 0.14
+      presentation:
+        label:
+          source:
+            kind: inline
+            text: Cycle background fit
+          markup: plain
+        layout: null
+  fallbackInteractablePlacementId: sample-left-placement

@@ -1,0 +1,49 @@
+id: rooms-interactions-policy-target
+label: Navigation Policy Target
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Navigation Policy Target
+  background:
+    asset: pilot-room-backdrop
+    color: "#18222c"
+  description:
+    source:
+      kind: inline
+      text: Directed relocation reached this guarded Room. The same guard rejects ordinary navigation.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    canEnter:
+      kind: variable-comparison
+      variable: policy-entry-allowed
+      operator: truthy
+    afterEnter:
+      - id: directed-arrival
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Directed Room Change committed despite the false entry guard.
+          markup: plain
+    onEnterRejected:
+      - id: ordinary-entry-rejected
+        kind: notify
+        message:
+          source:
+            kind: inline
+            text: Ordinary navigation was rejected by the target Room guard.
+          markup: plain
+  exits:
+    - id: return-workshop
+      label: Return to workshop
+      direction: west
+      target: rooms-interactions-workshop

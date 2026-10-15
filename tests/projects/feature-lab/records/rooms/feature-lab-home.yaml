@@ -1,0 +1,64 @@
+id: feature-lab-home
+label: Feature Lab Home
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Feature Lab
+  background:
+    color: "#071018"
+  description:
+    source:
+      kind: localized
+      key: feature_lab.empty
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  scriptHooks:
+    - hook: after-enter
+      handler:
+        module: feature-lab-bootstrap
+        export: route_startup
+  exits:
+    - id: character-studio-test-entry
+      label: Character studio (automation entry)
+      direction: southeast
+      target: character-studio
+    - id: active-text-test-entry
+      label: ActiveText notice (automation entry)
+      direction: southwest
+      target: active-text
+    - id: conversation-paths-test-entry
+      label: Interview (automation entry)
+      direction: northeast
+      target: conversation-paths
+    - id: rooms-interactions-test-entry
+      label: Rooms & Interactions (automation entry)
+      direction: east
+      target: rooms-interactions-workshop
+    - id: dialogue-presentation-test-entry
+      label: Dialogue & Presentation (automation entry)
+      direction: south
+      target: dialogue-presentation-stage
+    - id: room-lifecycle-test-entry
+      label: Room Lifecycle (automation entry)
+      direction: west
+      target: room-lifecycle-start
+    - id: world-composition-test-entry
+      label: World Composition (automation entry)
+      direction: north
+      target: world-composition
+    - id: inventory-workbench-test-entry
+      label: Inventory Workbench (automation entry)
+      direction: northwest
+      target: inventory-workbench
+    - id: verbs-and-offers-test-entry
+      label: Verbs & Offers (automation entry)
+      direction: custom
+      target: verbs-and-offers

@@ -1,0 +1,912 @@
+id: rooms-interactions-flow
+label: Rooms & Interactions semantic flow
+data:
+  displayName: Rooms & Interactions semantic flow
+  steps:
+    - id: start
+      input: tick
+      label: Fresh Lab home
+      expectations:
+        - id: home-room
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: feature-lab-home
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: gate-starts-locked
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: gate-unlocked
+            value: false
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: enter-pilot
+      input: navigate
+      label: Enter Rooms pilot
+      expectations:
+        - id: workshop-room
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: rooms-interactions-workshop
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: rooms-interactions-test-entry
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: reject-locked-gate
+      input: navigate
+      label: Reject locked bedroom door
+      expectations:
+        - id: still-in-workshop
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: rooms-interactions-workshop
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: locked-notification
+          type: event
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: The bedroom door is locked.
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: east-gate
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: reject-policy-target
+      input: navigate
+      label: Ordinary navigation obeys target guard
+      expectations:
+        - id: policy-attempt-stays-put
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: rooms-interactions-workshop
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: policy-target-rejection
+          type: event
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: Ordinary navigation was rejected by the target Room guard.
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: policy-door
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: directed-policy-relocation
+      input: run-interaction
+      label: Directed relocation ignores exploration guard
+      expectations:
+        - id: directed-policy-target
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: rooms-interactions-policy-target
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: directed-arrival-notification
+          type: event
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: Directed Room Change committed despite the false entry guard.
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: use
+        bindings:
+          - slotId: target
+            subject:
+              kind: interactable
+              interactable:
+                $ref:
+                  registry: interactableInstances
+                  id: navigation-policy-button
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: return-from-policy
+      input: navigate
+      label: Return from policy target
+      expectations:
+        - id: returned-to-workshop
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: rooms-interactions-workshop
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: return-workshop
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: operate-lever
+      input: run-interaction
+      label: Press gate button
+      expectations:
+        - id: gate-unlocked
+          type: property
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: gate-unlocked
+            value: true
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: button-notification
+          type: event
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: The button clicks. The bedroom door unlocks.
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: exit
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: use
+        bindings:
+          - slotId: target
+            subject:
+              kind: interactable
+              interactable:
+                $ref:
+                  registry: interactableInstances
+                  id: gate-lever-1
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+    - id: navigate-through-gate
+      input: navigate
+      label: Navigate through unlocked bedroom door
+      expectations:
+        - id: destination-room
+          type: current-room
+          operator: eq
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: rooms-interactions-destination
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: ""
+          diagnostic:
+            code: ""
+        - id: destination-lifecycle-notification
+          type: event
+          operator: present
+          property:
+            scope: global
+            ownerId: ""
+            propertyId: property
+            value: null
+          currentRoom:
+            roomId: ""
+          location:
+            entityKind: interactable
+            entityId: ""
+            locationKind: unplaced
+            roomId: ""
+            inventoryOwnerKind: project
+            inventoryOwnerId: ""
+            inventoryId: ""
+          quantity:
+            interactableId: ""
+            value: 0
+          trait:
+            ownerKind: interactable
+            ownerId: ""
+            traitId: trait
+          entityState:
+            entityKind: interactable
+            entityId: ""
+            field: enabled
+            value: true
+          activeFlow:
+            kind: scene
+            flowId: ""
+          layout:
+            layoutId: ""
+            field: mounted
+            value: null
+          uiElement:
+            documentId: runtime_game
+            mountInstanceId: null
+            selector: "#target"
+            field: present
+            value: true
+          event:
+            kind: notification
+            value: Destination Room after-enter lifecycle ran.
+          diagnostic:
+            code: ""
+      dialogueChoice:
+        edgeId: choice
+      sceneChoice:
+        optionId: choice
+      navigate:
+        exitId: east-gate
+      subjectAction:
+        subject: null
+      runInteraction:
+        verb: null
+        bindings: []
+      saveSlot:
+        slotId: autosave
+      uiClick:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+  finalExpectations:
+    - id: gate-remains-unlocked
+      type: property
+      operator: eq
+      property:
+        scope: global
+        ownerId: ""
+        propertyId: gate-unlocked
+        value: true
+      currentRoom:
+        roomId: ""
+      location:
+        entityKind: interactable
+        entityId: ""
+        locationKind: unplaced
+        roomId: ""
+        inventoryOwnerKind: project
+        inventoryOwnerId: ""
+        inventoryId: ""
+      quantity:
+        interactableId: ""
+        value: 0
+      trait:
+        ownerKind: interactable
+        ownerId: ""
+        traitId: trait
+      entityState:
+        entityKind: interactable
+        entityId: ""
+        field: enabled
+        value: true
+      activeFlow:
+        kind: scene
+        flowId: ""
+      layout:
+        layoutId: ""
+        field: mounted
+        value: null
+      uiElement:
+        documentId: runtime_game
+        mountInstanceId: null
+        selector: "#target"
+        field: present
+        value: true
+      event:
+        kind: notification
+        value: ""
+      diagnostic:
+        code: ""
+  preview:
+    selectedStepId: start
+    selectedObservationIndex: null
+    autoOpenReport: true

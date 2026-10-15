@@ -1,0 +1,15 @@
+25700000-0000-4000-8000-000000000001:
+  origin: ai
+  review: needs-review
+  sourceFingerprint: fnv1a:e4575e35161e76493cd60f3f2f481585
+  text: こんにちは、{name}！
+25700000-0000-4000-8000-000000000002:
+  origin: ai
+  review: needs-review
+  sourceFingerprint: fnv1a:65a40d0410f846f876a25a3adf231834
+  text: 手紙を読む
+25700000-0000-4000-8000-000000000003:
+  origin: ai
+  review: needs-review
+  sourceFingerprint: fnv1a:9b7f45096b0f9a651f18fa8b1d6441f9
+  text: 日本語の手紙

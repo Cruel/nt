@@ -107,22 +107,22 @@ Json input_entry(const std::filesystem::path& root, std::string_view relative)
 Json canonical_scopes()
 {
     return Json::array({{{"root", "records"},
-                         {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                         {"extensions", Json::array({".yaml", ".json", ".lua", ".rcss", ".rml"})},
                          {"excludedPrefixes", Json::array({"records/tests/"})}},
                         {{"root", "scripts"},
                          {"extensions", Json::array({".lua"})},
                          {"excludedPrefixes", Json::array()}},
                         {{"root", "i18n"},
-                         {"extensions", Json::array({".json"})},
+                         {"extensions", Json::array({".yaml", ".json"})},
                          {"excludedPrefixes", Json::array()}}});
 }
 
 void create_cache(const std::filesystem::path& root)
 {
-    const std::string project = R"({"schema":"noveltea.project.workspace","schemaVersion":1})";
-    const std::string test = R"({"id":"smoke"})";
-    write_text(root / "project.json", project);
-    write_text(root / "records/tests/smoke.json", test);
+    const std::string project = "schema: noveltea.project.workspace\nschemaVersion: 1\n";
+    const std::string test = "id: smoke\n";
+    write_text(root / "project.yaml", project);
+    write_text(root / "records/tests/smoke.yaml", test);
 
     const std::string artifact =
         R"({"schema":"noveltea.prepared-runtime-artifact","compiledProject":{"schema":"noveltea.compiled.project"}})";
@@ -142,11 +142,11 @@ void create_cache(const std::filesystem::path& root)
         {"preparedArtifactSchema", "noveltea.prepared-runtime-artifact"},
         {"discoveryScopes", canonical_scopes()},
         {"authoringDiagnostics", Json::array()},
-        {"inputs", Json::array({input_entry(root, "project.json")})},
+        {"inputs", Json::array({input_entry(root, "project.yaml")})},
         {"artifactFile", "artifact.json"},
         {"artifactSha256", sha256_prefixed(artifact)},
         {"testCatalog",
-         {{"inputs", Json::array({input_entry(root, "records/tests/smoke.json")})},
+         {{"inputs", Json::array({input_entry(root, "records/tests/smoke.yaml")})},
           {"catalogFile", "tests.json"},
           {"catalogSha256", sha256_prefixed(catalog)}}},
     };
@@ -172,14 +172,28 @@ TEST_CASE("native runtime cache probe admits a fresh canonical generation")
     CHECK(result["artifact"]["compiledProject"]["schema"] == "noveltea.compiled.project");
 }
 
+TEST_CASE("native runtime cache probe does not admit the retired JSON Project owner")
+{
+    auto root = temp_root();
+    create_cache(root.path);
+    std::filesystem::rename(root.path / "project.yaml", root.path / "project.json");
+
+    const auto result = invoke(
+        noveltea_tooling_probe_runtime_cache_json,
+        {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});
+    REQUIRE(result["ok"] == true);
+    CHECK(result["status"] == "unusable");
+    CHECK(result["reason"] == "project-manifest-unavailable");
+}
+
 TEST_CASE(
     "native runtime cache admission uses exact metadata without hashing authored source bytes")
 {
     auto root = temp_root();
     create_cache(root.path);
-    const auto project_path = root.path / "project.json";
+    const auto project_path = root.path / "project.yaml";
     const auto timestamp = std::filesystem::last_write_time(project_path);
-    write_text(project_path, R"({"schema":"noveltea.project.workspace","schemaVersion":2})");
+    write_text(project_path, "schema: noveltea.project.workspace\nschemaVersion: 2\n");
     std::filesystem::last_write_time(project_path, timestamp);
 
     const auto result = invoke(
@@ -193,7 +207,7 @@ TEST_CASE("native runtime cache probe preserves a runtime hit when authored Test
 {
     auto root = temp_root();
     create_cache(root.path);
-    write_text(root.path / "records/tests/smoke.json", R"({"id":"smoke","changed":true})");
+    write_text(root.path / "records/tests/smoke.yaml", "id: smoke\nchanged: true\n");
     const auto result = invoke(
         noveltea_tooling_probe_runtime_cache_json,
         {{"projectRoot", root.path.generic_string()}, {"compilerIdentity", "test-compiler"}});

@@ -1,4 +1,19 @@
 {
+  "commentReview": {
+    "affectedComments": "[Âffëçtëd YÂML çômmëñtš]",
+    "cancel": "[Çâñçël]",
+    "deleteComments": "[Dëlëtë ïñçlûdïñg çômmëñtš]",
+    "keepComments": "[Šâvë âñd këëp çômmëñtš]",
+    "removeComments": "[Šâvë âñd rëmôvë çômmëñtš]",
+    "deleteTitle": "[Dëlëtë ïñçlûdïñg YÂML çômmëñtš?]",
+    "saveTitle": "[Rëvïëw YÂML çômmëñtš bëfôrë šâvïñg]",
+    "deleteDescription": "[Thïš ôpërâtïôñ rëmôvëš thë âttâçhëd çômmëñtš. Rëvïëw bëfôrë dëlëtïñg.]",
+    "saveDescription": "[Thë ëdïtëd vâlûëš mây mâkë thëšë çômmëñtš ôûtdâtëd. Çhôôšë tô këëp ôr rëmôvë.]",
+    "kind": {
+      "changed": "[çhâñgëd]",
+      "deleted": "[dëlëtëd]"
+    }
+  },
   "assetAttachments": {
     "title": "[Âttâçhmëñtš]",
     "description": "[Lïñk Prôjëçt fïlës wïthôût rëgïštërïñg Âššëtš. Ëxtërñâl ïmpôrtš çôpy fïlës ïñtô thë Prôjëçt.]",

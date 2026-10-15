@@ -1,3 +1,4 @@
+import { parse as parseYaml } from 'yaml';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -222,8 +223,8 @@ afterEach(async () => {
 describe('editor persistent runtime cache', () => {
   it('refuses to publish stale editor content against a newly changed disk snapshot', async () => {
     const { root, project, workspace } = await createWorkspace();
-    const roomPath = path.join(root, 'records', 'rooms', 'start.json');
-    const diskRoom = JSON.parse(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
+    const roomPath = path.join(root, 'records', 'rooms', 'start.yaml');
+    const diskRoom = parseYaml(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
     diskRoom.label = 'Externally Changed';
     await writeFile(roomPath, `${JSON.stringify(diskRoom, null, 2)}\n`, 'utf8');
 

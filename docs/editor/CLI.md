@@ -13,11 +13,26 @@ add video playback or a Project media-transcoding policy.
 
 ## Project discovery and direct editing
 
-A project is identified by its root directory and `<project-root>/project.json`. Use `--project <project-directory>` to select a project explicitly. Without it, the CLI walks upward from the current directory and stops at the first `project.json`. A malformed NovelTea manifest, wrong workspace identity, or unsupported workspace version is a terminal discovery error at that directory; discovery does not fall through to a parent project or accept a retired monolithic project file.
+A project is identified by its root directory and `<project-root>/project.yaml`. Use `--project <project-directory>` to select a project explicitly. Without it, the CLI walks upward from the current directory and stops at the first `project.yaml`. A malformed NovelTea manifest, wrong workspace identity, or unsupported workspace version is a terminal discovery error at that directory; discovery does not fall through to a parent project or accept a retired monolithic project file.
 
-Ordinary authoring is file-first: edit tracked JSON, Lua, RML, and RCSS directly. After direct edits to managed localizable Lua/RML source, run `noveltea localization sync` to materialize only deterministic Message-tracking changes, then run `noveltea validate`. Passive validation, source analysis, preview, and editor watching never write localization tracking. Do not route ordinary field changes through invented setter commands. The CLI owns operations that need project-wide semantics, transactions, native tooling, or reproducible automation.
+Ordinary authoring is file-first: edit tracked YAML, Lua, RML, and RCSS directly. After direct edits to managed localizable Lua/RML source, run `noveltea localization sync` to materialize only deterministic Message-tracking changes, then run `noveltea validate`. Passive validation, source analysis, preview, and editor watching never write localization tracking. Do not route ordinary field changes through invented setter commands. The CLI owns operations that need project-wide semantics, transactions, native tooling, or reproducible automation.
 
 ## Public command surface
+
+The `fmt --strip-defaults` option compacts declared omission defaults in
+records (including Layout metadata other than its required source selectors) and in eligible Project manifest,
+editor organization, and localization owners while preserving annotated
+explicit values. `--check` reports opportunities without writing; the
+candidate must validate as semantically equivalent before any commit.
+`entity inspect --provenance` distinguishes omitted and explicitly authored
+empty collections as well as scalar shorthand and nested fields. Entity
+renames return informational diagnostics for surviving distinct-token mentions
+of the old ID in YAML comments, without modifying or blocking on the prose.
+Successful editor structural saves also present those informational notices.
+Test Step inputs and active payload identifiers must be explicitly authored;
+the generated source schema encodes the same conditional requirements as YAML
+admission, rather than editor-only placeholder defaults. Choosing Keep retains
+annotations on changed default-valued Layout, manifest, and tracked-editor fields.
 
 Core authoring commands are:
 
@@ -26,6 +41,8 @@ noveltea project create <directory> --name <project-name>
 noveltea project export --output <bundle.ntproject>
 noveltea project import <bundle.ntproject> <destination-directory>
 noveltea validate
+noveltea entity inspect <collection> <id> [--provenance]
+noveltea fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
 noveltea localization sync [--dry-run]
 noveltea localization reconcile [--apply]
 noveltea localization view <locale> [--status <missing|current|outdated|needs-review|reviewed|human|ai|imported|unknown|attention>]
@@ -45,6 +62,8 @@ noveltea agent sync [--fix]
 `project export` writes the current portable editable-Project artifact, `.ntproject`. The bundle is a deterministic ZIP with the current `noveltea.project.bundle` version-1 manifest, the canonical Project Workspace files, referenced Asset source bytes, and Project-owned `workflows/` files. It deliberately excludes `.noveltea/`, `dist/`, VCS metadata, `.gitignore`, agent bootstrap files, local/session state, transaction state, caches, and other files outside the current Project authoring contract. Export refuses an existing destination and fails if captured canonical source changes while the bundle is being prepared.
 
 `project import` accepts only the current `.ntproject` contract and requires a destination that does not exist. The importer verifies the ZIP structure, safe normalized UTF-8 paths, regular-file entries, CRCs, manifest identity/version, exact sorted inventory, byte sizes, SHA-256 hashes, and the contained current Project Workspace before atomically activating the destination. Files outside the reconstructed Project-owned authoring inventory are rejected even when declared by the bundle manifest. The imported directory then opens and validates as an ordinary Project Workspace. `.ntproject` is editable-source transport only; Runtime Package `.ntpkg` behavior and contents are unchanged and remain runtime-only.
+
+`entity inspect <collection> <id>` reads one effective record from the admitted Project snapshot and prints the expanded normalized record without writing files. Its `--json` response includes `collection`, `id`, and `record`; `--provenance` additionally includes a parallel nested `provenance` tree. A leaf marked `explicit` occurs in the authored source; `default` means that it was supplied by the source codec/schema. A source shorthand reference is represented as an `explicit` `$ref` in provenance and as the canonical typed reference in the effective record. Missing IDs and unknown collections fail instead of generating placeholder records. Inspection does not dump the Project or materialize expanded YAML.
 
 `localization sync` is the explicit mutation boundary for durable local Message identity discovered in free-form Lua and RML. Structured schema-owned Messages use their semantic owner/field identity directly and need no free-form occurrence sidecar. Sync preserves an existing ID only for deterministic one-to-one matches, assigns IDs to definitely new managed occurrences, updates compact source/structural/anchor fingerprints plus the managed occurrence source/guidance snapshot, and leaves ambiguous duplicate/many-to-many cases unresolved for reconciliation instead of guessing. `--dry-run` reports the same deterministic plan without writing tracked files.
 
@@ -267,6 +286,14 @@ diagnostic expectation cannot turn a real runtime error into success. See the
 [authored-Test contract](../public/concepts/authored-tests.md) for supported warning-path witnesses.
 
 ## Persistent validation cache
+
+`validate` reports YAML source coordinates when a logical diagnostic can be attributed to
+an authored source field. `--json` preserves the stable diagnostic `code` and logical
+`path` while adding `sourceUrl`, `line`, and `column` where available; human-readable
+diagnostics display the same location. Missing sparse fields point to the nearest
+existing containing source field rather than to a fabricated location. Coordinates
+are refreshed from current source on validation cache hits, without making comment-only
+edits into semantic Project changes. Validation never edits the source.
 
 `validate` can reuse an unchanged exact disk-authoritative validation result from
 `.noveltea/cache/authoring/current.json`. This is deliberately a narrow restart accelerator, not a

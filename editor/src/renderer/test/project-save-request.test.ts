@@ -26,7 +26,7 @@ function recoveryFor(saveUnitId: string, affectedPaths: string[]): EditorRecover
 }
 
 describe('project save request ownership hints', () => {
-  it('includes project.json for a Room-owned exact Interactable Instance mutation', () => {
+  it('includes project.yaml for a Room-owned exact Interactable Instance mutation', () => {
     const baseline = createAuthoringProject();
     baseline.rooms.foyer = {
       id: 'foyer',
@@ -51,7 +51,7 @@ describe('project save request ownership hints', () => {
         baselineDocument: toJsonValue(baseline),
         candidateDocument: toJsonValue(candidate),
       })['record:rooms:foyer'],
-    ).toEqual(['editor.json', 'project.json', 'records/rooms/foyer.json']);
+    ).toEqual(['editor.yaml', 'project.yaml', 'records/rooms/foyer.yaml']);
   });
 
   it('canonicalizes overlapping Trait metadata recovery paths', () => {
@@ -78,10 +78,10 @@ describe('project save request ownership hints', () => {
         baselineDocument: toJsonValue(baseline),
         candidateDocument: toJsonValue(candidate),
       })['collection:traits'],
-    ).toEqual(['editor.json', 'traits.json']);
+    ).toEqual(['editor.yaml', 'traits.yaml']);
   });
 
-  it('uses traits.json for the Traits collection save unit', () => {
+  it('uses traits.yaml for the Traits collection save unit', () => {
     const baseline = createAuthoringProject();
     const candidate = structuredClone(baseline);
     candidate.traits.inspectable = {
@@ -97,6 +97,6 @@ describe('project save request ownership hints', () => {
         baselineDocument: toJsonValue(baseline),
         candidateDocument: toJsonValue(candidate),
       })['collection:traits'],
-    ).toEqual(['traits.json']);
+    ).toEqual(['traits.yaml']);
   });
 });

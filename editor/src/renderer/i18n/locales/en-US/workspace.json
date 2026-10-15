@@ -1,4 +1,19 @@
 {
+  "commentReview": {
+    "affectedComments": "Affected YAML comments",
+    "cancel": "Cancel",
+    "deleteComments": "Delete including comments",
+    "keepComments": "Save and keep comments",
+    "removeComments": "Save and remove comments",
+    "deleteTitle": "Delete including YAML comments?",
+    "saveTitle": "Review YAML comments before saving",
+    "deleteDescription": "This operation removes the following attached comments. Review them before deleting.",
+    "saveDescription": "The edited values may make these comments outdated. Choose whether to keep or remove them.",
+    "kind": {
+      "changed": "changed",
+      "deleted": "deleted"
+    }
+  },
   "assetAttachments": {
     "title": "Attachments",
     "description": "Link Project files without registering them as runtime Assets. External imports copy files into the Project; removing a link leaves the physical file intact.",

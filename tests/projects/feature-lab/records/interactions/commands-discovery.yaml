@@ -1,0 +1,44 @@
+id: commands-discovery
+label: Commands & Discovery
+data:
+  rules:
+    - id: rule-derived-probe
+      verb: probe
+      slots:
+        - slotId: subject
+          selectors:
+            - kind: exact
+              subject:
+                kind: interactable
+                interactable:
+                  $ref:
+                    registry: interactableInstances
+                    id: offer-rule-derived
+      offer:
+        slotId: subject
+        rank: 60
+        primary: true
+      priority: 20
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: rule-derived
+    - id: deliver-parcel
+      verb: deliver
+      slots:
+        - slotId: parcel
+          selectors:
+            - kind: interactable-definition
+              interactableDefinition: lab-parcel
+        - slotId: recipient
+          selectors:
+            - kind: any-subject
+      priority: 20
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: delivered

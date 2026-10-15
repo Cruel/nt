@@ -50,6 +50,7 @@ Commands:
   comfyui verify [<id>] [--server <url>]
   comfyui run [<workflow-id> | --type <classification>] [--input <name=value>]... [--output <routing>]... [--server <url>] [--force]
   validate
+  fmt [<tracked-yaml-path>] [--check] [--strip-defaults]
   localization sync [--dry-run]
   localization reconcile [--apply]
   localization view <locale> [--status <missing|current|outdated|needs-review|reviewed|human|ai|imported|unknown|attention>]
@@ -58,6 +59,7 @@ Commands:
   asset audit
   asset import <path>... [--dry-run]
   entity create <collection> <id> [--dry-run]
+  entity inspect <collection> <id> [--provenance]
   entity rename <collection> <old-id> <new-id> [--dry-run] [--allow-possible-source-references]
   entity delete <collection> <id> [--dry-run] [--force] [--allow-possible-source-references]
   usages <collection> <id>
@@ -87,7 +89,7 @@ Commands:
   platform config init <path> [--force]
 
 Global options:
-  --project <project-directory>  Use this project root instead of upward project.json discovery.
+  --project <project-directory>  Use this project root instead of upward project.yaml discovery.
   --json                         Emit one compact JSON object on stdout; stderr remains empty.
   --no-daemon                    Bypass resident-daemon acceleration for this invocation.
   --help                         Show this help.
@@ -95,8 +97,9 @@ Global options:
 
 Normal project editing policy:
   Run 'noveltea agent sync' before an agent session, then read '.noveltea/agent/GUIDE.md'.
-  Edit record JSON, Lua, RML, and RCSS source files directly, run 'noveltea localization sync' after
-  managed localizable source edits, then run 'noveltea validate'. Use semantic CLI commands only for
+  Edit YAML, Lua, RML, and RCSS source files directly, optionally run 'noveltea fmt' and then
+  'noveltea validate' as a separate read-only semantic check. Run 'noveltea localization sync' after
+  managed localizable source edits. Use semantic CLI commands only for
   operations that require project-wide dependency or transaction
   semantics, such as Asset import, create, rename, delete, and usages.
 `;

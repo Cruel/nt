@@ -8,6 +8,7 @@ import {
 import { withSchemaDocumentation } from '../../shared/project-schema/schema-documentation';
 import {
   createNovelTeaCompactReferenceFiles,
+  createNovelTeaSchemaReferenceDocuments,
   createNovelTeaWebsiteSchemaReference,
   createNovelTeaRawSchemaFiles,
   schemaSources,
@@ -196,7 +197,7 @@ describe('compact schema reference', () => {
     }
 
     expect(rooms).toContain('condition: Condition');
-    expect(rooms).toContain('beforeEnter: GameplayCommand[]');
+    expect(rooms).toContain('beforeEnter?: GameplayCommand[] = []');
     expect(rooms).not.toContain('\nCondition =');
     expect(rooms).not.toContain('\nGameplayCommand =');
     expect(common).toContain('\nCondition =');
@@ -342,6 +343,10 @@ describe('compact schema reference', () => {
     expect(materials).toContain('texture override must set at least one');
 
     const variables = files['records/variables.md']!;
+    expect(variables).toContain('## Minimal YAML source');
+    expect(variables).toContain('id: story-flag');
+    expect(variables).toContain('nullable?: boolean = false');
+    expect(variables).not.toContain('kind: "variable"');
     expect(variables).toContain('value must match the declared type and nullability.');
     expect(variables).toContain('Enum Variables require at least one non-empty enumValues entry');
     expect(variables).toContain(
@@ -414,5 +419,62 @@ describe('compact schema reference', () => {
     }
     expect(conditionQuantityMinimums.length).toBeGreaterThan(0);
     expect(new Set(conditionQuantityMinimums)).toEqual(new Set([0]));
+  });
+
+  it('describes YAML source omissions and static references identically in raw and compact output', () => {
+    const raw = createNovelTeaRawSchemaFiles();
+    const compact = createNovelTeaCompactReferenceFiles();
+    const website = createNovelTeaWebsiteSchemaReference();
+    const rooms = JSON.parse(raw['records/rooms.schema.json']!) as {
+      properties: { data: { properties: Record<string, unknown>; required: string[] } };
+    };
+    const data = rooms.properties.data;
+    expect(data.required).toContain('presentationSpace');
+    expect(data.required).not.toContain('kind');
+    expect(data.required).not.toContain('lifecycle');
+    expect(data.properties).not.toHaveProperty('kind');
+    expect(data.properties.lifecycle).toMatchObject({ default: expect.any(Object) });
+    expect(compact['records/rooms.md']).toContain('lifecycle?: {');
+    expect(compact['records/rooms.md']).toContain('condition?: Condition = "always"');
+    expect(compact['records/rooms.md']).toContain('layout: EntityId');
+    expect(compact['records/rooms.md']).toMatch(
+      /interactable: \{\s+\$ref: \{\s+registry: "interactableInstances"/,
+    );
+
+    const variables = JSON.parse(raw['records/variables.schema.json']!) as {
+      properties: { data: { properties: Record<string, unknown>; required: string[] } };
+    };
+    expect(variables.properties.data.properties).not.toHaveProperty('kind');
+    const resolved = (value: unknown): Record<string, unknown> => {
+      const node = value as Record<string, unknown>;
+      if (typeof node.$ref !== 'string') return node;
+      return node.$ref
+        .slice(2)
+        .split('/')
+        .reduce<unknown>(
+          (parent, key) => (parent as Record<string, unknown>)[key],
+          JSON.parse(raw['records/variables.schema.json']!),
+        ) as Record<string, unknown>;
+    };
+    expect(resolved(variables.properties.data.properties.nullable)).toMatchObject({
+      default: false,
+    });
+    expect(resolved(variables.properties.data.properties.scope)).toMatchObject({
+      default: 'global',
+    });
+    expect(variables.properties.data.required).toContain('value');
+    expect(variables.properties.data.required).not.toContain('nullable');
+
+    const material = JSON.parse(raw['records/materials.schema.json']!) as {
+      properties: { data: { properties: Record<string, unknown> } };
+    };
+    expect(material.properties.data.properties).not.toHaveProperty('kind');
+    const asset = compact['records/assets.md']!;
+    expect(asset).toContain('kind: "image"');
+    expect(compact['common.md']).toContain('RoomRef = string pattern');
+    expect(compact['common.md']).toContain('Condition = "always" | (');
+    expect(website.documents.find((item) => item.id === 'records/rooms')?.model).toEqual(
+      createNovelTeaSchemaReferenceDocuments().find((item) => item.id === 'records/rooms')?.model,
+    );
   });
 });

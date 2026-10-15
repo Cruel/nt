@@ -18,17 +18,26 @@ way to learn NovelTea semantics when the compact reference already explains them
 
 ## Edit tracked source, not generated state
 
-The project root contains `project.json`. Editable source lives in the tracked Project workspace:
-`project.json`, `traits.json`, `editor.json`, `i18n/`, `records/`, `scripts/`, `shaders/`, and `assets/`.
+The project root contains `project.yaml`. Editable source lives in the tracked Project workspace:
+`project.yaml`, `traits.yaml`, `editor.yaml`, `i18n/`, `records/`, `scripts/`, `shaders/`, and `assets/`.
 Never author against `.noveltea/`.
 
 Stable top-level record IDs determine canonical record paths. Non-Layout records use
-`records/<collection>/<id>.json`; Layouts use `records/layouts/<id>/layout.json` plus their admitted
+`records/<collection>/<id>.yaml`; Layouts use `records/layouts/<id>/layout.yaml` plus their admitted
 companion source files. Do not rename a file independently of its record identity.
 
 Script Module project-file paths stay under `scripts/` and must retain one canonical owner. Do not
-use absolute paths, parent traversal, or symlink escapes. Tracked JSON is UTF-8, LF, two-space
-indented, and ends with one newline; avoid unrelated formatting churn.
+use absolute paths, parent traversal, or symlink escapes. Tracked structured source uses `.yaml`, including `i18n/*.yaml` and locale chunks.
+Retain existing comments and field presence;
+avoid unrelated formatting churn.
+
+Structured YAML uses the restricted source dialect: one mapping root, string mapping keys,
+no anchors, aliases, merge keys, tags, duplicate keys, directives, or multi-document streams.
+Quote ambiguous scalar strings such as `yes` and `no`. Comments belong only to tracked source,
+not to the effective Project record; keep them when still relevant. To inspect values after
+source defaults have been applied, use `noveltea entity inspect <collection> <id> --json`
+(`--provenance` shows explicit and defaulted values) instead
+of guessing from the sparse YAML alone.
 
 ## Direct edits versus semantic CLI operations
 
@@ -66,20 +75,29 @@ license reader.
 ## Complete coherent edits
 
 Many operations span multiple records. For example, presenting a new exact Interactable in a Room
-can involve a Definition, a declared Instance in `project.json`, Room placement/presentation linkage,
+can involve a Definition, a declared Instance in `project.yaml`, Room placement/presentation linkage,
 and Interaction/Verb support. The shared concepts explain those ownership boundaries and the generated
 reference provides the current fields; do not keep a private template that may drift from either.
 
-Finish the complete logical relationship, then run:
+Finish the complete logical relationship, optionally normalize YAML presentation, then validate
+semantics independently (validation never reformats source):
 
 ```sh
+noveltea fmt
 noveltea validate
 ```
+
+For automated style checking without writes, use `noveltea fmt --check`. To format just one
+tracked YAML owner, use `noveltea fmt records/<collection>/<id>.yaml`. Formatting accepts
+syntactically valid YAML even while related Project records are being edited.
+When compact source is explicitly desired, use `noveltea fmt --strip-defaults` (optionally
+combined with `--check` or a selected source path). This removes only proven, uncommented
+source defaults; ordinary `fmt`, editor saves, and `validate` never strip authored defaults.
 
 Run relevant authored Tests when the behavior is covered by semantic playback. Validation proves
 structural/semantic validity, not visual quality of placement, hotspot geometry, styling, or art.
 
-Layout records are directories. In `records/layouts/<layout-id>/layout.json`, a persisted
+Layout records are directories. In `records/layouts/<layout-id>/layout.yaml`, a persisted
 `sourceMode: "file"` selector means the channel source lives beside the record as `layout.rml`,
 `layout.rcss`, or `layout.lua`. Do not leave one of those companion files present when its selector is
 `asset` or `none`; workspace loading treats that as an ownership error rather than an alternate source.

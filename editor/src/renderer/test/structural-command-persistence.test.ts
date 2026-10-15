@@ -1,4 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vite-plus/test';
+import { createElement } from 'react';
+import { act, fireEvent, render, screen } from '@testing-library/react';
+import { ProjectCommentConfirmationDialog } from '@/project/project-comment-confirmation';
 import {
   buildAutoCommitPlan,
   remapRecoveryForAutoCommit,
@@ -16,7 +19,16 @@ import {
   setLoadedEditorProjectState,
 } from '@/workbench/project-editor-state';
 import { emptyEditorProjectState } from '../../shared/project-schema/editor-project-state';
-import { createAuthoringProject } from '../../shared/project-schema/authoring-project';
+import {
+  createAuthoringProject,
+  authoringProjectSchema,
+} from '../../shared/project-schema/authoring-project';
+import {
+  InMemoryProjectWorkspaceFileSystem,
+  ProjectWorkspaceService,
+  projectWorkspaceFiles,
+} from '../../shared/project-workspace';
+import { applyProjectMutationValues } from '@/project/project-save-request';
 import { defaultRoomData, roomRoomRef } from '../../shared/project-schema/authoring-rooms';
 import { assetDataFromImportMetadata } from '../../shared/project-schema/authoring-assets';
 import { toJsonValue } from '@/project/json-value';
@@ -94,6 +106,52 @@ afterEach(() => {
 });
 
 describe('structural command persistence', () => {
+  it('surfaces informational diagnostics returned after successful structural rename', async () => {
+    const project = projectWithRoom();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    const mockSave = vi.mocked(window.noveltea.saveProjectContent);
+    const original = mockSave.getMockImplementation();
+    expect(original).toBeDefined();
+    mockSave.mockImplementationOnce(async (...args) => ({
+      ...(await original!(...args)),
+      diagnostics: [
+        {
+          code: 'authoring.source_comment.stale_id',
+          severity: 'info' as const,
+          category: 'Project save',
+          path: '/records/rooms/hall.yaml',
+          message: 'A YAML comment still mentions renamed ID foyer.',
+        },
+      ],
+    }));
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.renameId',
+        label: 'Rename foyer to hall',
+        payload: { collection: 'rooms', fromId: 'foyer', toId: 'hall' },
+        originSaveUnitId: 'structure:rooms',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+    expect(useCommandStore.getState().lastDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'info',
+          message: 'A YAML comment still mentions renamed ID foyer.',
+          path: '/records/rooms/hall.yaml',
+        }),
+      ]),
+    );
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { hall: { id: 'hall' } },
+    });
+  });
+
   it('requires every auto-commit mutation to match an explicit registry rule', () => {
     expect(structuralRuleForTests('entity.renameId', 'structure:rooms')).toMatchObject({
       unsafeRebasePolicy: 'reject-command',
@@ -162,7 +220,7 @@ describe('structural command persistence', () => {
     expect(result.plan.inverseBaselinePatches.length).toBeGreaterThan(0);
   });
 
-  it('keeps tracked editor.json patches in the project-content baseline', () => {
+  it('keeps tracked editor.yaml patches in the project-content baseline', () => {
     const project = projectWithRoom();
     project.editor.recordMetadata.rooms = {
       foyer: { tags: [], color: null },
@@ -682,6 +740,134 @@ describe('structural command persistence', () => {
     );
   });
 
+  it('restores deleted YAML comments through the editor command Undo and Redo transport', async () => {
+    const project = createAuthoringProject();
+    project.variables.score = {
+      id: 'score',
+      label: 'Score',
+      data: { kind: 'variable', type: 'integer', value: 1, nullable: false, scope: 'global' },
+    };
+    const file = 'records/variables/score.yaml';
+    const root = '/mock/project';
+    const source = 'id: score\nlabel: Score # score note\ndata:\n  type: integer\n  value: 1\n';
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(projectWorkspaceFiles(project, project.editor, {}, new Set([file]))).map(
+          ([path, text]) => [`${root}/${path}`, path === file ? source : text],
+        ),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fs);
+    const save: typeof window.noveltea.saveProjectContent = async (
+      _session,
+      request,
+      editorState,
+    ) => {
+      const opened = await workspace.open(root);
+      if (!opened.ok) throw new Error('Cannot open test workspace');
+      const candidate = authoringProjectSchema.parse(
+        applyProjectMutationValues(toJsonValue(opened.snapshot.project), request.localValueByPath),
+      );
+      const result = await workspace.write(
+        root,
+        opened.snapshot.workspaceRevision,
+        candidate,
+        editorState,
+        {},
+        {
+          affectedPaths: request.affectedPaths,
+          identityRemap: request.identityRemap,
+          sourceRestorations: request.sourceRestorations,
+        },
+      );
+      return {
+        ok: true,
+        success: true,
+        editorState,
+        deletedSourceTexts: result.deletedSourceTexts,
+      };
+    };
+    vi.mocked(window.noveltea.saveProjectContent)
+      .mockImplementationOnce(save)
+      .mockImplementationOnce(save)
+      .mockImplementationOnce(save);
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      projectPath: root,
+      projectFilePath: `${root}/project.yaml`,
+    });
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.deleteRecord',
+        label: 'Delete score',
+        payload: { collection: 'variables', entityId: 'score' },
+        originSaveUnitId: 'structure:variables',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+    await expect(fs.readText(`${root}/${file}`)).rejects.toThrow();
+    expect(useCommandStore.getState().undo().ok).toBe(true);
+    await flushStructuralCommandPersistence();
+    expect(await fs.readText(`${root}/${file}`)).toBe(source);
+    expect(useCommandStore.getState().redo().ok).toBe(true);
+    await flushStructuralCommandPersistence();
+    await expect(fs.readText(`${root}/${file}`)).rejects.toThrow();
+  });
+
+  it('rolls back structural delete without a tracked write when comment confirmation is canceled', async () => {
+    const project = createAuthoringProject();
+    project.variables.score = {
+      id: 'score',
+      label: 'Score',
+      data: { kind: 'variable', type: 'integer', value: 1, nullable: false, scope: 'global' },
+    };
+    vi.mocked(window.noveltea.saveProjectContent).mockResolvedValueOnce({
+      ok: false,
+      success: false,
+      commentConfirmationRequired: true,
+      commentConfirmationToken: 'f'.repeat(64),
+      commentImpacts: [
+        {
+          file: 'records/variables/score.yaml',
+          path: '/label',
+          comment: ' record intent',
+          kind: 'deleted',
+        },
+      ],
+    });
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    const ui = render(createElement(ProjectCommentConfirmationDialog));
+    try {
+      expect(
+        useCommandStore.getState().executeCommand({
+          type: 'entity.deleteRecord',
+          label: 'Delete score',
+          payload: { collection: 'variables', entityId: 'score' },
+          originSaveUnitId: 'structure:variables',
+          persistencePolicy: 'auto-commit',
+        }).ok,
+      ).toBe(true);
+      await screen.findByText('record intent');
+      await act(async () => fireEvent.click(screen.getByRole('button', { name: 'Cancel' })));
+      await flushStructuralCommandPersistence();
+      expect(useProjectStore.getState().document).toMatchObject({
+        variables: { score: { id: 'score' } },
+      });
+      expect(useProjectStore.getState().savedDocument).toMatchObject({
+        variables: { score: { id: 'score' } },
+      });
+      expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(1);
+      expect(useCommandStore.getState().history.entries).toHaveLength(0);
+    } finally {
+      ui.unmount();
+    }
+  });
+
   it('persists structural forward, Undo, and Redo to the saved baseline', async () => {
     const project = projectWithRoom();
     await loadProjectDocumentWithGraph({
@@ -720,6 +906,13 @@ describe('structural command persistence', () => {
       rooms: { hall: { id: 'hall' } },
     });
     expect(window.noveltea.saveProjectContent).toHaveBeenCalledTimes(3);
+    expect(
+      vi.mocked(window.noveltea.saveProjectContent).mock.calls.map((call) => call[1].identityRemap),
+    ).toEqual([
+      [{ fromPath: '/rooms/foyer', toPath: '/rooms/hall' }],
+      [{ fromPath: '/rooms/hall', toPath: '/rooms/foyer' }],
+      [{ fromPath: '/rooms/foyer', toPath: '/rooms/hall' }],
+    ]);
   });
 
   it('does not let an open asset-library tab block asset-import auto-commit', async () => {
@@ -814,7 +1007,7 @@ describe('structural command persistence', () => {
             affectedPaths: ['/rooms/kitchen'],
             pendingRawInputByPath: {},
             atomicTransactionGroupIds: [],
-            baselineFileRevisions: { 'editor.json': originalEditorRevision },
+            baselineFileRevisions: { 'editor.yaml': originalEditorRevision },
           },
         },
       },
@@ -827,7 +1020,7 @@ describe('structural command persistence', () => {
         projectPath: '/mock/project',
         projectFilePath: '/mock/project/game.json',
         diagnostics: [],
-        fileRevisions: { 'editor.json': advancedEditorRevision },
+        fileRevisions: { 'editor.yaml': advancedEditorRevision },
         editorState: {
           ...editorState,
           recovery: {
@@ -836,7 +1029,7 @@ describe('structural command persistence', () => {
               ...editorState.recovery.saveUnitsById,
               'record:rooms:kitchen': {
                 ...editorState.recovery.saveUnitsById['record:rooms:kitchen']!,
-                baselineFileRevisions: { 'editor.json': advancedEditorRevision },
+                baselineFileRevisions: { 'editor.yaml': advancedEditorRevision },
               },
             },
           },
@@ -870,7 +1063,7 @@ describe('structural command persistence', () => {
     expect(persistedEditor?.recovery.saveUnitsById).toHaveProperty('record:rooms:kitchen');
     expect(
       buildEditorProjectStateSnapshot().recovery.saveUnitsById['record:rooms:kitchen']
-        ?.baselineFileRevisions?.['editor.json'],
+        ?.baselineFileRevisions?.['editor.yaml'],
     ).toBe(advancedEditorRevision);
   });
 
@@ -1017,8 +1210,8 @@ describe('structural command persistence', () => {
       projectPath: '/mock/project',
       projectFilePath: '/mock/project/game.json',
       fileRevisions: {
-        'records/rooms/foyer.json': `sha256:${'e'.repeat(64)}`,
-        'records/rooms/hall.json': `sha256:${'f'.repeat(64)}`,
+        'records/rooms/foyer.yaml': `sha256:${'e'.repeat(64)}`,
+        'records/rooms/hall.yaml': `sha256:${'f'.repeat(64)}`,
       },
       externalValueByPath: {
         '/rooms/foyer/label': { exists: true, value: 'External Foyer' },

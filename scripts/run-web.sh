@@ -122,33 +122,33 @@ else
     EXPORT_PROFILE_ID="$(node -e 'const chunks=require("fs").readFileSync(0,"utf8").trim().split(/\n/); console.log(JSON.parse(chunks.at(-1)).profileId)' <<<"$FIXTURE_JSON")"
   else
     PROJECT_PATH="$(realpath "$PROJECT_PATH")"
-    PROJECT_MANIFEST="$PROJECT_PATH/project.json"
+    PROJECT_MANIFEST="$PROJECT_PATH/project.yaml"
     [ -f "$PROJECT_MANIFEST" ] || {
       echo "[run] NovelTea project manifest not found: $PROJECT_MANIFEST" >&2
       exit 2
     }
     if [ -z "$EXPORT_PROFILE_ID" ]; then
       EXPORT_PROFILE_ID="$(node -e '
-        const p=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+        const p=require(process.argv[2]).parse(require("fs").readFileSync(process.argv[1],"utf8"));
         const profiles=p.export?.profiles ?? [];
         const selected=p.export?.selectedProfileId;
         const profile=profiles.find((x)=>x?.id===selected && x?.target==="web" && x?.buildFlavor==="release") ?? profiles.find((x)=>x?.target==="web" && x?.buildFlavor==="release");
         if (!profile?.id) process.exit(1); console.log(profile.id);
-      ' "$PROJECT_MANIFEST")" || {
+      ' "$PROJECT_MANIFEST" "$PROJECT_ROOT/editor/node_modules/yaml")" || {
         echo "[run] no release Web export profile found; pass --export-profile" >&2
         exit 2
       }
     fi
   fi
 
-  PROJECT_MANIFEST="${PROJECT_MANIFEST:-$PROJECT_PATH/project.json}"
+  PROJECT_MANIFEST="${PROJECT_MANIFEST:-$PROJECT_PATH/project.yaml}"
   WEB_THREADING="$(node -e '
-    const project=JSON.parse(require("fs").readFileSync(process.argv[1],"utf8"));
+    const project=require(process.argv[3]).parse(require("fs").readFileSync(process.argv[1],"utf8"));
     const profiles=project.export?.profiles ?? [];
     const profile=profiles.find((item)=>item?.id===process.argv[2]);
     if (!profile || profile.target!=="web" || profile.buildFlavor!=="release") process.exit(1);
     console.log(profile.web?.threaded===true ? "threads" : "single");
-  ' "$PROJECT_MANIFEST" "$EXPORT_PROFILE_ID")" || {
+  ' "$PROJECT_MANIFEST" "$EXPORT_PROFILE_ID" "$PROJECT_ROOT/editor/node_modules/yaml")" || {
     echo "[run] Web export profile '$EXPORT_PROFILE_ID' was not found or is not a release Web profile" >&2
     exit 2
   }

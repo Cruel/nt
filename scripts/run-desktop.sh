@@ -7,7 +7,7 @@ EXPORT_PROFILE_ID=""
 APP_ARGS=()
 
 usage() {
-  echo "usage: $0 [--release] [--project path/to/project.json] [--export-profile profile-id] [sandbox args...]" >&2
+  echo "usage: $0 [--release] [--project path/to/project.yaml] [--export-profile profile-id] [sandbox args...]" >&2
 }
 
 while [ "$#" -gt 0 ]; do

@@ -1,0 +1,26 @@
+id: custom-board-loop
+label: Custom board hotspot motion
+data:
+  canvas:
+    width: 192
+    height: 128
+  defaultMotionId: sweep
+  motions:
+    - id: sweep
+      kind: sprite-sequence
+      frames:
+        - image: ui-pattern
+          durationMs: 1000
+        - image: ui-pattern
+          durationMs: 1000
+      markers:
+        - id: middle
+          timeMs: 1000
+        - id: inactive
+          timeMs: 1500
+    - id: rest
+      kind: sprite-sequence
+      frames:
+        - image: ui-pattern
+          durationMs: 2000
+      markers: []

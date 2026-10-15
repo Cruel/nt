@@ -126,6 +126,15 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
   }
 
   if (family === 'validate') return { ...projectRead, staticCompletion: 'authoring-cache' };
+  if (family === 'fmt')
+    return includes(command, '--check')
+      ? projectRead
+      : {
+          ...projectRead,
+          projectAccess: 'opaque-write',
+          executionClass: 'owner-mutation',
+          replaySafe: false,
+        };
   if (family === 'usages') return projectRead;
 
   if (family === 'asset') {
@@ -135,6 +144,7 @@ export function classifyNovelTeaCliCommand(command: readonly string[]): CliComma
   }
 
   if (family === 'entity') {
+    if (operation === 'inspect') return projectRead;
     if (operation === 'create' || operation === 'rename' || operation === 'delete')
       return projectMutation(command);
     return null;

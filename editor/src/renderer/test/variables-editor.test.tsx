@@ -24,7 +24,7 @@ describe('VariablesEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     const tab = { id: 'tab:variables', title: 'Variables', editorType: 'variables' };
     const view = render(<VariablesEditor tab={tab} />);
@@ -48,7 +48,7 @@ describe('VariablesEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(
@@ -86,7 +86,7 @@ describe('VariablesEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(
@@ -132,7 +132,7 @@ describe('VariablesEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(

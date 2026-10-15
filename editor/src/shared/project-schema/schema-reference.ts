@@ -61,6 +61,29 @@ import {
 import { PROJECT_WORKSPACE_SCHEMA_VERSION } from '../project-workspace/project-workspace-contracts';
 import { workspaceManifestSchema } from '../project-workspace/workspace-manifest-schema';
 import {
+  decodeVariableYaml,
+  encodeVariableYaml,
+  variableYamlSourceSchema,
+} from '../project-workspace/variable-yaml-source';
+import {
+  decodeSparseRecordYaml,
+  encodeSparseRecordYaml,
+  type SparseRecordFamily,
+} from '../project-workspace/sparse-record-yaml-source';
+import { defaultRoomData } from './authoring-rooms';
+import { defaultMapData } from './authoring-maps';
+import { defaultCharacterData } from './authoring-characters';
+import { defaultInteractableData } from './authoring-interactables';
+import { defaultVerbData } from './authoring-verbs';
+import { defaultInteractionData } from './authoring-interactions';
+import { defaultDialogueData } from './authoring-dialogues';
+import { defaultSceneData } from './authoring-scenes';
+import { defaultTestData } from './authoring-tests';
+import { defaultMaterialData } from './authoring-materials';
+import { defaultArchetypeData } from './authoring-archetypes';
+import { defaultLayoutData } from './authoring-layouts';
+import { projectWorkspaceSourceCodec } from '../project-workspace/project-workspace-source-codec';
+import {
   normalizeSchemaReference,
   renderSchemaDefinitions,
   renderSchemaNotation,
@@ -68,7 +91,7 @@ import {
   type SchemaReferenceModel,
   type SchemaReferenceNode,
 } from './schema-reference-model';
-import { schemaReferenceJson } from './schema-reference-json';
+import { sourceSchemaReferenceJson } from './schema-reference-source';
 import { withSchemaDocumentation } from './schema-documentation';
 
 const trackedEditorSchema = z
@@ -117,7 +140,8 @@ export const schemaSources = {
   'localization.schema.json': authoringLocalizationSchema,
   'editor.schema.json': trackedEditorSchema,
   'records/assets.schema.json': authoringRecordSchemas.assets,
-  'records/variables.schema.json': authoringRecordSchemas.variables,
+  'records/animations.schema.json': authoringRecordSchemas.animations,
+  'records/variables.schema.json': variableYamlSourceSchema,
   'records/materials.schema.json': authoringRecordSchemas.materials,
   'records/layouts.schema.json': persistedLayoutRecordSchema,
   'records/archetypes.schema.json': authoringRecordSchemas.archetypes,
@@ -224,12 +248,26 @@ function schemaTitle(relativePath: string): string {
   return `${base.charAt(0).toUpperCase()}${base.slice(1)} record`;
 }
 
+function sourceFamily(relativePath: string): SparseRecordFamily | 'layouts' | undefined {
+  if (!relativePath.startsWith('records/') || relativePath === 'records/variables.schema.json')
+    return undefined;
+  return relativePath.slice('records/'.length).replace('.schema.json', '') as
+    | SparseRecordFamily
+    | 'layouts';
+}
+
 export function createNovelTeaRawSchemaFiles(): Readonly<Record<string, string>> {
   return Object.freeze(
     Object.fromEntries(
       Object.entries(schemaSources).map(([relativePath, schema]) => [
         relativePath,
-        `${JSON.stringify(canonicalizeJson(schemaReferenceJson(schema, 'ref')), null, 2)}\n`,
+        `${JSON.stringify(
+          canonicalizeJson(
+            sourceSchemaReferenceJson(schema, { family: sourceFamily(relativePath) }),
+          ),
+          null,
+          2,
+        )}\n`,
       ]),
     ),
   );
@@ -247,6 +285,7 @@ export function createNovelTeaSchemaReferenceDocuments(): readonly NovelTeaSchem
           .split(' ')
           .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
           .join(''),
+        sourceSchemaReferenceJson(schema, { family: sourceFamily(relativePath) }),
       ),
     })),
   );
@@ -266,7 +305,11 @@ export function createNovelTeaWebsiteSchemaReference(): NovelTeaWebsiteSchemaRef
 function sharedReferenceModels(): readonly SchemaReferenceModel[] {
   sharedReferenceModelsCache ??= Object.freeze(
     Object.entries(sharedReferenceSchemaSources).map(([name, schema]) =>
-      normalizeSchemaReference(schema, name),
+      normalizeSchemaReference(
+        schema,
+        name,
+        sourceSchemaReferenceJson(schema, { sharedType: true }),
+      ),
     ),
   );
   return sharedReferenceModelsCache;
@@ -355,9 +398,9 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       '',
       'Generated from the canonical Project schemas. Read the relevant domain below before consulting raw JSON Schema.',
       '',
-      'Notation is structural documentation, not TypeScript or serialized JSON. `?` permits omission; `= value` supplies a default. Exact examples are JSON. All fields are required unless marked `?`. Numbers are finite JSON numbers. Objects reject unspecified keys unless an index signature (`[key: ...]`) is shown.',
+      'Notation describes tracked YAML source, not TypeScript or normalized runtime JSON. `?` permits omission; `?` without `= value` means absent, while `?` with `= value` uses that typed source default. Unmarked keys are required. Numbers are finite; objects reject unknown keys unless an index signature is shown. Source codecs expand declared defaults into the effective record during project reads, including validation, without writing them into authored YAML.',
       '',
-      'Examples are schema-checked fragments; referenced IDs still require matching Project declarations. Run `noveltea validate` for cross-record and contextual constraints that structural schemas cannot express.',
+      'Copy the checked YAML source examples, not the annotated normalized JSON fragments (which illustrate semantics but are not source templates). Statically collection-qualified references in record YAML are bare IDs; registry and polymorphic references remain qualified. Typed Conditions may use the scalar `always`. Referenced IDs still require matching Project declarations. Run read-only `noveltea validate` for cross-record and contextual constraints that structural schemas cannot express.',
       '',
       '- [Shared authoring types](common.md) — reusable IDs, references, conditions, commands, and other vocabulary used by multiple domains',
       ...documents.map((document) => `- [${document.title}](${document.id}.md)`),
@@ -385,6 +428,297 @@ export function createNovelTeaCompactReferenceFiles(): Readonly<Record<string, s
       '```',
       '',
     );
+    if (document.id === 'records/variables') {
+      const example = encodeVariableYaml({
+        id: 'story-flag',
+        label: 'Story Flag',
+        data: { type: 'boolean', value: false },
+      });
+      // Keep the human-readable example checked against the exact admitted source contract.
+      decodeVariableYaml(example);
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        'Variables use `records/variables/<id>.yaml`. The `data.kind` field is determined by the record family and must be omitted; the notation above gives the omission defaults for `nullable` and `scope`. `data.value` remains required.',
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+      );
+    }
+    if (
+      ['assets', 'animations', 'materials'].some((family) => document.id === `records/${family}`)
+    ) {
+      const family = document.id.slice('records/'.length) as 'assets' | 'animations' | 'materials';
+      const examples = {
+        assets: {
+          id: 'example-image',
+          label: 'Example Image',
+          data: {
+            kind: 'image',
+            source: { type: 'project-file', path: 'assets/example.png' },
+            aliases: [],
+            imageMetadata: { width: 64, height: 64, hasAlpha: true, orientation: 1 },
+          },
+        },
+        animations: {
+          id: 'example-animation',
+          label: 'Example Animation',
+          data: {
+            kind: 'animation',
+            canvas: { width: 64, height: 64 },
+            defaultMotionId: 'idle',
+            motions: [{ id: 'idle', kind: 'sprite-sequence', frames: [], markers: [] }],
+          },
+        },
+        materials: {
+          id: 'example-material',
+          label: 'Example Material',
+          data: defaultMaterialData('Example Material'),
+        },
+      };
+      const exampleRecord = authoringRecordSchemas[family].parse(examples[family]);
+      const example = encodeSparseRecordYaml(family, exampleRecord);
+      const decoded = decodeSparseRecordYaml(family, example);
+      if (!authoringRecordSchemas[family].safeParse(decoded).success)
+        throw new Error(`Generated ${family} YAML source violates its normalized schema.`);
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        `A ${family} record uses \`records/${family}/<id>.yaml\`; new records always use YAML. The record ID matches the filename. Asset \`data.kind\` is required because it identifies the asset type; Animation and Material kinds are implicit. Resource identity, import provenance, content hashes, animation timing, and material/shader settings are not discarded. Structured source uses restricted YAML; referenced media and shader files keep their original paths.`,
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+      );
+    }
+    if (['records/layouts', 'records/archetypes', 'records/scripts'].includes(document.id)) {
+      const label = 'Example';
+      let example: string;
+      if (document.id === 'records/layouts') {
+        const layout = defaultLayoutData(label);
+        const normalized = {
+          id: 'example-layout',
+          label,
+          data: {
+            ...layout,
+            rml: { sourceMode: 'file' },
+            rcss: { sourceMode: 'file' },
+            lua: { sourceMode: 'file' },
+          },
+        };
+        if (!persistedLayoutRecordSchema.safeParse(normalized).success)
+          throw new Error('Generated Layout YAML source violates the persisted source schema.');
+        example = projectWorkspaceSourceCodec('records/layouts/example-layout/layout.yaml').encode(
+          normalized,
+        );
+        if (
+          !persistedLayoutRecordSchema.safeParse(
+            projectWorkspaceSourceCodec('records/layouts/example-layout/layout.yaml').decode(
+              example,
+            ),
+          ).success
+        )
+          throw new Error('Generated Layout YAML example cannot be decoded.');
+      } else {
+        const family = document.id.slice('records/'.length) as 'archetypes' | 'scripts';
+        const record =
+          family === 'archetypes'
+            ? { id: 'example-archetype', label, data: defaultArchetypeData('room') }
+            : {
+                id: 'example-script',
+                label,
+                data: {
+                  kind: 'script-module',
+                  source: { kind: 'project-file', path: 'scripts/example-script.lua' },
+                },
+              };
+        const normalized = authoringRecordSchemas[family].parse(record);
+        example = encodeSparseRecordYaml(family, normalized);
+        if (
+          !authoringRecordSchemas[family].safeParse(decodeSparseRecordYaml(family, example)).success
+        )
+          throw new Error(`Generated ${family} YAML source is invalid.`);
+      }
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        'These records use restricted YAML with stable record identities and comments. Layout metadata lives in `records/layouts/<id>/layout.yaml`; RML, RCSS, and Lua remain separate companion files with explicit ownership selectors. Script Module YAML references canonical `scripts/*.lua` project files, never embeds Lua. Archetype overrides remain JSON Pointers, and inheritance and default-property semantics are unchanged.',
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+      );
+    }
+    if (
+      [
+        'rooms',
+        'maps',
+        'characters',
+        'interactables',
+        'verbs',
+        'interactions',
+        'dialogues',
+        'scenes',
+        'tests',
+      ].some((family) => document.id === `records/${family}`)
+    ) {
+      const family = document.id.slice('records/'.length) as Exclude<
+        SparseRecordFamily,
+        'assets' | 'animations' | 'materials' | 'archetypes' | 'scripts'
+      >;
+      const label = {
+        rooms: 'Example Room',
+        maps: 'Example Map',
+        characters: 'Example Character',
+        interactables: 'Example Interactable',
+        verbs: 'Example Verb',
+        interactions: 'Example Interaction',
+        dialogues: 'Example Dialogue',
+        scenes: 'Example Scene',
+        tests: 'Example Test',
+      }[family];
+      const data = {
+        rooms: () => defaultRoomData(label),
+        maps: () => defaultMapData(),
+        characters: () => defaultCharacterData(label),
+        interactables: () => defaultInteractableData(label),
+        verbs: () => defaultVerbData(label),
+        interactions: () => defaultInteractionData(),
+        dialogues: () => defaultDialogueData(label),
+        scenes: () => defaultSceneData(label),
+        tests: () => defaultTestData(label),
+      }[family]();
+      const example = encodeSparseRecordYaml(family, {
+        id: `example-${family.slice(0, -1)}`,
+        label,
+        data,
+      });
+      const decoded = decodeSparseRecordYaml(family, example);
+      if (!schemaSources[`records/${family}.schema.json`].safeParse(decoded).success)
+        throw new Error(`Generated ${family} YAML example violates its normalized schema.`);
+      lines.push(
+        '## Minimal YAML source',
+        '',
+        `A ${family} YAML owner uses \`records/${family}/<id>.yaml\`. This checked example expands to the strict normalized record. The record ID must match the filename; \`data.kind\` is implicit. Collection-qualified references use bare IDs; registry and polymorphic references remain qualified. A scalar \`always\` is accepted only for typed Conditions. The shape above shows source omissions and defaults, without UI starter placeholders. Identity, discriminators, typed Property values, and Character-local versus Interactable definition-default Properties remain explicit when required. For Verbs and Interactions, named slots, priority tiers and rule/Command order are semantic; Offer discovery is independent of direct execution and Guards, and \`unhandled\` must remain explicit to preserve fallback.`,
+        '',
+        '```yaml',
+        example.trimEnd(),
+        '```',
+        '',
+      );
+      if (family === 'verbs') {
+        const detailed = defaultVerbData('Inspect');
+        const inline = (text: string) => ({
+          source: { kind: 'inline' as const, text },
+          markup: 'plain' as const,
+        });
+        detailed.slots = [
+          {
+            id: 'object',
+            label: inline('Object'),
+            prompt: inline('Select {object}'),
+            selectors: [{ kind: 'any-subject' }],
+          },
+        ];
+        detailed.bindingOrder = ['object'];
+        detailed.completedCommandText = inline('Inspect {object}');
+        detailed.offers = [
+          {
+            id: 'inspect-objects',
+            slotId: 'object',
+            selectors: [{ kind: 'family', family: 'interactable' }],
+            rank: 0,
+            primary: false,
+          },
+        ];
+        detailed.defaultProgram.outcome = 'unhandled';
+        const authored = encodeSparseRecordYaml('verbs', {
+          id: 'inspect',
+          label: 'Inspect',
+          data: detailed,
+        });
+        authoringRecordSchemas.verbs.parse(decodeSparseRecordYaml('verbs', authored));
+        lines.push(
+          '## Authored discovery and direct-run example',
+          '',
+          'The Offer publishes Inspect in subject-first discovery for interactables. Named slots and binding order also allow a completed Inspect command to be submitted directly without finding an Offer. `defaultProgram: { outcome: unhandled }` passes an unhandled result onward to the Project and engine fallback; it must not be erased. A more specific matching Offer with a false Condition suppresses publication rather than falling back to this broader Offer. The rule below defines execution independently of discovery.',
+          '',
+          '```yaml',
+          authored.trimEnd(),
+          '```',
+          '',
+        );
+      }
+      if (family === 'interactions') {
+        const detailed = defaultInteractionData();
+        const exact = {
+          kind: 'exact' as const,
+          subject: {
+            kind: 'interactable' as const,
+            interactable: {
+              $ref: { registry: 'interactableInstances' as const, id: 'sealed-box' },
+            },
+          },
+        };
+        detailed.rules = [
+          {
+            id: 'narrow',
+            verb: { $ref: { collection: 'verbs', id: 'inspect' } },
+            slots: [{ slotId: 'object', selectors: [exact] }],
+            offer: null,
+            guard: { kind: 'not', condition: { kind: 'always' } },
+            priority: 10,
+            program: { instructions: [], completion: { kind: 'return' }, outcome: 'unhandled' },
+          },
+          {
+            id: 'broad',
+            verb: { $ref: { collection: 'verbs', id: 'inspect' } },
+            slots: [{ slotId: 'object', selectors: [{ kind: 'any-subject' }] }],
+            offer: { slotId: 'object', rank: 0, primary: false },
+            guard: { kind: 'always' },
+            priority: 0,
+            program: {
+              instructions: [
+                {
+                  id: 'show',
+                  kind: 'set-visible',
+                  subject: { kind: 'interaction-slot', slotId: 'object' },
+                  visible: true,
+                },
+                {
+                  id: 'enable',
+                  kind: 'set-enabled',
+                  subject: { kind: 'interaction-slot', slotId: 'object' },
+                  enabled: true,
+                },
+              ],
+              completion: { kind: 'return' },
+              outcome: 'handled',
+            },
+          },
+        ];
+        const authored = encodeSparseRecordYaml('interactions', {
+          id: 'inspect-rules',
+          label: 'Inspect Rules',
+          data: detailed,
+        });
+        authoringRecordSchemas.interactions.parse(decodeSparseRecordYaml('interactions', authored));
+        lines.push(
+          '## Authored resolution, fallback, and command-order example',
+          '',
+          'Both Rules refer to the `inspect` Verb example above. A false narrow Guard makes execution continue to the broad structural tier; its `offer: null` disables discovery for that Rule without disabling direct execution. Broad Offer discovery remains independent of the Guard. Commands run in their sequence order (`show` then `enable`). Nonzero priority survives encoding, and only priority within the same structural tier is comparable. Equal passing highest-priority Rules produce an analyzer ambiguity diagnostic rather than resolving by declaration order. `unhandled` continues the rule → Verb → Project → engine fallback chain.',
+          '',
+          '```yaml',
+          authored.trimEnd(),
+          '```',
+          '',
+        );
+      }
+    }
     files[`${document.id}.md`] = lines.join('\n');
   }
   compactReferenceFilesCache = Object.freeze(files);

@@ -1,0 +1,26 @@
+data:
+  dependencies:
+    data:
+      - feature-lab-catalog
+    fonts: []
+    images: []
+    materials: []
+    scripts: []
+    stylesheets: []
+  displayName: Feature Lab HUD
+  lua:
+    sourceMode: file
+  mount:
+    defaultParent: nt-layout-preview-mount
+    scopedStyles: true
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    additionalDependencies:
+      targets: []
+    enabled: true
+    namespace: feature_lab
+id: feature-lab-hud
+label: Feature Lab HUD

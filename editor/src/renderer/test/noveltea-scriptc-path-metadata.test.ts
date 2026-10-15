@@ -15,14 +15,14 @@ describe('ScriptC exact path metadata bridge', () => {
       });
     });
 
-    await expect(reader('/project/project.json')).resolves.toEqual({
+    await expect(reader('/project/project.yaml')).resolves.toEqual({
       kind: 'file',
       sourceIdentity: 'posix:7:11',
       byteSize: 42,
       mtimeNanoseconds: '1789510382695187527',
     });
     expect(calls).toEqual([
-      { operation: 'path-metadata', request: { path: '/project/project.json' } },
+      { operation: 'path-metadata', request: { path: '/project/project.yaml' } },
     ]);
   });
 
@@ -37,14 +37,14 @@ describe('ScriptC exact path metadata bridge', () => {
     const unavailable = createScriptcPathMetadataReader(() =>
       JSON.stringify({ ok: false, error: 'Exact metadata unavailable.' }),
     );
-    await expect(unavailable('/project/project.json')).rejects.toThrow(
+    await expect(unavailable('/project/project.yaml')).rejects.toThrow(
       'Exact metadata unavailable.',
     );
 
     const inexact = createScriptcPathMetadataReader(() =>
       JSON.stringify({ ok: true, kind: 'file', byteSize: 42, mtimeNanoseconds: 123 }),
     );
-    await expect(inexact('/project/project.json')).rejects.toThrow(
+    await expect(inexact('/project/project.yaml')).rejects.toThrow(
       'Native path metadata returned inexact metadata.',
     );
   });

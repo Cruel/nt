@@ -1,0 +1,16 @@
+id: board-highlight
+label: Custom board highlight
+data:
+  base:
+    kind: preset
+    preset: hotspot-overlay-custom
+  displayName: Custom board highlight
+  shader:
+    fragment:
+      kind: project
+      path: shaders/board-highlight.fs.sc
+  parameters: {}
+  textures: {}
+  preview:
+    geometry: sprite
+    background: checker

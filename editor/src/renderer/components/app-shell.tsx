@@ -6,6 +6,7 @@ import {
   type ReactNode,
 } from 'react';
 import { AppMenuBar } from './app-menu-bar';
+import { ProjectCommentConfirmationDialog } from '@/project/project-comment-confirmation';
 import { AppSidebar } from './app-sidebar';
 import { ResizeSeparatorOverlay } from './resize-separator';
 import { SidebarProvider, Sidebar, SidebarInset } from '@/components/ui/sidebar';
@@ -80,6 +81,7 @@ export function AppShell({ children }: AppShellProps) {
     >
       <div className="flex h-dvh w-dvw flex-col overflow-hidden">
         <AppMenuBar />
+        <ProjectCommentConfirmationDialog />
         <div className="flex min-h-0 flex-1 overflow-hidden">
           <Sidebar collapsible="icon" className="top-8 h-[calc(100svh-2rem)]">
             <AppSidebar />

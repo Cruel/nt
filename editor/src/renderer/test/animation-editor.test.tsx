@@ -36,7 +36,7 @@ beforeEach(() => {
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.json',
+    projectFilePath: '/mock/project/project.yaml',
   });
 });
 
@@ -64,7 +64,7 @@ it('adds a timed image frame to an empty manual Animation through the command bu
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.json',
+    projectFilePath: '/mock/project/project.yaml',
   });
   render(
     <AnimationEditor
@@ -164,11 +164,13 @@ it('shows short video capability notices with details in a tooltip, not on sprit
     video: { $ref: { collection: 'assets', id: 'video' } },
     markers: [],
   });
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.json',
-  });
+  expect(
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    }),
+  ).toBe(true);
   render(<AnimationEditor tab={tab} />);
   expect(screen.getByText('Hardware decoding may be unavailable')).toBeInTheDocument();
   expect(screen.queryByRole('alert')).toBeNull();
@@ -225,7 +227,7 @@ it('uses motion-relative video scrub, restart, and playback rather than independ
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'video-session',
     }),
   ).toBe(true);
@@ -284,12 +286,14 @@ it('confirms target FPS at authoring time before committing and preserves ration
       markers: [],
     },
   ];
-  useProjectStore.getState().loadProjectDocument({
-    document: project,
-    projectPath: '/mock/project',
-    projectFilePath: '/mock/project/project.json',
-    projectSessionId: 'video-session',
-  });
+  expect(
+    useProjectStore.getState().loadProjectDocument({
+      document: project,
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+      projectSessionId: 'video-session',
+    }),
+  ).toBe(true);
   vi.mocked(window.noveltea.probeVideoTimeline).mockResolvedValue({
     sampleTimesMs: Array.from({ length: 10 }, (_, index) => index * 100),
     endpointMs: 1000,

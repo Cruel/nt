@@ -29,12 +29,12 @@ describe('Asset discovery notification dismissal', () => {
       media('assets/images/b.png', '100:1'),
       media('assets/data/doc.json', '5:1', false),
     ];
-    expect(undisclosedAssetCandidates('/project/project.json', files)).toHaveLength(2);
-    dismissAssetCandidates('/project/project.json', [files[0]]);
-    expect(undisclosedAssetCandidates('/project/project.json', files)).toEqual([files[1]]);
-    expect(undisclosedAssetCandidates('/other/project.json', files)).toHaveLength(2);
+    expect(undisclosedAssetCandidates('/project/project.yaml', files)).toHaveLength(2);
+    dismissAssetCandidates('/project/project.yaml', [files[0]]);
+    expect(undisclosedAssetCandidates('/project/project.yaml', files)).toEqual([files[1]]);
+    expect(undisclosedAssetCandidates('/other/project.yaml', files)).toHaveLength(2);
     expect(
-      undisclosedAssetCandidates('/project/project.json', [media('assets/images/a.png', '100:2')]),
+      undisclosedAssetCandidates('/project/project.yaml', [media('assets/images/a.png', '100:2')]),
     ).toHaveLength(1);
     expect(files).toHaveLength(3);
   });

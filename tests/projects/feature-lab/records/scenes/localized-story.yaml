@@ -1,0 +1,74 @@
+id: localized-story
+label: localized-story
+data:
+  displayName: localized-story
+  stage:
+    kind: inherited
+  events:
+    - id: realize
+      label: realize
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: noveltea.notify(Text.msg('lab.greeting', {name='Ada'})); noveltea.notify(Text.msg_ref(assert(Game.prop('story-message')), {name='Ada'})); noveltea.notify(Text.plural(1, {one='One letter', other='{value} letters'})); noveltea.notify(Text.select('sealed', {sealed='Sealed letter', other='Open letter'})); noveltea.notify(Text.tr('Managed letter for {name}', {name='Ada'})); assert(noveltea.layouts.mount('language-board', 'language-board', {owner='session'}))
+      mayYield: false
+    - id: story
+      label: story
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: lua-expression
+          source: return Text.msg('lab.greeting', {name='Ada'})
+          additionalDependencies:
+            targets: []
+        markup: plain
+      speaker: null
+      wait: input
+    - id: read-count
+      label: Read current letter grammar
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: local count=assert(Game.prop('story-count')); noveltea.notify(Text.msg('lab.letters', {count=count, kind=count == 2 and 'sealed' or 'open', amount=1234.5}))
+      mayYield: false
+    - id: choice
+      label: choice
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: choice
+      prompt: null
+      options:
+        - id: read
+          label:
+            source:
+              kind: localized
+              key: lab.read
+            markup: plain
+          condition: always
+          targetStepId: end
+    - id: end
+      label: end
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Open Text Log and switch language in Settings. The earlier greeting and choice retain captured arguments; the Scene Lua notifications must not rerun. Save, switch language, and load to read the same semantic occurrence in the current client locale.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

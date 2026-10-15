@@ -33,7 +33,7 @@ function zeroDigest(byteCount: number) {
 function tempProject(name = 'project') {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), `noveltea-original-${name}-`));
   roots.push(root);
-  const projectFilePath = path.join(root, 'project.json');
+  const projectFilePath = path.join(root, 'project.yaml');
   fs.writeFileSync(projectFilePath, '{}');
   fs.mkdirSync(path.join(root, 'assets', 'images'), { recursive: true });
   return { root, projectFilePath };

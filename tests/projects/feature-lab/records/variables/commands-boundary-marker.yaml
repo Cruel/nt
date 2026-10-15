@@ -1,0 +1,5 @@
+id: commands-boundary-marker
+label: Commands Boundary Marker
+data:
+  type: string
+  value: idle

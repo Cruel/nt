@@ -1,0 +1,26 @@
+id: lab-archetype-instance-definition
+label: Archetype-backed Specimen
+archetype: lab-archetype-specimen
+archetypeOverrides: {}
+traits: []
+defaultProperties: []
+data:
+  displayName: Stale local snapshot
+  stackable: false
+  stackLimit: null
+  presentation:
+    visual:
+      kind: image
+      image: pilot-button-sprite
+    cursor: null
+    hotspots:
+      kind: visual-alpha
+      hotspot:
+        id: archetype-backed
+        label: Archetype-backed specimen
+        condition: always
+        inputOrder: 0
+        highlight:
+          kind: default
+        target:
+          kind: owner

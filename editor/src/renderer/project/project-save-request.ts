@@ -127,6 +127,7 @@ export function buildProjectContentSaveRequest(input: {
   affectedPaths: readonly JsonPointer[];
   operationLabel: string;
   identityRemap?: ProjectContentSaveRequest['identityRemap'];
+  sourceRestorations?: ProjectContentSaveRequest['sourceRestorations'];
   structural?: boolean;
   assetTransition?: ProjectContentSaveRequest['assetTransition'];
   baselineScriptSourcePaths?: Readonly<Record<string, string>>;
@@ -153,6 +154,9 @@ export function buildProjectContentSaveRequest(input: {
       candidateScriptSourcePaths: input.candidateScriptSourcePaths,
     }),
     ...(input.identityRemap === undefined ? {} : { identityRemap: input.identityRemap }),
+    ...(input.sourceRestorations === undefined
+      ? {}
+      : { sourceRestorations: input.sourceRestorations }),
     ...(input.structural === undefined ? {} : { structural: input.structural }),
     ...(input.assetTransition === undefined ? {} : { assetTransition: input.assetTransition }),
   };

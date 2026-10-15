@@ -77,7 +77,7 @@ describe('workbench tabs', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     const roomTab: WorkbenchTab = {
       id: 'tab:room-detail:rooms:foyer',

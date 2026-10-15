@@ -150,7 +150,7 @@ function coverageFingerprint(
 /**
  * Reproject only edited named Message texts, without rebuilding structural,
  * Script, and Layout localization source views. The caller must independently
- * prove that i18n/messages.json was the sole changed physical input.
+ * prove that the tracked i18n/messages source was the sole changed physical input.
  */
 export function updateFontCoverageForMessageEdits(
   before: AuthoringProject,

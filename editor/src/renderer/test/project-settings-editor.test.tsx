@@ -145,7 +145,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: source,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'project-a',
     });
     let finishInspection!: (value: { path: string; exists: boolean }) => void;
@@ -180,7 +180,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'project-a',
     });
     let finishInspection!: (value: { path: string; exists: boolean }) => void;
@@ -200,7 +200,7 @@ describe('ProjectSettingsEditor', () => {
       useProjectStore.getState().loadProjectDocument({
         document: project(),
         projectPath: '/other',
-        projectFilePath: '/other/project.json',
+        projectFilePath: '/other/project.yaml',
         projectSessionId: 'project-b',
       }),
     );
@@ -225,7 +225,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: source,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Asset Memory');
@@ -257,7 +257,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Display');
@@ -279,7 +279,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
 
@@ -301,7 +301,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
 
     render(<ProjectSettingsEditor tab={tab} />);
@@ -340,7 +340,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Audio');
@@ -386,7 +386,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: nextProject,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Transitions');
@@ -443,7 +443,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
 
@@ -486,7 +486,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
 
@@ -519,7 +519,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Display');
@@ -583,7 +583,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Display');
@@ -641,7 +641,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     const firstRender = render(<ProjectSettingsEditor tab={tab} />);
 
@@ -673,7 +673,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
 
@@ -707,7 +707,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Runtime');
@@ -721,7 +721,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Runtime');
@@ -767,7 +767,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Runtime');
@@ -812,7 +812,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Integrations');
@@ -884,7 +884,7 @@ describe('ProjectSettingsEditor', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project(),
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
     });
     render(<ProjectSettingsEditor tab={tab} />);
     selectProjectSettingsCategory('Integrations');

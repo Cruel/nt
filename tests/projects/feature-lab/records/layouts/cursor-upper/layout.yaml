@@ -1,0 +1,20 @@
+data:
+  contract: {}
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  displayName: cursor-upper
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: cursor_upper
+id: cursor-upper
+label: cursor-upper

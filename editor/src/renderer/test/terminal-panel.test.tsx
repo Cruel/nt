@@ -479,7 +479,7 @@ describe('Terminal bottom panel', () => {
       useProjectStore.getState().loadProjectDocument({
         document: createAuthoringProject(),
         projectPath: '/mock/other',
-        projectFilePath: '/mock/other/project.json',
+        projectFilePath: '/mock/other/project.yaml',
       });
     });
     view.rerender(<BottomPanel />);

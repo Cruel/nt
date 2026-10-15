@@ -192,6 +192,8 @@ export interface ShaderCompileResponse {
 }
 
 export interface SaveProjectResponse {
+  commentImpacts?: readonly import('./project-workspace/project-workspace-service').ProjectWorkspaceCommentImpact[];
+  deletedSourceTexts?: Readonly<Record<string, string>>;
   ok: boolean;
   success: boolean;
   projectPath?: string;
@@ -210,6 +212,8 @@ export interface SaveProjectResponse {
 export type ProjectMutationPathValue = { exists: false } | { exists: true; value: unknown };
 
 export interface ProjectContentSaveRequest {
+  commentConfirmation?: { token: string; decision: 'keep' | 'remove' | 'delete' };
+  sourceRestorations?: Record<string, string>;
   saveUnitIds: string[];
   affectedPaths: string[];
   baseValueByPath: Record<string, ProjectMutationPathValue>;
@@ -224,6 +228,10 @@ export interface ProjectContentSaveRequest {
 }
 
 export interface ProjectContentSaveResponse {
+  commentConfirmationRequired?: boolean;
+  commentConfirmationToken?: string;
+  commentImpacts?: readonly import('./project-workspace/project-workspace-service').ProjectWorkspaceCommentImpact[];
+  deletedSourceTexts?: Readonly<Record<string, string>>;
   ok: boolean;
   success: boolean;
   projectPath?: string;
@@ -239,6 +247,10 @@ export interface ProjectContentSaveResponse {
 }
 
 export interface ProjectWorkspaceCommitOptions {
+  requireCommentConfirmation?: boolean;
+  commentConfirmation?: ProjectContentSaveRequest['commentConfirmation'];
+  sourceRestorations?: Record<string, string>;
+  identityRemap?: Array<{ fromPath: string; toPath: string }>;
   expectedFileRevisions: Record<string, `sha256:${string}`>;
   saveUnitIds?: string[];
   baselineProject?: unknown;

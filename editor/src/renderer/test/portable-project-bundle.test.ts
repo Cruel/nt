@@ -1,3 +1,4 @@
+import { parse as parseYaml, stringify as stringifyYaml } from 'yaml';
 import { createHash } from 'node:crypto';
 import { promises as fs } from 'node:fs';
 import os from 'node:os';
@@ -133,13 +134,22 @@ async function createPortableFixture(root: string): Promise<{
     },
   );
   expect(created.exitCode).toBe(0);
+  expect(await fs.readdir(path.join(projectRoot, 'i18n'))).toEqual(
+    expect.arrayContaining([
+      'project.yaml',
+      'messages.yaml',
+      'usage-notes.yaml',
+      'tracking.yaml',
+      'orphans.yaml',
+    ]),
+  );
   const roomCreated = await runNovelTeaCli(
     ['--project', projectRoot, 'entity', 'create', 'rooms', 'start'],
     { cwd: root },
   );
   expect(roomCreated.exitCode).toBe(0);
-  const projectManifestPath = path.join(projectRoot, 'project.json');
-  const projectManifest = JSON.parse(await fs.readFile(projectManifestPath, 'utf8')) as Record<
+  const projectManifestPath = path.join(projectRoot, 'project.yaml');
+  const projectManifest = parseYaml(await fs.readFile(projectManifestPath, 'utf8')) as Record<
     string,
     unknown
   >;
@@ -164,7 +174,7 @@ async function createPortableFixture(root: string): Promise<{
     'redistribution terms\n',
   );
   await fs.writeFile(path.join(projectRoot, 'support/licenses/project.md'), 'Project terms\r\n');
-  const authoredProject = JSON.parse(await fs.readFile(projectManifestPath, 'utf8')) as {
+  const authoredProject = parseYaml(await fs.readFile(projectManifestPath, 'utf8')) as {
     settings: Record<string, unknown>;
   };
   authoredProject.settings.distributionNotices = [{ path: 'support/licenses/project.md' }];
@@ -180,9 +190,9 @@ async function createPortableFixture(root: string): Promise<{
   const assetFile = path.join(
     projectRoot,
     'records/assets',
-    assetFiles.find((name) => name.endsWith('.json'))!,
+    assetFiles.find((name) => name.endsWith('.yaml'))!,
   );
-  const record = JSON.parse(await fs.readFile(assetFile, 'utf8')) as {
+  const record = parseYaml(await fs.readFile(assetFile, 'utf8')) as {
     data: Record<string, unknown>;
   };
   record.data.attachments = [
@@ -196,31 +206,51 @@ async function createPortableFixture(root: string): Promise<{
   await fs.mkdir(path.join(projectRoot, 'records', 'materials'), { recursive: true });
   await fs.mkdir(path.join(projectRoot, 'shaders'), { recursive: true });
   await fs.writeFile(
-    path.join(projectRoot, 'records', 'materials', 'portable.json'),
-    `${JSON.stringify(
-      {
-        id: 'portable',
-        label: 'Portable Material',
-        data: {
-          kind: 'material',
-          base: { kind: 'preset', preset: 'engine-2d' },
-          displayName: 'Portable Material',
-          shader: {
-            vertex: { kind: 'project', path: 'shaders/portable.vs.sc' },
-            fragment: { kind: 'project', path: 'shaders/portable.fs.sc' },
-          },
-          parameters: {},
-          textures: {},
-          preview: { geometry: 'quad', background: 'checker' },
+    path.join(projectRoot, 'records', 'materials', 'portable.yaml'),
+    `${stringifyYaml({
+      id: 'portable',
+      label: 'Portable Material',
+      data: {
+        base: { kind: 'preset', preset: 'engine-2d' },
+        displayName: 'Portable Material',
+        shader: {
+          vertex: { kind: 'project', path: 'shaders/portable.vs.sc' },
+          fragment: { kind: 'project', path: 'shaders/portable.fs.sc' },
         },
+        parameters: {},
+        textures: {},
+        preview: { geometry: 'quad', background: 'checker' },
       },
-      null,
-      2,
-    )}\n`,
+    })}\n`,
     'utf8',
   );
   await fs.writeFile(path.join(projectRoot, 'shaders', 'portable.vs.sc'), 'void main() {}\n');
   await fs.writeFile(path.join(projectRoot, 'shaders', 'portable.fs.sc'), 'void main() {}\n');
+
+  // A Layout's direct script dependency is owned source even when no Script Module
+  // record or Asset record points to the same file.
+  const layoutRoot = path.join(projectRoot, 'records', 'layouts', 'hud');
+  await fs.mkdir(layoutRoot, { recursive: true });
+  await fs.mkdir(path.join(projectRoot, 'scripts'), { recursive: true });
+  await fs.writeFile(path.join(projectRoot, 'scripts/hud-helper.lua'), 'return {}\n');
+  await fs.writeFile(path.join(layoutRoot, 'layout.rml'), '<rml><head/><body/></rml>\n');
+  await fs.writeFile(path.join(layoutRoot, 'layout.rcss'), 'body { color: white; }\n');
+  await fs.writeFile(
+    path.join(layoutRoot, 'layout.yaml'),
+    stringifyYaml({
+      id: 'hud',
+      label: 'HUD',
+      data: {
+        layoutKind: 'document',
+        displayName: 'HUD',
+        target: 'default-ui',
+        rml: { sourceMode: 'file' },
+        rcss: { sourceMode: 'file' },
+        lua: { sourceMode: 'none' },
+        dependencies: { scripts: ['scripts/hud-helper.lua'] },
+      },
+    }),
+  );
 
   await fs.mkdir(path.join(projectRoot, 'workflows', 'image'), { recursive: true });
   await fs.writeFile(
@@ -251,7 +281,7 @@ async function createPortableFixture(root: string): Promise<{
     { cwd: root },
   );
   expect(exported.exitCode).toBe(0);
-  expect(JSON.parse(exported.stdout)).toMatchObject({
+  expect(parseYaml(exported.stdout)).toMatchObject({
     success: true,
     bundleSchema: 'noveltea.project.bundle',
     bundleVersion: 1,
@@ -290,11 +320,14 @@ describe('portable .ntproject Project bundle', () => {
     expect(await fs.readFile(path.join(destination, 'support/other/raw.dat'))).toEqual(
       Buffer.from([0, 255, 128]),
     );
+    expect(await fs.readFile(path.join(destination, 'scripts/hud-helper.lua'), 'utf8')).toBe(
+      'return {}\n',
+    );
     await expect(
       fs.stat(path.join(destination, 'support/other/unreferenced.dat')),
     ).rejects.toMatchObject({ code: 'ENOENT' });
-    const projectManifest = JSON.parse(
-      await fs.readFile(path.join(destination, 'project.json'), 'utf8'),
+    const projectManifest = parseYaml(
+      await fs.readFile(path.join(destination, 'project.yaml'), 'utf8'),
     );
     expect(projectManifest.project.name).toBe('Renamed Import');
   });
@@ -329,8 +362,8 @@ describe('portable .ntproject Project bundle', () => {
     });
 
     expect(result).toMatchObject({ success: true, projectPath: destination });
-    const projectManifest = JSON.parse(
-      await fs.readFile(path.join(destination, 'project.json'), 'utf8'),
+    const projectManifest = parseYaml(
+      await fs.readFile(path.join(destination, 'project.yaml'), 'utf8'),
     );
     expect(projectManifest.project.name).toBe('Remote Fixture');
   });
@@ -377,7 +410,7 @@ describe('portable .ntproject Project bundle', () => {
       { cwd: root },
     );
     expect(imported.exitCode, imported.stdout || imported.stderr).toBe(0);
-    expect(JSON.parse(imported.stdout)).toMatchObject({
+    expect(parseYaml(imported.stdout)).toMatchObject({
       success: true,
       projectRoot: destination,
       bundleSchema: 'noveltea.project.bundle',
@@ -393,8 +426,8 @@ describe('portable .ntproject Project bundle', () => {
       nativeTools: validationNativeTools(),
     });
     expect(validated.exitCode, validated.stdout || validated.stderr).toBe(0);
-    expect(await fs.readFile(path.join(destination, 'project.json'), 'utf8')).toBe(
-      await fs.readFile(path.join(projectRoot, 'project.json'), 'utf8'),
+    expect(await fs.readFile(path.join(destination, 'project.yaml'), 'utf8')).toBe(
+      await fs.readFile(path.join(projectRoot, 'project.yaml'), 'utf8'),
     );
     expect(
       await fs.readFile(path.join(destination, 'workflows', 'image', 'manifest.json'), 'utf8'),
@@ -436,7 +469,7 @@ describe('portable .ntproject Project bundle', () => {
       { cwd: root },
     );
     expect(unsupportedResult.exitCode).toBe(4);
-    expect(JSON.parse(unsupportedResult.stdout)).toMatchObject({
+    expect(parseYaml(unsupportedResult.stdout)).toMatchObject({
       success: false,
       diagnostics: [{ code: 'PROJECT_BUNDLE_INVALID' }],
     });
@@ -453,7 +486,7 @@ describe('portable .ntproject Project bundle', () => {
       { cwd: root },
     );
     expect(malformedResult.exitCode).toBe(4);
-    expect(JSON.parse(malformedResult.stdout)).toMatchObject({
+    expect(parseYaml(malformedResult.stdout)).toMatchObject({
       success: false,
       diagnostics: [{ code: 'PROJECT_BUNDLE_INVALID' }],
     });
@@ -472,29 +505,29 @@ describe('portable .ntproject Project bundle', () => {
       { cwd: root },
     );
     expect(digestMismatchResult.exitCode).toBe(4);
-    expect(JSON.parse(digestMismatchResult.stdout)).toMatchObject({
+    expect(parseYaml(digestMismatchResult.stdout)).toMatchObject({
       success: false,
       diagnostics: [{ code: 'PROJECT_BUNDLE_INVALID' }],
     });
     await expect(fs.stat(digestMismatchDestination)).rejects.toMatchObject({ code: 'ENOENT' });
 
-    const projectText = storedEntryText(bundleBytes, 'project.json');
+    const projectText = storedEntryText(bundleBytes, 'project.yaml');
     const invalidProjectText = projectText.replace(
       'noveltea.project.workspace',
       'noveltea.project.workspacx',
     );
     expect(invalidProjectText).not.toBe(projectText);
-    const manifest = JSON.parse(storedEntryText(bundleBytes, 'ntproject.json')) as {
+    const manifest = parseYaml(storedEntryText(bundleBytes, 'ntproject.json')) as {
       files: Array<{ path: string; sha256: string }>;
     };
-    const projectEntry = manifest.files.find((entry) => entry.path === 'project.json');
+    const projectEntry = manifest.files.find((entry) => entry.path === 'project.yaml');
     expect(projectEntry).toBeDefined();
     const invalidProjectHash = `sha256:${createHash('sha256')
       .update(invalidProjectText, 'utf8')
       .digest('hex')}`;
     const withInvalidProject = patchStoredEntryData(
       bundleBytes,
-      'project.json',
+      'project.yaml',
       () => invalidProjectText,
     );
     const invalidProjectBundle = patchStoredEntryData(
@@ -510,21 +543,21 @@ describe('portable .ntproject Project bundle', () => {
       { cwd: root },
     );
     expect(invalidProjectResult.exitCode).toBe(4);
-    expect(JSON.parse(invalidProjectResult.stdout)).toMatchObject({
+    expect(parseYaml(invalidProjectResult.stdout)).toMatchObject({
       success: false,
       diagnostics: [{ code: 'PROJECT_BUNDLE_PROJECT_INVALID' }],
     });
     await expect(fs.stat(invalidProjectDestination)).rejects.toMatchObject({ code: 'ENOENT' });
 
     const unsafePath = path.join(root, 'unsafe.ntproject');
-    await fs.writeFile(unsafePath, patchEntryPath(bundleBytes, 'editor.json', '../evil.txt'));
+    await fs.writeFile(unsafePath, patchEntryPath(bundleBytes, 'editor.yaml', '../evil.txt'));
     const unsafeDestination = path.join(root, 'unsafe-project');
     const unsafeResult = await runNovelTeaCli(
       ['--json', 'project', 'import', unsafePath, unsafeDestination],
       { cwd: root },
     );
     expect(unsafeResult.exitCode).toBe(4);
-    expect(JSON.parse(unsafeResult.stdout)).toMatchObject({
+    expect(parseYaml(unsafeResult.stdout)).toMatchObject({
       success: false,
       diagnostics: [{ code: 'PROJECT_BUNDLE_INVALID' }],
     });
@@ -546,7 +579,7 @@ describe('portable .ntproject Project bundle', () => {
       { cwd: root },
     );
     expect(excludedResult.exitCode).toBe(4);
-    expect(JSON.parse(excludedResult.stdout)).toMatchObject({
+    expect(parseYaml(excludedResult.stdout)).toMatchObject({
       success: false,
       diagnostics: [{ code: 'PROJECT_BUNDLE_INVALID' }],
     });

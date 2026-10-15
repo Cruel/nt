@@ -77,8 +77,14 @@ export async function advanceExternallyUpdatedAssetSourceBaselines(
       snapshot.project,
       snapshot.project.editor,
       snapshot.scriptSourcePaths,
+      new Set(snapshot.canonicalSourceFiles),
     );
-    const after = projectWorkspaceFiles(candidate, candidate.editor, snapshot.scriptSourcePaths);
+    const after = projectWorkspaceFiles(
+      candidate,
+      candidate.editor,
+      snapshot.scriptSourcePaths,
+      new Set(snapshot.canonicalSourceFiles),
+    );
     const targetFiles = [...new Set([...Object.keys(before), ...Object.keys(after)])]
       .filter((file) => before[file] !== after[file])
       .sort();

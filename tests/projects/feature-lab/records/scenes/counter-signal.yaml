@@ -1,0 +1,51 @@
+id: counter-signal
+label: Typed Layout signal receiver
+data:
+  displayName: Typed Layout signal receiver
+  stage:
+    kind: inherited
+  events:
+    - id: mount
+      label: Mount exact signal sender
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-layout
+      owner: invocation
+      layout: flow-counter
+      action: show
+      slot: custom
+      transition: none
+      durationMs: 0
+    - id: receive
+      label: Wait for accepted(count)
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: layout-signal
+      owner: invocation
+      slot: custom
+      signalId: accepted
+      skippable: false
+    - id: acknowledge
+      label: Receiver advanced
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: The exact Flow-owned counter emitted its declared accepted(count) signal and released this Scene wait. A signal from the Room/session/visit panels must not release this wait. Continue to end the receiver and its panel.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

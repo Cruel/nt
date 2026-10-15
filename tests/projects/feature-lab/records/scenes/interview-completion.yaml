@@ -1,0 +1,28 @@
+id: interview-completion
+label: interview-completion
+data:
+  displayName: interview-completion
+  stage:
+    kind: inherited
+  events:
+    - id: return-call
+      label: return-call
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-dialogue
+      dialogue: interview-return
+      startBlockId: null
+    - id: room-call
+      label: room-call
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: call-dialogue
+      dialogue: interview-room
+      startBlockId: null
+  terminal:
+    kind: return
+    outcome: null

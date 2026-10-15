@@ -208,12 +208,13 @@ TempProjectRoot temp_project_root(std::string_view suffix)
                       ("noveltea-project-authority-" + std::string(suffix) + "-" +
                        std::to_string(std::chrono::steady_clock::now().time_since_epoch().count()));
     std::filesystem::create_directories(path);
-    write_project_file(path / "project.json", "{}\n");
-    write_project_file(path / "editor.json", "{}\n");
-    write_project_file(path / "traits.json", "{}\n");
-    write_project_file(path / "records/room.json", "{\"id\":\"room\"}\n");
+    write_project_file(path / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
+    write_project_file(path / "editor.yaml", "{}\n");
+    write_project_file(path / "traits.yaml", "{}\n");
+    write_project_file(path / "records/room.yaml", "id: room\n");
     write_project_file(path / "scripts/main.lua", "return true\n");
-    write_project_file(path / "i18n/en.json", "{}\n");
+    write_project_file(path / "i18n/locales/en.yaml", "{}\n");
     write_project_file(path / "records/ignored.txt", "ignored\n");
     return TempProjectRoot{path};
 }
@@ -224,15 +225,15 @@ project_authority_request(const std::filesystem::path& root)
     using noveltea::tooling::daemon::ProjectSourceDiscoveryScope;
     return {
         .project_root = root,
-        .authoritative_paths = {"project.json", "editor.json", "traits.json"},
+        .authoritative_paths = {"project.yaml", "editor.yaml", "traits.yaml"},
         .discovery_scopes =
             {
                 ProjectSourceDiscoveryScope{
                     .root = "records",
-                    .extensions = {".json", ".lua", ".rcss", ".rml"},
+                    .extensions = {".yaml", ".lua", ".rcss", ".rml"},
                 },
                 ProjectSourceDiscoveryScope{.root = "scripts", .extensions = {".lua"}},
-                ProjectSourceDiscoveryScope{.root = "i18n", .extensions = {".json"}},
+                ProjectSourceDiscoveryScope{.root = "i18n", .extensions = {".yaml"}},
             },
     };
 }
@@ -273,8 +274,8 @@ TEST_CASE("Project authority batches unchanged and add-change-remove observation
     CHECK(first.delta.changed.empty());
     CHECK(first.delta.removed.empty());
     CHECK(manifest_paths(first.manifest) ==
-          std::vector<std::string>{"editor.json", "i18n/en.json", "project.json",
-                                   "records/room.json", "scripts/main.lua", "traits.json"});
+          std::vector<std::string>{"editor.yaml", "i18n/locales/en.yaml", "project.yaml",
+                                   "records/room.yaml", "scripts/main.lua", "traits.yaml"});
     for (const auto& entry : first.manifest.entries) {
         CHECK_FALSE(entry.source_identity.empty());
         CHECK(entry.byte_size > 0);
@@ -290,15 +291,15 @@ TEST_CASE("Project authority batches unchanged and add-change-remove observation
     CHECK(unchanged.delta.changed.empty());
     CHECK(unchanged.delta.removed.empty());
 
-    write_project_file(root.path / "records/room.json", "{\"id\":\"room-2\"}\n");
-    write_project_file(root.path / "records/new.json", "{}\n");
+    write_project_file(root.path / "records/room.yaml", "id: room-2\n");
+    write_project_file(root.path / "records/new.yaml", "{}\n");
     std::filesystem::remove(root.path / "scripts/main.lua");
     write_project_file(root.path / "records/ignored.txt", "unrelated change\n");
 
     const auto changed = authority.observe(project_authority_request(root.path));
     CHECK_FALSE(changed.unchanged);
-    CHECK(changed.delta.added == std::vector<std::string>{"records/new.json"});
-    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(changed.delta.added == std::vector<std::string>{"records/new.yaml"});
+    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.yaml"});
     CHECK(changed.delta.removed == std::vector<std::string>{"scripts/main.lua"});
     const auto changed_paths = manifest_paths(changed.manifest);
     CHECK(std::find(changed_paths.begin(), changed_paths.end(), "records/ignored.txt") ==
@@ -339,14 +340,14 @@ TEST_CASE("Project authority detects same-path same-metadata physical source rep
     const auto first = authority.observe(project_authority_request(root.path));
     const auto before =
         std::find_if(first.manifest.entries.begin(), first.manifest.entries.end(),
-                     [](const auto& entry) { return entry.path == "records/room.json"; });
+                     [](const auto& entry) { return entry.path == "records/room.yaml"; });
     REQUIRE(before != first.manifest.entries.end());
     REQUIRE(before->mtime_nanoseconds.has_value());
 
-    const auto source_path = root.path / "records/room.json";
+    const auto source_path = root.path / "records/room.yaml";
     const auto replacement_path = root.path / "records/room-replacement.tmp";
     const auto original_write_time = std::filesystem::last_write_time(source_path);
-    write_project_file(replacement_path, "{\"id\":\"ROOM\"}\n");
+    write_project_file(replacement_path, "id: ROOM\n");
     REQUIRE(std::filesystem::file_size(replacement_path) == before->byte_size);
     std::filesystem::last_write_time(replacement_path, original_write_time);
     std::filesystem::remove(source_path);
@@ -355,12 +356,12 @@ TEST_CASE("Project authority detects same-path same-metadata physical source rep
     const auto replaced = authority.observe(project_authority_request(root.path));
     const auto after =
         std::find_if(replaced.manifest.entries.begin(), replaced.manifest.entries.end(),
-                     [](const auto& entry) { return entry.path == "records/room.json"; });
+                     [](const auto& entry) { return entry.path == "records/room.yaml"; });
     REQUIRE(after != replaced.manifest.entries.end());
     CHECK(after->byte_size == before->byte_size);
     CHECK(after->mtime_nanoseconds == before->mtime_nanoseconds);
     CHECK(after->source_identity != before->source_identity);
-    CHECK(replaced.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(replaced.delta.changed == std::vector<std::string>{"records/room.yaml"});
 }
 
 TEST_CASE("Project authority reports exact authoritative source deletion and restoration")
@@ -370,18 +371,18 @@ TEST_CASE("Project authority reports exact authoritative source deletion and res
     ProjectAuthorityManager authority({.enable_native_watcher = false});
     REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
 
-    std::filesystem::remove(root.path / "traits.json");
+    std::filesystem::remove(root.path / "traits.yaml");
     const auto removed = authority.observe(project_authority_request(root.path));
     CHECK(removed.delta.added.empty());
     CHECK(removed.delta.changed.empty());
-    CHECK(removed.delta.removed == std::vector<std::string>{"traits.json"});
+    CHECK(removed.delta.removed == std::vector<std::string>{"traits.yaml"});
     CHECK(manifest_paths(removed.manifest) ==
-          std::vector<std::string>{"editor.json", "i18n/en.json", "project.json",
-                                   "records/room.json", "scripts/main.lua"});
+          std::vector<std::string>{"editor.yaml", "i18n/locales/en.yaml", "project.yaml",
+                                   "records/room.yaml", "scripts/main.lua"});
 
-    write_project_file(root.path / "traits.json", "{}\n");
+    write_project_file(root.path / "traits.yaml", "{}\n");
     const auto restored = authority.observe(project_authority_request(root.path));
-    CHECK(restored.delta.added == std::vector<std::string>{"traits.json"});
+    CHECK(restored.delta.added == std::vector<std::string>{"traits.yaml"});
     CHECK(restored.delta.changed.empty());
     CHECK(restored.delta.removed.empty());
 }
@@ -394,8 +395,8 @@ TEST_CASE("Project authority watcher dirtiness coalesces and unknown state force
     const auto initial = authority.observe(project_authority_request(root.path));
     REQUIRE(initial.manifest.entries.size() == 6);
 
-    authority.notify_path_changed(root.path, "records/room.json", false);
-    authority.notify_path_changed(root.path, "records/room.json", false);
+    authority.notify_path_changed(root.path, "records/room.yaml", false);
+    authority.notify_path_changed(root.path, "records/room.yaml", false);
     authority.notify_path_changed(root.path, "scripts/main.lua", false);
     authority.notify_path_changed(root.path, "records/ignored.txt", false);
     const auto dirty = authority.status(root.path);
@@ -403,13 +404,13 @@ TEST_CASE("Project authority watcher dirtiness coalesces and unknown state force
     CHECK(dirty->state == ProjectAuthorityState::dirty);
     CHECK(dirty->has_manifest);
     CHECK(dirty->pending_paths ==
-          std::vector<std::string>{"records/room.json", "scripts/main.lua"});
+          std::vector<std::string>{"records/room.yaml", "scripts/main.lua"});
 
     const auto coalesced = authority.observe(project_authority_request(root.path));
     CHECK(coalesced.previous_state == ProjectAuthorityState::dirty);
     CHECK(coalesced.unchanged);
     CHECK(coalesced.watcher_paths ==
-          std::vector<std::string>{"records/room.json", "scripts/main.lua"});
+          std::vector<std::string>{"records/room.yaml", "scripts/main.lua"});
     CHECK_FALSE(coalesced.full_rescan);
 
     authority.notify_watcher_unknown(root.path);
@@ -434,8 +435,8 @@ TEST_CASE("Project authority native watcher revokes relevant proofs and ignores 
     ProjectAuthorityManager authority;
     REQUIRE(authority.observe(project_authority_request(root.path)).manifest.entries.size() == 6);
 
-    write_project_file(root.path / "records/room.json", "{\"id\":\"room-a\"}\n");
-    write_project_file(root.path / "records/room.json", "{\"id\":\"room-b\"}\n");
+    write_project_file(root.path / "records/room.yaml", "id: room-a\n");
+    write_project_file(root.path / "records/room.yaml", "id: room-b\n");
     for (int attempt = 0; attempt < 100; ++attempt) {
         const auto status = authority.status(root.path);
         if (status && status->state == ProjectAuthorityState::dirty)
@@ -446,11 +447,11 @@ TEST_CASE("Project authority native watcher revokes relevant proofs and ignores 
     REQUIRE(dirty);
     CHECK(dirty->state == ProjectAuthorityState::dirty);
     CHECK(dirty->has_manifest);
-    CHECK(dirty->pending_paths == std::vector<std::string>{"records/room.json"});
+    CHECK(dirty->pending_paths == std::vector<std::string>{"records/room.yaml"});
 
     const auto reconciled = authority.observe(project_authority_request(root.path));
     CHECK(reconciled.previous_state == ProjectAuthorityState::dirty);
-    CHECK(reconciled.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(reconciled.delta.changed == std::vector<std::string>{"records/room.yaml"});
 
     write_project_file(root.path / "records/ignored.txt", "watcher should ignore this\n");
     std::this_thread::sleep_for(std::chrono::milliseconds(120));
@@ -473,17 +474,17 @@ TEST_CASE("Project authority unknown recovery rebuilds recursive native watcher 
     const auto unknown = authority.status(root.path);
     REQUIRE(unknown);
     CHECK(unknown->state == ProjectAuthorityState::unknown);
-    write_project_file(root.path / "records/recovered/new.json", "{}\n");
+    write_project_file(root.path / "records/recovered/new.yaml", "{}\n");
 
     const auto recovered = authority.observe(project_authority_request(root.path));
     CHECK(recovered.previous_state == ProjectAuthorityState::unknown);
     CHECK(recovered.full_rescan);
-    CHECK(recovered.delta.added == std::vector<std::string>{"records/recovered/new.json"});
+    CHECK(recovered.delta.added == std::vector<std::string>{"records/recovered/new.yaml"});
     REQUIRE(authority.status(root.path));
     CHECK(authority.status(root.path)->state == ProjectAuthorityState::proven);
 
     // Recovery is only complete if the newly discovered directory is watched afterward.
-    write_project_file(root.path / "records/recovered/new.json", "{\"changed\":true}\n");
+    write_project_file(root.path / "records/recovered/new.yaml", "changed: true\n");
     for (int attempt = 0; attempt < 100; ++attempt) {
         const auto status = authority.status(root.path);
         if (status && status->state == ProjectAuthorityState::dirty)
@@ -493,7 +494,7 @@ TEST_CASE("Project authority unknown recovery rebuilds recursive native watcher 
     const auto dirty = authority.status(root.path);
     REQUIRE(dirty);
     CHECK(dirty->state == ProjectAuthorityState::dirty);
-    CHECK(dirty->pending_paths == std::vector<std::string>{"records/recovered/new.json"});
+    CHECK(dirty->pending_paths == std::vector<std::string>{"records/recovered/new.yaml"});
 }
 
 TEST_CASE("Project authority release stops native watcher before dropping Project ownership")
@@ -507,8 +508,7 @@ TEST_CASE("Project authority release stops native watcher before dropping Projec
     // stop/join the watcher while it still owns the Entry, rather than allowing callback-held
     // ownership to destroy the watcher on its own thread.
     for (int index = 0; index < 64; ++index)
-        write_project_file(root.path / "records/room.json",
-                           "{\"id\":" + std::to_string(index) + "}\n");
+        write_project_file(root.path / "records/room.yaml", "id: " + std::to_string(index) + "\n");
 
     CHECK(authority.release(root.path));
     CHECK(authority.tracked_project_count() == 0);
@@ -528,11 +528,11 @@ TEST_CASE("Project authority suspension retains its manifest but forces proof on
     CHECK(dormant->state == ProjectAuthorityState::unknown);
     CHECK(dormant->has_manifest);
 
-    write_project_file(root.path / "records/room.json", "{\"id\":\"dormant-change\"}\n");
+    write_project_file(root.path / "records/room.yaml", "id: dormant-change\n");
     const auto resumed = authority.observe(project_authority_request(root.path));
     CHECK(resumed.previous_state == ProjectAuthorityState::unknown);
     CHECK(resumed.full_rescan);
-    CHECK(resumed.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(resumed.delta.changed == std::vector<std::string>{"records/room.yaml"});
     REQUIRE(authority.status(root.path));
     CHECK(authority.status(root.path)->state == ProjectAuthorityState::proven);
 }
@@ -547,16 +547,16 @@ TEST_CASE("Project authority checkpoint restores deltas consumed after a retaine
     const auto retained = authority.checkpoint(root.path);
     REQUIRE(retained);
 
-    write_project_file(root.path / "records/room.json", "{\"id\":\"after-snapshot\"}\n");
+    write_project_file(root.path / "records/room.yaml", "id: after-snapshot\n");
     const auto consumed = authority.observe(project_authority_request(root.path));
-    CHECK(consumed.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(consumed.delta.changed == std::vector<std::string>{"records/room.yaml"});
     CHECK(authority.observe(project_authority_request(root.path)).unchanged);
 
     REQUIRE(authority.restore_checkpoint_for_rehydration(*retained));
     const auto recovered = authority.observe(project_authority_request(root.path));
     CHECK(recovered.previous_state == ProjectAuthorityState::unknown);
     CHECK(recovered.full_rescan);
-    CHECK(recovered.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(recovered.delta.changed == std::vector<std::string>{"records/room.yaml"});
 }
 
 #endif
@@ -582,9 +582,9 @@ TEST_CASE(
     }
     CHECK(authority.observe(project_authority_request(root.path)).unchanged);
 
-    write_project_file(root.path / "records/room.json", "{\"id\":\"ROom\"}\n");
+    write_project_file(root.path / "records/room.yaml", "id: ROom\n");
     const auto changed = authority.observe(project_authority_request(root.path));
-    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(changed.delta.changed == std::vector<std::string>{"records/room.yaml"});
 }
 
 TEST_CASE("daemon broker exposes one batched Project authority observation action")
@@ -596,16 +596,16 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
 
     request["action"] = "serve-project-observe";
     request["projectRoot"] = root.path.generic_string();
-    request["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    request["authoritativePaths"] = Json::array({"project.yaml", "editor.yaml", "traits.yaml"});
     request["discoveryScopes"] =
         Json::array({{{"root", "records"},
-                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                      {"extensions", Json::array({".yaml", ".lua", ".rcss", ".rml"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "i18n"},
-                      {"extensions", Json::array({".json"})},
+                      {"extensions", Json::array({".yaml"})},
                       {"excludedPrefixes", Json::array()}}});
     const auto first = invoke_daemon(request);
     REQUIRE(first["ok"] == true);
@@ -631,7 +631,7 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
     // It must not be treated as an absent discovery root or replace the retained manifest.
     const auto valid_discovery_scopes = request["discoveryScopes"];
     request["discoveryScopes"].push_back(
-        {{"root", std::string(300, 'x')}, {"extensions", Json::array({".json"})}});
+        {{"root", std::string(300, 'x')}, {"extensions", Json::array({".yaml"})}});
     const auto discovery_error = invoke_daemon(request);
     CHECK(discovery_error["ok"] == false);
     CHECK(discovery_error["error"].get<std::string>().find(
@@ -644,8 +644,8 @@ TEST_CASE("daemon broker exposes one batched Project authority observation actio
     CHECK(recovered_after_discovery_error["unchanged"] == true);
 #endif
 
-    std::filesystem::remove(root.path / "records/room.json");
-    std::filesystem::create_directory(root.path / "records/room.json");
+    std::filesystem::remove(root.path / "records/room.yaml");
+    std::filesystem::create_directory(root.path / "records/room.yaml");
     const auto reclassified = invoke_daemon(request);
     CHECK(reclassified["ok"] == false);
     CHECK(reclassified["error"].get<std::string>().find("not a regular file") != std::string::npos);
@@ -920,7 +920,7 @@ TEST_CASE("exact validation proof detects disk changes without watcher delivery"
     REQUIRE(unchanged.observation.has_value());
     REQUIRE(unchanged.result.has_value());
 
-    write_project_file(root.path / "records/room.json", "{\"id\":\"room-changed\"}\n");
+    write_project_file(root.path / "records/room.yaml", "id: room-changed\n");
     const auto stale = prove_exact_validation_result(
         authority, store, initial.manifest.canonical_root, "validation-v1", 30);
     REQUIRE(stale.observation.has_value());
@@ -929,7 +929,7 @@ TEST_CASE("exact validation proof detects disk changes without watcher delivery"
 
     const auto owner_observation = authority.observe(request);
     CHECK(owner_observation.full_rescan);
-    CHECK(owner_observation.delta.changed == std::vector<std::string>{"records/room.json"});
+    CHECK(owner_observation.delta.changed == std::vector<std::string>{"records/room.yaml"});
 }
 
 TEST_CASE("authoring cache directory is created safely for a fresh Project")
@@ -997,6 +997,11 @@ TEST_CASE("daemon Project-owner nomination preserves explicit roots and discover
     std::filesystem::create_directories(non_project.path / "nested");
     CHECK(canonical_project_owner_root((non_project.path / "nested").string(), true).empty());
 
+    // Retired JSON manifests cannot nominate a resident Project owner.
+    write_project_file(non_project.path / "project.json", "{}\n");
+    CHECK(canonical_project_owner_root(non_project.path.string(), false).empty());
+    CHECK(canonical_project_owner_root((non_project.path / "nested").string(), true).empty());
+
 #if !defined(_WIN32)
     const auto alias = root.path / "owner-alias";
     std::filesystem::create_directory_symlink(root.path, alias);
@@ -1061,11 +1066,11 @@ TEST_CASE("daemon Project owner accepts equivalent Windows path spellings",
     observe["action"] = "owner-project-observe";
     observe["ownerWorkerId"] = owner;
     observe["projectRoot"] = alternate_root;
-    observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    observe["authoritativePaths"] = Json::array({"project.yaml", "editor.yaml", "traits.yaml"});
     observe["discoveryScopes"] =
-        Json::array({Json{{"root", "records"}, {"extensions", Json::array({".json"})}},
+        Json::array({Json{{"root", "records"}, {"extensions", Json::array({".yaml"})}},
                      Json{{"root", "scripts"}, {"extensions", Json::array({".lua"})}},
-                     Json{{"root", "i18n"}, {"extensions", Json::array({".json"})}}});
+                     Json{{"root", "i18n"}, {"extensions", Json::array({".yaml"})}}});
     const auto observed = invoke_daemon(observe);
     REQUIRE(observed["ok"] == true);
     REQUIRE(observed.contains("manifest"));
@@ -1235,11 +1240,11 @@ TEST_CASE("daemon shutdown does not wait for optional exact-validation persisten
     observe["action"] = "owner-project-observe";
     observe["ownerWorkerId"] = owner;
     observe["projectRoot"] = project.path.string();
-    observe["authoritativePaths"] = Json::array({"project.json", "editor.json", "traits.json"});
+    observe["authoritativePaths"] = Json::array({"project.yaml", "editor.yaml", "traits.yaml"});
     observe["discoveryScopes"] =
-        Json::array({Json{{"root", "records"}, {"extensions", Json::array({".json"})}},
+        Json::array({Json{{"root", "records"}, {"extensions", Json::array({".yaml"})}},
                      Json{{"root", "scripts"}, {"extensions", Json::array({".lua"})}},
-                     Json{{"root", "i18n"}, {"extensions", Json::array({".json"})}}});
+                     Json{{"root", "i18n"}, {"extensions", Json::array({".yaml"})}}});
     REQUIRE(invoke_daemon(observe)["ok"] == true);
 
     auto retain = request;
@@ -1353,7 +1358,8 @@ TEST_CASE("daemon scheduler bounds owners and prioritizes queued Project admissi
     std::vector<std::future<Json>> owner_results;
     for (int index = 0; index < 8; ++index) {
         const auto root = projects.path / ("project-" + std::to_string(index));
-        write_project_file(root / "project.json", "{}\n");
+        write_project_file(root / "project.yaml",
+                           "schema: noveltea.project.workspace\nschemaVersion: 1\n");
         roots.push_back(root);
         const auto work = owner_request(request, "owner-" + std::to_string(index), root);
         owner_results.push_back(
@@ -1373,7 +1379,8 @@ TEST_CASE("daemon scheduler bounds owners and prioritizes queued Project admissi
     CHECK(heavy.wait_for(std::chrono::milliseconds(50)) == std::future_status::timeout);
 
     const auto ninth_root = projects.path / "project-8";
-    write_project_file(ninth_root / "project.json", "{}\n");
+    write_project_file(ninth_root / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
     const auto ninth_request = owner_request(request, "owner-8", ninth_root);
     auto ninth =
         std::async(std::launch::async, [ninth_request] { return invoke_daemon(ninth_request); });
@@ -1603,7 +1610,8 @@ TEST_CASE(
 
     auto projects = temp_runtime_root("owner-handoff-project");
     const auto root = projects.path / "project";
-    write_project_file(root / "project.json", "{}\n");
+    write_project_file(root / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
     auto owner_work_request = owner_request(request, "owner-before-crash", root);
     auto owner_result = std::async(
         std::launch::async, [owner_work_request] { return invoke_daemon(owner_work_request); });
@@ -1781,7 +1789,8 @@ TEST_CASE("daemon Project owner crash rolls back an activated mixed publication"
 
     auto files = temp_runtime_root("mixed-owner-crash-files");
     const auto root = files.path / "project";
-    write_project_file(root / "project.json", "{}\n");
+    write_project_file(root / "project.yaml",
+                       "schema: noveltea.project.workspace\nschemaVersion: 1\n");
     const auto output = files.path / "mixed.png";
     const auto staged = files.path / "mixed.stage";
     const auto backup = files.path / "mixed.backup";

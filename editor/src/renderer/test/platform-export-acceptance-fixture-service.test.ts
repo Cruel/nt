@@ -1,3 +1,4 @@
+import { parse as parseYaml } from 'yaml';
 import { mkdtemp, readFile, rm } from 'node:fs/promises';
 import os from 'node:os';
 import path from 'node:path';
@@ -43,16 +44,16 @@ describe('platform export acceptance fixture materializer', () => {
     expect(await readFile(path.join(firstRoot, 'support/licenses/shared-font.txt'), 'utf8')).toBe(
       'Fixture font license\r\n',
     );
-    const bodyFont = JSON.parse(
-      await readFile(path.join(firstRoot, 'records/assets/body-font.json'), 'utf8'),
+    const bodyFont = parseYaml(
+      await readFile(path.join(firstRoot, 'records/assets/body-font.yaml'), 'utf8'),
     );
-    const alternateFont = JSON.parse(
-      await readFile(path.join(firstRoot, 'records/assets/alternate-font.json'), 'utf8'),
+    const alternateFont = parseYaml(
+      await readFile(path.join(firstRoot, 'records/assets/alternate-font.yaml'), 'utf8'),
     );
     expect(bodyFont.data.attachments).toEqual(alternateFont.data.attachments);
     expect(bodyFont.data.attachments).toHaveLength(1);
-    const frenchArtwork = JSON.parse(
-      await readFile(path.join(firstRoot, 'records/assets/backdrop-fr.json'), 'utf8'),
+    const frenchArtwork = parseYaml(
+      await readFile(path.join(firstRoot, 'records/assets/backdrop-fr.yaml'), 'utf8'),
     );
     expect(frenchArtwork.data.attachments[0].path).toBe('support/licenses/localized-art.txt');
   });
@@ -78,17 +79,17 @@ describe('platform export acceptance fixture materializer', () => {
       fontSourcePath,
     });
     expect(first.projectSha256).not.toBe(second.projectSha256);
-    const firstProject = JSON.parse(await readFile(first.projectPath, 'utf8'));
-    const secondProject = JSON.parse(await readFile(second.projectPath, 'utf8'));
+    const firstProject = parseYaml(await readFile(first.projectPath, 'utf8'));
+    const secondProject = parseYaml(await readFile(second.projectPath, 'utf8'));
     expect(firstProject.settings.app.applicationId).toBe(secondProject.settings.app.applicationId);
     expect(firstProject.settings.app.saveNamespace).toBe(secondProject.settings.app.saveNamespace);
     expect(firstProject.settings.app.android.versionCode).toBe(1);
     expect(secondProject.settings.app.android.versionCode).toBe(2);
-    const firstGallery = JSON.parse(
-      await readFile(path.join(firstRoot, 'records/rooms/gallery.json'), 'utf8'),
+    const firstGallery = parseYaml(
+      await readFile(path.join(firstRoot, 'records/rooms/gallery.yaml'), 'utf8'),
     );
-    const secondGallery = JSON.parse(
-      await readFile(path.join(secondRoot, 'records/rooms/gallery.json'), 'utf8'),
+    const secondGallery = parseYaml(
+      await readFile(path.join(secondRoot, 'records/rooms/gallery.yaml'), 'utf8'),
     );
     expect(firstGallery.data.description.source.text).toBe(
       'Navigation reached the gallery, revision 1.',

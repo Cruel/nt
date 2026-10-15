@@ -1,0 +1,31 @@
+id: background-broken-clock
+label: background-broken-clock
+data:
+  displayName: background-broken-clock
+  stage:
+    kind: inherited
+  events:
+    - id: delay
+      label: delay
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: duration
+      durationMs: 500
+      skippable: false
+    - id: fault
+      label: fault
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: error('Notice clock failed deliberately')
+      mayYield: false
+  terminal:
+    kind: return
+    outcome: null

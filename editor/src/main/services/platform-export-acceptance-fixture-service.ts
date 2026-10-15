@@ -275,13 +275,13 @@ export async function materializePlatformExportAcceptanceFixture(
       await writeFile(destination, text);
     }),
   );
-  const projectPath = path.join(projectRoot, 'project.json');
+  const projectPath = path.join(projectRoot, 'project.yaml');
   return {
     projectPath,
     projectRoot,
     profile,
     fixtureRevision: `${PLATFORM_EXPORT_ACCEPTANCE_FIXTURE_REVISION}.${contentRevision}`,
-    projectSha256: sha256(workspaceFiles['project.json']!),
+    projectSha256: sha256(workspaceFiles['project.yaml']!),
     profileSha256: sha256(JSON.stringify(profile)),
   };
 }
