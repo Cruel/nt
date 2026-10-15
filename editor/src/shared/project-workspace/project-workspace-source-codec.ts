@@ -177,10 +177,11 @@ const structuredYamlCodec: ProjectWorkspaceSourceCodec = {
 const layoutYamlCodec: ProjectWorkspaceSourceCodec = {
   kind: 'yaml',
   decode: decodeLayoutYaml,
-  encode: (value, schema, previousText) =>
+  encode: (value, schema, previousText, keep) =>
     encodeLayoutYaml(
       previousText === undefined ? canonicalize(value, schema) : value,
       previousText,
+      keep,
     ),
 };
 

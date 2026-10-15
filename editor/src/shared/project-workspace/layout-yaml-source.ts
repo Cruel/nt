@@ -24,16 +24,24 @@ export function decodeLayoutYaml(text: string): unknown {
   return { ...record, data: { ...defaults, ...record.data } };
 }
 
-export function encodeLayoutYaml(value: unknown, previousText?: string): string {
+export function encodeLayoutYaml(
+  value: unknown,
+  previousText?: string,
+  keepCommentedDefaults = false,
+): string {
   if (!object(value) || !object(value.data)) return encodeStructuredYaml(value, previousText);
   const previous = previousText === undefined ? undefined : decodeStructuredYaml(previousText);
   const priorData = object(previous) && object(previous.data) ? previous.data : {};
+  const annotated = keepCommentedDefaults && previousText ? annotatedYamlPaths(previousText) : null;
   const data: Dictionary = {};
   for (const [key, field] of Object.entries(value.data)) {
     if (
       Object.hasOwn(defaults, key) &&
       same(field, defaults[key]) &&
-      (!Object.hasOwn(priorData, key) || !same(priorData[key], field))
+      (!Object.hasOwn(priorData, key) || !same(priorData[key], field)) &&
+      ![...(annotated ?? [])].some(
+        (note) => note === `data.${key}` || note.startsWith(`data.${key}.`),
+      )
     )
       continue;
     data[key] = field;

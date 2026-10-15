@@ -106,6 +106,52 @@ afterEach(() => {
 });
 
 describe('structural command persistence', () => {
+  it('surfaces informational diagnostics returned after successful structural rename', async () => {
+    const project = projectWithRoom();
+    await loadProjectDocumentWithGraph({
+      document: toJsonValue(project),
+      projectPath: '/mock/project',
+      projectFilePath: '/mock/project/project.yaml',
+    });
+    const mockSave = vi.mocked(window.noveltea.saveProjectContent);
+    const original = mockSave.getMockImplementation();
+    expect(original).toBeDefined();
+    mockSave.mockImplementationOnce(async (...args) => ({
+      ...(await original!(...args)),
+      diagnostics: [
+        {
+          code: 'authoring.source_comment.stale_id',
+          severity: 'info' as const,
+          category: 'Project save',
+          path: '/records/rooms/hall.yaml',
+          message: 'A YAML comment still mentions renamed ID foyer.',
+        },
+      ],
+    }));
+    expect(
+      useCommandStore.getState().executeCommand({
+        type: 'entity.renameId',
+        label: 'Rename foyer to hall',
+        payload: { collection: 'rooms', fromId: 'foyer', toId: 'hall' },
+        originSaveUnitId: 'structure:rooms',
+        persistencePolicy: 'auto-commit',
+      }).ok,
+    ).toBe(true);
+    await flushStructuralCommandPersistence();
+    expect(useCommandStore.getState().lastDiagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          severity: 'info',
+          message: 'A YAML comment still mentions renamed ID foyer.',
+          path: '/records/rooms/hall.yaml',
+        }),
+      ]),
+    );
+    expect(useProjectStore.getState().savedDocument).toMatchObject({
+      rooms: { hall: { id: 'hall' } },
+    });
+  });
+
   it('requires every auto-commit mutation to match an explicit registry rule', () => {
     expect(structuralRuleForTests('entity.renameId', 'structure:rooms')).toMatchObject({
       unsafeRebasePolicy: 'reject-command',

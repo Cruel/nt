@@ -1,6 +1,9 @@
 id: radio-operator
 label: Radio operator
 data:
+  defaults:
+    profileId: stage
+    expressionId: neutral
   displayName: Radio operator
   dialogue:
     name: Radio

@@ -63,6 +63,54 @@ import {
 const root = '/projects/headless';
 
 describe('effective entity inspection CLI', () => {
+  it('publishes Character identity and conditional Test-source requirements in raw schemas', () => {
+    const schemas = createNovelTeaRawSchemaFiles();
+    const resolve = (root: Record<string, unknown>, value: unknown): Record<string, unknown> => {
+      const item = value as Record<string, unknown>;
+      if (typeof item?.$ref !== 'string') return item;
+      return item.$ref
+        .slice(2)
+        .split('/')
+        .reduce(
+          (node: unknown, segment: string) =>
+            (node as Record<string, unknown>)[segment.replaceAll('~1', '/').replaceAll('~0', '~')],
+          root,
+        ) as Record<string, unknown>;
+    };
+    const fields = (item: Record<string, unknown>) => item.properties as Record<string, unknown>;
+    const character = JSON.parse(schemas['records/characters.schema.json']!) as Record<
+      string,
+      unknown
+    >;
+    const characterData = resolve(character, fields(character).data);
+    expect(characterData.required).toContain('defaults');
+    const characterDefaults = resolve(character, fields(characterData).defaults);
+    expect(characterDefaults.required).toEqual(
+      expect.arrayContaining(['profileId', 'expressionId']),
+    );
+    expect(characterDefaults).not.toHaveProperty('default');
+
+    const tests = JSON.parse(schemas['records/tests.schema.json']!) as Record<string, unknown>;
+    const testData = resolve(tests, fields(tests).data);
+    const step = resolve(tests, resolve(tests, fields(testData).steps).items);
+    expect(step.required).toContain('input');
+    expect(fields(step).input).not.toHaveProperty('default');
+    const stepBranches = (step.allOf as { anyOf: Record<string, unknown>[] }[])[0]!.anyOf;
+    const choice = stepBranches.find(
+      (branch) => (fields(branch).input as { const: string }).const === 'dialogue-choice',
+    )!;
+    expect(choice.required).toContain('dialogueChoice');
+    expect((fields(choice).dialogueChoice as { required: string[] }).required).toContain('edgeId');
+    const expectation = resolve(tests, resolve(tests, fields(testData).finalExpectations).items);
+    const expectationBranches = (expectation.allOf as { anyOf: Record<string, unknown>[] }[])[0]!
+      .anyOf;
+    const diagnostic = expectationBranches.find(
+      (branch) => (fields(branch).type as { const: string }).const === 'diagnostic',
+    )!;
+    expect(diagnostic.required).toContain('diagnostic');
+    expect((fields(diagnostic).diagnostic as { required: string[] }).required).toContain('code');
+  });
+
   it('distinguishes authored empty collections from omitted source defaults', async () => {
     const value = fixture();
     const file = `${root}/records/rooms/start.yaml`;

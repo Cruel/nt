@@ -10,6 +10,7 @@ import {
 } from '../../shared/project-workspace';
 import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
 import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
+import { defaultRoomData } from '../../shared/project-schema/authoring-rooms';
 import { parseRestrictedYamlDocument } from '../../shared/project-workspace/restricted-yaml-source';
 
 const root = '/project';
@@ -40,6 +41,60 @@ function sources() {
 }
 
 describe('YAML manifest, Traits, and collaborator metadata', () => {
+  it('keeps annotated manifest and editor defaults even when reset to sparse defaults', async () => {
+    const project = createAuthoringProject({ id: 'defaults', name: 'Defaults' });
+    project.rooms.start = { id: 'start', label: 'Start', data: defaultRoomData('Start') };
+    project.entrypoint = { kind: 'room', id: 'start' };
+    project.editor.chapters.records.intro = { id: 'intro', label: 'Intro' };
+    const files = { ...projectWorkspaceFiles(project, project.editor) };
+    files['project.yaml'] = files['project.yaml']!.replace(
+      'entrypoint:',
+      'entrypoint: # keep manifest intent',
+    );
+    files['editor.yaml'] = files['editor.yaml']!.replace(
+      'records:',
+      'records: # keep organization intent',
+    );
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(files).map(([name, text]) => [`${root}/${name}`, text])),
+    );
+    const workspace = new ProjectWorkspaceService(fs);
+    const opened = await workspace.open(root);
+    expect(opened.ok ? '' : opened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (!opened.ok) return;
+    const changed = cloneAuthoringProject(opened.snapshot.project);
+    changed.entrypoint = null;
+    changed.editor.chapters.records = {};
+    const preview = await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      changed,
+      changed.editor,
+      {},
+      {
+        dryRun: true,
+        affectedPaths: ['/entrypoint', '/editor/chapters/records'],
+      },
+    );
+    expect(preview.commentImpacts.some((impact) => impact.kind === 'deleted')).toBe(false);
+    await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      changed,
+      changed.editor,
+      {},
+      {
+        commentDisposition: 'keep',
+        affectedPaths: ['/entrypoint', '/editor/chapters/records'],
+      },
+    );
+    expect(await fs.readText(`${root}/project.yaml`)).toContain('keep manifest intent');
+    expect(await fs.readText(`${root}/project.yaml`)).toContain('entrypoint:');
+    expect(await fs.readText(`${root}/editor.yaml`)).toContain('keep organization intent');
+    expect(await fs.readText(`${root}/editor.yaml`)).toContain('records:');
+    expect((await workspace.open(root)).ok).toBe(true);
+  });
+
   it('rejects infinite numerics, YAML 1.1 type coercion and inherited-object-key evasion', () => {
     expect(() => parseRestrictedYamlDocument('x: 1e999\n')).toThrow(/finite JSON-compatible/u);
     expect(() => parseRestrictedYamlDocument('%YAML 1.1\n---\nx: 2001-12-15\n')).toThrow(

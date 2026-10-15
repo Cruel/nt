@@ -1,6 +1,9 @@
 id: pilot-guide
 label: Pilot Guide
 data:
+  defaults:
+    profileId: stage
+    expressionId: neutral
   displayName: Pilot Guide
   dialogue:
     name: Guide

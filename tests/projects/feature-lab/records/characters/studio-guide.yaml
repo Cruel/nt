@@ -6,6 +6,9 @@ localProperties:
     nullable: false
     value: undressed
 data:
+  defaults:
+    profileId: stage
+    expressionId: neutral
   displayName: Studio Guide
   dialogue:
     name: Studio Guide

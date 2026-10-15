@@ -10,6 +10,9 @@ localProperties:
     nullable: false
     value: 7
 data:
+  defaults:
+    profileId: stage
+    expressionId: neutral
   displayName: State Witness
   dialogue:
     name: State Witness

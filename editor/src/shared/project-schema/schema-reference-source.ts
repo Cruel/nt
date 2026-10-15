@@ -4,6 +4,13 @@ import {
   type SparseRecordFamily,
 } from '../project-workspace/sparse-record-yaml-source';
 import { layoutDataSchema } from './authoring-layouts';
+import { testExpectationTypeValues, testInputTypeValues } from './authoring-tests';
+import {
+  testSourceComparisonOperators,
+  testSourceExpectationPayloads,
+  testSourceStepPayloads,
+  testSourceValueExpectations,
+} from './test-source-intent';
 import { schemaReferenceJson } from './schema-reference-json';
 
 type JsonObject = Record<string, unknown>;
@@ -52,6 +59,212 @@ function conditionUnion(value: JsonObject): boolean {
     }),
   );
   return kinds.has('always') && kinds.has('all') && kinds.has('not');
+}
+
+/** Ref-aware access to Zod's shared $defs, without mutating normalized schemas. */
+function sourceObject(root: JsonObject, value: unknown): JsonObject | undefined {
+  if (!object(value)) return undefined;
+  return typeof value.$ref === 'string' ? (pointer(root, value.$ref) ?? value) : value;
+}
+
+const requireFields = (fields: readonly string[]) => ({ required: [...fields] });
+function authoredTestRequirements(root: JsonObject): void {
+  const data = sourceObject(root, object(root.properties) ? root.properties.data : undefined);
+  const fields = object(data?.properties) ? data.properties : undefined;
+  const steps = sourceObject(root, fields?.steps);
+  const step = sourceObject(root, steps?.items);
+  const expectations = sourceObject(root, fields?.finalExpectations);
+  const expectation = sourceObject(root, expectations?.items);
+  if (!object(step) || !object(expectation))
+    throw new Error('Generated Test source schema lost its authored Step/Expectation shapes.');
+
+  step.required = [...new Set([...(Array.isArray(step.required) ? step.required : []), 'input'])];
+  const input = object(step.properties) ? step.properties.input : undefined;
+  if (object(input)) delete input.default;
+  for (const { key, fields: required } of Object.values(testSourceStepPayloads)) {
+    const payload = sourceObject(root, object(step.properties) ? step.properties[key] : undefined);
+    if (!payload) continue;
+    delete payload.default;
+    if (!object(payload.properties)) continue;
+    for (const name of required) {
+      const field = sourceObject(root, payload.properties[name]);
+      if (field) delete field.default;
+    }
+  }
+  step.allOf = [
+    ...(Array.isArray(step.allOf) ? step.allOf : []),
+    {
+      anyOf: testInputTypeValues.map((kind) => {
+        const payload = testSourceStepPayloads[kind];
+        return {
+          properties: {
+            input: { const: kind },
+            ...(payload ? { [payload.key]: requireFields(payload.fields) } : {}),
+          },
+          required: payload ? ['input', payload.key] : ['input'],
+          ...(kind === 'ui-click'
+            ? {
+                allOf: [
+                  {
+                    anyOf: [
+                      { properties: { uiClick: requireFields(['documentId']) } },
+                      { properties: { uiClick: requireFields(['mountInstanceId']) } },
+                    ],
+                  },
+                ],
+              }
+            : {}),
+        };
+      }),
+    },
+  ];
+  step['x-noveltea-source-intent'] =
+    'An authored Step requires input. Active input payloads and their identifying fields are required; ui-click must specify a documentId or mountInstanceId.';
+
+  expectation.allOf = [
+    ...(Array.isArray(expectation.allOf) ? expectation.allOf : []),
+    {
+      anyOf: testExpectationTypeValues.map((type) => {
+        const payload = testSourceExpectationPayloads[type];
+        const needsValue = testSourceValueExpectations.includes(
+          type as (typeof testSourceValueExpectations)[number],
+        );
+        const valueWhen = needsValue
+          ? {
+              anyOf: [
+                { properties: { operator: { enum: ['present', 'absent'] } } },
+                {
+                  properties: {
+                    operator: { enum: [...testSourceComparisonOperators] },
+                    [payload.key]: requireFields(['value']),
+                  },
+                },
+              ],
+            }
+          : {};
+        const extra: JsonObject[] = [];
+        if (type === 'property')
+          extra.push({
+            anyOf: [
+              { properties: { property: { properties: { scope: { const: 'global' } } } } },
+              { properties: { property: requireFields(['ownerId']) } },
+            ],
+          });
+        if (type === 'ui-element')
+          extra.push({
+            anyOf: [
+              { properties: { uiElement: requireFields(['documentId']) } },
+              { properties: { uiElement: requireFields(['mountInstanceId']) } },
+            ],
+          });
+        if (type === 'layout' || type === 'ui-element')
+          extra.push({
+            anyOf: [
+              { properties: { operator: { enum: ['present', 'absent'] } } },
+              {
+                properties: {
+                  [payload.key]: {
+                    properties: {
+                      field: { const: type === 'layout' ? 'mounted' : 'present' },
+                    },
+                  },
+                },
+              },
+              { properties: { [payload.key]: requireFields(['value']) } },
+            ],
+          });
+        if (type === 'location') {
+          extra.push({
+            anyOf: [
+              {
+                properties: { location: { properties: { locationKind: { enum: ['unplaced'] } } } },
+              },
+              {
+                properties: {
+                  location: {
+                    properties: { locationKind: { const: 'room' } },
+                    required: ['roomId'],
+                  },
+                },
+              },
+              {
+                properties: {
+                  location: {
+                    properties: { locationKind: { const: 'inventory' } },
+                    required: ['inventoryOwnerKind', 'inventoryId'],
+                  },
+                },
+                allOf: [
+                  {
+                    anyOf: [
+                      {
+                        properties: {
+                          location: { properties: { inventoryOwnerKind: { const: 'project' } } },
+                        },
+                      },
+                      { properties: { location: requireFields(['inventoryOwnerId']) } },
+                    ],
+                  },
+                ],
+              },
+            ],
+          });
+        }
+        return {
+          properties: { type: { const: type }, [payload.key]: requireFields(payload.fields) },
+          required: ['type', 'operator', payload.key],
+          ...(Object.keys(valueWhen).length || extra.length
+            ? { allOf: [...(Object.keys(valueWhen).length ? [valueWhen] : []), ...extra] }
+            : {}),
+        };
+      }),
+    },
+  ];
+  expectation['x-noveltea-source-intent'] =
+    'An authored Expectation requires type, operator, and the matching active payload with its identifying fields. Comparisons require explicit values; owner/location/UI addressing depends on the selected mode.';
+  // The Step references this same Expectation schema; validate the shared identity.
+  const nested = sourceObject(
+    root,
+    object(step.properties) ? step.properties.expectations : undefined,
+  );
+  const nestedExpectation = sourceObject(root, nested?.items);
+  if (nestedExpectation !== expectation)
+    throw new Error(
+      'Generated Test Step expectations no longer share the final expectation schema.',
+    );
+  for (const { key, fields: required } of Object.values(testSourceExpectationPayloads)) {
+    const payload = sourceObject(
+      root,
+      object(expectation.properties) ? expectation.properties[key] : undefined,
+    );
+    if (!payload) continue;
+    delete payload.default;
+    if (!object(payload.properties)) continue;
+    for (const name of required) {
+      const field = sourceObject(root, payload.properties[name]);
+      if (field) delete field.default;
+    }
+  }
+}
+
+function authoredCharacterRequirements(root: JsonObject): void {
+  const data = sourceObject(root, object(root.properties) ? root.properties.data : undefined);
+  if (!data || !object(data.properties))
+    throw new Error('Generated Character source schema lost its Character data shape.');
+  data.required = [
+    ...new Set([...(Array.isArray(data.required) ? data.required : []), 'defaults']),
+  ];
+  const defaults = sourceObject(root, data.properties.defaults);
+  if (!defaults || !object(defaults.properties))
+    throw new Error('Generated Character source schema lost its defaults shape.');
+  delete defaults.default;
+  defaults.required = [
+    ...new Set([
+      ...(Array.isArray(defaults.required) ? defaults.required : []),
+      'profileId',
+      'expressionId',
+    ]),
+  ];
 }
 
 export interface SourceReferenceOptions {
@@ -164,5 +377,8 @@ export function sourceSchemaReferenceJson(
     }
     return result;
   }
-  return visit(root, []) as JsonObject;
+  const result = visit(root, []) as JsonObject;
+  if (family === 'tests') authoredTestRequirements(result);
+  if (family === 'characters') authoredCharacterRequirements(result);
+  return result;
 }

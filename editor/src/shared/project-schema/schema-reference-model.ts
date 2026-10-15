@@ -142,6 +142,17 @@ export function normalizeSchemaReference(
   }
   function normalize(value: unknown, hint: string, definingNamedNode = false): SchemaReferenceNode {
     const node = record(value);
+    // Raw machine-readable source schemas enforce conditional Test intent through
+    // allOf/anyOf. Retain the normal field hierarchy in human/agent references,
+    // with an explicit description of those conditional requirements.
+    if (typeof node['x-noveltea-source-intent'] === 'string') {
+      const { allOf: _constraints, 'x-noveltea-source-intent': rule, ...base } = node;
+      return normalize(
+        { ...base, description: [base.description, rule].filter(Boolean).join(' ') },
+        hint,
+        definingNamedNode,
+      );
+    }
     for (const key of Object.keys(node)) {
       if (!supportedKeywords.has(key))
         throw new Error(

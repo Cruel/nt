@@ -1,6 +1,9 @@
 id: verbs-recipient
 label: Verbs Recipient
 data:
+  defaults:
+    profileId: stage
+    expressionId: neutral
   displayName: Verbs Recipient
   dialogue:
     name: Recipient

@@ -1,5 +1,10 @@
 import type { ZodType } from 'zod';
 import { authoringRecordSchemas } from '../project-schema/authoring-records';
+import {
+  testSourceStepPayloads,
+  testSourceExpectationPayloads,
+  testSourceValueExpectations,
+} from '../project-schema/test-source-intent';
 import { conditionSchema } from '../project-schema/authoring-flow';
 import { defaultRoomData } from '../project-schema/authoring-rooms';
 import { defaultMapData } from '../project-schema/authoring-maps';
@@ -123,7 +128,8 @@ const defaults: Record<ConversionFamily, Readonly<Record<string, unknown>>> = {
     // Expression and display-name placeholders are not source defaults.
     'data.displayName': '',
     'data.dialogue': characterDataSchema.parse({ inventories: [] }).dialogue,
-    'data.defaults': characterDataSchema.parse({ inventories: [] }).defaults,
+    // Identity-bearing Profile and Expression choices must be authored. The
+    // normalized Character initializer is not a source omission contract.
     'data.profiles': [],
     'data.expressions': [],
     'data.appearances': [],
@@ -364,37 +370,19 @@ function assertTestSourceIntent(source: unknown): void {
         `Required Test YAML field ${path}/documentId or mountInstanceId must be authored explicitly.`,
       );
   };
-  const payloads: Partial<Record<string, readonly [string, string]>> = {
-    'dialogue-choice': ['dialogueChoice', 'edgeId'],
-    'scene-choice': ['sceneChoice', 'optionId'],
-    navigate: ['navigate', 'exitId'],
-    'ui-click': ['uiClick', 'selector'],
-    save: ['saveSlot', 'slotId'],
-    load: ['saveSlot', 'slotId'],
-  };
   const inspectExpectations = (items: unknown, path: string) => {
     if (!Array.isArray(items)) return;
-    const owners: Record<string, readonly [string, readonly string[]]> = {
-      property: ['property', ['scope', 'propertyId']],
-      'current-room': ['currentRoom', ['roomId']],
-      location: ['location', ['entityKind', 'entityId', 'locationKind']],
-      quantity: ['quantity', ['interactableId']],
-      trait: ['trait', ['ownerKind', 'ownerId', 'traitId']],
-      'entity-state': ['entityState', ['entityKind', 'entityId', 'field']],
-      'active-flow': ['activeFlow', ['kind', 'flowId']],
-      layout: ['layout', ['layoutId', 'field']],
-      'ui-element': ['uiElement', ['selector', 'field']],
-      event: ['event', ['kind']],
-      diagnostic: ['diagnostic', ['code']],
-    };
     items.forEach((item, index) => {
       if (!object(item)) return;
       const location = `${path}/${index}`;
       requireKey(item, 'type', location);
       requireKey(item, 'operator', location);
-      const required = owners[String(item.type)];
+      const required =
+        testSourceExpectationPayloads[
+          String(item.type) as keyof typeof testSourceExpectationPayloads
+        ];
       if (!required) return;
-      const [payload, fields] = required;
+      const { key: payload, fields } = required;
       requireKey(item, payload, location);
       const detail = item[payload];
       if (!object(detail)) return; // The normalized schema reports non-object payloads.
@@ -403,7 +391,9 @@ function assertTestSourceIntent(source: unknown): void {
       const comparison = !['present', 'absent'].includes(String(item.operator));
       if (
         comparison &&
-        ['property', 'quantity', 'entity-state', 'event'].includes(String(item.type))
+        testSourceValueExpectations.includes(
+          item.type as (typeof testSourceValueExpectations)[number],
+        )
       )
         requireKey(detail, 'value', nestedPath);
       if (item.type === 'property' && detail.scope !== 'global')
@@ -429,21 +419,12 @@ function assertTestSourceIntent(source: unknown): void {
       if (!object(step)) return;
       const location = `/data/steps/${index}`;
       requireKey(step, 'input', location);
-      const required = payloads[String(step.input)];
+      const required =
+        testSourceStepPayloads[String(step.input) as keyof typeof testSourceStepPayloads];
       if (required) {
-        requireKey(step, required[0], location);
-        const detail = step[required[0]];
-        if (object(detail)) requireKey(detail, required[1], `${location}/${required[0]}`);
-      }
-      if (step.input === 'run-interaction') {
-        requireKey(step, 'runInteraction', location);
-        if (object(step.runInteraction))
-          requireKeys(step.runInteraction, ['verb', 'bindings'], `${location}/runInteraction`);
-      }
-      if (step.input === 'primary-activate' || step.input === 'open-verb-menu') {
-        requireKey(step, 'subjectAction', location);
-        if (object(step.subjectAction))
-          requireKey(step.subjectAction, 'subject', `${location}/subjectAction`);
+        requireKey(step, required.key, location);
+        const detail = step[required.key];
+        if (object(detail)) requireKeys(detail, required.fields, `${location}/${required.key}`);
       }
       if (step.input === 'ui-click' && object(step.uiClick)) {
         requireDocumentAddress(step.uiClick, `${location}/uiClick`);
@@ -623,6 +604,16 @@ export function convertLayoutYamlReferences(value: unknown, direction: 'read' | 
 export function decodeSparseRecordYaml(family: Family, text: string): unknown {
   const schema = authoringRecordSchemas[family];
   const source = decodeStructuredYaml(text);
+  if (family === 'characters') {
+    const data = object(source) ? source.data : undefined;
+    const defaults = object(data) ? data.defaults : undefined;
+    if (
+      !object(defaults) ||
+      !Object.hasOwn(defaults, 'profileId') ||
+      !Object.hasOwn(defaults, 'expressionId')
+    )
+      throw new Error('Character YAML requires explicit data.defaults.profileId and expressionId.');
+  }
   if (family === 'tests') assertTestSourceIntent(source);
   // Admission belongs to the workspace projection so Zod errors retain their
   // normalized owner pointers, rather than becoming an opaque source-read error.
