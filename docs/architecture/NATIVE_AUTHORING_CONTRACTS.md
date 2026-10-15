@@ -6,6 +6,8 @@ Zod 4 remains the authoritative declaration of Project shapes and Zod-level norm
 refinements. `editor/scripts/native-schema/sources.ts` inventories the effective Project, every
 record family, source-reference schemas, and the actual workspace manifest, Traits, tracked/local
 editor, and split localization source schemas. These are not a second handwritten schema hierarchy.
+One additional `ZodRecordKeyCertification` witness exists only to test normalized record-key collisions
+while real localization key validation still has an unimplemented native operation.
 
 `tools/project_authoring/` is a **parallel, certification-only host boundary** for #475 / #474.
 It does not replace workspace admission, Project-wide semantic validation, editor working state,
@@ -35,7 +37,7 @@ Committed outputs under `tools/project_authoring/generated/` are deterministic:
 
 - `contracts.json`: structural JSON Schemas, node/child relationships, ordered check stages, roots,
   semantic operation references, and literal defaults;
-- `project_types.hpp`: C++20 structural records, enums, tagged `std::variant` unions, optional fields,
+- `project_types.hpp`: C++20 structural records, enums (with exact numeric/boolean literal values), tagged `std::variant` unions, optional fields,
   arrays, maps, and boxed recursive nodes, without a JSON-library dependency;
 - `operations.hpp`: stable native operation IDs and kinds.
 
@@ -72,6 +74,8 @@ Zod-exported local structural stages. The adapter navigates generated recursive/
 branches before invoking those validators, so a bad nested Condition reports its JSON Pointer rather
 than a generic root `oneOf` error. Missing values remain distinct from explicit JSON null. Union
 candidates and normalized output are isolated; opening/validation never rewrites source input.
+Record parsing reproduces JavaScript's array-index-first key enumeration and rebuilds output using
+normalized keys, including Zod's last-write-wins behavior when input keys normalize to one name.
 
 The public certification boundary in `contracts.hpp` exchanges serialized records/results and typed
 diagnostics, without leaking jsoncons types. It reports unsupported operations, malformed input,
@@ -102,6 +106,8 @@ other cross-compiles cannot build this directory. `types_compile.cpp` compiles t
 C++ type artifact. The real Map fixture exercises recursive Conditions, default arrays, a nullable
 trimmed style, and Lua dependency overwrites/refinement. Negative variants cover nested scalar and
 discriminator errors, explicit-null rejection, strict keys, and duplicate semantic targets.
+The certification-only record fixture verifies normalized keys and collision order; generator
+tests also verify literal projections and plural/select operation-ID registration.
 
 The native differential tests skip explicitly when `NOVELTEA_SCHEMA_CERTIFY` is not supplied; Build
 CI always supplies it after building the executable. Generator/staleness tests run without a C++

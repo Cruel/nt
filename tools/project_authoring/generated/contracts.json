@@ -11719,14 +11719,14 @@
       },
       "operations": [
         {
-          "id": "localization.pattern.select",
+          "id": "localization.pattern.plural",
           "kind": "refinement"
         }
       ],
       "steps": [
         {
           "operation": {
-            "id": "localization.pattern.select",
+            "id": "localization.pattern.plural",
             "kind": "refinement"
           }
         }
@@ -11834,14 +11834,14 @@
       },
       "operations": [
         {
-          "id": "localization.pattern.plural",
+          "id": "localization.pattern.select",
           "kind": "refinement"
         }
       ],
       "steps": [
         {
           "operation": {
-            "id": "localization.pattern.plural",
+            "id": "localization.pattern.select",
             "kind": "refinement"
           }
         }
@@ -31202,6 +31202,55 @@
         "type": "object"
       }
     },
+    "n2683": {
+      "children": {
+        "key": "n2684",
+        "value": "n2685"
+      },
+      "operations": [],
+      "steps": [],
+      "type": "record",
+      "validation": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "additionalProperties": {},
+        "propertyNames": {
+          "type": "string"
+        },
+        "type": "object"
+      }
+    },
+    "n2684": {
+      "children": {},
+      "operations": [
+        {
+          "id": "string.trim",
+          "kind": "overwrite"
+        }
+      ],
+      "steps": [
+        {
+          "operation": {
+            "id": "string.trim",
+            "kind": "overwrite"
+          }
+        }
+      ],
+      "type": "string",
+      "validation": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "string"
+      }
+    },
+    "n2685": {
+      "children": {},
+      "operations": [],
+      "steps": [],
+      "type": "number",
+      "validation": {
+        "$schema": "https://json-schema.org/draft/2020-12/schema",
+        "type": "number"
+      }
+    },
     "n269": {
       "children": {
         "inner": "n270"
@@ -45098,7 +45147,8 @@
     "WorkspaceRecordsVerbs": "n2632",
     "WorkspaceTrackedEditor": "n2681",
     "WorkspaceTraitDeclarations": "n2682",
-    "WorkspaceTraits": "n2596"
+    "WorkspaceTraits": "n2596",
+    "ZodRecordKeyCertification": "n2683"
   },
   "schema": "noveltea.native-authoring-contracts",
   "schemas": {
@@ -153252,6 +153302,19 @@
       },
       "type": "object",
       "x-native-node": "n2596"
+    },
+    "ZodRecordKeyCertification": {
+      "$schema": "https://json-schema.org/draft/2020-12/schema",
+      "additionalProperties": {
+        "type": "number",
+        "x-native-node": "n2685"
+      },
+      "propertyNames": {
+        "type": "string",
+        "x-native-node": "n2684"
+      },
+      "type": "object",
+      "x-native-node": "n2683"
     }
   }
 }
