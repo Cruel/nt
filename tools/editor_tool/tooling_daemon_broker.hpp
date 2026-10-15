@@ -39,7 +39,7 @@ private:
 
 /**
  * Resolve a scheduler Project nomination to its canonical physical root.
- * Implicit cwd nominations search upward for the nearest project.json; explicit --project
+ * Implicit cwd nominations search upward for the nearest project.yaml; explicit --project
  * nominations remain exact so scheduler admission preserves the public discovery contract.
  */
 [[nodiscard]] std::string canonical_project_owner_root(std::string_view project_root,

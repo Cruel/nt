@@ -18,7 +18,7 @@ function tempProject() {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-comfyui-source-'));
   roots.push(root);
   fs.mkdirSync(path.join(root, 'assets', 'images'), { recursive: true });
-  const projectFilePath = path.join(root, 'project.json');
+  const projectFilePath = path.join(root, 'project.yaml');
   fs.writeFileSync(projectFilePath, '{}');
   return { root, projectFilePath };
 }

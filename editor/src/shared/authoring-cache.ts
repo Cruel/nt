@@ -17,8 +17,12 @@ export const AUTHORING_CACHE_SCHEMA = 'noveltea.authoring-cache';
 export const AUTHORING_CACHE_ROOT = '.noveltea/cache/authoring';
 
 export const AUTHORING_VALIDATION_DISCOVERY_SCOPES = Object.freeze([
-  { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
-  { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
+  { root: 'i18n', extensions: ['.yaml', '.json'], excludedPrefixes: [] },
+  {
+    root: 'records',
+    extensions: ['.yaml', '.json', '.lua', '.rcss', '.rml'],
+    excludedPrefixes: [],
+  },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
   { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
 ]);
@@ -142,9 +146,9 @@ async function readCurrentManifest(fileSystem: ProjectWorkspaceFileSystem, root:
       manifest.discoveryScopes,
       AUTHORING_VALIDATION_DISCOVERY_SCOPES,
     ) ||
-    !manifest.inputs.some((input) => input.path === 'project.json') ||
-    !manifest.inputs.some((input) => input.path === 'editor.json') ||
-    !manifest.inputs.some((input) => input.path === 'traits.json')
+    !manifest.inputs.some((input) => input.path === 'project.yaml') ||
+    !manifest.inputs.some((input) => input.path === 'editor.yaml') ||
+    !manifest.inputs.some((input) => input.path === 'traits.yaml')
   )
     return null;
   return manifest;
@@ -262,8 +266,8 @@ export async function captureAuthoringValidationAuthorityInputs(
     if (!(await settled(fileSystem, snapshot.projectRoot))) return null;
     const validatedPaths = new Set([
       ...snapshot.canonicalSourceFiles,
-      'project.json',
-      'editor.json',
+      'project.yaml',
+      'editor.yaml',
       ...assetSourcePaths(snapshot.project),
     ]);
     const inputs = await captureProjectSourceInventory(fileSystem, snapshot.projectRoot, {

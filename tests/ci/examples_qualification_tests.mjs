@@ -9,11 +9,45 @@ import {
   parseExamplesRevision,
   validateQualifiedExamplesCatalog,
   aggregateQualifiedExamples,
+  verifyPinnedYamlExampleProjects,
 } from "../../scripts/qualify-examples.mjs";
 
 const revision = "1".repeat(40);
 const ntRevision = "4".repeat(40);
 const digest = (character) => character.repeat(64);
+
+test("external examples must be converted and repinned atomically; asset JSON remains valid", () => {
+  const root = mkdtempSync(resolve(tmpdir(), "nt-yaml-examples-"));
+  try {
+    const sourcePath = "projects/materials";
+    const manifest = { examples: [{ id: "materials", sourcePath }] };
+    const projectRoot = resolve(root, sourcePath);
+    mkdirSync(projectRoot, { recursive: true });
+    writeFileSync(resolve(projectRoot, "project.json"), "{}\n");
+    assert.throws(() => verifyPinnedYamlExampleProjects(root, manifest), /missing projects\/materials\/project.yaml/);
+    for (const owner of [
+      "project.yaml", "editor.yaml", "traits.yaml", "i18n/project.yaml",
+      "i18n/messages.yaml", "i18n/tracking.yaml", "i18n/orphans.yaml",
+      "i18n/usage-notes.yaml",
+    ]) {
+      const file = resolve(projectRoot, owner);
+      mkdirSync(dirname(file), { recursive: true });
+      writeFileSync(file, "{}\n");
+    }
+    assert.throws(() => verifyPinnedYamlExampleProjects(root, manifest), /retains retired.*project.json/);
+    rmSync(resolve(projectRoot, "project.json"));
+    mkdirSync(resolve(projectRoot, "records/rooms"), { recursive: true });
+    writeFileSync(resolve(projectRoot, "records/rooms/start.json"), "{}\n");
+    assert.throws(() => verifyPinnedYamlExampleProjects(root, manifest), /retains authored JSON/);
+    rmSync(resolve(projectRoot, "records/rooms/start.json"));
+    writeFileSync(resolve(projectRoot, "records/rooms/start.yaml"), "{}\n");
+    mkdirSync(resolve(projectRoot, "assets/data"), { recursive: true });
+    writeFileSync(resolve(projectRoot, "assets/data/config.json"), "{}\n");
+    assert.doesNotThrow(() => verifyPinnedYamlExampleProjects(root, manifest));
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
 
 function catalog() {
   return {

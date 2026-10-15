@@ -1,7 +1,11 @@
 import { readFileSync } from 'node:fs';
+import { projectWorkspaceSourceCodec } from '../../shared/project-workspace/project-workspace-source-codec';
+import { authoringRecordSchemas } from '../../shared/project-schema/authoring-records';
+import { parse as parseYaml } from 'yaml';
 import { posix } from 'node:path';
 import { describe, expect, it } from 'vite-plus/test';
 import { runNovelTeaCli, type AuthoringValidationInstrumentation } from '../../cli/application';
+import { locateYamlCliDiagnostics } from '../../cli/yaml-diagnostic-locations';
 import {
   createNovelTeaAgentKitPayload,
   createNovelTeaCompactReferenceFiles,
@@ -32,6 +36,7 @@ import type { NovelTeaCliPlatformToolService } from '../../cli/platform-tool-ser
 import { defaultPlatformExportProfile } from '../../shared/project-schema/platform-export-contracts';
 import { defaultLayoutData } from '../../shared/project-schema/authoring-layouts';
 import { defaultMaterialData } from '../../shared/project-schema/authoring-materials';
+import { defaultMapData } from '../../shared/project-schema/authoring-maps';
 import { defaultVerbData } from '../../shared/project-schema/authoring-verbs';
 import { defaultTestData, defaultTestStep } from '../../shared/project-schema/authoring-tests';
 import {
@@ -56,6 +61,465 @@ import {
 } from '../../shared/project-workspace';
 
 const root = '/projects/headless';
+
+describe('effective entity inspection CLI', () => {
+  it('publishes Character identity and conditional Test-source requirements in raw schemas', () => {
+    const schemas = createNovelTeaRawSchemaFiles();
+    const resolve = (root: Record<string, unknown>, value: unknown): Record<string, unknown> => {
+      const item = value as Record<string, unknown>;
+      if (typeof item?.$ref !== 'string') return item;
+      return item.$ref
+        .slice(2)
+        .split('/')
+        .reduce(
+          (node: unknown, segment: string) =>
+            (node as Record<string, unknown>)[segment.replaceAll('~1', '/').replaceAll('~0', '~')],
+          root,
+        ) as Record<string, unknown>;
+    };
+    const fields = (item: Record<string, unknown>) => item.properties as Record<string, unknown>;
+    const character = JSON.parse(schemas['records/characters.schema.json']!) as Record<
+      string,
+      unknown
+    >;
+    const characterData = resolve(character, fields(character).data);
+    expect(characterData.required).toContain('defaults');
+    const characterDefaults = resolve(character, fields(characterData).defaults);
+    expect(characterDefaults.required).toEqual(
+      expect.arrayContaining(['profileId', 'expressionId']),
+    );
+    expect(characterDefaults).not.toHaveProperty('default');
+
+    const tests = JSON.parse(schemas['records/tests.schema.json']!) as Record<string, unknown>;
+    const testData = resolve(tests, fields(tests).data);
+    const step = resolve(tests, resolve(tests, fields(testData).steps).items);
+    expect(step.required).toContain('input');
+    expect(fields(step).input).not.toHaveProperty('default');
+    const stepBranches = (step.allOf as { anyOf: Record<string, unknown>[] }[])[0]!.anyOf;
+    const choice = stepBranches.find(
+      (branch) => (fields(branch).input as { const: string }).const === 'dialogue-choice',
+    )!;
+    expect(choice.required).toContain('dialogueChoice');
+    expect((fields(choice).dialogueChoice as { required: string[] }).required).toContain('edgeId');
+    const expectation = resolve(tests, resolve(tests, fields(testData).finalExpectations).items);
+    const expectationBranches = (expectation.allOf as { anyOf: Record<string, unknown>[] }[])[0]!
+      .anyOf;
+    const diagnostic = expectationBranches.find(
+      (branch) => (fields(branch).type as { const: string }).const === 'diagnostic',
+    )!;
+    expect(diagnostic.required).toContain('diagnostic');
+    expect((fields(diagnostic).diagnostic as { required: string[] }).required).toContain('code');
+  });
+
+  it('distinguishes authored empty collections from omitted source defaults', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const omitted = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'rooms', 'start', '--provenance'],
+      options(value),
+    );
+    expect(omitted.exitCode).toBe(0);
+    expect((omitted.envelope.provenance as { data: { cast: unknown } }).data.cast).toBe('default');
+    const source = await value.fileSystem.readText(file);
+    await value.fileSystem.writeTextAtomic(file, source.replace(/^data:$/mu, 'data:\n  cast: []'));
+    const explicit = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'rooms', 'start', '--provenance'],
+      options(value),
+    );
+    expect(explicit.exitCode).toBe(0);
+    expect((explicit.envelope.provenance as { data: { cast: unknown } }).data.cast).toBe(
+      'explicit',
+    );
+  });
+
+  it('expands nested Room defaults from sparse YAML without changing the record', async () => {
+    const project = validProject();
+    const staged = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/rooms/start.yaml']),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(staged).map(([file, text]) => [`${root}/${file}`, text])),
+    );
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const file = `${root}/records/rooms/start.yaml`;
+    const source = (await value.fileSystem.readText(file)).replace(
+      /^data:$/mu,
+      'data:\n  background:\n    asset: artwork\n    materialApplication: null\n    fit: cover\n    color: null',
+    );
+    await value.fileSystem.writeTextAtomic(file, source);
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'rooms', 'start', '--provenance'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.record).toMatchObject({
+      id: 'start',
+      data: {
+        background: { asset: { $ref: { collection: 'assets', id: 'artwork' } } },
+        presentationSpace: { defaultView: { zoom: 1, rotationDegrees: 0 } },
+      },
+    });
+    expect(result.envelope.provenance).toMatchObject({
+      data: {
+        background: { asset: { $ref: 'explicit' }, fit: 'explicit' },
+        presentationSpace: { defaultView: { zoom: 'default', rotationDegrees: 'default' } },
+      },
+    });
+    expect(await value.fileSystem.readText(file)).toBe(source);
+  });
+
+  it('inspects an effective Variable and optional default provenance without writing source', async () => {
+    const value = fixture();
+    const file = `${root}/records/variables/flag.yaml`;
+    const source = 'id: flag\nlabel: Flag\ndata:\n  type: boolean\n  value: false\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'variables', 'flag', '--provenance'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.record).toMatchObject({
+      id: 'flag',
+      data: { nullable: false, scope: 'global' },
+    });
+    expect(result.envelope.provenance).toMatchObject({
+      id: 'explicit',
+      data: { type: 'explicit', nullable: 'default', scope: 'default' },
+    });
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'inspect', 'variables', 'nonexistent'],
+          options(value),
+        )
+      ).exitCode,
+    ).not.toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'inspect', 'unknown', 'flag'], options(value)))
+        .exitCode,
+    ).not.toBe(0);
+  });
+
+  it('reads YAML Layout provenance from the canonical Layout-owned source path', async () => {
+    const project = validProject();
+    project.layouts.hud = {
+      id: 'hud',
+      label: 'HUD',
+      data: defaultLayoutData('HUD', 'document'),
+    };
+    const files = { ...projectWorkspaceFiles(project, project.editor) };
+    const yamlPath = 'records/layouts/hud/layout.yaml';
+    const yamlText = files[yamlPath]!;
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(files).map(([file, text]) => [`${root}/${file}`, text])),
+    );
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'layouts', 'hud', '--provenance'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.provenance).toMatchObject({ id: 'explicit', label: 'explicit' });
+    expect(await fileSystem.readText(`${root}/${yamlPath}`)).toBe(yamlText);
+    expect(await fileSystem.inspect(`${root}/records/layouts/hud/layout.json`)).toBe('missing');
+  });
+
+  it('rejects an obsolete JSON Layout owner rather than inspecting it', async () => {
+    const project = validProject();
+    project.layouts.hud = { id: 'hud', label: 'HUD', data: defaultLayoutData('HUD', 'document') };
+    const files = { ...projectWorkspaceFiles(project, project.editor) };
+    const yamlPath = 'records/layouts/hud/layout.yaml';
+    const yamlText = files[yamlPath]!;
+    files['records/layouts/hud/layout.json'] = projectWorkspaceSourceCodec('obsolete.json').encode(
+      projectWorkspaceSourceCodec(yamlPath).decode(files[yamlPath]!),
+    );
+    delete files[yamlPath];
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(Object.entries(files).map(([file, text]) => [`${root}/${file}`, text])),
+    );
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'layouts', 'hud', '--provenance'],
+      options(value),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(await fileSystem.inspect(`${root}/${yamlPath}`)).toBe('missing');
+    await fileSystem.writeTextAtomic(`${root}/${yamlPath}`, yamlText);
+    const duplicate = await runNovelTeaCli(
+      ['--json', 'entity', 'inspect', 'layouts', 'hud', '--provenance'],
+      options(value),
+    );
+    expect(duplicate.exitCode).not.toBe(0);
+  });
+});
+
+describe('YAML identity rename comment notices', () => {
+  it('emits a nonblocking informational diagnostic for retained distinct-token mentions', async () => {
+    const value = fixture();
+    const before = await value.fileSystem.readText(`${root}/records/rooms/start.yaml`);
+    await value.fileSystem.writeTextAtomic(
+      `${root}/records/rooms/start.yaml`,
+      `# start is the original room; started is not its ID\n${before}`,
+    );
+    const result = await runNovelTeaCli(
+      ['--json', 'entity', 'rename', 'rooms', 'start', 'arrival', '--dry-run'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    expect(result.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          code: 'authoring.source_comment.stale_id',
+          severity: 'info',
+          sourceUrl: 'project:/records/rooms/arrival.yaml',
+        }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(`${root}/records/rooms/start.yaml`)).toBe(
+      `# start is the original room; started is not its ID\n${before}`,
+    );
+  });
+});
+
+describe('YAML diagnostic source locations', () => {
+  it('resolves normalized manifest, Trait, editor and localization owner pointers', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/project.yaml`]:
+        'settings:\n  display:\n    referenceResolution:\n      width: 640\n',
+      [`${root}/traits.yaml`]: 'guard:\n  label: Guard\n',
+      [`${root}/editor.yaml`]: 'tags:\n  records:\n    blue:\n      name: Blue\n',
+      [`${root}/i18n/messages.yaml`]: 'messages:\n  title:\n    source: Hello\n',
+    });
+    const pointers = [
+      '/settings/display/referenceResolution/width',
+      '/traits/guard/label',
+      '/editor/tags/records/blue/name',
+      '/localization/messages/title/source',
+    ];
+    const found = await locateYamlCliDiagnostics(
+      fs,
+      root,
+      pointers.map((path) => ({ code: 'test', severity: 'error' as const, path, message: 'test' })),
+    );
+    expect(found.map((diagnostic) => diagnostic.sourceUrl)).toEqual([
+      'project:/project.yaml',
+      'project:/traits.yaml',
+      'project:/editor.yaml',
+      'project:/i18n/messages.yaml',
+    ]);
+    expect(found.every((diagnostic) => typeof diagnostic.line === 'number')).toBe(true);
+  });
+
+  it('links a schema-invalid record without changing its logical diagnostic path', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const original = 'id: start\nlabel: Start\ndata:\n  unexpected: true\n';
+    await value.fileSystem.writeTextAtomic(file, original);
+    const result = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceUrl: 'project:/records/rooms/start.yaml' }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(file)).toBe(original);
+  });
+
+  it('links malformed manifest diagnostics during Project discovery', async () => {
+    const value = fixture();
+    const file = `${root}/project.yaml`;
+    await value.fileSystem.writeTextAtomic(file, 'schema: [unfinished\n');
+    const result = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(result.exitCode).not.toBe(0);
+    expect(result.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ sourceUrl: 'project:/project.yaml', line: 2 }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(file)).toBe('schema: [unfinished\n');
+  });
+
+  it('refreshes cached positions after a comment-only source edit', async () => {
+    const file = `${root}/records/rooms/start.yaml`;
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [file]: 'id: start\ndata:\n  target: lamp\n',
+    });
+    const raw = [
+      {
+        code: 'reference',
+        severity: 'error' as const,
+        path: '/rooms/start/data/target',
+        message: 'missing reference',
+      },
+    ];
+    const [first] = await locateYamlCliDiagnostics(fs, root, raw);
+    expect(first?.line).toBe(3);
+    await fs.writeTextAtomic(file, '# comment-only change\nid: start\ndata:\n  target: lamp\n');
+    const [second] = await locateYamlCliDiagnostics(fs, root, [first!]);
+    expect(second).toMatchObject({ code: first?.code, path: first?.path, line: 4 });
+    expect(second?.column).toBe(first?.column);
+  });
+
+  it('projects sparse conditions, expanded references, escaped keys and separate YAML owners', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/interactions/talk.yaml`]:
+        'id: talk\ndata:\n  rules:\n    - id: first\n      condition: always\n      target: lamp\n      options:\n        "a/b~c": true\n',
+      [`${root}/i18n/project.yaml`]:
+        'sourceLocale: en\ndefaultLocale: en\nsourceLocaleLock: null\n',
+    });
+    const diagnostics = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'condition',
+        severity: 'error',
+        path: '/interactions/talk/data/rules/0/condition/kind',
+        message: 'condition',
+      },
+      {
+        code: 'reference',
+        severity: 'error',
+        path: '/interactions/talk/data/rules/0/target/$ref/id',
+        message: 'reference',
+      },
+      {
+        code: 'key',
+        severity: 'error',
+        path: '/interactions/talk/data/rules/0/options/a~1b~0c',
+        message: 'key',
+      },
+      {
+        code: 'locale',
+        severity: 'error',
+        path: '/defaultLocale',
+        sourceUrl: 'project:/i18n/project.yaml',
+        message: 'locale',
+      },
+    ]);
+    expect(diagnostics.map((item) => item.line)).toEqual([5, 6, 8, 2]);
+    expect(diagnostics[0]?.column).toBe(18);
+    expect(diagnostics[1]?.column).toBe(15);
+    expect(diagnostics[2]?.sourceUrl).toBe('project:/records/interactions/talk.yaml');
+    expect(diagnostics[3]?.sourceUrl).toBe('project:/i18n/project.yaml');
+  });
+
+  it('locates restricted-YAML profile violations at the offending scalar', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/variables/flag.yaml`]: 'id: flag\ndata:\n  type: string\n  value: yes\n',
+    });
+    const [result] = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'WORKSPACE_SOURCE_READ',
+        severity: 'error',
+        path: '/records/variables/flag.yaml',
+        message: 'invalid',
+      },
+    ]);
+    expect(result).toMatchObject({
+      sourceUrl: 'project:/records/variables/flag.yaml',
+      line: 4,
+      column: 10,
+    });
+  });
+
+  it('links real read-only CLI validation syntax failures to the authored YAML file', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const original = 'id: start\ndata: [unterminated\n';
+    await value.fileSystem.writeTextAtomic(file, original);
+    const validated = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(validated.exitCode).not.toBe(0);
+    expect(validated.envelope.diagnostics).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          sourceUrl: 'project:/records/rooms/start.yaml',
+          line: 3,
+          column: expect.any(Number),
+        }),
+      ]),
+    );
+    expect(await value.fileSystem.readText(file)).toBe(original);
+    const textValidated = await runNovelTeaCli(
+      ['validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(textValidated.stderr).toContain('project:/records/rooms/start.yaml:3:');
+    expect(await value.fileSystem.readText(file)).toBe(original);
+  });
+
+  it('locates nested array fields, scalar references and missing fields without inventing nodes', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/rooms/start.yaml`]:
+        'id: start\ndata:\n  placements:\n    - id: first\n      target: lamp\n      enabled: true\n',
+    });
+    const diagnostics = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'x',
+        severity: 'error',
+        path: '/rooms/start/data/placements/0/target',
+        message: 'ref',
+      },
+      {
+        code: 'y',
+        severity: 'error',
+        path: '/rooms/start/data/placements/0/missing',
+        message: 'missing',
+      },
+      {
+        code: 'z',
+        severity: 'error',
+        path: '/rooms/start/data/placements/0/enabled',
+        message: 'field',
+      },
+    ]);
+    expect(diagnostics[0]).toMatchObject({
+      sourceUrl: 'project:/records/rooms/start.yaml',
+      line: 5,
+      column: 15,
+    });
+    expect(diagnostics[1]).toMatchObject({
+      sourceUrl: 'project:/records/rooms/start.yaml',
+      line: 4,
+    });
+    expect(diagnostics[2]).toMatchObject({
+      sourceUrl: 'project:/records/rooms/start.yaml',
+      line: 6,
+      column: 16,
+    });
+    expect(diagnostics.map(({ path, code }) => ({ path, code }))).toEqual([
+      { path: '/rooms/start/data/placements/0/target', code: 'x' },
+      { path: '/rooms/start/data/placements/0/missing', code: 'y' },
+      { path: '/rooms/start/data/placements/0/enabled', code: 'z' },
+    ]);
+  });
+
+  it('reports parser error source coordinates even when document parsing fails', async () => {
+    const fs = new InMemoryProjectWorkspaceFileSystem({
+      [`${root}/records/rooms/start.yaml`]: 'id: start\ndata: [invalid\n',
+    });
+    const [diagnostic] = await locateYamlCliDiagnostics(fs, root, [
+      {
+        code: 'WORKSPACE_SOURCE_READ',
+        severity: 'error',
+        path: '/records/rooms/start.yaml',
+        message: 'invalid',
+      },
+    ]);
+    expect(diagnostic).toMatchObject({ sourceUrl: 'project:/records/rooms/start.yaml', line: 3 });
+  });
+});
 
 function validProject() {
   const project = createAuthoringProject({ id: 'headless', name: 'Headless' });
@@ -120,6 +584,413 @@ function validationNativeTools(): NovelTeaCliNativeToolService {
   };
 }
 
+describe('YAML fmt CLI', () => {
+  it('compacts non-record Project/editor omission defaults, retaining annotated values', async () => {
+    const value = fixture();
+    const manifestPath = `${root}/project.yaml`;
+    const manifest = await value.fileSystem.readText(manifestPath);
+    await value.fileSystem.writeTextAtomic(
+      manifestPath,
+      manifest.replace(
+        'interactableInstances:',
+        'undefinedInteractionProgram: null\ninteractableInstances:',
+      ),
+    );
+    const editorPath = `${root}/editor.yaml`;
+    await value.fileSystem.writeTextAtomic(
+      editorPath,
+      'chapters:\n  records: {}\n  assignments: {} # keep assignment default\ntags:\n  records: {}\nrecordMetadata: {}\n',
+    );
+    const dry = await runNovelTeaCli(
+      ['--json', 'fmt', '--strip-defaults', '--check'],
+      options(value),
+    );
+    expect(dry.exitCode).not.toBe(0);
+    const applied = await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value));
+    expect(applied.exitCode, JSON.stringify(applied.envelope.diagnostics)).toBe(0);
+    expect(await value.fileSystem.readText(manifestPath)).not.toContain(
+      'undefinedInteractionProgram: null',
+    );
+    const editor = await value.fileSystem.readText(editorPath);
+    expect(editor).not.toContain('records: {}');
+    expect(editor).toContain('assignments: {} # keep assignment default');
+    const opened = await value.workspace.open(root);
+    expect(opened.ok ? '' : opened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+  });
+
+  it('strips Variable source defaults only on explicit request, preserving annotated intent', async () => {
+    const value = fixture();
+    const file = `${root}/records/variables/counter.yaml`;
+    const source =
+      'id: counter\nlabel: Counter\ndata:\n  type: number\n  value: 0\n  nullable: false\n  scope: global # intentionally global\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const before = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/variables/counter.yaml'],
+      options(value),
+    );
+    expect(before.exitCode).toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const check = await runNovelTeaCli(
+      ['--json', 'fmt', '--strip-defaults', '--check'],
+      options(value),
+    );
+    expect(check.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const applied = await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value));
+    expect(applied.exitCode).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          [
+            '--project',
+            root,
+            '--json',
+            'fmt',
+            'records/variables/counter.yaml',
+            '--strip-defaults',
+            '--check',
+          ],
+          options(value, '/projects'),
+        )
+      ).exitCode,
+    ).toBe(0);
+    const result = await value.fileSystem.readText(file);
+    expect(result).not.toContain('nullable: false');
+    expect(result).toContain('scope: global # intentionally global');
+    expect(
+      (await runNovelTeaCli(['--json', 'fmt', '--strip-defaults', '--check'], options(value)))
+        .exitCode,
+    ).toBe(0);
+  });
+
+  it('strips only proven nested Room defaults and leaves malformed source untouched', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const starter = projectWorkspaceFiles(
+      value.project,
+      value.project.editor,
+      {},
+      new Set(['records/rooms/start.yaml']),
+    )['records/rooms/start.yaml']!;
+    const source = starter.replace(
+      /^(\s*)defaultView:$/mu,
+      (_match, indent: string) =>
+        `${indent}defaultView:\n${indent}  zoom: 1\n${indent}  rotationDegrees: 0 # authored rotation`,
+    );
+    expect(source).not.toBe(starter);
+    await value.fileSystem.writeTextAtomic(file, source);
+    const normalizedBefore = authoringRecordSchemas.rooms.parse(
+      projectWorkspaceSourceCodec('records/rooms/start.yaml').decode(source),
+    );
+    const checked = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/rooms/start.yaml', '--strip-defaults', '--check'],
+      options(value),
+    );
+    expect(checked.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const applied = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/rooms/start.yaml', '--strip-defaults'],
+      options(value),
+    );
+    expect(applied.exitCode).toBe(0);
+    const result = await value.fileSystem.readText(file);
+    expect(result).not.toContain('zoom: 1');
+    expect(result).toContain('rotationDegrees: 0 # authored rotation');
+    expect(
+      authoringRecordSchemas.rooms.parse(
+        projectWorkspaceSourceCodec('records/rooms/start.yaml').decode(result),
+      ),
+    ).toEqual(normalizedBefore);
+    const invalid = 'id: start\ndata: [malformed';
+    await value.fileSystem.writeTextAtomic(file, invalid);
+    expect(
+      (await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value))).exitCode,
+    ).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(invalid);
+  });
+
+  it('rejects schema-invalid records and leaves other compaction candidates untouched', async () => {
+    const value = fixture();
+    const variablePath = `${root}/records/variables/count.yaml`;
+    const source =
+      'id: count\nlabel: Count\ndata:\n  type: number\n  value: 0\n  nullable: false\n';
+    const roomPath = `${root}/records/rooms/start.yaml`;
+    const invalidRoom = 'id: start\nlabel: Start\ndata:\n  unknownRoomField: true\n';
+    await value.fileSystem.writeTextAtomic(variablePath, source);
+    await value.fileSystem.writeTextAtomic(roomPath, invalidRoom);
+    const result = await runNovelTeaCli(['--json', 'fmt', '--strip-defaults'], options(value));
+    expect(result.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(variablePath)).toBe(source);
+    expect(await value.fileSystem.readText(roomPath)).toBe(invalidRoom);
+  });
+
+  it('formats nested Layout YAML while retaining block scalars and null versus empty', async () => {
+    const value = fixture();
+    const file = `${root}/records/layouts/dialog/layout.yaml`;
+    const source =
+      '# layout note\nid: dialog\ndata:\n    script: |\n      hello\n      world\n    omitted: null\n    empty: ""\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const result = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/layouts/dialog/layout.yaml'],
+      options(value),
+    );
+    expect(result.exitCode).toBe(0);
+    const actual = await value.fileSystem.readText(file);
+    expect(actual).toContain('# layout note');
+    expect(actual).toContain('|');
+    expect(parseYaml(actual)).toEqual(parseYaml(source));
+  });
+
+  it('checks without writing, formats source with schema errors, and preserves comments', async () => {
+    const value = fixture();
+    const file = `${root}/records/rooms/start.yaml`;
+    const source = '# room note\nid: start\nlabel: "a room"\ndata:\n    unexpected: true\n';
+    await value.fileSystem.writeTextAtomic(file, source);
+    const checked = await runNovelTeaCli(['--json', 'fmt', '--check'], options(value));
+    expect(checked.exitCode).not.toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(source);
+    const formatted = await runNovelTeaCli(
+      ['--json', 'fmt', 'records/rooms/start.yaml'],
+      options(value),
+    );
+    expect(formatted.exitCode).toBe(0);
+    const result = await value.fileSystem.readText(file);
+    expect(result).toContain('# room note');
+    expect(parseYaml(result)).toEqual(parseYaml(source));
+    expect((await runNovelTeaCli(['--json', 'fmt', '--check'], options(value))).exitCode).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'fmt', '../outside.yaml'], options(value))).exitCode,
+    ).not.toBe(0);
+  });
+});
+
+describe('staged YAML Variables CLI tracer', () => {
+  it('validates a hand-authored Variable and creates the next Variable as sparse YAML', async () => {
+    const value = fixture();
+    const file = `${root}/records/variables/flag.yaml`;
+    const original =
+      '# agent intent\nid: flag\nlabel: Flag\ndata:\n  type: boolean\n  value: false\n';
+    await value.fileSystem.writeTextAtomic(file, original);
+    const validated = await runNovelTeaCli(
+      ['--json', 'validate'],
+      options(value, root, validationNativeTools()),
+    );
+    expect(validated.exitCode).toBe(0);
+    expect(await value.fileSystem.readText(file)).toBe(original);
+    const created = await runNovelTeaCli(
+      ['--json', 'entity', 'create', 'variables', 'second-flag'],
+      options(value),
+    );
+    expect(created.exitCode).toBe(0);
+    const createdText = await value.fileSystem.readText(
+      `${root}/records/variables/second-flag.yaml`,
+    );
+    expect(createdText).toContain('id: second-flag');
+    expect(createdText).not.toContain('kind: variable');
+    expect(createdText).not.toContain('nullable: false');
+    expect(await value.fileSystem.inspect(`${root}/records/variables/second-flag.json`)).toBe(
+      'missing',
+    );
+    expect(await value.fileSystem.readText(file)).toBe(original);
+    const reopened = await value.workspace.open(root);
+    expect(reopened.ok).toBe(true);
+    if (reopened.ok) expect(reopened.snapshot.project.variables['second-flag']).toBeDefined();
+  });
+});
+
+describe('staged YAML Room and Map CLI authoring', () => {
+  it('validates annotated source and creates further Room/Map records in YAML', async () => {
+    const project = validProject();
+    project.maps.overview = { id: 'overview', label: 'Overview', data: defaultMapData() };
+    const files = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/rooms/start.yaml', 'records/maps/overview.yaml']),
+    );
+    const roomPath = `${root}/records/rooms/start.yaml`;
+    const mapPath = `${root}/records/maps/overview.yaml`;
+    const staged = Object.fromEntries(
+      Object.entries(files).map(([file, text]) => [
+        `${root}/${file}`,
+        file === 'records/rooms/start.yaml'
+          ? text.replace('label: Room start', 'label: Room start # room authored note')
+          : file === 'records/maps/overview.yaml'
+            ? text.replace('label: Overview', 'label: Overview # map authored note')
+            : text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], options(value, root, validationNativeTools())))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'create', 'rooms', 'annex'], options(value)))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'create', 'maps', 'detail'], options(value)))
+        .exitCode,
+    ).toBe(0);
+    expect(await value.fileSystem.readText(`${root}/records/rooms/annex.yaml`)).toContain(
+      'id: annex',
+    );
+    expect(await value.fileSystem.readText(`${root}/records/maps/detail.yaml`)).toContain(
+      'id: detail',
+    );
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/annex.json`)).toBe('missing');
+    expect(await value.fileSystem.readText(roomPath)).toContain('# room authored note');
+    expect(await value.fileSystem.readText(mapPath)).toContain('# map authored note');
+    expect((await value.workspace.open(root)).ok).toBe(true);
+  });
+});
+
+describe('staged YAML Character and Interactable CLI authoring', () => {
+  it('validates sparse annotated records and creates further Characters and Interactables in YAML', async () => {
+    const project = validProject();
+    project.characters.guide = createDefaultAuthoringRecord(
+      'characters',
+      'guide',
+    ) as typeof project.characters.guide;
+    project.interactables.key = createDefaultAuthoringRecord(
+      'interactables',
+      'key',
+    ) as typeof project.interactables.key;
+    const files = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/characters/guide.yaml', 'records/interactables/key.yaml']),
+    );
+    const staged = Object.fromEntries(
+      Object.entries(files).map(([file, text]) => [
+        `${root}/${file}`,
+        file === 'records/characters/guide.yaml'
+          ? text.replace(
+              `label: ${project.characters.guide.label}`,
+              `label: ${project.characters.guide.label} # guide note`,
+            )
+          : file === 'records/interactables/key.yaml'
+            ? text.replace(
+                `label: ${project.interactables.key.label}`,
+                `label: ${project.interactables.key.label} # key note`,
+              )
+            : text,
+      ]),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], options(value, root, validationNativeTools())))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'create', 'characters', 'merchant'],
+          options(value),
+        )
+      ).exitCode,
+    ).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'create', 'interactables', 'coin'],
+          options(value),
+        )
+      ).exitCode,
+    ).toBe(0);
+    expect(await fileSystem.readText(`${root}/records/characters/merchant.yaml`)).toContain(
+      'id: merchant',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactables/coin.yaml`)).toContain(
+      'id: coin',
+    );
+    expect(await fileSystem.inspect(`${root}/records/characters/merchant.json`)).toBe('missing');
+    expect(await fileSystem.inspect(`${root}/records/interactables/coin.json`)).toBe('missing');
+    expect(await fileSystem.readText(`${root}/records/characters/guide.yaml`)).toContain(
+      '# guide note',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactables/key.yaml`)).toContain(
+      '# key note',
+    );
+    const reopened = await value.workspace.open(root);
+    expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (reopened.ok) {
+      expect(reopened.snapshot.project.characters.merchant).toBeDefined();
+      expect(reopened.snapshot.project.interactables.coin).toBeDefined();
+    }
+  });
+});
+
+describe('canonical YAML Verb and Interaction CLI authoring', () => {
+  it('validates annotated sources, creates new YAML records, and preserves existing YAML comments', async () => {
+    const project = validProject();
+    project.verbs.inspect = createDefaultAuthoringRecord(
+      'verbs',
+      'inspect',
+    ) as typeof project.verbs.inspect;
+    project.interactions.rules = createDefaultAuthoringRecord(
+      'interactions',
+      'rules',
+    ) as typeof project.interactions.rules;
+    const staged = projectWorkspaceFiles(project, project.editor);
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(staged).map(([file, content]) => [
+          `${root}/${file}`,
+          file === 'records/verbs/inspect.yaml'
+            ? content.replace('label: Verb inspect', 'label: Verb inspect # offer note')
+            : file === 'records/interactions/rules.yaml'
+              ? content.replace('label: Interaction rules', 'label: Interaction rules # rule note')
+              : content,
+        ]),
+      ),
+    );
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    expect(
+      (await runNovelTeaCli(['--json', 'validate'], options(value, root, validationNativeTools())))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (await runNovelTeaCli(['--json', 'entity', 'create', 'verbs', 'activate'], options(value)))
+        .exitCode,
+    ).toBe(0);
+    expect(
+      (
+        await runNovelTeaCli(
+          ['--json', 'entity', 'create', 'interactions', 'activate-rules'],
+          options(value),
+        )
+      ).exitCode,
+    ).toBe(0);
+    expect(await fileSystem.readText(`${root}/records/verbs/activate.yaml`)).toContain(
+      'id: activate',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactions/activate-rules.yaml`)).toContain(
+      'id: activate-rules',
+    );
+    expect(await fileSystem.inspect(`${root}/records/verbs/activate.json`)).toBe('missing');
+    expect(await fileSystem.inspect(`${root}/records/interactions/activate-rules.json`)).toBe(
+      'missing',
+    );
+    expect(await fileSystem.readText(`${root}/records/verbs/inspect.yaml`)).toContain(
+      '# offer note',
+    );
+    expect(await fileSystem.readText(`${root}/records/interactions/rules.yaml`)).toContain(
+      '# rule note',
+    );
+    const reopened = await value.workspace.open(root);
+    expect(reopened.ok ? '' : reopened.diagnostics.map((d) => d.message).join('; ')).toBe('');
+    if (reopened.ok) {
+      expect(reopened.snapshot.project.verbs.activate).toBeDefined();
+      expect(reopened.snapshot.project.interactions['activate-rules']).toBeDefined();
+    }
+  });
+});
+
 describe('exact native validation stage reuse', () => {
   it('validates only changed messages with unchanged font revisions', async () => {
     const project = validProject();
@@ -150,8 +1021,8 @@ describe('exact native validation stage reuse', () => {
       project.localization.messages[id] = { kind: 'local', source };
       const files = projectWorkspaceFiles(project, project.editor);
       await value.fileSystem.writeTextAtomic(
-        `${root}/i18n/messages.json`,
-        files['i18n/messages.json']!,
+        `${root}/i18n/messages.yaml`,
+        files['i18n/messages.yaml']!,
       );
     };
     await update('Hello!');
@@ -213,8 +1084,8 @@ describe('exact native validation stage reuse', () => {
     const edited = structuredClone(project);
     edited.rooms.start.label = 'New room label';
     await value.fileSystem.writeTextAtomic(
-      `${root}/records/rooms/start.json`,
-      projectWorkspaceFiles(edited, edited.editor)['records/rooms/start.json']!,
+      `${root}/records/rooms/start.yaml`,
+      projectWorkspaceFiles(edited, edited.editor)['records/rooms/start.yaml']!,
     );
     expect((await validate()).exitCode).toBe(0);
     expect([shaders, fonts]).toEqual([1, 1]);
@@ -335,6 +1206,152 @@ function projectWithSourceReference() {
 }
 
 describe('NovelTea headless CLI', () => {
+  it('reconciles ambiguous tracked occurrences in YAML without losing orphan provenance', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Original", nil, { note = "Keep this" })\n',
+    };
+    const tracked = synchronizeLocalizationMessageTracking(project).project;
+    const messageId = Object.values(tracked.localization.sourceMessageTracking)[0]!.occurrences[0]!
+      .messageId;
+    tracked.localization.locales.fr = { supported: true, parentLocale: null, fontStack: null };
+    const view = localizationMessageWorkflowView(tracked, messageId)!;
+    tracked.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Texte conservé', 'human', {
+        review: 'reviewed',
+      }),
+    };
+    tracked.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: [
+        'local a = Text.tr("Original", nil, { note = "Keep this" })',
+        'local b = Text.tr("Original", nil, { note = "Keep this" })',
+        'return a .. b',
+        '',
+      ].join('\n'),
+    };
+    const sourceFiles = projectWorkspaceFiles(tracked, tracked.editor);
+    const staged = Object.fromEntries(
+      Object.entries(sourceFiles).map(([file, source]) => {
+        if (!file.startsWith('i18n/')) return [`${root}/${file}`, source];
+        const yaml = file.replace(/\.json$/u, '.yaml');
+        return [
+          `${root}/${yaml}`,
+          `# source note\n${projectWorkspaceSourceCodec(yaml).encode(projectWorkspaceSourceCodec(file).decode(source))}`,
+        ];
+      }),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = {
+      project: tracked,
+      fileSystem,
+      workspace: new ProjectWorkspaceService(fileSystem),
+    };
+    const planned = await runNovelTeaCli(['--json', 'localization', 'reconcile'], options(value));
+    expect(planned.exitCode, planned.stdout).toBe(0);
+    const plan = JSON.parse(planned.stdout).plan as {
+      expectedWorkspaceRevision: string;
+      expectedFingerprint: string;
+      groups: Array<{ currentOccurrences: Array<{ id: string }> }>;
+    };
+    const resolutions = Object.fromEntries(
+      plan.groups[0]!.currentOccurrences.map(({ id }) => [id, 'new']),
+    );
+    const applied = await runNovelTeaCli(['--json', 'localization', 'reconcile', '--apply'], {
+      ...options(value),
+      stdinText: JSON.stringify({
+        expectedWorkspaceRevision: plan.expectedWorkspaceRevision,
+        expectedFingerprint: plan.expectedFingerprint,
+        resolutions,
+      }),
+    });
+    expect(applied.exitCode, applied.stdout).toBe(0);
+    expect(JSON.parse(applied.stdout)).toMatchObject({
+      orphanedMessageIds: [messageId],
+      writes: ['i18n/locales/fr.yaml', 'i18n/orphans.yaml', 'i18n/tracking.yaml'],
+    });
+    const orphans = projectWorkspaceSourceCodec('i18n/orphans.yaml').decode(
+      await fileSystem.readText(`${root}/i18n/orphans.yaml`),
+    ) as Record<string, { translations: Record<string, unknown> }>;
+    expect(orphans[messageId]?.translations).toHaveProperty('fr');
+    expect(await fileSystem.readText(`${root}/i18n/orphans.yaml`)).toContain('# source note');
+    expect(await fileSystem.inspect(`${root}/i18n/orphans.json`)).toBe('missing');
+  });
+  it('synchronizes tracked message provenance through YAML and keeps source files untouched', async () => {
+    const project = validProject();
+    project.scripts.bootstrap!.data.source = {
+      kind: 'inline-lua',
+      source: 'return Text.tr("Hello")\n',
+    };
+    const originals = projectWorkspaceFiles(project, project.editor);
+    const staged = Object.fromEntries(
+      Object.entries(originals).map(([file, source]) => {
+        if (!file.startsWith('i18n/')) return [`${root}/${file}`, source];
+        const yaml = file.replace(/\.json$/u, '.yaml');
+        return [
+          `${root}/${yaml}`,
+          `# provenance note\n${projectWorkspaceSourceCodec(yaml).encode(projectWorkspaceSourceCodec(file).decode(source))}`,
+        ];
+      }),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const lua = await fileSystem.readText(`${root}/scripts/bootstrap.lua`);
+    const synced = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
+    expect(synced.exitCode, synced.stdout).toBe(0);
+    expect(JSON.parse(synced.stdout)).toMatchObject({
+      changed: true,
+      writes: ['i18n/tracking.yaml'],
+    });
+    expect(await fileSystem.readText(`${root}/i18n/tracking.yaml`)).toContain('# provenance note');
+    expect(await fileSystem.inspect(`${root}/i18n/tracking.json`)).toBe('missing');
+    expect(await fileSystem.readText(`${root}/scripts/bootstrap.lua`)).toBe(lua);
+    const repeated = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
+    expect(JSON.parse(repeated.stdout)).toMatchObject({ changed: false, writes: [] });
+  });
+  it('accepts and reviews translations in YAML without creating JSON owners', async () => {
+    const project = validProject();
+    const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f099';
+    project.localization.locales.fr = { supported: false, parentLocale: null, fontStack: null };
+    project.localization.messages[messageId] = {
+      kind: 'named',
+      key: 'ui.greeting',
+      source: 'Hello',
+    };
+    const view = localizationMessageWorkflowView(project, messageId)!;
+    project.localization.translations.fr = {
+      [messageId]: createLocalizationTranslation(view, 'Bonjour', 'ai'),
+    };
+    project.localization.messages[messageId]!.source = 'Hello there';
+    const original = projectWorkspaceFiles(project, project.editor);
+    const staged = Object.fromEntries(
+      Object.entries(original).map(([file, source]) => {
+        if (!file.startsWith('i18n/')) return [`${root}/${file}`, source];
+        const yaml = file.replace(/\.json$/u, '.yaml');
+        return [
+          `${root}/${yaml}`,
+          `# authored note\n${projectWorkspaceSourceCodec(yaml).encode(projectWorkspaceSourceCodec(file).decode(source))}`,
+        ];
+      }),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(staged);
+    const value = { project, fileSystem, workspace: new ProjectWorkspaceService(fileSystem) };
+    const accepted = await runNovelTeaCli(
+      ['--json', 'localization', 'accept', 'fr', messageId],
+      options(value),
+    );
+    expect(accepted.exitCode, accepted.stdout).toBe(0);
+    expect(JSON.parse(accepted.stdout)).toMatchObject({ writes: ['i18n/locales/fr.yaml'] });
+    const reviewed = await runNovelTeaCli(
+      ['--json', 'localization', 'review', 'fr', messageId],
+      options(value),
+    );
+    expect(reviewed.exitCode, reviewed.stdout).toBe(0);
+    expect(await fileSystem.readText(`${root}/i18n/locales/fr.yaml`)).toContain('# authored note');
+    expect(await fileSystem.inspect(`${root}/i18n/locales/fr.json`)).toBe('missing');
+    expect((await value.workspace.open(root)).ok).toBe(true);
+  });
   it('joins localization work queues and keeps accept independent from human review', async () => {
     const project = validProject();
     const messageId = '018f4f8c-9b5d-7ae2-9b36-4c8af613f099';
@@ -393,7 +1410,7 @@ describe('NovelTea headless CLI', () => {
       options(value),
     );
     expect(accepted.exitCode).toBe(0);
-    expect(JSON.parse(accepted.stdout)).toMatchObject({ writes: ['i18n/locales/fr.json'] });
+    expect(JSON.parse(accepted.stdout)).toMatchObject({ writes: ['i18n/locales/fr.yaml'] });
 
     const reviewed = await runNovelTeaCli(
       ['--json', 'localization', 'review', 'fr', messageId],
@@ -473,7 +1490,7 @@ describe('NovelTea headless CLI', () => {
       [currentId]: createLocalizationTranslation(currentView, 'Actuel'),
     };
     const value = fixture(project);
-    const before = await value.fileSystem.readText(`${root}/i18n/locales/fr.json`);
+    const before = await value.fileSystem.readText(`${root}/i18n/locales/fr.yaml`);
 
     const result = await runNovelTeaCli(
       ['--json', 'localization', 'review', 'fr', currentId, missingId],
@@ -484,7 +1501,7 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(result.stdout).diagnostics).toContainEqual(
       expect.objectContaining({ code: 'localization.workflow.missing' }),
     );
-    expect(await value.fileSystem.readText(`${root}/i18n/locales/fr.json`)).toBe(before);
+    expect(await value.fileSystem.readText(`${root}/i18n/locales/fr.yaml`)).toBe(before);
   });
 
   it('refuses human review for structurally invalid target content', async () => {
@@ -544,8 +1561,8 @@ describe('NovelTea headless CLI', () => {
     changed.rooms.start.label = 'Changed Start';
     const changedFiles = projectWorkspaceFiles(changed, changed.editor);
     await value.fileSystem.writeTextAtomic(
-      `${root}/records/rooms/start.json`,
-      changedFiles['records/rooms/start.json']!,
+      `${root}/records/rooms/start.yaml`,
+      changedFiles['records/rooms/start.yaml']!,
     );
     const second = await runNovelTeaCli(['--json', 'validate'], {
       ...options(value),
@@ -605,14 +1622,14 @@ describe('NovelTea headless CLI', () => {
     });
     expect(admitted.exitCode).toBe(0);
 
-    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.yaml`, '{"id":');
     const unrelated = await runNovelTeaCli(['--json', 'usages', 'rooms', 'start'], {
       ...options(value),
       residentWorkspace,
     });
     expect(unrelated.exitCode).toBe(0);
 
-    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.yaml`, '{"id":');
     const required = await runNovelTeaCli(['--json', 'usages', 'rooms', 'start'], {
       ...options(value),
       residentWorkspace,
@@ -640,8 +1657,11 @@ describe('NovelTea headless CLI', () => {
 
   it('classifies invalid resident project export preparation as a semantic failure', async () => {
     const project = validProject();
-    (project.rooms.start.data as Record<string, unknown>).background = 'project:/legacy.png';
     const value = fixture(project);
+    const roomPath = `${root}/records/rooms/start.yaml`;
+    const room = parseYaml(await value.fileSystem.readText(roomPath));
+    room.data.background = 'project:/legacy.png';
+    await value.fileSystem.writeTextAtomic(roomPath, JSON.stringify(room));
     const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
     const outputPath = `${root}/portable.ntproject`;
 
@@ -820,14 +1840,14 @@ describe('NovelTea headless CLI', () => {
       ).exitCode,
     ).toBe(0);
 
-    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{ invalid json');
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.yaml`, '{ invalid json');
     const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], {
       ...options(value),
       residentWorkspace,
     });
     expect(synchronized.exitCode).toBe(0);
     expect(JSON.parse(synchronized.stdout)).toMatchObject({ changed: true });
-    expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
+    expect(await value.fileSystem.readText(`${root}/records/rooms/start.yaml`)).toBe(
       '{ invalid json',
     );
     expect(await residentWorkspace.hasResidentSession(root)).toBe(true);
@@ -845,7 +1865,7 @@ describe('NovelTea headless CLI', () => {
       ).exitCode,
     ).toBe(0);
 
-    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{ invalid json');
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.yaml`, '{ invalid json');
     const renamed = await runNovelTeaCli(
       ['--json', 'entity', 'rename', 'rooms', 'start', 'renamed'],
       {
@@ -857,7 +1877,7 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(renamed.stdout).diagnostics).toContainEqual(
       expect.objectContaining({ code: 'WORKSPACE_INVALID_SOURCE_DEPENDENCY' }),
     );
-    expect(await value.fileSystem.inspect(`${root}/records/rooms/renamed.json`)).toBe('missing');
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/renamed.yaml`)).toBe('missing');
   });
 
   it('keeps localization discovery read-only until deterministic sync is requested', async () => {
@@ -870,13 +1890,13 @@ describe('NovelTea headless CLI', () => {
     layout.rml.sourceText = '<rml><body><nt-tr>Welcome</nt-tr></body></rml>';
     project.layouts.hud = { id: 'hud', label: 'Localized HUD', data: layout };
     const value = fixture(project);
-    const localizationBefore = await value.fileSystem.readText(`${root}/i18n/tracking.json`);
+    const localizationBefore = await value.fileSystem.readText(`${root}/i18n/tracking.yaml`);
     const scriptBefore = await value.fileSystem.readText(`${root}/scripts/bootstrap.lua`);
     const rmlBefore = await value.fileSystem.readText(`${root}/records/layouts/hud/layout.rml`);
 
     const validation = await runNovelTeaCli(['--json', 'validate'], options(value));
     expect(validation.exitCode).toBe(0);
-    expect(await value.fileSystem.readText(`${root}/i18n/tracking.json`)).toBe(localizationBefore);
+    expect(await value.fileSystem.readText(`${root}/i18n/tracking.yaml`)).toBe(localizationBefore);
 
     const dryRun = await runNovelTeaCli(
       ['--json', 'localization', 'sync', '--dry-run'],
@@ -884,7 +1904,7 @@ describe('NovelTea headless CLI', () => {
     );
     expect(dryRun.exitCode).toBe(0);
     expect(JSON.parse(dryRun.stdout)).toMatchObject({ changed: true, writes: [] });
-    expect(await value.fileSystem.readText(`${root}/i18n/tracking.json`)).toBe(localizationBefore);
+    expect(await value.fileSystem.readText(`${root}/i18n/tracking.yaml`)).toBe(localizationBefore);
 
     const synchronized = await runNovelTeaCli(['--json', 'localization', 'sync'], options(value));
     expect(synchronized.exitCode).toBe(0);
@@ -892,10 +1912,10 @@ describe('NovelTea headless CLI', () => {
       changed: true,
       materializedMessageIds: expect.any(Array),
       unresolved: [],
-      writes: ['i18n/tracking.json'],
+      writes: ['i18n/tracking.yaml'],
     });
-    const tracking = JSON.parse(
-      await value.fileSystem.readText(`${root}/i18n/tracking.json`),
+    const tracking = parseYaml(
+      await value.fileSystem.readText(`${root}/i18n/tracking.yaml`),
     ) as Record<string, { family: string }>;
     expect(
       Object.values(tracking)
@@ -968,13 +1988,13 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(applied.stdout)).toMatchObject({
       orphanedMessageIds: [messageId],
       materializedMessageIds: expect.any(Array),
-      writes: ['i18n/locales/fr.json', 'i18n/orphans.json', 'i18n/tracking.json'],
+      writes: ['i18n/locales/fr.yaml', 'i18n/orphans.yaml', 'i18n/tracking.yaml'],
     });
-    await expect(value.fileSystem.readText(`${root}/i18n/locales/fr.json`)).rejects.toThrow(
+    await expect(value.fileSystem.readText(`${root}/i18n/locales/fr.yaml`)).rejects.toThrow(
       'ENOENT',
     );
-    const orphans = JSON.parse(
-      await value.fileSystem.readText(`${root}/i18n/orphans.json`),
+    const orphans = parseYaml(
+      await value.fileSystem.readText(`${root}/i18n/orphans.yaml`),
     ) as Record<string, { translations: Record<string, unknown> }>;
     expect(orphans[messageId]?.translations).toHaveProperty('fr');
   });
@@ -1037,15 +2057,15 @@ describe('NovelTea headless CLI', () => {
     const project = validProject();
     project.export.profiles = [defaultPlatformExportProfile('linux')];
     const value = fixture(project);
-    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+    const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as Record<
       string,
       unknown
     >;
     manifest.settings = null;
-    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
-    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
-    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
-    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
+    await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.yaml`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.yaml`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.yaml`, '{"sourceLocale":');
 
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'profiles'],
@@ -1065,7 +2085,7 @@ describe('NovelTea headless CLI', () => {
     const residentWorkspace = new ResidentProjectWorkspaceService(value.fileSystem);
     const opened = await residentWorkspace.open(root);
     if (!opened.ok) throw new Error('Initial resident Project open failed.');
-    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.json`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/rooms/start.yaml`, '{"id":');
 
     const result = await runNovelTeaCli(['--json', 'platform', 'profiles'], {
       ...options(value, root, undefined, platformTools()),
@@ -1089,11 +2109,11 @@ describe('NovelTea headless CLI', () => {
     const verify = residentWorkspace.verifyScopedReadAuthority.bind(residentWorkspace);
     let race = 0;
     residentWorkspace.verifyScopedReadAuthority = async (token) => {
-      const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as {
+      const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as {
         project: { description: string };
       };
       manifest.project.description = `race-${race++}`;
-      await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+      await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
       return verify(token);
     };
 
@@ -1112,12 +2132,12 @@ describe('NovelTea headless CLI', () => {
 
   it('preserves Project identity diagnostics during scoped platform profile preparation', async () => {
     const value = fixture();
-    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+    const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as Record<
       string,
       unknown
     >;
     manifest.project = { ...(manifest.project as Record<string, unknown>), id: '' };
-    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
 
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'profiles'],
@@ -1168,7 +2188,7 @@ describe('NovelTea headless CLI', () => {
     const project = validProject();
     project.export.profiles = [defaultPlatformExportProfile('linux')];
     const value = fixture(project);
-    const manifest = JSON.parse(await value.fileSystem.readText(`${root}/project.json`)) as Record<
+    const manifest = parseYaml(await value.fileSystem.readText(`${root}/project.yaml`)) as Record<
       string,
       unknown
     >;
@@ -1177,7 +2197,7 @@ describe('NovelTea headless CLI', () => {
     runtime.id = '';
     const profiles = exportSettings.profiles as Array<Record<string, unknown>>;
     profiles[0] = { ...profiles[0], target: 'not-a-platform' };
-    await value.fileSystem.writeTextAtomic(`${root}/project.json`, JSON.stringify(manifest));
+    await value.fileSystem.writeTextAtomic(`${root}/project.yaml`, JSON.stringify(manifest));
 
     const result = await runNovelTeaCli(
       ['--json', 'platform', 'profiles'],
@@ -1442,7 +2462,7 @@ describe('NovelTea headless CLI', () => {
     const help = await runNovelTeaCli(['--help'], { cwd: '/missing' });
     expect(help.exitCode).toBe(0);
     expect(help.stderr).toBe('');
-    expect(help.stdout).toContain('Edit record JSON, Lua, RML, and RCSS source files directly');
+    expect(help.stdout).toContain('Edit YAML, Lua, RML, and RCSS source files directly');
     expect(help.stdout).toContain('noveltea validate');
     expect(help.stdout).toContain('--allow-localization-warnings');
     expect(help.stdout).toContain('--no-daemon');
@@ -1692,11 +2712,11 @@ describe('NovelTea headless CLI', () => {
 
   it('audits Assets without requiring unrelated authoring domains to parse', async () => {
     const value = fixture();
-    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.json`, '{"id":');
-    await value.fileSystem.writeTextAtomic(`${root}/records/scenes/broken.json`, '{"id":');
-    await value.fileSystem.writeTextAtomic(`${root}/records/layouts/broken/layout.json`, '{"id":');
-    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.json`, '{"sourceLocale":');
-    await value.fileSystem.writeTextAtomic(`${root}/traits.json`, '{"broken":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/dialogues/broken.yaml`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/scenes/broken.yaml`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/records/layouts/broken/layout.yaml`, '{"id":');
+    await value.fileSystem.writeTextAtomic(`${root}/i18n/project.yaml`, '{"sourceLocale":');
+    await value.fileSystem.writeTextAtomic(`${root}/traits.yaml`, '{"broken":');
     await value.fileSystem.writeTextAtomic(`${root}/assets/text/untracked.txt`, 'untracked');
 
     const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
@@ -1709,7 +2729,7 @@ describe('NovelTea headless CLI', () => {
 
   it('keeps malformed Asset records inside the asset-audit validation boundary', async () => {
     const value = fixture();
-    await value.fileSystem.writeTextAtomic(`${root}/records/assets/broken.json`, '{}');
+    await value.fileSystem.writeTextAtomic(`${root}/records/assets/broken.yaml`, '{}');
 
     const audit = await runNovelTeaCli(['--json', 'asset', 'audit'], options(value));
 
@@ -1718,7 +2738,7 @@ describe('NovelTea headless CLI', () => {
       diagnostics: expect.arrayContaining([
         expect.objectContaining({
           code: 'WORKSPACE_RECORD_ID_PATH_MISMATCH',
-          path: '/records/assets/broken.json',
+          path: '/records/assets/broken.yaml',
           severity: 'error',
         }),
       ]),
@@ -1728,7 +2748,7 @@ describe('NovelTea headless CLI', () => {
   it('preserves field-specific Asset schema diagnostics during scoped audit preparation', async () => {
     const value = fixture();
     await value.fileSystem.writeTextAtomic(
-      `${root}/records/assets/broken.json`,
+      `${root}/records/assets/broken.yaml`,
       JSON.stringify({
         id: 'broken',
         label: 'Broken',
@@ -1759,7 +2779,7 @@ describe('NovelTea headless CLI', () => {
   it('rejects invalid declared Asset source routing inside the scoped boundary', async () => {
     const value = fixture();
     await value.fileSystem.writeTextAtomic(
-      `${root}/records/assets/broken.json`,
+      `${root}/records/assets/broken.yaml`,
       JSON.stringify({
         id: 'broken',
         label: 'Broken',
@@ -1835,7 +2855,7 @@ describe('NovelTea headless CLI', () => {
     const source = `${root}/resources/example.txt`;
     await value.fileSystem.writeTextAtomic(source, 'text');
     await value.fileSystem.writeTextAtomic(
-      `${root}/records/assets/example.json`,
+      `${root}/records/assets/example.yaml`,
       JSON.stringify({
         id: 'example',
         label: 'Example',
@@ -1907,7 +2927,7 @@ describe('NovelTea headless CLI', () => {
     const escapedPath = `${root}/assets/text/escape.txt`;
     await value.fileSystem.writeTextAtomic(escapedPath, 'outside');
     await value.fileSystem.writeTextAtomic(
-      `${root}/records/assets/escape.json`,
+      `${root}/records/assets/escape.yaml`,
       JSON.stringify({
         id: 'escape',
         label: 'Escape',
@@ -2543,6 +3563,108 @@ describe('NovelTea headless CLI', () => {
     }
   });
 
+  it('routes YAML-authored semantic activation and UI clicks to distinct runners', async () => {
+    const project = validProject();
+    project.characters.actor = createDefaultAuthoringRecord(
+      'characters',
+      'actor',
+    ) as typeof project.characters.actor;
+    const semantic = defaultTestData('Semantic');
+    semantic.steps = [
+      {
+        ...defaultTestStep('primary-activate'),
+        id: 'activate',
+        label: 'Activate',
+        subjectAction: {
+          subject: {
+            kind: 'character',
+            character: { $ref: { collection: 'characters', id: 'actor' } },
+          },
+        },
+      },
+    ];
+    semantic.preview.selectedStepId = 'activate';
+    const ui = defaultTestData('UI');
+    ui.steps = [
+      {
+        ...defaultTestStep('ui-click'),
+        id: 'click',
+        label: 'Click',
+        uiClick: { documentId: 'runtime_game', mountInstanceId: null, selector: '#confirm' },
+      },
+    ];
+    ui.preview.selectedStepId = 'click';
+    project.tests.semantic = { id: 'semantic', label: 'Semantic', data: semantic };
+    project.tests.ui = { id: 'ui', label: 'UI', data: ui };
+    const files = projectWorkspaceFiles(
+      project,
+      project.editor,
+      {},
+      new Set(['records/tests/semantic.yaml', 'records/tests/ui.yaml']),
+    );
+    const fileSystem = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(files).map(([path, source]) => [`${root}/${path}`, source]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fileSystem);
+    const called: string[] = [];
+    const nativeTools: NovelTeaCliNativeToolService = {
+      ...validationNativeTools(),
+      async runHeadlessTest(request) {
+        called.push(`semantic:${(request as { spec: { id: string } }).spec.id}`);
+        return { ok: true, success: true };
+      },
+      async runUiTest(request) {
+        called.push(`ui:${(request as { spec: { id: string } }).spec.id}`);
+        return { ok: true, success: true };
+      },
+    };
+    for (const id of ['semantic', 'ui']) {
+      const result = await runNovelTeaCli(['--json', 'test', 'run', id], {
+        cwd: root,
+        fileSystem,
+        workspace,
+        nativeTools,
+      });
+      expect(result.exitCode, `${id}: ${JSON.stringify(result.envelope.diagnostics)}`).toBe(0);
+    }
+    expect(called).toEqual(['semantic:semantic', 'ui:ui']);
+    const failingTools: NovelTeaCliNativeToolService = {
+      ...nativeTools,
+      async runHeadlessTest() {
+        return {
+          ok: true,
+          success: true,
+          report: {
+            schema: 'noveltea.editor.playback-report',
+            passed: false,
+            diagnostics: [
+              { severity: 'error', path: '/steps/0', message: 'Expected activation failed.' },
+            ],
+          },
+        };
+      },
+    };
+    const failure = async () =>
+      runNovelTeaCli(['--json', 'test', 'run', 'semantic'], {
+        cwd: root,
+        fileSystem,
+        workspace,
+        nativeTools: failingTools,
+      });
+    const first = await failure();
+    const second = await failure();
+    expect(first.exitCode).not.toBe(0);
+    expect(first.envelope.diagnostics).toEqual(second.envelope.diagnostics);
+    expect(first.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        code: 'native.test.failed',
+        severity: 'error',
+      }),
+    );
+  });
+
   it('routes authored semantic tests through the headless runner with project authority', async () => {
     const project = validProject();
     project.tests.semantic = {
@@ -2727,7 +3849,7 @@ describe('NovelTea headless CLI', () => {
     });
   });
 
-  it('discovers project.json upward, accepts explicit roots, and ignores retired filenames', async () => {
+  it('discovers project.yaml upward, accepts explicit roots, and ignores retired filenames', async () => {
     const value = fixture();
     const upward = await runNovelTeaCli(
       ['--json', 'validate'],
@@ -2755,9 +3877,9 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(notFound.stdout).diagnostics[0].code).toBe('WORKSPACE_NOT_FOUND');
   });
 
-  it('stops at a malformed or unsupported nested project.json instead of walking upward', async () => {
+  it('stops at a malformed or unsupported nested project.yaml instead of walking upward', async () => {
     const outer = fixture();
-    await outer.fileSystem.writeTextAtomic('/projects/headless/nested/project.json', '{ bad');
+    await outer.fileSystem.writeTextAtomic('/projects/headless/nested/project.yaml', '{ bad');
     const malformed = await runNovelTeaCli(
       ['--json', 'validate'],
       options(outer, `${root}/nested/child`),
@@ -2766,7 +3888,7 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(malformed.stdout).diagnostics[0].code).toBe('WORKSPACE_MANIFEST_INVALID');
 
     await outer.fileSystem.writeTextAtomic(
-      '/projects/headless/nested/project.json',
+      '/projects/headless/nested/project.yaml',
       JSON.stringify({ schema: 'noveltea.project.workspace', schemaVersion: 99 }),
     );
     const unsupported = await runNovelTeaCli(
@@ -2997,13 +4119,13 @@ describe('NovelTea headless CLI', () => {
     const layoutEnvelope = JSON.parse(layout.stdout);
     expect(layoutEnvelope.plan.writes).toEqual(
       expect.arrayContaining([
-        'records/layouts/overlay/layout.json',
+        'records/layouts/overlay/layout.yaml',
         'records/layouts/overlay/layout.rml',
         'records/layouts/overlay/layout.rcss',
         'records/layouts/overlay/layout.lua',
       ]),
     );
-    expect(await value.fileSystem.inspect(`${root}/records/layouts/overlay/layout.json`)).toBe(
+    expect(await value.fileSystem.inspect(`${root}/records/layouts/overlay/layout.yaml`)).toBe(
       'missing',
     );
     expect(await value.fileSystem.inspect(`${root}/.noveltea/editor/state.json`)).toBe('missing');
@@ -3014,7 +4136,7 @@ describe('NovelTea headless CLI', () => {
     );
     expect(script.exitCode).toBe(0);
     expect(JSON.parse(script.stdout).plan.writes).toEqual(
-      expect.arrayContaining(['records/scripts/helper-module.json', 'scripts/helper-module.lua']),
+      expect.arrayContaining(['records/scripts/helper-module.yaml', 'scripts/helper-module.lua']),
     );
     expect(await value.fileSystem.inspect(`${root}/scripts/helper-module.lua`)).toBe('missing');
   });
@@ -3026,7 +4148,7 @@ describe('NovelTea headless CLI', () => {
       options(value),
     );
     expect(result.exitCode).toBe(0);
-    expect(await value.fileSystem.inspect(`${root}/records/rooms/hallway.json`)).toBe('file');
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/hallway.yaml`)).toBe('file');
     const opened = await value.workspace.open(root);
     expect(opened.ok && opened.snapshot.project.rooms.hallway?.id).toBe('hallway');
   });
@@ -3044,8 +4166,8 @@ describe('NovelTea headless CLI', () => {
       options(value),
     );
     expect(renamed.exitCode).toBe(0);
-    expect(await value.fileSystem.inspect(`${root}/records/rooms/start.json`)).toBe('missing');
-    expect(await value.fileSystem.inspect(`${root}/records/rooms/opening.json`)).toBe('file');
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/start.yaml`)).toBe('missing');
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/opening.yaml`)).toBe('file');
     const afterRename = await value.workspace.open(root);
     expect(afterRename.ok && afterRename.snapshot.project.entrypoint).toEqual({
       kind: 'room',
@@ -3057,7 +4179,7 @@ describe('NovelTea headless CLI', () => {
       options(value),
     );
     expect(deleted.exitCode).toBe(0);
-    expect(await value.fileSystem.inspect(`${root}/records/rooms/spare.json`)).toBe('missing');
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/spare.yaml`)).toBe('missing');
   });
 
   it('reports external-source usages with project URL and location and gates possible rename/delete evidence', async () => {
@@ -3583,7 +4705,7 @@ describe('NovelTea headless CLI', () => {
     expect(first.files['reference/records/verbs.md']).toContain(
       'Named slots with progressive order',
     );
-    expect(first.files['reference/project.md']).toContain('Project-owned fallback in project.json');
+    expect(first.files['reference/project.md']).toContain('Project-owned fallback in project.yaml');
     expect(first.files['reference/project.md']).toContain('next fallback stage for the host');
     expect(first.files['reference/records/verbs.md']).toContain('next fallback stage for the host');
     expect(first.files['reference/records/interactions.md']).toContain(
@@ -4558,7 +5680,7 @@ describe('NovelTea headless CLI', () => {
     expect(created.exitCode).toBe(0);
     expect(JSON.parse(created.stdout)).toMatchObject({
       projectRoot: '/projects/My Story',
-      projectFilePath: '/projects/My Story/project.json',
+      projectFilePath: '/projects/My Story/project.yaml',
       projectId: 'my-story',
     });
     expect(await fileSystem.readText('/projects/My Story/AGENTS.md')).toBe(
@@ -4583,7 +5705,7 @@ describe('NovelTea headless CLI', () => {
   it('regenerates an invalid agent-kit manifest without changing tracked project source', async () => {
     const value = fixture();
     await syncNovelTeaAgentKit(value.fileSystem, root);
-    const trackedRoomBefore = await value.fileSystem.readText(`${root}/records/rooms/start.json`);
+    const trackedRoomBefore = await value.fileSystem.readText(`${root}/records/rooms/start.yaml`);
     const manifestPath = `${root}/.noveltea/agent/manifest.json`;
     const staleManifest = JSON.parse(await value.fileSystem.readText(manifestPath));
     staleManifest.schema = 'noveltea.agent-kit.retired-manifest';
@@ -4598,7 +5720,7 @@ describe('NovelTea headless CLI', () => {
     expect(JSON.parse(await value.fileSystem.readText(manifestPath)).schema).toBe(
       'noveltea.agent-kit.manifest',
     );
-    expect(await value.fileSystem.readText(`${root}/records/rooms/start.json`)).toBe(
+    expect(await value.fileSystem.readText(`${root}/records/rooms/start.yaml`)).toBe(
       trackedRoomBefore,
     );
   });
@@ -4628,8 +5750,8 @@ describe('NovelTea headless CLI', () => {
     const value = fixture();
     expect((await runNovelTeaCli(['--json', 'agent', 'sync'], options(value))).exitCode).toBe(0);
 
-    const roomPath = `${root}/records/rooms/start.json`;
-    const room = JSON.parse(await value.fileSystem.readText(roomPath));
+    const roomPath = `${root}/records/rooms/start.yaml`;
+    const room = parseYaml(await value.fileSystem.readText(roomPath));
     room.description = 'Edited directly by an agent-like workflow.';
     await value.fileSystem.writeTextAtomic(roomPath, `${JSON.stringify(room, null, 2)}\n`);
     expect((await runNovelTeaCli(['--json', 'validate'], options(value))).exitCode).toBe(0);
@@ -4639,7 +5761,7 @@ describe('NovelTea headless CLI', () => {
       options(value),
     );
     expect(dryRun.exitCode).toBe(0);
-    expect(await value.fileSystem.inspect(`${root}/records/rooms/start.json`)).toBe('file');
+    expect(await value.fileSystem.inspect(`${root}/records/rooms/start.yaml`)).toBe('file');
 
     const rename = await runNovelTeaCli(
       ['--json', 'entity', 'rename', 'rooms', 'start', 'foyer'],

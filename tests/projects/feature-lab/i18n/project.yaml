@@ -1,0 +1,24 @@
+defaultLocale: en
+locales:
+  ar:
+    fontStack: null
+    parentLocale: null
+    supported: true
+  en:
+    fontStack: null
+    parentLocale: null
+    supported: true
+  fr:
+    fontStack: null
+    parentLocale: null
+    supported: true
+  fr-CA:
+    fontStack: null
+    parentLocale: fr
+    supported: true
+  ja:
+    fontStack: null
+    parentLocale: null
+    supported: true
+sourceLocale: en
+sourceLocaleLock: null

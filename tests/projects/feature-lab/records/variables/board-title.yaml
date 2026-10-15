@@ -1,0 +1,5 @@
+id: board-title
+label: board-title
+data:
+  type: string
+  value: No notices

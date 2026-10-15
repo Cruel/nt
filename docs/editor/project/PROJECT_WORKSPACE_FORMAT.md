@@ -1,12 +1,12 @@
 # Project Workspace Format
 
 NovelTea projects use workspace v1. A project's identity is its root directory; its manifest is
-always `<project-root>/project.json`. Normal editor, compiler, preview, export, and workspace open
+always `<project-root>/project.yaml`. Normal editor, compiler, preview, export, and workspace open
 paths accept no legacy monolithic project file or alternate manifest name.
 
 ## Tracked source
 
-`project.json` has schema `noveltea.project.workspace` at version `1` and owns project identity,
+`project.yaml` has schema `noveltea.project.workspace` at version `1` and owns project identity,
 project settings, top-level export configuration, the stable Bootstrap Module reference, entrypoint,
 the nullable Project-level undefined-Interaction fallback program, Project-level Inventory
 declarations, and the infrastructure-level `interactableInstances` registry.
@@ -14,13 +14,13 @@ The Instance registry is not an Explorer collection and is not persisted under `
 `/settings` is the
 Project Settings subtree; `/export` is the independent Export save-unit subtree containing the
 built-in Runtime Package policy and portable platform profiles. Profile selection and other execution
-choices remain editor-local. `traits.json`, the tracked `i18n/` tree, and `editor.json` are required
+choices remain editor-local. `traits.yaml`, the tracked `i18n/` tree, and `editor.yaml` are required
 contextual source. The canonical Message model is physically split for source-owner and locale merge
-locality: `i18n/project.json` owns Source/Default/locale policy plus the managed Source-locale lock;
-`i18n/messages.json` owns explicit local/named Messages, structured ownership overrides, and Message-level Context/Translator-note
-guidance; `i18n/usage-notes.json` owns authored per-occurrence Usage notes; `i18n/tracking.json` owns
-managed free-form source tracking; `i18n/orphans.json` owns disappeared Messages with retained work;
-`i18n/locales/<locale>.json` owns sparse target translations; and `i18n/assets/<locale>.json` owns
+locality: `i18n/project.yaml` owns Source/Default/locale policy plus the managed Source-locale lock;
+`i18n/messages.yaml` owns explicit local/named Messages, structured ownership overrides, and Message-level Context/Translator-note
+guidance; `i18n/usage-notes.yaml` owns authored per-occurrence Usage notes; `i18n/tracking.yaml` owns
+managed free-form source tracking; `i18n/orphans.yaml` owns disappeared Messages with retained work;
+`i18n/locales/<locale>.yaml` owns sparse target translations; and `i18n/assets/<locale>.yaml` owns
 sparse localized-Asset targets. Empty locale/Asset chunks are absent rather than placeholder files.
 The composed model has one Source locale, one Supported Default locale, explicit
 Supported/work-in-progress locale metadata with optional parent locale inheritance, and a nullable
@@ -33,7 +33,7 @@ semantic refactor must preserve an existing structured Message identity across a
 `sourceMessageTracking` entries for free-form managed Lua/RML occurrences. Those entries are keyed by
 source family plus semantic owner/source path and keep the last managed source/guidance occurrence
 snapshot together with compact source-snapshot, structural, anchor, and source fingerprints and the
-durable Message ID; they never inject opaque tracking IDs into Lua, RML, or structured gameplay JSON.
+durable Message ID; they never inject opaque tracking IDs into Lua, RML, or structured gameplay source.
 `orphanedMessages` retains disappeared free-form Message snapshots plus valuable target translation,
 review, provenance, and guidance work outside the live catalog until an author relinks or discards it.
 Each target translation record stores target text, the compact
@@ -79,18 +79,131 @@ new source fingerprint advances freshness without changing review. `/localizatio
 `project:localization` logical manual save unit even though its physical file set is the derived
 `i18n/` fragments above. Language, explicit Message, Usage-note, tracking, target-translation, and
 localized-Asset edits therefore commit atomically through the same revisioned Project Workspace
-transaction/recovery path as other tracked project content. `traits.json` owns the self-contained Trait contracts;
-there is no top-level identity Property fragment. `editor.json` contains exactly collaborator-visible
+transaction/recovery path as other tracked project content. `traits.yaml` owns the self-contained Trait contracts;
+there is no top-level identity Property fragment. `editor.yaml` contains exactly collaborator-visible
 `chapters`, `tags`, and `recordMetadata`, including collaborator-visible Trait color metadata.
+These three tracked owners use restricted YAML, parsed into the existing strict Project schemas.
+Trait mapping keys must exactly match each declaration's semantic `id`. The manifest may omit
+`entrypoint` or `undefinedInteractionProgram` only when their effective value is `null`;
+explicitly authored nulls survive unrelated saves. Empty chapter records/assignments, tag records,
+and record-metadata tag lists may be omitted because their source defaults are empty collections;
+other identity and behavioral fields remain explicit. The YAML writer preserves comments and
+unchanged explicit fields through revision-safe selective saves.
 
-Records live under `records/<collection>/<id>.json`; Layouts instead live under
-`records/layouts/<id>/layout.json`. IDs are canonical file identity and must match the stored record
+For canonical YAML owners, the shared workspace writer parses the current document and applies
+localized changes to its nodes. Unchanged fields retain their authored comments, explicit defaults,
+and mapping order. Sequence comments follow unique stable item IDs through reorder/insert; a
+commented sequence without an unambiguous correspondence fails rather than attaching a note to a
+different item. An explicit record identity rename carries its original YAML source (and Layout
+companions) to the destination, including matching `editor.yaml` record-metadata annotations.
+Changing the record's own `id` during a safe identity move does not produce a destructive-comment
+impact. Duplication deliberately starts from new, comment-free source. The writer reports affected comments
+with their physical source paths for the centralized editor confirmation dialog; it does not itself
+present confirmation UI. CLI entity deletion includes discarded-comment details in both dry-run and
+commit results without requiring interactive acknowledgment. The editor's shared pre-commit dialog
+uses a read-only dry-run and physical fresh-source check instead of resident cached YAML. A Keep
+decision retains an annotated explicit default even if sparse encoding would normally remove it;
+Remove drops only the reviewed stale annotations. A source revision change after confirmation must
+be reviewed again rather than accepted under the prior approval.
+
+Structural command Undo/Redo retains deleted YAML source templates for recreation, filling only
+missing nodes; annotations still present in current source take precedence over historical ones.
+The exact committed source text is retained outside the normalized Project for resident snapshot
+adoption. Before editing an existing YAML document the writer checks its exact-byte source revision,
+including comment-only changes, and refuses stale writes. The active editor session may reconcile
+and retry nonoverlapping semantic changes using the established external-conflict machinery; invalid
+external YAML is not overwritten. Ordinary non-YAML source ownership and transactional target CAS
+remain unchanged.
+
+Room and Map records use `records/rooms/<id>.yaml` and `records/maps/<id>.yaml`. Their
+restricted YAML omits the redundant `data.kind`; statically typed references use bare IDs,
+while registry and owner-qualified references remain explicit. A scalar `always` expands to
+the default Condition. The shared source codec applies declared recursive omissions,
+including absent Room `background` or `lifecycle`, and absent Map `presentation` objects.
+Partial objects inherit only explicitly approved defaults. Non-default presentation,
+geometry, views, exits, and gameplay conditions retain their semantics. `null` stays
+distinct from omission except where the field declares a null source default. Selective
+saves preserve unchanged explicit values and YAML comments. IDs still match filenames.
+
+Characters and Interactables use `records/characters/<id>.yaml` and
+`records/interactables/<id>.yaml`.
+Character source omissions are based on the schema's typed
+dialogue/profile/pose/appearance/animation and initial-world-state defaults—not on
+the editor's initial named Profile, Pose, Expression, or other placeholder data.
+Character YAML must explicitly author `data.defaults.profileId` and
+`data.defaults.expressionId`; the normalized editor choices `stage` and
+`neutral` are not inferred from omitted source. Required
+Profile/Pose/Layer IDs and heterogeneous `kind` discriminators remain authored. An
+Interactable Definition's `stackable` and `stackLimit` remain explicit gameplay policy,
+while empty visual presentation, Features and Inventories may be omitted. Feature-level
+empty Traits, local and default Properties, and Inventories have exact empty-array defaults;
+Character-local Properties and Interactable definition-default Properties must never be
+conflated. The source codec keeps typed reference IDs compact without collapsing
+registry-qualified or polymorphic identities. Optional Properties and explicit nulls
+retain their normalized meaning; the generated Agent Kit lists every permitted omission.
+
+Verbs and Interaction Rules use `records/verbs/<id>.yaml` and
+`records/interactions/<id>.yaml`. Their redundant `data.kind` is inferred from the family.
+Typed refs such as `verb: inspect`, `trait: inspectable`, or a variable referenced by
+a Command use bare IDs; exact Interactable Instance and owner-qualified Feature
+subjects preserve their explicit registry and discriminators. Only a typed Condition
+accepts scalar `always`; arbitrary strings and subject/Command variants do not.
+
+Absent empty Verb slots/binding order/Offers and empty Interaction Rules are constant
+defaults; named slots and their order still matter whenever present. Availability,
+rule Guard and empty completion programs have explicit semantic defaults listed in the
+generated Agent Kit. Rules may omit `offer` for `null` (no discovery) and `priority`
+for `0`, but nonzero priorities and Offer `rank`/`primary` choices are preserved.
+An absent Offer cannot prevent directly submitting a completed command. A false winning
+Offer Condition suppresses discovery without reverting to a broader Offer; a failed
+rule Guard permits structural-tier fallback. Programs with `outcome: unhandled`
+must preserve that value so the rule-to-Verb-to-Project-to-engine fallback chain is
+unchanged. Command sequence, IDs, Condition/Command union discriminators, and
+meaningful explicit source fields survive edits and revision-safe saves.
+
+Other records live under `records/<collection>/<id>.yaml`; Layouts instead live under
+`records/layouts/<id>/layout.yaml`. IDs are canonical file identity and must match the stored record
 ID. Unknown `records/` collection directories and noncanonical record paths are structural errors.
 Missing known collection directories mean empty collections.
 
-File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` beside `layout.json`.
-The persisted Layout JSON selectors use `sourceMode: "file"`, `sourceMode: "asset"` for RML/RCSS only,
-or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.json`. Layout Lua Asset
+### Canonical structured YAML
+
+The restricted profile admits YAML 1.2 finite JSON-compatible scalars only.
+YAML 1.1 directives, nonfinite numerics, and unknown keys (including keys
+named like JavaScript inherited properties) are rejected. Statically typed
+Asset references inside Material texture dictionaries and Layout dependency
+metadata/selectors use bare IDs. Archetype arbitrary-JSON override values
+are not automatically shortened.
+
+Full Project Copy / Save As starts from the original YAML source documents,
+retaining comments, authored key ordering, and unchanged explicit defaults.
+Selecting a previously nondefault value's declared omission default instead
+writes sparse source. Entity rename emits nonblocking notices for distinct-token
+old-ID mentions in surviving YAML comments without rewriting their prose.
+
+All Projects and records require `.yaml` for every structured owner, including localization chunks.
+Legacy `.json` Project records, Layout metadata, and localization owners are rejected rather than
+read, retained, or migrated. This does not affect compiled runtime JSON, the transport
+`ntproject.json` manifest, or unstructured data Assets.
+
+The YAML Variable source omits the redundant `data.kind: variable`. `data.nullable` may be
+omitted for `false`, and `data.scope` for `global`; `id`, `label`, `data.type`, and `data.value`
+remain required. These source omissions are expanded through the existing strict Variable
+schema before authoring validation. Explicit `null` is distinct from omission and is subject
+to the Variable type/nullability semantic checks. The YAML profile rejects duplicate keys,
+aliases, anchors, merges, explicit tags, multiple documents, ambiguous unquoted scalar values,
+and non-string mapping keys; quote strings that resemble booleans, nulls or numeric values.
+
+The shared per-file codec uses a document-aware YAML writer for selective Variable edits. It
+keeps untouched keys, explicitly authored defaults, and attached comments, and leaves the
+physical bytes of an unaffected YAML file unchanged. Physical source hashes remain exact-byte
+revisions; effective Variable data remains the normalized `AuthoringProject` value. The
+generated `records/variables` Agent Kit reference describes the sparse YAML source shape and
+provides a schema-checked minimal example. Feature Lab source conversion is tracked separately in #468.
+
+File-backed Layout channels are `layout.rml`, `layout.rcss`, and `layout.lua` beside `layout.yaml`.
+The persisted Layout YAML selectors use `sourceMode: "file"`, `sourceMode: "asset"` for RML/RCSS only,
+or `sourceMode: "none"` for Lua; source text is not duplicated in `layout.yaml`. Layout Lua Asset
 sources are obsolete. Workspace assembly reads a `file` Layout companion into the semantic inline
 Layout source used by compiler/editor consumers while retaining the companion file as the authoritative
 physical source.
@@ -104,7 +217,7 @@ without introducing hidden authored file IDs.
 Script Module file sources use `{ "kind": "project-file", "path": "scripts/...lua" }`. Their paths
 are safe project-relative `scripts/` paths and remain `project-file` sources after workspace assembly;
 the file bytes are read through the Project source authority when analysis, compilation, preview, or
-localization requires them. Persisted `inline-lua` Script Module JSON is rejected. File presence never
+localization requires them. Persisted `inline-lua` Script Module source is rejected. File presence never
 grants autorun behavior. `bootstrapModule` names the one Script Module imported synchronously in each
 fresh Project VM.
 
@@ -134,8 +247,16 @@ remains beneath the canonical Project root, requires a regular file, and verifie
 SHA-256 revision. Project-relative lexical escape, alternate/backslash spellings, symlink escape,
 non-regular files, stale sessions, and changed source identity fail closed before bytes are published.
 
-Writers emit UTF-8, LF, two-space JSON with a trailing newline and deterministic key order. Every
-authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. Cold
+YAML writers emit UTF-8, LF, two-space indentation and deterministic new-node ordering while
+preserving comments and explicit values on existing source. Workspace reads, resident reconciliation,
+and selective/full projections use the shared per-file source codec
+(`editor/src/shared/project-workspace/project-workspace-source-codec.ts`). `projectWorkspaceFile`
+projects one source owner; `projectWorkspaceFiles` enumerates canonical paths using that projection.
+Affected-file planning retains logical ownership, and transactions enforce exact source revisions.
+Lua/RML/RCSS/shader/Asset bytes retain their independent source ownership. Comment-only edits advance
+physical revisions without invalidating unchanged semantic products.
+
+Every authoritative file has an exact-byte `sha256:<hex>` revision; expected absence is `absent`. Cold
 workspace admission may obtain decoded text and its exact-byte revision in one filesystem read.
 That revision identifies the bytes actually admitted, not a proof that disk remained unchanged
 later; containment checks and fresh transaction/publication proofs remain independent. Revisions
@@ -144,7 +265,7 @@ The aggregate workspace revision hashes the sorted path/revision inventory, but 
 selected logical save units' exact files plus their exact changed JSON paths as the concurrency
 boundary. An unrelated file change does not block a scoped save, and a disjoint change to another
 field inside the same physical record is preserved by rebasing selected paths over the newest disk
-fragment. Logical owners that share `editor.json` are likewise merged by owned JSON paths so a
+fragment. Logical owners that share `editor.yaml` are likewise merged by owned JSON paths so a
 chapter save preserves independently changed tag or record-metadata data.
 
 NovelTea tracked writers serialize through `.noveltea/transactions/.writer-lock/`. Multi-file saves
@@ -167,7 +288,7 @@ rules. Optional
 `.noveltea/editor/state.json` uses `noveltea.editor.local-state` version `3`; it stores recovery,
 export identity, workbench, explorer, bottom panel, tab state, and drafts. It never duplicates
 tracked organization fields. On open, `ProjectWorkspaceService` composes those ignored fields with
-tracked `editor.json` chapters/tags/recordMetadata into the internal `AuthoringProject.editor` state;
+tracked `editor.yaml` chapters/tags/recordMetadata into the internal `AuthoringProject.editor` state;
 callers that need project content receive the complete composed editor state separately from the
 editor-free content projection. Missing, corrupt, or unsupported local state is discarded; it cannot
 repair tracked source. Recovery is scoped per logical save unit: each dirty recovery entry stores only
@@ -177,7 +298,7 @@ files; a changed dependency reopens that unit as conflicted until Use Disk or Ke
 while unrelated tracked-source changes do not invalidate the recovery entry. When one successful save
 changes a physical file shared by another dirty logical owner, the remaining recovery entry advances
 to the newly committed exact revision before local state is persisted. Local-state writes neither
-rewrite tracked `editor.json` nor adopt tracked-file revisions that the active workspace session has
+rewrite tracked `editor.yaml` nor adopt tracked-file revisions that the active workspace session has
 not reconciled. Tracked organization and ignored local/session state are persisted independently, and
 ignored local/session changes do not change in-memory or on-disk workspace identity.
 
@@ -191,11 +312,11 @@ directory and derives a new child directory from the project name.
 When `.gitignore` is absent, creation and Save As create it with `/.noveltea/` and `/dist/`; an existing file is
 user-owned and preserved exactly. Save As reports a warning when that existing file does not mention
 `.noveltea` or `dist`, leaving the user to choose the appropriate ignore rule. Save As
-targets a project root and writes `project.json`; it carries tracked baseline, local editor state,
+targets a project root and writes `project.yaml`; it carries tracked baseline, local editor state,
 dirty-only asset bytes, and separately-owned workflows, while excluding generated agent/build/cache,
 transactions, and trash state. A non-empty destination may contain unrelated user files, `.git`,
 documentation, workflows, or unrelated assets, but Save As rejects any pre-existing NovelTea-owned
-canonical source/state namespace (`project.json`, `traits.json`, `i18n/`, `editor.json`,
+canonical source/state namespace (`project.yaml`, `traits.yaml`, `i18n/`, `editor.yaml`,
 `records/`, `scripts/`, `.noveltea/transactions/`, or `.noveltea/editor/`). It also
 fails if an exact Asset source destination is already occupied. Save As therefore never silently
 merges stale records, Layout companions, Script Module sources, local transaction/recovery state, or
@@ -239,12 +360,12 @@ validated bundle is still staged, so the activated workspace has the user-select
 
 The TypeScript Node reference CLI uses `noveltea [--project <project-directory>] [--json]
 <command> ...`. Without `--project`, it walks upward from the current directory and selects the
-first `project.json`. Finding a malformed NovelTea manifest, the wrong workspace schema identity,
+first `project.yaml`. Finding a malformed NovelTea manifest, the wrong workspace schema identity,
 or an unsupported workspace version stops discovery at that directory; discovery never falls
 through to a parent project and never considers retired manifest names. `--project` is an explicit
 project-root override and is validated by the same workspace-v1 rules.
 
-Ordinary agent edits are direct edits to tracked JSON, Lua, RML, and RCSS source files. Managed
+Ordinary agent edits are direct edits to tracked YAML, Lua, RML, and RCSS source files. Managed
 localizable Lua/RML edits are followed by `noveltea localization sync` and then `noveltea validate`;
 all passive discovery remains read-only. Semantic commands are reserved for operations that need
 project-wide graph or transaction semantics: `localization sync`, `localization reconcile`,

@@ -69,7 +69,7 @@ export function isSafeProjectAttachmentPath(value: string): boolean {
   return (
     isSafeProjectAssetPath(value) &&
     value.length <= 2048 &&
-    !['project.json', '.gitignore', '.gitattributes', '.gitmodules', 'ntproject.json'].includes(
+    !['project.yaml', '.gitignore', '.gitattributes', '.gitmodules', 'ntproject.json'].includes(
       value.toLowerCase(),
     ) &&
     value.split('/').every((segment) => !excludedAttachmentSegments.has(segment.toLowerCase()))

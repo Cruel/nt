@@ -1,0 +1,22 @@
+id: stress-wait
+label: stress-wait
+data:
+  displayName: stress-wait
+  stage:
+    kind: inherited
+  events:
+    - id: delay
+      label: delay
+      enabled: true
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      completionDependencies: []
+      type: wait
+      waitKind: duration
+      durationMs: 60000
+      skippable: false
+  terminal:
+    kind: return
+    outcome: null

@@ -49,7 +49,7 @@ function fixture() {
       _sources: unknown,
       options: { targetFiles: string[] },
     ) => {
-      expect(options.targetFiles).toEqual(['records/assets/alpha.json']);
+      expect(options.targetFiles).toEqual(['records/assets/alpha.yaml']);
       return { snapshot: { ...snapshot, project: candidate } };
     },
   );
@@ -75,7 +75,7 @@ describe('Authoring Source freshness persistence', () => {
     const changed = await advanceExternallyUpdatedAssetSourceBaselines(session as never, {
       'assets/alpha.bin': newAsset,
     });
-    expect(changed).toEqual(['records/assets/alpha.json']);
+    expect(changed).toEqual(['records/assets/alpha.yaml']);
     expect(write).toHaveBeenCalledTimes(1);
     expect(parseAssetData(project().assets.alpha.data)?.attachments).toEqual([
       expect.objectContaining({ sourceBaselineHash: newSource, assetBaselineHash: newAsset }),

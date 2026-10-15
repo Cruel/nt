@@ -1,0 +1,5 @@
+id: interview-receipt
+label: interview-receipt
+data:
+  type: string
+  value: not issued

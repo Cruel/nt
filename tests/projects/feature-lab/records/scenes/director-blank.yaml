@@ -1,0 +1,30 @@
+id: director-blank
+label: director-blank
+data:
+  displayName: director-blank
+  stage:
+    kind: blank
+    background:
+      asset: null
+      materialApplication: null
+      color: "#173c68"
+      fit: cover
+    layout: null
+  events:
+    - id: blank
+      label: blank
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Blank Stage: this blue background belongs to the child. Continue to restore the caller and choose."
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

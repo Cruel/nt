@@ -1,0 +1,108 @@
+id: hotspots-and-cursors
+label: Inspect the control board
+localProperties: []
+data:
+  displayName: Inspect the control board
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Compare alpha and custom board regions. Pick a board to open trigger-anchored Inventory, then compare its captured geometry with the pointer-less Scene panel.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  interactables:
+    - id: alpha-board
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: alpha-board
+      placementId: alpha-board
+      order: 5
+    - id: custom-board
+      interactable:
+        $ref:
+          registry: interactableInstances
+          id: custom-board
+      placementId: custom-board
+      order: 10
+  lifecycle:
+    afterEnter:
+      - id: mount
+        kind: run-lua
+        source: assert(noveltea.layouts.mount('cursor-board', 'cursor-control-board', {clock='unscaled-presentation'}))
+  exits:
+    - id: leave
+      label: Leave and return from home
+      direction: west
+      target: world-composition
+  placements:
+    - id: alpha-board
+      bounds:
+        x: 0.35
+        "y": 0.42
+        width: 0.24
+        height: 0.28
+      presentation:
+        label: null
+        layout: null
+    - id: custom-board
+      bounds:
+        x: 0.65
+        "y": 0.42
+        width: 0.24
+        height: 0.28
+      presentation:
+        label: null
+        layout: null
+  features:
+    - id: board-label
+      label: Room Feature strip
+      traits: []
+      localProperties: []
+      defaultProperties: []
+      inventories: []
+  hotspots:
+    - id: room-feature
+      label: room-feature
+      condition: always
+      inputOrder: 15
+      highlight:
+        kind: default
+      shape:
+        kind: rect
+        bounds:
+          x: 0.35
+          "y": 0.73
+          width: 0.24
+          height: 0.07
+      target:
+        kind: owner-feature
+        featureId: board-label
+    - id: exit
+      label: exit
+      condition: always
+      inputOrder: 15
+      highlight:
+        kind: default
+      cursor:
+        kind: system
+        cursor: pointer
+      shape:
+        kind: rect
+        bounds:
+          x: 0.65
+          "y": 0.73
+          width: 0.24
+          height: 0.07
+      target:
+        kind: exit
+        exitId: leave

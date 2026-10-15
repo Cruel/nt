@@ -1,0 +1,26 @@
+data:
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    materials:
+      - material: lab-decorator
+        parameters: {}
+        textures: {}
+    scripts: []
+    stylesheets: []
+  displayName: effects-panel
+  lua:
+    sourceMode: none
+  mount:
+    defaultParent: nt-layout-preview-mount
+    scopedStyles: true
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: false
+  target: scene-overlay
+id: effects-panel
+label: effects-panel

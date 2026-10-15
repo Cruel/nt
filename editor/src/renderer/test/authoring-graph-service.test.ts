@@ -30,9 +30,9 @@ describe('project text source reads', () => {
     const bytes = Buffer.from('\ufeffreturn "room"', 'utf8');
     await fs.writeFile(path.join(root, 'assets', 'script.lua'), bytes);
     const hash = `sha256:${createHash('sha256').update(bytes).digest('hex')}` as const;
-    await fs.writeFile(path.join(root, 'project.json'), '{}\n');
+    await fs.writeFile(path.join(root, 'project.yaml'), '{}\n');
     const service = new ActiveProjectSessionService();
-    const session = await service.activateProjectFile(path.join(root, 'project.json'));
+    const session = await service.activateProjectFile(path.join(root, 'project.yaml'));
 
     const response = await service.read({
       projectSessionId: session,

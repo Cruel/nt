@@ -1,0 +1,5 @@
+id: interview-skipped
+label: interview-skipped
+data:
+  type: integer
+  value: 0

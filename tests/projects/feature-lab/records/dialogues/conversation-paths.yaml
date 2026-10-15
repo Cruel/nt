@@ -1,0 +1,586 @@
+id: conversation-paths
+label: Conversation Paths
+data:
+  displayName: Conversation Paths
+  defaultSpeaker: pilot-guide
+  stageSlots:
+    - id: left
+      label: left
+      initial:
+        character: studio-guide
+        profileId: stage
+        poseId: standing
+        expressionId: neutral
+        appearanceId: null
+        position: left
+        offset:
+          x: 0
+          "y": 0
+        scale: 0.65
+        visible: true
+    - id: right
+      label: right
+      speakerSync: false
+      initial:
+        character: studio-guide
+        profileId: stage
+        poseId: standing
+        expressionId: neutral
+        appearanceId: null
+        position: right
+        offset:
+          x: 0
+          "y": 0
+        scale: 0.65
+        visible: true
+  mediaSlots:
+    - id: notice
+      label: Notice media
+      initial:
+        kind: image
+        asset: pilot-button-sprite
+  entryBlockId: intro
+  blocks:
+    - id: intro
+      type: sequence
+      label: intro
+      segments:
+        - id: welcome
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Interview: the first greeting occurs once. Ask for the sealed topic before and after unlocking it; then revisit the greeting."
+            markup: plain
+          effects:
+            - id: take-note
+              kind: run-lua
+              source: assert(Game.set_prop("interview-notes", Game.prop("interview-notes") + 1))
+          showOnce: true
+        - id: conditional
+          type: line
+          text:
+            source:
+              kind: inline
+              text: The sealed topic is now available.
+            markup: plain
+          condition:
+            kind: variable-comparison
+            variable: interview-topic
+            operator: equal
+            value: true
+          effects:
+            - id: set-interview-skipped
+              kind: set-global-property
+              variable: interview-skipped
+              value: 1
+        - id: tour-first-visit
+          type: comment
+          text: Presentation tour is chosen separately so show-once revisits stay compact.
+    - id: presentation
+      type: sequence
+      label: presentation
+      defaultSpeaker: studio-guide
+      segments:
+        - id: speaker-default
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Block speaker Studio Guide overrides Dialogue default Guide: only left sync occurrence speaks."
+            markup: plain
+        - id: speaker-offscreen
+          type: line
+          speaker: radio-operator
+          text:
+            source:
+              kind: inline
+              text: "Radio speaks off-screen: neither Guide occurrence should speak."
+            markup: plain
+        - id: slot-hide
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Hide left: right stays visible."
+            markup: plain
+          cues:
+            - id: hide-left
+              kind: stage
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: left
+                action: hide
+        - id: slot-show
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Show left: retained Guide state returns."
+            markup: plain
+          cues:
+            - id: show-left
+              kind: stage
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: left
+                action: show
+        - id: slot-sparse
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Left changes smile then Pose at the same position. Smile persists through sparse Pose update; right is unchanged.
+            markup: plain
+          cues:
+            - id: left-smile
+              kind: stage
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: left
+                action: update
+                expressionId: smile
+            - id: left-lean
+              kind: stage
+              position:
+                offset: 0
+                order: 1
+              mutation:
+                slotId: left
+                action: update
+                poseId: lean
+        - id: slot-profile
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Left switches to Portrait default close Pose; right remains Stage standing.
+            markup: plain
+          cues:
+            - id: left-portrait
+              kind: stage
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: left
+                action: update
+                profileId: portrait
+        - id: slot-new-person
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Left becomes Radio: Character-specific selections reset to stage / standing / neutral while placement remains left."
+            markup: plain
+          cues:
+            - id: left-radio
+              kind: stage
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: left
+                action: update
+                character: radio-operator
+        - id: slot-clear
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Clear left, then next line rebuilds it.
+            markup: plain
+          cues:
+            - id: slot-clear-left
+              kind: stage
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: left
+                action: clear
+        - id: slot-rebuild
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Rebuild left as Studio Guide; default stage and standing axes reappear.
+            markup: plain
+          cues:
+            - id: slot-rebuild-left
+              kind: stage
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: left
+                action: update
+                character: studio-guide
+        - id: cue-skip
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Compare natural reveal versus immediate skip. Same-position smile then neutral finishes neutral; disposable sound is omitted on skip; the final non-skippable awaited wave still waits.
+            markup: plain
+          cues:
+            - id: skip-smile
+              kind: speaker-expression
+              position:
+                offset: 20
+                order: 0
+              expressionId: smile
+            - id: skip-neutral
+              kind: speaker-expression
+              position:
+                offset: 20
+                order: 1
+              expressionId: neutral
+            - id: skip-disposable
+              kind: sound-effect
+              position:
+                offset: 40
+                order: 0
+              asset: pilot-cue-audio
+              pausePolicy: owner
+              gain: 0.4
+              pan: 0
+              causality: disposable
+              synchronized: false
+              skipBehavior: suppress
+            - id: skip-barrier
+              kind: gesture
+              position:
+                offset: 75
+                order: 0
+              slotId: left
+              gestureId: wave
+              waitForCompletion: true
+              skippable: false
+    - id: menu
+      type: choice
+      label: Interview menu
+    - id: redirect
+      type: redirect
+      label: Revisit
+      targetBlockId: intro
+    - id: unlock
+      type: sequence
+      label: unlock
+      segments:
+        - id: unlocked
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "The topic is unlocked. Revisit now: no second first greeting; the conditional line is shown."
+            markup: plain
+    - id: topic
+      type: sequence
+      label: topic
+      segments:
+        - id: topic-answer
+          type: line
+          text:
+            source:
+              kind: inline
+              text: The sealed topic is a delivery receipt. Continue to commit its nested effects.
+            markup: plain
+          effects:
+            - id: nested-effects
+              kind: if
+              condition:
+                kind: variable-comparison
+                variable: interview-topic
+                operator: equal
+                value: true
+              then:
+                - id: set-interview-receipt
+                  kind: set-global-property
+                  variable: interview-receipt
+                  value: issued
+                - id: notify-receipt
+                  kind: notify
+                  message:
+                    source:
+                      kind: inline
+                      text: Receipt issued before child Scene.
+                    markup: plain
+                - id: nested
+                  kind: if
+                  condition:
+                    kind: variable-comparison
+                    variable: interview-topic
+                    operator: equal
+                    value: false
+                  then:
+                    - id: wrong-receipt
+                      kind: set-global-property
+                      variable: interview-receipt
+                      value: wrong branch
+                  else:
+                    - id: call-child
+                      kind: call-scene
+                      scene: interview-child
+                    - id: stamp
+                      kind: run-lua
+                      source: assert(Game.set_prop("interview-receipt", Game.prop("interview-receipt") .. " / stamped"))
+              else:
+                - id: locked-receipt
+                  kind: set-global-property
+                  variable: interview-receipt
+                  value: locked
+    - id: receipt
+      type: sequence
+      label: receipt
+      segments:
+        - id: receipt
+          type: line
+          text:
+            source:
+              kind: lua-expression
+              source: 'return "Interview notes: " .. tostring(Game.prop("interview-notes")) .. "; receipt: " .. Game.prop("interview-receipt")'
+              additionalDependencies:
+                targets: []
+            markup: plain
+    - id: children
+      type: sequence
+      label: children
+      segments:
+        - id: before-children
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Next: concealed child, then preserved child. Each returns to this exact conversation."
+            markup: plain
+        - id: conceal
+          type: call-scene
+          scene: interview-child
+        - id: between-children
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Concealed child returned once. Next child preserves this Dialogue UI.
+            markup: plain
+        - id: preserve
+          type: call-scene
+          scene: interview-child
+          uiPolicy: preserve
+        - id: after-children
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Preserved child returned once. Continue to the menu.
+            markup: plain
+    - id: finish
+      type: sequence
+      label: finish
+      segments:
+        - id: finish-line
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Continue into the hidden-choice/logging conversation.
+            markup: plain
+    - id: media
+      type: sequence
+      label: media
+      segments:
+        - id: media-initial
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Media Slot begins as a button image. Its retained content is independent of Stage actors. Current built-in Dialogue UI does not realize Media Slots: this check remains blocked pending a Layout consumer."
+            markup: plain
+        - id: media-replace
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Replace Media Slot with a Character snapshot without moving the world actors.
+            markup: plain
+          cues:
+            - id: media-replace-cue
+              kind: media
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: notice
+                action: update
+                content:
+                  kind: character
+                  character: studio-guide
+                  profileId: portrait
+                  poseId: close
+                  expressionId: smile
+                  appearanceId: null
+        - id: media-hide
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Hide Media Slot while preserving its content.
+            markup: plain
+          cues:
+            - id: media-hide-cue
+              kind: media
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: notice
+                action: hide
+        - id: media-show
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Show the retained snapshot.
+            markup: plain
+          cues:
+            - id: media-show-cue
+              kind: media
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: notice
+                action: show
+        - id: media-clear
+          type: line
+          text:
+            source:
+              kind: inline
+              text: Clear the Media Slot content.
+            markup: plain
+          cues:
+            - id: media-clear-cue
+              kind: media
+              position:
+                offset: 0
+                order: 0
+              mutation:
+                slotId: notice
+                action: clear
+  edges:
+    - id: to-menu
+      kind: next
+      fromBlockId: intro
+      toBlockId: menu
+    - id: unlock-topic
+      kind: choice
+      fromBlockId: menu
+      toBlockId: unlock
+      label:
+        source:
+          kind: inline
+          text: Unlock the sealed topic
+        markup: plain
+      condition:
+        kind: variable-comparison
+        variable: interview-topic
+        operator: equal
+        value: false
+      effects:
+        - id: set-interview-topic
+          kind: set-global-property
+          variable: interview-topic
+          value: true
+    - id: read-topic
+      kind: choice
+      fromBlockId: menu
+      toBlockId: topic
+      label:
+        source:
+          kind: inline
+          text: Read sealed topic
+        markup: plain
+      condition:
+        kind: variable-comparison
+        variable: interview-topic
+        operator: equal
+        value: true
+    - id: revisit
+      kind: choice
+      fromBlockId: menu
+      toBlockId: redirect
+      label:
+        source:
+          kind: inline
+          text: Revisit the greeting
+        markup: plain
+    - id: children
+      kind: choice
+      fromBlockId: menu
+      toBlockId: children
+      label:
+        source:
+          kind: inline
+          text: Call concealed / preserved child Scenes
+        markup: plain
+    - id: finish
+      kind: choice
+      fromBlockId: menu
+      toBlockId: finish
+      label:
+        source:
+          kind: inline
+          text: Continue to hidden choices and logging
+        markup: plain
+    - id: unlock-menu
+      kind: next
+      fromBlockId: unlock
+      toBlockId: menu
+    - id: topic-receipt
+      kind: next
+      fromBlockId: topic
+      toBlockId: receipt
+    - id: receipt-menu
+      kind: next
+      fromBlockId: receipt
+      toBlockId: menu
+    - id: children-menu
+      kind: next
+      fromBlockId: children
+      toBlockId: menu
+    - id: presentation-menu
+      kind: next
+      fromBlockId: presentation
+      toBlockId: menu
+    - id: presentation-tour
+      kind: choice
+      fromBlockId: menu
+      toBlockId: presentation
+      label:
+        source:
+          kind: inline
+          text: Inspect speakers, Stage Slots and skip cues
+        markup: plain
+    - id: media-tour
+      kind: choice
+      fromBlockId: menu
+      toBlockId: media
+      label:
+        source:
+          kind: inline
+          text: Inspect retained Media Slot states (blocked display)
+        markup: plain
+    - id: media-menu
+      kind: next
+      fromBlockId: media
+      toBlockId: menu
+  completion:
+    kind: dialogue
+    id: interview-hidden

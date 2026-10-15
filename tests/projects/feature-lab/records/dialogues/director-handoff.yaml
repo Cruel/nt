@@ -1,0 +1,41 @@
+id: director-handoff
+label: director-handoff
+data:
+  displayName: Director handoff
+  defaultSpeaker: pilot-guide
+  settings:
+    showDisabledChoices: false
+    logMode: only-lines
+  entryBlockId: intro
+  blocks:
+    - id: intro
+      type: sequence
+      label: intro
+      segments:
+        - id: line-1
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Conversation part 1: Continue. The Scene resumes between Handoffs without starting another conversation."
+            markup: plain
+        - id: handoff-1
+          type: handoff
+        - id: line-2
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Conversation part 2: Continue. The Scene resumes between Handoffs without starting another conversation."
+            markup: plain
+        - id: handoff-2
+          type: handoff
+        - id: line-3
+          type: line
+          text:
+            source:
+              kind: inline
+              text: "Conversation part 3: Continue. The Scene resumes between Handoffs without starting another conversation."
+            markup: plain
+  completion:
+    kind: return

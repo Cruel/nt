@@ -1,0 +1,6 @@
+id: notice-board-hooks
+label: notice-board-hooks
+data:
+  source:
+    kind: project-file
+    path: scripts/notice-board-hooks.lua

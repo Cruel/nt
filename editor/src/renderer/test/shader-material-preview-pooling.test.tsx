@@ -133,7 +133,7 @@ beforeEach(() => {
   useProjectStore.getState().loadProjectDocument({
     document: project,
     projectPath: '/mock',
-    projectFilePath: '/mock/project.json',
+    projectFilePath: '/mock/project.yaml',
     projectSessionId: 'session:material-preview',
   });
 });
@@ -203,7 +203,7 @@ describe('Material lightweight previews', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'session:material-preview',
     });
     const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
@@ -266,7 +266,7 @@ describe('Material lightweight previews', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'session:material-preview',
     });
     const backendFactory: AuthoringWebGlBackendFactory = vi.fn(() => ({
@@ -735,7 +735,7 @@ describe('Material lightweight previews', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: 'session:material-preview',
     });
     const getMaterial = vi
@@ -789,7 +789,7 @@ describe('Material lightweight previews', () => {
         useProjectStore.getState().loadProjectDocument({
           document: nextProject,
           projectPath: '/mock',
-          projectFilePath: '/mock/project.json',
+          projectFilePath: '/mock/project.yaml',
           projectSessionId: 'session:material-preview',
         });
       });
@@ -983,7 +983,7 @@ describe('Material lightweight previews', () => {
         useProjectStore.getState().loadProjectDocument({
           document: nextProject,
           projectPath: '/mock/next',
-          projectFilePath: '/mock/next/project.json',
+          projectFilePath: '/mock/next/project.yaml',
           projectSessionId: 'session:material-preview:next',
         }),
       ).toBe(true);

@@ -1,3 +1,4 @@
+import { parse as parseYaml } from 'yaml';
 import { mkdtemp, mkdir, readFile, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
@@ -108,6 +109,12 @@ describe('editor authoring validation cache sharing', () => {
     const nativeTools = tools();
     const warmed = await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools });
     expect(warmed.exitCode).toBe(0);
+    expect(warmed.envelope.diagnostics).toContainEqual(
+      expect.objectContaining({
+        sourceUrl: 'project:/records/rooms/start.yaml',
+        line: expect.any(Number),
+      }),
+    );
     const generation = await waitForCurrentCache(root);
     const sessionLocal = vi.fn(async () => ({ ok: true, success: true, diagnostics: [] }));
     const service = new EditorAuthoringValidationService({ nativeTools });
@@ -122,7 +129,7 @@ describe('editor authoring validation cache sharing', () => {
     expect(result).toMatchObject({
       ok: true,
       success: true,
-      diagnostics: warmed.envelope.diagnostics,
+      diagnostics: warmed.editorDiagnostics ?? warmed.envelope.diagnostics,
     });
     expect(sessionLocal).not.toHaveBeenCalled();
     expect(await currentCache(root)).toBe(generation);
@@ -150,7 +157,7 @@ describe('editor authoring validation cache sharing', () => {
     const { root, project, workspace } = await fixture({ actionableMissingProperty: true });
     const nativeTools = tools();
     const warmed = await runNovelTeaCli(['--json', 'validate'], { cwd: root, nativeTools });
-    expect(JSON.parse(warmed.stdout)).not.toHaveProperty('editorDiagnostics');
+    expect(parseYaml(warmed.stdout)).not.toHaveProperty('editorDiagnostics');
     const service = new EditorAuthoringValidationService({ nativeTools });
 
     const result = await service.validate({
@@ -254,8 +261,8 @@ describe('editor authoring validation cache sharing', () => {
     const captureAuthority = workspace.captureAuthoringValidationAuthority.bind(workspace);
     vi.spyOn(workspace, 'captureAuthoringValidationAuthority').mockImplementation(async () => {
       const expected = await captureAuthority();
-      const projectJsonPath = path.join(root, 'project.json');
-      const projectJson = JSON.parse(await readFile(projectJsonPath, 'utf8')) as {
+      const projectJsonPath = path.join(root, 'project.yaml');
+      const projectJson = parseYaml(await readFile(projectJsonPath, 'utf8')) as {
         project: Record<string, unknown>;
       };
       projectJson.project.name = 'External edit before CLI admission';
@@ -301,13 +308,13 @@ describe('editor authoring validation cache sharing', () => {
     });
     await expect(currentCache(root)).rejects.toMatchObject({ code: 'ENOENT' });
 
-    const projectJsonPath = path.join(root, 'project.json');
-    const projectJson = JSON.parse(await readFile(projectJsonPath, 'utf8')) as {
+    const projectJsonPath = path.join(root, 'project.yaml');
+    const projectJson = parseYaml(await readFile(projectJsonPath, 'utf8')) as {
       project: Record<string, unknown>;
     };
     projectJson.project.name = 'Saved editor name';
     await writeFile(projectJsonPath, JSON.stringify(projectJson));
-    const reconciled = await workspace.reassemble(['project.json']);
+    const reconciled = await workspace.reassemble(['project.yaml']);
     expect(reconciled.ok).toBe(true);
 
     await service.validate({

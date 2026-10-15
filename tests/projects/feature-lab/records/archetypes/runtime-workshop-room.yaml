@@ -1,0 +1,7 @@
+id: runtime-workshop-room
+label: Runtime Workshop Room Archetype
+data:
+  instanceKind: room
+  overrides:
+    /data/background/color: "#182430"
+    /data/displayName: Runtime annex template

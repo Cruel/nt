@@ -8,7 +8,7 @@ describe('project store selectors', () => {
     useProjectStore.getState().loadProjectDocument({
       document: createAuthoringProject(),
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: 'opaque-session',
     });
 
@@ -92,7 +92,7 @@ describe('project store selectors', () => {
     expect(selectProjectDirty(useProjectStore.getState())).toBe(true);
   });
 
-  it('persists local editor metadata without advancing tracked editor.json content', () => {
+  it('persists local editor metadata without advancing tracked editor.yaml content', () => {
     const saved = createAuthoringProject();
     saved.editor.recordMetadata.rooms = {
       hall: { tags: [], color: null },
@@ -107,7 +107,7 @@ describe('project store selectors', () => {
       document: saved,
       savedDocument: saved,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
     });
     useProjectStore.getState().replaceDocumentFromCommand(toJsonValue(working), 0);
 

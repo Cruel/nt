@@ -70,7 +70,7 @@ describe('AssetEditor', () => {
       document,
       savedDocument: document,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     let finishImport!: (value: { paths: string[]; reused: string[] }) => void;
@@ -120,7 +120,7 @@ describe('AssetEditor', () => {
       document,
       savedDocument: document,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     let finishImport!: (value: { paths: string[]; reused: string[] }) => void;
@@ -138,7 +138,7 @@ describe('AssetEditor', () => {
         document: other,
         savedDocument: other,
         projectPath: '/mock/another',
-        projectFilePath: '/mock/another/project.json',
+        projectFilePath: '/mock/another/project.yaml',
         projectSessionId: '22222222-2222-4222-8222-222222222222',
       });
       finishImport({ paths: ['support/stale.md'], reused: [] });
@@ -158,7 +158,7 @@ describe('AssetEditor', () => {
       document,
       savedDocument: document,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.inspectProjectAttachmentFile).mockImplementation(
@@ -220,7 +220,7 @@ describe('AssetEditor', () => {
       document,
       savedDocument: document,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.listProjectAttachmentFiles).mockResolvedValue({
@@ -271,7 +271,7 @@ describe('AssetEditor', () => {
       document,
       savedDocument: document,
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     vi.mocked(window.noveltea.importProjectAttachmentFiles).mockResolvedValue({

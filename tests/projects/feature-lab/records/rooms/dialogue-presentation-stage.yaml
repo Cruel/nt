@@ -1,0 +1,28 @@
+id: dialogue-presentation-stage
+label: Dialogue & Presentation Stage
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Dialogue & Presentation Stage
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Start from the neutral ready prompt, continue into the presentation cues, then choose a response.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: start-dialogue-pilot
+        kind: call-dialogue
+        dialogue: dialogue-presentation-pilot

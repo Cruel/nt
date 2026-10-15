@@ -1,0 +1,19 @@
+data:
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    materials: []
+    scripts: []
+    stylesheets: []
+  lua:
+    sourceMode: none
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: false
+  target: scene-overlay
+id: effects-panel-swap
+label: Swapped WorldOverlay

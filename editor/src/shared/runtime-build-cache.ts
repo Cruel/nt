@@ -111,11 +111,11 @@ const cacheGenerationIdPattern =
 const runtimeDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = [
   {
     root: 'records',
-    extensions: ['.json', '.lua', '.rcss', '.rml'],
+    extensions: ['.yaml', '.json', '.lua', '.rcss', '.rml'],
     excludedPrefixes: ['records/tests/'],
   },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
-  { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
+  { root: 'i18n', extensions: ['.yaml', '.json'], excludedPrefixes: [] },
 ] as const;
 
 const inputEntrySchema = z
@@ -202,7 +202,7 @@ function normalizeRelativePath(value: string): string {
 
 function runtimeCanonicalSourcePaths(snapshot: LoadedProjectWorkspaceSnapshot): string[] {
   return snapshot.canonicalSourceFiles.filter(
-    (file) => file !== 'editor.json' && !file.startsWith('records/tests/'),
+    (file) => file !== 'editor.yaml' && !file.startsWith('records/tests/'),
   );
 }
 

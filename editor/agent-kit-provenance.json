@@ -508,7 +508,7 @@
       ]
     },
     "workflows/AUTHORING.md": {
-      "reviewed": "2026-10-04",
+      "reviewed": "2026-10-14",
       "strategy": "Keep one concise coding-agent operating procedure for file-first inspection/editing, canonical record initialization, transaction choice, workspace safety, localization mutation, coherent validation, and authored-Test execution.",
       "sources": [
         {

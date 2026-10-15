@@ -18,6 +18,8 @@ export interface ProjectWorkspaceFileSystem {
   readPathMetadata?(path: string): Promise<ProjectWorkspacePathMetadata>;
   listDirectory(path: string): Promise<readonly string[]>;
   readText(path: string): Promise<string>;
+  /** Authoritative read for mutation preflight; resident source-text caches must be bypassed. */
+  readTextFresh?(path: string): Promise<string>;
   /** Assembly-only text and exact-byte revision from one read; not a later freshness proof. */
   readTextWithRevision?(path: string): Promise<
     Readonly<{

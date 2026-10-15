@@ -65,6 +65,26 @@ function mutationFailureDiagnostic(error: ProjectWorkspaceMutationError): ToolDi
   };
 }
 
+class ProjectCommentConfirmationRequired extends Error {
+  constructor(
+    readonly impacts: Awaited<ReturnType<ProjectWorkspaceService['write']>>['commentImpacts'],
+    readonly token: string,
+  ) {
+    super('Review the affected YAML comments before saving.');
+  }
+}
+
+function commentConfirmationResponse(error: ProjectCommentConfirmationRequired) {
+  return {
+    ok: false as const,
+    success: false as const,
+    commentConfirmationRequired: true,
+    commentConfirmationToken: error.token,
+    commentImpacts: error.impacts,
+    diagnostics: [],
+  };
+}
+
 function contentSaveConflictDiagnostic(): ToolDiagnostic {
   return createProjectValidationDiagnostic({
     code: 'editor.content-save.content-conflict',
@@ -283,9 +303,20 @@ function changedProjectionFiles(
   candidate: Parameters<typeof createProjectWorkspaceSnapshot>[0],
   baselineSourcePaths: Readonly<Record<string, string>>,
   candidateSourcePaths: Readonly<Record<string, string>>,
+  sourceFiles?: ReadonlySet<string>,
 ) {
-  const beforeFiles = projectWorkspaceFiles(baseline, baseline.editor, baselineSourcePaths);
-  const afterFiles = projectWorkspaceFiles(candidate, candidate.editor, candidateSourcePaths);
+  const beforeFiles = projectWorkspaceFiles(
+    baseline,
+    baseline.editor,
+    baselineSourcePaths,
+    sourceFiles,
+  );
+  const afterFiles = projectWorkspaceFiles(
+    candidate,
+    candidate.editor,
+    candidateSourcePaths,
+    sourceFiles,
+  );
   return [...new Set([...Object.keys(beforeFiles), ...Object.keys(afterFiles)])]
     .filter((file) => beforeFiles[file] !== afterFiles[file])
     .sort();
@@ -353,6 +384,9 @@ async function writeWorkspaceProject(
   contentProject: unknown;
   editorState: EditorProjectState;
   scriptSourcePaths: Record<string, string>;
+  commentImpacts: Awaited<ReturnType<ProjectWorkspaceService['write']>>['commentImpacts'];
+  commentNotices: Awaited<ReturnType<ProjectWorkspaceService['write']>>['commentNotices'];
+  deletedSourceTexts: Readonly<Record<string, string>>;
   assetTrashMoves: import('../../shared/project-asset-audit').ProjectAssetTrashMove[];
   snapshot: LoadedProjectWorkspaceSnapshot;
 }> {
@@ -457,6 +491,7 @@ async function writeWorkspaceProject(
           projectForWrite,
           openedSnapshot.scriptSourcePaths,
           sourcePaths,
+          new Set(openedSnapshot.canonicalSourceFiles),
         )
       : commitOptions.structural
         ? undefined
@@ -466,6 +501,7 @@ async function writeWorkspaceProject(
               projectForWrite,
               openedSnapshot.scriptSourcePaths,
               sourcePaths,
+              new Set(openedSnapshot.canonicalSourceFiles),
             )
           : await filesForSaveUnits(
               openedSnapshot,
@@ -493,6 +529,47 @@ async function writeWorkspaceProject(
       'A structural command target changed outside the editor.',
     );
   assertAuthority?.();
+  if (commitOptions?.requireCommentConfirmation) {
+    const preview = await workspace.write(
+      projectRoot,
+      expectedWorkspaceRevision,
+      projectForWrite,
+      editorStateForWrite,
+      scriptSourcePaths,
+      {
+        dryRun: true,
+        expectedFileRevisions,
+        targetFiles,
+        identityRemap: commitOptions.identityRemap,
+        sourceRestorations: commitOptions.sourceRestorations,
+        preflightSnapshot: openedSnapshot,
+      },
+    );
+    if (preview.commentImpacts.length > 0) {
+      // Bind approval to the exact source revisions AND proposed semantic operation.
+      // An agent edit while the dialog is open must force a new review.
+      const token = createHash('sha256')
+        .update(
+          JSON.stringify([
+            preview.commentImpacts,
+            preview.commentImpacts.map((impact) => [
+              impact.file,
+              openedSnapshot.fileRevisions[impact.file]?.contentHash ?? 'absent',
+            ]),
+            commitOptions.affectedPaths,
+            projectForWrite,
+          ]),
+        )
+        .digest('hex');
+      const approved = commitOptions.commentConfirmation;
+      const includesDeletion = preview.commentImpacts.some((impact) => impact.kind === 'deleted');
+      if (
+        approved?.token !== token ||
+        (includesDeletion ? approved.decision !== 'delete' : approved.decision === 'delete')
+      )
+        throw new ProjectCommentConfirmationRequired(preview.commentImpacts, token);
+    }
+  }
   const written = await workspace.write(
     projectRoot,
     expectedWorkspaceRevision,
@@ -504,6 +581,9 @@ async function writeWorkspaceProject(
       expectedFileRevisions,
       targetFiles,
       operationLabel: commitOptions?.operationLabel ?? 'project save',
+      identityRemap: commitOptions?.identityRemap,
+      commentDisposition: commitOptions?.commentConfirmation?.decision,
+      sourceRestorations: commitOptions?.sourceRestorations,
       extraTargets,
       preflightSnapshot: openedSnapshot,
       refreshAfterCommit,
@@ -517,6 +597,9 @@ async function writeWorkspaceProject(
     scriptSourcePaths: { ...written.snapshot.scriptSourcePaths },
     assetTrashMoves,
     snapshot: written.snapshot,
+    commentImpacts: written.commentImpacts,
+    commentNotices: written.commentNotices,
+    deletedSourceTexts: written.deletedSourceTexts,
   };
 }
 
@@ -692,10 +775,10 @@ async function copyProjectWorkflows(oldProjectFilePath: string, newProjectFilePa
 }
 
 const saveAsOwnedDestinationPaths = [
-  'project.json',
-  'traits.json',
+  'project.yaml',
+  'traits.yaml',
   'i18n',
-  'editor.json',
+  'editor.yaml',
   'records',
   'scripts',
   '.noveltea/transactions',
@@ -808,7 +891,7 @@ export async function saveProjectEditorMetadata(
   }
   try {
     const root =
-      path.basename(projectRoot) === 'project.json'
+      path.basename(projectRoot) === 'project.yaml'
         ? projectPathFromFile(projectRoot)
         : path.resolve(projectRoot);
     const workspace = workspaceService();
@@ -897,7 +980,7 @@ async function saveProjectContentFromSnapshot(
   workspaceOverride?: ProjectWorkspaceService,
   refreshAfterCommit = true,
 ): Promise<SaveProjectResponse & { committedSnapshot?: LoadedProjectWorkspaceSnapshot }> {
-  const absolute = path.join(root, 'project.json');
+  const absolute = path.join(root, 'project.yaml');
   if (!commitOptions && openedSnapshot.workspaceRevision !== expectedWorkspaceRevision) {
     const diagnostic = contentSaveConflictDiagnostic();
     return {
@@ -953,7 +1036,17 @@ async function saveProjectContentFromSnapshot(
     editorState: written.editorState,
     scriptSourcePaths: written.scriptSourcePaths,
     assetTrashMoves: written.assetTrashMoves,
-    diagnostics: [],
+    commentImpacts: written.commentImpacts,
+    deletedSourceTexts: written.deletedSourceTexts,
+    diagnostics: written.commentNotices.map(
+      (notice): ToolDiagnostic => ({
+        code: 'authoring.source_comment.stale_id',
+        severity: 'info',
+        category: 'Project save',
+        path: `/${notice.file}${notice.path}`,
+        message: `A YAML comment still mentions renamed ID '${notice.oldId}'. Review it manually.`,
+      }),
+    ),
     committedSnapshot: written.snapshot,
   };
 }
@@ -976,7 +1069,7 @@ export async function saveProjectContent(
   }
   try {
     const root =
-      path.basename(projectRoot) === 'project.json'
+      path.basename(projectRoot) === 'project.yaml'
         ? projectPathFromFile(projectRoot)
         : path.resolve(projectRoot);
     const opened = await workspaceService().open(root);
@@ -1141,10 +1234,14 @@ export async function saveActiveProjectContent(
           request.recoveryFileOwnershipHints,
         );
         const internalOptions: ProjectWorkspaceCommitOptions = {
+          requireCommentConfirmation: true,
+          commentConfirmation: request.commentConfirmation,
           expectedFileRevisions: snapshotFileRevisions(before),
           saveUnitIds: [...request.saveUnitIds],
           affectedPaths: [...request.affectedPaths],
           operationLabel: request.operationLabel,
+          identityRemap: request.identityRemap,
+          sourceRestorations: request.sourceRestorations,
           structural: request.structural,
           assetTransition: request.assetTransition,
         };
@@ -1193,11 +1290,16 @@ export async function saveActiveProjectContent(
               : undefined,
           scriptSourcePaths: { ...result.committedSnapshot.scriptSourcePaths },
           assetTrashMoves: result.assetTrashMoves,
+          commentImpacts: result.commentImpacts,
+          deletedSourceTexts: result.deletedSourceTexts,
           diagnostics: result.diagnostics,
         };
       } catch (error) {
+        if (error instanceof ProjectCommentConfirmationRequired)
+          return commentConfirmationResponse(error);
         if (
           attempt === 0 &&
+          !request.commentConfirmation &&
           error instanceof ProjectWorkspaceMutationError &&
           error.code === 'WORKSPACE_REVISION_CONFLICT' &&
           error.targetPath &&
@@ -1245,7 +1347,7 @@ export async function saveProjectCopyAs(
 ): Promise<SaveProjectResponse> {
   if (!owner) return { ok: false, success: false, error: 'No editor window is available.' };
   const sourceRoot = path.resolve(sourceProjectRoot);
-  const sourceManifestPath = path.join(sourceRoot, 'project.json');
+  const sourceManifestPath = path.join(sourceRoot, 'project.yaml');
   const result = await dialog.showOpenDialog(owner, {
     title: 'Save NovelTea Project Copy',
     defaultPath: sourceRoot,
@@ -1266,10 +1368,10 @@ export async function saveProjectCopyAs(
     diagnostics = await copyProjectAssets(
       project,
       sourceManifestPath,
-      path.join(root, 'project.json'),
+      path.join(root, 'project.yaml'),
       workingProjectAssetPaths,
     );
-    const manifestPath = path.join(root, 'project.json');
+    const manifestPath = path.join(root, 'project.yaml');
     await copyProjectWorkflows(sourceManifestPath, manifestPath);
     const normalized = projectWithCurrentEditorState(project);
     const editor = parseEditorProjectState((normalized as Record<string, unknown>).editor);
@@ -1278,11 +1380,22 @@ export async function saveProjectCopyAs(
     const projectedScriptSourcePaths = sourcePaths.ok
       ? { ...sourcePaths.snapshot.scriptSourcePaths, ...scriptSourcePaths }
       : scriptSourcePaths;
+    if (!sourcePaths.ok)
+      throw new Error(sourcePaths.diagnostics[0]?.message ?? 'Source Project is invalid.');
+    const originalYaml = Object.fromEntries(
+      await Promise.all(
+        sourcePaths.snapshot.canonicalSourceFiles
+          .filter((file) => file.endsWith('.yaml'))
+          .map(async (file) => [file, await fs.readFile(path.join(sourceRoot, file), 'utf8')]),
+      ),
+    );
     for (const [relativePath, text] of Object.entries(
       projectWorkspaceFiles(
         normalized as Parameters<typeof projectWorkspaceFiles>[0],
         editor,
         projectedScriptSourcePaths,
+        sourcePaths.ok ? new Set(sourcePaths.snapshot.canonicalSourceFiles) : undefined,
+        originalYaml,
       ),
     ))
       await writeContainedText(root, path.join(root, relativePath), text);

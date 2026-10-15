@@ -1,0 +1,23 @@
+data:
+  contract: {}
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  displayName: scale-inherit
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  scalePolicy:
+    text: inherit
+    ui: inherit
+  script:
+    enabled: true
+    namespace: scale_inherit
+id: scale-inherit
+label: scale-inherit

@@ -1,0 +1,34 @@
+id: background-stories
+label: background-stories
+data:
+  displayName: background-stories
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Follow the Scene captions. Reopen Feature Lab for acceptance instructions.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: begin
+        kind: call-scene
+        scene: background-stories
+  exits:
+    - id: leave
+      label: Leave this Room visit
+      direction: east
+      target: inventory-delivery
+    - id: fault-demo
+      label: Deliberate clock fault
+      direction: west
+      target: background-fault-demo

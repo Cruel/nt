@@ -1,0 +1,394 @@
+id: materials-engine2d
+label: materials-engine2d
+data:
+  displayName: materials-engine2d
+  stage:
+    kind: inherited
+  events:
+    - id: parameter-tween-setup
+      label: parameter-tween-setup
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: upsert
+      instanceId: parameter-tween-demo
+      materialApplication:
+        material: lab-parameter-tween
+        parameters:
+          u_tint:
+            type: color
+            source:
+              kind: literal
+              value:
+                - 1
+                - 1
+                - 1
+                - 1
+        textures: {}
+      scope: world
+      order: 50
+      clock: gameplay
+    - id: parameter-tween-intro
+      label: parameter-tween-intro
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Occurrence parameter tween: the World starts neutral. Continue begins a blue u_tint tween while Scene Text stays outside the world postprocess."
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: parameter-tween-blue
+      label: parameter-tween-blue
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: material-parameter
+      owner: invocation
+      target:
+        kind: postprocess
+        instanceId: parameter-tween-demo
+      material: lab-parameter-tween
+      parameter: u_tint
+      value:
+        - 0.35
+        - 0.55
+        - 1
+        - 1
+      transition: tween
+      durationMs: 1800
+      easing: ease-in-out
+      clock: gameplay
+    - id: parameter-tween-replace-watch
+      label: parameter-tween-replace-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: The blue tween is active while this text waits. Continue replaces the same occurrence parameter with a warm target. During the warm tween, use Fast Forward to snap the skippable operation to its logical target.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: parameter-tween-warm
+      label: parameter-tween-warm
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: material-parameter
+      owner: invocation
+      target:
+        kind: postprocess
+        instanceId: parameter-tween-demo
+      material: lab-parameter-tween
+      parameter: u_tint
+      value:
+        - 1
+        - 0.55
+        - 0.3
+        - 1
+      transition: tween
+      durationMs: 2500
+      easing: ease-out
+      clock: gameplay
+      waitForCompletion: true
+    - id: parameter-tween-complete
+      label: parameter-tween-complete
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Replacement/skip settles the authored warm target, not a transient interpolated value. Continue removes the temporary grade and proceeds to the original Engine2D checks.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: parameter-tween-remove
+      label: parameter-tween-remove
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: postprocess-effect
+      owner: invocation
+      action: remove
+      instanceId: parameter-tween-demo
+      materialApplication: null
+      scope: world
+      order: 50
+      clock: gameplay
+    - id: original
+      label: original
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Original Engine2D witnesses: the button draw texture remains renderer-owned; left inherits Definition strength, right specializes it; the middle Room Prop overlaps according to authored order. Continue to compare inherited/strong Materials. The smaller row above shows clamp-nearest, repeat-linear and repeat-inherit sampling with one shared synthetic pattern."
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: inherit
+      label: inherit
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.set_prop('base-sample',{owner='scene',asset='pilot-button-sprite',material='lab-inherited',x=0.35,y=0.65,width=0.12,height=0.16})); assert(noveltea.presentation.set_prop('child-sample',{owner='scene',asset='pilot-button-sprite',material='lab-strong',x=0.75,y=0.65,width=0.12,height=0.16})); assert(noveltea.presentation.set_material_selection({kind='interactable',id='material-definition-sample'},'lab-inherited')); assert(noveltea.presentation.set_material_selection({kind='interactable',id='material-instance-sample'},'lab-strong'))
+      mayYield: false
+    - id: inherit-watch
+      label: inherit-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Extra lower Prop pair has no application deltas: left inherits base 0.25; right child overrides strength to 0.9. Original Interactables still retain authored Definition/Instance application values above Material defaults. Continue to set Material-wide, Definition and Instance runtime values. Clearing each layer reveals the documented lower layer, not a copied default."
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: layers
+      label: layers
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.set_material_parameter({kind='material',id='engine2d-draw-contract'},'engine2d-draw-contract','u_strength',0.1)); assert(noveltea.presentation.set_material_parameter({kind='interactable-definition',id='gate-lever'},'engine2d-draw-contract','u_strength',0.5)); assert(noveltea.presentation.set_material_parameter({kind='interactable',id='material-instance-sample'},'engine2d-draw-contract','u_strength',1.0)); assert(noveltea.presentation.clear_material_selection({kind='interactable',id='material-definition-sample'})); assert(noveltea.presentation.clear_material_selection({kind='interactable',id='material-instance-sample'}))
+      mayYield: false
+    - id: layers-watch
+      label: layers-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Authored Definition strength (0.35) outranks Material-wide (0.1); Definition runtime (0.5) outranks that authored value; authored Instance (0.8) outranks Definition runtime; Instance runtime (1) wins on the right. Continue to switch away and back; dormant Material-keyed values must return.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: away
+      label: away
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.set_material_selection({kind='interactable-definition',id='gate-lever'},'lab-pattern'))
+      mayYield: false
+    - id: away-watch
+      label: away-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Pattern selection hides incompatible strength values without deleting them. Continue to clear Definition selection and Instance parameter; right returns to its authored 0.8, left remains Definition runtime 0.5.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: back
+      label: back
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.clear_material_selection({kind='interactable-definition',id='gate-lever'})); assert(noveltea.presentation.clear_material_parameter({kind='interactable',id='material-instance-sample'},'engine2d-draw-contract','u_strength'))
+      mayYield: false
+    - id: back-watch
+      label: back-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Continue to bind left strength to the typed Material Level Property (0.2). Direct values cannot overwrite an active binding; this flow clears before changing its source.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: property
+      label: property
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.bind_material_parameter({kind='interactable',id='material-definition-sample'},'engine2d-draw-contract','u_strength',{kind='property',property='material-level',target={kind='global'}})); assert(Game.set_prop('material-level',0.2))
+      mayYield: false
+    - id: property-watch
+      label: property-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Left reads Property 0.2. Continue changes only the Property to 0.9; compatible occurrence uniforms update, right stays authored 0.8.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: property-change
+      label: property-change
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(Game.set_prop('material-level',0.9))
+      mayYield: false
+    - id: property-changed
+      label: property-changed
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Continue clears the binding and assigns occurrence-time, then paint-height facets in separate steps. Both are float-compatible author uniforms, not writable renderer inputs.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: time
+      label: time
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.clear_material_parameter({kind='interactable',id='material-definition-sample'},'engine2d-draw-contract','u_strength')); assert(noveltea.presentation.bind_material_parameter({kind='interactable',id='material-definition-sample'},'engine2d-draw-contract','u_strength',{kind='standard-facet',facet='occurrence-time'}))
+      mayYield: false
+    - id: time-watch
+      label: time-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Left tint grows with occurrence time and clamps in the shader; pause freezes its gameplay clock. Continue binds paint-height instead.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: size
+      label: size
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.clear_material_parameter({kind='interactable',id='material-definition-sample'},'engine2d-draw-contract','u_strength')); assert(noveltea.presentation.bind_material_parameter({kind='interactable',id='material-definition-sample'},'engine2d-draw-contract','u_strength',{kind='standard-facet',facet='paint-height'}))
+      mayYield: false
+    - id: size-watch
+      label: size-watch
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Paint-height saturates the tint; resize to verify size input follows the occurrence. Continue clears runtime values and compares light/dark alpha edges and a textureless neutral-white Environment.
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: reset
+      label: reset
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.clear_material_parameter({kind='interactable',id='material-definition-sample'},'engine2d-draw-contract','u_strength')); assert(noveltea.presentation.clear_material_parameter({kind='interactable-definition',id='gate-lever'},'engine2d-draw-contract','u_strength')); assert(noveltea.presentation.clear_material_parameter({kind='material',id='engine2d-draw-contract'},'engine2d-draw-contract','u_strength')); assert(noveltea.presentation.set_background({owner='scene',color='#eeeeee'})); assert(noveltea.presentation.set_environment('neutral-white','engine2d-draw-contract',{owner='scene',opacity=0.2,x=0.75,y=0.35,width=0.1,height=0.2}))
+      mayYield: false
+    - id: light-edges
+      label: light-edges
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Inspect translucent button edges and the textureless tinted white rectangle over light background: no dark fringe or double alpha. Continue for dark background."
+        markup: active-text
+      speaker: null
+      wait: input
+    - id: dark
+      label: dark
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: run-lua
+      source: assert(noveltea.presentation.set_background({owner='scene',color='#101827'}))
+      mayYield: false
+    - id: dark-edges
+      label: dark-edges
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      autosaveSafePoint: true
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Inspect the same edges on dark. Continue ends the Scene and its textureless Environment. Sampling-row third draw substitutes the author-owned pattern texture with button art without replacing renderer-owned draw texture.
+        markup: active-text
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

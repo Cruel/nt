@@ -459,8 +459,14 @@ function changedProjectionTargets(
     snapshot.project,
     snapshot.project.editor,
     snapshot.scriptSourcePaths,
+    new Set(snapshot.canonicalSourceFiles),
   );
-  const after = projectWorkspaceFiles(project, project.editor, scriptSourcePaths);
+  const after = projectWorkspaceFiles(
+    project,
+    project.editor,
+    scriptSourcePaths,
+    new Set(snapshot.canonicalSourceFiles),
+  );
   return [...new Set([...Object.keys(before), ...Object.keys(after)])]
     .filter((file) => before[file] !== after[file])
     .sort();

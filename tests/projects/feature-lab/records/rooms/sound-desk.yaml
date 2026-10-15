@@ -1,0 +1,38 @@
+id: sound-desk
+label: sound-desk
+localProperties: []
+data:
+  displayName: sound-desk
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Listen with stereo output enabled. Continue through a short mix; restart stops this session. Semantic automation checks desired intent only, not sound quality or decoder position.
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+      zoom: 1.1
+  anchors:
+    - id: left
+      bounds:
+        x: 0.1
+        "y": 0.4
+        width: 0.1
+        height: 0.1
+  lifecycle:
+    afterEnter:
+      - id: begin
+        kind: call-scene
+        scene: sound-desk
+  exits:
+    - id: leave
+      label: Leave and return from home
+      direction: west
+      target: feature-lab-home

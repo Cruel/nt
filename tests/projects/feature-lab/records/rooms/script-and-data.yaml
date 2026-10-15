@@ -1,0 +1,35 @@
+id: script-and-data
+label: script-and-data
+data:
+  displayName: script-and-data
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Follow the Scene captions. Reopen Feature Lab for acceptance instructions.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  scriptHooks:
+    - hook: before-enter
+      handler:
+        module: notice-board
+        export: before_enter
+  lifecycle:
+    afterEnter:
+      - id: begin
+        kind: call-scene
+        scene: script-and-data
+  exits:
+    - id: hook-catchall
+      label: Catchall hook room
+      direction: west
+      target: inventory-workbench

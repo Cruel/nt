@@ -46,8 +46,14 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
       snapshot.project,
       snapshot.project.editor,
       snapshot.scriptSourcePaths,
+      new Set(snapshot.canonicalSourceFiles),
     );
     this.seedEntries(snapshot, Object.entries(projected));
+    // Hydrated snapshots carry semantic records, not the physical comment-bearing YAML bytes.
+    // Do not cache a fabricated source document under an exact on-disk revision.
+    for (const file of snapshot.canonicalSourceFiles)
+      if (file.endsWith('.yaml'))
+        this.textByPath.delete(this.key(this.joinPath(snapshot.projectRoot, file)));
   }
 
   seedOpened(opened: Extract<ProjectWorkspaceOpenResult, { ok: true }>): void {
@@ -56,7 +62,7 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
       Object.entries(opened.sourceContributions).map(([relativePath, contribution]) => [
         relativePath,
         contribution.kind === 'json'
-          ? `${JSON.stringify(contribution.parsed, null, 2)}\n`
+          ? (contribution.sourceText ?? `${JSON.stringify(contribution.parsed, null, 2)}\n`)
           : contribution.text,
       ]),
     );
@@ -111,11 +117,16 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
     const root = this.key(snapshot.projectRoot);
     for (const relativePath of new Set(relativePaths)) {
       const absolute = this.key(this.joinPath(root, relativePath));
+      if (relativePath.endsWith('.yaml') && !this.textByPath.has(absolute)) {
+        this.invalidateAbsolute(absolute);
+        continue;
+      }
       const text = projectWorkspaceFile(
         snapshot.project,
         snapshot.project.editor,
         snapshot.scriptSourcePaths,
         relativePath,
+        relativePath.endsWith('.yaml') ? this.textByPath.get(absolute) : undefined,
       );
       const revision = snapshot.fileRevisions[relativePath];
       if (text === undefined || !revision) {
@@ -139,6 +150,10 @@ class ResidentProjectWorkspaceFileSystem implements ProjectWorkspaceFileSystem {
 
   inspectFresh(value: string): Promise<'missing' | 'file' | 'directory'> {
     return this.raw.inspect(value);
+  }
+
+  readTextFresh(value: string): Promise<string> {
+    return this.raw.readTextFresh?.(value) ?? this.raw.readText(value);
   }
 
   readPathMetadataFresh(value: string): Promise<ProjectWorkspacePathMetadata> | undefined {
@@ -843,7 +858,7 @@ export class ResidentProjectWorkspaceSession {
   ): InvalidAuthoringSourceBlock | null {
     if (this.invalidAuthoringSourcePaths.size === 0) return null;
     const invalidFiles = [...this.invalidAuthoringSourcePaths].sort();
-    if (invalidFiles.includes('*') || invalidFiles.includes('project.json'))
+    if (invalidFiles.includes('*') || invalidFiles.includes('project.yaml'))
       return { files: invalidFiles, ownerPaths: ['/'] };
 
     const selectedFiles = new Set<string>();
@@ -856,17 +871,17 @@ export class ResidentProjectWorkspaceSession {
 
     const invalidOwnerPaths = new Set<string>();
     for (const file of invalidFiles) {
-      const layout = file.match(/^records\/layouts\/([^/]+)\/layout\.(?:json|rml|rcss|lua)$/);
-      const record = file.match(/^records\/([^/]+)\/([^/]+)\.json$/);
+      const layout = file.match(/^records\/layouts\/([^/]+)\/layout\.(?:yaml|rml|rcss|lua)$/);
+      const record = file.match(/^records\/([^/]+)\/([^/]+)\.yaml$/);
       const scriptOwner = Object.entries(this.snapshotValue.scriptSourcePaths).find(
         ([, sourcePath]) => sourcePath === file,
       );
       if (layout) invalidOwnerPaths.add(`/layouts/${layout[1]}`);
       else if (record) invalidOwnerPaths.add(`/${record[1]}/${record[2]}`);
       else if (scriptOwner) invalidOwnerPaths.add(`/scripts/${scriptOwner[0]}`);
-      else if (file === 'traits.json') invalidOwnerPaths.add('/traits');
+      else if (file === 'traits.yaml') invalidOwnerPaths.add('/traits');
       else if (file === 'i18n' || file.startsWith('i18n/')) invalidOwnerPaths.add('/localization');
-      else if (file === 'editor.json') invalidOwnerPaths.add('/editor');
+      else if (file === 'editor.yaml') invalidOwnerPaths.add('/editor');
       else {
         const attributedPaths = Object.values(this.snapshotValue.saveUnitFileOwnership)
           .filter((ownership) => ownership.files.includes(file))

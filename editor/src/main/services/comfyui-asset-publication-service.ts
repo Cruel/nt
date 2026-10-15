@@ -228,7 +228,7 @@ async function planAssets(options: {
       const extension = extensionForFormat(output.format);
       const filename = `${assetId}${extension}`;
       const projectRelativePath = `assets/generated/${filename}`;
-      const recordPath = `records/assets/${assetId}.json`;
+      const recordPath = `records/assets/${assetId}.yaml`;
       if (
         (await options.fileSystem.inspect(
           options.fileSystem.joinPath(options.projectRoot, projectRelativePath),

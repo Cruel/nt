@@ -28,6 +28,19 @@ committed record deletion without its corresponding file move (or the inverse du
 headless `noveltea entity create|rename|delete` commands reuse the same workspace graph/planning and
 transaction-writer boundary; they do not maintain a second structural persistence implementation.
 
+For YAML records, forward identity remaps are reversed for persisted Undo and reapplied for Redo,
+preserving annotations across filename moves. Deleted YAML source is retained as history on the
+auto-commit plan and supplied to the same source writer on Undo/Redo recreation. Only missing
+mapping/unique-ID sequence nodes are restored from history; current source annotations win when an
+agent has changed comments since the original command. Duplication does not inherit comments.
+The shared source preflight and grouped confirmation now apply to structural auto-commit/Undo/Redo
+as well as manual Save. Cancel rolls back the pending command/history transition without committing
+source or setting a save error. Main recomputes the impact/revision token before committing; stale
+approval cannot overwrite an agent edit made while the dialog was open. Explorer record deletion
+keeps its existing confirmation dialog open for the inline grouped YAML comment review and closes
+only when persistence succeeds or the user cancels. Other deletion flows close their dialog when
+they submit a command, so they do not overlap the global comment-confirmation surface.
+
 ## Classified auto-commit mutations
 
 | Surface | Command / origin | Persistence target | Complete affected-path rule | Filesystem operation | Identity remap | Unsafe policy |

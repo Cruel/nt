@@ -1,0 +1,192 @@
+id: interaction-rules
+label: Interaction Rule Resolver
+data:
+  rules:
+    - id: resolve-character
+      verb: resolve-subject
+      slots:
+        - slotId: subject
+          selectors:
+            - kind: family
+              family: character
+      priority: 10
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: character-family
+    - id: resolve-definition
+      verb: resolve-subject
+      slots:
+        - slotId: subject
+          selectors:
+            - kind: interactable-definition
+              interactableDefinition: lab-parcel
+      priority: 20
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: definition
+    - id: resolve-trait
+      verb: resolve-subject
+      slots:
+        - slotId: subject
+          selectors:
+            - kind: trait
+              trait: lab-marker
+      priority: 30
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: trait
+    - id: resolve-feature
+      verb: resolve-subject
+      slots:
+        - slotId: subject
+          selectors:
+            - kind: interactable-feature
+              interactableDefinition: lab-parcel
+              featureId: seal
+      priority: 40
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: feature
+    - id: resolve-exact
+      verb: resolve-subject
+      slots:
+        - slotId: subject
+          selectors:
+            - kind: exact
+              subject:
+                kind: interactable
+                interactable:
+                  $ref:
+                    registry: interactableInstances
+                    id: rule-exact-target
+      priority: 50
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: exact
+    - id: guard-narrow
+      verb: guarded-probe
+      slots:
+        - slotId: target
+          selectors:
+            - kind: exact
+              subject:
+                kind: interactable
+                interactable:
+                  $ref:
+                    registry: interactableInstances
+                    id: guard-target
+      guard:
+        kind: variable-comparison
+        variable: commands-guard-narrow
+        operator: truthy
+      priority: -100
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: narrow-tier
+    - id: guard-broad
+      verb: guarded-probe
+      slots:
+        - slotId: target
+          selectors:
+            - kind: interactable-definition
+              interactableDefinition: lab-command-target
+      priority: 1000
+      program:
+        instructions:
+          - id: mark
+            kind: set-global-property
+            variable: commands-result
+            value: broad-tier
+    - id: atomic-failure
+      verb: atomic-probe
+      slots:
+        - slotId: target
+          selectors:
+            - kind: exact
+              subject:
+                kind: interactable
+                interactable:
+                  $ref:
+                    registry: interactableInstances
+                    id: atomic-target
+      priority: 100
+      program:
+        instructions:
+          - id: mark-staged
+            kind: set-global-property
+            variable: commands-atomic-marker
+            value: true
+          - id: reject-quantity
+            kind: consume-quantity
+            mode: exact
+            source:
+              kind: interaction-slot
+              slotId: target
+            quantity: 2
+    - id: observable-boundary-failure
+      verb: boundary-probe
+      slots:
+        - slotId: target
+          selectors:
+            - kind: exact
+              subject:
+                kind: interactable
+                interactable:
+                  $ref:
+                    registry: interactableInstances
+                    id: boundary-target
+      priority: 100
+      program:
+        instructions:
+          - id: before-notify
+            kind: set-global-property
+            variable: commands-boundary-marker
+            value: before-notify
+          - id: announce-boundary
+            kind: notify
+            message:
+              source:
+                kind: inline
+                text: "Boundary notification: this committed prefix must not replay."
+              markup: plain
+          - id: after-notify
+            kind: set-global-property
+            variable: commands-boundary-marker
+            value: after-notify
+          - id: call-child
+            kind: call-scene
+            scene: interaction-boundary-child
+          - id: resume-nested
+            kind: if
+            condition: always
+            then:
+              - id: nested-marker
+                kind: set-global-property
+                variable: commands-boundary-marker
+                value: nested-resumed
+              - id: nested-reject
+                kind: consume-quantity
+                mode: exact
+                source:
+                  kind: interaction-slot
+                  slotId: target
+                quantity: 2
+            else: []

@@ -51,8 +51,8 @@ field-level pending input in recovery metadata.
   whose canonical workspace projection actually changes for those exact paths, then exact-CAS checks
   those targets immediately before replacement. Physical file ownership is therefore not inferred
   only from the visual tab: for example a Room-owned `/interactableInstances/<id>` edit also targets
-  `project.json`, and the Traits collection targets `traits.json`. A disjoint external edit can
-  therefore survive even when it shares a Room record file or `editor.json` with the local save; an
+  `project.yaml`, and the Traits collection targets `traits.yaml`. A disjoint external edit can
+  therefore survive even when it shares a Room record file or `editor.yaml` with the local save; an
   overlapping path fails closed instead.
 - A successful content write returns a targeted acknowledgement, not a reopened whole-workspace
   snapshot. It contains the committed logical units, exact revisions for physical authoring files
@@ -82,6 +82,13 @@ field-level pending input in recovery metadata.
   final dirty view uses the shared Save / Don't Save / Cancel dialog for the logical save unit.
 
 The renderer exposes only scoped content Save, metadata-only persistence, and Save As copy IPC.
+For YAML owners, Save and Save All first perform a non-mutating source-aware comment preflight
+in main. Changed comments offer Save and keep, Save and remove, or Cancel; deletion offers Delete
+including comments or Cancel. The grouped dialog shows affected files, paths and prose. Cancel
+leaves the selected units dirty and never submits a write. Approval is bound to the reviewed source
+revisions and semantic operation, so agent edits during review invalidate the decision. Keep retains
+commented explicit defaults even when sparse YAML encoding would ordinarily omit them. This requires
+no per-field comment controls and does not change headless CLI deletion behavior.
 Content commits cross that boundary with selected save-unit IDs, affected logical paths, and their
 baseline/local values; recovery ownership hints are included only where needed to establish a dirty
 unit's physical baseline dependencies. The main-owned active workspace session performs final path
@@ -122,7 +129,7 @@ Every editor registered in `default-editors.tsx` has one explicit registry outco
 | `map-detail` | Savable record | `record:maps:<entityId>` | `/maps/<entityId>` plus matching record metadata |
 | `script-module-detail` | Savable record | `record:scripts:<entityId>` | `/scripts/<entityId>` plus matching record metadata |
 | `variables` | Savable collection | `collection:variables` | `/variables` plus `/editor/recordMetadata/variables` |
-| `traits` | Savable collection | `collection:traits` | `/traits`; physically projected to `traits.json` |
+| `traits` | Savable collection | `collection:traits` | `/traits`; physically projected to `traits.yaml` |
 | `components` | Non-content | `tool:components` | Documentation/reference surface only |
 | `settings` | Non-content | `tool:settings` | Editor preferences, not project content |
 | `project-settings` | Savable project unit | `project:settings` | `/project`, `/settings`, `/bootstrapModule`, `/entrypoint` |
@@ -195,7 +202,7 @@ fallback recovery ownership only for otherwise unattributed dirty paths; they ne
 overlapping recovery owner for a path already attributed by a command, workflow, pending input,
 repair, or persisted recovery entry. Discard restores both the registry-owned paths and the recovery
 entry's actual affected paths. Recovery baseline hints likewise include physical files discovered by
-projecting those affected paths, so a Room-owned Instance edit tracks `project.json` even though the
+projecting those affected paths, so a Room-owned Instance edit tracks `project.yaml` even though the
 Room's static record descriptor does not claim the entire manifest. This prevents a structural
 workflow such as New Entity or Asset Import
 from being blocked merely because its resulting editor tab is already open when asynchronous

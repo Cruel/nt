@@ -1,0 +1,24 @@
+id: interview-child
+label: interview-child
+data:
+  displayName: interview-child
+  stage:
+    kind: inherited
+  events:
+    - id: child-caption
+      label: child-caption
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: Child Scene owns Continue. Acknowledge this caption to return.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

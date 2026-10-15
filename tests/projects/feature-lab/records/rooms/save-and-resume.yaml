@@ -1,0 +1,25 @@
+id: save-and-resume
+label: save-and-resume
+data:
+  displayName: save-and-resume
+  background:
+    asset: pilot-room-backdrop
+    color: "#151827"
+  description:
+    source:
+      kind: inline
+      text: Follow the Scene captions. Reopen Feature Lab for acceptance instructions.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  lifecycle:
+    afterEnter:
+      - id: begin
+        kind: call-scene
+        scene: save-and-resume

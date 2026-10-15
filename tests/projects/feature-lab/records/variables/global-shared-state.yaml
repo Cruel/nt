@@ -1,0 +1,5 @@
+id: global-shared-state
+label: Global Shared State Key
+data:
+  type: string
+  value: global-shared

@@ -1,0 +1,31 @@
+id: inspect-ui
+label: Inspect UI target
+data:
+  slots:
+    - id: target
+      label:
+        source:
+          kind: inline
+          text: target
+        markup: plain
+      prompt:
+        source:
+          kind: inline
+          text: Choose a board target
+        markup: plain
+      selectors:
+        - kind: any-subject
+  bindingOrder:
+    - target
+  actionText:
+    source:
+      kind: inline
+      text: Inspect
+    markup: plain
+  completedCommandText:
+    source:
+      kind: inline
+      text: Inspect {target}
+    markup: plain
+  defaultProgram:
+    outcome: unhandled

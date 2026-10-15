@@ -165,7 +165,7 @@ function mp3WithId3(frames: Buffer[]): Buffer {
 function tempAudioProject(bytes: Buffer) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-audio-metadata-inspection-'));
   roots.push(root);
-  fs.writeFileSync(path.join(root, 'project.json'), '{}');
+  fs.writeFileSync(path.join(root, 'project.yaml'), '{}');
   fs.mkdirSync(path.join(root, 'assets', 'audio'), { recursive: true });
   fs.writeFileSync(path.join(root, 'assets', 'audio', 'generated.mp3'), bytes);
   const project = createAuthoringProject();
@@ -183,13 +183,13 @@ function tempAudioProject(bytes: Buffer) {
       imageMetadata: null,
     },
   };
-  return { root, project, projectFilePath: path.join(root, 'project.json') };
+  return { root, project, projectFilePath: path.join(root, 'project.yaml') };
 }
 
 function tempProject(bytes: Buffer) {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), 'noveltea-metadata-inspection-'));
   roots.push(root);
-  fs.writeFileSync(path.join(root, 'project.json'), '{}');
+  fs.writeFileSync(path.join(root, 'project.yaml'), '{}');
   fs.mkdirSync(path.join(root, 'assets', 'images'), { recursive: true });
   fs.writeFileSync(path.join(root, 'assets', 'images', 'generated.png'), bytes);
   const project = createAuthoringProject();
@@ -205,7 +205,7 @@ function tempProject(bytes: Buffer) {
       imageMetadata: { width: 1, height: 1, hasAlpha: true, orientation: 1 },
     },
   };
-  return { root, project, projectFilePath: path.join(root, 'project.json') };
+  return { root, project, projectFilePath: path.join(root, 'project.yaml') };
 }
 
 afterEach(() => {

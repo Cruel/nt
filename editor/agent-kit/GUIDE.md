@@ -16,7 +16,8 @@ Do not edit the NovelTea-managed block in the root `AGENTS.md`.
 3. Inspect nearby initialized project records. When a new top-level record is needed, prefer
    `noveltea entity create` to obtain a current canonical starting shape rather than inventing one.
 4. Use `.noveltea/agent/schemas/` only when an exhaustive machine-oriented JSON Schema view is useful.
-5. Make the complete coherent project edit, then run `noveltea validate` and relevant authored Tests.
+5. Make the complete coherent project edit, optionally run `noveltea fmt`, then run the read-only
+   `noveltea validate` semantic check and relevant authored Tests.
 
 Do not guess behavior from field names or JSON shape when the generated reference contains semantic
 or lifecycle notes. Do not treat old examples from memory as more authoritative than the installed
@@ -40,7 +41,7 @@ not a second Rooms/Characters/Interactions manual.
 
 ## Editing discipline
 
-NovelTea projects are file-first. Edit tracked JSON, Lua, RML, and RCSS directly for ordinary field
+NovelTea projects are file-first. Edit tracked YAML, Lua, RML, and RCSS directly for ordinary field
 changes. Use semantic CLI commands when an operation needs project-wide knowledge, canonical
 initialization, transactional mutation, external tooling, or execution. `noveltea --help` is the
 authoritative installed command list.

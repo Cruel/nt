@@ -1,0 +1,5 @@
+id: director-color
+label: director-color
+data:
+  type: string
+  value: unselected

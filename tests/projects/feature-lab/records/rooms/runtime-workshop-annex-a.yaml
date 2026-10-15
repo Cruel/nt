@@ -1,0 +1,28 @@
+id: runtime-workshop-annex-a
+label: Runtime Workshop Annex A
+archetype: null
+archetypeOverrides: {}
+traits: []
+localProperties: []
+data:
+  displayName: Annex A
+  background:
+    color: "#202a33"
+  description:
+    source:
+      kind: inline
+      text: The annex door originally points here.
+    markup: plain
+  presentationSpace:
+    size:
+      width: 1920
+      height: 1080
+    defaultView:
+      center:
+        x: 960
+        "y": 540
+  exits:
+    - id: return-workshop
+      label: Return to workshop
+      direction: west
+      target: runtime-workshop

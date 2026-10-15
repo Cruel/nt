@@ -1,0 +1,23 @@
+data:
+  contract: {}
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  displayName: scale-ignore
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  scalePolicy:
+    text: ignore
+    ui: ignore
+  script:
+    enabled: true
+    namespace: scale_ignore
+id: scale-ignore
+label: scale-ignore

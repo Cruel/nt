@@ -1,0 +1,20 @@
+data:
+  contract: {}
+  dependencies:
+    data:
+      - notice-board-data
+    fonts:
+      - dejavusans
+    images:
+      - ui-pattern
+    scripts: []
+  layoutKind: fragment
+  lua:
+    sourceMode: file
+  rcss:
+    sourceAsset: counter-shared-style
+    sourceMode: asset
+  rml:
+    sourceMode: file
+id: counter-fragment
+label: Counter resource fragment

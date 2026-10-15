@@ -1,0 +1,21 @@
+data:
+  contract: {}
+  dependencies:
+    data: []
+    fonts: []
+    images: []
+    scripts: []
+    stylesheets: []
+  displayName: trigger-child
+  lua:
+    sourceMode: file
+  rcss:
+    sourceMode: file
+  rml:
+    sourceMode: file
+  script:
+    enabled: true
+    namespace: trigger_child
+  target: menu-ui
+id: trigger-child
+label: trigger-child

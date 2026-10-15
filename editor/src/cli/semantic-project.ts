@@ -146,7 +146,7 @@ function preparedLocalizationCoverageLocales(
       )
     : [];
   const messageOnlyChange =
-    changed.length === 1 && changed[0] === 'i18n/messages.json' && sourceWork.readTextSources === 0;
+    changed.length === 1 && changed[0] === 'i18n/messages.yaml' && sourceWork.readTextSources === 0;
   const incremental =
     cached && messageOnlyChange
       ? updateFontCoverageForMessageEdits(cached.snapshot.project, snapshot.project, cached.locales)
@@ -860,38 +860,52 @@ export async function renameEntity(
     patches.map((patch) => patch.path),
     patches.map((patch) => patch.path),
   );
-  if (!options.dryRun) {
-    await workspace.write(
-      snapshot.projectRoot,
-      snapshot.workspaceRevision,
-      candidate,
-      candidate.editor,
-      sourcePaths,
-      {
-        operationLabel: `cli entity rename ${collection}/${fromId} -> ${toId}`,
-        affectedPaths: patches.map((patch) => patch.path),
-      },
-    );
-  }
+  const written = await workspace.write(
+    snapshot.projectRoot,
+    snapshot.workspaceRevision,
+    candidate,
+    candidate.editor,
+    sourcePaths,
+    {
+      dryRun: options.dryRun,
+      preflightSnapshot: snapshot,
+      operationLabel: `cli entity rename ${collection}/${fromId} -> ${toId}`,
+      identityRemap: [{ fromPath: `/${collection}/${fromId}`, toPath: `/${collection}/${toId}` }],
+      affectedPaths: patches.map((patch) => patch.path),
+    },
+  );
   return {
     ok: true,
-    diagnostics: possible.map((usage) =>
-      cliDiagnostic(
-        'authoring.source_reference.possible',
-        usage.edge.sourcePath,
-        'Possible source reference was acknowledged and requires manual review.',
-        'warning',
-        {
-          sourceUrl: usage.sourceUrl,
-          line: usage.sourceLocation?.line,
-          column: usage.sourceLocation?.column,
-        },
+    diagnostics: [
+      ...possible.map((usage) =>
+        cliDiagnostic(
+          'authoring.source_reference.possible',
+          usage.edge.sourcePath,
+          'Possible source reference was acknowledged and requires manual review.',
+          'warning',
+          {
+            sourceUrl: usage.sourceUrl,
+            line: usage.sourceLocation?.line,
+            column: usage.sourceLocation?.column,
+          },
+        ),
       ),
-    ),
+      ...written.commentNotices.map((notice) =>
+        cliDiagnostic(
+          'authoring.source_comment.stale_id',
+          notice.path,
+          `YAML comment still mentions renamed ID '${notice.oldId}'; review the prose manually.`,
+          'info',
+          { sourceUrl: `project:/${notice.file}` },
+        ),
+      ),
+    ],
     fields: {
       collection,
       fromId,
       toId,
+      commentImpacts: written.commentImpacts,
+      commentNotices: written.commentNotices,
       dryRun: options.dryRun,
       plan,
       usages: usages.map(sourceUsageFields),
@@ -1000,19 +1014,19 @@ export async function deleteEntity(
     repair.plan.preview.map((item) => `${item.sourcePath}: ${item.action}`),
     repair.plan.patches.map((patch) => patch.path),
   );
-  if (!options.dryRun) {
-    await workspace.write(
-      snapshot.projectRoot,
-      snapshot.workspaceRevision,
-      candidate,
-      candidate.editor,
-      snapshot.scriptSourcePaths,
-      {
-        operationLabel: `cli entity delete ${collection}/${id}`,
-        affectedPaths: repair.plan.patches.map((patch) => patch.path),
-      },
-    );
-  }
+  const written = await workspace.write(
+    snapshot.projectRoot,
+    snapshot.workspaceRevision,
+    candidate,
+    candidate.editor,
+    snapshot.scriptSourcePaths,
+    {
+      dryRun: options.dryRun,
+      preflightSnapshot: snapshot,
+      operationLabel: `cli entity delete ${collection}/${id}`,
+      affectedPaths: repair.plan.patches.map((patch) => patch.path),
+    },
+  );
   return {
     ok: true,
     diagnostics: [
@@ -1036,6 +1050,7 @@ export async function deleteEntity(
     fields: {
       collection,
       id,
+      commentImpacts: written.commentImpacts,
       dryRun: options.dryRun,
       force: options.force,
       plan,

@@ -1,3 +1,4 @@
+import { parse as parseYaml } from 'yaml';
 import {
   mkdtemp,
   mkdir,
@@ -77,7 +78,7 @@ function tools(): NovelTeaCliNativeToolService {
 
 async function inventory(fileSystem: NodeProjectWorkspaceFileSystem, root: string) {
   const captured = await captureProjectSourceInventory(fileSystem, root, {
-    authoritativePaths: ['project.json', 'editor.json', 'traits.json'],
+    authoritativePaths: ['project.yaml', 'editor.yaml', 'traits.yaml'],
     discoveryScopes: AUTHORING_VALIDATION_DISCOVERY_SCOPES,
   });
   return {
@@ -100,7 +101,7 @@ const exactResult = {
       severity: 'info' as const,
       path: '/project',
       message: 'Exact result.',
-      sourceUrl: 'project:/project.json',
+      sourceUrl: 'project:/project.yaml',
       line: 1,
       column: 1,
     },
@@ -151,11 +152,31 @@ describe('narrow exact validation cache', () => {
     await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
   });
 
+  it('accepts native-sorted discovery scopes but rejects changed discovery membership', async () => {
+    const root = await fixture();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    await publishAuthoringCache(fileSystem, root, await inventory(fileSystem, root), exactResult);
+    const currentPath = path.join(root, '.noveltea/cache/authoring/current.json');
+    const manifest = JSON.parse(await readFile(currentPath, 'utf8'));
+    // ProjectAuthorityManager canonicalizes scope members and the top-level scope order.
+    manifest.discoveryScopes.reverse();
+    for (const scope of manifest.discoveryScopes) {
+      scope.extensions.sort();
+      scope.excludedPrefixes.sort();
+    }
+    await writeFile(currentPath, `${JSON.stringify(manifest)}\n`);
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
+
+    manifest.discoveryScopes[0].extensions.push('.unexpected');
+    await writeFile(currentPath, `${JSON.stringify(manifest)}\n`);
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
+  });
+
   it('rejects physical replacement even when byte size and nanosecond mtime are restored', async () => {
     const root = await fixture();
     const fileSystem = new NodeProjectWorkspaceFileSystem();
     await publishAuthoringCache(fileSystem, root, await inventory(fileSystem, root), exactResult);
-    const roomPath = path.join(root, 'records/rooms/start.json');
+    const roomPath = path.join(root, 'records/rooms/start.yaml');
     const before = await stat(roomPath, { bigint: true });
     const original = await readFile(roomPath);
     const replacement = `${roomPath}.replacement`;
@@ -178,8 +199,8 @@ describe('narrow exact validation cache', () => {
     await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
 
     await publishAuthoringCache(fileSystem, root, await inventory(fileSystem, root), exactResult);
-    const roomPath = path.join(root, 'records/rooms/start.json');
-    const room = JSON.parse(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
+    const roomPath = path.join(root, 'records/rooms/start.yaml');
+    const room = parseYaml(await readFile(roomPath, 'utf8')) as Record<string, unknown>;
     room.label = 'Changed';
     await writeFile(roomPath, `${JSON.stringify(room)}\n`);
     await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
@@ -225,7 +246,7 @@ describe('narrow exact validation cache', () => {
     const opened = await new ProjectWorkspaceService(fileSystem).open(root);
     expect(opened.ok).toBe(true);
     if (!opened.ok) throw new Error('Fixture failed to open');
-    await writeFile(path.join(root, 'records/rooms/added.json'), '{malformed');
+    await writeFile(path.join(root, 'records/rooms/added.yaml'), '{malformed');
 
     await expect(
       captureAuthoringValidationAuthorityInputs(fileSystem, opened.snapshot),
@@ -261,7 +282,7 @@ describe('narrow exact validation cache', () => {
     const inputs = await captureAuthoringValidationAuthorityInputs(fileSystem, opened.snapshot);
     expect(inputs).not.toBeNull();
     if (!inputs) throw new Error('Fixture authority unavailable');
-    await writeFile(path.join(root, 'records/rooms/added.json'), '{malformed');
+    await writeFile(path.join(root, 'records/rooms/added.yaml'), '{malformed');
 
     await publishAuthoringCache(fileSystem, root, inputs, exactResult);
 
@@ -275,7 +296,7 @@ describe('narrow exact validation cache', () => {
     const root = await fixture();
     const fileSystem = new NodeProjectWorkspaceFileSystem();
     const inputs = await inventory(fileSystem, root);
-    const roomPath = path.join(root, 'records/rooms/start.json');
+    const roomPath = path.join(root, 'records/rooms/start.yaml');
     const replacement = `${roomPath}.replacement`;
     await writeFile(replacement, await readFile(roomPath));
     await rename(replacement, roomPath);
@@ -283,7 +304,7 @@ describe('narrow exact validation cache', () => {
     // Keep all other metadata equal so this specifically protects the captured file identity.
     const matchingTimes = {
       entries: inputs.entries.map((entry) =>
-        entry.path === 'records/rooms/start.json'
+        entry.path === 'records/rooms/start.yaml'
           ? { ...entry, mtimeNanoseconds: replacementMetadata.mtimeNanoseconds! }
           : entry,
       ),

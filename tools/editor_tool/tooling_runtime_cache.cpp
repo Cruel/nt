@@ -278,15 +278,47 @@ bool discovery_contract_matches(const Json& scopes)
 {
     const Json expected =
         Json::array({{{"root", "records"},
-                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                      {"extensions", Json::array({".yaml", ".json", ".lua", ".rcss", ".rml"})},
                       {"excludedPrefixes", Json::array({"records/tests/"})}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "i18n"},
-                      {"extensions", Json::array({".json"})},
+                      {"extensions", Json::array({".yaml", ".json"})},
                       {"excludedPrefixes", Json::array()}}});
     return scopes == expected;
+}
+
+// Cache manifests can be written by the JS workspace (declaration order) or by the
+// native authority manager (sorted order). Scope and extension order has no meaning;
+// membership does. Keep the exact shape and multiplicity so malformed or expanded
+// discovery contracts still invalidate the cached validation result.
+std::optional<Json> canonical_discovery_scopes(const Json& scopes)
+{
+    if (!scopes.is_array())
+        return std::nullopt;
+    Json canonical = Json::array();
+    for (const auto& scope : scopes) {
+        if (!scope.is_object() || scope.size() != 3 || !scope.contains("root") ||
+            !scope["root"].is_string() || !scope.contains("extensions") ||
+            !scope["extensions"].is_array() || !scope.contains("excludedPrefixes") ||
+            !scope["excludedPrefixes"].is_array())
+            return std::nullopt;
+        Json normalized = scope;
+        for (const auto* key : {"extensions", "excludedPrefixes"}) {
+            auto& values = normalized[key];
+            if (!std::all_of(values.begin(), values.end(),
+                             [](const Json& value) { return value.is_string(); }))
+                return std::nullopt;
+            std::sort(values.begin(), values.end());
+        }
+        canonical.push_back(std::move(normalized));
+    }
+    std::sort(canonical.begin(), canonical.end(), [](const Json& left, const Json& right) {
+        return left["root"].get_ref<const std::string&>() <
+               right["root"].get_ref<const std::string&>();
+    });
+    return canonical;
 }
 
 bool discovery_matches(const std::filesystem::path& root, const Json& scopes,
@@ -406,7 +438,8 @@ std::optional<std::set<std::string>> test_files(const std::filesystem::path& roo
         const auto status = iterator->symlink_status(error);
         if (error || std::filesystem::is_symlink(status))
             return std::nullopt;
-        if (std::filesystem::is_regular_file(status) && iterator->path().extension() == ".json") {
+        if (std::filesystem::is_regular_file(status) &&
+            (iterator->path().extension() == ".yaml" || iterator->path().extension() == ".json")) {
             const auto relative = std::filesystem::relative(iterator->path(), root, error);
             if (error)
                 return std::nullopt;
@@ -433,7 +466,7 @@ Json probe(const Json& request)
     if (error || !std::filesystem::is_directory(root_status) ||
         std::filesystem::is_symlink(root_status))
         return response("unusable", "project-root-unusable");
-    const auto project_status = std::filesystem::symlink_status(root / "project.json", error);
+    const auto project_status = std::filesystem::symlink_status(root / "project.yaml", error);
     if (error || !std::filesystem::is_regular_file(project_status) ||
         std::filesystem::is_symlink(project_status))
         return response("unusable", "project-manifest-unavailable");
@@ -517,7 +550,7 @@ Json probe(const Json& request)
             return response("stale", "input-metadata-changed");
         input_paths.insert(input["path"].get<std::string>());
     }
-    if (!input_paths.contains("project.json"))
+    if (!input_paths.contains("project.yaml"))
         return response("unusable", "manifest-invalid");
     if (!discovery_matches(root, manifest["discoveryScopes"], input_paths))
         return response("stale", "discovery-inputs-changed");
@@ -731,12 +764,13 @@ Json probe_authoring(const Json& request)
     if (!validation_result_shape_valid(manifest["result"]))
         return response("unusable", "cache-result-contract-changed");
 
+    // Both the JS workspace and the native authority manager publish this contract.
     const Json scopes =
         Json::array({{{"root", "i18n"},
-                      {"extensions", Json::array({".json"})},
+                      {"extensions", Json::array({".json", ".yaml"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "records"},
-                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml"})},
+                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml", ".yaml"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},
@@ -744,7 +778,8 @@ Json probe_authoring(const Json& request)
                      {{"root", "shaders"},
                       {"extensions", Json::array({".sc"})},
                       {"excludedPrefixes", Json::array()}}});
-    if (manifest["discoveryScopes"] != scopes)
+    if (canonical_discovery_scopes(manifest["discoveryScopes"]) !=
+        canonical_discovery_scopes(scopes))
         return response("stale", "discovery-contract-changed");
     std::set<std::string> inputs;
     Json current_inputs = Json::array();
@@ -770,8 +805,8 @@ Json probe_authoring(const Json& request)
         current_inputs.push_back(*current);
         metadata_changed = metadata_changed || *current != input;
     }
-    if (!inputs.contains("project.json") || !inputs.contains("editor.json") ||
-        !inputs.contains("traits.json"))
+    if (!inputs.contains("project.yaml") || !inputs.contains("editor.yaml") ||
+        !inputs.contains("traits.yaml"))
         return response("unusable", "manifest-inputs-invalid");
     if (!discovery_matches(root, scopes, inputs) || !authoring_workspace_settled(root))
         return response("stale", "discovery-inputs-changed");

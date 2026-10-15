@@ -11,6 +11,7 @@ import type { NovelTeaCliPlatformToolService } from '../src/cli/platform-tool-se
 import { NOVELTEA_AUTHORING_VALIDATION_SEMANTIC_KEY } from '../src/cli/static-contracts';
 import type { ProjectWorkspaceFileSystem } from '../src/shared/project-workspace/project-workspace-file-system';
 import {
+  scopedResidentObservationConfiguration,
   scopedAuthorityRelevantDeltaPaths,
   scopedAuthoritySignature,
   type ScopedReadAuthorityToken,
@@ -185,19 +186,7 @@ function scopedResidentReadAuthority(
       projectRoot: canonicalRoot,
       ...(configure
         ? {
-            authoritativePaths: ['project.json', 'editor.json', 'traits.json'],
-            discoveryScopes: [
-              { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
-              {
-                root: 'records',
-                extensions: ['.json', '.lua', '.rcss', '.rml'],
-                excludedPrefixes: [],
-              },
-              { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
-              ...(assetsRequired
-                ? [{ root: 'assets', extensions: ['*'], excludedPrefixes: [] }]
-                : []),
-            ],
+            ...scopedResidentObservationConfiguration(assetsRequired),
           }
         : {}),
       includeManifestEntries: true,

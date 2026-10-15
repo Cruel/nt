@@ -1,0 +1,37 @@
+id: hotspot-popup
+label: hotspot-popup
+data:
+  displayName: hotspot-popup
+  stage:
+    kind: inherited
+  events:
+    - id: popup
+      label: popup
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: set-layout
+      owner: invocation
+      layout: trigger-panel
+      action: show
+      slot: custom
+      transition: none
+      durationMs: 0
+    - id: inspect
+      label: inspect
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: This ordinary Scene SetLayout has no Trigger snapshot and uses its measured viewport fallback. Compare it with the explicitly trigger-anchored Inventory opened by a world board. Parent dismissal still removes child Layouts / Inventory. Continue to finish this Scene.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: return
+    outcome: null

@@ -1,0 +1,41 @@
+id: background-fault-demo
+label: background-fault-demo
+data:
+  displayName: background-fault-demo
+  stage:
+    kind: inherited
+  events:
+    - id: launch-broken
+      label: launch-broken
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: start-detached-scene
+      scene: background-broken-clock
+      owner: runtime-session
+    - id: launch-good
+      label: launch-good
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: start-detached-scene
+      scene: background-clock-a
+      owner: runtime-session
+    - id: foreground
+      label: foreground
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: One background clock fails deliberately. This foreground caption remains usable and the good clock still delivers. Inspect the runtime diagnostic, then Continue.
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: release-to-exploration

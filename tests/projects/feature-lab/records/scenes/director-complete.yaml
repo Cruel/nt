@@ -1,0 +1,23 @@
+id: director-complete
+label: director-complete
+data:
+  displayName: director-complete
+  stage:
+    kind: inherited
+  events:
+    - id: credits
+      label: credits
+      timeline:
+        trackId: main
+        startMs: 0
+        durationMs: 0
+      type: show-text
+      text:
+        source:
+          kind: inline
+          text: "Credits: Continue explicitly completes this playthrough and returns to the title screen."
+        markup: plain
+      speaker: null
+      wait: input
+  terminal:
+    kind: complete-game

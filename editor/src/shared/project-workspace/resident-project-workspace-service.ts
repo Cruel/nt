@@ -81,8 +81,14 @@ export interface ResidentProjectAuthority {
 }
 
 const residentDiscoveryScopes: readonly ProjectSourceDiscoveryScope[] = Object.freeze([
-  { root: 'i18n', extensions: ['.json'], excludedPrefixes: [] },
-  { root: 'records', extensions: ['.json', '.lua', '.rcss', '.rml'], excludedPrefixes: [] },
+  // Observe retired JSON paths so adding one invalidates a resident generation.
+  // Discovery is not admission: the workspace reader rejects these files.
+  { root: 'i18n', extensions: ['.yaml', '.json'], excludedPrefixes: [] },
+  {
+    root: 'records',
+    extensions: ['.yaml', '.json', '.lua', '.rcss', '.rml'],
+    excludedPrefixes: [],
+  },
   { root: 'scripts', extensions: ['.lua'], excludedPrefixes: [] },
   { root: 'shaders', extensions: ['.sc'], excludedPrefixes: [] },
 ]);
@@ -99,12 +105,12 @@ function certificationDelay(name: string): void {
 
 function isResidentSemanticSourcePath(path: string): boolean {
   return (
-    path === 'project.json' ||
-    path === 'editor.json' ||
-    path === 'traits.json' ||
-    /^records\/[^/]+\/.+\.(?:json|lua|rml|rcss)$/u.test(path) ||
+    path === 'project.yaml' ||
+    path === 'editor.yaml' ||
+    path === 'traits.yaml' ||
+    /^records\/[^/]+\/.+\.(?:json|yaml|lua|rml|rcss)$/u.test(path) ||
     /^scripts\/.+\.lua$/u.test(path) ||
-    /^i18n\/.+\.json$/u.test(path)
+    /^i18n\/.+\.(?:json|yaml)$/u.test(path)
   );
 }
 
@@ -136,7 +142,7 @@ function assetAuthorityPathsAfterChanges(
 ): readonly string[] {
   if (structural) return Object.freeze(assetSourcePaths(after));
   for (const path of changedSources) {
-    const match = /^records\/assets\/([^/]+)\.json$/u.exec(path);
+    const match = /^records\/assets\/([^/]+)\.yaml$/u.exec(path);
     if (!match) continue;
     const id = match[1]!;
     if (assetRecordSourcePath(before, id) !== assetRecordSourcePath(after, id))
@@ -169,9 +175,9 @@ async function captureResidentInventory(
       // Record, script, and localization source membership is discovered so additions/deletions
       // remain representable as structural generation changes instead of failing inventory capture.
       authoritativePaths: [
-        'project.json',
-        'editor.json',
-        'traits.json',
+        'project.yaml',
+        'editor.yaml',
+        'traits.yaml',
         ...assetSourcePaths(snapshot.project),
       ],
       discoveryScopes: residentDiscoveryScopes,
@@ -463,7 +469,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       };
     return {
       projectRoot: canonicalRoot,
-      authoritativePaths: ['project.json', 'editor.json', 'traits.json', ...nativeAssetSourcePaths],
+      authoritativePaths: ['project.yaml', 'editor.yaml', 'traits.yaml', ...nativeAssetSourcePaths],
       discoveryScopes: residentDiscoveryScopes,
       ...(includeManifestEntries ? { includeManifestEntries: true } : {}),
     };
@@ -535,7 +541,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     const snapshot = Object.freeze({
       ...opened.snapshot,
       projectRoot: logicalRoot,
-      manifestPath: this.residentFileSystem.joinPath(logicalRoot, 'project.json'),
+      manifestPath: this.residentFileSystem.joinPath(logicalRoot, 'project.yaml'),
     }) as LoadedProjectWorkspaceSnapshot;
     this.snapshotBindings.set(snapshot, {
       entry,
@@ -1273,7 +1279,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
     const logicalRoot = this.residentFileSystem.resolvePath(projectRoot);
     const canonicalRoot = await this.canonicalProjectRoot(logicalRoot);
     const entry = canonicalRoot ? this.sessions.get(canonicalRoot) : undefined;
-    if (!entry)
+    if (!entry || options.dryRun)
       return super.write(
         projectRoot,
         expectedRevision,
@@ -1668,7 +1674,7 @@ export class ResidentProjectWorkspaceService extends ProjectWorkspaceService {
       portable.snapshot?.snapshotKind !== 'loaded' ||
       portable.snapshot.projectRoot !== canonicalRoot ||
       portable.snapshot.manifestPath !==
-        this.residentFileSystem.joinPath(canonicalRoot, 'project.json') ||
+        this.residentFileSystem.joinPath(canonicalRoot, 'project.yaml') ||
       !Number.isSafeInteger(portable.identity?.sessionEpoch) ||
       portable.identity.sessionEpoch <= 0 ||
       !Number.isSafeInteger(portable.identity?.generation) ||

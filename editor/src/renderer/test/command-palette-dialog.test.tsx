@@ -37,7 +37,7 @@ describe('CommandPaletteDialog', () => {
     useProjectStore.getState().loadProjectDocument({
       document: project,
       projectPath: '/mock',
-      projectFilePath: '/mock/project.json',
+      projectFilePath: '/mock/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
 

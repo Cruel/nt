@@ -1,0 +1,119 @@
+id: dialogue-presentation-pilot
+label: Dialogue & Presentation Pilot
+data:
+  displayName: Dialogue & Presentation Pilot
+  defaultSpeaker: pilot-guide
+  stageSlots:
+    - id: guide
+      label: Guide
+      initial:
+        character: pilot-guide
+        profileId: stage
+        poseId: standing
+        expressionId: neutral
+        appearanceId: null
+        position: center
+        offset:
+          x: 0
+          "y": 0
+        scale: 1
+        visible: true
+  entryBlockId: intro
+  blocks:
+    - id: intro
+      type: sequence
+      label: Introduction
+      defaultSpeaker: pilot-guide
+      segments:
+        - id: ready-line
+          type: line
+          speaker: pilot-guide
+          text:
+            source:
+              kind: inline
+              text: Ready when you are. Continue to begin the presentation checks.
+            markup: plain
+        - id: presentation-line
+          type: line
+          speaker: pilot-guide
+          text:
+            source:
+              kind: inline
+              text: You did it. Watch closely while I change expression. Keep watching until the attention cue sounds and the brief flash appears. Then continue to the choice.
+            markup: plain
+          cues:
+            - id: dialogue-voice
+              kind: voice
+              position:
+                offset: 0
+                order: 0
+              asset: pilot-voice-audio
+              pausePolicy: owner
+              gain: 0.5
+              pan: 0
+              skipBehavior: stop
+            - id: smile-expression
+              kind: speaker-expression
+              position:
+                offset: 38
+                order: 0
+              expressionId: smile
+            - id: attention-sfx
+              kind: sound-effect
+              position:
+                offset: 92
+                order: 0
+              asset: pilot-cue-audio
+              pausePolicy: owner
+              gain: 0.7
+              pan: 0
+              causality: causal
+              synchronized: false
+              skipBehavior: play
+            - id: attention-flash
+              kind: camera
+              position:
+                offset: 92
+                order: 1
+              emphasis:
+                kind: flash
+                color: "#fff2c2"
+                opacity: 0.35
+                durationMs: 120
+                skippable: true
+                waitForCompletion: false
+    - id: decision
+      type: choice
+      label: Decision
+    - id: accepted
+      type: sequence
+      label: Accepted
+      defaultSpeaker: pilot-guide
+      segments:
+        - id: accepted-line
+          type: line
+          speaker: pilot-guide
+          text:
+            source:
+              kind: inline
+              text: Signal accepted.
+            markup: plain
+  edges:
+    - id: intro-to-decision
+      kind: next
+      fromBlockId: intro
+      toBlockId: decision
+    - id: accept-signal
+      kind: choice
+      fromBlockId: decision
+      toBlockId: accepted
+      label:
+        source:
+          kind: inline
+          text: Accept the signal
+        markup: plain
+      effects:
+        - id: record-acceptance
+          kind: set-global-property
+          variable: presentation-accepted
+          value: true

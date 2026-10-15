@@ -103,7 +103,7 @@ describe('SearchSelectorDialog', () => {
     useProjectStore.getState().loadProjectDocument({
       document: { project: { schema: 'noveltea.authoring.project', version: 2 } },
       projectPath: '/mock/project',
-      projectFilePath: '/mock/project/project.json',
+      projectFilePath: '/mock/project/project.yaml',
       projectSessionId: '11111111-1111-4111-8111-111111111111',
     });
     const imageItems: SelectorItem[] = [
