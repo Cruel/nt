@@ -33,9 +33,11 @@ std::string read_bytes(const std::filesystem::path& path)
     return result;
 }
 
+} // namespace
+
 // Use the same sha256:<hex> source identity as the existing Project Workspace.
 // Save also checks original bytes exactly to eliminate reliance on the digest alone.
-std::string source_revision(std::string_view source)
+std::string exact_source_revision(std::string_view source)
 {
     static constexpr std::array<std::uint32_t, 64> constants{
         0x428a2f98, 0x71374491, 0xb5c0fbcf, 0xe9b5dba5, 0x3956c25b, 0x59f111f1, 0x923f82a4,
@@ -108,6 +110,8 @@ std::string source_revision(std::string_view source)
         out << std::setw(8) << word;
     return out.str();
 }
+
+namespace {
 
 std::string parse_pointer_token(std::string_view token)
 {
@@ -448,7 +452,7 @@ std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, co
 RoomSession::RoomSession(std::filesystem::path path, std::string room_id, std::string source,
                          std::string source_json)
     : path_(std::move(path)), room_id_(std::move(room_id)), disk_source_(std::move(source)),
-      disk_revision_(source_revision(disk_source_)), disk_json_(source_json),
+      disk_revision_(exact_source_revision(disk_source_)), disk_json_(source_json),
       working_json_(std::move(source_json))
 {
 }
@@ -514,8 +518,18 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
                                                      std::string& error)
 {
     auto source = RoomSession::open_project_source(root, error);
-    return source ? std::unique_ptr<ProjectSession>(new ProjectSession(std::move(source)))
-                  : nullptr;
+    if (!source)
+        return nullptr;
+    try {
+        auto authority = std::make_unique<SourceAuthority>(root);
+        if (!authority->initialize(error))
+            return nullptr;
+        return std::unique_ptr<ProjectSession>(
+            new ProjectSession(std::move(source), std::move(authority)));
+    } catch (const std::exception& e) {
+        error = e.what();
+        return nullptr;
+    }
 }
 
 RoomSessionSnapshot RoomSession::snapshot() const
@@ -625,7 +639,7 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision)
             throw;
         }
         disk_source_ = edited.source;
-        disk_revision_ = source_revision(disk_source_);
+        disk_revision_ = exact_source_revision(disk_source_);
         disk_json_ = edited.source_json;
         unsaved_patches_.clear();
         return result(true, {}, true);

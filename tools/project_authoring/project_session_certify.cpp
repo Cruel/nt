@@ -10,6 +10,7 @@
 #include <iterator>
 #include <stdexcept>
 #include <string>
+#include <algorithm>
 
 namespace {
 using namespace noveltea::authoring;
@@ -156,6 +157,135 @@ Json roundtrip(const std::filesystem::path& fixture, bool verify)
             "Reopening returns identical normalized manifest");
 
     if (verify) {
+        const auto contains = [](const std::vector<std::string>& paths, std::string_view path) {
+            return std::find(paths.begin(), paths.end(), path) != paths.end();
+        };
+        const auto first_observation = project->observe_sources();
+        require(first_observation.authoritative && first_observation.unchanged,
+                "Project session starts with an exact physical source baseline");
+        auto other_session = ProjectSession::open(temp.root, error);
+        require(other_session && other_session->observe_sources().unchanged,
+                "Separate consumers own independent physical source authority");
+
+        const auto observed_room = temp.root / "records/rooms/room-lifecycle-roundtrip.yaml";
+        auto changed_room = room_before;
+        const auto id_offset = changed_room.find("room-lifecycle-roundtrip");
+        require(id_offset != std::string::npos, "Room fixture has identity to modify");
+        changed_room[id_offset + std::strlen("room-lifecycle-roundtri")] = 'q';
+        const auto original_time = std::filesystem::last_write_time(observed_room);
+        write(observed_room, changed_room);
+        std::filesystem::last_write_time(observed_room, original_time);
+        project->source_watch_hint("records/rooms/room-lifecycle-roundtrip.yaml");
+        const auto changed_source = project->observe_sources();
+        require(
+            changed_source.authoritative &&
+                contains(changed_source.delta.changed,
+                         "records/rooms/room-lifecycle-roundtrip.yaml") &&
+                contains(changed_source.watch_paths, "records/rooms/room-lifecycle-roundtrip.yaml"),
+            "Equal-size equal-mtime physical edit is proven from exact bytes");
+        require(contains(other_session->observe_sources().delta.changed,
+                         "records/rooms/room-lifecycle-roundtrip.yaml"),
+                "Independent watcher does not share or consume other session's deltas");
+        write(observed_room, room_before);
+        require(contains(project->observe_sources().delta.changed,
+                         "records/rooms/room-lifecycle-roundtrip.yaml"),
+                "Restoring prior bytes is still a new physical revision observation");
+
+        const auto added_room = temp.root / "records/rooms/watch-created.yaml";
+        write(added_room, "id: watch-created\n");
+        require(
+            contains(project->observe_sources().delta.added, "records/rooms/watch-created.yaml"),
+            "Missed create notification still discovered in tracked source directory");
+        std::filesystem::remove(added_room);
+        require(
+            contains(project->observe_sources().delta.removed, "records/rooms/watch-created.yaml"),
+            "Tracked removal is reported explicitly");
+
+        const auto missing_file = temp.root / "traits.yaml";
+        const auto traits_source = read(missing_file);
+        std::filesystem::remove(missing_file);
+        require(contains(project->observe_sources().delta.removed, "traits.yaml"),
+                "Missing fixed tracked source is a proven removal, not a stale snapshot");
+        write(missing_file, traits_source);
+        require(contains(project->observe_sources().delta.added, "traits.yaml"),
+                "Restored fixed source is rediscovered");
+
+        const auto asset_record = temp.root / "records/assets/watch-asset.yaml";
+        const auto asset_source = temp.root / "external/custom.bin";
+        std::filesystem::create_directories(asset_source.parent_path());
+        write(asset_source, std::string_view("\0asset", 6));
+        write(asset_source.parent_path() / "unrelated.bin", "unrelated\n");
+        write(asset_record, "id: watch-asset\ndata:\n  source:\n    path: external/custom.bin\n");
+        auto asset_added = project->observe_sources();
+        require(asset_added.authoritative &&
+                    contains(asset_added.delta.added, "records/assets/watch-asset.yaml") &&
+                    contains(asset_added.delta.added, "external/custom.bin"),
+                "Asset reference discovers binary outside the assets directory without root sweep");
+        write(asset_source.parent_path() / "unrelated.bin", "elsewhere\n");
+        require(project->observe_sources().unchanged,
+                "Unrelated binary/root file does not enter source authority");
+        write(asset_source, "new asset bytes");
+        require(contains(project->observe_sources().delta.changed, "external/custom.bin"),
+                "Changed referenced binary is verified by exact-byte revision");
+        std::filesystem::remove(asset_source);
+        require(contains(project->observe_sources().delta.removed, "external/custom.bin"),
+                "Missing referenced Asset source is not considered unchanged");
+        write(asset_record, "id: watch-asset\ndata:\n  source:\n    path: external/new.bin\n");
+        write(asset_source.parent_path() / "new.bin", "new\n");
+        auto rerouted = project->observe_sources();
+        require(rerouted.authoritative && contains(rerouted.delta.added, "external/new.bin") &&
+                    !contains(rerouted.delta.added, "external/custom.bin"),
+                "Changing an Asset reference rebuilds dynamic source membership");
+        write(asset_record, "id: [\n");
+        auto unprovable = project->observe_sources();
+        require(!unprovable.authoritative && !unprovable.unchanged && unprovable.full_rescan &&
+                    !unprovable.error.empty(),
+                "Invalid external Asset source cannot silently certify a stale snapshot");
+        std::filesystem::remove(asset_record);
+        auto recovered = project->observe_sources();
+        require(recovered.authoritative && recovered.full_rescan &&
+                    contains(recovered.delta.removed, "records/assets/watch-asset.yaml"),
+                "Invalid source repair performs conservative authoritative recovery");
+        std::filesystem::remove_all(asset_source.parent_path());
+        require(project->observe_sources().unchanged,
+                "Removed unreferenced binary subtree is ignored");
+
+        const auto watched_directory = temp.root / "scripts/watch-directory";
+        std::filesystem::create_directory(watched_directory);
+        write(watched_directory / "before.lua", "return 1\n");
+        require(
+            contains(project->observe_sources().delta.added, "scripts/watch-directory/before.lua"),
+            "New source subdirectory is discovered without a root scan");
+        std::filesystem::rename(watched_directory, temp.root / "notes/moved-watch-directory");
+        std::filesystem::create_directory(watched_directory);
+        write(watched_directory / "after.lua", "return 2\n");
+        const auto replaced_directory = project->observe_sources();
+        require(
+            replaced_directory.authoritative &&
+                contains(replaced_directory.delta.removed, "scripts/watch-directory/before.lua") &&
+                contains(replaced_directory.delta.added, "scripts/watch-directory/after.lua"),
+            "Replaced source directory recovers old removals and new source membership");
+        std::filesystem::remove_all(watched_directory);
+        std::filesystem::remove_all(temp.root / "notes/moved-watch-directory");
+        require(
+            contains(project->observe_sources().delta.removed, "scripts/watch-directory/after.lua"),
+            "Removed source directory cannot retain a stale watched child");
+
+        project->source_watch_coverage_lost();
+        auto resumed = project->observe_sources();
+        require(resumed.authoritative && resumed.full_rescan && resumed.unchanged,
+                "Lost watcher or resume forces a complete revision proof without false deltas");
+
+        const auto observer_patch =
+            project->patch(saved.snapshot.working_revision,
+                           {{RoomPatch::Operation::Replace, "/project/name", "\"Own Write\""}});
+        require(observer_patch.accepted, "Observer own-write certification edit admitted");
+        const auto own_saved = project->save(saved.snapshot.disk_source_revision);
+        require(own_saved.accepted && project->observe_sources().unchanged,
+                "Own-write matching exact source revision is a watcher no-op");
+        require(contains(other_session->observe_sources().delta.changed, "project.yaml"),
+                "Second independent owner still observes first owner's physical Save");
+
 #ifndef _WIN32
         std::filesystem::create_directories(temp.root / "scripts/shared-helper");
         write(temp.root / "scripts/shared-helper/extra.lua", "return {}\n");
