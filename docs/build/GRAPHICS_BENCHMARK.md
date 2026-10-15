@@ -16,7 +16,10 @@ dashboard, or use `--ui` with CLI run settings or a configuration containing
 and Advanced tabs. Preview shows the selected reference content without contributing
 to measurements; Clean and Diagnostic runs are separate actions. The scenario
 selector includes `raw-bgfx-empty` and `raw-bgfx-geometry`; other workloads
-are separate tickets.
+are separate tickets. The **Inspect full scene** control hides the large
+dashboard panel and leaves a small **Return to dashboard** button at the
+top-right, so the fixed reference rectangles can be viewed unobscured.
+Inspection is outside timed sampling.
 
 Changing resolution or VSync applies at the next run. Before the runner
 enters Preparation, the dashboard completely releases its ImGui context, SDL
@@ -27,9 +30,14 @@ dashboard after completion/failure, automatically showing the Results tab.
 No ImGui frames, HUD, counters or dashboard rendering occur during strict
 Warmup or Measurement. Cleanup and results encoding happen afterward.
 
-Results show individual failures, CPU operation/wall-frame distributions,
-measured work-unit cadence (not confirmed display FPS), and the JSON report
-path. Unsupported GPU execution timing, driver details, confirmed
+Results retain the **completed run's configuration** independently of
+currently editable dashboard settings. They label the run as **Clean
+(authoritative)** or **Diagnostic (non-authoritative)** and show the
+completed scenario, rectangle count/scale when applicable, requested
+resolution and VSync. Switching the editable profile or workload without
+running again never relabels old results. Results also show individual
+failures, CPU operation/wall-frame distributions, measured work-unit
+cadence (not confirmed display FPS), and the JSON report path. Unsupported GPU execution timing, driver details, confirmed
 presentation FPS and bgfx wait counters are explicitly unavailable.
 Diagnostic profile currently uses the same CPU timing boundaries but is
 labeled non-authoritative; it does **not** invent deeper counters. A bad
@@ -122,8 +130,10 @@ dimensions, not requested logical window dimensions.
 
 The dashboard can preview the geometry without contaminating benchmark samples.
 A real-GPU `--dashboard-smoke --scenario raw-bgfx-geometry` checks three
-preview → teardown → run → restore cycles. The
-`noveltea_benchmark_reference_scene` CTest covers reference geometry and
+preview → teardown → run → restore cycles, alternating ordinary dashboard
+and full-scene inspection frames. The `noveltea_benchmark_completed_run`
+CTest protects the Results identity against subsequent setting edits.
+The `noveltea_benchmark_reference_scene` CTest covers reference geometry and
 parameter bounds; additional geometry GPU CTTests cover direct drawing and
 dashboard resource lifetimes, not performance thresholds.
 

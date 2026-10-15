@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include <bgfx/bgfx.h>
 
+#include "benchmark_completed_run.hpp"
 #include "benchmark_dashboard.hpp"
 #include "benchmark_options.hpp"
 #include "benchmark_report.hpp"
@@ -14,7 +15,9 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <optional>
 #include <string>
+#include <utility>
 
 namespace {
 using noveltea::benchmark::Clock;
@@ -352,9 +355,7 @@ int run_dashboard(Options options)
         return 3;
     }
     SteadyClock clock;
-    SuiteResult last_result;
-    bool has_result = false;
-    std::string report_path;
+    std::optional<noveltea::benchmark::CompletedRun> completed_run;
     std::string feedback;
     noveltea::benchmark::RawBgfxGeometry preview_geometry;
     uint32_t preview_count = 0;
@@ -391,6 +392,9 @@ int run_dashboard(Options options)
             feedback = validation;
             return;
         }
+        // The run configuration is frozen before any result is produced; later
+        // dashboard edits must not change the identity of displayed samples.
+        const Options run_options = options;
         // Preview GPU geometry also has to be released before the strict run.
         preview_geometry.shutdown();
         // No context, ImGui CPU frame, backend, atlas, shader or draw submissions
@@ -399,7 +403,7 @@ int run_dashboard(Options options)
         // Drain deferred bgfx resource destruction outside the sampling window.
         bgfx::frame();
         bgfx::frame();
-        if (graphics.reconfigure(options, validation)) {
+        if (graphics.reconfigure(run_options, validation)) {
             // The reference workload deliberately does not clear its frame. Remove any
             // previously presented dashboard pixels from swap-chain buffers before timing.
             bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x000000ff);
@@ -415,18 +419,18 @@ int run_dashboard(Options options)
             }
             EmptyBgfxScenario empty(&graphics);
             GeometryBgfxScenario geometry(&graphics);
-            Scenario* selected = options.scenario == "raw-bgfx-geometry"
+            Scenario* selected = run_options.scenario == "raw-bgfx-geometry"
                                      ? static_cast<Scenario*>(&geometry)
                                      : static_cast<Scenario*>(&empty);
-            last_result = noveltea::benchmark::run_suite(options, {selected}, clock);
-            has_result = true;
-            report_path.clear();
-            if (!write_report(options, graphics.environment, last_result, report_path)) {
+            auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock);
+            completed_run = noveltea::benchmark::CompletedRun{run_options, std::move(result), {}};
+            if (!write_report(completed_run->configuration, graphics.environment,
+                              completed_run->result, completed_run->report_path)) {
                 feedback = "failed to write benchmark report";
             } else {
                 feedback.clear();
             }
-            for (const auto& item : last_result.scenarios) {
+            for (const auto& item : completed_run->result.scenarios) {
                 std::printf("[benchmark] %s: %s, %llu measured frames, %.3f s; "
                             "CPU mean %.3f ms (not GPU time)\n",
                             item.scenario.c_str(), item.outcome.c_str(),
@@ -438,9 +442,10 @@ int run_dashboard(Options options)
                                      trial.reason.c_str());
                 }
             }
-            if (!report_path.empty())
-                std::printf("[benchmark] report: %s (outcome=%s)\n", report_path.c_str(),
-                            last_result.outcome.c_str());
+            if (!completed_run->report_path.empty())
+                std::printf("[benchmark] report: %s (outcome=%s)\n",
+                            completed_run->report_path.c_str(),
+                            completed_run->result.outcome.c_str());
         } else {
             feedback = validation;
         }
@@ -453,15 +458,20 @@ int run_dashboard(Options options)
 
     if (options.dashboard_smoke) {
         for (int cycle = 0; cycle < 3; ++cycle) {
-            (void)dashboard.frame(options, has_result ? &last_result : nullptr, report_path,
-                                  feedback, draw_preview);
+            // Exercise both the full-scene inspection and ordinary dashboard
+            // draw paths before running strict no-ImGui trials.
+            if (options.scenario == "raw-bgfx-geometry")
+                dashboard.set_inspection_only(cycle % 2 == 0);
+            (void)dashboard.frame(options, completed_run ? &*completed_run : nullptr, feedback,
+                                  draw_preview);
             benchmark_once();
-            if (!dashboard.initialized() || !has_result || last_result.outcome != "complete" ||
-                !feedback.empty())
+            if (!dashboard.initialized() || !completed_run ||
+                completed_run->result.outcome != "complete" || !feedback.empty())
                 return 4;
             std::printf("[benchmark] dashboard cycle %d complete\n", cycle + 1);
         }
-        (void)dashboard.frame(options, &last_result, report_path, feedback, draw_preview);
+        dashboard.set_inspection_only(false);
+        (void)dashboard.frame(options, &*completed_run, feedback, draw_preview);
         return 0;
     }
 
@@ -477,8 +487,8 @@ int run_dashboard(Options options)
         }
         if (exit_requested)
             break;
-        const auto action = dashboard.frame(options, has_result ? &last_result : nullptr,
-                                            report_path, feedback, draw_preview);
+        const auto action = dashboard.frame(options, completed_run ? &*completed_run : nullptr,
+                                            feedback, draw_preview);
         if (action == noveltea::benchmark::DashboardAction::Exit)
             break;
         if (action == noveltea::benchmark::DashboardAction::Run ||

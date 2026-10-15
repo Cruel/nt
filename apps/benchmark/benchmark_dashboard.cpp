@@ -240,149 +240,176 @@ void Dashboard::render()
     }
 }
 
-DashboardAction Dashboard::frame(Options& options, const SuiteResult* last_result,
-                                 std::string_view report_path, std::string_view error,
-                                 const std::function<void()>& preview)
+DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
+                                 std::string_view error, const std::function<void()>& preview)
 {
     if (!initialized_)
         return DashboardAction::Exit;
     ImGui_ImplSDL3_NewFrame();
     ImGui::NewFrame();
     const auto* viewport = ImGui::GetMainViewport();
-    ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.55f, viewport->WorkSize.y),
-                             ImGuiCond_Always);
-    ImGui::Begin("NovelTea Graphics Benchmark", nullptr,
-                 ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
-    ImGui::TextUnformatted("PREVIEW / INSPECTION");
-    ImGui::SameLine();
-    ImGui::TextDisabled("(dashboard and inspection frame excluded from measurement)");
-    ImGui::Separator();
-    ImGui::Text("Selected: %s", options.scenario.c_str());
-    ImGui::TextDisabled("Geometry visible at right in Preview; no dashboard during sampling.");
-    ImGui::Spacing();
-
     DashboardAction action = DashboardAction::None;
-    if (ImGui::Button(options.profile == "clean" ? "Run Clean Benchmark"
-                                                 : "Run Diagnostic Benchmark"))
-        action = DashboardAction::Run;
-    ImGui::SameLine();
-    if (ImGui::Button("Quick Suite (available reference)"))
-        action = DashboardAction::QuickSuite;
-    ImGui::SameLine();
-    if (ImGui::Button("Exit"))
-        action = DashboardAction::Exit;
+    if (inspection_only_) {
+        // Keep the escape hatch in the unused top-right strip of the fixed
+        // reference scene, so even the leftmost rectangle remains inspectable.
+        ImGui::SetNextWindowPos(
+            ImVec2(viewport->WorkPos.x + std::max(0.0f, viewport->WorkSize.x - 190.0f),
+                   viewport->WorkPos.y + 8.0f),
+            ImGuiCond_Always);
+        ImGui::SetNextWindowBgAlpha(0.65f);
+        ImGui::Begin("Full geometry inspection", nullptr,
+                     ImGuiWindowFlags_NoTitleBar | ImGuiWindowFlags_NoMove |
+                         ImGuiWindowFlags_AlwaysAutoResize | ImGuiWindowFlags_NoSavedSettings);
+        if (ImGui::Button("Return to dashboard"))
+            inspection_only_ = false;
+        ImGui::End();
+    } else {
+        ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
+        ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.55f, viewport->WorkSize.y),
+                                 ImGuiCond_Always);
+        ImGui::Begin("NovelTea Graphics Benchmark", nullptr,
+                     ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize |
+                         ImGuiWindowFlags_NoCollapse);
+        ImGui::TextUnformatted("PREVIEW / INSPECTION");
+        ImGui::SameLine();
+        ImGui::TextDisabled("(dashboard and inspection frame excluded from measurement)");
+        ImGui::Separator();
+        ImGui::Text("Selected: %s", options.scenario.c_str());
+        ImGui::TextDisabled("Open full-scene inspection to see every reference rectangle.");
+        ImGui::Spacing();
 
-    if (!error.empty())
-        ImGui::TextWrapped("Failure: %.*s", static_cast<int>(error.size()), error.data());
-    if (ImGui::BeginTabBar("benchmark-tabs")) {
-        if (ImGui::BeginTabItem("Scenarios")) {
-            if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
-                for (const char* candidate : {"raw-bgfx-empty", "raw-bgfx-geometry"}) {
-                    if (ImGui::Selectable(candidate, options.scenario == candidate)) {
-                        options.scenario = candidate;
-                        if (options.scenario == "raw-bgfx-empty") {
-                            options.rect_count = 3;
-                            options.rect_scale = 1.0;
+        if (options.scenario == "raw-bgfx-geometry") {
+            if (ImGui::Button("Inspect full scene"))
+                inspection_only_ = true;
+        }
+
+        if (ImGui::Button(options.profile == "clean" ? "Run Clean Benchmark"
+                                                     : "Run Diagnostic Benchmark"))
+            action = DashboardAction::Run;
+        ImGui::SameLine();
+        if (ImGui::Button("Quick Suite (available reference)"))
+            action = DashboardAction::QuickSuite;
+        ImGui::SameLine();
+        if (ImGui::Button("Exit"))
+            action = DashboardAction::Exit;
+
+        if (!error.empty())
+            ImGui::TextWrapped("Failure: %.*s", static_cast<int>(error.size()), error.data());
+        if (ImGui::BeginTabBar("benchmark-tabs")) {
+            if (ImGui::BeginTabItem("Scenarios")) {
+                if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
+                    for (const char* candidate : {"raw-bgfx-empty", "raw-bgfx-geometry"}) {
+                        if (ImGui::Selectable(candidate, options.scenario == candidate)) {
+                            options.scenario = candidate;
+                            if (options.scenario == "raw-bgfx-empty") {
+                                options.rect_count = 3;
+                                options.rect_scale = 1.0;
+                            }
+                        }
+                    }
+                    ImGui::EndCombo();
+                }
+                if (options.scenario == "raw-bgfx-geometry") {
+                    int rect_count = static_cast<int>(options.rect_count);
+                    if (ImGui::SliderInt("Rectangle count", &rect_count, 1, 256))
+                        options.rect_count = static_cast<uint32_t>(rect_count);
+                    float scale = static_cast<float>(options.rect_scale);
+                    if (ImGui::SliderFloat("Rectangle scale", &scale, 0.25f, 1.0f))
+                        options.rect_scale = scale;
+                    if (ImGui::Button("Restore fixed reference")) {
+                        options.rect_count = 3;
+                        options.rect_scale = 1.0;
+                    }
+                }
+                ImGui::TextDisabled("Two raw-bgfx baselines; Engine and RmlUi scenarios follow.");
+                ImGui::Spacing();
+                ImGui::TextWrapped(
+                    "Preview renders the selected reference outside sampling. "
+                    "Inspect full scene hides the dashboard to reveal all rectangles.");
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Run Settings")) {
+                int width = options.width;
+                int height = options.height;
+                if (ImGui::InputInt("Window width", &width))
+                    options.width = std::clamp(width, 1, 8192);
+                if (ImGui::InputInt("Window height", &height))
+                    options.height = std::clamp(height, 1, 8192);
+                ImGui::Checkbox("VSync", &options.vsync);
+                ImGui::InputDouble("Warmup seconds", &options.warmup_seconds, 0.5, 1.0, "%.2f");
+                ImGui::InputDouble("Measurement seconds", &options.duration_seconds, 1.0, 5.0,
+                                   "%.2f");
+                int frames = static_cast<int>(options.measurement_frames);
+                if (ImGui::InputInt("Fixed frame count (0 = duration)", &frames))
+                    options.measurement_frames =
+                        static_cast<uint64_t>(std::clamp(frames, 0, 300000));
+                int repeats = static_cast<int>(options.repeats);
+                if (ImGui::InputInt("Repeated trials", &repeats))
+                    options.repeats = static_cast<uint32_t>(std::clamp(repeats, 1, 20));
+                ImGui::InputDouble("Readiness timeout seconds", &options.ready_timeout_seconds, 0.5,
+                                   1.0, "%.2f");
+                // Profile is a canonical string, never an extra boolean saved in the configuration.
+                if (ImGui::RadioButton("Diagnostic (separate, non-authoritative)",
+                                       options.profile == "diagnostic"))
+                    options.profile = "diagnostic";
+                if (ImGui::RadioButton("Clean profile", options.profile == "clean"))
+                    options.profile = "clean";
+                ImGui::Checkbox("Export raw timing samples", &options.raw_samples);
+                if (ImGui::InputText("Report file (blank = generated)", output_path_.data(),
+                                     output_path_.size()))
+                    options.output_path = output_path_.data();
+                ImGui::EndTabItem();
+            }
+            if (ImGui::BeginTabItem("Results", nullptr,
+                                    first_frame_ && last_run ? ImGuiTabItemFlags_SetSelected : 0)) {
+                if (!last_run) {
+                    ImGui::TextDisabled("No run completed in this session.");
+                } else {
+                    const std::string identity = completed_run_identity(*last_run);
+                    ImGui::TextWrapped("Completed run: %s", identity.c_str());
+                    ImGui::Text("Outcome: %s", last_run->result.outcome.c_str());
+                    if (!last_run->report_path.empty())
+                        ImGui::TextWrapped("Report: %s", last_run->report_path.c_str());
+                    for (const auto& scenario : last_run->result.scenarios) {
+                        ImGui::Separator();
+                        ImGui::Text("%s: %s", scenario.scenario.c_str(), scenario.outcome.c_str());
+                        ImGui::Text("%llu measured work units in %.3f s",
+                                    static_cast<unsigned long long>(scenario.measured_frames),
+                                    scenario.measured_wall_seconds);
+                        if (scenario.measured_wall_seconds > 0)
+                            ImGui::Text(
+                                "CPU frame-loop cadence: %.2f Hz (not confirmed display FPS)",
+                                static_cast<double>(scenario.measured_frames) /
+                                    scenario.measured_wall_seconds);
+                        show_distribution("Wall-frame", scenario.wall_frame);
+                        show_distribution("CPU operation", scenario.cpu_operation);
+                        for (size_t n = 0; n < scenario.trials.size(); ++n) {
+                            const auto& trial = scenario.trials[n];
+                            if (trial.outcome != "complete")
+                                ImGui::TextWrapped("Trial %zu %s: %s", n + 1, trial.outcome.c_str(),
+                                                   trial.reason.c_str());
                         }
                     }
                 }
-                ImGui::EndCombo();
+                ImGui::EndTabItem();
             }
-            if (options.scenario == "raw-bgfx-geometry") {
-                int rect_count = static_cast<int>(options.rect_count);
-                if (ImGui::SliderInt("Rectangle count", &rect_count, 1, 256))
-                    options.rect_count = static_cast<uint32_t>(rect_count);
-                float scale = static_cast<float>(options.rect_scale);
-                if (ImGui::SliderFloat("Rectangle scale", &scale, 0.25f, 1.0f))
-                    options.rect_scale = scale;
-                if (ImGui::Button("Restore fixed reference")) {
-                    options.rect_count = 3;
-                    options.rect_scale = 1.0;
-                }
+            if (ImGui::BeginTabItem("Advanced")) {
+                ImGui::TextWrapped(
+                    "Strict samples exclude ImGui allocations, context, events, "
+                    "rendering and GPU objects. The window and bgfx backend persist.");
+                ImGui::TextUnformatted("GPU execution time: unavailable");
+                ImGui::TextUnformatted("GPU driver version: unavailable");
+                ImGui::TextUnformatted("Confirmed presented FPS: unavailable");
+                ImGui::TextUnformatted("bgfx wait statistics: unavailable");
+                ImGui::TextWrapped("Diagnostic runs are labeled separately; they currently provide "
+                                   "the same CPU boundary timers, not fabricated GPU counters.");
+                ImGui::EndTabItem();
             }
-            ImGui::TextDisabled("Two raw-bgfx baselines; Engine and RmlUi scenarios follow.");
-            ImGui::Spacing();
-            ImGui::TextWrapped("Preview displays the same empty reference workload under a "
-                               "dashboard. Strict benchmark frames have no dashboard or HUD.");
-            ImGui::EndTabItem();
+            ImGui::EndTabBar();
         }
-        if (ImGui::BeginTabItem("Run Settings")) {
-            int width = options.width;
-            int height = options.height;
-            if (ImGui::InputInt("Window width", &width))
-                options.width = std::clamp(width, 1, 8192);
-            if (ImGui::InputInt("Window height", &height))
-                options.height = std::clamp(height, 1, 8192);
-            ImGui::Checkbox("VSync", &options.vsync);
-            ImGui::InputDouble("Warmup seconds", &options.warmup_seconds, 0.5, 1.0, "%.2f");
-            ImGui::InputDouble("Measurement seconds", &options.duration_seconds, 1.0, 5.0, "%.2f");
-            int frames = static_cast<int>(options.measurement_frames);
-            if (ImGui::InputInt("Fixed frame count (0 = duration)", &frames))
-                options.measurement_frames = static_cast<uint64_t>(std::clamp(frames, 0, 300000));
-            int repeats = static_cast<int>(options.repeats);
-            if (ImGui::InputInt("Repeated trials", &repeats))
-                options.repeats = static_cast<uint32_t>(std::clamp(repeats, 1, 20));
-            ImGui::InputDouble("Readiness timeout seconds", &options.ready_timeout_seconds, 0.5,
-                               1.0, "%.2f");
-            // Profile is a canonical string, never an extra boolean saved in the configuration.
-            if (ImGui::RadioButton("Diagnostic (separate, non-authoritative)",
-                                   options.profile == "diagnostic"))
-                options.profile = "diagnostic";
-            if (ImGui::RadioButton("Clean profile", options.profile == "clean"))
-                options.profile = "clean";
-            ImGui::Checkbox("Export raw timing samples", &options.raw_samples);
-            if (ImGui::InputText("Report file (blank = generated)", output_path_.data(),
-                                 output_path_.size()))
-                options.output_path = output_path_.data();
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Results", nullptr,
-                                first_frame_ && last_result ? ImGuiTabItemFlags_SetSelected : 0)) {
-            if (!last_result) {
-                ImGui::TextDisabled("No run completed in this session.");
-            } else {
-                ImGui::Text("Outcome: %s", last_result->outcome.c_str());
-                if (!report_path.empty())
-                    ImGui::TextWrapped("Report: %.*s", static_cast<int>(report_path.size()),
-                                       report_path.data());
-                for (const auto& scenario : last_result->scenarios) {
-                    ImGui::Separator();
-                    ImGui::Text("%s: %s", scenario.scenario.c_str(), scenario.outcome.c_str());
-                    ImGui::Text("%llu measured work units in %.3f s",
-                                static_cast<unsigned long long>(scenario.measured_frames),
-                                scenario.measured_wall_seconds);
-                    if (scenario.measured_wall_seconds > 0)
-                        ImGui::Text("CPU frame-loop cadence: %.2f Hz (not confirmed display FPS)",
-                                    static_cast<double>(scenario.measured_frames) /
-                                        scenario.measured_wall_seconds);
-                    show_distribution("Wall-frame", scenario.wall_frame);
-                    show_distribution("CPU operation", scenario.cpu_operation);
-                    for (size_t n = 0; n < scenario.trials.size(); ++n) {
-                        const auto& trial = scenario.trials[n];
-                        if (trial.outcome != "complete")
-                            ImGui::TextWrapped("Trial %zu %s: %s", n + 1, trial.outcome.c_str(),
-                                               trial.reason.c_str());
-                    }
-                }
-            }
-            ImGui::EndTabItem();
-        }
-        if (ImGui::BeginTabItem("Advanced")) {
-            ImGui::TextWrapped("Strict samples exclude ImGui allocations, context, events, "
-                               "rendering and GPU objects. The window and bgfx backend persist.");
-            ImGui::TextUnformatted("GPU execution time: unavailable");
-            ImGui::TextUnformatted("GPU driver version: unavailable");
-            ImGui::TextUnformatted("Confirmed presented FPS: unavailable");
-            ImGui::TextUnformatted("bgfx wait statistics: unavailable");
-            ImGui::TextWrapped("Diagnostic runs are labeled separately; they currently provide "
-                               "the same CPU boundary timers, not fabricated GPU counters.");
-            ImGui::EndTabItem();
-        }
-        ImGui::EndTabBar();
+        ImGui::End();
+        first_frame_ = false;
     }
-    ImGui::End();
-    first_frame_ = false;
     ImGui::Render();
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x17212cff);
     bgfx::touch(0);
