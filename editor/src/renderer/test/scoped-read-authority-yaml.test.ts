@@ -5,6 +5,7 @@ import {
   scopedResidentObservationConfiguration,
   type ScopedReadAuthorityObservation,
 } from '../../shared/scoped-read-authority';
+import { AUTHORING_VALIDATION_DISCOVERY_SCOPES } from '../../shared/authoring-cache';
 
 describe('standalone scoped read authority for YAML Project owners', () => {
   it('observes the YAML manifest and detects an external edit between capture and verification', () => {
@@ -15,6 +16,7 @@ describe('standalone scoped read authority for YAML Project owners', () => {
       'traits.yaml',
     ]);
     expect(configuration.authoritativePaths).not.toContain('project.json');
+    expect(configuration.discoveryScopes).toEqual(AUTHORING_VALIDATION_DISCOVERY_SCOPES);
 
     const required = ['/export/profiles'];
     const assets = new Set<string>();

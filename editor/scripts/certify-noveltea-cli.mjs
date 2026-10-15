@@ -4084,7 +4084,12 @@ async function certifyNativeOperations(tempRoot, pristine) {
     await readFile(path.join(root, 'records/tests/cache-certification.yaml'), 'utf8'),
   );
   failedTest.id = 'cache-failure';
-  failedTest.data.finalExpectations = failedExpectations;
+  // A source Test must explicitly select the current-room payload. Editor
+  // normalization may supply a placeholder, but authored YAML cannot.
+  failedTest.data.finalExpectations = failedExpectations.map((expectation) => ({
+    ...expectation,
+    currentRoom: { roomId: '' },
+  }));
   await writeFile(failedTestPath, stringifyYaml(failedTest));
   for (const operation of ['run', 'run-spec', 'run-ui-spec']) {
     await rm(cacheRoot, { recursive: true, force: true });
