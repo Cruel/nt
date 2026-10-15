@@ -213,7 +213,8 @@ function webFixture() {
 function androidFixture() {
   const fixture = webFixture();
   write(fixture.build, 'CMakeCache.txt', '');
-  rmSync(path.join(fixture.build, '_deps/libva_headers-src'), { recursive: true });
+  // Keep the Linux NVDEC/libva source trees present to prove Android
+  // metadata ignores desktop-only fetches without weakening its inventory.
   const stage = path.join(fixture.root, 'stage');
   const sdlAar = 'source/android/app/libs/SDL3-3.4.10.aar';
   const prefabRoot = path.join(fixture.root, 'sdl-prefab');
@@ -259,6 +260,8 @@ describe('resolved player-template license generation', () => {
         expect(names).toContain(name);
       expect(names).not.toContain('imgui');
       expect(names).not.toContain('rmlui_bgfx');
+      expect(names).not.toContain('nv-codec-headers');
+      expect(names).not.toContain('libva (headers)');
       const sdl = index.components.find((item) => item.component === 'SDL3')!;
       expect(sdl.version).toBe('3.4.10');
       expect(readFileSync(path.join(first.stage, sdl.files[0]!.path))).toEqual(
@@ -385,6 +388,82 @@ process.exit(result.status ?? 1);
       expect(generate(fixture.root, false, env).result.stderr).toContain('modified license bytes');
     },
   );
+
+  it('accepts a relocated configured FetchContent build root but rejects unrelated source paths', () => {
+    const fixture = webFixture();
+    const name = 'bgfx.cmake';
+    const buildRoot = '/workspace/build/linux-release';
+    const metadata = path.join(
+      fixture.build,
+      `_deps/${name}-subbuild/${name}-populate-prefix/src/${name}-populate-stamp/${name}-populate-urlinfo.txt`,
+    );
+    const original = readFileSync(metadata, 'utf8');
+    const source = path.join(fixture.build, '_deps', `${name}-src`);
+    write(
+      fixture.build,
+      'CMakeCache.txt',
+      readFileSync(path.join(fixture.build, 'CMakeCache.txt'), 'utf8') +
+        `CMAKE_CACHEFILE_DIR:INTERNAL=${buildRoot}\n`,
+    );
+    const relocated = original.replace(
+      `source_dir=${source}`,
+      `source_dir=${buildRoot}/_deps/${name}-src`,
+    );
+    writeFileSync(metadata, relocated);
+    const accepted = generate(fixture.root);
+    expect(accepted.result.status, accepted.result.stderr).toBe(0);
+    writeFileSync(metadata, relocated.replace(`${name}-src`, `${name}-wrong-src`));
+    expect(generate(fixture.root).result.stderr).toContain('source path mismatch');
+    writeFileSync(metadata, relocated);
+    write(
+      fixture.build,
+      'CMakeCache.txt',
+      readFileSync(path.join(fixture.build, 'CMakeCache.txt'), 'utf8').replace(
+        `CMAKE_CACHEFILE_DIR:INTERNAL=${buildRoot}\n`,
+        '',
+      ),
+    );
+    expect(generate(fixture.root).result.stderr).toContain('source path mismatch');
+  });
+
+  it('accepts Windows Git CRLF checkout conversion without accepting modified license content', () => {
+    const fixture = webFixture();
+    const source = path.join(fixture.build, '_deps/sol2-src');
+    const license = path.join(source, 'LICENSE.txt');
+    execFileSync('git', ['-C', source, 'config', 'core.autocrlf', 'true']);
+    execFileSync('git', ['-C', source, 'add', '--renormalize', 'LICENSE.txt']);
+    execFileSync('git', [
+      '-C',
+      source,
+      '-c',
+      'user.name=Fixture',
+      '-c',
+      'user.email=fixture@example.test',
+      'commit',
+      '-qm',
+      'Normalize pinned license text',
+    ]);
+    const revision = execFileSync('git', ['-C', source, 'rev-parse', 'HEAD'], {
+      encoding: 'utf8',
+    }).trim();
+    write(
+      fixture.root,
+      'repository/cmake/sol2.cmake',
+      `FetchContent_Declare(\n  sol2\n  GIT_TAG ${revision}\n)\n`,
+    );
+    const checkedOut = readFileSync(license);
+    const canonical = execFileSync('git', ['-C', source, 'show', 'HEAD:LICENSE.txt']);
+    expect(checkedOut).not.toEqual(canonical);
+    const accepted = generate(fixture.root);
+    expect(accepted.result.status, accepted.result.stderr).toBe(0);
+    const notice = getIndex(accepted.stage).components.find(
+      (component) => component.component === 'sol2',
+    );
+    expect(notice).toBeDefined();
+    expect(readFileSync(path.join(accepted.stage, notice!.files[0]!.path))).toEqual(checkedOut);
+    writeFileSync(license, checkedOut.toString('utf8').replace('MIT License', 'Tampered License'));
+    expect(generate(fixture.root).result.stderr).toContain('modified license bytes');
+  });
 
   it('rejects missing download metadata, mismatched pins, corrupt archives, and modified extracted notices', () => {
     const fixture = webFixture();

@@ -42,6 +42,8 @@ struct QuadCommand {
     Rect uv{0.0f, 0.0f, 1.0f, 1.0f};
     Color color{};
     Texture texture{};
+    std::optional<Texture> video_alpha_mask;
+    bool video_alpha_required = false;
     MaterialTextureSampler texture_sampler = MaterialTextureSampler::ClampLinear;
     MaterialId material{};
     std::vector<MaterialUniformOverride> material_uniform_overrides;

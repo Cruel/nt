@@ -1,18 +1,17 @@
 # Private media-preparation tooling
 
-FFmpeg is a separate-process authoring tool, never a player dependency. The shared service now also
-owns the first canonical opaque-video Animation preparation tracer. A semantic Video Asset is decoded
-by the pinned tool into private runtime-artifact raster frames; authored Animation data never names
-the generated representation. The exact private representation and future target codec matrix remain
-implementation details rather than stable authoring contracts.
+FFmpeg is a separate-process authoring tool, never a player dependency. The shared service owns
+canonical opaque-video Animation preparation: source Video Assets become private VP9/WebM runtime
+media with authoritative sample timing. Authored Animation data never names the generated representation.
+The private target codec selection remains an implementation detail, not a stable authoring contract.
 
 ## Ownership and installation
 
 `editor/src/shared/media-tool-pin.json` is the authoritative release/version/archive-hash pin for
-[the nt-tools release](https://github.com/Cruel/nt-tools/releases/tag/ffmpeg-r1).
+[the nt-tools release](https://github.com/Cruel/nt-tools/releases/tag/ffmpeg-r3).
 `editor/scripts/private-media-tools.mjs` downloads the host archive, verifies its pinned SHA-256 before
 extraction, and validates the complete upstream provenance, checksums, corresponding sources, build
-recipe, configuration, and licenses. NovelTea then stages only the installed runtime subset: the
+recipe, configuration (including libwebp animated-alpha encoding), and licenses. NovelTea then stages only the installed runtime subset: the
 FFmpeg executable, license texts, provenance, and a notice pointing back to the pinned `nt-tools`
 release for exact corresponding sources and build records. Build/source payloads and the upstream
 internal `SHA256SUMS` are intentionally not copied into NovelTea distributions.
@@ -48,7 +47,7 @@ not directly in the interactive main loop. Do not expose raw arguments from auth
 
 `opaque-video-preparation-service.ts` owns the Node/Electron-only binary snapshot/preparation job;
 keeping it off the static ScriptC inspection graph avoids unsupported binary filesystem operations.
-Its `prepareOpaqueVideoMotion` is the canonical tracer job used by renderer-driven export, focused
+Its `prepareOpaqueVideoMotion` is the canonical job used by renderer-driven export, focused
 Room preview, and headless runtime-artifact preparation. Editor IPC uses
 `project-video-preparation-service.ts` to authorize the active Video Asset identity, reject a
 mismatched renderer path, and read a bounded, contained regular-file snapshot through the existing
@@ -58,12 +57,13 @@ concurrent identical jobs share one in-flight preparation. Editor composition re
 the installed NovelTea CLI location, not the Electron executable location.
 It hashes the source bytes plus semantic
 preparation inputs and the pinned tool release, selects only the first video stream, disables
-audio/subtitle/data output, fits the image into the Animation logical canvas, and currently emits a
-deterministic 30 fps opaque PNG sequence beneath `.noveltea/build/prepared-media/`. Runtime-package
-assembly stages those frames under the private `assets/.prepared-media/` namespace together with
-private metadata. Embedded source audio is detected only to produce the authoring warning; generic
-Animation remains visual-only. Neither the generated PNG layout nor the private prepared-media
-metadata is an authored/public schema commitment.
+audio/subtitle/data output, fits the image into the Animation logical canvas, and emits a deterministic source-timed VP9 WebM beneath `.noveltea/build/prepared-media/`,
+preserving source VFR samples, author-selected target rational FPS, or retained-frame VFR timing.
+Runtime-package assembly stages the encoded stream under `assets/.prepared-media/` with
+private timestamp metadata. PQ/HLG BT.2020 video is tone-mapped through zimg linear-light float
+processing before 8-bit BT.709 output; unrecognized HDR primaries/matrix are rejected.
+Embedded source audio is detected only for the authoring warning; Animation remains
+visual-only. The private representation is not an authored/public schema commitment.
 
 Authored Test execution uses the same prepared-media manifest as runtime-package export.
 The Node and standalone ScriptC CLI paths forward it to the native headless and UI Test runners,

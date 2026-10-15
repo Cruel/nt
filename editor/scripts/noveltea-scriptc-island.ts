@@ -523,6 +523,7 @@ async function createPinnedRuntimeArtifactPaths(
   inputs: import('../src/shared/project-workspace/resident-project-workspace-service').PinnedPortableResidentProjectInputs,
   cliExecutable: () => string,
   mediaRunner: (executable: string, args: readonly string[]) => { stdout: string; stderr: string },
+  nativeAlphaEncoder: import('../src/main/services/transparent-video-tracer').NativeAlphaEncoder,
 ): Promise<import('../src/shared/runtime-artifact-preparation').RuntimeArtifactPathAdapter> {
   const [nodePaths, pinnedAssets] = await Promise.all([
     import('../src/main/services/node-runtime-artifact-adapters'),
@@ -532,7 +533,7 @@ async function createPinnedRuntimeArtifactPaths(
     inputs.externalAssets.map((entry) => [entry.path.replaceAll('\\', '/'), entry]),
   );
   return {
-    ...nodePaths.createNodeRuntimeArtifactPaths(cliExecutable, mediaRunner),
+    ...nodePaths.createNodeRuntimeArtifactPaths(cliExecutable, mediaRunner, nativeAlphaEncoder),
     async readProjectTextSources(root, entries) {
       const results = new Map<
         string,
@@ -590,6 +591,18 @@ async function createPinnedRuntimeArtifactPaths(
         (entry) => results.get(entry.assetId) ?? { status: 'unavailable', assetId: entry.assetId },
       );
     },
+  };
+}
+
+function hostNativeAlphaEncoder(
+  invokeHost: ScriptcHostInvoke,
+): import('../src/main/services/transparent-video-tracer').NativeAlphaEncoder {
+  return (request) => {
+    const result = JSON.parse(
+      invokeHost('alpha-encode', JSON.stringify(request)),
+    ) as import('../src/main/services/transparent-video-tracer').NativeAlphaEncodeResult;
+    if (result.ok !== true) throw new Error(result.error ?? 'Native FFmpeg alpha encoding failed.');
+    return result;
   };
 }
 
@@ -827,6 +840,7 @@ async function runNovelTeaScriptcIslandScoped(
           pinnedInputs,
           () => invokeHost('cli-executable-path', ''),
           hostMediaToolRunner(invokeHost),
+          hostNativeAlphaEncoder(invokeHost),
         );
         trace(`pinned Project snapshot hydrated: ${pinned.projectRoot}`);
       }
@@ -841,6 +855,7 @@ async function runNovelTeaScriptcIslandScoped(
         ).createNodeRuntimeArtifactPaths(
           () => invokeHost('cli-executable-path', ''),
           hostMediaToolRunner(invokeHost),
+          hostNativeAlphaEncoder(invokeHost),
         )
       : undefined);
 

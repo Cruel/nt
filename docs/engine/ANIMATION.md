@@ -18,7 +18,12 @@ An Animation owns one stable logical canvas, a default motion, and Animation-loc
 Each motion is either `sprite-sequence` or `video`. Sprite motions contain one or more Image Asset
 frames with explicit positive integer millisecond durations; a one-frame motion is valid. Video
 motions reference one semantic Video Asset and may specify an optional `{ startMs, endMs }` source
-range with a positive extent. The default and any use-site selected motion must exist. Asset
+range with a positive extent. Video motions may also select an authoring-only `frameSampling` policy:
+absent or `source` preserves presentation timestamps, `target-fps` selects a positive rational
+numerator/denominator (for example 30000/1001) using FFmpeg's timestamp-directed constant-rate
+resampling, and `retain-percent` samples an integer 1–100% of frames while preserving the first/last
+source samples and their original VFR timestamps. Frame-sampling policy is preparation input, not
+compiled Animation or gameplay time. The default and any use-site selected motion must exist. Asset
 references participate in the ordinary dependency graph, rename/delete safety, validation,
 compilation, and resource closure. Localization remains at the Asset layer.
 Empty manual Animations start with a `default` motion with no frames. They are saveable authoring
@@ -83,8 +88,15 @@ private PNG frames. The private
 manifest's `browserVideo` field names the packaged WebM and canvas dimensions for both targets,
 never an authored Video/Animation field. Package paths and metadata shape are deliberately private;
 Animation authoring/compiled semantics name the Video Asset and range, not a codec or generated file.
-Prepared frame durations close exactly on the authored source-range endpoint when one is given;
-unranged video obtains its semantic endpoint from prepared media. The player does not ship or
+Preparation probes decoded source presentation timestamps before encoding; its output uses
+explicitly monotonic timestamp records and does not force 30 FPS. Prepared frame durations close
+exactly on the authored source-range endpoint when one is given; unranged video obtains its semantic
+endpoint from prepared media. Source and retained frames keep their VFR presentation spacing;
+Target FPS may duplicate or discard samples to occupy the chosen rational clock. Embedded audio is
+stripped and warned about; HDR PQ/HLG BT.2020 source undergoes linear-light
+float RGB Hable tone mapping before BT.709 SDR conversion. High-bit-depth/HDR sources
+warn about reduced precision when quantized to 8-bit BT.709 prepared output. An authoring-time confirmation accompanies Target FPS selections and edits because
+upsampling may increase decode and GPU work. The player does not ship or
 invoke FFmpeg.
 
 At package load the private metadata is strictly validated against the semantic Animation table and
@@ -134,6 +146,19 @@ for epoch ownership and reconstruction, and
 for focused publication (the focused-document section describes the owning transport).
 
 ## Editor behavior and known gaps
+
+The source-timed VP9 preparation path is in use for both current runtime targets. Native decoding
+supports VP9, and Web's certified baseline is VP9; neither currently has a production AV1 decoder,
+so export selects only VP9 rather than packaging an unusable alternative. The editor probes the
+admitted source's presentation timestamps, including VFR gaps, and confirms Target FPS only when
+nearest-timestamp mapping duplicates samples. Range clipping retains the sample covering the
+range start and shifts subsequent timestamps to that boundary inside FFmpeg's filtergraph;
+packaged WebM decoding is re-checked for authoritative timestamps and a zero-origin first frame.
+Retain % can keep only the first frame for very short clips, holding it to the full source endpoint.
+The pinned FFmpeg r2 build provides `zscale` and `tonemap` for tagged BT.2020
+PQ/HLG sources. Incomplete or unsupported HDR color metadata is rejected rather
+than silently retagged as BT.709; ordinary tagged SDR still uses FFmpeg's
+colorspace conversion. The same canonical output serves native, Web, and focused preview.
 
 Animation records open a specialized timeline editor with motion selection, absolute-time markers,
 frame-duration editing, scrub/play/pause/restart, and sprite frame stepping. Video motions use their
@@ -216,14 +241,16 @@ backend-local motion phase used for the realized raster frame: missing tracks us
 Focus uses the shared authoring timeline helpers for play/pause/scrub/frame-step/marker inspection and
 can author keys for any motion in the selected Animation.
 
-Opaque native video Animation uses persistent per-occurrence VP9 decoding with GPU YUV conversion,
+Native video Animation uses persistent per-occurrence VP9 decoding with GPU YUV conversion,
 including finite named-motion operation parity and representation-derived frame addressing. Web
-realizes the same prepared encoded stream through its browser media adapter. True
-codec-level frame introspection,
-transparent video, dynamic video `visual-alpha`, movies, and animated Inventory icons remain
-follow-up work. The Phase 1 world-presentation sprite-to-Visual
-cutover remains complete, and Interactable world Hotspots can sample sprite Animation frame CPU
-coverage; opaque video does not provide dynamic alpha coverage.
+realizes the same prepared encoded stream through its browser media adapter. Transparent video
+uses one additional lossless animated WebP sidecar from the production media preparer, with
+on-demand decoding, a retained CPU R8 mask for Interactable `visual-alpha` Hotspots, and an
+R8 GPU texture composited **after** the authored Engine2D fragment shader. Color and alpha
+publish together; delayed decoding retains the previous displayed pair and hit coverage.
+Opaque video omits the WebP and does not provide dynamic alpha coverage. True codec-level
+frame introspection, movies, and animated Inventory icons remain follow-up work.
+The Phase 1 world-presentation sprite-to-Visual cutover remains complete.
 
 ## Verification
 
@@ -273,7 +300,14 @@ claim of completed save/load or player interaction certification.
   VP9 fixture is generated by the pinned preparer from Feature Lab's `opaque-color-loop` range.
   `scripts/web-player-package-smoke.mjs --video --package <prepared-package>` additionally proves
   red/green/blue output reaches the ordinary raster Visual panel through the actual Web player.
-  This uses the debug player's direct-start smoke mode, not title-screen interaction certification.
+  With `--start-via-title`, the optimized player also exercises its actual title-screen start.
+- `scripts/certify-video-package-scenarios.mjs --web --native` exports ten disposable Feature Lab
+  variants through the standalone CLI and checks canonical VP9, positive sample holds, exact source
+  endpoints, rational FPS, Retain %, source VFR, source revisions, locale-independent video bytes,
+  and 10-bit PQ/HLG tone mapping. Web runs screenshot-based raster verification; Linux native runs
+  the actual player with a persistent software VP9 session. A repeated export checks deterministic
+  media bytes, and corrupt input must fail with a typed diagnostic and no partial package.
+  These are platform-level behavioral checks, not a substitute for UI interaction tests.
 - `tests/tooling/playback_expectation_tests.cpp` covers prepared-media handoff during normal
   package export certification and rejection of absent private media files.
 - Runtime-artifact preparation tests cover deterministic private video lowering and audio-ignore

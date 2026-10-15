@@ -612,7 +612,7 @@ decode_prepared_media_catalog_json(std::string_view text, std::string source_pat
             const auto* value = json_access::element(*motions_value, index);
             if (!value || !decoder.object(*value, pointer,
                                           {"animationId", "motionId", "representation",
-                                           "contentHash", "frames", "browserVideo"}))
+                                           "contentHash", "frames", "browserVideo", "alphaWebp"}))
                 continue;
             const auto* animation_value = decoder.required(*value, "animationId", pointer);
             const auto* motion_value = decoder.required(*value, "motionId", pointer);
@@ -671,6 +671,22 @@ decode_prepared_media_catalog_json(std::string_view text, std::string source_pat
             if (!browser_video)
                 decoder.error("missing_video", "Prepared VP9 motion requires its WebM stream.",
                               pointer + "/browserVideo");
+            std::optional<PreparedVideoAlpha> alpha_webp;
+            if (const auto* alpha = json_access::member(*value, "alphaWebp")) {
+                const auto ap = pointer + "/alphaWebp";
+                if (decoder.object(*alpha, ap, {"path"})) {
+                    const auto* path_value = decoder.required(*alpha, "path", ap);
+                    auto path =
+                        path_value ? decoder.string(*path_value, ap + "/path", true) : std::nullopt;
+                    if (path && (!ProjectPackageWriter::is_allowed_package_path(*path) ||
+                                 !path->starts_with("assets/.prepared-media/") ||
+                                 !path->ends_with("/alpha.webp")))
+                        decoder.error("invalid_path", "Video alpha must be a private WebP sidecar.",
+                                      ap + "/path");
+                    if (path)
+                        alpha_webp = PreparedVideoAlpha{std::move(*path)};
+                }
+            }
             std::vector<PreparedRasterMediaFrame> frames;
             if (!frames_value || !frames_value->is_array()) {
                 if (frames_value)
@@ -699,7 +715,7 @@ decode_prepared_media_catalog_json(std::string_view text, std::string source_pat
             if (animation && motion && representation && hash && browser_video && !frames.empty())
                 output.motions.push_back({std::move(*animation), std::move(*motion),
                                           std::move(*hash), std::move(frames),
-                                          std::move(browser_video)});
+                                          std::move(browser_video), std::move(alpha_webp)});
         }
     } else if (motions_value) {
         decoder.error("type", "Expected an array.", "/motions");

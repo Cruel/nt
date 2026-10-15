@@ -1,13 +1,13 @@
 import { createHash } from 'node:crypto';
 import { readFile, realpath, stat } from 'node:fs/promises';
 import path from 'node:path';
-import { prepareOpaqueVideoMotion } from './opaque-video-preparation-service';
+import { runVideoMediaToolProcess } from './opaque-video-preparation-service';
+import type { NativeAlphaEncoder, NativeAlphaEncodeResult } from './transparent-video-tracer';
+import { installedMediaTool, type MediaToolRunner } from './media-preparation-service';
 import {
-  installedMediaTool,
-  runMediaToolProcess,
-  type MediaToolRunner,
-} from './media-preparation-service';
-import { resolveNovelTeaCliPath } from '../../shared/noveltea-cli-subprocess';
+  invokeNovelTeaNativeOperation,
+  resolveNovelTeaCliPath,
+} from '../../shared/noveltea-cli-subprocess';
 import { parseShaderCompileResponse } from '../../shared/shader-compile-contract';
 import type {
   RuntimeArtifactPathAdapter,
@@ -16,7 +16,8 @@ import type {
 
 export function createNodeRuntimeArtifactPaths(
   cliExecutable: () => string = resolveNovelTeaCliPath,
-  mediaRunner: MediaToolRunner = runMediaToolProcess,
+  mediaRunner: MediaToolRunner = runVideoMediaToolProcess,
+  nativeAlphaEncoder?: NativeAlphaEncoder,
 ): RuntimeArtifactPathAdapter {
   return {
     resolveProjectSource(projectRoot, source) {
@@ -27,11 +28,21 @@ export function createNodeRuntimeArtifactPaths(
     },
     async prepareOpaqueVideo(projectRoot, request) {
       if (!projectRoot) throw new Error('Video preparation requires a Project root.');
-      return prepareOpaqueVideoMotion(
+      // Load the media preparation implementation only for an actual video request,
+      // never while opening an ordinary CLI command or project workspace.
+      const { prepareProductionVideoMotion } = await import('./transparent-video-tracer');
+      return prepareProductionVideoMotion(
         projectRoot,
         request,
         installedMediaTool(process.env.NOVELTEA_FFMPEG === undefined ? cliExecutable() : undefined),
         mediaRunner,
+        undefined,
+        nativeAlphaEncoder ??
+          (async (nativeRequest) =>
+            (await invokeNovelTeaNativeOperation(
+              'alpha-encode',
+              nativeRequest,
+            )) as NativeAlphaEncodeResult),
       );
     },
     async readProjectTextSources(projectRoot, entries) {

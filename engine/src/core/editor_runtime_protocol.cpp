@@ -2582,15 +2582,15 @@ decode_focused_editor_document_request_text(std::string_view request_text,
                               "Alpha coverage retention is valid only for image Assets.", path));
             } else if (entry.source_kind == "prepared-media") {
                 if (!entry.asset_id || !entry.asset_id->starts_with("prepared-video-") ||
-                    entry.resource_id != "asset:" + *entry.asset_id || entry.kind != "video" ||
-                    !entry.width || !entry.height || entry.sampling != "linear" ||
-                    entry.retain_alpha_coverage || entry.shader_id || entry.shader_stage ||
-                    entry.shader_variant ||
+                    entry.resource_id != "asset:" + *entry.asset_id ||
+                    (entry.kind != "video" && entry.kind != "video-alpha") || !entry.width ||
+                    !entry.height || entry.sampling != "linear" || entry.retain_alpha_coverage ||
+                    entry.shader_id || entry.shader_stage || entry.shader_variant ||
                     !entry.logical_path.starts_with("project:/.noveltea/build/prepared-media/"))
-                    diagnostics.push_back(
-                        error("editor_preview.invalid_manifest_identity",
-                              "Prepared media requires a private opaque video identity and extent.",
-                              path));
+                    diagnostics.push_back(error(
+                        "editor_preview.invalid_manifest_identity",
+                        "Prepared media requires a private video or alpha identity and extent.",
+                        path));
             } else if (entry.source_kind == "project-source") {
                 const auto project_prefix = std::string_view{"project:/"};
                 const auto relative = entry.logical_path.starts_with(project_prefix)

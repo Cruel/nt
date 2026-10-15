@@ -52,6 +52,7 @@ test("release examples use exact release CLI, player, and tagged examples pin", 
   const value = job("release-examples");
   assert.match(value, /needs: \[release-metadata, shader-assets, web\]/);
   assert.match(value, /noveltea-release-host-cli-linux-x64/);
+  assert.match(value, /chmod \+x[\s\S]*?build\/release-examples-toolchain\/noveltea-ui-test-runner[\s\S]*?build\/release-examples-toolchain\/tools\/ffmpeg\/bin\/ffmpeg/);
   assert.match(value, /noveltea-web-release-dist/);
   assert.match(value, /examples\/noveltea-examples\.revision/);
   assert.match(value, /--player-engine-version "\$RELEASE_TAG"/);

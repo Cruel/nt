@@ -78,7 +78,10 @@ import { EditorRuntimeCacheService } from './main/services/editor-runtime-cache-
 import { importDesktopProject } from './main/services/desktop-project-import-service';
 import { AssetMetadataInspectionService } from './main/services/asset-metadata-inspection-service';
 import { LocalizationFontCoverageService } from './main/services/localization-font-coverage-service';
-import { prepareProjectOpaqueVideo } from './main/services/project-video-preparation-service';
+import {
+  prepareProjectOpaqueVideo,
+  probeProjectVideoTimeline,
+} from './main/services/project-video-preparation-service';
 import {
   compileShaders,
   exportPackage,
@@ -201,6 +204,7 @@ import {
   openExternalArgumentsSchema,
   openProjectArgumentsSchema,
   prepareOpaqueVideoArgumentsSchema,
+  probeVideoTimelineArgumentsSchema,
   previewExportedPackageArgumentsSchema,
   prepareEditorRuntimeArgumentsSchema,
   previewSessionArgumentsSchema,
@@ -1410,6 +1414,13 @@ void app.whenReady().then(async () => {
         cacheRoot: path.join(projectRoot, '.noveltea', 'cache'),
       });
     },
+  );
+
+  guardedIpc.handle(
+    IPC_CHANNELS.PROBE_VIDEO_TIMELINE,
+    (arguments_) => probeVideoTimelineArgumentsSchema.parse(arguments_),
+    (projectSessionId, request) =>
+      probeProjectVideoTimeline(activeProjectSessions, projectSessionId, request),
   );
 
   guardedIpc.handle(

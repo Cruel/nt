@@ -967,7 +967,10 @@ jobs:
       - name: Qualify examples against exact release
         shell: bash
         run: |
-          chmod +x build/release-examples-toolchain/noveltea
+          chmod +x \
+            build/release-examples-toolchain/noveltea \
+            build/release-examples-toolchain/noveltea-ui-test-runner \
+            build/release-examples-toolchain/tools/ffmpeg/bin/ffmpeg
           player_template="build/release-examples-toolchain/player/noveltea-player-template-${RELEASE_TAG}-web-wasm32-threads-release.zip"
           player_descriptor="build/release-examples-toolchain/player/web-wasm32-threads-release.template.json"
           test -f "$player_template"

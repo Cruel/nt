@@ -28,6 +28,8 @@ uint64_t noveltea_tooling_image_inspect_json(const uint8_t* request, uint64_t re
                                              uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_image_resize_png_json(const uint8_t* request, uint64_t request_size,
                                                 uint8_t* response, uint64_t response_capacity);
+uint64_t noveltea_tooling_encode_alpha_webp_json(const uint8_t* request, uint64_t request_size,
+                                                uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_file_mode_json(const uint8_t* request, uint64_t request_size,
                                          uint8_t* response, uint64_t response_capacity);
 uint64_t noveltea_tooling_disk_space_json(const uint8_t* request, uint64_t request_size,

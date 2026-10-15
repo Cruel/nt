@@ -149,16 +149,23 @@ export async function invokeNovelTeaNativeOperation(
       const childStderr = child.stderr;
       let stdout = '';
       let stderr = '';
-      const timer = setTimeout(() => {
-        child.kill();
-        reject(new Error('NovelTea native operation timed out.'));
-      }, 30_000);
+      const timer = setTimeout(
+        () => {
+          child.kill();
+          reject(new Error('NovelTea native operation timed out.'));
+        },
+        command === 'alpha-encode' ? 15 * 60_000 : 30_000,
+      );
 
       childStdout.setEncoding('utf8');
       childStderr.setEncoding('utf8');
       childStdout.on('data', (chunk: string) => {
         stdout += chunk;
-        if (Buffer.byteLength(stdout, 'utf8') > 16 * 1024 * 1024) child.kill();
+        if (
+          Buffer.byteLength(stdout, 'utf8') >
+          (command === 'alpha-encode' ? 32 : 16) * 1024 * 1024
+        )
+          child.kill();
       });
       childStderr.on('data', (chunk: string) => {
         stderr += chunk;

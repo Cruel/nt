@@ -1313,8 +1313,16 @@ export async function buildFocusedRoomPreview(
         sourcePath: asset.source.path,
         canvas: { ...animation.data.canvas },
         ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
+        ...(motion.frameSampling ? { frameSampling: motion.frameSampling } : {}),
       });
       preparedVideoMotions.set(`${animationId}\n${motion.id}`, prepared);
+      if (prepared.reducedColorPrecision)
+        diagnostics.push({
+          severity: 'warning',
+          path: `/animations/${animationId}/data/motions`,
+          message: `Video motion '${motion.id}' has HDR/high-bit-depth input converted to SDR/8-bit BT.709.`,
+          code: 'focused-room.video-color-reduced',
+        });
       if (prepared.hadAudio)
         diagnostics.push({
           severity: 'warning',
@@ -1330,13 +1338,30 @@ export async function buildFocusedRoomPreview(
         usageRoles: ['room-preview'],
         fetchProjectRelativePath: prepared.browserVideo.projectRelativePath,
         logicalPath: `project:/${prepared.browserVideo.projectRelativePath}`,
-        contentHash: prepared.browserVideo.contentHash,
+        contentHash: `sha256:${prepared.browserVideo.contentHash}`,
         byteSize: prepared.browserVideo.byteSize,
         kind: 'video',
         sampling: 'linear',
         width: prepared.browserVideo.width,
         height: prepared.browserVideo.height,
       });
+      if (prepared.alphaWebp) {
+        const alphaAssetId = `prepared-video-${prepared.contentHash.slice(0, 16)}-alpha`;
+        preparedVideoResources.push({
+          resourceId: `asset:${alphaAssetId}`,
+          sourceKind: 'prepared-media',
+          assetId: alphaAssetId,
+          usageRoles: ['room-preview'],
+          fetchProjectRelativePath: prepared.alphaWebp.projectRelativePath,
+          logicalPath: `project:/${prepared.alphaWebp.projectRelativePath}`,
+          contentHash: `sha256:${prepared.alphaWebp.contentHash}`,
+          byteSize: prepared.alphaWebp.byteSize,
+          kind: 'video-alpha',
+          sampling: 'linear',
+          width: prepared.alphaWebp.width,
+          height: prepared.alphaWebp.height,
+        });
+      }
     }
   }
   const focusedAnimations: RoomPreviewDocument['world']['animations'] = worldAnimationIds.flatMap(

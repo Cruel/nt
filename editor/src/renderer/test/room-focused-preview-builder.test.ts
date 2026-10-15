@@ -353,11 +353,20 @@ describe('graph-driven Room builder', () => {
     vi.mocked(window.noveltea.prepareOpaqueVideo).mockResolvedValueOnce({
       contentHash: 'a'.repeat(64),
       hadAudio: true,
+      reducedColorPrecision: false,
       browserVideo: {
         sourcePath: '/project/.noveltea/build/prepared-media/a/opaque.webm',
         projectRelativePath: '.noveltea/build/prepared-media/a/opaque.webm',
         contentHash: 'd'.repeat(64),
         byteSize: 13,
+        width: 320,
+        height: 180,
+      },
+      alphaWebp: {
+        sourcePath: '/project/.noveltea/build/prepared-media/a/alpha.webp',
+        projectRelativePath: '.noveltea/build/prepared-media/a/alpha.webp',
+        contentHash: 'e'.repeat(64),
+        byteSize: 11,
         width: 320,
         height: 180,
       },
@@ -403,6 +412,15 @@ describe('graph-driven Room builder', () => {
           width: 320,
           height: 180,
           fetchProjectRelativePath: '.noveltea/build/prepared-media/a/opaque.webm',
+        }),
+        expect.objectContaining({
+          sourceKind: 'prepared-media',
+          assetId: 'prepared-video-aaaaaaaaaaaaaaaa-alpha',
+          kind: 'video-alpha',
+          width: 320,
+          height: 180,
+          contentHash: `sha256:${'e'.repeat(64)}`,
+          fetchProjectRelativePath: '.noveltea/build/prepared-media/a/alpha.webp',
         }),
       ]),
     );

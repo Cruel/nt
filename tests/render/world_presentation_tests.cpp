@@ -62,6 +62,43 @@ private:
     std::size_t m_pins = 0;
 };
 
+class ScriptedAlphaVideoStream final : public WorldVideoStream {
+public:
+    core::Result<std::optional<assets::AssetLease<assets::TextureAsset>>, core::Diagnostics>
+    sample(std::uint64_t time_ms) override
+    {
+        if (delayed)
+            return core::Result<std::optional<assets::AssetLease<assets::TextureAsset>>,
+                                core::Diagnostics>::success(std::nullopt);
+        page = time_ms < 50 ? 0u : 1u;
+        presented = true;
+        return core::Result<std::optional<assets::AssetLease<assets::TextureAsset>>,
+                            core::Diagnostics>::success(std::nullopt);
+    }
+    void suspend() noexcept override {}
+    assets::AssetRequestState state() const noexcept override
+    {
+        return assets::AssetRequestState::Ready;
+    }
+    bool has_alpha_mask() const noexcept override { return true; }
+    std::optional<Texture> alpha_mask() const noexcept override
+    {
+        return presented ? std::optional<Texture>{{91}} : std::nullopt;
+    }
+    bool alpha_hit(float u, float v) const noexcept override
+    {
+        return presented && u >= 0.0f && u <= 1.0f && v >= 0.0f && v <= 1.0f &&
+               (page == 0 ? (u >= 0.25f && u < 0.5f) : (u >= 0.5f && u < 0.75f));
+    }
+    bool sample_ready(std::uint64_t ms) const noexcept override
+    {
+        return presented && page == (ms < 50 ? 0u : 1u);
+    }
+    bool delayed = false;
+    bool presented = false;
+    unsigned page = 0;
+};
+
 class FakeWorldResources final : public WorldPresentationResourceResolver {
 public:
     void add_texture(const char* asset, std::uint16_t handle, std::uint16_t width,
@@ -130,6 +167,24 @@ public:
         if (const auto* image = std::get_if<compiled::ImageVisual>(&visual))
             return resolve(image->image, material, context);
         const auto& animation = std::get<compiled::AnimationVisual>(visual);
+        if (animation.animation.text() == "alpha-video") {
+            auto prepared = resolve(std::nullopt, material, context);
+            if (!prepared)
+                return prepared;
+            auto result = std::move(*prepared.value_if());
+            const auto first = m_textures.find("rain-a");
+            if (first == m_textures.end())
+                return Result<WorldPreparedVisual, Diagnostics>::failure(
+                    {{.code = "test.alpha_video_missing", .message = "missing color texture"}});
+            result.logical_size = Size{4.0f, 1.0f};
+            result.animation_key = "alpha-video";
+            result.animation_motion = id<AnimationMotionId>("motion");
+            result.animation_frames = {{50, first->second, std::nullopt},
+                                       {50, first->second, std::nullopt}};
+            result.texture = first->second;
+            result.video_stream = alpha_video;
+            return Result<WorldPreparedVisual, Diagnostics>::success(std::move(result));
+        }
         if (animation.animation.text() != "rain-animation")
             return Result<WorldPreparedVisual, Diagnostics>::failure(
                 {{.code = "test.world_animation_missing",
@@ -194,6 +249,8 @@ public:
         return Result<WorldPreparedHotspotResources, Diagnostics>::success(std::move(result));
     }
 
+    std::shared_ptr<ScriptedAlphaVideoStream> alpha_video =
+        std::make_shared<ScriptedAlphaVideoStream>();
     std::size_t resolve_calls = 0;
     std::size_t hotspot_resolve_calls = 0;
     bool fail_hotspot_resources = false;
@@ -1791,6 +1848,60 @@ TEST_CASE("animated visual-alpha follows the realized frame without a new snapsh
     CHECK(second_release.trigger_context->source_bounds->width == Catch::Approx(0.2));
 }
 
+TEST_CASE("video visual-alpha hits use displayed WebP page and ignore decoder delay and padding")
+{
+    FakeWorldResources resources;
+    resources.add_texture("rain-a", 21, 4, 1);
+    WorldPresentationBackend backend(resources);
+    WorldHotspotController controller(backend);
+    auto snapshot = base_snapshot();
+    snapshot.interactables.push_back(
+        {id<InteractableInstanceId>("video"),
+         {id<RoomId>("room"), id<RoomPlacementId>("place")},
+         {0, 0, 1, 1},
+         compiled::AnimationVisual{id<AnimationId>("alpha-video"), std::nullopt}});
+    snapshot.interactables.front().occurrence = id<RoomInteractableEntryId>("first");
+    const compiled::HotspotRef hotspot = compiled::InteractableHotspotRef{
+        id<InteractableInstanceId>("video"), id<HotspotId>("mask")};
+    snapshot.hotspots.push_back({hotspot, "Video", true, true, semantic_target("video"),
+                                 AlphaHotspotShape{}, 0, compiled::NoHotspotHighlight{},
+                                 std::nullopt, 4, 1});
+    snapshot.hotspots.front().interactable_occurrence = snapshot.interactables.front().occurrence;
+    snapshot.hotspots.front().interactable_placement = snapshot.interactables.front().placement;
+    REQUIRE(backend.reconcile(snapshot, {100, 100}));
+    auto hit = [&](float x) {
+        return controller
+            .handle({WorldPointerEventKind::MouseMove, {x, 50}, {x, 50}, 0, false, true})
+            .hit;
+    };
+    RuntimeClockUpdate clock;
+    backend.realize(clock);
+    REQUIRE(resources.alpha_video->presented);
+    REQUIRE(backend.frame()->base_batch.commands().front().video_alpha_mask.has_value());
+    CHECK_FALSE(hit(10)); // transparent left-side padding
+    CHECK(hit(37));       // opaque alpha texel on the displayed page
+    CHECK_FALSE(hit(62));
+    CHECK_FALSE(hit(90)); // transparent right-side padding
+
+    // A decoder behind the presentation clock must not advance hit coverage
+    // past the last color/alpha pair actually published to rendering.
+    resources.alpha_video->delayed = true;
+    clock.gameplay_time = std::chrono::milliseconds{75};
+    backend.realize(clock);
+    controller.realization_changed();
+    CHECK(hit(37));
+    CHECK_FALSE(hit(62));
+    CHECK(resources.alpha_video->page == 0u);
+
+    resources.alpha_video->delayed = false;
+    backend.realize(clock);
+    controller.realization_changed();
+    CHECK_FALSE(hit(37));
+    CHECK(hit(62));
+    CHECK(resources.alpha_video->page == 1u);
+    CHECK(backend.frame()->revision == snapshot.revision);
+}
+
 TEST_CASE("motion-keyed custom hotspot geometry follows animation time and inactive intervals")
 {
     FakeWorldResources resources;
@@ -2042,6 +2153,44 @@ TEST_CASE("world hotspot capture uses host-pixel slop and cancels on UI admissio
     CHECK_FALSE(canceled_touch_release.hit_test_performed);
     CHECK_FALSE(canceled_touch_release.hit);
     CHECK_FALSE(canceled_touch_release.target);
+}
+
+TEST_CASE("transparent video preserves mandatory authored Material validation")
+{
+    assets::AssetManager assets;
+    AssetWorldPresentationResourceResolver resolver(assets);
+    const auto animation = id<AnimationId>("alpha-motion");
+    const auto motion = id<AnimationMotionId>("idle");
+    const compiled::AnimationResource resource{animation,
+                                               {32, 16},
+                                               motion,
+                                               {{motion,
+                                                 {},
+                                                 {},
+                                                 compiled::AnimationMotionKind::Video,
+                                                 id<AssetId>("source"),
+                                                 compiled::VideoAnimationSourceRange{0, 200}}}};
+    const PreparedVideoMotion media{
+        animation,
+        motion,
+        std::string(64, 'a'),
+        {{"assets/.prepared-media/video/opaque.webm", 100}},
+        PreparedBrowserVideo{"assets/.prepared-media/video/opaque.webm", 32, 16},
+        PreparedVideoAlpha{"assets/.prepared-media/video/alpha.webp"}};
+    resolver.bind_catalog({.animations = {resource}, .prepared_video_motions = {media}});
+    const compiled::Visual visual{compiled::AnimationVisual{animation, motion}};
+    const auto authored = id<core::MaterialId>("authored");
+    const auto rejected = resolver.resolve_visual(visual, authored, "alpha-material");
+    REQUIRE_FALSE(rejected);
+    REQUIRE_FALSE(rejected.error().empty());
+    CHECK(rejected.error().front().code == "presentation.world_material_lease_missing");
+
+    auto opaque_media = media;
+    opaque_media.alpha_webp.reset();
+    resolver.bind_catalog({.animations = {resource}, .prepared_video_motions = {opaque_media}});
+    const auto opaque = resolver.resolve_visual(visual, authored, "opaque-material");
+    REQUIRE_FALSE(opaque);
+    CHECK(opaque.error().front().code == "presentation.world_material_lease_missing");
 }
 
 TEST_CASE("world hotspot capture revalidates release containment and presentation generation")
