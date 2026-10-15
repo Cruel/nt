@@ -1,29 +1,33 @@
 import { z } from 'zod';
+import { nativeCheck, nativeOperation } from './native-schema-operations';
 import { entityIdSchema } from './authoring-common';
 import { conditionSchema } from './authoring-flow';
 import { materialApplicationSchema } from './authoring-material-applications';
 
 const strict = <T extends z.ZodRawShape>(shape: T) => z.object(shape).strict();
 
-export const imageNormalizedRectSchema = strict({
-  x: z.number().finite().min(0).max(1),
-  y: z.number().finite().min(0).max(1),
-  width: z.number().finite().positive().max(1),
-  height: z.number().finite().positive().max(1),
-}).superRefine((bounds, context) => {
-  if (bounds.x + bounds.width > 1)
-    context.addIssue({
-      code: 'custom',
-      path: ['width'],
-      message: 'Rectangle exceeds image width.',
-    });
-  if (bounds.y + bounds.height > 1)
-    context.addIssue({
-      code: 'custom',
-      path: ['height'],
-      message: 'Rectangle exceeds image height.',
-    });
-});
+export const imageNormalizedRectSchema = nativeOperation(
+  'hotspot.bounds',
+  strict({
+    x: z.number().finite().min(0).max(1),
+    y: z.number().finite().min(0).max(1),
+    width: z.number().finite().positive().max(1),
+    height: z.number().finite().positive().max(1),
+  }).superRefine((bounds, context) => {
+    if (bounds.x + bounds.width > 1)
+      context.addIssue({
+        code: 'custom',
+        path: ['width'],
+        message: 'Rectangle exceeds image width.',
+      });
+    if (bounds.y + bounds.height > 1)
+      context.addIssue({
+        code: 'custom',
+        path: ['height'],
+        message: 'Rectangle exceeds image height.',
+      });
+  }),
+);
 
 export const hotspotMotionInterpolationSchema = z.enum(['hold', 'linear']);
 export const hotspotMotionKeyframeSchema = strict({
@@ -32,19 +36,22 @@ export const hotspotMotionKeyframeSchema = strict({
   active: z.boolean(),
   bounds: imageNormalizedRectSchema,
 });
-export const hotspotMotionTrackSchema = strict({
-  motionId: entityIdSchema,
-  keyframes: z.array(hotspotMotionKeyframeSchema).min(1),
-}).superRefine((track, context) => {
-  for (let index = 1; index < track.keyframes.length; index += 1) {
-    if (track.keyframes[index]!.timeMs <= track.keyframes[index - 1]!.timeMs)
-      context.addIssue({
-        code: 'custom',
-        path: ['keyframes', index, 'timeMs'],
-        message: 'Hotspot motion keyframe times must be strictly increasing.',
-      });
-  }
-});
+export const hotspotMotionTrackSchema = nativeOperation(
+  'hotspot.motion-track',
+  strict({
+    motionId: entityIdSchema,
+    keyframes: z.array(hotspotMotionKeyframeSchema).min(1),
+  }).superRefine((track, context) => {
+    for (let index = 1; index < track.keyframes.length; index += 1) {
+      if (track.keyframes[index]!.timeMs <= track.keyframes[index - 1]!.timeMs)
+        context.addIssue({
+          code: 'custom',
+          path: ['keyframes', index, 'timeMs'],
+          message: 'Hotspot motion keyframe times must be strictly increasing.',
+        });
+    }
+  }),
+);
 
 export const hotspotHighlightSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('default') }),
@@ -54,7 +61,7 @@ export const hotspotHighlightSchema = z.discriminatedUnion('kind', [
 
 export const hotspotCommonShape = {
   id: entityIdSchema,
-  label: z.string().check(z.trim(), z.minLength(1)),
+  label: z.string().check(nativeCheck('string.trim', z.trim()), z.minLength(1)),
   condition: conditionSchema,
   inputOrder: z.number().int().min(-2147483648).max(2147483647),
   highlight: hotspotHighlightSchema,

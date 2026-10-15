@@ -542,6 +542,7 @@ add_dependencies(cxx-policy public-header-probes)
 
 if(NOVELTEA_BUILD_HOST_TOOLS AND NOT EMSCRIPTEN AND NOT CMAKE_SYSTEM_NAME STREQUAL "Android")
     add_subdirectory(tools/editor_tool)
+    add_subdirectory(tools/project_authoring)
     if(NOVELTEA_BUILD_BENCHMARKS)
         add_subdirectory(tools/benchmark)
     endif()

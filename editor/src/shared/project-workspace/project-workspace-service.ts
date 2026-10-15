@@ -5,6 +5,7 @@ import {
   type AuthoringLuaSourceDescriptor,
 } from '../authoring-source-analysis';
 import { z } from 'zod';
+import { nativeOperation } from '../project-schema/native-schema-operations';
 import {
   yamlCommentImpacts,
   yamlCommentTokenMentions,
@@ -172,9 +173,9 @@ const editorLocalStateSchema = editorProjectStateSchema
   })
   .strict();
 
-const traitsWorkspaceSchema = z
-  .record(entityIdSchema, traitDefinitionSchema)
-  .superRefine((traits, ctx) => {
+const traitsWorkspaceSchema = nativeOperation(
+  'workspace.trait-key',
+  z.record(entityIdSchema, traitDefinitionSchema).superRefine((traits, ctx) => {
     for (const [key, trait] of Object.entries(traits))
       if (trait.id !== key)
         ctx.addIssue({
@@ -182,7 +183,8 @@ const traitsWorkspaceSchema = z
           path: [key, 'id'],
           message: `Trait id '${trait.id}' must match its map key '${key}'.`,
         });
-  });
+  }),
+);
 
 const trackedEditorOrganizationSchema = z
   .object({
@@ -438,6 +440,20 @@ const localizationAssetsLocaleFragmentSchema = z.record(
   z.string().min(1),
   localizationAssetTargetSchema,
 );
+
+export const projectWorkspaceSourceSchemas = {
+  WorkspaceManifest: workspaceManifestSchema,
+  WorkspaceTraitDeclarations: traitsWorkspaceSchema,
+  WorkspaceTrackedEditor: trackedEditorOrganizationSchema,
+  WorkspaceLocalEditor: editorLocalStateSchema,
+  WorkspaceLocalizationPolicy: localizationPolicyFragmentSchema,
+  WorkspaceLocalizationMessages: localizationMessagesFragmentSchema,
+  WorkspaceLocalizationUsageNotes: localizationUsageNotesFragmentSchema,
+  WorkspaceLocalizationTracking: localizationTrackingFragmentSchema,
+  WorkspaceLocalizationOrphans: localizationOrphansFragmentSchema,
+  WorkspaceLocalizationLocale: localizationTranslationSchema,
+  WorkspaceLocalizationAssets: localizationAssetsLocaleFragmentSchema,
+} as const;
 
 /** Local source-schema admission for explicit fmt compaction; never resolves Project references. */
 export function validateYamlCompactionSource(file: string, text: string): unknown {

@@ -1,0 +1,7 @@
+#pragma once
+#include <string_view>
+namespace noveltea::authoring {
+inline constexpr std::string_view contract_chunks[] = {
+@NOVELTEA_NATIVE_CONTRACT_CHUNKS@
+};
+}

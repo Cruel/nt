@@ -56,9 +56,8 @@ foreach(index RANGE 0 ${last_command})
         endif()
     endforeach()
 
-    # editor_tool is host/build tooling, not part of the shipped player/runtime graph. It embeds
-    # upstream shaderc and is intentionally allowed to use the host C++ exception/RTTI model.
-    if(source MATCHES "/tools/editor_tool/")
+    # Host compiler/schema tooling is isolated from players and uses the host exception/RTTI model.
+    if(source MATCHES "/tools/(editor_tool|project_authoring)/")
         set(is_first_party FALSE)
     endif()
 

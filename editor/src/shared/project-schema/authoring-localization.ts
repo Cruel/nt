@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeCheck, nativeOperation } from './native-schema-operations';
 import { cldrCardinalCategories } from '../cldr-cardinal-rules';
 import { withSchemaDocumentation } from './schema-documentation';
 import { isReservedSystemMessageKey, systemMessageDefinitionForKey } from './system-messages';
@@ -106,22 +107,25 @@ export function canonicalBcp47Locale(locale: string): string | null {
   return index === subtags.length ? canonical.join('-') : null;
 }
 
-export const localeIdSchema = z
-  .string()
-  .check(z.trim(), z.minLength(1, 'Locale is required.'))
-  .superRefine((locale, context) => {
-    const canonical = canonicalBcp47Locale(locale);
-    if (canonical === null)
-      context.addIssue({
-        code: 'custom',
-        message: `Locale '${locale}' is not a valid BCP 47 locale tag.`,
-      });
-    else if (canonical !== locale)
-      context.addIssue({
-        code: 'custom',
-        message: `Locale '${locale}' must be a canonical BCP 47 locale tag ('${canonical}').`,
-      });
-  });
+export const localeIdSchema = nativeOperation(
+  'localization.locale-id',
+  z
+    .string()
+    .check(nativeCheck('string.trim', z.trim()), z.minLength(1, 'Locale is required.'))
+    .superRefine((locale, context) => {
+      const canonical = canonicalBcp47Locale(locale);
+      if (canonical === null)
+        context.addIssue({
+          code: 'custom',
+          message: `Locale '${locale}' is not a valid BCP 47 locale tag.`,
+        });
+      else if (canonical !== locale)
+        context.addIssue({
+          code: 'custom',
+          message: `Locale '${locale}' must be a canonical BCP 47 locale tag ('${canonical}').`,
+        });
+    }),
+);
 export const messageIdSchema = z
   .string()
   .uuid('Message ID must be a UUID.')
@@ -146,7 +150,7 @@ export const localeDefinitionSchema = z
     supported: z.boolean(),
     parentLocale: localeIdSchema.nullable(),
     fontStack: z.array(fontAssetRefSchema).nullable(),
-    displayName: z.string().trim().min(1).optional(),
+    displayName: nativeOperation('string.trim', z.string().trim()).min(1).optional(),
   })
   .strict();
 
@@ -183,36 +187,42 @@ export const messagePatternSchema: z.ZodType<MessagePattern> = withSchemaDocumen
     .lazy(() =>
       z.discriminatedUnion('kind', [
         z.object({ kind: z.literal('text'), text: z.string() }).strict(),
-        z
-          .object({
-            kind: z.literal('plural'),
-            argument: messageSelectorArgumentSchema,
-            cases: z.partialRecord(pluralCaseKeySchema, messagePatternSchema),
-          })
-          .strict()
-          .superRefine((pattern, context) => {
-            if (!Object.hasOwn(pattern.cases, 'other'))
-              context.addIssue({
-                code: 'custom',
-                path: ['cases', 'other'],
-                message: "Plural Message selector requires an 'other' case.",
-              });
-          }),
-        z
-          .object({
-            kind: z.literal('select'),
-            argument: messageSelectorArgumentSchema,
-            cases: z.record(z.string().min(1), messagePatternSchema),
-          })
-          .strict()
-          .superRefine((pattern, context) => {
-            if (!Object.hasOwn(pattern.cases, 'other'))
-              context.addIssue({
-                code: 'custom',
-                path: ['cases', 'other'],
-                message: "Select Message selector requires an 'other' fallback.",
-              });
-          }),
+        nativeOperation(
+          'localization.pattern.select',
+          z
+            .object({
+              kind: z.literal('plural'),
+              argument: messageSelectorArgumentSchema,
+              cases: z.partialRecord(pluralCaseKeySchema, messagePatternSchema),
+            })
+            .strict()
+            .superRefine((pattern, context) => {
+              if (!Object.hasOwn(pattern.cases, 'other'))
+                context.addIssue({
+                  code: 'custom',
+                  path: ['cases', 'other'],
+                  message: "Plural Message selector requires an 'other' case.",
+                });
+            }),
+        ),
+        nativeOperation(
+          'localization.pattern.plural',
+          z
+            .object({
+              kind: z.literal('select'),
+              argument: messageSelectorArgumentSchema,
+              cases: z.record(z.string().min(1), messagePatternSchema),
+            })
+            .strict()
+            .superRefine((pattern, context) => {
+              if (!Object.hasOwn(pattern.cases, 'other'))
+                context.addIssue({
+                  code: 'custom',
+                  path: ['cases', 'other'],
+                  message: "Select Message selector requires an 'other' fallback.",
+                });
+            }),
+        ),
       ]),
     )
     .meta({ title: 'MessagePattern' }),
@@ -478,222 +488,232 @@ export function hasSubstantiveLocalizationWork(localization: {
   );
 }
 
-export const authoringLocalizationSchema = z
-  .object({
-    sourceLocale: localeIdSchema,
-    sourceLocaleLock: localeIdSchema.nullable().default(null),
-    defaultLocale: localeIdSchema,
-    locales: z.record(localeIdSchema, localeDefinitionSchema),
-    messages: z.record(messageIdSchema, authoringMessageSchema),
-    structuredMessageIds: z.record(z.string().min(1), messageIdSchema),
-    usageNotes: z.record(z.string().min(1), z.string()),
-    sourceMessageTracking: z.record(z.string().min(1), sourceMessageTrackingEntrySchema),
-    orphanedMessages: z.record(messageIdSchema, orphanedLocalizationMessageSchema),
-    translations: z.record(localeIdSchema, localizationTranslationSchema),
-    assets: localizationAssetTargetsSchema,
-  })
-  .strict()
-  .superRefine((localization, context) => {
-    if (!Object.hasOwn(localization.locales, localization.sourceLocale)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['locales', localization.sourceLocale],
-        message: `Source locale '${localization.sourceLocale}' must be declared.`,
-      });
-    }
-    if (localization.sourceLocaleLock !== null) {
-      if (!Object.hasOwn(localization.locales, localization.sourceLocaleLock))
-        context.addIssue({
-          code: 'custom',
-          path: ['sourceLocaleLock'],
-          message: `Source locale lock '${localization.sourceLocaleLock}' must be a declared locale.`,
-        });
-      if (localization.sourceLocaleLock !== localization.sourceLocale)
-        context.addIssue({
-          code: 'custom',
-          path: ['sourceLocale'],
-          message: `Source locale cannot change from locked locale '${localization.sourceLocaleLock}' after substantive localization work exists.`,
-        });
-    }
-
-    if (!Object.hasOwn(localization.locales, localization.defaultLocale)) {
-      context.addIssue({
-        code: 'custom',
-        path: ['locales', localization.defaultLocale],
-        message: `Default locale '${localization.defaultLocale}' must be declared.`,
-      });
-    } else if (!localization.locales[localization.defaultLocale]?.supported) {
-      context.addIssue({
-        code: 'custom',
-        path: ['locales', localization.defaultLocale, 'supported'],
-        message: `Default locale '${localization.defaultLocale}' must be Supported.`,
-      });
-    }
-
-    for (const [trackingKey, entry] of Object.entries(localization.sourceMessageTracking)) {
-      const expectedKey = `${entry.family}:${entry.ownerKey}:${entry.sourcePath}`;
-      if (trackingKey !== expectedKey)
-        context.addIssue({
-          code: 'custom',
-          path: ['sourceMessageTracking', trackingKey],
-          message: `Source Message tracking key must be '${expectedKey}'.`,
-        });
-    }
-
-    for (const [messageId, orphan] of Object.entries(localization.orphanedMessages)) {
-      if (orphan.occurrence.messageId !== messageId)
-        context.addIssue({
-          code: 'custom',
-          path: ['orphanedMessages', messageId, 'occurrence', 'messageId'],
-          message: `Orphaned Message key '${messageId}' must match its occurrence Message ID.`,
-        });
-      for (const locale of Object.keys(orphan.translations))
-        if (!Object.hasOwn(localization.locales, locale) || locale === localization.sourceLocale)
+export const authoringLocalizationSchema = nativeOperation(
+  'localization.lock-source',
+  nativeOperation(
+    'localization.validate',
+    z
+      .object({
+        sourceLocale: localeIdSchema,
+        sourceLocaleLock: localeIdSchema.nullable().default(null),
+        defaultLocale: localeIdSchema,
+        locales: z.record(localeIdSchema, localeDefinitionSchema),
+        messages: z.record(messageIdSchema, authoringMessageSchema),
+        structuredMessageIds: z.record(z.string().min(1), messageIdSchema),
+        usageNotes: z.record(z.string().min(1), z.string()),
+        sourceMessageTracking: z.record(z.string().min(1), sourceMessageTrackingEntrySchema),
+        orphanedMessages: z.record(messageIdSchema, orphanedLocalizationMessageSchema),
+        translations: z.record(localeIdSchema, localizationTranslationSchema),
+        assets: localizationAssetTargetsSchema,
+      })
+      .strict()
+      .superRefine((localization, context) => {
+        if (!Object.hasOwn(localization.locales, localization.sourceLocale)) {
           context.addIssue({
             code: 'custom',
-            path: ['orphanedMessages', messageId, 'translations', locale],
-            message: `Orphaned Message translation locale '${locale}' must be a declared target locale.`,
+            path: ['locales', localization.sourceLocale],
+            message: `Source locale '${localization.sourceLocale}' must be declared.`,
           });
-    }
-
-    const namedKeys = new Map<string, string>();
-    for (const [messageId, message] of Object.entries(localization.messages)) {
-      const argumentNames = new Set(Object.keys(message.arguments ?? {}));
-      const placeholders = new Set(messagePlaceholderNames(message.source));
-      if (message.pattern)
-        messagePatternPlaceholderNames(message.pattern).forEach((name) => placeholders.add(name));
-      for (const placeholder of placeholders)
-        if (!argumentNames.has(placeholder))
-          context.addIssue({
-            code: 'custom',
-            path: ['messages', messageId, message.pattern ? 'pattern' : 'source'],
-            message: `Message placeholder '{${placeholder}}' requires a declared argument.`,
-          });
-      if (message.pattern) {
-        for (const selector of messagePatternSelectorContracts(message.pattern)) {
-          const expectedType = selector.kind === 'plural' ? 'plural-number' : 'string';
-          if (message.arguments?.[selector.argument] !== expectedType)
+        }
+        if (localization.sourceLocaleLock !== null) {
+          if (!Object.hasOwn(localization.locales, localization.sourceLocaleLock))
             context.addIssue({
               code: 'custom',
-              path: ['messages', messageId, 'arguments', selector.argument],
-              message: `Message ${selector.kind} selector '${selector.argument}' requires argument type '${expectedType}'.`,
+              path: ['sourceLocaleLock'],
+              message: `Source locale lock '${localization.sourceLocaleLock}' must be a declared locale.`,
+            });
+          if (localization.sourceLocaleLock !== localization.sourceLocale)
+            context.addIssue({
+              code: 'custom',
+              path: ['sourceLocale'],
+              message: `Source locale cannot change from locked locale '${localization.sourceLocaleLock}' after substantive localization work exists.`,
             });
         }
-        for (const gap of messagePatternPluralCategoryGaps(
-          message.pattern,
-          localization.sourceLocale,
-        ))
-          context.addIssue({
-            code: 'custom',
-            path: ['messages', messageId, 'pattern'],
-            message: `Plural selector '${gap.argument}' requires '${gap.category}' for locale '${localization.sourceLocale}'.`,
-          });
-      }
-      if (message.kind !== 'named') continue;
-      const systemMessage = systemMessageDefinitionForKey(message.key);
-      if (isReservedSystemMessageKey(message.key) && !systemMessage) {
-        context.addIssue({
-          code: 'custom',
-          path: ['messages', messageId, 'key'],
-          message: `Named Message key '${message.key}' is reserved for engine-owned NovelTea Messages.`,
-        });
-      }
-      if (systemMessage) {
-        const authoredArguments = Object.entries(message.arguments ?? {}).sort(([left], [right]) =>
-          left.localeCompare(right),
-        );
-        const systemArguments = Object.entries(systemMessage.arguments).sort(([left], [right]) =>
-          left.localeCompare(right),
-        );
-        if (JSON.stringify(authoredArguments) !== JSON.stringify(systemArguments))
-          context.addIssue({
-            code: 'custom',
-            path: ['messages', messageId, 'arguments'],
-            message: `System Message '${message.key}' must preserve its engine-owned argument contract.`,
-          });
-      }
-      const previous = namedKeys.get(message.key);
-      if (previous) {
-        context.addIssue({
-          code: 'custom',
-          path: ['messages', messageId, 'key'],
-          message: `Named Message key '${message.key}' is already used by Message '${previous}'.`,
-        });
-      } else namedKeys.set(message.key, messageId);
-    }
 
-    for (const [locale, definition] of Object.entries(localization.locales)) {
-      if (definition.parentLocale !== null) {
-        if (!Object.hasOwn(localization.locales, definition.parentLocale)) {
+        if (!Object.hasOwn(localization.locales, localization.defaultLocale)) {
           context.addIssue({
             code: 'custom',
-            path: ['locales', locale, 'parentLocale'],
-            message: `Parent locale '${definition.parentLocale}' must be declared.`,
+            path: ['locales', localization.defaultLocale],
+            message: `Default locale '${localization.defaultLocale}' must be declared.`,
           });
-        } else if (definition.parentLocale === locale) {
+        } else if (!localization.locales[localization.defaultLocale]?.supported) {
           context.addIssue({
             code: 'custom',
-            path: ['locales', locale, 'parentLocale'],
-            message: 'A locale cannot inherit from itself.',
+            path: ['locales', localization.defaultLocale, 'supported'],
+            message: `Default locale '${localization.defaultLocale}' must be Supported.`,
           });
         }
-      }
-    }
 
-    for (const locale of Object.keys(localization.locales)) {
-      const visited = new Set<string>();
-      let current: string | null = locale;
-      while (current !== null && Object.hasOwn(localization.locales, current)) {
-        if (visited.has(current)) {
-          context.addIssue({
-            code: 'custom',
-            path: ['locales', locale, 'parentLocale'],
-            message: `Locale inheritance for '${locale}' contains a cycle.`,
-          });
-          break;
+        for (const [trackingKey, entry] of Object.entries(localization.sourceMessageTracking)) {
+          const expectedKey = `${entry.family}:${entry.ownerKey}:${entry.sourcePath}`;
+          if (trackingKey !== expectedKey)
+            context.addIssue({
+              code: 'custom',
+              path: ['sourceMessageTracking', trackingKey],
+              message: `Source Message tracking key must be '${expectedKey}'.`,
+            });
         }
-        visited.add(current);
-        current = localization.locales[current]?.parentLocale ?? null;
-      }
-    }
 
-    for (const locale of Object.keys(localization.translations)) {
-      if (!Object.hasOwn(localization.locales, locale)) {
-        context.addIssue({
-          code: 'custom',
-          path: ['translations', locale],
-          message: `Translation locale '${locale}' must be declared.`,
-        });
-      }
-      if (locale === localization.sourceLocale) {
-        context.addIssue({
-          code: 'custom',
-          path: ['translations', locale],
-          message: 'Source locale text is stored on Messages, not as target translations.',
-        });
-      }
-    }
+        for (const [messageId, orphan] of Object.entries(localization.orphanedMessages)) {
+          if (orphan.occurrence.messageId !== messageId)
+            context.addIssue({
+              code: 'custom',
+              path: ['orphanedMessages', messageId, 'occurrence', 'messageId'],
+              message: `Orphaned Message key '${messageId}' must match its occurrence Message ID.`,
+            });
+          for (const locale of Object.keys(orphan.translations))
+            if (
+              !Object.hasOwn(localization.locales, locale) ||
+              locale === localization.sourceLocale
+            )
+              context.addIssue({
+                code: 'custom',
+                path: ['orphanedMessages', messageId, 'translations', locale],
+                message: `Orphaned Message translation locale '${locale}' must be a declared target locale.`,
+              });
+        }
 
-    for (const locale of Object.keys(localization.assets)) {
-      if (!Object.hasOwn(localization.locales, locale))
-        context.addIssue({
-          code: 'custom',
-          path: ['assets', locale],
-          message: `Localized Asset locale '${locale}' must be declared.`,
-        });
-      if (locale === localization.sourceLocale)
-        context.addIssue({
-          code: 'custom',
-          path: ['assets', locale],
-          message: 'Source locale uses semantic base Assets directly.',
-        });
-    }
-  })
-  .transform((localization) =>
+        const namedKeys = new Map<string, string>();
+        for (const [messageId, message] of Object.entries(localization.messages)) {
+          const argumentNames = new Set(Object.keys(message.arguments ?? {}));
+          const placeholders = new Set(messagePlaceholderNames(message.source));
+          if (message.pattern)
+            messagePatternPlaceholderNames(message.pattern).forEach((name) =>
+              placeholders.add(name),
+            );
+          for (const placeholder of placeholders)
+            if (!argumentNames.has(placeholder))
+              context.addIssue({
+                code: 'custom',
+                path: ['messages', messageId, message.pattern ? 'pattern' : 'source'],
+                message: `Message placeholder '{${placeholder}}' requires a declared argument.`,
+              });
+          if (message.pattern) {
+            for (const selector of messagePatternSelectorContracts(message.pattern)) {
+              const expectedType = selector.kind === 'plural' ? 'plural-number' : 'string';
+              if (message.arguments?.[selector.argument] !== expectedType)
+                context.addIssue({
+                  code: 'custom',
+                  path: ['messages', messageId, 'arguments', selector.argument],
+                  message: `Message ${selector.kind} selector '${selector.argument}' requires argument type '${expectedType}'.`,
+                });
+            }
+            for (const gap of messagePatternPluralCategoryGaps(
+              message.pattern,
+              localization.sourceLocale,
+            ))
+              context.addIssue({
+                code: 'custom',
+                path: ['messages', messageId, 'pattern'],
+                message: `Plural selector '${gap.argument}' requires '${gap.category}' for locale '${localization.sourceLocale}'.`,
+              });
+          }
+          if (message.kind !== 'named') continue;
+          const systemMessage = systemMessageDefinitionForKey(message.key);
+          if (isReservedSystemMessageKey(message.key) && !systemMessage) {
+            context.addIssue({
+              code: 'custom',
+              path: ['messages', messageId, 'key'],
+              message: `Named Message key '${message.key}' is reserved for engine-owned NovelTea Messages.`,
+            });
+          }
+          if (systemMessage) {
+            const authoredArguments = Object.entries(message.arguments ?? {}).sort(
+              ([left], [right]) => left.localeCompare(right),
+            );
+            const systemArguments = Object.entries(systemMessage.arguments).sort(
+              ([left], [right]) => left.localeCompare(right),
+            );
+            if (JSON.stringify(authoredArguments) !== JSON.stringify(systemArguments))
+              context.addIssue({
+                code: 'custom',
+                path: ['messages', messageId, 'arguments'],
+                message: `System Message '${message.key}' must preserve its engine-owned argument contract.`,
+              });
+          }
+          const previous = namedKeys.get(message.key);
+          if (previous) {
+            context.addIssue({
+              code: 'custom',
+              path: ['messages', messageId, 'key'],
+              message: `Named Message key '${message.key}' is already used by Message '${previous}'.`,
+            });
+          } else namedKeys.set(message.key, messageId);
+        }
+
+        for (const [locale, definition] of Object.entries(localization.locales)) {
+          if (definition.parentLocale !== null) {
+            if (!Object.hasOwn(localization.locales, definition.parentLocale)) {
+              context.addIssue({
+                code: 'custom',
+                path: ['locales', locale, 'parentLocale'],
+                message: `Parent locale '${definition.parentLocale}' must be declared.`,
+              });
+            } else if (definition.parentLocale === locale) {
+              context.addIssue({
+                code: 'custom',
+                path: ['locales', locale, 'parentLocale'],
+                message: 'A locale cannot inherit from itself.',
+              });
+            }
+          }
+        }
+
+        for (const locale of Object.keys(localization.locales)) {
+          const visited = new Set<string>();
+          let current: string | null = locale;
+          while (current !== null && Object.hasOwn(localization.locales, current)) {
+            if (visited.has(current)) {
+              context.addIssue({
+                code: 'custom',
+                path: ['locales', locale, 'parentLocale'],
+                message: `Locale inheritance for '${locale}' contains a cycle.`,
+              });
+              break;
+            }
+            visited.add(current);
+            current = localization.locales[current]?.parentLocale ?? null;
+          }
+        }
+
+        for (const locale of Object.keys(localization.translations)) {
+          if (!Object.hasOwn(localization.locales, locale)) {
+            context.addIssue({
+              code: 'custom',
+              path: ['translations', locale],
+              message: `Translation locale '${locale}' must be declared.`,
+            });
+          }
+          if (locale === localization.sourceLocale) {
+            context.addIssue({
+              code: 'custom',
+              path: ['translations', locale],
+              message: 'Source locale text is stored on Messages, not as target translations.',
+            });
+          }
+        }
+
+        for (const locale of Object.keys(localization.assets)) {
+          if (!Object.hasOwn(localization.locales, locale))
+            context.addIssue({
+              code: 'custom',
+              path: ['assets', locale],
+              message: `Localized Asset locale '${locale}' must be declared.`,
+            });
+          if (locale === localization.sourceLocale)
+            context.addIssue({
+              code: 'custom',
+              path: ['assets', locale],
+              message: 'Source locale uses semantic base Assets directly.',
+            });
+        }
+      }),
+  ).transform((localization) =>
     localization.sourceLocaleLock === null && hasSubstantiveLocalizationWork(localization)
       ? { ...localization, sourceLocaleLock: localization.sourceLocale }
       : localization,
-  );
+  ),
+);
 
 export type AuthoringMessage = z.infer<typeof authoringMessageSchema>;
 export type DialogueCuePlacement = z.infer<typeof dialogueCuePlacementSchema>;

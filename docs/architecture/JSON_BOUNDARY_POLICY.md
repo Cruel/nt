@@ -30,6 +30,13 @@ and typed engine/runtime interfaces do not retain a JSON DOM. A new implementati
 using the library merely because its containing module already links it; the new codec/adapter seam
 must be admitted explicitly (or represented by a fully documented temporary allowlist entry).
 
+The certification-only native authoring adapter `tools/project_authoring/contracts.cpp` is the sole
+approved jsoncons implementation boundary. Its host-only dependency remains private; no jsoncons
+header or type may appear in generated structural types, public authoring interfaces, engine code,
+or players. The checker covers jsoncons and jsoncons_ext includes (quoted or bracketed) and type
+names in addition to nlohmann. See [Native Project schema contracts](NATIVE_AUTHORING_CONTRACTS.md)
+for the JSON Schema adapter and its failure policy.
+
 JSON decoding mechanics are concentrated in the content-owned `engine/src/core/json_decoder.hpp`.
 That module owns checked member lookup, scalar conversion, object/array validation, JSON-pointer
 construction, and diagnostic accumulation on top of `json_access`. Artifact codecs retain their own

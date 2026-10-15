@@ -35,6 +35,9 @@ file(GLOB_RECURSE NOVELTEA_FORMAT_SOURCES
     "${SOURCE_ROOT}/tools/benchmark/*.cpp"
     "${SOURCE_ROOT}/tools/benchmark/*.h"
     "${SOURCE_ROOT}/tools/benchmark/*.hpp"
+    "${SOURCE_ROOT}/tools/project_authoring/*.cpp"
+    "${SOURCE_ROOT}/tools/project_authoring/*.h"
+    "${SOURCE_ROOT}/tools/project_authoring/*.hpp"
 )
 list(SORT NOVELTEA_FORMAT_SOURCES)
 

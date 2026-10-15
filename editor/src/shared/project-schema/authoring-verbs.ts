@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import { entityIdPattern, entityIdSchema } from './authoring-common';
 import { conditionSchema, interactableRefSchema, textContentSchema } from './authoring-flow';
 import { interactionSubjectSchema } from './authoring-features';
@@ -17,12 +18,15 @@ const traitRefSchema = strict({
   $ref: strict({ collection: z.literal('traits'), id: entityIdSchema }),
 });
 
-const qualifiedPatternSchema = z
-  .string()
-  .min(2)
-  .refine((value) => value.endsWith('*') && !value.slice(0, -1).includes('*'), {
-    message: 'Qualified subject patterns must contain exactly one trailing wildcard.',
-  });
+const qualifiedPatternSchema = nativeOperation(
+  'verb.qualified-pattern',
+  z
+    .string()
+    .min(2)
+    .refine((value) => value.endsWith('*') && !value.slice(0, -1).includes('*'), {
+      message: 'Qualified subject patterns must contain exactly one trailing wildcard.',
+    }),
+);
 
 export const subjectSelectorSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('any-subject') }),
@@ -96,113 +100,118 @@ export function validateCompletedCommandTemplate(
 }
 
 export const verbDataSchema = withSchemaDocumentation(
-  strict({
-    kind: z.literal('verb'),
-    slots: z.array(verbSlotSchema),
-    bindingOrder: withSchemaDocumentation(z.array(entityIdSchema), {
-      description:
-        'Every slot once, in progressive selection order. Final bindings are named by slotId, not array position; the same live subject may fill multiple slots.',
-    }),
-    actionText: textContentSchema,
-    completedCommandText: textContentSchema,
-    offers: withSchemaDocumentation(z.array(verbOfferSchema), {
-      description:
-        'Explicit subject-first discovery declarations with their own selectors; rule-derived Offers instead reuse their starting rule slot selectors. Missing published Offers do not prohibit direct complete-command submission.',
-      examples: [
-        {
-          title: 'Exact false Offer suppresses the broad Offer for the same Verb',
-          value: [
-            {
-              id: 'broad',
-              slotId: 'object',
-              selectors: [{ kind: 'any-subject' }],
-              rank: 0,
-              primary: false,
-            },
-            {
-              id: 'suppressed',
-              slotId: 'object',
-              selectors: [
-                {
-                  kind: 'exact',
-                  subject: {
-                    kind: 'interactable',
-                    interactable: { $ref: { registry: 'interactableInstances', id: 'sealed-box' } },
+  nativeOperation(
+    'verb.validate',
+    strict({
+      kind: z.literal('verb'),
+      slots: z.array(verbSlotSchema),
+      bindingOrder: withSchemaDocumentation(z.array(entityIdSchema), {
+        description:
+          'Every slot once, in progressive selection order. Final bindings are named by slotId, not array position; the same live subject may fill multiple slots.',
+      }),
+      actionText: textContentSchema,
+      completedCommandText: textContentSchema,
+      offers: withSchemaDocumentation(z.array(verbOfferSchema), {
+        description:
+          'Explicit subject-first discovery declarations with their own selectors; rule-derived Offers instead reuse their starting rule slot selectors. Missing published Offers do not prohibit direct complete-command submission.',
+        examples: [
+          {
+            title: 'Exact false Offer suppresses the broad Offer for the same Verb',
+            value: [
+              {
+                id: 'broad',
+                slotId: 'object',
+                selectors: [{ kind: 'any-subject' }],
+                rank: 0,
+                primary: false,
+              },
+              {
+                id: 'suppressed',
+                slotId: 'object',
+                selectors: [
+                  {
+                    kind: 'exact',
+                    subject: {
+                      kind: 'interactable',
+                      interactable: {
+                        $ref: { registry: 'interactableInstances', id: 'sealed-box' },
+                      },
+                    },
                   },
-                },
-              ],
-              condition: { kind: 'not', condition: { kind: 'always' } },
-              rank: 10,
-              primary: false,
-            },
-          ],
-        },
-      ],
-    }),
-    availability: conditionSchema,
-    defaultProgram: interactionProgramSchema,
-  }).superRefine((value, context) => {
-    const ids = value.slots.map((slot) => slot.id);
-    if (new Set(ids).size !== ids.length)
-      context.addIssue({
-        code: 'custom',
-        path: ['slots'],
-        message: 'Verb slot IDs must be unique.',
-      });
-    if (
-      value.bindingOrder.length !== ids.length ||
-      new Set(value.bindingOrder).size !== value.bindingOrder.length ||
-      value.bindingOrder.some((id) => !ids.includes(id))
-    )
-      context.addIssue({
-        code: 'custom',
-        path: ['bindingOrder'],
-        message: 'Binding order must contain every Verb slot exactly once.',
-      });
-    const slotIds = new Set(ids);
-    const offerIds = value.offers.map((offer) => offer.id);
-    if (new Set(offerIds).size !== offerIds.length)
-      context.addIssue({
-        code: 'custom',
-        path: ['offers'],
-        message: 'Verb Offer IDs must be unique.',
-      });
-    value.offers.forEach((offer, index) => {
-      if (!slotIds.has(offer.slotId))
+                ],
+                condition: { kind: 'not', condition: { kind: 'always' } },
+                rank: 10,
+                primary: false,
+              },
+            ],
+          },
+        ],
+      }),
+      availability: conditionSchema,
+      defaultProgram: interactionProgramSchema,
+    }).superRefine((value, context) => {
+      const ids = value.slots.map((slot) => slot.id);
+      if (new Set(ids).size !== ids.length)
         context.addIssue({
           code: 'custom',
-          path: ['offers', index, 'slotId'],
-          message: `Verb Offer slot '${offer.slotId}' must name a Verb slot.`,
+          path: ['slots'],
+          message: 'Verb slot IDs must be unique.',
         });
-    });
-    if (value.completedCommandText.source.kind === 'inline') {
-      const message = validateCompletedCommandTemplate(
-        value.completedCommandText.source.text,
-        slotIds,
-      );
-      if (message)
+      if (
+        value.bindingOrder.length !== ids.length ||
+        new Set(value.bindingOrder).size !== value.bindingOrder.length ||
+        value.bindingOrder.some((id) => !ids.includes(id))
+      )
         context.addIssue({
           code: 'custom',
-          path: ['completedCommandText', 'source', 'text'],
-          message,
+          path: ['bindingOrder'],
+          message: 'Binding order must contain every Verb slot exactly once.',
         });
-    }
-    value.slots.forEach((slot, index) => {
-      for (const [field, text] of [
-        ['label', slot.label],
-        ['prompt', slot.prompt],
-      ] as const) {
-        if (text.source.kind !== 'inline') continue;
-        const message = validateVerbNamedTemplate(text.source.text, slotIds, `Slot ${field}`);
+      const slotIds = new Set(ids);
+      const offerIds = value.offers.map((offer) => offer.id);
+      if (new Set(offerIds).size !== offerIds.length)
+        context.addIssue({
+          code: 'custom',
+          path: ['offers'],
+          message: 'Verb Offer IDs must be unique.',
+        });
+      value.offers.forEach((offer, index) => {
+        if (!slotIds.has(offer.slotId))
+          context.addIssue({
+            code: 'custom',
+            path: ['offers', index, 'slotId'],
+            message: `Verb Offer slot '${offer.slotId}' must name a Verb slot.`,
+          });
+      });
+      if (value.completedCommandText.source.kind === 'inline') {
+        const message = validateCompletedCommandTemplate(
+          value.completedCommandText.source.text,
+          slotIds,
+        );
         if (message)
           context.addIssue({
             code: 'custom',
-            path: ['slots', index, field, 'source', 'text'],
+            path: ['completedCommandText', 'source', 'text'],
             message,
           });
       }
-    });
-  }),
+      value.slots.forEach((slot, index) => {
+        for (const [field, text] of [
+          ['label', slot.label],
+          ['prompt', slot.prompt],
+        ] as const) {
+          if (text.source.kind !== 'inline') continue;
+          const message = validateVerbNamedTemplate(text.source.text, slotIds, `Slot ${field}`);
+          if (message)
+            context.addIssue({
+              code: 'custom',
+              path: ['slots', index, field, 'source', 'text'],
+              message,
+            });
+        }
+      });
+    }),
+  ),
   {
     examples: [
       {

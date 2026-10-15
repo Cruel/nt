@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeCheck } from './native-schema-operations';
 import { withSchemaDocumentation } from './schema-documentation';
 import { parseAssetData } from './authoring-assets';
 import { entityIdSchema } from './authoring-common';
@@ -204,7 +205,7 @@ export const roomScriptHookMappingSchema = strict({
   hook: z.enum(roomScriptHookKindValues),
   handler: strict({
     module: roomScriptRefSchema,
-    export: z.string().check(z.trim(), z.minLength(1)),
+    export: z.string().check(nativeCheck('string.trim', z.trim()), z.minLength(1)),
   }),
 });
 export const roomExitDataSchema = strict({

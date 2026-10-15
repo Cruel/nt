@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeCheck, nativeOperation } from './native-schema-operations';
 import { isSafeProjectAttachmentPath } from './authoring-assets';
 import { parseAssetData } from './authoring-assets';
 import {
@@ -90,7 +91,10 @@ export const projectTitleScreenSettingsSchema = z
   })
   .strict();
 
-const optionalTrimmedString = z.string().check(z.trim(), z.minLength(1)).optional();
+const optionalTrimmedString = z
+  .string()
+  .check(nativeCheck('string.trim', z.trim()), z.minLength(1))
+  .optional();
 const positiveBuildNumber = z.number().int().positive();
 const identityColorSchema = z
   .string()
@@ -107,7 +111,7 @@ export const applicationIdPattern = /^[a-z][a-z0-9]*(?:\.[a-z][a-z0-9-]*)+$/;
 export const applicationIdSchema = z
   .string()
   .check(
-    z.trim(),
+    nativeCheck('string.trim', z.trim()),
     z.regex(
       applicationIdPattern,
       'Application ID must be a reverse-DNS identifier such as com.example.game.',
@@ -116,7 +120,9 @@ export const applicationIdSchema = z
 
 export const projectAppSettingsSchema = z
   .object({
-    displayName: z.string().check(z.trim(), z.minLength(1, 'Display name is required.')),
+    displayName: z
+      .string()
+      .check(nativeCheck('string.trim', z.trim()), z.minLength(1, 'Display name is required.')),
     shortName: optionalTrimmedString,
     publisher: optionalTrimmedString,
     copyright: optionalTrimmedString,
@@ -124,8 +130,12 @@ export const projectAppSettingsSchema = z
     defaultLocale: optionalTrimmedString,
     localized: z.record(z.string(), localizedAppIdentitySchema).default({}),
     applicationId: applicationIdSchema,
-    saveNamespace: z.string().check(z.trim(), z.minLength(1, 'Save namespace is required.')),
-    versionName: z.string().check(z.trim(), z.minLength(1, 'Version name is required.')),
+    saveNamespace: z
+      .string()
+      .check(nativeCheck('string.trim', z.trim()), z.minLength(1, 'Save namespace is required.')),
+    versionName: z
+      .string()
+      .check(nativeCheck('string.trim', z.trim()), z.minLength(1, 'Version name is required.')),
     buildNumber: positiveBuildNumber.optional(),
     icon: imageAssetRefSchema.default(null),
     iconBackgroundColor: identityColorSchema.optional(),
@@ -269,16 +279,18 @@ export const typedProjectSettingsSchema = z
       .array(
         z
           .object({
-            path: z
-              .string()
-              .refine(isSafeProjectAttachmentPath, 'Notice must have a safe Project path.')
-              .refine((value) => /\.(?:txt|md)$/i.test(value), 'Notice must be .txt or .md.')
-              .describe(
-                'Safe Project-relative path to an original UTF-8 plain-text notice file; .txt and .md only, at most 1 MiB.',
-              ),
-            displayName: z
-              .string()
-              .trim()
+            path: nativeOperation(
+              'project.notice-extension',
+              nativeOperation(
+                'project.notice-path',
+                z
+                  .string()
+                  .refine(isSafeProjectAttachmentPath, 'Notice must have a safe Project path.'),
+              ).refine((value) => /\.(?:txt|md)$/i.test(value), 'Notice must be .txt or .md.'),
+            ).describe(
+              'Safe Project-relative path to an original UTF-8 plain-text notice file; .txt and .md only, at most 1 MiB.',
+            ),
+            displayName: nativeOperation('string.trim', z.string().trim())
               .min(1)
               .max(256)
               .optional()

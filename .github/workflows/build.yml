@@ -77,6 +77,17 @@ jobs:
         run: pnpm install --frozen-lockfile
       - name: Verify Material contract projections
         run: node scripts/generate-material-contract-registry.mjs --check
+      - name: Verify native Project schema projections
+        run: node editor/scripts/generate-native-schema.mjs --check
+      - name: Build committed host contracts without Node generation
+        run: |
+          cmake -S tools/project_authoring -B build/native-authoring -DCMAKE_BUILD_TYPE=Release
+          cmake --build build/native-authoring
+          ctest --test-dir build/native-authoring --output-on-failure
+      - name: Certify native and Zod Project contract parity
+        env:
+          NOVELTEA_SCHEMA_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-schema-certify
+        run: pnpm -C editor exec vp test run src/renderer/test/native-schema-generation.test.ts src/renderer/test/native-schema-parity.test.ts
       - name: Set up coverage contract reporter
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:

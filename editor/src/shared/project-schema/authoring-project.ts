@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import {
   AUTHORING_PROJECT_SCHEMA,
   authoringCollectionKeys,
@@ -57,14 +58,17 @@ export const authoringProjectSchema = z
     entrypoint: projectEntrypointSchema.nullable().default(null),
     prefetchHints: z.record(entityIdSchema, prefetchHintSchema).default({}),
     traits: z.record(entityIdSchema, traitDefinitionSchema).default({}),
-    inventories: z
-      .tuple([inventoryDefinitionSchema])
-      .refine(
-        ([inventory]) =>
-          inventory.id === DEFAULT_PROJECT_INVENTORY.id &&
-          inventory.label === DEFAULT_PROJECT_INVENTORY.label,
-        { message: 'Project Inventory must use the canonical inventory/Inventory identity.' },
-      ),
+    inventories: nativeOperation(
+      'project.canonical-inventory',
+      z
+        .tuple([inventoryDefinitionSchema])
+        .refine(
+          ([inventory]) =>
+            inventory.id === DEFAULT_PROJECT_INVENTORY.id &&
+            inventory.label === DEFAULT_PROJECT_INVENTORY.label,
+          { message: 'Project Inventory must use the canonical inventory/Inventory identity.' },
+        ),
+    ),
     interactableInstances: z.record(entityIdSchema, interactableInstanceDataSchema),
     localization: authoringLocalizationSchema.default(defaultAuthoringLocalization()),
     editor: editorProjectStateSchema.default(emptyEditorProjectState),
