@@ -153316,5 +153316,94 @@
       "type": "object",
       "x-native-node": "n2683"
     }
+  },
+  "sourceDefaults": {
+    "rooms": {
+      "data.anchors": [],
+      "data.background": {
+        "asset": null,
+        "color": null,
+        "fit": "cover",
+        "materialApplication": null
+      },
+      "data.cast": [],
+      "data.cast.*.condition": {
+        "kind": "always"
+      },
+      "data.cast.*.expressionId": null,
+      "data.cast.*.idleId": null,
+      "data.cast.*.order": 0,
+      "data.cast.*.poseId": null,
+      "data.cast.*.visible": true,
+      "data.description": {
+        "markup": "active-text",
+        "source": {
+          "kind": "inline",
+          "text": ""
+        }
+      },
+      "data.environments": [],
+      "data.environments.*.clock": "gameplay",
+      "data.environments.*.condition": {
+        "kind": "always"
+      },
+      "data.environments.*.opacity": 1,
+      "data.environments.*.order": 0,
+      "data.environments.*.plane": "world-content",
+      "data.environments.*.scrollPerSecond": {
+        "x": 0,
+        "y": 0
+      },
+      "data.environments.*.visible": true,
+      "data.exits": [],
+      "data.exits.*.condition": {
+        "kind": "always"
+      },
+      "data.exits.*.onRejected": [],
+      "data.fallbackInteractablePlacementId": null,
+      "data.features": [],
+      "data.hotspots": [],
+      "data.interactables": [],
+      "data.interactables.*.condition": {
+        "kind": "always"
+      },
+      "data.interactables.*.order": 0,
+      "data.interactables.*.visible": true,
+      "data.lifecycle": {
+        "afterEnter": [],
+        "afterLeave": [],
+        "beforeEnter": [],
+        "beforeLeave": [],
+        "canEnter": {
+          "kind": "always"
+        },
+        "canLeave": {
+          "kind": "always"
+        },
+        "onEnterRejected": [],
+        "onLeaveRejected": []
+      },
+      "data.overlays": [],
+      "data.overlays.*.condition": {
+        "kind": "always"
+      },
+      "data.overlays.*.order": 0,
+      "data.overlays.*.visible": true,
+      "data.placements": [],
+      "data.presentationSpace.bounds": null,
+      "data.presentationSpace.defaultView.rotationDegrees": 0,
+      "data.presentationSpace.defaultView.zoom": 1,
+      "data.presentationSpace.edgePolicy": "contain",
+      "data.presentationSpace.views": [],
+      "data.props": [],
+      "data.props.*.asset": null,
+      "data.props.*.condition": {
+        "kind": "always"
+      },
+      "data.props.*.materialApplication": null,
+      "data.props.*.order": 0,
+      "data.props.*.visible": true,
+      "data.scriptHooks": []
+    }
   }
 }

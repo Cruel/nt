@@ -42,6 +42,8 @@ registerHooks({
 
 const { generateNativeContracts, canonicalJson } = await import('./native-schema/generate.ts');
 const { nativeSchemaSources } = await import('./native-schema/sources.ts');
+const { sparseRecordYamlSourceDefaults } =
+  await import('../src/shared/project-workspace/sparse-record-yaml-source.ts');
 const { types, ...contracts } = generateNativeContracts(nativeSchemaSources);
 const outputIndex = process.argv.indexOf('--output');
 if (outputIndex !== -1 && !process.argv[outputIndex + 1])
@@ -54,7 +56,11 @@ const files = new Map([
   ['project_types.hpp', types],
   [
     'contracts.json',
-    canonicalJson({ schema: 'noveltea.native-authoring-contracts', ...contracts }),
+    canonicalJson({
+      schema: 'noveltea.native-authoring-contracts',
+      ...contracts,
+      sourceDefaults: { rooms: sparseRecordYamlSourceDefaults('rooms') },
+    }),
   ],
   [
     'operations.hpp',

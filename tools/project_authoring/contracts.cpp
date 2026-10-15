@@ -6,12 +6,14 @@
 #include <jsoncons_ext/jsonschema/jsonschema.hpp>
 
 #include <algorithm>
+#include <cmath>
 #include <cstdint>
 #include <limits>
 #include <map>
 #include <optional>
 #include <set>
 #include <stdexcept>
+#include <string_view>
 #include <vector>
 
 namespace noveltea::authoring {
@@ -77,9 +79,70 @@ std::string lua_dependency_key(const Json& target)
     return fields.to_string();
 }
 
-const std::set<std::string> implemented_operations{"value.default", "string.trim",
-                                                   "string.utf16-length", "lua.dependencies.unique",
-                                                   "lua.dependencies.empty"};
+const std::set<std::string> implemented_operations{
+    "value.default",           "string.trim",
+    "string.utf16-length",     "lua.dependencies.unique",
+    "lua.dependencies.empty",  "animation.loop-range",
+    "hotspot.bounds",          "material.application-parameter",
+    "property.default-unique", "property.default-value",
+    "property.local-unique",   "property.local-value"};
+
+bool property_value_compatible(const Json& property, const Json& value)
+{
+    if (value.is_null())
+        return property.at("nullable").as<bool>();
+    const auto type = property.at("type").as<std::string>();
+    if (type == "boolean")
+        return value.is_bool();
+    if (type == "integer")
+        return value.is_number() && std::isfinite(value.as<double>()) &&
+               std::trunc(value.as<double>()) == value.as<double>();
+    if (type == "number")
+        return value.is_number() && std::isfinite(value.as<double>());
+    if (type == "string")
+        return value.is_string();
+    if (type == "message")
+        return value.is_object() && value.size() == 1 && value.contains("$message") &&
+               value.at("$message").is_string();
+    if (type == "enum") {
+        if (!value.is_string() || !property.contains("enumValues"))
+            return false;
+        for (const auto& option : property.at("enumValues").array_range())
+            if (option == value)
+                return true;
+    }
+    return false;
+}
+
+bool uniform_value_compatible(std::string_view type, const Json& value)
+{
+    if (value.is_null())
+        return true;
+    if (type == "bool")
+        return value.is_bool();
+    if (type == "float")
+        return value.is_number() && std::isfinite(value.as<double>());
+    if (type == "int")
+        return value.is_number() && std::isfinite(value.as<double>()) &&
+               std::trunc(value.as<double>()) == value.as<double>() &&
+               std::abs(value.as<double>()) <= 16777216;
+    const auto expected = type == "vec2" ? 2U : type == "vec3" ? 3U : 4U;
+    if ((type == "vec2" || type == "vec3" || type == "vec4" || type == "color") &&
+        value.is_array() && value.size() == expected) {
+        for (const auto& member : value.array_range())
+            if (!member.is_number() || !std::isfinite(member.as<double>()))
+                return false;
+        return true;
+    }
+    if (type == "color" && value.is_object() && value.size() == 4) {
+        for (const auto* component : {"r", "g", "b", "a"})
+            if (!value.contains(component) || !value.at(component).is_number() ||
+                !std::isfinite(value.at(component).as<double>()))
+                return false;
+        return true;
+    }
+    return false;
+}
 
 std::string trim_ecmascript(std::string value)
 {
@@ -212,6 +275,66 @@ class Validator {
                           "Duplicate explicit Lua dependency target.");
                 ++index;
             }
+        } else if (id == "animation.loop-range") {
+            if (value && value->is_object() && value->contains("loopRange") &&
+                value->at("repeat") != "loop")
+                issue(errors, path + "/loopRange", "semantic." + id,
+                      "A loop range requires loop playback.");
+        } else if (id == "hotspot.bounds") {
+            if (!value || !value->is_object())
+                return;
+            const auto& bounds = *value;
+            if (bounds.at("x").as<double>() + bounds.at("width").as<double>() > 1)
+                issue(errors, path + "/width", "semantic." + id, "Rectangle exceeds image width.");
+            if (bounds.at("y").as<double>() + bounds.at("height").as<double>() > 1)
+                issue(errors, path + "/height", "semantic." + id,
+                      "Rectangle exceeds image height.");
+        } else if (id == "material.application-parameter") {
+            if (!value || !value->is_object())
+                return;
+            const auto& source = value->at("source");
+            if (source.at("kind") == "literal" &&
+                !uniform_value_compatible(value->at("type").as<std::string>(), source.at("value")))
+                issue(errors, path + "/source/value", "semantic." + id,
+                      "Literal value is incompatible with the Material parameter type.");
+        } else if (id == "property.default-unique" || id == "property.local-unique") {
+            if (!value || !value->is_array())
+                return;
+            std::set<std::string> seen;
+            std::size_t index = 0;
+            for (const auto& property : value->array_range()) {
+                const auto property_id = property.at("id").as<std::string>();
+                if (!seen.insert(property_id).second)
+                    issue(errors, path + "/" + std::to_string(index) + "/id", "semantic." + id,
+                          "Property is declared more than once on this owner.");
+                ++index;
+            }
+        } else if (id == "property.default-value" || id == "property.local-value") {
+            if (!value || !value->is_object())
+                return;
+            const auto& property = *value;
+            const auto type = property.at("type").as<std::string>();
+            if (type == "enum") {
+                if (!property.contains("enumValues") || property.at("enumValues").empty())
+                    issue(errors, path + "/enumValues", "semantic." + id,
+                          "Enum properties require at least one enum value.");
+                else {
+                    std::set<std::string> seen;
+                    for (const auto& entry : property.at("enumValues").array_range())
+                        if (!seen.insert(entry.as<std::string>()).second) {
+                            issue(errors, path + "/enumValues", "semantic." + id,
+                                  "Enum property values must be unique.");
+                            break;
+                        }
+                }
+            } else if (property.contains("enumValues")) {
+                issue(errors, path + "/enumValues", "semantic." + id,
+                      "enumValues is valid only for enum properties.");
+            }
+            const auto key = id == "property.local-value" ? "value" : "defaultValue";
+            if (property.contains(key) && !property_value_compatible(property, property.at(key)))
+                issue(errors, path + "/" + key, "semantic." + id,
+                      "Property value does not match its declaration.");
         } else {
             throw std::runtime_error("Native operation is not implemented: " + id);
         }
@@ -424,6 +547,192 @@ public:
         }
     }
 };
+
+// Source-only Room projection uses metadata generated from the TypeScript sparse
+// YAML contract and the same generated schema graph as the native validator.
+// No independent handwritten Room type hierarchy or default table lives here.
+class RoomSourceProjection {
+    const Contracts& contracts_;
+    const Json& defaults_;
+    const std::string condition_id_;
+
+    const Json& node(std::string_view id) const { return contracts_.document.at("nodes").at(id); }
+
+    std::string unwrap(std::string id) const
+    {
+        for (unsigned int i = 0; i < 64; ++i) {
+            const auto& current = node(id);
+            const auto kind = current.at("type").as<std::string>();
+            if (kind == "lazy" || kind == "optional" || kind == "nullable" || kind == "default")
+                id = current.at("children").at("inner").as<std::string>();
+            else if (kind == "pipe")
+                id = current.at("children").at("in").as<std::string>();
+            else
+                return id;
+        }
+        throw std::runtime_error("Room projection wrapper depth exceeded.");
+    }
+
+    Value fallback(const std::vector<std::string>& path) const
+    {
+        for (std::size_t prefix = path.size(); prefix > 0; --prefix) {
+            std::string key;
+            for (std::size_t i = 0; i < prefix; ++i) {
+                if (i)
+                    key += '.';
+                key += path[i];
+            }
+            if (!defaults_.contains(key))
+                continue;
+            const Json* current = &defaults_.at(key);
+            for (std::size_t i = prefix; i < path.size(); ++i) {
+                if (!current->is_object() || !current->contains(path[i])) {
+                    current = nullptr;
+                    break;
+                }
+                current = &current->at(path[i]);
+            }
+            if (current)
+                return *current;
+        }
+        return std::nullopt;
+    }
+
+    std::optional<std::string> reference_collection(const Json& definition) const
+    {
+        if (definition.at("type") != "object" || !definition.at("children").contains("$ref"))
+            return std::nullopt;
+        const auto& ref = node(unwrap(definition.at("children").at("$ref").as<std::string>()));
+        if (ref.at("type") != "object" || !ref.at("children").contains("collection"))
+            return std::nullopt;
+        const auto& collection =
+            node(unwrap(ref.at("children").at("collection").as<std::string>()));
+        if (collection.at("type") == "literal" && collection.at("values").size() == 1 &&
+            collection.at("values").at(0).is_string())
+            return collection.at("values").at(0).as<std::string>();
+        return std::nullopt;
+    }
+
+    std::optional<std::string> union_choice(const Json& definition, const Json& value) const
+    {
+        if (!value.is_object())
+            return std::nullopt;
+        std::optional<std::string> selected;
+        for (const auto& option : definition.at("children").object_range()) {
+            const auto& branch = node(unwrap(option.value().as<std::string>()));
+            if (branch.at("type") != "object")
+                continue;
+            bool matches = false;
+            for (const auto& field : branch.at("children").object_range()) {
+                if (!value.contains(field.key()))
+                    continue;
+                const auto& candidate = node(unwrap(field.value().as<std::string>()));
+                if (candidate.at("type") != "literal")
+                    continue;
+                for (const auto& tag : candidate.at("values").array_range())
+                    matches |= tag == value.at(field.key());
+            }
+            if (matches) {
+                if (selected)
+                    return std::nullopt;
+                selected = option.value().as<std::string>();
+            }
+        }
+        return selected;
+    }
+
+    void project(Value& value, const std::string& id, std::vector<std::string>& path,
+                 unsigned int depth) const
+    {
+        if (depth > 128)
+            throw std::runtime_error("Room source projection depth exceeded.");
+        if (!value)
+            value = fallback(path);
+        if (!value)
+            return;
+        if (id == condition_id_ && value->is_string() && *value == "always") {
+            value = Json::parse(R"({"kind":"always"})");
+            return;
+        }
+        const auto& current = node(id);
+        const auto kind = current.at("type").as<std::string>();
+        const auto& children = current.at("children");
+        if (kind == "lazy" || kind == "optional" || kind == "nullable" || kind == "default") {
+            if (!value->is_null())
+                project(value, children.at("inner").as<std::string>(), path, depth + 1);
+            return;
+        }
+        if (kind == "pipe") {
+            project(value, children.at("in").as<std::string>(), path, depth + 1);
+            return;
+        }
+        if (const auto collection = reference_collection(current);
+            collection && value->is_string()) {
+            Json reference = Json::object();
+            reference["collection"] = *collection;
+            reference["id"] = *value;
+            Json expanded = Json::object();
+            expanded["$ref"] = std::move(reference);
+            value = std::move(expanded);
+            return;
+        }
+        if (kind == "union") {
+            if (const auto branch = union_choice(current, *value))
+                project(value, *branch, path, depth + 1);
+            return;
+        }
+        if (kind == "object" && value->is_object()) {
+            if (path.size() == 1 && path[0] == "data")
+                value->insert_or_assign("kind", "room");
+            for (const auto& child : children.object_range()) {
+                if (child.key() == "$catchall")
+                    continue;
+                Value member;
+                if (value->contains(child.key()))
+                    member = value->at(child.key());
+                path.emplace_back(child.key());
+                project(member, child.value().as<std::string>(), path, depth + 1);
+                path.pop_back();
+                if (member)
+                    value->insert_or_assign(child.key(), *member);
+            }
+        } else if (kind == "array" && value->is_array()) {
+            path.emplace_back("*");
+            for (auto& entry : value->array_range()) {
+                Value member = entry;
+                project(member, children.at("element").as<std::string>(), path, depth + 1);
+                if (member)
+                    entry = *member;
+            }
+            path.pop_back();
+        } else if (kind == "record" && value->is_object()) {
+            path.emplace_back("*");
+            for (auto& entry : value->object_range()) {
+                Value member = entry.value();
+                project(member, children.at("value").as<std::string>(), path, depth + 1);
+                if (member)
+                    entry.value() = *member;
+            }
+            path.pop_back();
+        }
+    }
+
+public:
+    explicit RoomSourceProjection(const Contracts& contracts)
+        : contracts_(contracts), defaults_(contracts.document.at("sourceDefaults").at("rooms")),
+          condition_id_(contracts.document.at("roots").at("Condition").as<std::string>())
+    {
+    }
+
+    Json project(Json source) const
+    {
+        Value value = std::move(source);
+        std::vector<std::string> path;
+        project(value, contracts_.document.at("roots").at("RoomsRecord").as<std::string>(), path,
+                0);
+        return std::move(*value);
+    }
+};
 } // namespace
 
 ValidationResult validate_record(std::string_view contract, std::string_view source_json)
@@ -450,6 +759,27 @@ ValidationResult validate_record(std::string_view contract, std::string_view sou
         result.diagnostics.push_back({"", "contract.failure", error.what()});
     }
     return result;
+}
+
+ValidationResult validate_room_source(std::string_view source_json)
+{
+    try {
+        static const Contracts contracts;
+        Json source = Json::parse(source_json);
+        if (source.is_object() && source.contains("data") && source.at("data").is_object() &&
+            source.at("data").contains("kind")) {
+            ValidationResult invalid;
+            invalid.diagnostics.push_back({"/data/kind", "source.redundant_kind",
+                                           "Room YAML must omit the inferred data.kind field."});
+            return invalid;
+        }
+        return validate_record("RoomsRecord",
+                               RoomSourceProjection(contracts).project(source).to_string());
+    } catch (const std::exception& error) {
+        ValidationResult invalid;
+        invalid.diagnostics.push_back({"", "source.projection", error.what()});
+        return invalid;
+    }
 }
 
 std::string validation_result_json(const ValidationResult& result)

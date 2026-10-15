@@ -1,6 +1,7 @@
 #include "yaml_codec.hpp"
 
 #include <jsoncons/json.hpp>
+#include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
 
 #include <algorithm>
 #include <cctype>
@@ -541,11 +542,15 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
     auto* key = pair ? fy_node_pair_key(pair) : nullptr;
     auto* node = find_node(parsed.root(), parts);
     const bool remove_leading = key && !is_first_root_key(parsed.root(), parent, key);
-    const auto replacement = Json::parse(edit.value_json);
+    const auto replacement =
+        edit.operation == YamlEditOperation::Remove ? Json::null() : Json::parse(edit.value_json);
     const auto default_value = edit.omission_default_json
                                    ? std::optional<Json>(Json::parse(*edit.omission_default_json))
                                    : std::nullopt;
     if (!node) {
+        if (edit.operation == YamlEditOperation::Remove ||
+            edit.operation == YamlEditOperation::Replace)
+            throw SourceFailure("YAML edit target does not exist: " + edit.path);
         // This is an explicit sparse omission, not an implicit JSON null.
         if (default_value && replacement == *default_value)
             return std::string(source);
@@ -566,7 +571,10 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
         auto first_at = mark_offset(fy_node_get_start_token(first_key));
         if (!end || !first_at || *end > source.size())
             throw SourceFailure("Cannot locate block mapping insertion boundary.");
-        auto at = after_line(source, *end);
+        // Composite block end marks point to the following sibling's line,
+        // whereas scalar end marks end within their own physical line.
+        auto at =
+            fy_node_is_scalar(last_value) ? after_line(source, *end) : start_of_line(source, *end);
         const auto indent = *first_at - start_of_line(source, *first_at);
         std::string added(indent, ' ');
         const auto& name = parts.back();
@@ -584,6 +592,8 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
         result.insert(at, added);
         return result;
     }
+    if (edit.operation == YamlEditOperation::Add && parent && fy_node_is_sequence(parent))
+        throw SourceFailure("YAML sequence insertion needs structural reconciliation.");
     Json previous = before;
     for (const auto& part : parts) {
         if (previous.is_object() && previous.contains(part)) {
@@ -595,9 +605,46 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
         } else
             throw SourceFailure("YAML edit path has no source value.");
     }
-    if (previous == replacement)
+    if (previous == replacement && edit.operation != YamlEditOperation::Remove)
         return std::string(source);
     const bool commented = has_physical_comment(source, node, key);
+    if (edit.operation == YamlEditOperation::Remove) {
+        if (!pair || !parent || fy_node_get_style(parent) == FYNS_FLOW)
+            throw SourceFailure("Cannot safely remove a non-mapping YAML entry.");
+        if (commented && edit.comments == YamlCommentDisposition::Keep)
+            throw SourceFailure("Removing an annotated field requires Remove disposition.");
+        const auto key_at = mark_offset(fy_node_get_start_token(key));
+        const auto finish = mark_offset(fy_node_get_end_token(node), true);
+        if (!key_at || !finish || start_of_line(source, *key_at) != start_of_line(source, *finish))
+            throw SourceFailure("Removing a multi-line YAML mapping field is unsupported.");
+        const auto leading = annotation_start(
+            source, *key_at, edit.comments == YamlCommentDisposition::Remove && remove_leading);
+        const auto line_start = start_of_line(source, *key_at);
+        const auto prefix = source.substr(line_start, *key_at - line_start);
+        const auto dash = prefix.find_first_not_of(" \t");
+        const bool sequence_entry =
+            dash != std::string_view::npos && prefix[dash] == '-' &&
+            prefix.find_first_not_of(" \t", dash + 1) == std::string_view::npos;
+        std::string result(source);
+        if (sequence_entry) {
+            if (leading != line_start)
+                throw SourceFailure("Cannot remove annotations preceding a sequence marker.");
+            void* cursor = nullptr;
+            std::size_t members = 0;
+            while (fy_node_mapping_iterate(parent, &cursor))
+                ++members;
+            std::string retained = std::string(prefix.substr(0, dash + 1));
+            if (members == 1)
+                retained += " {}";
+            if (after_line(source, *finish) > *finish &&
+                source[after_line(source, *finish) - 1] == '\n')
+                retained += '\n';
+            result.replace(line_start, after_line(source, *finish) - line_start, retained);
+        } else {
+            result.erase(leading, after_line(source, *finish) - leading);
+        }
+        return result;
+    }
     if (default_value && replacement == *default_value && pair &&
         (edit.comments == YamlCommentDisposition::Remove || !commented)) {
         if (parent && fy_node_get_style(parent) == FYNS_FLOW)
@@ -702,8 +749,15 @@ YamlSourceResult edit_yaml_source(std::string_view source, const std::vector<Yam
             const auto new_json = Json::parse(checked.source_json);
             if (!same_outside_path(old_json, new_json, parts))
                 throw SourceFailure("YAML edit changed an unrelated value or container type.");
-            const auto replacement = Json::parse(edit.value_json);
+            const auto replacement = edit.operation == YamlEditOperation::Remove
+                                         ? Json::null()
+                                         : Json::parse(edit.value_json);
             const auto* final_value = json_at_path(new_json, parts);
+            if (edit.operation == YamlEditOperation::Remove) {
+                if (final_value)
+                    throw SourceFailure("YAML removal still contains the selected field.");
+                continue;
+            }
             if (final_value) {
                 if (*final_value != replacement)
                     throw SourceFailure("YAML edit did not produce the requested value.");

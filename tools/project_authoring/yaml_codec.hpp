@@ -32,6 +32,13 @@ enum class YamlCommentDisposition {
     Remove
 };
 
+enum class YamlEditOperation {
+    Upsert,
+    Add,
+    Replace,
+    Remove
+};
+
 struct YamlValueEdit {
     std::string path;
     // JSON literal, not YAML. A replacement is interpreted in source space (bare typed refs,
@@ -41,6 +48,7 @@ struct YamlValueEdit {
     // If the new value is this declared source omission default, omit an unannotated key.
     // Commented defaults remain explicitly present for Keep, as in #449.
     std::optional<std::string> omission_default_json;
+    YamlEditOperation operation = YamlEditOperation::Upsert;
 };
 
 // Parallel certification-only host codec: no production writer, schema or workspace authority.

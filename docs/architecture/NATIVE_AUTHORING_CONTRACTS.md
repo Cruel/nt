@@ -48,6 +48,47 @@ with the #449 restricted YAML reader and sparse Room codec, including an actual 
 Room, nested typed reference edits, comments, retained defaults, unsafe scalars, and source
 reopen equivalence. The existing TypeScript implementation remains authoritative.
 
+## Native resident Room session proof (#477)
+
+`room_session.hpp` adds a **parallel single-Room Project session** opened from an existing
+`records/rooms/<id>.yaml` file. It owns the admitted physical disk bytes/revision and a
+separate dirty working JSON record plus monotonically increasing working revision. Generic
+RFC 6901 add/replace/remove batches are applied transactionally to a copied working value:
+bad pointers, malformed JSON, missing targets, and stale working revisions leave state
+unchanged. A successful change publishes the affected `rooms/<id>` owner and a diagnostic
+addition/removal delta; read-only validation never rewrites source. Representable invalid
+IDs remain in working state with a scoped `room.id_mismatch` diagnostic.
+Such a mismatch is not writable: Save rejects it without changing disk, even though
+dirty working state and the repair diagnostic remain available.
+
+Explicit single-Room Save checks the caller's admitted disk revision and compares complete
+source bytes against the baseline, then applies queued edits with the #476 source-aware
+codec. The source must reopen with the exact intended **explicit** values or Save fails
+without discarding dirty state. Supported map-field insertions, scalar replacements and
+safe map-field removals preserve other YAML fields and comments. Complex annotated subtree
+rewrites and structural sequence insertions/removals fail closed rather than risking source
+corruption. A staged file is renamed only after a second byte-exact revision check. This
+is a one-source certification path, **not** the complete cross-process lock, multi-file
+transaction, journal, or external reconciliation coordinator planned in later #474 tickets.
+Source revisions use the same `sha256:<hex>` byte digest as the TypeScript
+Project Workspace; exact disk CAS authorization also depends on the full byte comparison.
+
+For #477, the generator imports the existing TypeScript Room sparse-source omission
+defaults into committed `contracts.json`. The native source projection uses the generated
+schema graph for typed references, Condition scalar shorthand, family-inferred `data.kind`,
+nested omissions and variant branches before validating the expanded record. The native
+registry implements the Room-reachable semantic operations for local/default Property
+declarations, Hotspot bounds, loop playback and Material parameter literals. Valid Rooms
+return their actual native normalized values; invalid Room fields produce scoped native
+diagnostics and remain editable without forced Save. This is **Room-only** source admission:
+other Project families and cross-record analysis await later #474 tickets. The existing
+TypeScript/Zod path remains authoritative in production. `noveltea-room-session-certify`
+exercises a real Feature Lab Room through open, dirty patching, semantic diagnostics,
+scoped save, reopen, removal, revision rejection, and byte-preserving comments; the
+optional `native-room-session-parity.test.ts` compares the actual native normalized
+saved result to TypeScript/Zod normalization and checks the session's actual affected-record
+delta. No editor, CLI or runtime path uses the native session yet.
+
 ## Generation
 
 Run from the repository root:
@@ -68,7 +109,7 @@ reference-document exporter's deliberately permissive `unrepresentable: 'any'` b
 Committed outputs under `tools/project_authoring/generated/` are deterministic:
 
 - `contracts.json`: structural JSON Schemas, node/child relationships, ordered check stages, roots,
-  semantic operation references, and literal defaults;
+  semantic operation references, literal defaults, and Room sparse-source omissions;
 - `project_types.hpp`: C++20 structural records, enums (with exact numeric/boolean literal values), tagged `std::variant` unions, optional fields,
   arrays, maps, and boxed recursive nodes, without a JSON-library dependency;
 - `operations.hpp`: stable native operation IDs and kinds.
@@ -133,10 +174,12 @@ cmake --build build/native-authoring
 ctest --test-dir build/native-authoring --output-on-failure
 NOVELTEA_SCHEMA_CERTIFY="$PWD/build/native-authoring/noveltea-schema-certify" \
 NOVELTEA_YAML_CERTIFY="$PWD/build/native-authoring/noveltea-yaml-certify" \
+NOVELTEA_ROOM_SESSION_CERTIFY="$PWD/build/native-authoring/noveltea-room-session-certify" \
   pnpm -C editor exec vp test run \
   src/renderer/test/native-schema-generation.test.ts \
   src/renderer/test/native-schema-parity.test.ts \
-  src/renderer/test/native-yaml-parity.test.ts
+  src/renderer/test/native-yaml-parity.test.ts \
+  src/renderer/test/native-room-session-parity.test.ts
 ```
 
 The normal host-tools graph also builds the library and certification executable. Web, Android, and
