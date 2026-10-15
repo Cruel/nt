@@ -87,8 +87,9 @@ owning scenario implements them.
 All configurations emitted in reports use exactly this shape.
 
 Results use `noveltea.benchmark.result` version 1, containing the full
-configuration, source commit and tracked-source dirty flag, build type/compiler, platform/SDL video driver,
-bgfx backend and available GPU identifiers, workload description and
+configuration, source commit, tracked-source dirty flag, source fingerprint SHA-256,
+build type/compiler, platform/SDL video driver, bgfx backend and available GPU
+identifiers, workload description and
 per-trial phase/outcome/reason, measured counts and duration, and aggregate
 statistics. They distinguish `complete`, `partial`, and `failed` suites.
 Each successful trial and aggregate has mean/min/max/p50/p95/p99/standard
@@ -107,7 +108,20 @@ GPU execution, bgfx synchronization counters, driver version, and displayed
 frame count are `null` where unavailable, never inferred from the
 duration of `bgfx::frame()`. Cleanup and any asynchronous completion work
 are excluded from measured samples. Incomplete trials retain their actual
-observed frame counts but do not contribute to successful aggregates.
+observed frame counts but do not contribute to successful aggregates. Scenario
+cleanup returns an explicit success/failure and diagnostic. If teardown fails,
+the trial fails even if measurement completed; prior preparation/frame errors
+remain in the reason, followed by the cleanup error. Failed trials do not
+publish successful distributions or contribute to aggregates.
+
+Source identity is generated into a build-local header **at build time** and
+compiled into the binary. Building again after advancing HEAD or modifying
+tracked sources regenerates the header only if its content changes; CMake
+reconfiguration is not required. The fingerprint hashes the commit identity
+and tracked diff, distinguishing successive dirty builds of the same commit.
+These fields identify the binary as built, not the checkout at report export
+time. Git-unavailable builds label their revision/fingerprint unavailable and
+the tracked-source dirty value `null`, rather than claiming a clean build.
 
 ## Validation and GPU requirements
 
@@ -119,8 +133,11 @@ ctest --test-dir build/linux-benchmark-debug -R '^noveltea_benchmark_' --output-
 ```
 
 Deterministic runner tests use synthetic scenarios/clock to validate readiness
-timeouts, phase boundaries, repeats, cleanup, failures, and continuation.
-Report/config tests validate exact current-only input, failure/null metadata,
+timeouts, phase boundaries, repeats, cleanup errors, original-error preservation,
+and continuation. The source-identity test uses an isolated Git fixture to
+exercise tracked modifications, HEAD changes without a reconfigure, and stable
+header timestamps on unchanged builds. Report/config tests validate exact
+current-only input, failure/null metadata,
 and statistics independent of GPU performance. The Linux graphics CTest
 uses Xvfb when available for functional smoke **only**, never a hardware
 performance baseline. No FPS thresholds are imposed.

@@ -171,7 +171,11 @@ struct EmptyBgfxScenario final : Scenario {
         return true;
     }
     bool complete(std::string&) override { return true; }
-    void cleanup() override { graphics.shutdown(); }
+    bool cleanup(std::string&) override
+    {
+        graphics.shutdown();
+        return true; // SDL/bgfx shutdown has no recoverable failure return.
+    }
 
     bool poll(std::string& reason)
     {

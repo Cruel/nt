@@ -1,4 +1,5 @@
 #include "benchmark_report.hpp"
+#include "benchmark_source_identity.hpp"
 
 #include <nlohmann/json.hpp>
 
@@ -220,6 +221,7 @@ std::string encode_result(const Options& options, const Environment& environment
           {"type", NOVELTEA_BENCHMARK_BUILD_TYPE},
           {"compiler", NOVELTEA_BENCHMARK_COMPILER},
           {"tracked_source_dirty", NOVELTEA_BENCHMARK_SOURCE_DIRTY},
+          {"source_fingerprint_sha256", NOVELTEA_BENCHMARK_SOURCE_FINGERPRINT},
           {"devtools", false}}},
         {"graphics", graphics},
         {"timing",

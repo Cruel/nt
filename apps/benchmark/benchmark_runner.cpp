@@ -26,6 +26,7 @@ TrialResult run_trial(const Options& options, Scenario& scenario, Clock& clock,
 {
     TrialResult trial;
     std::string reason;
+    bool results_ready = false;
     trial.phases.push_back(Phase::Preparation);
     // Even failed preparation may have acquired partial scenario resources.
     const bool prepared = scenario.prepare(options, reason);
@@ -106,24 +107,38 @@ TrialResult run_trial(const Options& options, Scenario& scenario, Clock& clock,
                     }
                 }
                 if (measured) {
-                    trial.outcome = "complete";
                     trial.phases.push_back(Phase::Results);
-                    std::vector<FrameSample> measured_samples(
-                        samples.begin(),
-                        samples.begin() + static_cast<std::ptrdiff_t>(trial.measured_frames));
-                    trial.wall_frame = summarize(measured_samples, true);
-                    trial.cpu_operation = summarize(measured_samples, false);
-                    if (options.raw_samples)
-                        trial.raw_samples = std::move(measured_samples);
+                    results_ready = true;
                 }
             }
         }
     }
-    if (trial.outcome != "complete") {
-        trial.reason = reason.empty() ? "scenario preparation failed" : reason;
-    }
     trial.phases.push_back(Phase::Cleanup);
-    scenario.cleanup();
+    if (results_ready)
+        reason.clear(); // A successful scenario may have returned readiness progress text.
+    else if (reason.empty())
+        reason = "scenario preparation failed";
+    std::string cleanup_reason;
+    if (!scenario.cleanup(cleanup_reason)) {
+        const std::string error =
+            cleanup_reason.empty() ? "cleanup failed" : "cleanup failed: " + cleanup_reason;
+        if (!reason.empty())
+            reason += "; ";
+        reason += error;
+    }
+    // Only an entirely successful trial contributes samples to statistics.
+    // A teardown failure invalidates even an otherwise completed measurement.
+    if (results_ready && reason.empty()) {
+        trial.outcome = "complete";
+        std::vector<FrameSample> measured_samples(
+            samples.begin(), samples.begin() + static_cast<std::ptrdiff_t>(trial.measured_frames));
+        trial.wall_frame = summarize(measured_samples, true);
+        trial.cpu_operation = summarize(measured_samples, false);
+        if (options.raw_samples)
+            trial.raw_samples = std::move(measured_samples);
+    } else {
+        trial.reason = reason;
+    }
     return trial;
 }
 
