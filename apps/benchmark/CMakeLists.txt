@@ -32,7 +32,8 @@ noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 
 # Benchmark ImGui is independent of engine devtools, including in optimized builds.
 find_package(imgui CONFIG REQUIRED)
-add_executable(noveltea-benchmark-app main.cpp benchmark_dashboard.cpp raw_bgfx_geometry.cpp)
+add_executable(noveltea-benchmark-app
+    main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp)
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
     imgui::imgui noveltea-benchmark-runner)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
@@ -60,6 +61,13 @@ if(BUILD_TESTING)
     noveltea_apply_policy_warnings(noveltea-benchmark-report-tests)
     add_test(NAME noveltea_benchmark_report COMMAND noveltea-benchmark-report-tests)
 
+    add_executable(noveltea-benchmark-completed-run-tests
+        benchmark_completed_run_tests.cpp benchmark_completed_run.cpp)
+    target_link_libraries(noveltea-benchmark-completed-run-tests PRIVATE noveltea-benchmark-runner)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-completed-run-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-completed-run-tests)
+    add_test(NAME noveltea_benchmark_completed_run COMMAND noveltea-benchmark-completed-run-tests)
+
     add_executable(noveltea-benchmark-scene-tests reference_scene_tests.cpp)
     target_link_libraries(noveltea-benchmark-scene-tests PRIVATE noveltea-benchmark-runner)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-scene-tests)
@@ -72,7 +80,7 @@ if(BUILD_TESTING)
     noveltea_apply_policy_warnings(noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_options COMMAND noveltea-benchmark-options-tests)
     add_test(NAME noveltea_benchmark_app_help COMMAND noveltea-benchmark-app --help)
-    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_app_help
+    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_completed_run noveltea_benchmark_app_help
         PROPERTIES LABELS "benchmark;graphics")
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)

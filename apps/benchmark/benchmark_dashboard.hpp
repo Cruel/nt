@@ -1,7 +1,6 @@
 #pragma once
 
-#include "benchmark_options.hpp"
-#include "benchmark_runner.hpp"
+#include "benchmark_completed_run.hpp"
 
 #include <SDL3/SDL.h>
 #include <bgfx/bgfx.h>
@@ -32,9 +31,11 @@ public:
     bool initialize(SDL_Window* window, const Options& options, std::string& error);
     void shutdown();
     void process_event(const SDL_Event& event);
-    DashboardAction frame(Options& options, const SuiteResult* last_result,
-                          std::string_view report_path, std::string_view error,
+    DashboardAction frame(Options& options, const CompletedRun* last_run, std::string_view error,
                           const std::function<void()>& preview = {});
+    // Supports automated full-reference inspection in the GPU lifecycle smoke.
+    void set_inspection_only(bool value) { inspection_only_ = value; }
+    [[nodiscard]] bool inspection_only() const { return inspection_only_; }
     [[nodiscard]] bool initialized() const { return initialized_; }
 
 private:
@@ -44,6 +45,7 @@ private:
     SDL_Window* window_ = nullptr;
     bool initialized_ = false;
     bool first_frame_ = true;
+    bool inspection_only_ = false;
     bgfx::ProgramHandle program_ = BGFX_INVALID_HANDLE;
     bgfx::UniformHandle sampler_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle font_ = BGFX_INVALID_HANDLE;
