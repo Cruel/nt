@@ -61,14 +61,23 @@ int main()
     auto negative_frames = configured;
     negative_frames["settings"]["measurement_frames"] = -1;
     auto wrong_profile = configured;
-    wrong_profile["settings"]["profile"] = "diagnostic";
+    wrong_profile["settings"]["profile"] = "unsupported";
     auto extra_root = configured;
     extra_root["unused"] = nullptr;
     if (!check(rejected(old_version) && rejected(wrong_scenario_version) &&
                    rejected(bad_parameters) && rejected(bad_clock) && rejected(missing) &&
-                   rejected(extra) && rejected(no_ui_false) && rejected(negative_frames) &&
-                   rejected(wrong_profile) && rejected(extra_root),
+                   rejected(extra) && rejected(negative_frames) && rejected(wrong_profile) &&
+                   rejected(extra_root),
                "reject unknown versions, settings, and invalid values"))
+        return 1;
+    auto diagnostic = configured;
+    diagnostic["settings"]["profile"] = "diagnostic";
+    diagnostic["settings"]["no_ui"] = false;
+    Options interactive;
+    if (!check(decode_configuration(diagnostic.dump(), interactive, error) && !interactive.no_ui &&
+                   interactive.profile == "diagnostic" &&
+                   nlohmann::json::parse(encode_configuration(interactive)) == diagnostic,
+               "interactive diagnostic configuration roundtrip"))
         return 1;
 
     noveltea::benchmark::TrialResult trial;
@@ -114,6 +123,7 @@ int main()
                    result["configuration"]["parameters"].empty() &&
                    result["graphics"]["gpu_device_id"] == 34 &&
                    result["graphics"]["gpu_driver_version"].is_null() &&
+                   result["timing"]["profile"] == "clean" &&
                    result["timing"]["gpu_execution_ms"].is_null() &&
                    result["timing"]["presented_frame_count"].is_null() &&
                    result["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"] == 100 &&
@@ -122,6 +132,14 @@ int main()
                "result identity, timing, metadata and raw samples"))
         return 1;
 
+    original.profile = "diagnostic";
+    const auto diagnostic_result = nlohmann::json::parse(encode_result(original, {}, suite));
+    if (!check(diagnostic_result["timing"]["profile"] == "diagnostic" &&
+                   diagnostic_result["configuration"]["settings"]["profile"] == "diagnostic" &&
+                   diagnostic_result["timing"]["gpu_execution_ms"].is_null() &&
+                   diagnostic_result["timing"]["bgfx_wait_render_ms"].is_null(),
+               "diagnostic profile does not fabricate GPU statistics"))
+        return 1;
     original.raw_samples = false;
     suite.scenarios[0].trials[0].outcome = "failed";
     suite.scenarios[0].trials[0].reason =

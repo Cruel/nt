@@ -15,8 +15,10 @@ struct Options {
     double ready_timeout_seconds = 5.0;
     bool raw_samples = false;
     bool no_ui = true;
+    std::string profile = "clean";
     bool vsync = false;
     bool help = false;
+    bool dashboard_smoke = false;
     std::string scenario = "raw-bgfx-empty";
     std::string output_path;
     std::string config_path;

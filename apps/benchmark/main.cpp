@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include <bgfx/bgfx.h>
 
+#include "benchmark_dashboard.hpp"
 #include "benchmark_options.hpp"
 #include "benchmark_report.hpp"
 #include "benchmark_runner.hpp"
@@ -23,19 +24,22 @@ using noveltea::benchmark::SuiteResult;
 
 void print_usage()
 {
-    std::puts("noveltea-benchmark-app: standalone Linux SDL3/bgfx benchmark runner");
+    std::puts("noveltea-benchmark-app: standalone Linux SDL3/bgfx benchmark dashboard");
     std::puts("usage: noveltea-benchmark-app [--smoke] [--warmup-seconds N] [--seconds N]");
     std::puts("       [--frames N] [--repeats N] [--ready-timeout-seconds N]");
-    std::puts("       [--width N] [--height N] [--vsync] [--profile clean] [--no-ui]");
+    std::puts(
+        "       [--width N] [--height N] [--vsync] [--profile clean|diagnostic] [--no-ui|--ui]");
     std::puts("       [--raw-samples] [--config PATH] [--output PATH]");
     std::puts("  --smoke         30 measured frames, no warmup");
+    std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
     std::puts("  --frames        Fixed frames per trial; maximum 300000");
     std::puts("  --repeats       Trials per scenario; default 1, maximum 20");
     std::puts("  --config        Exact current JSON configuration; cannot mix with run flags");
     std::puts("  --raw-samples   Include per-frame CPU timing pairs in the report");
     std::puts("  --output        Report path (defaults to build/<preset>/benchmarks)");
     std::puts("  --help          Print help without initializing graphics");
-    std::puts("Only Clean/no-UI raw-bgfx-empty is supported in this runner slice.");
+    std::puts("Without arguments, opens the dashboard; CLI settings default to no-UI.");
+    std::puts("Only raw-bgfx-empty is implemented; GPU execution timing is unavailable.");
 }
 
 struct SteadyClock final : Clock {
@@ -50,6 +54,7 @@ struct Graphics {
     SDL_Window* window = nullptr;
     bool sdl_ready = false;
     bool bgfx_ready = false;
+    bool vsync_enabled = false;
     Environment environment;
 
     void shutdown()
@@ -68,6 +73,50 @@ struct Graphics {
         }
     }
     ~Graphics() { shutdown(); }
+
+    bool reconfigure(const Options& options, std::string& reason)
+    {
+        if (!window || !bgfx_ready) {
+            reason = "graphics host not initialized";
+            return false;
+        }
+        int logical_width = 0;
+        int logical_height = 0;
+        SDL_GetWindowSize(window, &logical_width, &logical_height);
+        if (logical_width != options.width || logical_height != options.height) {
+            if (!SDL_SetWindowSize(window, options.width, options.height)) {
+                reason = std::string("SDL_SetWindowSize: ") + SDL_GetError();
+                return false;
+            }
+            if (!SDL_SyncWindow(window)) {
+                reason = std::string("SDL_SyncWindow: ") + SDL_GetError();
+                return false;
+            }
+        }
+        int pixel_width = 0;
+        int pixel_height = 0;
+        if (!SDL_GetWindowSizeInPixels(window, &pixel_width, &pixel_height) || pixel_width < 1 ||
+            pixel_height < 1 || pixel_width > 65535 || pixel_height > 65535) {
+            reason = "invalid framebuffer dimensions";
+            return false;
+        }
+        if (environment.width_pixels != pixel_width || environment.height_pixels != pixel_height ||
+            vsync_enabled != options.vsync) {
+            bgfx::SwapChain swap_chain;
+            swap_chain.width = static_cast<uint32_t>(pixel_width);
+            swap_chain.height = static_cast<uint32_t>(pixel_height);
+            bgfx::reset(options.vsync ? BGFX_RESET_VSYNC : 0, &swap_chain);
+            vsync_enabled = options.vsync;
+        }
+        bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(pixel_width),
+                          static_cast<uint16_t>(pixel_height));
+        environment.width_pixels = pixel_width;
+        environment.height_pixels = pixel_height;
+        SDL_PumpEvents();
+        // Only our resize notification is discarded; mid-run resizing interrupts a trial.
+        SDL_FlushEvent(SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED);
+        return true;
+    }
 
     bool initialize(const Options& options, std::string& reason)
     {
@@ -120,6 +169,7 @@ struct Graphics {
             return false;
         }
         bgfx_ready = true;
+        vsync_enabled = options.vsync;
         bgfx::setDebug(BGFX_DEBUG_NONE);
         bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(width), static_cast<uint16_t>(height));
         bgfx::setViewClear(0, BGFX_CLEAR_NONE);
@@ -146,7 +196,9 @@ struct Graphics {
 };
 
 struct EmptyBgfxScenario final : Scenario {
+    explicit EmptyBgfxScenario(Graphics* shared = nullptr) : shared_graphics(shared) {}
     Graphics graphics;
+    Graphics* shared_graphics = nullptr;
 
     const char* id() const override { return "raw-bgfx-empty"; }
     const char* description() const override
@@ -156,7 +208,14 @@ struct EmptyBgfxScenario final : Scenario {
     bool requires_graphics() const override { return true; }
     bool prepare(const Options& options, std::string& reason) override
     {
-        return graphics.initialize(options, reason);
+        if (!shared_graphics)
+            return graphics.initialize(options, reason);
+        if (!shared_graphics->bgfx_ready) {
+            reason = "shared graphics host is unavailable";
+            return false;
+        }
+        bgfx::setViewClear(0, BGFX_CLEAR_NONE);
+        return true;
     }
     Readiness readiness(std::string& reason) override
     {
@@ -173,8 +232,9 @@ struct EmptyBgfxScenario final : Scenario {
     bool complete(std::string&) override { return true; }
     bool cleanup(std::string&) override
     {
-        graphics.shutdown();
-        return true; // SDL/bgfx shutdown has no recoverable failure return.
+        if (!shared_graphics)
+            graphics.shutdown();
+        return true; // The interactive graphics host belongs to the app.
     }
 
     bool poll(std::string& reason)
@@ -227,6 +287,127 @@ bool write_report(const Options& options, const Environment& environment, const 
     }
     output = path.string();
     return true;
+}
+
+int run_dashboard(Options options)
+{
+    if (options.scenario != "raw-bgfx-empty") {
+        std::fprintf(stderr, "[benchmark] unsupported scenario: %s\n", options.scenario.c_str());
+        return 2;
+    }
+    Graphics graphics;
+    std::string error;
+    if (!graphics.initialize(options, error)) {
+        std::fprintf(stderr, "[benchmark] dashboard graphics init: %s\n", error.c_str());
+        return 3;
+    }
+    noveltea::benchmark::Dashboard dashboard;
+    if (!dashboard.initialize(graphics.window, options, error)) {
+        std::fprintf(stderr, "[benchmark] dashboard init: %s\n", error.c_str());
+        return 3;
+    }
+    SteadyClock clock;
+    SuiteResult last_result;
+    bool has_result = false;
+    std::string report_path;
+    std::string feedback;
+
+    const auto benchmark_once = [&]() {
+        std::string validation;
+        if (!noveltea::benchmark::validate_run_options(options, validation)) {
+            feedback = validation;
+            return;
+        }
+        // No context, ImGui CPU frame, backend, atlas, shader or draw submissions
+        // exist while the runner enters Preparation, Warmup or Measurement.
+        dashboard.shutdown();
+        // Drain deferred bgfx resource destruction outside the sampling window.
+        bgfx::frame();
+        bgfx::frame();
+        if (graphics.reconfigure(options, validation)) {
+            // The reference workload deliberately does not clear its frame. Remove any
+            // previously presented dashboard pixels from swap-chain buffers before timing.
+            bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x000000ff);
+            for (int i = 0; i < 4; ++i) {
+                bgfx::touch(0);
+                bgfx::frame();
+            }
+            bgfx::setViewClear(0, BGFX_CLEAR_NONE);
+            // Drain the inspection clear passes as well, including zero-warmup runs.
+            for (int i = 0; i < 2; ++i) {
+                bgfx::touch(0);
+                bgfx::frame();
+            }
+            EmptyBgfxScenario scenario(&graphics);
+            last_result = noveltea::benchmark::run_suite(options, {&scenario}, clock);
+            has_result = true;
+            report_path.clear();
+            if (!write_report(options, graphics.environment, last_result, report_path)) {
+                feedback = "failed to write benchmark report";
+            } else {
+                feedback.clear();
+            }
+            for (const auto& item : last_result.scenarios) {
+                std::printf("[benchmark] %s: %s, %llu measured frames, %.3f s; "
+                            "CPU mean %.3f ms (not GPU time)\n",
+                            item.scenario.c_str(), item.outcome.c_str(),
+                            static_cast<unsigned long long>(item.measured_frames),
+                            item.measured_wall_seconds, item.cpu_operation.mean_ms);
+                for (const auto& trial : item.trials) {
+                    if (trial.outcome != "complete")
+                        std::fprintf(stderr, "[benchmark] trial failed: %s\n",
+                                     trial.reason.c_str());
+                }
+            }
+            if (!report_path.empty())
+                std::printf("[benchmark] report: %s (outcome=%s)\n", report_path.c_str(),
+                            last_result.outcome.c_str());
+        } else {
+            feedback = validation;
+        }
+        // Sampled bgfx views must no longer be active; re-create UI only after cleanup.
+        if (!dashboard.initialize(graphics.window, options, error)) {
+            feedback = "dashboard reinitialization: " + error;
+            std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
+        }
+    };
+
+    if (options.dashboard_smoke) {
+        for (int cycle = 0; cycle < 3; ++cycle) {
+            (void)dashboard.frame(options, has_result ? &last_result : nullptr, report_path,
+                                  feedback);
+            benchmark_once();
+            if (!dashboard.initialized() || !has_result || last_result.outcome != "complete" ||
+                !feedback.empty())
+                return 4;
+            std::printf("[benchmark] dashboard cycle %d complete\n", cycle + 1);
+        }
+        (void)dashboard.frame(options, &last_result, report_path, feedback);
+        return 0;
+    }
+
+    while (dashboard.initialized()) {
+        SDL_Event event;
+        bool exit_requested = false;
+        while (SDL_PollEvent(&event)) {
+            if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED) {
+                exit_requested = true;
+                break;
+            }
+            dashboard.process_event(event);
+        }
+        if (exit_requested)
+            break;
+        const auto action =
+            dashboard.frame(options, has_result ? &last_result : nullptr, report_path, feedback);
+        if (action == noveltea::benchmark::DashboardAction::Exit)
+            break;
+        if (action == noveltea::benchmark::DashboardAction::Run ||
+            action == noveltea::benchmark::DashboardAction::QuickSuite)
+            benchmark_once();
+        SDL_Delay(10);
+    }
+    return 0;
 }
 
 int run(const Options& options)
@@ -298,5 +479,5 @@ int main(int argc, char* argv[])
         std::fprintf(stderr, "[benchmark] %s\n", error.c_str());
         return 2;
     }
-    return run(options);
+    return options.no_ui ? run(options) : run_dashboard(options);
 }

@@ -30,10 +30,15 @@ target_compile_definitions(noveltea-benchmark-runner PRIVATE
 noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner)
 noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 
-add_executable(noveltea-benchmark-app main.cpp)
-target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx noveltea-benchmark-runner)
+# Benchmark ImGui is independent of engine devtools, including in optimized builds.
+find_package(imgui CONFIG REQUIRED)
+add_executable(noveltea-benchmark-app main.cpp benchmark_dashboard.cpp)
+target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
+    imgui::imgui noveltea-benchmark-runner)
+noveltea_attach_generated_shaders(noveltea-benchmark-app)
 target_compile_definitions(noveltea-benchmark-app PRIVATE
     NOVELTEA_BENCHMARK_RESULTS_DIR="${CMAKE_BINARY_DIR}/benchmarks"
+    NOVELTEA_BENCHMARK_SHADER_ROOT="${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/glsl-330"
 )
 noveltea_apply_runtime_compiler_policy(noveltea-benchmark-app)
 noveltea_apply_policy_warnings(noveltea-benchmark-app)
@@ -73,5 +78,13 @@ if(BUILD_TESTING)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 30 frames"
             TIMEOUT 45)
+        add_test(NAME noveltea_benchmark_dashboard_lifecycle_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --dashboard-smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-dashboard-smoke.json")
+        set_tests_properties(noveltea_benchmark_dashboard_lifecycle_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
+            TIMEOUT 60)
     endif()
 endif()

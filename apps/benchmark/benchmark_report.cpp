@@ -30,7 +30,7 @@ Json configuration(const Options& options)
               {"measurement_frames", options.measurement_frames},
               {"repeats", options.repeats},
               {"ready_timeout_seconds", options.ready_timeout_seconds},
-              {"profile", "clean"},
+              {"profile", options.profile},
               {"no_ui", options.no_ui},
               {"raw_samples", options.raw_samples},
               {"vsync", options.vsync},
@@ -116,7 +116,8 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         !numeric(settings, "warmup_seconds") || !numeric(settings, "measurement_seconds") ||
         !unsigned_integer(settings, "measurement_frames") ||
         !unsigned_integer(settings, "repeats") || !numeric(settings, "ready_timeout_seconds") ||
-        !settings["profile"].is_string() || settings["profile"] != "clean" ||
+        !settings["profile"].is_string() ||
+        (settings["profile"] != "clean" && settings["profile"] != "diagnostic") ||
         !settings["no_ui"].is_boolean() || !settings["raw_samples"].is_boolean() ||
         !settings["vsync"].is_boolean() || !settings["output"].is_string()) {
         reason = "invalid benchmark configuration settings";
@@ -139,6 +140,7 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     next.repeats = static_cast<uint32_t>(repeats);
     next.ready_timeout_seconds = settings["ready_timeout_seconds"].get<double>();
     next.raw_samples = settings["raw_samples"].get<bool>();
+    next.profile = settings["profile"].get<std::string>();
     next.no_ui = settings["no_ui"].get<bool>();
     next.vsync = settings["vsync"].get<bool>();
     next.output_path = settings["output"].get<std::string>();
@@ -226,7 +228,7 @@ std::string encode_result(const Options& options, const Environment& environment
         {"graphics", graphics},
         {"timing",
          {{"clock", "steady_clock"},
-          {"profile", "clean"},
+          {"profile", options.profile},
           {"frame_wall", "end-to-end CPU frame-loop interval; not confirmed presentation"},
           {"cpu_operation", "CPU wall duration of scenario frame operation"},
           {"gpu_execution_ms", nullptr},
