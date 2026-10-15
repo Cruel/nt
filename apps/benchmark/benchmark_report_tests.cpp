@@ -73,6 +73,25 @@ int main()
                    nlohmann::json::parse(encode_configuration(ui_roundtrip)) == ui_config,
                "standalone RmlUi has a stable, parameter-free reference identity"))
         return 1;
+    for (const char* id : {"integrated-rmlui-controlled", "integrated-rmlui-production"}) {
+        Options integrated = ui_options;
+        integrated.scenario = id;
+        const auto config = nlohmann::json::parse(encode_configuration(integrated));
+        Options decoded;
+        if (!check(config["parameters"].empty() &&
+                       decode_configuration(config.dump(), decoded, error) &&
+                       decoded.scenario == id &&
+                       nlohmann::json::parse(encode_configuration(decoded)) == config,
+                   "integrated Engine UI mode has a stable, parameter-free identity"))
+            return 1;
+        const auto rendered = nlohmann::json::parse(encode_result(integrated, {}, {}));
+        if (!check(rendered["graphics"]["ui_base_direct_compat"] ==
+                           (integrated.scenario == "integrated-rmlui-controlled") &&
+                       rendered["graphics"]["ui_output_framebuffer"] ==
+                           "engine-managed-postprocess-and-composite",
+                   "integrated report records distinct real Engine render settings"))
+            return 1;
+    }
     auto invalid_ui_parameters = ui_config;
     invalid_ui_parameters["parameters"]["rect_count"] = 3;
     auto missing_geometry_count = geometry_config;

@@ -85,6 +85,13 @@ int main()
     options.rect_count = 4;
     if (noveltea::benchmark::validate_reference_options(options, error))
         return 1;
+    options.rect_count = 3;
+    options.scenario = "integrated-rmlui-controlled";
+    if (!noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    options.scenario = "integrated-rmlui-production";
+    if (!noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
     options.scenario = "synthetic";
     if (noveltea::benchmark::validate_reference_options(options, error) || error.empty())
         return 1;

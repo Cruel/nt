@@ -100,6 +100,9 @@ public:
     static void record_debugger_console(Engine& engine, std::string message,
                                         devtools::ConsoleSeverity severity);
 #endif
+    // Read-only runtime document probe for host certification and integrations.
+    // Never initializes UI or alters its renderer ownership.
+    [[nodiscard]] static bool runtime_ui_document_ready(const Engine& engine, std::string_view id);
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
     [[nodiscard]] static core::Result<core::AssetProfilerSnapshot, core::Diagnostic>

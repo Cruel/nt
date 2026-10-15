@@ -2,6 +2,7 @@
 
 #include "benchmark_runner.hpp"
 
+#include <optional>
 #include <string>
 #include <string_view>
 
@@ -15,6 +16,13 @@ struct Environment {
     int gpu_device_id = -1;
     int width_pixels = 0;
     int height_pixels = 0;
+    int ui_reference_width = 0;
+    int ui_reference_height = 0;
+    int ui_raster_width = 0;
+    int ui_raster_height = 0;
+    int world_raster_width = 0;
+    int world_raster_height = 0;
+    std::optional<bool> engine_postprocess_active;
 };
 
 [[nodiscard]] std::string encode_configuration(const Options& options);

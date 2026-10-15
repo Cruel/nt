@@ -12,7 +12,6 @@
 #include <cstdio>
 #include <fstream>
 #include <iterator>
-#include <sstream>
 #include <string>
 #include <utility>
 #include <vector>
@@ -65,34 +64,6 @@ uint32_t rgba(ReferenceColor value)
 {
     return (uint32_t(value.r) << 24) | (uint32_t(value.g) << 16) | (uint32_t(value.b) << 8) |
            uint32_t(value.a);
-}
-
-std::string css_color(ReferenceColor value)
-{
-    return "rgb(" + std::to_string(value.r) + "," + std::to_string(value.g) + "," +
-           std::to_string(value.b) + ")";
-}
-
-std::string document_markup(const ReferenceScene& scene)
-{
-    std::ostringstream source;
-    source << "<rml><head><title>Benchmark reference</title>"
-           << "<style>body { margin: 0; padding: 0; background: transparent; }"
-           << "div, p { position: absolute; margin: 0; padding: 0; }"
-           << "</style></head><body>";
-    for (const auto& rect : scene.rects) {
-        source << "<div id='" << rect.id << "' style='left:" << rect.x << "px;top:" << rect.y
-               << "px;width:" << rect.width << "px;height:" << rect.height
-               << "px;background-color:" << css_color(rect.color) << ";'></div>";
-    }
-    for (const auto& item : scene.texts) {
-        // Reference text is fixed and supplied internally, not parsed from user input.
-        source << "<p id='" << item.id << "' style='left:" << item.x << "px;top:" << item.y
-               << "px;font-family:Liberation Sans;font-size:" << item.font_size
-               << "px;color:" << css_color(item.color) << ";'>" << item.content << "</p>";
-    }
-    source << "</body></rml>";
-    return source.str();
 }
 
 } // namespace
@@ -191,7 +162,7 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
         shutdown();
         return false;
     }
-    const auto markup = document_markup(scene);
+    const auto markup = simple_ui_reference_markup(scene);
     document_ = context_->LoadDocumentFromMemory(markup);
     if (!document_) {
         reason = "cannot load standalone RmlUi reference document";

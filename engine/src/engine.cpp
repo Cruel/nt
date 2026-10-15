@@ -4212,6 +4212,12 @@ void EngineTooling::record_debugger_console(Engine& engine, std::string message,
 }
 #endif
 
+bool EngineTooling::runtime_ui_document_ready(const Engine& engine, std::string_view id)
+{
+    return engine.m_impl->m_initialized && engine.m_impl->m_runtime_ui.is_initialized() &&
+           engine.m_impl->m_runtime_ui.has_document(std::string(id));
+}
+
 Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_impl->m_renderer; }
 
 assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept

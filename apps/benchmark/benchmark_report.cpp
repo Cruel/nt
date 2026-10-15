@@ -115,7 +115,8 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     }
     const std::string scenario = root["scenario"].get<std::string>();
     const auto& parameters = root["parameters"];
-    if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple") {
+    if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple" ||
+        scenario == "integrated-rmlui-production" || scenario == "integrated-rmlui-controlled") {
         if (!parameters.empty()) {
             reason = "empty scenario does not take geometry parameters";
             return false;
@@ -244,6 +245,39 @@ std::string encode_result(const Options& options, const Environment& environment
          environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
         {"height_pixels",
          environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)},
+        {"ui_render_path",
+         options.scenario == "integrated-rmlui-production"   ? Json("engine-production")
+         : options.scenario == "integrated-rmlui-controlled" ? Json("engine-controlled-base-direct")
+         : options.scenario == "standalone-rmlui-simple"     ? Json("standalone-direct")
+                                                             : Json(nullptr)},
+        {"ui_base_direct_compat", options.scenario == "integrated-rmlui-production" ? Json(false)
+                                  : options.scenario == "integrated-rmlui-controlled"
+                                      ? Json(true)
+                                      : Json(nullptr)},
+        {"ui_output_framebuffer", options.scenario == "integrated-rmlui-production" ||
+                                          options.scenario == "integrated-rmlui-controlled"
+                                      ? Json("engine-managed-postprocess-and-composite")
+                                  : options.scenario == "standalone-rmlui-simple"
+                                      ? Json("backbuffer")
+                                      : Json(nullptr)},
+        {"engine_ui_reference_width",
+         environment.ui_reference_width > 0 ? Json(environment.ui_reference_width) : Json(nullptr)},
+        {"engine_ui_reference_height", environment.ui_reference_height > 0
+                                           ? Json(environment.ui_reference_height)
+                                           : Json(nullptr)},
+        {"ui_raster_width_pixels",
+         environment.ui_raster_width > 0 ? Json(environment.ui_raster_width) : Json(nullptr)},
+        {"ui_raster_height_pixels",
+         environment.ui_raster_height > 0 ? Json(environment.ui_raster_height) : Json(nullptr)},
+        {"world_raster_width_pixels",
+         environment.world_raster_width > 0 ? Json(environment.world_raster_width) : Json(nullptr)},
+        {"world_raster_height_pixels", environment.world_raster_height > 0
+                                           ? Json(environment.world_raster_height)
+                                           : Json(nullptr)},
+        {"engine_postprocess_surface_active", environment.engine_postprocess_active
+                                                  ? Json(*environment.engine_postprocess_active)
+                                                  : Json(nullptr)},
+        {"ui_offscreen_rendering_observed", nullptr},
         {"internal_render_scale",
          environment.width_pixels > 0 && environment.height_pixels > 0 ? Json(1.0) : Json(nullptr)},
         {"render_width_pixels",
