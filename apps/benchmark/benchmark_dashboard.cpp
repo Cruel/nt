@@ -241,7 +241,8 @@ void Dashboard::render()
 }
 
 DashboardAction Dashboard::frame(Options& options, const SuiteResult* last_result,
-                                 std::string_view report_path, std::string_view error)
+                                 std::string_view report_path, std::string_view error,
+                                 const std::function<void()>& preview)
 {
     if (!initialized_)
         return DashboardAction::Exit;
@@ -249,15 +250,16 @@ DashboardAction Dashboard::frame(Options& options, const SuiteResult* last_resul
     ImGui::NewFrame();
     const auto* viewport = ImGui::GetMainViewport();
     ImGui::SetNextWindowPos(viewport->WorkPos, ImGuiCond_Always);
-    ImGui::SetNextWindowSize(viewport->WorkSize, ImGuiCond_Always);
+    ImGui::SetNextWindowSize(ImVec2(viewport->WorkSize.x * 0.55f, viewport->WorkSize.y),
+                             ImGuiCond_Always);
     ImGui::Begin("NovelTea Graphics Benchmark", nullptr,
                  ImGuiWindowFlags_NoMove | ImGuiWindowFlags_NoResize | ImGuiWindowFlags_NoCollapse);
     ImGui::TextUnformatted("PREVIEW / INSPECTION");
     ImGui::SameLine();
     ImGui::TextDisabled("(dashboard and inspection frame excluded from measurement)");
     ImGui::Separator();
-    ImGui::TextUnformatted("Available Linux reference workload: raw-bgfx-empty");
-    ImGui::TextDisabled("Empty bgfx frame: no clear, geometry, NovelTea Engine or RmlUi.");
+    ImGui::Text("Selected: %s", options.scenario.c_str());
+    ImGui::TextDisabled("Geometry visible at right in Preview; no dashboard during sampling.");
     ImGui::Spacing();
 
     DashboardAction action = DashboardAction::None;
@@ -276,12 +278,30 @@ DashboardAction Dashboard::frame(Options& options, const SuiteResult* last_resul
     if (ImGui::BeginTabBar("benchmark-tabs")) {
         if (ImGui::BeginTabItem("Scenarios")) {
             if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
-                if (ImGui::Selectable("raw-bgfx-empty", options.scenario == "raw-bgfx-empty"))
-                    options.scenario = "raw-bgfx-empty";
+                for (const char* candidate : {"raw-bgfx-empty", "raw-bgfx-geometry"}) {
+                    if (ImGui::Selectable(candidate, options.scenario == candidate)) {
+                        options.scenario = candidate;
+                        if (options.scenario == "raw-bgfx-empty") {
+                            options.rect_count = 3;
+                            options.rect_scale = 1.0;
+                        }
+                    }
+                }
                 ImGui::EndCombo();
             }
-            ImGui::BulletText("raw-bgfx-empty (v1) - available");
-            ImGui::TextDisabled("Other renderer workloads will arrive in later tickets.");
+            if (options.scenario == "raw-bgfx-geometry") {
+                int rect_count = static_cast<int>(options.rect_count);
+                if (ImGui::SliderInt("Rectangle count", &rect_count, 1, 256))
+                    options.rect_count = static_cast<uint32_t>(rect_count);
+                float scale = static_cast<float>(options.rect_scale);
+                if (ImGui::SliderFloat("Rectangle scale", &scale, 0.25f, 1.0f))
+                    options.rect_scale = scale;
+                if (ImGui::Button("Restore fixed reference")) {
+                    options.rect_count = 3;
+                    options.rect_scale = 1.0;
+                }
+            }
+            ImGui::TextDisabled("Two raw-bgfx baselines; Engine and RmlUi scenarios follow.");
             ImGui::Spacing();
             ImGui::TextWrapped("Preview displays the same empty reference workload under a "
                                "dashboard. Strict benchmark frames have no dashboard or HUD.");
@@ -366,6 +386,8 @@ DashboardAction Dashboard::frame(Options& options, const SuiteResult* last_resul
     ImGui::Render();
     bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x17212cff);
     bgfx::touch(0);
+    if (preview)
+        preview();
     render();
     bgfx::frame();
     return action;

@@ -95,6 +95,7 @@ int main()
     FakeClock clock;
     FakeScenario scenario(clock);
     Options options;
+    options.scenario = "synthetic"; // The runner does not own the app's scenario registry.
     options.warmup_seconds = 0.03;
     options.measurement_frames = 5;
     options.repeats = 2;

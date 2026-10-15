@@ -50,6 +50,31 @@ int main()
     wrong_scenario_version["scenario_version"] = 2;
     auto bad_parameters = configured;
     bad_parameters["parameters"]["draw_calls"] = 10;
+    Options geometry_options;
+    geometry_options.scenario = "raw-bgfx-geometry";
+    geometry_options.rect_count = 12;
+    geometry_options.rect_scale = 0.75;
+    auto geometry_config = nlohmann::json::parse(encode_configuration(geometry_options));
+    Options geometry_roundtrip;
+    if (!check(decode_configuration(geometry_config.dump(), geometry_roundtrip, error) &&
+                   geometry_roundtrip.scenario == "raw-bgfx-geometry" &&
+                   geometry_roundtrip.rect_count == 12 && geometry_roundtrip.rect_scale == 0.75 &&
+                   nlohmann::json::parse(encode_configuration(geometry_roundtrip)) ==
+                       geometry_config,
+               "geometry scenario canonical config roundtrip"))
+        return 1;
+    auto missing_geometry_count = geometry_config;
+    missing_geometry_count["parameters"].erase("rect_count");
+    auto extra_geometry_key = geometry_config;
+    extra_geometry_key["parameters"]["unknown"] = true;
+    auto invalid_geometry_count = geometry_config;
+    invalid_geometry_count["parameters"]["rect_count"] = 0;
+    auto invalid_geometry_scale = geometry_config;
+    invalid_geometry_scale["parameters"]["rect_scale"] = 2.0;
+    auto invalid_geometry_fraction = geometry_config;
+    invalid_geometry_fraction["parameters"]["rect_count"] = 2.5;
+    auto unknown_scenario = geometry_config;
+    unknown_scenario["scenario"] = "unimplemented";
     auto bad_clock = configured;
     bad_clock["clock_policy"] = "fixed_step";
     auto missing = configured;
@@ -67,7 +92,10 @@ int main()
     if (!check(rejected(old_version) && rejected(wrong_scenario_version) &&
                    rejected(bad_parameters) && rejected(bad_clock) && rejected(missing) &&
                    rejected(extra) && rejected(negative_frames) && rejected(wrong_profile) &&
-                   rejected(extra_root),
+                   rejected(extra_root) && rejected(missing_geometry_count) &&
+                   rejected(extra_geometry_key) && rejected(invalid_geometry_count) &&
+                   rejected(invalid_geometry_scale) && rejected(invalid_geometry_fraction) &&
+                   rejected(unknown_scenario),
                "reject unknown versions, settings, and invalid values"))
         return 1;
     auto diagnostic = configured;
@@ -123,6 +151,9 @@ int main()
                    result["configuration"]["parameters"].empty() &&
                    result["graphics"]["gpu_device_id"] == 34 &&
                    result["graphics"]["gpu_driver_version"].is_null() &&
+                   result["graphics"]["internal_render_scale"] == 1.0 &&
+                   result["graphics"]["render_width_pixels"] == 1280 &&
+                   result["graphics"]["render_height_pixels"] == 720 &&
                    result["timing"]["profile"] == "clean" &&
                    result["timing"]["gpu_execution_ms"].is_null() &&
                    result["timing"]["presented_frame_count"].is_null() &&
@@ -152,7 +183,9 @@ int main()
                    failed["scenarios"][0]["trials"][0]["raw_samples"].is_null() &&
                    failed["scenarios"][0]["trials"][0]["measured_frames"] == 1 &&
                    failed["scenarios"][0]["trials"][0]["frame_wall_ms"].is_null() &&
-                   failed["graphics"]["gpu_device_id"].is_null(),
+                   failed["graphics"]["gpu_device_id"].is_null() &&
+                   failed["graphics"]["render_width_pixels"].is_null() &&
+                   failed["graphics"]["internal_render_scale"].is_null(),
                "failed trial and missing graphics are not fabricated"))
         return 1;
     return 0;
