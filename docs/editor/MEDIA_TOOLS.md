@@ -8,10 +8,10 @@ The private target codec selection remains an implementation detail, not a stabl
 ## Ownership and installation
 
 `editor/src/shared/media-tool-pin.json` is the authoritative release/version/archive-hash pin for
-[the nt-tools release](https://github.com/Cruel/nt-tools/releases/tag/ffmpeg-r2).
+[the nt-tools release](https://github.com/Cruel/nt-tools/releases/tag/ffmpeg-r3).
 `editor/scripts/private-media-tools.mjs` downloads the host archive, verifies its pinned SHA-256 before
 extraction, and validates the complete upstream provenance, checksums, corresponding sources, build
-recipe, configuration, and licenses. NovelTea then stages only the installed runtime subset: the
+recipe, configuration (including libwebp animated-alpha encoding), and licenses. NovelTea then stages only the installed runtime subset: the
 FFmpeg executable, license texts, provenance, and a notice pointing back to the pinned `nt-tools`
 release for exact corresponding sources and build records. Build/source payloads and the upstream
 internal `SHA256SUMS` are intentionally not copied into NovelTea distributions.

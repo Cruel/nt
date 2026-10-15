@@ -32,7 +32,7 @@ describe('pinned private FFmpeg distributions', () => {
         path.join(root, 'PROVENANCE.json'),
         JSON.stringify({
           platform: 'linux-x64',
-          release_tag: 'ffmpeg-r2',
+          release_tag: 'ffmpeg-r3',
           components: { ffmpeg: { version: '9.0.1' } },
         }),
       );

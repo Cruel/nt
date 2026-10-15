@@ -23,12 +23,12 @@ import { createAuthoringProject } from '../../shared/project-schema/authoring-pr
 
 const version = 'ffmpeg version 9.0.1 Copyright FFmpeg';
 const configuration =
-  '--disable-gpl --disable-nonfree --disable-version3 --enable-libaom --enable-libvpx --enable-libzimg --disable-network';
+  '--disable-gpl --disable-nonfree --disable-version3 --enable-libaom --enable-libvpx --enable-libwebp --enable-libzimg --disable-network';
 const run = (_executable: string, args: readonly string[]) => ({
   stdout: args.includes('-version')
     ? `${version}\nconfiguration: ${configuration}`
     : args.includes('-encoders')
-      ? ' V..... libaom-av1\n V..... libvpx-vp9'
+      ? ' V..... libaom-av1\n V..... libvpx-vp9\n V..... libwebp_anim'
       : args.includes('-protocols')
         ? 'Input:\nfile\npipe\nOutput:\nfile\npipe'
         : 'prepared',
@@ -567,6 +567,13 @@ describe('private media preparation tool', () => {
         args.includes('-encoders') ? { stdout: '', stderr: '' } : run(_exe, args),
       ),
     ).toThrow('libaom-av1');
+    expect(() =>
+      inspectMediaTool(tool, (_exe, args) =>
+        args.includes('-encoders')
+          ? { stdout: 'libaom-av1 libvpx-vp9', stderr: '' }
+          : run(_exe, args),
+      ),
+    ).toThrow('libwebp_anim');
     expect(() =>
       inspectMediaTool(tool, (_exe, args) =>
         args.includes('-protocols') ? { stdout: 'http', stderr: '' } : run(_exe, args),
