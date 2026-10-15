@@ -22,6 +22,13 @@ const native = (value: unknown, contract = 'MapsRecord') =>
   nativeJson(JSON.stringify(value), contract);
 const predicatePath = 'data/locations/0/visibility/conditions/0/condition';
 const target = { kind: 'record', collection: 'rooms', id: 'station' };
+const withLuaDependencies = (targets: unknown[]) => {
+  const input = structuredClone(fixture);
+  let owner = input as unknown as Record<string, unknown>;
+  for (const key of predicatePath.split('/')) owner = owner[key] as Record<string, unknown>;
+  owner.additionalDependencies = { targets };
+  return input;
+};
 
 // CI sets this to the separately built, Node-independent host certification executable.
 describe.skipIf(!executable)('native/Zod authored Map record certification', () => {
@@ -53,6 +60,52 @@ describe.skipIf(!executable)('native/Zod authored Map record certification', () 
     expect(input.data.locations[0]!.visibility.conditions[0]).not.toHaveProperty(
       'condition.additionalDependencies',
     );
+  });
+
+  it.each([
+    [
+      'record',
+      { kind: 'record', collection: 'rooms', id: 'station' },
+      { id: 'station', kind: 'record', collection: 'rooms' },
+    ],
+    [
+      'property-value with reordered owner',
+      { kind: 'property-value', owner: { kind: 'room', id: 'station' }, propertyId: 'health' },
+      { propertyId: 'health', owner: { id: 'station', kind: 'room' }, kind: 'property-value' },
+    ],
+    [
+      'room-placement',
+      { kind: 'room-placement', roomId: 'station', placementId: 'door' },
+      { placementId: 'door', kind: 'room-placement', roomId: 'station' },
+    ],
+    [
+      'room-exit',
+      { kind: 'room-exit', roomId: 'station', exitId: 'door' },
+      { exitId: 'door', roomId: 'station', kind: 'room-exit' },
+    ],
+  ])('rejects duplicate %s targets regardless of property ordering', (_, first, second) => {
+    const input = withLuaDependencies([first, second]);
+    const reference = mapRecordSchema.safeParse(input);
+    expect(reference.success).toBe(false);
+    const expectedPath = `/${predicatePath}/additionalDependencies/targets/1`;
+    if (!reference.success)
+      expect(reference.error.issues.map((issue) => `/${issue.path.join('/')}`)).toContain(
+        expectedPath,
+      );
+    const result = native(input);
+    expect(result.accepted).toBe(false);
+    expect(result.diagnostics.map(({ path }) => path)).toContain(expectedPath);
+  });
+
+  it('allows distinct dependency targets with similar fields', () => {
+    const input = withLuaDependencies([
+      { kind: 'property-value', owner: { kind: 'room', id: 'station' }, propertyId: 'health' },
+      { propertyId: 'health', owner: { id: 'elsewhere', kind: 'room' }, kind: 'property-value' },
+    ]);
+    const reference = mapRecordSchema.parse(input);
+    const result = native(input);
+    expect(result.accepted, JSON.stringify(result.diagnostics)).toBe(true);
+    expect(result.value).toEqual(reference);
   });
 
   it.each([

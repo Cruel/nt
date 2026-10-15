@@ -51,6 +51,32 @@ std::optional<std::uint32_t> javascript_array_index(std::string_view key)
     return static_cast<std::uint32_t>(number);
 }
 
+std::string lua_dependency_key(const Json& target)
+{
+    // Match serializeLuaExplicitDependencyTarget: semantic fields, not JSON object ordering.
+    const auto kind = target.at("kind").as<std::string>();
+    Json fields = Json::array();
+    fields.push_back(kind);
+    if (kind == "record") {
+        fields.push_back(target.at("collection"));
+        fields.push_back(target.at("id"));
+    } else if (kind == "property-value") {
+        const auto& owner = target.at("owner");
+        fields.push_back(owner.at("kind"));
+        fields.push_back(owner.at("id"));
+        fields.push_back(target.at("propertyId"));
+    } else if (kind == "room-placement") {
+        fields.push_back(target.at("roomId"));
+        fields.push_back(target.at("placementId"));
+    } else if (kind == "room-exit") {
+        fields.push_back(target.at("roomId"));
+        fields.push_back(target.at("exitId"));
+    } else {
+        throw std::runtime_error("Unknown explicit Lua dependency target kind: " + kind);
+    }
+    return fields.to_string();
+}
+
 const std::set<std::string> implemented_operations{"value.default", "string.trim",
                                                    "string.utf16-length", "lua.dependencies.unique",
                                                    "lua.dependencies.empty"};
@@ -181,7 +207,7 @@ class Validator {
             std::set<std::string> seen;
             std::size_t index = 0;
             for (const auto& target : value->at("targets").array_range()) {
-                if (!seen.insert(target.to_string()).second)
+                if (!seen.insert(lua_dependency_key(target)).second)
                     issue(errors, path + "/targets/" + std::to_string(index), "semantic." + id,
                           "Duplicate explicit Lua dependency target.");
                 ++index;

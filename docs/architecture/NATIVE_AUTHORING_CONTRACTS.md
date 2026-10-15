@@ -59,6 +59,8 @@ whereas Zod/JavaScript length measures UTF-16 units: generated structural schema
 native check stages enforce the original trim-versus-length order. Arbitrary transforms,
 super-refinements, overwrites, unsupported nodes/checks, and unknown operation IDs fail generation
 rather than silently weakening the contract.
+Coercing primitives (`z.coerce.*`) fail generation until explicitly supported by registered
+native normalization operations; JSON Schema input types alone would lose coercion semantics.
 
 Registration is **not** an assertion that a native implementation exists. Native validation first
 walks every reachable branch and rejects a contract requiring an unimplemented operation, even if the
@@ -76,6 +78,8 @@ than a generic root `oneOf` error. Missing values remain distinct from explicit 
 candidates and normalized output are isolated; opening/validation never rewrites source input.
 Record parsing reproduces JavaScript's array-index-first key enumeration and rebuilds output using
 normalized keys, including Zod's last-write-wins behavior when input keys normalize to one name.
+Explicit Lua dependency uniqueness uses the kind-specific semantic-field tuple from
+`serializeLuaExplicitDependencyTarget`, including nested owner fields, rather than JSON object order.
 
 The public certification boundary in `contracts.hpp` exchanges serialized records/results and typed
 diagnostics, without leaking jsoncons types. It reports unsupported operations, malformed input,
