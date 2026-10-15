@@ -152,6 +152,26 @@ describe('narrow exact validation cache', () => {
     await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
   });
 
+  it('accepts native-sorted discovery scopes but rejects changed discovery membership', async () => {
+    const root = await fixture();
+    const fileSystem = new NodeProjectWorkspaceFileSystem();
+    await publishAuthoringCache(fileSystem, root, await inventory(fileSystem, root), exactResult);
+    const currentPath = path.join(root, '.noveltea/cache/authoring/current.json');
+    const manifest = JSON.parse(await readFile(currentPath, 'utf8'));
+    // ProjectAuthorityManager canonicalizes scope members and the top-level scope order.
+    manifest.discoveryScopes.reverse();
+    for (const scope of manifest.discoveryScopes) {
+      scope.extensions.sort();
+      scope.excludedPrefixes.sort();
+    }
+    await writeFile(currentPath, `${JSON.stringify(manifest)}\n`);
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toEqual(exactResult);
+
+    manifest.discoveryScopes[0].extensions.push('.unexpected');
+    await writeFile(currentPath, `${JSON.stringify(manifest)}\n`);
+    await expect(readAuthoringCache(fileSystem, root)).resolves.toBeNull();
+  });
+
   it('rejects physical replacement even when byte size and nanosecond mtime are restored', async () => {
     const root = await fixture();
     const fileSystem = new NodeProjectWorkspaceFileSystem();
