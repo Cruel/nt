@@ -1,6 +1,7 @@
 #pragma once
 
 #include "contracts.hpp"
+#include "source_authority.hpp"
 #include "yaml_codec.hpp"
 
 #include <cstdint>
@@ -101,12 +102,32 @@ public:
     {
         return source_->patch(revision, patches);
     }
-    RoomSessionResult save(std::string_view disk_revision) { return source_->save(disk_revision); }
+    RoomSessionResult save(std::string_view disk_revision)
+    {
+        const auto prior_revision = source_->snapshot().disk_source_revision;
+        auto result = source_->save(disk_revision);
+        if (result.accepted && result.snapshot.disk_source_revision != prior_revision &&
+            !source_authority_->acknowledge_own_write("project.yaml",
+                                                      result.snapshot.disk_source_revision))
+            source_authority_->coverage_lost();
+        return result;
+    }
     const std::vector<ProjectFile>& file_inventory() const { return source_->file_inventory(); }
 
+    // Certified physical changes are separate from working-state mutation; #495
+    // will reconcile these paths into the resident editor/daemon Project model.
+    SourceObservation observe_sources() { return source_authority_->observe(); }
+    void source_watch_hint(std::string_view path) { source_authority_->hint(path); }
+    void source_watch_coverage_lost() { source_authority_->coverage_lost(); }
+
 private:
-    explicit ProjectSession(std::unique_ptr<RoomSession> source) : source_(std::move(source)) {}
+    ProjectSession(std::unique_ptr<RoomSession> source,
+                   std::unique_ptr<SourceAuthority> source_authority)
+        : source_(std::move(source)), source_authority_(std::move(source_authority))
+    {
+    }
     std::unique_ptr<RoomSession> source_;
+    std::unique_ptr<SourceAuthority> source_authority_;
 };
 
 } // namespace noveltea::authoring

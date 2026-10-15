@@ -89,6 +89,37 @@ optional `native-room-session-parity.test.ts` compares the actual native normali
 saved result to TypeScript/Zod normalization and checks the session's actual affected-record
 delta. No editor, CLI or runtime path uses the native session yet.
 
+## Native physical source authority (#494)
+
+The certification-only `ProjectSession` now owns its own `SourceAuthority` under
+`tools/project_authoring/`. `observe_sources()` reports added, changed and removed
+Project-relative physical sources independently of dirty working-state revisions.
+An exact SHA-256 digest of on-disk bytes, not a watcher notification, determines
+whether a tracked physical source changed. The Project's own scoped Save adopts
+its verified new manifest revision so the subsequent watcher observation is a
+no-op for that file. An independently opened Project session still sees the
+same Save as an external change.
+
+Discovery walks only tracked `records/`, `scripts/`, `shaders/`, and localization
+source directories, plus canonical fixed fragments. Asset record references,
+attachments and manifest distribution notices add **exact referenced paths**
+to physical observation, even when their binary bytes live outside `assets/`.
+Unrelated Project-root documents and binary files do not enter the inventory.
+Linux owns per-session inotify directory registrations as hints; on other hosts
+explicit observation remains safe without relying on native notifications.
+The observer verifies candidate source bytes rather than treating a quiet
+watcher, unchanged timestamp, or cached semantic snapshot as proof. Watcher
+overflow/lost coverage, system resume and directory replacement trigger
+conservative rescan. A failed or uncertain scan retains the previous authority
+baseline and cannot declare the old snapshot current.
+
+This ticket publishes **physical path deltas only**. Reconciliation of those
+verified changes into the dirty native working Project, multi-file transaction
+coordination and CLI/editor production cutover remain separate follow-on work.
+The native Project session fixture exercises missed events, dynamic Asset paths,
+byte changes with restored timestamps, missing files and recovery, independent
+session ownership, directory replacement, and own-write suppression without Electron.
+
 ## Generation
 
 Run from the repository root:
