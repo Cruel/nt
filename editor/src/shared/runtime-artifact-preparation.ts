@@ -1227,6 +1227,7 @@ async function prepareOpaqueVideoRepresentations(
           sourcePath: asset.source.path,
           canvas: { ...animation.data.canvas },
           ...(motion.sourceRange ? { sourceRange: { ...motion.sourceRange } } : {}),
+          ...(motion.frameSampling ? { frameSampling: motion.frameSampling } : {}),
         },
       });
     }
@@ -1265,6 +1266,15 @@ async function prepareOpaqueVideoRepresentations(
         entry.motionId,
         prepared.contentHash,
       );
+      const alphaPath = prepared.alphaWebp
+        ? browserPath.replace(/opaque\.webm$/u, 'alpha.webp')
+        : null;
+      if (
+        prepared.alphaWebp &&
+        (prepared.alphaWebp.width !== prepared.browserVideo.width ||
+          prepared.alphaWebp.height !== prepared.browserVideo.height)
+      )
+        throw new Error('Prepared alpha WebP does not match the color video canvas.');
       fileEntries.push({
         source: prepared.browserVideo.sourcePath,
         packagePath: browserPath,
@@ -1272,6 +1282,14 @@ async function prepareOpaqueVideoRepresentations(
         assetId: `prepared-media:${entry.animationId}:${entry.motionId}:browser`,
         kind: 'prepared-media',
       });
+      if (prepared.alphaWebp && alphaPath)
+        fileEntries.push({
+          source: prepared.alphaWebp.sourcePath,
+          packagePath: alphaPath,
+          storage: 'stored',
+          assetId: `prepared-media:${entry.animationId}:${entry.motionId}:alpha`,
+          kind: 'prepared-media',
+        });
       manifest.motions.push({
         animationId: entry.animationId,
         motionId: entry.motionId,
@@ -1283,7 +1301,20 @@ async function prepareOpaqueVideoRepresentations(
           height: prepared.browserVideo.height,
         },
         frames: prepared.frameDurationsMs.map((durationMs) => ({ durationMs })),
+        ...(alphaPath ? { alphaWebp: { path: alphaPath } } : {}),
       });
+      if (prepared.reducedColorPrecision)
+        diagnostics.push(
+          createProjectValidationDiagnostic({
+            code: 'animation.video.color-precision-reduced',
+            severity: 'warning',
+            path: `/animations/${entry.animationId}/data/motions`,
+            message: `Video motion '${entry.motionId}' uses HDR or high-bit-depth color. Runtime preparation converts it to SDR/8-bit BT.709.`,
+            category: 'Animations',
+            boundaries: ['authoring', 'runtime-package'],
+            ownerPaths: [`/animations/${entry.animationId}`],
+          }),
+        );
       if (prepared.hadAudio)
         diagnostics.push(
           createProjectValidationDiagnostic({
@@ -1965,18 +1996,22 @@ export async function verifyPreparedRuntimeArtifact(
       );
     const referencedPreparedPaths = new Set<string>();
     for (const motion of parsedPreparedMedia.data.motions) {
-      const path = motion.browserVideo.path;
-      if (!referencedPreparedPaths.add(path))
-        return rejectedEvidence(
-          'Prepared-media manifest contains a duplicate video path.',
-          '/artifact/packageOptions/textEntries',
-        );
-      const entry = actualFileEntriesByPath.get(path);
-      if (!entry || entry.kind !== 'prepared-media')
-        return rejectedEvidence(
-          'Prepared-media manifest references a video absent from the prepared file inventory.',
-          '/artifact/fileEntries',
-        );
+      for (const path of [
+        motion.browserVideo.path,
+        ...(motion.alphaWebp ? [motion.alphaWebp.path] : []),
+      ]) {
+        if (!referencedPreparedPaths.add(path))
+          return rejectedEvidence(
+            'Prepared-media manifest contains a duplicate media path.',
+            '/artifact/packageOptions/textEntries',
+          );
+        const entry = actualFileEntriesByPath.get(path);
+        if (!entry || entry.kind !== 'prepared-media')
+          return rejectedEvidence(
+            'Prepared-media manifest references media absent from the prepared file inventory.',
+            '/artifact/fileEntries',
+          );
+      }
     }
     if (
       actualFileEntries.some(

@@ -970,6 +970,49 @@ TEST_CASE("focused preview manifest image sampling is explicit and discriminated
     CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
 }
 
+TEST_CASE("focused preview admits matching private video-alpha sidecars")
+{
+    const std::string revision = "sha256:" + std::string(64, 'a');
+    auto request = nlohmann::json{{"protocol", "noveltea.focused-editor-document"},
+                                  {"protocolVersion", 1},
+                                  {"requestId", "alpha-sidecar"},
+                                  {"applySequence", 1},
+                                  {"projectInstanceId", "project"},
+                                  {"resourceStageGeneration", 1},
+                                  {"kind", "room-preview"},
+                                  {"recordId", "room"},
+                                  {"revision", revision},
+                                  {"resourceRevision", revision},
+                                  {"resources", nlohmann::json::array()},
+                                  {"data", nlohmann::json::object()}};
+    const auto alpha = nlohmann::json{
+        {"resourceId", "asset:prepared-video-example-alpha"},
+        {"sourceKind", "prepared-media"},
+        {"assetId", "prepared-video-example-alpha"},
+        {"logicalPath", "project:/.noveltea/build/prepared-media/example/alpha.webp"},
+        {"contentHash", revision},
+        {"byteSize", 345},
+        {"kind", "video-alpha"},
+        {"sampling", "linear"},
+        {"width", 320},
+        {"height", 180}};
+    request["resources"] = nlohmann::json::array({alpha});
+    const auto accepted = decode_focused_editor_document_request_text(request.dump());
+    REQUIRE(accepted);
+    REQUIRE(accepted.value().resources.front().width);
+    CHECK(*accepted.value().resources.front().width == 320);
+    CHECK(accepted.value().resources.front().kind == "video-alpha");
+
+    request["resources"][0]["sourceKind"] = "authoring-asset";
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
+    request["resources"][0] = alpha;
+    request["resources"][0]["width"] = 0;
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
+    request["resources"][0] = alpha;
+    request["resources"][0]["kind"] = "video-mask";
+    CHECK_FALSE(decode_focused_editor_document_request_text(request.dump()));
+}
+
 TEST_CASE("focused editor envelope enforces nested source and collection limits")
 {
     const std::string revision = "sha256:" + std::string(64, 'a');

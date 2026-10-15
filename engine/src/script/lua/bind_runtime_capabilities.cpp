@@ -589,7 +589,7 @@ parse_motion_policy(const sol::table& policy)
     const auto marker = table_option<std::string>(policy, "initial_marker");
     const sol::object marker_value = policy["initial_marker"];
     if (!repeat || (*repeat != "once" && *repeat != "loop") || !rate || !clock_name ||
-        (marker_value.valid() && marker_value.get_type() != sol::type::nil && !marker))
+        (marker_value.valid() && marker_value.get_type() != sol::type::lua_nil && !marker))
         return Result::failure(invalid("runtime.invalid_motion_policy",
                                        "Motion policy requires once/loop repeat, positive rate, "
                                        "clock, and optional initial_marker"));
@@ -600,7 +600,7 @@ parse_motion_policy(const sol::table& policy)
         *repeat == "once" ? core::MotionRepeat::Once : core::MotionRepeat::Loop, *rate,
         *clock.value_if(), marker ? std::optional<std::string>{*marker} : std::nullopt};
     const sol::object range = policy["loop_range"];
-    if (range.valid() && range.get_type() != sol::type::nil) {
+    if (range.valid() && range.get_type() != sol::type::lua_nil) {
         if (range.get_type() != sol::type::table)
             return Result::failure(invalid("runtime.invalid_motion_policy",
                                            "loop_range must be a start/end marker table"));
@@ -2231,7 +2231,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
             const auto marker = table_option<std::string>(policy, "initial_marker");
             const sol::object marker_value = policy["initial_marker"];
             if (!repeat || (*repeat != "once" && *repeat != "loop") || !rate || !clock_name ||
-                (marker_value.valid() && marker_value.get_type() != sol::type::nil && !marker))
+                (marker_value.valid() && marker_value.get_type() != sol::type::lua_nil && !marker))
                 return mutation(view, core::Result<void, core::Diagnostics>::failure(invalid(
                                           "runtime.invalid_motion_policy",
                                           "Motion policy requires once/loop repeat, positive rate, "
@@ -2244,7 +2244,7 @@ void bind_runtime_capabilities(lua_State* state, RuntimeScriptApi* api)
                 *repeat == "once" ? core::MotionRepeat::Once : core::MotionRepeat::Loop, *rate,
                 *clock.value_if(), marker ? std::optional<std::string>{*marker} : std::nullopt};
             const sol::object range = policy["loop_range"];
-            if (range.valid() && range.get_type() != sol::type::nil) {
+            if (range.valid() && range.get_type() != sol::type::lua_nil) {
                 if (range.get_type() != sol::type::table)
                     return mutation(view, core::Result<void, core::Diagnostics>::failure(invalid(
                                               "runtime.invalid_motion_policy",

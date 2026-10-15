@@ -1,5 +1,6 @@
 #include "noveltea/world_presentation.hpp"
 #include "noveltea/assets/prepared_video_texture.hpp"
+#include "media/video_alpha_session.hpp"
 
 #include "noveltea/presentation/presentation_operation_requests.hpp"
 
@@ -561,6 +562,11 @@ public:
           m_generation(initial.cache_key().source_generation), m_current_index(initial_index),
           m_current(std::move(initial)), m_seed(m_current)
     {
+        std::uint64_t at = 0;
+        for (const auto& frame : m_representation.frames) {
+            m_frame_offsets.push_back(at);
+            at += frame.duration_ms;
+        }
         if (m_seed->video_source)
             m_session = m_seed->video_source->create_session();
     }
@@ -586,6 +592,10 @@ public:
                 {diagnostic("presentation.video_source_changed",
                             "Video stream source generation changed; reconstruct presentation.",
                             m_representation.animation.text())});
+        if (m_representation.alpha_webp && !m_alpha &&
+            !prepare_alpha(m_frame_offsets[m_current_index]))
+            return fail({diagnostic("presentation.video_alpha_decoder_unavailable", m_alpha_error,
+                                    m_representation.animation.text())});
         const auto index = core::prepared_video_frame_at(m_representation, time_ms);
         // A late forward sample is useful; a sample from before a loop/rewind is not.
         if (m_pending && m_last_requested_time && time_ms < *m_last_requested_time)
@@ -606,12 +616,16 @@ public:
                     m_session_anchor = *ready;
                     m_session_pin = m_session->retain_residency(*ready);
                 }
-                if (!m_session || !m_pending_obsolete)
-                    present_sample(std::move(*ready), m_pending_index);
+                if ((!m_session || !m_pending_obsolete) &&
+                    !present_sample(std::move(*ready), m_pending_index))
+                    return fail({diagnostic("presentation.video_alpha_sample_failed", m_alpha_error,
+                                            m_representation.animation.text())});
             }
         }
         if (m_session && index == m_seed_index) {
-            present_sample(m_seed, m_seed_index);
+            if (!present_sample(m_seed, m_seed_index))
+                return fail({diagnostic("presentation.video_alpha_sample_failed", m_alpha_error,
+                                        m_representation.animation.text())});
         }
         if (index == m_current_index) {
             // Loop wrap must not cancel a slow seek before it can ever produce a sample.
@@ -651,8 +665,10 @@ public:
                 m_session_anchor = *ready;
                 m_session_pin = m_session->retain_residency(*ready);
             }
-            if (!m_session || !m_pending_obsolete)
-                present_sample(std::move(*ready), m_pending_index);
+            if ((!m_session || !m_pending_obsolete) &&
+                !present_sample(std::move(*ready), m_pending_index))
+                return fail({diagnostic("presentation.video_alpha_sample_failed", m_alpha_error,
+                                        m_representation.animation.text())});
         }
         m_current.mark_used_on_owner();
         return Sample::success(m_current);
@@ -685,20 +701,75 @@ public:
         return m_seed->video_session ? m_seed->video_session->fallback_reason() : std::string{};
     }
     bool frame_addressable() const noexcept override { return true; }
+    bool has_alpha_mask() const noexcept override
+    {
+        return m_representation.alpha_webp.has_value();
+    }
+    std::uint64_t alpha_upload_count() const noexcept override
+    {
+        return m_alpha ? m_alpha->upload_count() : 0;
+    }
+    std::optional<Texture> alpha_mask() const noexcept override
+    {
+        return m_alpha && m_alpha->ready() ? std::optional{m_alpha->texture()} : std::nullopt;
+    }
+    bool alpha_hit(float u, float v) const noexcept override
+    {
+        return m_alpha && m_alpha->hit(u, v);
+    }
     bool sample_ready(std::uint64_t time_ms) const noexcept override
     {
         return m_state != assets::AssetRequestState::Failed &&
                m_generation == m_assets.source_generation_on_owner() &&
+               (!m_representation.alpha_webp || (m_alpha && m_alpha->ready())) &&
                m_current_index == core::prepared_video_frame_at(m_representation, time_ms);
     }
 
 private:
-    void present_sample(assets::AssetLease<assets::TextureAsset> sample, std::size_t index)
+    bool prepare_alpha(std::uint64_t initial_time)
     {
+        if (!m_representation.alpha_webp)
+            return true;
+        if (!m_representation.browser_video) {
+            m_alpha_error = "Transparent video has no canvas extent.";
+            return false;
+        }
+        const auto path = "project:/" + m_representation.alpha_webp->path;
+        const auto source = m_assets.stat(path);
+        if (!source || source.value->uncompressed_size > 128u * 1024u * 1024u) {
+            m_alpha_error = "Prepared alpha WebP is missing or exceeds the source budget.";
+            return false;
+        }
+        const auto bytes = m_assets.read_binary(path);
+        if (!bytes) {
+            m_alpha_error = "Prepared alpha WebP cannot be read: " + bytes.error.message;
+            return false;
+        }
+        const auto duration = core::prepared_video_duration_ms(m_representation);
+        if (!duration) {
+            m_alpha_error = "Prepared alpha motion has an invalid duration.";
+            return false;
+        }
+        auto session = media::make_video_alpha_session(
+            bytes.value->bytes, m_representation.browser_video->width,
+            m_representation.browser_video->height, *duration, m_alpha_error);
+        if (!session || !session->sample(initial_time, m_alpha_error))
+            return false;
+        m_alpha = std::move(session);
+        return true;
+    }
+
+    bool present_sample(assets::AssetLease<assets::TextureAsset> sample, std::size_t index)
+    {
+        // Publish alpha first; the new color lease is never exposed with an old
+        // alpha mask if decoding or upload fails. Both consumers see one pair.
+        if (m_alpha && !m_alpha->sample(m_frame_offsets[index], m_alpha_error))
+            return false;
         m_current = std::move(sample);
         m_current_index = index;
         if (m_session)
             m_session->set_presented_texture_on_owner(m_current->handle);
+        return true;
     }
 
     assets::AssetManager& m_assets;
@@ -707,6 +778,9 @@ private:
     std::size_t m_current_index;
     assets::AssetLease<assets::TextureAsset> m_current;
     assets::AssetLease<assets::TextureAsset> m_seed;
+    std::unique_ptr<media::VideoAlphaSession> m_alpha;
+    std::vector<std::uint64_t> m_frame_offsets;
+    std::string m_alpha_error;
     std::size_t m_seed_index = m_current_index;
     std::shared_ptr<assets::VideoTextureSession> m_session;
     std::optional<assets::AssetLease<assets::TextureAsset>> m_session_anchor;
@@ -754,6 +828,8 @@ std::optional<QuadCommand> WorldPresentationDraw::ActorAnimationFrame::sample(
             result.texture = Texture{(**sampled.value_if())->handle};
             result.texture_sampler = MaterialTextureSampler::ClampLinear;
         }
+        result.video_alpha_required = video_stream->has_alpha_mask();
+        result.video_alpha_mask = video_stream->alpha_mask();
         return result;
     }
     for (const auto& frame : visual_frames) {
@@ -1518,11 +1594,12 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                 return lease && (*lease)->alpha_coverage.has_value();
             };
             const bool supported =
-                owner_draw->raster_animation_frames.empty()
-                    ? has_coverage(owner_draw->texture_lease)
-                    : std::ranges::all_of(
-                          owner_draw->raster_animation_frames,
-                          [&](const auto& frame) { return has_coverage(frame.texture_lease); });
+                (owner_draw->video_stream && owner_draw->video_stream->has_alpha_mask()) ||
+                (owner_draw->raster_animation_frames.empty()
+                     ? has_coverage(owner_draw->texture_lease)
+                     : std::ranges::all_of(
+                           owner_draw->raster_animation_frames,
+                           [&](const auto& frame) { return has_coverage(frame.texture_lease); }));
             if (!supported) {
                 diagnostics.push_back(diagnostic(
                     "presentation.visual_alpha_coverage_unavailable",
@@ -1554,6 +1631,7 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                  },
                  hotspot.shape),
              .source_texture_lease = owner_draw->texture_lease,
+             .source_video_stream = owner_draw->video_stream,
              .cursor = hotspot.cursor});
     }
     std::sort(candidate.hotspot_hit_targets.begin(), candidate.hotspot_hit_targets.end(),
@@ -1701,6 +1779,11 @@ WorldPresentationBackend::reconcile(const core::RuntimePresentationSnapshot& sna
                         draw->video_stream = previous_draw->video_stream;
                         draw->texture_lease = previous_draw->texture_lease;
                         draw->sampled_visual_texture = previous_draw->sampled_visual_texture;
+                        for (auto& target : candidate.hotspot_hit_targets)
+                            if (target.family == draw->family &&
+                                target.stable_identity == draw->stable_identity &&
+                                target.base_sublayer == draw->sublayer)
+                                target.source_video_stream = draw->video_stream;
                     }
                 }
             }
@@ -1764,6 +1847,8 @@ bool hotspot_target_contains(const WorldHotspotHitTarget& target, Vec2 point)
         [&](const auto& shape) {
             using T = std::decay_t<decltype(shape)>;
             if constexpr (std::is_same_v<T, core::AlphaHotspotShape>) {
+                if (target.source_video_stream && target.source_video_stream->has_alpha_mask())
+                    return target.source_video_stream->alpha_hit(image_u, image_v);
                 return target.source_texture_lease &&
                        (*target.source_texture_lease)->alpha_coverage &&
                        assets::texture_alpha_coverage_contains(
@@ -2380,6 +2465,14 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
             effective_motion = replacement.raster_animation_motion;
             raster_motion_time = phase;
         }
+        const auto* current_video_stream =
+            finite != m_finite_motion_samples.end() && finite->motion.draw.video_stream
+                ? finite->motion.draw.video_stream.get()
+                : draw.video_stream.get();
+        if (current_video_stream && current_video_stream->has_alpha_mask()) {
+            command.video_alpha_required = true;
+            command.video_alpha_mask = current_video_stream->alpha_mask();
+        }
         draw.sampled_visual_texture = command.texture;
         draw.sampled_visual_sampler = command.texture_sampler;
         if (!draw.raster_animation_frames.empty()) {
@@ -2388,6 +2481,10 @@ void WorldPresentationBackend::rebuild_batches(WorldPresentationFrame& frame,
                     target.stable_identity == draw.stable_identity &&
                     target.base_sublayer == draw.sublayer) {
                     target.source_texture_lease = draw.texture_lease;
+                    target.source_video_stream =
+                        finite != m_finite_motion_samples.end() && finite->motion.draw.video_stream
+                            ? finite->motion.draw.video_stream
+                            : draw.video_stream;
                     if (const auto* shape =
                             std::get_if<core::compiled::RectHotspotShape>(&target.authored_shape)) {
                         const auto sampled = sample_hotspot_shape(

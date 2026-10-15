@@ -502,7 +502,7 @@ add_executable(noveltea_asset_tests
 if(NOT EMSCRIPTEN)
     target_sources(noveltea_asset_tests PRIVATE assets/native_video_decoder_tests.cpp)
     add_executable(noveltea_native_video_texture_smoke render/native_video_texture_smoke.cpp)
-    target_link_libraries(noveltea_native_video_texture_smoke PRIVATE noveltea_engine)
+    target_link_libraries(noveltea_native_video_texture_smoke PRIVATE noveltea_engine bgfx::bgfx)
     noveltea_apply_runtime_compiler_policy(noveltea_native_video_texture_smoke)
     target_compile_definitions(noveltea_native_video_texture_smoke PRIVATE
         NOVELTEA_SOURCE_DIR="${CMAKE_SOURCE_DIR}"
@@ -651,6 +651,7 @@ add_executable(noveltea_render_backend_tests
     render/screenshot_capture_tests.cpp
     render/shader_variant_tests.cpp
     render/webp_decode_tests.cpp
+    render/animated_webp_alpha_tests.cpp
     render/world_presentation_tests.cpp
     render/world_transition_tests.cpp
 )

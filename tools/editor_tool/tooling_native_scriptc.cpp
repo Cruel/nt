@@ -92,6 +92,8 @@ NativeOperation operation_for(std::string_view operation)
         return &noveltea_tooling_image_inspect_json;
     if (operation == "image-resize-png")
         return &noveltea_tooling_image_resize_png_json;
+    if (operation == "alpha-encode")
+        return &noveltea_tooling_encode_alpha_webp_json;
     if (operation == "file-mode")
         return &noveltea_tooling_file_mode_json;
     if (operation == "disk-space")
@@ -376,6 +378,13 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
         return;
     }
 
+    // Side-effecting alpha encoding must never be invoked through the
+    // generic capture wrapper: it probes and executes a native operation twice.
+    if (capture_output && operation == "alpha-encode") {
+        write_text(response_path,
+                   R"({"ok":false,"error":"alpha-encode does not support capture mode"})");
+        return;
+    }
     if (capture_output && operation != "daemon") {
         const auto captured = invoke_captured(native_operation, request_bytes, request_size);
         const auto envelope = nlohmann::json{{"captureOk", captured.ok},
@@ -388,6 +397,20 @@ extern "C" void noveltea_tooling_scriptc_invoke_to_file(const std::uint8_t* oper
         return;
     }
 
+    // This operation performs media processing. Call it exactly once rather
+    // than using the two-pass size-probe convention intended for pure queries.
+    if (operation == "alpha-encode") {
+        std::vector<std::uint8_t> response(32 * 1024 * 1024);
+        const auto written = native_operation(request_bytes, request_size,
+                                              response.data(), response.size());
+        if (written > response.size()) {
+            write_text(response_path, R"({"ok":false,"error":"alpha diagnostics too large"})");
+            return;
+        }
+        write_text(response_path, std::string_view(reinterpret_cast<const char*>(response.data()),
+                                                   static_cast<std::size_t>(written)));
+        return;
+    }
     if (operation == "daemon") {
         const auto capacity = daemon_project_authority_observation(request_bytes, request_size)
                                   ? project_authority_response_capacity

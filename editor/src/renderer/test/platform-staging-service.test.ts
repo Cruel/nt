@@ -786,7 +786,7 @@ describe('platform staging service', () => {
         { path: 'bin/runtime.dll', kind: 'library' },
         ...licenseFixture.runtimeDependencies,
       ],
-      windowsImports: ['kernel32.dll', 'runtime.dll'],
+      windowsImports: ['kernel32.dll', 'mfplat.dll', 'runtime.dll'],
       artifacts: {
         archive: 'windows.zip',
         symbols: 'windows-symbols.zip',
@@ -845,6 +845,36 @@ describe('platform staging service', () => {
         ],
       },
     };
+    // Media Foundation is an OS import; unknown third-party imports must still fail.
+    const descriptorPath = path.join(templateRoot, 'template.json');
+    const receiptPath = path.join(templateRoot, '.noveltea-template.json');
+    const originalReceipt = fs.readFileSync(receiptPath);
+    const unknownDescriptor = Buffer.from(
+      JSON.stringify({
+        ...descriptor,
+        windowsImports: [...descriptor.windowsImports, 'vendorcodec.dll'],
+      }),
+    );
+    fs.writeFileSync(descriptorPath, unknownDescriptor);
+    fs.writeFileSync(
+      receiptPath,
+      JSON.stringify({
+        ...JSON.parse(originalReceipt.toString()),
+        descriptorSha256: sha(unknownDescriptor),
+      }),
+    );
+    const unresolved = await stagePlatformExport({
+      ...windowsRequest,
+      operationId: 'windows-unknown-import',
+      outputDirectory: path.join(root, 'windows unknown import'),
+    });
+    expect(unresolved.success).toBe(false);
+    expect(unresolved.diagnostics.map((item) => item.message)).toContain(
+      'Windows player has unresolved non-system DLL imports: vendorcodec.dll',
+    );
+    fs.writeFileSync(descriptorPath, descriptorData);
+    fs.writeFileSync(receiptPath, originalReceipt);
+
     const result = await stagePlatformExport(windowsRequest);
     expect(result.success).toBe(true);
     expect(result.archivePath && fs.existsSync(result.archivePath)).toBe(true);

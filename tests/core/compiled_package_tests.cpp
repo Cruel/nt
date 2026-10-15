@@ -293,6 +293,21 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
     REQUIRE(decoded.has_value());
     REQUIRE(decoded.value().motions.size() == 1);
     CHECK(decoded.value().motions.front().frames.size() == 2);
+    CHECK_FALSE(decoded.value().motions.front().alpha_webp.has_value());
+
+    auto alpha_json = nlohmann::json::parse(prepared_json);
+    const std::string alpha_path = "assets/.prepared-media/video-animation/idle/a/alpha.webp";
+    alpha_json["motions"][0]["alphaWebp"] = {{"path", alpha_path}};
+    auto with_alpha = decode_prepared_media_catalog_json(alpha_json.dump(), "prepared-media.json");
+    REQUIRE(with_alpha.has_value());
+    REQUIRE(with_alpha.value().motions.front().alpha_webp.has_value());
+    CHECK(with_alpha.value().motions.front().alpha_webp->path == alpha_path);
+    auto malformed_alpha = alpha_json;
+    malformed_alpha["motions"][0]["alphaWebp"]["path"] = "../outside.webp";
+    CHECK_FALSE(decode_prepared_media_catalog_json(malformed_alpha.dump(), "prepared-media.json"));
+    malformed_alpha = alpha_json;
+    malformed_alpha["motions"][0]["alphaWebp"]["extra"] = true;
+    CHECK_FALSE(decode_prepared_media_catalog_json(malformed_alpha.dump(), "prepared-media.json"));
 
     auto obsolete = nlohmann::json::parse(prepared_json);
     obsolete.erase("version");
@@ -339,6 +354,20 @@ TEST_CASE("private prepared media decodes strictly and assembles only for matchi
                                         inventory_for(missing_browser_manifest.value()), prepared);
     REQUIRE_FALSE(invalid.has_value());
     CHECK(has_code(invalid.error(), "runtime_package.invalid_browser_video"));
+
+    invalid = assemble_compiled_package(project, manifest.value(), std::nullopt, inventory,
+                                        with_alpha.value());
+    REQUIRE_FALSE(invalid.has_value());
+    CHECK(has_code(invalid.error(), "runtime_package.invalid_video_alpha"));
+    auto alpha_manifest_json = manifest_json;
+    alpha_manifest_json["entries"].push_back({{"path", alpha_path}, {"size", 14}});
+    auto alpha_manifest = decode_runtime_package_manifest(alpha_manifest_json);
+    REQUIRE(alpha_manifest.has_value());
+    auto paired =
+        assemble_compiled_package(project, alpha_manifest.value(), std::nullopt,
+                                  inventory_for(alpha_manifest.value()), with_alpha.value());
+    REQUIRE(paired.has_value());
+    CHECK(paired.value().prepared_media().motions.front().alpha_webp->path == alpha_path);
 
     auto assembled = assemble_compiled_package(std::move(project), std::move(manifest).value(),
                                                std::nullopt, std::move(inventory), prepared);

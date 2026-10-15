@@ -111,6 +111,7 @@ function invokeCapturedHost(
     operation === 'process-alive' ||
     operation === 'read-stdin' ||
     operation === 'run-process' ||
+    operation === 'alpha-encode' ||
     operation === 'cli-executable-path'
   )
     return invokeHost(operation, requestText);
@@ -2570,6 +2571,15 @@ async function main(): Promise<void> {
     const daemonInvocation = hiddenDaemonBrokerInvocation(argv);
     if (daemonInvocation) {
       exitCode = await runHiddenDaemonBroker(daemonInvocation);
+      return;
+    }
+    // Thin native media service entry: also used by the Node/Electron CLI.
+    // No QuickJS island is loaded; requests contain paths/timelines, not frames.
+    if (argv.length === 2 && argv[0] === '__editor-native' && argv[1] === 'alpha-encode') {
+      const response = invokeHost('alpha-encode', readFileSync(0, 'utf8'));
+      process.stdout.write(response + '\n');
+      const parsed = JSON.parse(response) as { ok?: boolean };
+      exitCode = parsed.ok === true ? 0 : 1;
       return;
     }
     if (argv.length === 1 && argv[0] === '__daemon-ensure') {

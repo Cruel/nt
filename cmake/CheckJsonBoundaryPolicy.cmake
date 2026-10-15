@@ -57,6 +57,9 @@ set(approved_source_paths
     "tools/benchmark/main.cpp"
     "tools/editor_tool/font_coverage_tool.cpp"
     "tools/editor_tool/shader_compiler.cpp"
+    # The native alpha encoder owns a JSON-only tooling request/response ABI;
+    # no JSON types escape into engine or tooling headers.
+    "tools/editor_tool/tooling_alpha_encoder.cpp"
     "tools/editor_tool/tooling_archive.cpp"
     "tools/editor_tool/tooling_bridge.cpp"
     "tools/editor_tool/tooling_daemon_broker.cpp"

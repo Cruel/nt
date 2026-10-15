@@ -267,6 +267,7 @@ jobs:
           node scripts/coverage-summary.mjs cpp build/reports/coverage/cpp/ctest/summary.json CTest >> "$GITHUB_STEP_SUMMARY"
 
       - name: Stage pinned FFmpeg for Feature Lab
+        if: ${{ !cancelled() }}
         run: |
           node editor/scripts/private-media-tools.mjs build/coverage-media
           chmod +x build/coverage-media/tools/ffmpeg/bin/ffmpeg

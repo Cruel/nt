@@ -53,6 +53,8 @@ add_library(noveltea_tooling_native STATIC
     tooling_native_scriptc.cpp
     tooling_scriptc_gc.cpp
     tooling_image.cpp
+    tooling_alpha_encoder.cpp
+    "${CMAKE_SOURCE_DIR}/engine/src/media/animated_webp_alpha.cpp"
     tooling_filesystem.cpp
     tooling_runtime_cache.cpp
     font_coverage_tool.cpp
@@ -66,7 +68,8 @@ add_library(noveltea_tooling_native STATIC
 # normal host exception/RTTI model required by embedded shaderc.
 set(_NOVELTEA_TOOLING_RUNTIME_SOURCES
     "${CMAKE_SOURCE_DIR}/engine/src/core/editor_playback_expectations.cpp"
-    "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp")
+    "${CMAKE_SOURCE_DIR}/engine/src/core/editor_runtime_protocol.cpp"
+    "${CMAKE_SOURCE_DIR}/engine/src/media/animated_webp_alpha.cpp")
 foreach(_source IN LISTS _NOVELTEA_TOOLING_RUNTIME_SOURCES)
     if(MSVC)
         set_property(SOURCE "${_source}" APPEND PROPERTY

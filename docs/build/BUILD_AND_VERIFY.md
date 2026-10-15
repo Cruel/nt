@@ -215,8 +215,9 @@ set `project.json`'s entrypoint to `world-composition`, clear `settings.ui.syste
 default fullscreen HUD, and set that Room's default camera to center `(1200, 675)`, zoom `1`,
 rotation `0`. Keep source media, Animation, Materials, and bootstrap unchanged. Export through
 `noveltea package export --allow-localization-warnings`, then pass the `.ntpkg` to the command
-above. `--video` uses the debug-only `--smoke-run-runtime` player argument to run the ordinary
-runtime directly, without testing title-screen interaction. The browser checks paused native
+above. `--video` uses the debug-only `--smoke-run-runtime` player argument unless
+`--start-via-title` is specified; the optimized release player uses the ordinary title-screen
+start path. The browser checks paused native
 media seeks and screenshot colors at the authored panel; this is platform realization coverage,
 not a second gameplay-semantic suite. `NOVELTEA_WEB_VIDEO_SMOKE_CAPTURE` optionally names a
 failure screenshot. `pnpm web:video:test` runs the smaller browser media-boundary checks plus the
@@ -224,6 +225,14 @@ WebAssembly request-contract test, using the configured Web-debug compiler. The 
 repeat independent directed seeks and cover the zero-time sample, exact endpoint, and queued decoder
 progress in addition to cancellation and resource failure. Capture waits for seek completion, not
 initial-frame `loadeddata`, before publishing a nonzero-time sample.
+
+Run `node scripts/certify-video-package-scenarios.mjs --web --native` for #407's repeatable
+real-package video matrix: ten disposable Feature Lab variants through the standalone Linux CLI,
+authoritative sample timing and exact endpoint checks, PQ/HLG tone mapping, source/locale cache
+identity, deterministic repeat export, and corrupt-input rejection. The Web leg uses the optimized
+browser player and image-pixel checks; the native leg uses the Linux debug player and its real
+software VP9 session. For GPU rendering, provide a working Linux display; the script does not
+require a VA-API hardware decoder.
 
 If the current display cannot initialize WebGL (for example an unavailable SSH-forwarded display),
 run the package smoke under `xvfb-run -a node scripts/web-player-package-smoke.mjs ...`. Browser media

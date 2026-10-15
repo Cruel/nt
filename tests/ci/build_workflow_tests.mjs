@@ -331,6 +331,9 @@ test('native coverage stages verified FFmpeg for Feature Lab video preparation',
   const linux = job('linux');
   const stage = step(linux, 'Stage pinned FFmpeg for Feature Lab');
   const tests = step(linux, 'Feature Lab authored Tests');
+  // A failed C++ policy or CTest step must not suppress the media prerequisite
+  // while the independently reported Feature Lab suite is still scheduled.
+  assert.equal(field(stage, 'if'), '${{ !cancelled() }}');
   assert.match(stage, /node editor\/scripts\/private-media-tools\.mjs build\/coverage-media/);
   assert.match(tests, /NOVELTEA_FFMPEG: .*build\/coverage-media\/tools\/ffmpeg\/bin\/ffmpeg/);
   assert.ok(linux.indexOf(stage) < linux.indexOf(tests));

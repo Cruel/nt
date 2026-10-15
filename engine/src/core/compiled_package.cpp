@@ -435,6 +435,28 @@ assemble_compiled_package(CompiledProject project, RuntimePackageManifest manife
                     "Browser video must match the Animation canvas and package inventory.",
                     "/prepared_media/motions/" + std::to_string(index));
         }
+        if (prepared.alpha_webp) {
+            const auto& alpha = prepared.alpha_webp->path;
+            const bool safe = ProjectPackageWriter::is_allowed_package_path(alpha) &&
+                              alpha.starts_with("assets/.prepared-media/") &&
+                              alpha.ends_with("/alpha.webp");
+            const bool colocated =
+                prepared.browser_video && prepared.browser_video->path.ends_with("/opaque.webm") &&
+                alpha ==
+                    prepared.browser_video->path.substr(0, prepared.browser_video->path.size() -
+                                                               std::string("opaque.webm").size()) +
+                        "alpha.webp";
+            if (!safe || !declared.contains(alpha) || !colocated)
+                add_assembly_error(
+                    diagnostics, "runtime_package.invalid_video_alpha",
+                    "Video alpha must be a colocated private WebP sidecar in the package inventory "
+                    "(path=" +
+                        alpha + ", color=" +
+                        (prepared.browser_video ? prepared.browser_video->path : "(missing)") +
+                        ", validPath=" + (safe ? "yes" : "no") +
+                        ", declared=" + (declared.contains(alpha) ? "yes" : "no") + ").",
+                    "/prepared_media/motions/" + std::to_string(index));
+        }
         if (prepared.frames.empty())
             add_assembly_error(diagnostics, "runtime_package.empty_prepared_video_motion",
                                "Prepared video motion must contain at least one semantic sample.",

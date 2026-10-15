@@ -450,8 +450,12 @@ private:
 
 } // namespace
 std::unique_ptr<NativeVideoHardwareDecoder>
+try_nvdec_video(std::shared_ptr<const NativeVideoSource> source);
+std::unique_ptr<NativeVideoHardwareDecoder>
 try_native_video_hardware(std::shared_ptr<const NativeVideoSource> source)
 {
+    if (auto nvdec = try_nvdec_video(source))
+        return nvdec;
     auto decoder = std::make_unique<VaDecoder>(std::move(source));
     return decoder->open() ? std::move(decoder) : nullptr;
 }
@@ -497,6 +501,9 @@ try_native_video_hardware(std::shared_ptr<const NativeVideoSource>)
 #endif
 
 namespace noveltea::media {
+#if defined(__linux__) && !defined(__ANDROID__) && !defined(__EMSCRIPTEN__)
+bool nvdec_driver_available();
+#endif
 VideoHardwareDiagnostics native_video_hardware_diagnostics()
 {
 #if defined(__EMSCRIPTEN__)
@@ -516,6 +523,11 @@ VideoHardwareDiagnostics native_video_hardware_diagnostics()
             .status = "not-probed",
             .reason = "Hardware-required VP9 output is verified when a stream opens."};
 #elif defined(__linux__)
+    if (nvdec_driver_available())
+        return {.backend = "nvdec-vp9",
+                .status = "not-probed",
+                .reason = "NVIDIA driver entrypoints found; actual VP9 support is tested when a "
+                          "stream opens."};
     for (unsigned node = 128; node < 144; ++node) {
         const auto path = "/dev/dri/renderD" + std::to_string(node);
         const auto fd = ::open(path.c_str(), O_RDWR | O_CLOEXEC);

@@ -177,6 +177,8 @@ const api: NovelTeaElectronApi = {
     ipcRenderer.invoke(IPC_CHANNELS.RESOLVE_PLAYER_TEMPLATE, request),
   compileShaders: (projectSessionId: string, shaderProject: unknown, options = {}) =>
     ipcRenderer.invoke(IPC_CHANNELS.COMPILE_SHADERS, projectSessionId, shaderProject, options),
+  probeVideoTimeline: (projectSessionId: string, request) =>
+    ipcRenderer.invoke(IPC_CHANNELS.PROBE_VIDEO_TIMELINE, projectSessionId, request),
   prepareOpaqueVideo: (projectSessionId: string, request) =>
     ipcRenderer.invoke(IPC_CHANNELS.PREPARE_OPAQUE_VIDEO, projectSessionId, request),
   loadUserExportConfig: () => ipcRenderer.invoke(IPC_CHANNELS.LOAD_USER_EXPORT_CONFIG),
