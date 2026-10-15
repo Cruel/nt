@@ -42,12 +42,27 @@ struct RoomSessionResult {
     RoomSessionSnapshot snapshot;
 };
 
+enum class ProjectFileKind {
+    TrackedSource,
+    ProjectSource,
+    IgnoredState,
+    UntrackedFile
+};
+struct ProjectFile {
+    std::string path; // canonical Project-relative, forward-slash identity
+    ProjectFileKind kind;
+};
+
 // A parallel, single-Room certification slice of the future resident Project session.
 // No editor, CLI, or runtime production path creates this session yet.
 class RoomSession {
 public:
     static std::unique_ptr<RoomSession> open(const std::filesystem::path& project_root,
                                              std::string room_id, std::string& error);
+    // The same generic patch/save boundary with a different admitted source owner.
+    // Kept parallel to the production workspace until the migration cutover.
+    static std::unique_ptr<RoomSession>
+    open_project_source(const std::filesystem::path& project_root, std::string& error);
 
     RoomSessionSnapshot snapshot() const;
     RoomSessionResult patch(std::uint64_t expected_working_revision,
@@ -56,6 +71,7 @@ public:
     // admitted source; physical content is also compared exactly before replacement.
     RoomSessionResult save(std::string_view expected_disk_revision);
     const std::filesystem::path& source_path() const { return path_; }
+    const std::vector<ProjectFile>& file_inventory() const { return file_inventory_; }
 
 private:
     RoomSession(std::filesystem::path path, std::string room_id, std::string source,
@@ -70,6 +86,27 @@ private:
     std::string working_json_;
     std::vector<RoomPatch> unsaved_patches_;
     std::uint64_t working_revision_ = 0;
+    bool is_project_ = false;
+    std::vector<ProjectFile> file_inventory_;
+};
+
+// Public Project Workspace root API. The source owner is project.yaml; all other
+// files are admitted/classified but never rewritten by its scoped Save.
+class ProjectSession {
+public:
+    static std::unique_ptr<ProjectSession> open(const std::filesystem::path& root,
+                                                std::string& error);
+    RoomSessionSnapshot snapshot() const { return source_->snapshot(); }
+    RoomSessionResult patch(std::uint64_t revision, const std::vector<RoomPatch>& patches)
+    {
+        return source_->patch(revision, patches);
+    }
+    RoomSessionResult save(std::string_view disk_revision) { return source_->save(disk_revision); }
+    const std::vector<ProjectFile>& file_inventory() const { return source_->file_inventory(); }
+
+private:
+    explicit ProjectSession(std::unique_ptr<RoomSession> source) : source_(std::move(source)) {}
+    std::unique_ptr<RoomSession> source_;
 };
 
 } // namespace noveltea::authoring

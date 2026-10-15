@@ -684,10 +684,23 @@ std::string apply_one(std::string_view source, const YamlValueEdit& edit)
         }
         return result;
     }
-    const auto start = mark_offset(fy_node_get_start_token(node));
-    const auto finish = mark_offset(fy_node_get_end_token(node), true);
+    auto start = mark_offset(fy_node_get_start_token(node));
+    auto finish = mark_offset(fy_node_get_end_token(node), true);
     if (!start || !finish || *finish < *start || *finish > source.size())
         throw SourceFailure("YAML edit has no safe physical source span.");
+    // libfyaml scalar marks exclude surrounding quote delimiters. Replacing only
+    // the inner content would emit JSON quotes *inside* the existing YAML quotes.
+    if (fy_node_is_scalar(node)) {
+        const auto style = fy_node_get_style(node);
+        const char quote = style == FYNS_DOUBLE_QUOTED   ? '"'
+                           : style == FYNS_SINGLE_QUOTED ? '\''
+                                                         : '\0';
+        if (quote && *start > 0 && *finish < source.size() && source[*start - 1] == quote &&
+            source[*finish] == quote) {
+            --*start;
+            ++*finish;
+        }
+    }
     // Replacing an annotated subtree would silently discard its nested comments. Require
     // fine-grained child edits instead (or an explicit future structural reconciliation).
     if (!fy_node_is_scalar(node) && contains_comment(node))

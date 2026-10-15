@@ -6,6 +6,7 @@
 #include <jsoncons_ext/jsonschema/jsonschema.hpp>
 
 #include <algorithm>
+#include <cctype>
 #include <cmath>
 #include <cstdint>
 #include <limits>
@@ -79,13 +80,53 @@ std::string lua_dependency_key(const Json& target)
     return fields.to_string();
 }
 
-const std::set<std::string> implemented_operations{
-    "value.default",           "string.trim",
-    "string.utf16-length",     "lua.dependencies.unique",
-    "lua.dependencies.empty",  "animation.loop-range",
-    "hotspot.bounds",          "material.application-parameter",
-    "property.default-unique", "property.default-value",
-    "property.local-unique",   "property.local-value"};
+const std::set<std::string> implemented_operations{"value.default",
+                                                   "string.trim",
+                                                   "string.utf16-length",
+                                                   "lua.dependencies.unique",
+                                                   "lua.dependencies.empty",
+                                                   "animation.loop-range",
+                                                   "hotspot.bounds",
+                                                   "material.application-parameter",
+                                                   "property.default-unique",
+                                                   "property.default-value",
+                                                   "property.local-unique",
+                                                   "property.local-value",
+                                                   "project.canonical-inventory",
+                                                   "project.notice-path",
+                                                   "project.notice-extension",
+                                                   "export.localization-policy",
+                                                   "export.android-profile"};
+
+bool safe_notice_path(std::string_view path)
+{
+    if (path.empty() || path.size() > 2048 || path.front() == '/' || path.front() == '\\' ||
+        path.find_first_of(":\\") != std::string_view::npos)
+        return false;
+    static const std::set<std::string> blocked{".git",  ".hg",  ".svn", ".noveltea", "node_modules",
+                                               "build", "dist", "out",  ".cache"};
+    static const std::set<std::string> reserved_root{"project.yaml", ".gitignore", ".gitattributes",
+                                                     ".gitmodules", "ntproject.json"};
+    auto lower_path = std::string(path);
+    std::transform(lower_path.begin(), lower_path.end(), lower_path.begin(),
+                   [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+    if (reserved_root.contains(lower_path))
+        return false;
+    std::size_t start = 0;
+    while (start < path.size()) {
+        const auto end = path.find('/', start);
+        auto segment =
+            std::string(path.substr(start, end == std::string_view::npos ? end : end - start));
+        std::transform(segment.begin(), segment.end(), segment.begin(),
+                       [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+        if (segment.empty() || segment == "." || segment == ".." || blocked.contains(segment))
+            return false;
+        if (end == std::string_view::npos)
+            return true;
+        start = end + 1;
+    }
+    return false;
+}
 
 bool property_value_compatible(const Json& property, const Json& value)
 {
@@ -335,6 +376,48 @@ class Validator {
             if (property.contains(key) && !property_value_compatible(property, property.at(key)))
                 issue(errors, path + "/" + key, "semantic." + id,
                       "Property value does not match its declaration.");
+        } else if (id == "project.canonical-inventory") {
+            if (value && value->is_array() && value->size() == 1 &&
+                (value->at(0).at("id") != "inventory" || value->at(0).at("label") != "Inventory"))
+                issue(errors, path, "semantic." + id,
+                      "Project Inventory must use the canonical inventory/Inventory identity.");
+        } else if (id == "project.notice-path") {
+            if (value && value->is_string() && !safe_notice_path(value->as<std::string>()))
+                issue(errors, path, "semantic." + id, "Notice must have a safe Project path.");
+        } else if (id == "project.notice-extension") {
+            if (value && value->is_string()) {
+                auto suffix = value->as<std::string>();
+                std::transform(suffix.begin(), suffix.end(), suffix.begin(),
+                               [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
+                if (!suffix.ends_with(".txt") && !suffix.ends_with(".md"))
+                    issue(errors, path, "semantic." + id, "Notice must be .txt or .md.");
+            }
+        } else if (id == "export.localization-policy") {
+            if (value && value->is_object()) {
+                const auto& locales = value->at("locales");
+                const auto& default_locale = value->at("defaultLocale");
+                bool found = false;
+                for (const auto& locale : locales.array_range())
+                    found |= locale == default_locale;
+                if (!found)
+                    issue(errors, path + "/defaultLocale", "semantic." + id,
+                          "Export default locale must be included in the export locale set.");
+            }
+        } else if (id == "export.android-profile") {
+            if (value && value->is_object()) {
+                const auto& profile = *value;
+                const auto expected =
+                    profile.at("architecture") == "arm64" ? "arm64-v8a" : "x86_64";
+                if (profile.at("android").at("abi") != expected)
+                    issue(errors, path + "/android/abi", "semantic." + id,
+                          "Android architecture requires the matching ABI.");
+                if ((profile.at("android").at("artifact") == "aab" ||
+                     profile.at("android").at("artifact") == "both") &&
+                    profile.at("buildFlavor") == "release" &&
+                    profile.at("android").at("abi") != "arm64-v8a")
+                    issue(errors, path + "/android/abi", "semantic." + id,
+                          "Release AAB exports require the arm64-v8a ABI.");
+            }
         } else {
             throw std::runtime_error("Native operation is not implemented: " + id);
         }
