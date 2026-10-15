@@ -170,6 +170,22 @@ The current approved example is the embedded shaderc/compiler closure linked onl
 host `noveltea` CLI. The Linux link audit rejects host-tool archives in `noveltea-player`. A tool
 becoming runtime-linked automatically voids the exemption and requires full admission review.
 
+### Native Project schema certification (#475)
+
+`tools/project_authoring/` is an additional host-only exemption. Its static
+`noveltea_project_authoring_contracts` library and `noveltea-schema-certify` executable use jsoncons
+1.10.0 (Boost Software License 1.0), pinned to commit
+`d273865feb0d7e35a757c805dc4d1d9320eb6b72` and archive SHA-256
+`698f41f9f3bd1bdb3127c0548139bb3b68c379fae452c514aec9f0cf92e82b5b` in that directory's CMake
+file. jsoncons is header-only, with no transitive C++ archives. The normal host exception/RTTI model
+is intentional; schema compilation, malformed JSON, and unexpected validation failures are caught at
+`validate_record` and returned as diagnostics. No target links the engine, no install/package rule
+exists, and the directory rejects cross-compilation. No objects or headers enter native/Web/Android
+players or export templates, so player binary-size impact is zero. Linux standalone compilation,
+malformed-input self-tests, and native/Zod differential tests certify the foundation; Windows/macOS
+integration and distribution remain gates for the later host-packaging/cutover tickets. See
+[NATIVE_AUTHORING_CONTRACTS.md](NATIVE_AUTHORING_CONTRACTS.md).
+
 ## Admission gate
 
 Any pull request or implementation that adds or materially upgrades a shipped C++ dependency must add

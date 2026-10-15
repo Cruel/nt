@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeCheck } from './native-schema-operations';
 import { entityIdSchema } from './authoring-common';
 import { characterRefSchema, roomRefSchema } from './authoring-flow';
 import { ownerDefaultPropertiesSchema, ownerLocalPropertiesSchema } from './authoring-properties';
@@ -13,7 +14,7 @@ const interactableInstanceRefSchema = strict({
 export const featureDataSchema = withSchemaDocumentation(
   strict({
     id: entityIdSchema,
-    label: z.string().check(z.trim(), z.minLength(1)),
+    label: z.string().check(nativeCheck('string.trim', z.trim()), z.minLength(1)),
     traits: z.array(entityIdSchema),
     localProperties: ownerLocalPropertiesSchema,
     defaultProperties: ownerDefaultPropertiesSchema,

@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import { parseAssetData } from './authoring-assets';
 import { entityIdSchema, layoutContractIdSchema } from './authoring-common';
 import {
@@ -433,9 +434,12 @@ const materialOccurrenceTargetSchema = z.discriminatedUnion('kind', [
   strict({ kind: z.literal('layout'), slot: z.enum(sceneLayoutSlotValues) }),
   strict({ kind: z.literal('postprocess'), instanceId: entityIdSchema }),
 ]);
-const materialParameterValueSchema = shaderUniformValueSchema.refine(
-  (value) => value !== null,
-  'Occurrence Material Parameters require a concrete value.',
+const materialParameterValueSchema = nativeOperation(
+  'scene.material-value',
+  shaderUniformValueSchema.refine(
+    (value) => value !== null,
+    'Occurrence Material Parameters require a concrete value.',
+  ),
 );
 const materialParameterStepSchema = strict({
   ...commonRuntimeStep,

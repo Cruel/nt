@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import { authoringCollectionKeys } from './authoring-collections';
 import { parseJsonPointer } from '../json-pointer';
 import { isRegisteredLuaExplicitFallbackOwner } from './authoring-lua-source-registry';
@@ -53,10 +54,11 @@ export function serializeLuaExplicitDependencyTarget(target: LuaExplicitDependen
     return JSON.stringify(['room-placement', target.roomId, target.placementId]);
   return JSON.stringify(['room-exit', target.roomId, target.exitId]);
 }
-export const luaExplicitDependenciesSchema = strict({
-  targets: z.array(luaExplicitDependencyTargetSchema).default([]),
-})
-  .superRefine((value, context) => {
+export const luaExplicitDependenciesSchema = nativeOperation(
+  'lua.dependencies.unique',
+  strict({
+    targets: z.array(luaExplicitDependencyTargetSchema).default([]),
+  }).superRefine((value, context) => {
     const seen = new Set<string>();
     value.targets.forEach((target, index) => {
       const key = serializeLuaExplicitDependencyTarget(target);
@@ -68,13 +70,14 @@ export const luaExplicitDependenciesSchema = strict({
         });
       seen.add(key);
     });
-  })
-  .meta({ title: 'LuaExplicitDependencies' });
+  }),
+).meta({ title: 'LuaExplicitDependencies' });
 export type LuaExplicitDependencies = z.infer<typeof luaExplicitDependenciesSchema>;
 export const emptyLuaExplicitDependencies = (): LuaExplicitDependencies => ({ targets: [] });
-export const defaultedLuaExplicitDependenciesSchema = luaExplicitDependenciesSchema
-  .optional()
-  .overwrite((value) => value ?? { targets: [] });
+export const defaultedLuaExplicitDependenciesSchema = nativeOperation(
+  'lua.dependencies.empty',
+  luaExplicitDependenciesSchema.optional().overwrite((value) => value ?? { targets: [] }),
+);
 
 export type EmbeddedLuaSourceKind =
   | 'lua-field'

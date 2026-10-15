@@ -1,0 +1,28 @@
+{
+  "id": "world-map",
+  "label": "World map",
+  "data": {
+    "kind": "map",
+    "presentation": { "title": null, "background": null, "layout": null, "initialMode": "full-map" },
+    "locations": [{
+      "id": "station",
+      "room": { "$ref": { "collection": "rooms", "id": "station" } },
+      "regions": [],
+      "label": null,
+      "icon": null,
+      "style": "  highlighted  ",
+      "labelAnchor": null,
+      "connectionAnchor": null,
+      "visibility": {
+        "kind": "all",
+        "conditions": [
+          { "kind": "not", "condition": { "kind": "lua-predicate", "source": "return false" } },
+          { "kind": "inventory-quantity-comparison", "inventory": { "kind": "player-inventory" }, "matcher": {}, "operator": "greater", "quantity": 0 }
+        ]
+      },
+      "pickOrder": 0,
+      "logicalOrder": 0
+    }],
+    "connections": []
+  }
+}

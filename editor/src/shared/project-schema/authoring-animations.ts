@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { nativeOperation } from './native-schema-operations';
 import { withSchemaDocumentation } from './schema-documentation';
 import { entityIdSchema } from './authoring-common';
 import { animationRefSchema, assetRefSchema } from './authoring-flow';
@@ -26,16 +27,19 @@ export const spriteAnimationFrameSchema = strict({
   durationMs: z.number().int().positive(),
 });
 
-export const motionPlaybackPolicySchema = strict({
-  repeat: z.enum(['once', 'loop']),
-  rate: z.number().finite().positive(),
-  clock: z.enum(['gameplay', 'unscaled-presentation']),
-  initialMarker: entityIdSchema.nullable(),
-  loopRange: strict({ start: entityIdSchema, end: entityIdSchema }).optional(),
-}).refine((policy) => !policy.loopRange || policy.repeat === 'loop', {
-  message: 'A loop range requires loop playback.',
-  path: ['loopRange'],
-});
+export const motionPlaybackPolicySchema = nativeOperation(
+  'animation.loop-range',
+  strict({
+    repeat: z.enum(['once', 'loop']),
+    rate: z.number().finite().positive(),
+    clock: z.enum(['gameplay', 'unscaled-presentation']),
+    initialMarker: entityIdSchema.nullable(),
+    loopRange: strict({ start: entityIdSchema, end: entityIdSchema }).optional(),
+  }).refine((policy) => !policy.loopRange || policy.repeat === 'loop', {
+    message: 'A loop range requires loop playback.',
+    path: ['loopRange'],
+  }),
+);
 export const animationMarkerSchema = strict({
   id: entityIdSchema,
   timeMs: z.number().int().nonnegative(),
@@ -48,13 +52,16 @@ export const spriteAnimationMotionSchema = strict({
   markers: z.array(animationMarkerSchema),
 });
 
-export const videoAnimationSourceRangeSchema = strict({
-  startMs: z.number().int().nonnegative(),
-  endMs: z.number().int().positive(),
-}).refine((range) => range.endMs > range.startMs, {
-  message: 'Video source range end must be after its start.',
-  path: ['endMs'],
-});
+export const videoAnimationSourceRangeSchema = nativeOperation(
+  'animation.source-range',
+  strict({
+    startMs: z.number().int().nonnegative(),
+    endMs: z.number().int().positive(),
+  }).refine((range) => range.endMs > range.startMs, {
+    message: 'Video source range end must be after its start.',
+    path: ['endMs'],
+  }),
+);
 
 export const videoFrameSamplingSchema = z.discriminatedUnion('mode', [
   strict({ mode: z.literal('source') }),

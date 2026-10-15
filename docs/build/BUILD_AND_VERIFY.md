@@ -50,6 +50,13 @@ fallback when it is absent, for example:
 export CMAKE_BUILD_PARALLEL_LEVEL="${CMAKE_BUILD_PARALLEL_LEVEL:-12}"
 ```
 
+## Native authoring schema certification
+
+The certification-only host build, Node-free C++ build commands, generator freshness check, and
+native/Zod differential test invocation are documented in
+[Native Project schema contracts](../architecture/NATIVE_AUTHORING_CONTRACTS.md#verification).
+It is separate from player/runtime verification and does not change production Project authority.
+
 ## Initial Command Set
 
 Repository-local shader compilation uses the standalone `noveltea` host CLI. On the currently
