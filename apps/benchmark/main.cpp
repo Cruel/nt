@@ -7,6 +7,7 @@
 #include "benchmark_options.hpp"
 #include "benchmark_report.hpp"
 #include "benchmark_runner.hpp"
+#include "integrated_rmlui.hpp"
 #include "raw_bgfx_geometry.hpp"
 #include "reference_scene.hpp"
 #include "standalone_rmlui.hpp"
@@ -35,8 +36,8 @@ void print_usage()
     std::puts("       [--frames N] [--repeats N] [--ready-timeout-seconds N]");
     std::puts(
         "       [--width N] [--height N] [--vsync] [--profile clean|diagnostic] [--no-ui|--ui]");
-    std::puts("       [--scenario raw-bgfx-empty|raw-bgfx-geometry|standalone-rmlui-simple] "
-              "[--rect-count N]");
+    std::puts("       [--scenario raw-bgfx-empty|raw-bgfx-geometry|standalone-rmlui-simple|"
+              "integrated-rmlui-controlled|integrated-rmlui-production] [--rect-count N]");
     std::puts("       [--rect-scale 0.25..1.0] [--raw-samples] [--config PATH] [--output PATH]");
     std::puts("  --smoke         30 measured frames, no warmup");
     std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
@@ -384,7 +385,9 @@ bool write_report(const Options& options, const Environment& environment, const 
 int run_dashboard(Options options)
 {
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
-        options.scenario != "standalone-rmlui-simple") {
+        options.scenario != "standalone-rmlui-simple" &&
+        options.scenario != "integrated-rmlui-controlled" &&
+        options.scenario != "integrated-rmlui-production") {
         std::fprintf(stderr, "[benchmark] unsupported scenario: %s\n", options.scenario.c_str());
         return 2;
     }
@@ -461,7 +464,27 @@ int run_dashboard(Options options)
         // Drain deferred bgfx resource destruction outside the sampling window.
         bgfx::frame();
         bgfx::frame();
-        if (graphics.reconfigure(run_options, validation)) {
+        const bool integrated = run_options.scenario == "integrated-rmlui-controlled" ||
+                                run_options.scenario == "integrated-rmlui-production";
+        if (integrated) {
+            // Engine must own SDL, its window and bgfx. Do not overlap hosts.
+            graphics.shutdown();
+            noveltea::benchmark::IntegratedRmlUi engine_ui(run_options.scenario ==
+                                                           "integrated-rmlui-controlled");
+            auto result = noveltea::benchmark::run_suite(run_options, {&engine_ui}, clock);
+            completed_run = noveltea::benchmark::CompletedRun{run_options, std::move(result), {}};
+            if (!write_report(run_options, engine_ui.environment(), completed_run->result,
+                              completed_run->report_path)) {
+                feedback = "failed to write benchmark report";
+            } else {
+                feedback.clear();
+            }
+            if (!graphics.initialize(options, error)) {
+                feedback = "dashboard graphics recreation: " + error;
+                std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
+                return;
+            }
+        } else if (graphics.reconfigure(run_options, validation)) {
             // The reference workload deliberately does not clear its frame. Remove any
             // previously presented dashboard pixels from swap-chain buffers before timing.
             bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x000000ff);
@@ -522,9 +545,11 @@ int run_dashboard(Options options)
         for (int cycle = 0; cycle < 3; ++cycle) {
             if (cycle == 1) {
                 // Cross renderer ownership boundaries without destroying the SDL/bgfx host.
-                options.scenario = original_options.scenario == "standalone-rmlui-simple"
+                options.scenario = (original_options.scenario == "standalone-rmlui-simple" ||
+                                    original_options.scenario == "integrated-rmlui-controlled" ||
+                                    original_options.scenario == "integrated-rmlui-production")
                                        ? "raw-bgfx-geometry"
-                                       : "standalone-rmlui-simple";
+                                       : "integrated-rmlui-production";
                 options.rect_count = 3;
                 options.rect_scale = 1.0;
             } else if (cycle == 2) {
@@ -532,8 +557,12 @@ int run_dashboard(Options options)
             }
             // Exercise both the full-scene inspection and ordinary dashboard
             // draw paths before running strict no-ImGui trials.
-            if (options.scenario != "raw-bgfx-empty")
+            if (options.scenario != "raw-bgfx-empty" &&
+                options.scenario != "integrated-rmlui-production" &&
+                options.scenario != "integrated-rmlui-controlled")
                 dashboard.set_inspection_only(cycle % 2 == 0);
+            else
+                dashboard.set_inspection_only(false);
             (void)dashboard.frame(options, completed_run ? &*completed_run : nullptr, feedback,
                                   draw_preview);
             benchmark_once();
@@ -576,7 +605,9 @@ int run_dashboard(Options options)
 int run(const Options& options)
 {
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
-        options.scenario != "standalone-rmlui-simple") {
+        options.scenario != "standalone-rmlui-simple" &&
+        options.scenario != "integrated-rmlui-controlled" &&
+        options.scenario != "integrated-rmlui-production") {
         std::fprintf(stderr, "[benchmark] unsupported scenario: %s\n", options.scenario.c_str());
         return 2;
     }
@@ -584,12 +615,21 @@ int run(const Options& options)
     EmptyBgfxScenario empty;
     GeometryBgfxScenario geometry;
     RmlUiScenario rmlui;
-    EmptyBgfxScenario* selected =
-        options.scenario == "raw-bgfx-geometry"         ? static_cast<EmptyBgfxScenario*>(&geometry)
-        : options.scenario == "standalone-rmlui-simple" ? static_cast<EmptyBgfxScenario*>(&rmlui)
-                                                        : &empty;
+    noveltea::benchmark::IntegratedRmlUi controlled(true);
+    noveltea::benchmark::IntegratedRmlUi production(false);
+    Scenario* selected =
+        options.scenario == "raw-bgfx-geometry"             ? static_cast<Scenario*>(&geometry)
+        : options.scenario == "standalone-rmlui-simple"     ? static_cast<Scenario*>(&rmlui)
+        : options.scenario == "integrated-rmlui-controlled" ? static_cast<Scenario*>(&controlled)
+        : options.scenario == "integrated-rmlui-production" ? static_cast<Scenario*>(&production)
+                                                            : static_cast<Scenario*>(&empty);
     const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock);
-    const Environment environment = selected->graphics.environment;
+    const Environment environment =
+        options.scenario == "integrated-rmlui-controlled"   ? controlled.environment()
+        : options.scenario == "integrated-rmlui-production" ? production.environment()
+        : options.scenario == "standalone-rmlui-simple"     ? rmlui.graphics.environment
+        : options.scenario == "raw-bgfx-geometry"           ? geometry.graphics.environment
+                                                            : empty.graphics.environment;
     std::string output;
     if (!write_report(options, environment, result, output))
         return 3;

@@ -1,6 +1,7 @@
 #include "reference_scene.hpp"
 
 #include <cmath>
+#include <sstream>
 #include <string>
 #include <utility>
 
@@ -50,6 +51,39 @@ ReferenceScene geometry_reference_scene(uint32_t rect_count, double rect_scale)
         scene.rects.push_back(std::move(rect));
     }
     return scene;
+}
+
+std::string simple_ui_reference_markup(const ReferenceScene& scene, float reference_scale)
+{
+    auto css_color = [](ReferenceColor value) {
+        return "rgb(" + std::to_string(value.r) + "," + std::to_string(value.g) + "," +
+               std::to_string(value.b) + ")";
+    };
+    std::ostringstream source;
+    source << "<rml><head><title>Benchmark reference</title>"
+           << "<style>body { margin: 0; padding: 0; background: transparent; }"
+           << "div, p { position: absolute; margin: 0; padding: 0; }"
+           << "</style></head><body>";
+    // An opaque scene background makes the visible reference independent of
+    // the different backbuffer and Engine world surface clear policies.
+    source << "<div id='reference-background' style='left:0px;top:0px;width:"
+           << scene.width * reference_scale << "px;height:" << scene.height * reference_scale
+           << "px;background-color:" << css_color(scene.clear_color) << ";'></div>";
+    for (const auto& rect : scene.rects) {
+        source << "<div id='" << rect.id << "' style='left:" << rect.x * reference_scale
+               << "px;top:" << rect.y * reference_scale
+               << "px;width:" << rect.width * reference_scale
+               << "px;height:" << rect.height * reference_scale
+               << "px;background-color:" << css_color(rect.color) << ";'></div>";
+    }
+    for (const auto& item : scene.texts) {
+        source << "<p id='" << item.id << "' style='left:" << item.x * reference_scale
+               << "px;top:" << item.y * reference_scale
+               << "px;font-family:Liberation Sans;font-size:" << item.font_size * reference_scale
+               << "px;color:" << css_color(item.color) << ";'>" << item.content << "</p>";
+    }
+    source << "</body></rml>";
+    return source.str();
 }
 
 ReferenceScene simple_ui_reference_scene()

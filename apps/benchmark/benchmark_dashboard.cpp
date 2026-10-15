@@ -279,7 +279,9 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         ImGui::TextDisabled("Full-scene inspection shows the selected workload.");
         ImGui::Spacing();
 
-        if (options.scenario != "raw-bgfx-empty") {
+        if (options.scenario != "raw-bgfx-empty" &&
+            options.scenario != "integrated-rmlui-controlled" &&
+            options.scenario != "integrated-rmlui-production") {
             if (ImGui::Button("Inspect full scene"))
                 inspection_only_ = true;
         }
@@ -300,7 +302,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
             if (ImGui::BeginTabItem("Scenarios")) {
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
                     for (const char* candidate :
-                         {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple"}) {
+                         {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple",
+                          "integrated-rmlui-controlled", "integrated-rmlui-production"}) {
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options.scenario = candidate;
                             if (options.scenario != "raw-bgfx-geometry") {
@@ -323,7 +326,13 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.rect_scale = 1.0;
                     }
                 }
-                ImGui::TextDisabled("Raw bgfx and independent standalone RmlUi; Engine follows.");
+                ImGui::TextDisabled(
+                    "Integrated scenes use the real Engine and a separate graphics host.");
+                if (options.scenario == "integrated-rmlui-controlled" ||
+                    options.scenario == "integrated-rmlui-production")
+                    ImGui::TextWrapped("Integrated preview requires exclusive Engine ownership. "
+                                       "The actual scene is visible during a run; the dashboard "
+                                       "does not substitute a fake Engine preview.");
                 ImGui::Spacing();
                 ImGui::TextWrapped(
                     "Preview renders the selected reference outside sampling. "

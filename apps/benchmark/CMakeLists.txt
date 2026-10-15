@@ -34,10 +34,11 @@ noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 find_package(imgui CONFIG REQUIRED)
 add_executable(noveltea-benchmark-app
     main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
-    standalone_rmlui.cpp)
+    standalone_rmlui.cpp integrated_rmlui.cpp)
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
-    imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea-benchmark-runner)
+    imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea_engine noveltea-benchmark-runner)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
+noveltea_attach_runtime_assets(noveltea-benchmark-app)
 target_compile_definitions(noveltea-benchmark-app PRIVATE
     NOVELTEA_BENCHMARK_RESULTS_DIR="${CMAKE_BINARY_DIR}/benchmarks"
     NOVELTEA_BENCHMARK_SHADER_ROOT="assets/shaders/bgfx/glsl-330"
@@ -54,6 +55,14 @@ add_custom_target(noveltea-benchmark-stage-assets
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/glsl-330"
         "${CMAKE_CURRENT_BINARY_DIR}/assets/shaders/bgfx/glsl-330"
+    # The integrated scenario needs the real Engine Lua bootstrap, UI baseline,
+    # fonts and generated shaders in its *own* system:/ mount.
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${PROJECT_SOURCE_DIR}/engine/assets/system"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/system"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/system/shaders"
     VERBATIM)
 if(TARGET noveltea-shaders)
     add_dependencies(noveltea-benchmark-stage-assets noveltea-shaders)
@@ -127,6 +136,38 @@ if(BUILD_TESTING)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 30 frames"
             TIMEOUT 60)
+        add_test(NAME noveltea_benchmark_integrated_rmlui_graphics_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario integrated-rmlui-production --smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-smoke.json")
+        set_tests_properties(noveltea_benchmark_integrated_rmlui_graphics_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 30 frames"
+            TIMEOUT 90)
+        add_test(NAME noveltea_benchmark_integrated_rmlui_repeat_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario integrated-rmlui-production --smoke --repeats 2
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-repeat.json")
+        set_tests_properties(noveltea_benchmark_integrated_rmlui_repeat_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+            TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_integrated_rmlui_controlled_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario integrated-rmlui-controlled --smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-rmlui-controlled.json")
+        set_tests_properties(noveltea_benchmark_integrated_rmlui_controlled_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 30 frames"
+            TIMEOUT 90)
+        add_test(NAME noveltea_benchmark_integrated_rmlui_dashboard_lifecycle_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario integrated-rmlui-production --dashboard-smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-integrated-lifecycle.json")
+        set_tests_properties(noveltea_benchmark_integrated_rmlui_dashboard_lifecycle_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
+            TIMEOUT 120)
         add_test(NAME noveltea_benchmark_rmlui_dashboard_lifecycle_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario standalone-rmlui-simple --dashboard-smoke

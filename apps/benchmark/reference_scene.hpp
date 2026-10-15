@@ -42,5 +42,8 @@ constexpr double kReferenceRectScale = 1.0;
 [[nodiscard]] ReferenceScene geometry_reference_scene(uint32_t rect_count = kReferenceRectCount,
                                                       double rect_scale = kReferenceRectScale);
 [[nodiscard]] ReferenceScene simple_ui_reference_scene();
+// One exact markup generator feeds both the independent and integrated RmlUi hosts.
+[[nodiscard]] std::string simple_ui_reference_markup(const ReferenceScene& scene,
+                                                     float reference_scale = 1.0f);
 
 } // namespace noveltea::benchmark

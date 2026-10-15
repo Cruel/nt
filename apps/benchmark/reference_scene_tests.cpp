@@ -40,6 +40,21 @@ int main()
                    simple_ui.texts[0].font_size == 32,
                "standalone UI reuses deterministic reference geometry and includes actual text"))
         return 1;
+    // Both UI backends use one scene definition, mapped into their own
+    // logical coordinate domains. The Engine default is 1920x1080.
+    const auto standalone_markup = simple_ui_reference_markup(simple_ui);
+    const auto engine_markup = simple_ui_reference_markup(simple_ui, 1.5f);
+    if (!check(standalone_markup.find("id='reference-background'") != std::string::npos &&
+                   standalone_markup.find("width:1280px;height:720px") != std::string::npos &&
+                   standalone_markup.find("left:700px;top:130px;width:340px;height:210px") !=
+                       std::string::npos &&
+                   engine_markup.find("width:1920px;height:1080px") != std::string::npos &&
+                   engine_markup.find("left:1050px;top:195px;width:510px;height:315px") !=
+                       std::string::npos &&
+                   standalone_markup.find("NovelTea UI reference") != std::string::npos &&
+                   engine_markup.find("NovelTea UI reference") != std::string::npos,
+               "RmlUi engines share semantic markup with correctly scaled visible geometry"))
+        return 1;
     const auto exploratory = geometry_reference_scene(12, 0.5);
     const auto repeated = geometry_reference_scene(12, 0.5);
     if (!check(exploratory.rects.size() == 12 && exploratory.rects[0].x == 785 &&

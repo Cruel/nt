@@ -1,9 +1,6 @@
-# Standalone Graphics Benchmark (Linux reference workloads, #422–#426)
+# Graphics Benchmark (Linux reference workloads, #422–#428)
 
-The dedicated `noveltea-benchmark-app` measures an SDL3/bgfx reference workload
-without creating a NovelTea Engine, sandbox, or player. The optional standalone
-RmlUi reference creates its own Core context and renderer, independently of
-the Engine and RuntimeUI. Interactive
+The dedicated `noveltea-benchmark-app` measures SDL3/bgfx and RmlUi reference workloads. The raw and standalone RmlUi modes do not create NovelTea Engine, sandbox, or player instances; the integrated mode initializes the **real Engine, RuntimeUI, RmlUiHost, and production Renderer**. Interactive
 use adds a dedicated Dear ImGui frontend that is fully destroyed before
 sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
@@ -17,9 +14,9 @@ dashboard, or use `--ui` with CLI run settings or a configuration containing
 `"no_ui": false`. The dashboard has Scenarios, Run Settings, Results,
 and Advanced tabs. Preview shows the selected reference content without contributing
 to measurements; Clean and Diagnostic runs are separate actions. The scenario
-selector includes `raw-bgfx-empty`, `raw-bgfx-geometry`, and
-`standalone-rmlui-simple`; other workloads
-are separate tickets. The **Inspect full scene** control hides the large
+selector includes `raw-bgfx-empty`, `raw-bgfx-geometry`,
+`standalone-rmlui-simple`, `integrated-rmlui-controlled`, and
+`integrated-rmlui-production`; other workloads are separate tickets. The **Inspect full scene** control hides the large
 dashboard panel and leaves a small **Return to dashboard** button at the
 top-right, so the fixed reference rectangles can be viewed unobscured.
 Inspection is outside timed sampling.
@@ -91,8 +88,7 @@ Results, and Cleanup. It begins timing only after the scenario reports Ready.
 All scenarios clean up even if preparation, readiness, a frame, or completion
 fails, and independent suite scenarios continue after failure. A CPU-only
 scenario may implement the same interface without initializing graphics.
-The Linux app supports `raw-bgfx-empty`, `raw-bgfx-geometry`, and
-`standalone-rmlui-simple`, using the same runner in CLI and interactive modes.
+The Linux app supports the raw bgfx, standalone RmlUi, and integrated NovelTea RmlUi scenarios, using the same runner in CLI and interactive modes.
 
 CLI run-setting invocations still default to no-UI, with `--no-ui` explicit.
 An unqualified invocation opens the dashboard. The `--profile diagnostic`
@@ -134,6 +130,60 @@ The native smoke checks successful GPU execution and backend transitions,
 but do not inspect actual pixels. Visual equivalence should be inspected
 interactively until the later screenshot/readback stage. Xvfb functional
 tests are not authoritative GPU performance measurements.
+
+## Integrated NovelTea RmlUi (#428)
+
+Use either `--scenario integrated-rmlui-controlled` or
+`--scenario integrated-rmlui-production`. Both initialize the **actual**
+Engine/Renderer/RuntimeUI/RmlUiHost stack, load the same semantic UI reference
+(rectangles, text, opaque background) as standalone RmlUi, then advance one
+real `Engine::tick()` for each runner frame. The common markup generator
+maps coordinates from the standalone 1280×720 reference into the Engine's
+1920×1080 reference domain, preserving relative positions and sizes. Only
+16:9 windows and the current Engine reference size are supported by this fixed
+visual-equivalence fixture; others fail with a diagnostic.
+
+Controlled mode requests the Engine's base-direct compatibility behavior
+and disables raster snapping, to more closely align with the standalone
+adapter. Production mode retains the Engine default compositor and raster
+snapping. **Neither mode bypasses or substitutes the real Engine renderer.**
+They are independent timing scenarios, not simultaneous contexts or samples
+derived from RmlUi context-render completion counts.
+
+The result `graphics` metadata identifies the UI path, base-direct request,
+effective framebuffer and Engine UI/world raster dimensions, and the observed
+Engine postprocess surface status after preparation. The RmlUi backend's
+internal offscreen routing is not currently exposed by production Engine
+tooling, so `ui_offscreen_rendering_observed` is explicitly `null`; no
+offscreen count is fabricated. The integrated scenario always runs the
+production Engine compositor. Its costs are **not identical** to a standalone
+backbuffer UI render. GPU time and independently verified displayed frames
+remain unavailable.
+
+During each trial, the standalone dashboard releases all ImGui and bgfx
+resources before the Engine initializes. Engine owns its SDL window and bgfx
+device exclusively, and `Engine::shutdown()` destroys these before the
+standalone dashboard recreates its own host. Every repeated trial receives
+a fresh Engine. The integrated Engine system asset mount is staged from
+production Lua/UI/fonts and generated shaders alongside the benchmark,
+without requiring prior sandbox installation. No screenshot readback, ImGui,
+on-screen counter, or debugger runs in measured frames. An explicit
+read-only Engine tooling check requires the expected RuntimeUI document to
+be live, so a degraded Engine UI initialization cannot yield false success. The dashboard cannot
+provide an integrated live preview while it holds the standalone bgfx
+context; actual Engine content is visible when running the benchmark.
+
+```sh
+./scripts/run-benchmark.sh --scenario integrated-rmlui-production --smoke
+./scripts/run-benchmark.sh --scenario integrated-rmlui-controlled --smoke
+./scripts/run-benchmark.sh --no-build --scenario integrated-rmlui-production --dashboard-smoke
+```
+
+Xvfb CTests exercise both UI modes, repeated Engine lifetimes, and an
+integrated → raw bgfx → integrated lifecycle for functional correctness only. Performance measurements require
+a verified accelerated GPU. The empty Engine baseline is tracked separately
+in #427; #428 uses the same production initialization/tick path without
+claiming the empty baseline ticket is complete.
 
 ## Raw bgfx geometry and shared reference scenes (#425)
 
