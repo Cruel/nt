@@ -83,7 +83,8 @@ public:
     virtual Readiness readiness(std::string& reason) = 0;
     virtual bool frame(std::string& reason) = 0;
     virtual bool complete(std::string& reason) = 0;
-    virtual void cleanup() = 0;
+    // Return false with a diagnostic if teardown cannot release scenario resources.
+    virtual bool cleanup(std::string& reason) = 0;
 };
 
 [[nodiscard]] bool validate_run_options(const Options& options, std::string& reason);

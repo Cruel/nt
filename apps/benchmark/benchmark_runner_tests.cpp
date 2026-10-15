@@ -23,9 +23,11 @@ struct FakeScenario final : Scenario {
     int pending_polls = 0;
     bool never_ready = false;
     bool fail_prepare = false;
+    bool omit_prepare_reason = false;
     int fail_prepare_after = -1;
     bool fail_frame = false;
     bool fail_completion = false;
+    bool fail_cleanup = false;
     bool graphics = false;
 
     explicit FakeScenario(FakeClock& value) : clock(value) {}
@@ -36,7 +38,8 @@ struct FakeScenario final : Scenario {
     {
         ++prepares;
         if (fail_prepare || (fail_prepare_after >= 0 && prepares > fail_prepare_after)) {
-            reason = "preparation failed";
+            if (!omit_prepare_reason)
+                reason = "preparation failed";
             return false;
         }
         return true;
@@ -68,7 +71,15 @@ struct FakeScenario final : Scenario {
         }
         return true;
     }
-    void cleanup() override { ++cleanups; }
+    bool cleanup(std::string& reason) override
+    {
+        ++cleanups;
+        if (fail_cleanup) {
+            reason = "host shutdown failed";
+            return false;
+        }
+        return true;
+    }
 };
 
 bool check(bool condition, const char* message)
@@ -223,6 +234,46 @@ int main()
     if (!check(failed_end.outcome == "failed" && completion_failure.cleanups == 1 &&
                    failed_end.scenarios[0].trials[0].outcome == "failed",
                "failed completion invalidates trial"))
+        return 1;
+
+    FakeClock cleanup_clock;
+    FakeScenario cleanup_failure(cleanup_clock);
+    cleanup_failure.fail_cleanup = true;
+    const auto cleanup_run = run_suite(fail_options, {&cleanup_failure}, cleanup_clock);
+    const auto& cleanup_trial = cleanup_run.scenarios[0].trials[0];
+    if (!check(cleanup_run.outcome == "failed" && cleanup_failure.cleanups == 1 &&
+                   cleanup_trial.outcome == "failed" &&
+                   cleanup_trial.reason == "cleanup failed: host shutdown failed" &&
+                   cleanup_trial.measured_frames == 2 && cleanup_trial.wall_frame.count == 0 &&
+                   cleanup_run.scenarios[0].measured_frames == 0 &&
+                   cleanup_trial.raw_samples.empty(),
+               "cleanup failure invalidates otherwise successful measurement"))
+        return 1;
+
+    FakeClock multiple_failures_clock;
+    FakeScenario multiple_failures(multiple_failures_clock);
+    multiple_failures.fail_prepare = true;
+    multiple_failures.fail_cleanup = true;
+    FakeScenario independent(multiple_failures_clock);
+    const auto failed_prepare_cleanup =
+        run_suite(fail_options, {&multiple_failures, &independent}, multiple_failures_clock);
+    if (!check(failed_prepare_cleanup.outcome == "partial" &&
+                   failed_prepare_cleanup.scenarios[0].trials[0].reason ==
+                       "preparation failed; cleanup failed: host shutdown failed" &&
+                   failed_prepare_cleanup.scenarios[1].outcome == "complete" &&
+                   multiple_failures.cleanups == 1 && independent.cleanups == 1,
+               "primary failure retained alongside cleanup failure; suite continues"))
+        return 1;
+
+    FakeClock no_reason_clock;
+    FakeScenario no_reason(no_reason_clock);
+    no_reason.fail_prepare = true;
+    no_reason.omit_prepare_reason = true;
+    no_reason.fail_cleanup = true;
+    const auto silent_failure = run_suite(fail_options, {&no_reason}, no_reason_clock);
+    if (!check(silent_failure.scenarios[0].trials[0].reason ==
+                   "scenario preparation failed; cleanup failed: host shutdown failed",
+               "cleanup failure cannot hide an earlier undiagnosed preparation failure"))
         return 1;
 
     Options invalid = options;

@@ -107,7 +107,9 @@ int main()
     if (!check(result["format"] == "noveltea.benchmark.result" && result["version"] == 1 &&
                    result["configuration"] == configured &&
                    result["build"]["revision"].is_string() &&
-                   result["build"]["tracked_source_dirty"].is_boolean() &&
+                   (result["build"]["tracked_source_dirty"].is_boolean() ||
+                    result["build"]["tracked_source_dirty"].is_null()) &&
+                   result["build"]["source_fingerprint_sha256"].is_string() &&
                    result["configuration"]["clock_policy"] == "realtime" &&
                    result["configuration"]["parameters"].empty() &&
                    result["graphics"]["gpu_device_id"] == 34 &&
@@ -122,11 +124,13 @@ int main()
 
     original.raw_samples = false;
     suite.scenarios[0].trials[0].outcome = "failed";
-    suite.scenarios[0].trials[0].reason = "presentation interrupted";
+    suite.scenarios[0].trials[0].reason =
+        "presentation interrupted; cleanup failed: host shutdown failed";
     suite.scenarios[0].trials[0].measured_frames = 1;
     suite.scenarios[0].trials[0].measured_wall_seconds = 0.01;
     const auto failed = nlohmann::json::parse(encode_result(original, {}, suite));
-    if (!check(failed["scenarios"][0]["trials"][0]["reason"] == "presentation interrupted" &&
+    if (!check(failed["scenarios"][0]["trials"][0]["reason"] ==
+                       "presentation interrupted; cleanup failed: host shutdown failed" &&
                    failed["scenarios"][0]["trials"][0]["raw_samples"].is_null() &&
                    failed["scenarios"][0]["trials"][0]["measured_frames"] == 1 &&
                    failed["scenarios"][0]["trials"][0]["frame_wall_ms"].is_null() &&
