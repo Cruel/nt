@@ -6,11 +6,13 @@
 #include <algorithm>
 #include <array>
 #include <bit>
+#include <set>
 #include <cstdint>
 #include <cstring>
 #include <fstream>
 #include <iomanip>
 #include <random>
+#include <regex>
 #include <sstream>
 #include <stdexcept>
 #include <tuple>
@@ -239,6 +241,208 @@ std::filesystem::path temporary_path(const std::filesystem::path& path)
     }
     throw std::runtime_error("Could not select a Room staging path.");
 }
+
+bool is_id(std::string_view id)
+{
+    static const std::regex pattern(R"(^[a-z][a-z0-9]*(?:-[a-z0-9]+)*$)");
+    return std::regex_match(id.begin(), id.end(), pattern);
+}
+
+bool tracked_fragment(std::string_view name)
+{
+    static const std::set<std::string> fixed{
+        "project.yaml",       "traits.yaml",           "editor.yaml",        "i18n/project.yaml",
+        "i18n/messages.yaml", "i18n/usage-notes.yaml", "i18n/tracking.yaml", "i18n/orphans.yaml"};
+    if (fixed.contains(std::string(name)))
+        return true;
+    for (const auto prefix :
+         {std::string_view{"i18n/locales/"}, std::string_view{"i18n/assets/"}}) {
+        if (name.starts_with(prefix)) {
+            const auto leaf = name.substr(prefix.size());
+            return leaf.size() > 5 && leaf.ends_with(".yaml") &&
+                   leaf.find('/') == std::string_view::npos;
+        }
+    }
+    return false;
+}
+
+std::vector<ProjectFile> inventory_project(const std::filesystem::path& root, const Json& manifest)
+{
+    static const std::set<std::string> collections{
+        "animations",   "archetypes", "assets",    "characters", "dialogues", "interactables",
+        "interactions", "layouts",    "maps",      "materials",  "rooms",     "scenes",
+        "scripts",      "tests",      "variables", "verbs"};
+    static const std::set<std::string> retired{
+        "project.json",       "traits.json",           "editor.json",        "i18n/project.json",
+        "i18n/messages.json", "i18n/usage-notes.json", "i18n/tracking.json", "i18n/orphans.json"};
+    const auto canonical_root = std::filesystem::canonical(root);
+    std::set<std::string> referenced_sources;
+    if (manifest.contains("settings") && manifest.at("settings").is_object()) {
+        const auto& settings = manifest.at("settings");
+        if (settings.contains("distributionNotices") &&
+            settings.at("distributionNotices").is_array()) {
+            for (const auto& notice : settings.at("distributionNotices").array_range())
+                if (notice.is_object() && notice.contains("path") && notice.at("path").is_string())
+                    referenced_sources.insert(notice.at("path").as<std::string>());
+        }
+    }
+    for (const auto* required :
+         {"project.yaml", "traits.yaml", "editor.yaml", "i18n/project.yaml", "i18n/messages.yaml",
+          "i18n/usage-notes.yaml", "i18n/tracking.yaml", "i18n/orphans.yaml"})
+        if (!std::filesystem::is_regular_file(root / required))
+            throw std::runtime_error("Required Project source is absent: " + std::string(required));
+
+    std::vector<ProjectFile> files;
+    std::vector<std::filesystem::path> active_directories{canonical_root};
+    std::filesystem::recursive_directory_iterator it(
+        root, std::filesystem::directory_options::follow_directory_symlink),
+        end;
+    for (; it != end; ++it) {
+        const auto relative = it->path().lexically_relative(root).generic_string();
+        const auto first = relative.substr(0, relative.find('/'));
+        // Don't descend into unrelated machine state or Git/build caches; these are not authoring.
+        if (first == ".git" || first == "node_modules" || first == "build" || first == ".cache") {
+            if (it->is_directory())
+                it.disable_recursion_pending();
+            files.push_back({relative, ProjectFileKind::IgnoredState});
+            continue;
+        }
+        if (it->is_symlink()) {
+            // A source path must not escape the admitted canonical Project root, even via symlinks.
+            const auto target = std::filesystem::weakly_canonical(it->path());
+            const auto subpath = target.lexically_relative(canonical_root);
+            if (subpath.empty() || subpath == ".." || *subpath.begin() == "..")
+                throw std::runtime_error("Project source escapes root: " + relative);
+        }
+        if (it->is_directory()) {
+            const auto canonical_directory = std::filesystem::canonical(it->path());
+            const auto ancestor_count = static_cast<std::size_t>(it.depth()) + 1;
+            if (std::find(active_directories.begin(),
+                          active_directories.begin() + static_cast<std::ptrdiff_t>(ancestor_count),
+                          canonical_directory) !=
+                active_directories.begin() + static_cast<std::ptrdiff_t>(ancestor_count))
+                throw std::runtime_error("Project source directory symlink cycle: " + relative);
+            active_directories.resize(ancestor_count + 1);
+            active_directories[ancestor_count] = canonical_directory;
+            if (relative.starts_with("records/") && relative.find('/', 8) == std::string::npos &&
+                !collections.contains(relative.substr(8)))
+                throw std::runtime_error("Unknown record collection: " + relative);
+            if (it->path().parent_path().lexically_relative(root) == "records/layouts" &&
+                (!is_id(it->path().filename().string()) ||
+                 !std::filesystem::is_regular_file(it->path() / "layout.yaml")))
+                throw std::runtime_error("Layout requires canonical layout.yaml: " + relative);
+            const auto parent = it->path().parent_path().lexically_relative(root).generic_string();
+            if (relative.starts_with("records/") && parent != "records" &&
+                parent != "records/layouts")
+                throw std::runtime_error("Nested record directories are not canonical: " +
+                                         relative);
+            continue;
+        }
+        if (!it->is_regular_file())
+            throw std::runtime_error("Non-regular Project source: " + relative);
+        if (retired.contains(relative) ||
+            (relative.starts_with("records/") && relative.ends_with(".json")))
+            throw std::runtime_error("Retired Project source format: " + relative);
+        if (relative.starts_with(".noveltea/") || relative.starts_with("workflows/")) {
+            files.push_back({relative, ProjectFileKind::IgnoredState});
+            continue;
+        }
+        if (tracked_fragment(relative)) {
+            const auto opened = open_yaml_source(read_bytes(it->path()));
+            if (!opened.accepted)
+                throw std::runtime_error("Invalid tracked YAML " + relative + ": " + opened.error);
+            if (!Json::parse(opened.source_json).is_object())
+                throw std::runtime_error("Tracked Project YAML must be an object: " + relative);
+            files.push_back({relative, ProjectFileKind::TrackedSource});
+        } else if (relative.starts_with("records/")) {
+            const auto parts = std::filesystem::path(relative);
+            auto component = parts.begin();
+            ++component; // records/
+            if (component == parts.end() || !collections.contains(component->string()))
+                throw std::runtime_error("Unknown record collection: " + relative);
+            const auto collection = component->string();
+            ++component;
+            if (component == parts.end())
+                throw std::runtime_error("Invalid record path: " + relative);
+            if (collection != "layouts") {
+                const auto leaf = component->string();
+                ++component;
+                if (component != parts.end() || !relative.ends_with(".yaml") ||
+                    !is_id(leaf.substr(0, leaf.size() - 5)))
+                    throw std::runtime_error("Noncanonical record path: " + relative);
+                const auto decoded = open_yaml_source(read_bytes(it->path()));
+                if (!decoded.accepted)
+                    throw std::runtime_error("Invalid record YAML: " + relative);
+                const auto value = Json::parse(decoded.source_json);
+                if (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
+                    value.at("id") != leaf.substr(0, leaf.size() - 5))
+                    throw std::runtime_error("Record ID does not match filename: " + relative);
+                if (collection == "assets" && value.contains("data") &&
+                    value.at("data").is_object()) {
+                    const auto& data = value.at("data");
+                    if (data.contains("source") && data.at("source").is_object() &&
+                        data.at("source").contains("path") &&
+                        data.at("source").at("path").is_string())
+                        referenced_sources.insert(data.at("source").at("path").as<std::string>());
+                    if (data.contains("attachments") && data.at("attachments").is_array())
+                        for (const auto& attachment : data.at("attachments").array_range())
+                            if (attachment.is_object() && attachment.contains("path") &&
+                                attachment.at("path").is_string())
+                                referenced_sources.insert(attachment.at("path").as<std::string>());
+                }
+                files.push_back({relative, ProjectFileKind::TrackedSource});
+            } else {
+                const auto id = component->string();
+                ++component;
+                if (!is_id(id) || component == parts.end())
+                    throw std::runtime_error("Invalid Layout source: " + relative);
+                const auto leaf = component->string();
+                ++component;
+                if (component != parts.end() || (leaf != "layout.yaml" && leaf != "layout.rml" &&
+                                                 leaf != "layout.rcss" && leaf != "layout.lua"))
+                    throw std::runtime_error("Invalid Layout companion path: " + relative);
+                if (leaf == "layout.yaml") {
+                    const auto decoded = open_yaml_source(read_bytes(it->path()));
+                    if (!decoded.accepted)
+                        throw std::runtime_error("Invalid Layout metadata YAML: " + relative);
+                    const auto layout = Json::parse(decoded.source_json);
+                    if (!layout.is_object() || !layout.contains("id") ||
+                        !layout.at("id").is_string() || layout.at("id") != id)
+                        throw std::runtime_error("Layout ID does not match directory: " + relative);
+                    if (!layout.contains("data") || !layout.at("data").is_object())
+                        throw std::runtime_error("Layout metadata requires data: " + relative);
+                    for (const auto* channel : {"rml", "rcss", "lua"}) {
+                        const auto& data = layout.at("data");
+                        if (!data.contains(channel) || !data.at(channel).is_object() ||
+                            !data.at(channel).contains("sourceMode") ||
+                            !data.at(channel).at("sourceMode").is_string())
+                            throw std::runtime_error("Layout source selector is malformed: " +
+                                                     relative);
+                        const auto mode = data.at(channel).at("sourceMode").as<std::string>();
+                        const auto companion =
+                            it->path().parent_path() / (std::string("layout.") + channel);
+                        if ((mode == "file") != std::filesystem::exists(companion))
+                            throw std::runtime_error(
+                                "Layout companion and source selector disagree: " +
+                                companion.string());
+                    }
+                }
+                files.push_back({relative, ProjectFileKind::TrackedSource});
+            }
+        } else if (relative.starts_with("scripts/") || relative.starts_with("shaders/") ||
+                   relative.starts_with("assets/")) {
+            files.push_back({relative, ProjectFileKind::ProjectSource});
+        } else {
+            files.push_back({relative, ProjectFileKind::UntrackedFile});
+        }
+    }
+    for (auto& file : files)
+        if (file.kind == ProjectFileKind::UntrackedFile && referenced_sources.contains(file.path))
+            file.kind = ProjectFileKind::ProjectSource;
+    std::sort(files.begin(), files.end(),
+              [](const auto& a, const auto& b) { return a.path < b.path; });
+    return files;
+}
 } // namespace
 
 RoomSession::RoomSession(std::filesystem::path path, std::string room_id, std::string source,
@@ -277,6 +481,43 @@ std::unique_ptr<RoomSession> RoomSession::open(const std::filesystem::path& proj
     }
 }
 
+std::unique_ptr<RoomSession>
+RoomSession::open_project_source(const std::filesystem::path& project_root, std::string& error)
+{
+    try {
+        auto path = project_root / "project.yaml";
+        auto source = read_bytes(path);
+        const auto opened = open_yaml_source(source);
+        if (!opened.accepted)
+            throw std::runtime_error("Invalid Project manifest YAML: " + opened.error);
+        const auto validation = validate_record("WorkspaceManifest", opened.source_json);
+        if (!validation.accepted)
+            throw std::runtime_error("Project manifest invalid: " +
+                                     (validation.diagnostics.empty()
+                                          ? std::string("unknown error")
+                                          : validation.diagnostics.front().path + " " +
+                                                validation.diagnostics.front().message));
+        auto inventory = inventory_project(project_root, Json::parse(opened.source_json));
+        auto result = std::unique_ptr<RoomSession>(
+            new RoomSession(path, "", std::move(source), opened.source_json));
+        result->is_project_ = true;
+        result->file_inventory_ = std::move(inventory);
+        error.clear();
+        return result;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return nullptr;
+    }
+}
+
+std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path& root,
+                                                     std::string& error)
+{
+    auto source = RoomSession::open_project_source(root, error);
+    return source ? std::unique_ptr<ProjectSession>(new ProjectSession(std::move(source)))
+                  : nullptr;
+}
+
 RoomSessionSnapshot RoomSession::snapshot() const
 {
     RoomSessionSnapshot state;
@@ -284,13 +525,15 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.disk_source_revision = disk_revision_;
     state.source_json = working_json_;
     state.dirty = Json::parse(disk_json_) != Json::parse(working_json_);
-    const auto result = validate_room_source(working_json_);
+    const auto result = is_project_ ? validate_record("WorkspaceManifest", working_json_)
+                                    : validate_room_source(working_json_);
     state.valid = result.accepted;
     state.normalized_json = result.effective_json;
     state.diagnostics = result.diagnostics;
     const auto value = Json::parse(working_json_);
-    if (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
-        value.at("id").as<std::string>() != room_id_) {
+    if (!is_project_ &&
+        (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
+         value.at("id").as<std::string>() != room_id_)) {
         state.valid = false;
         state.normalized_json.clear();
         state.diagnostics.push_back(
@@ -306,7 +549,7 @@ RoomSessionResult RoomSession::result(bool accepted, std::string error, bool cha
     response.error = std::move(error);
     response.snapshot = snapshot();
     if (changed)
-        response.affected_records.push_back("rooms/" + room_id_);
+        response.affected_records.push_back(is_project_ ? "project" : "rooms/" + room_id_);
     return response;
 }
 
@@ -345,9 +588,12 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision)
         return result(true);
     try {
         const auto working = Json::parse(working_json_);
-        if (!working.is_object() || !working.contains("id") || !working.at("id").is_string() ||
-            working.at("id").as<std::string>() != room_id_)
+        if (!is_project_ &&
+            (!working.is_object() || !working.contains("id") || !working.at("id").is_string() ||
+             working.at("id").as<std::string>() != room_id_))
             return result(false, "Cannot save a Room whose ID does not match its filename.");
+        if (is_project_ && !snapshot().valid)
+            return result(false, "Cannot save a structurally invalid Project manifest.");
         if (read_bytes(path_) != disk_source_)
             return result(false, "Room source changed on disk since admission.");
         // Persist the final source-space delta, never temporary invalid intermediate
