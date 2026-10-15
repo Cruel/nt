@@ -94,6 +94,7 @@ export function generateNativeContracts(
     // The documented Zod Core visitor contract is used only for the semantic audit/graph.
     // Structural constraints are always exported by the public toJSONSchema API below.
     const def = (schema as z.core.$ZodTypes)._zod.def;
+    if ('coerce' in def && def.coerce) throw new Error(`Unsupported native coercion at ${path}`);
     const auditFormat = (definition: object) => {
       if (!('format' in definition)) return;
       if (typeof definition.format !== 'string' || !['regex', 'uuid'].includes(definition.format))

@@ -46,6 +46,18 @@ describe('native Project schema generation', () => {
     }
   });
 
+  it('fails closed on coercing primitives including nested definitions', () => {
+    for (const [schema, path] of [
+      [z.coerce.string(), 'Record'],
+      [z.coerce.number(), 'Record'],
+      [z.coerce.boolean(), 'Record'],
+      [z.object({ nested: z.array(z.coerce.number()) }), 'Record/nested/element'],
+    ] as const)
+      expect(() => generateNativeContracts({ Record: schema })).toThrow(
+        `Unsupported native coercion at ${path}`,
+      );
+  });
+
   it('rejects unknown operation IDs, unsupported Zod nodes, and non-JSON or dynamic defaults', () => {
     expect(() => nativeOperation('missing' as never, z.string().trim())).toThrow(/unregistered/i);
     expect(() => generateNativeContracts({ Record: z.date() })).toThrow(/unsupported/i);
