@@ -115,7 +115,7 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     }
     const std::string scenario = root["scenario"].get<std::string>();
     const auto& parameters = root["parameters"];
-    if (scenario == "raw-bgfx-empty") {
+    if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple") {
         if (!parameters.empty()) {
             reason = "empty scenario does not take geometry parameters";
             return false;

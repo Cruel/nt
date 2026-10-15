@@ -41,5 +41,6 @@ constexpr double kReferenceRectScale = 1.0;
 [[nodiscard]] bool valid_geometry_parameters(uint32_t rect_count, double rect_scale);
 [[nodiscard]] ReferenceScene geometry_reference_scene(uint32_t rect_count = kReferenceRectCount,
                                                       double rect_scale = kReferenceRectScale);
+[[nodiscard]] ReferenceScene simple_ui_reference_scene();
 
 } // namespace noveltea::benchmark

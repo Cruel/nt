@@ -1,4 +1,5 @@
 #include "raw_bgfx_geometry.hpp"
+#include "benchmark_assets.hpp"
 
 #include <bgfx/bgfx.h>
 
@@ -17,7 +18,7 @@ struct QuadVertex {
 
 bgfx::ShaderHandle shader(const char* filename)
 {
-    std::ifstream file(filename, std::ios::binary);
+    std::ifstream file(benchmark_asset_path(filename), std::ios::binary);
     if (!file)
         return BGFX_INVALID_HANDLE;
     const std::vector<char> bytes((std::istreambuf_iterator<char>(file)),

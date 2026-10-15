@@ -29,6 +29,17 @@ int main()
                "stable fixture order, geometry and colors"))
         return 1;
 
+    const auto simple_ui = simple_ui_reference_scene();
+    if (!check(simple_ui.id == "simple-ui-reference" && simple_ui.width == fixed.width &&
+                   simple_ui.height == fixed.height &&
+                   simple_ui.rects.size() == fixed.rects.size() &&
+                   simple_ui.rects[0].x == fixed.rects[0].x &&
+                   simple_ui.rects[0].color.r == fixed.rects[0].color.r &&
+                   simple_ui.texts.size() == 1 &&
+                   simple_ui.texts[0].content == "NovelTea UI reference" &&
+                   simple_ui.texts[0].font_size == 32,
+               "standalone UI reuses deterministic reference geometry and includes actual text"))
+        return 1;
     const auto exploratory = geometry_reference_scene(12, 0.5);
     const auto repeated = geometry_reference_scene(12, 0.5);
     if (!check(exploratory.rects.size() == 12 && exploratory.rects[0].x == 785 &&

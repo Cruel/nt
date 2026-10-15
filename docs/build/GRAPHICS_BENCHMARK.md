@@ -1,7 +1,9 @@
-# Standalone Graphics Benchmark (Linux reference workloads, #422–#425)
+# Standalone Graphics Benchmark (Linux reference workloads, #422–#426)
 
 The dedicated `noveltea-benchmark-app` measures an SDL3/bgfx reference workload
-without creating a NovelTea Engine, sandbox, player, or RmlUi. Interactive
+without creating a NovelTea Engine, sandbox, or player. The optional standalone
+RmlUi reference creates its own Core context and renderer, independently of
+the Engine and RuntimeUI. Interactive
 use adds a dedicated Dear ImGui frontend that is fully destroyed before
 sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
@@ -15,7 +17,8 @@ dashboard, or use `--ui` with CLI run settings or a configuration containing
 `"no_ui": false`. The dashboard has Scenarios, Run Settings, Results,
 and Advanced tabs. Preview shows the selected reference content without contributing
 to measurements; Clean and Diagnostic runs are separate actions. The scenario
-selector includes `raw-bgfx-empty` and `raw-bgfx-geometry`; other workloads
+selector includes `raw-bgfx-empty`, `raw-bgfx-geometry`, and
+`standalone-rmlui-simple`; other workloads
 are separate tickets. The **Inspect full scene** control hides the large
 dashboard panel and leaves a small **Return to dashboard** button at the
 top-right, so the fixed reference rectangles can be viewed unobscured.
@@ -43,9 +46,9 @@ Diagnostic profile currently uses the same CPU timing boundaries but is
 labeled non-authoritative; it does **not** invent deeper counters. A bad
 run setting is reported in the dashboard instead of silently corrected.
 
-The lifecycle regression smoke exercises three repeated dashboard
+The lifecycle regression smoke exercises three dashboard
 create/render/destroy → no-ImGui run → recreate cycles while retaining the
-SDL/bgfx host:
+SDL/bgfx host, switching between raw bgfx and standalone RmlUi:
 
 ```sh
 ./build/linux-benchmark-debug/apps/benchmark/noveltea-benchmark-app \
@@ -88,8 +91,8 @@ Results, and Cleanup. It begins timing only after the scenario reports Ready.
 All scenarios clean up even if preparation, readiness, a frame, or completion
 fails, and independent suite scenarios continue after failure. A CPU-only
 scenario may implement the same interface without initializing graphics.
-The Linux app supports `raw-bgfx-empty` and `raw-bgfx-geometry`, using the
-same runner in CLI and interactive modes.
+The Linux app supports `raw-bgfx-empty`, `raw-bgfx-geometry`, and
+`standalone-rmlui-simple`, using the same runner in CLI and interactive modes.
 
 CLI run-setting invocations still default to no-UI, with `--no-ui` explicit.
 An unqualified invocation opens the dashboard. The `--profile diagnostic`
@@ -99,6 +102,38 @@ frames per trial are accepted. Duration runs also use a fixed 300,000-sample
 capacity; exceeding it fails with an explicit error rather than allocating
 during sampling or silently dropping samples. No logger or JSON encoder runs
 inside the measurement loop.
+
+## Standalone RmlUi reference (#426)
+
+`--scenario standalone-rmlui-simple` uses the same Scenario lifecycle and
+runner as raw geometry. It creates a benchmark-owned RmlUi Core context,
+a standalone rmlui-bgfx RenderInterface (views 2–63), and a small document
+with the fixed shared reference rectangles and a text label. The common
+Liberation Sans font is staged next to the benchmark executable; the shader
+provider loads the same generated system shaders used by the runtime.
+Neither the NovelTea Engine, RuntimeUI, nor their asset manager is linked.
+
+Preparation compiles shaders and rasterizes initial text before Ready.
+Measured frames submit RmlUi Update, Render and bgfx frame handoff.
+Clean runs collect no RmlUi stage timings. Diagnostic runs have a separately
+accessible Update/Render timing sample for future reporting extensions.
+ImGui and the RmlUi debugger are absent during measurement.
+
+The dashboard previews and inspects the reference outside measurement.
+Its lifecycle smoke switches raw bgfx → standalone RmlUi → raw bgfx (or the
+reverse), destroying RmlUi context, RmlUi Core, backend and GPU resources
+between scenarios while keeping SDL/bgfx alive. Shader/font failure is a
+preparation failure rather than a fabricated timing result.
+
+```sh
+./scripts/run-benchmark.sh --scenario standalone-rmlui-simple --smoke
+./scripts/run-benchmark.sh --no-build --scenario standalone-rmlui-simple --dashboard-smoke
+```
+
+The native smoke checks successful GPU execution and backend transitions,
+but do not inspect actual pixels. Visual equivalence should be inspected
+interactively until the later screenshot/readback stage. Xvfb functional
+tests are not authoritative GPU performance measurements.
 
 ## Raw bgfx geometry and shared reference scenes (#425)
 

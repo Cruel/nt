@@ -195,8 +195,8 @@ bool validate_reference_options(const Options& options, std::string& reason)
         reason.clear();
         return true;
     }
-    if (options.scenario == "raw-bgfx-empty" && options.rect_count == kReferenceRectCount &&
-        options.rect_scale == kReferenceRectScale) {
+    if ((options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple") &&
+        options.rect_count == kReferenceRectCount && options.rect_scale == kReferenceRectScale) {
         reason.clear();
         return true;
     }
