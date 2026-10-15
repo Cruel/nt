@@ -1,74 +1,146 @@
-# Standalone Graphics Benchmark (Linux baseline, #422)
+# Standalone Graphics Benchmark (Linux runner, #422–#423)
 
-This is the first runnable slice of [benchmark spec #421](https://github.com/Cruel/nt/issues/421).
-The optional `noveltea-benchmark-app` target links **SDL3 and bgfx only**; it does not
-initialize or link NovelTea Engine, the sandbox, a player, RmlUi, or ImGui. Later tickets
-add portable scenario orchestration and cross-platform frontends. The existing
-`NOVELTEA_BUILD_BENCHMARKS` flag and `noveltea-benchmark` JSON/Lua executable remain independent.
+The dedicated `noveltea-benchmark-app` measures an SDL3/bgfx reference workload
+without creating a NovelTea Engine, sandbox, player, RmlUi, or ImGui frontend.
+The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
+collector are unaffected. The portable runner and JSON contracts now provide
+the foundation for later Android/Web ports and additional scenario hosts.
 
-## Run an optimized measurement
+## Running Clean reference trials
 
-From the repository root on Linux with a working X11 or Wayland desktop:
-
-```sh
-./scripts/run-benchmark.sh --seconds 10 --warmup-seconds 3
-./scripts/run-benchmark.sh --no-build --frames 300 --vsync
-./scripts/run-benchmark.sh --debug --smoke
-```
-
-The launcher configures the isolated `linux-benchmark-release` preset with `NOVELTEA_BUILD_BENCHMARK_APP=ON`,
-devtools off, and the ordinary sandbox/player/host-tool targets off; it builds **only**
-`noveltea-benchmark-app`. It honors `CMAKE_BUILD_PARALLEL_LEVEL`. Debug launches are
-explicit and should **not** be compared against optimized measurements. `--no-build`
-uses the most recently built app in that preset. These dedicated preset directories do not
-change the cached production player or sandbox configurations. Any unrecognized launcher argument is
-passed to the app; run `./scripts/run-benchmark.sh --no-build --help` for the full CLI.
-To configure directly:
-
-```sh
-cmake --preset linux-benchmark-release -DNOVELTEA_BUILD_BENCHMARK_APP=ON -DNOVELTEA_ENABLE_DEVTOOLS=OFF
-cmake --build --preset linux-benchmark-release --target noveltea-benchmark-app
-./build/linux-benchmark-release/apps/benchmark/noveltea-benchmark-app --smoke
-```
-
-The baseline workload is a touched **empty bgfx view** with no clear, geometry, UI,
-Engine, overlays, or per-frame logging. The fixed-size SDL window is created once;
-X11/Wayland native handles are passed to bgfx for an OpenGL swapchain. This is a
-CPU frame-loop/handoff baseline, **not** a confirmed presented-frame count, GPU
-execution benchmark, or backbuffer-clear test. Its `frame_loop_cadence_hz` includes
-polling and wall time between the first and last measured frames.
-`bgfx_frame_call_*_ms` measures the CPU wall duration of `bgfx::frame()` and may
-include synchronization/pacing wait. GPU timing and presented-frame count are
-explicitly `null`, not inferred from CPU time. VSync is off unless `--vsync` is passed.
-
-Warmup and measured intervals are separate, with optional fixed measured-frame count.
-The JSON result and concise terminal summary are written **after** measurement.
-Default reports are kept under the Git-ignored
-`build/linux-benchmark-release/benchmarks/raw-bgfx-empty-<timestamp>.json`; pass
-`--output /path/to/file.json` to select a report. Reports include workload, video
-driver/renderer, dimensions, VSync request, measured frames/seconds and CPU call
-statistics. SDL window-close/focus-loss/surface-change events abort the run with a
-nonzero exit instead of producing an apparently valid result.
-
-## Smoke/verification
+From the repository root:
 
 ```sh
 ./scripts/run-benchmark.sh --smoke
-# Inspect the generated report (do not enforce machine-specific FPS thresholds):
-# jq -e '.result == "complete" and .measured_frames == 30 and .gpu_execution_ms == null' build/linux-benchmark-release/benchmarks/*.json
+./scripts/run-benchmark.sh --warmup-seconds 3 --seconds 10 --repeats 3
+./scripts/run-benchmark.sh --no-build --frames 300 --vsync --raw-samples
+./scripts/run-benchmark.sh --no-build --config my-run.json --output /tmp/run.json
+./scripts/run-benchmark.sh --debug --smoke
 ```
 
-For a physical-GPU smoke, run the command on the real desktop/session and inspect
-its renderer and result. Xvfb with Mesa software rendering validates the Linux
-OpenGL path but is **not** a physical GPU performance qualification. In a CI
-installation with working Xvfb and Mesa OpenGL, invoke the binary with
-`xvfb-run -a .../noveltea-benchmark-app --smoke --output /tmp/benchmark-smoke.json`
-and validate its exit code/report. `BUILD_TESTING=ON` registers display-independent
-options/statistics and `--help` CTests, plus an Xvfb graphics smoke CTest when
-`xvfb-run` is installed. Neither hardware nor CI tests impose any FPS
-threshold. A failed graphics initialization must fail the run; no fabricated timings
-are emitted. For platform comparability record driver/device outside this minimal
-first-slice result if needed; richer run metadata belongs to the later runner tickets.
+The script defaults to the optimized `linux-benchmark-release` preset and
+builds only `noveltea-benchmark-app`. `--debug` selects a separate Debug
+preset (do not use its results as optimized comparisons); `--no-build` uses
+the existing binary. CMake build concurrency honors
+`CMAKE_BUILD_PARALLEL_LEVEL`. Reports default to the Git-ignored
+`build/linux-benchmark-release/benchmarks/` or the chosen preset's equivalent.
 
-**Feature Lab:** not applicable. This raw graphics baseline has no authorable
-runtime behavior and deliberately must not load a Project.
+The reference workload touches one empty bgfx view and advances one frame
+without clearing, geometry, UI, or Engine activity. It does **not** establish
+GPU-execution time or independently confirmed presented-frame counts.
+
+`--warmup-seconds` defaults to 3, `--seconds` to 10, `--repeats` to 1,
+`--ready-timeout-seconds` to 5. `--frames` selects a fixed count
+instead of a measurement duration. For each trial the runner executes
+Preparation, explicit readiness polling, Warmup, Measurement, Completion,
+Results, and Cleanup. It begins timing only after the scenario reports Ready.
+All scenarios clean up even if preparation, readiness, a frame, or completion
+fails, and independent suite scenarios continue after failure. A CPU-only
+scenario may implement the same interface without initializing graphics.
+The Linux app currently supports only the `raw-bgfx-empty` scenario.
+
+Clean/no-UI operation is the only implemented profile in this ticket; `--no-ui`
+is explicit but also the default. No ImGui or debugger resources are created.
+Diagnostic mode and a dashboard are later tickets. `--smoke` requests
+30 measured frames without warmup. At most 20 trials and 300,000 measured
+frames per trial are accepted. Duration runs also use a fixed 300,000-sample
+capacity; exceeding it fails with an explicit error rather than allocating
+during sampling or silently dropping samples. No logger or JSON encoder runs
+inside the measurement loop.
+
+## Current JSON contracts
+
+The accepted standalone configuration is the *single* current
+`noveltea.benchmark.configuration` shape, version 1, with an exact field
+inventory (no legacy aliases or unknown fields):
+
+```json
+{
+  "format": "noveltea.benchmark.configuration",
+  "version": 1,
+  "scenario": "raw-bgfx-empty",
+  "scenario_version": 1,
+  "parameters": {},
+  "clock_policy": "realtime",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "warmup_seconds": 3,
+    "measurement_seconds": 10,
+    "measurement_frames": 0,
+    "repeats": 1,
+    "ready_timeout_seconds": 5,
+    "profile": "clean",
+    "no_ui": true,
+    "raw_samples": false,
+    "vsync": false,
+    "output": ""
+  }
+}
+```
+
+The `--config` file is validated before graphics init and cannot be mixed
+with run-setting flags; `--output` can override the file's destination.
+The raw empty workload has a fixed scenario version (1), no parameters,
+and real-time wall-clock policy; alternative values are rejected until an
+owning scenario implements them.
+All configurations emitted in reports use exactly this shape.
+
+Results use `noveltea.benchmark.result` version 1, containing the full
+configuration, source commit and tracked-source dirty flag, build type/compiler, platform/SDL video driver,
+bgfx backend and available GPU identifiers, workload description and
+per-trial phase/outcome/reason, measured counts and duration, and aggregate
+statistics. They distinguish `complete`, `partial`, and `failed` suites.
+Each successful trial and aggregate has mean/min/max/p50/p95/p99/standard
+deviation for CPU frame-operation duration and wall-frame intervals.
+Percentiles use sorted samples and linear rank interpolation; aggregate
+percentiles use all successful measured frames, not averages of trial
+percentiles. Raw sample pairs are emitted only with `--raw-samples`.
+
+A wall-frame interval is the elapsed CPU clock time from the preceding
+measured frame's end to this frame's end (for the first sample, from
+measurement start). `cpu_operation_ms` measures the scenario's frame
+operation, including SDL event polling and bgfx frame submission/wait.
+`frame_loop_cadence_hz` is measured completed work units divided by
+measured wall seconds, **not independently verified display FPS**.
+GPU execution, bgfx synchronization counters, driver version, and displayed
+frame count are `null` where unavailable, never inferred from the
+duration of `bgfx::frame()`. Cleanup and any asynchronous completion work
+are excluded from measured samples. Incomplete trials retain their actual
+observed frame counts but do not contribute to successful aggregates.
+
+## Validation and GPU requirements
+
+```sh
+cmake --preset linux-benchmark-debug -DBUILD_TESTING=ON
+cmake --build --preset linux-benchmark-debug --target noveltea-benchmark-app \
+  noveltea-benchmark-runner-tests noveltea-benchmark-report-tests noveltea-benchmark-options-tests
+ctest --test-dir build/linux-benchmark-debug -R '^noveltea_benchmark_' --output-on-failure
+```
+
+Deterministic runner tests use synthetic scenarios/clock to validate readiness
+timeouts, phase boundaries, repeats, cleanup, failures, and continuation.
+Report/config tests validate exact current-only input, failure/null metadata,
+and statistics independent of GPU performance. The Linux graphics CTest
+uses Xvfb when available for functional smoke **only**, never a hardware
+performance baseline. No FPS thresholds are imposed.
+
+For real WSL2 NVIDIA measurements, ensure these variables are set first
+(they are not automatically set by the launcher):
+
+```sh
+export DISPLAY="${DISPLAY:-:0}"
+export LD_LIBRARY_PATH="/usr/lib/wsl/lib${LD_LIBRARY_PATH:+:$LD_LIBRARY_PATH}"
+export GALLIUM_DRIVER=d3d12
+export MESA_D3D12_DEFAULT_ADAPTER_NAME=NVIDIA
+glxinfo -B
+```
+
+Verify that the renderer is `D3D12 (NVIDIA GeForce RTX 5070 Ti)` with
+`Accelerated: yes`. Do not classify Xvfb or llvmpipe as GPU performance
+qualifications. SDL window close, focus loss, and surface-size changes fail
+the current trial with an explicit reason rather than exporting fabricated
+successful measurements.
+
+**Feature Lab:** not applicable: the baseline intentionally has no
+authorable runtime behavior.

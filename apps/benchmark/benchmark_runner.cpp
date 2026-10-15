@@ -1,0 +1,236 @@
+#include "benchmark_runner.hpp"
+
+#include <algorithm>
+#include <cmath>
+#include <limits>
+#include <numeric>
+#include <utility>
+
+namespace noveltea::benchmark {
+namespace {
+
+constexpr uint64_t kMaxSamplesPerTrial = 300000;
+
+double percentile(const std::vector<double>& values, double fraction)
+{
+    const double index = fraction * static_cast<double>(values.size() - 1);
+    const auto lower = static_cast<size_t>(index);
+    const auto upper = std::min(lower + 1, values.size() - 1);
+    return values[lower] + (values[upper] - values[lower]) * (index - static_cast<double>(lower));
+}
+
+bool sample_valid(double value) { return std::isfinite(value) && value >= 0.0; }
+
+TrialResult run_trial(const Options& options, Scenario& scenario, Clock& clock,
+                      std::vector<FrameSample>& samples)
+{
+    TrialResult trial;
+    std::string reason;
+    trial.phases.push_back(Phase::Preparation);
+    // Even failed preparation may have acquired partial scenario resources.
+    const bool prepared = scenario.prepare(options, reason);
+    if (prepared) {
+        const double readiness_start = clock.now_seconds();
+        bool ready = false;
+        while (true) {
+            const auto state = scenario.readiness(reason);
+            if (state == Readiness::Ready &&
+                clock.now_seconds() - readiness_start <= options.ready_timeout_seconds) {
+                ready = true;
+                break;
+            }
+            if (state == Readiness::Failed) {
+                if (reason.empty())
+                    reason = "scenario readiness failed";
+                break;
+            }
+            if (clock.now_seconds() - readiness_start >= options.ready_timeout_seconds) {
+                reason = "readiness timeout";
+                break;
+            }
+        }
+        if (ready) {
+            trial.phases.push_back(Phase::Ready);
+            trial.phases.push_back(Phase::Warmup);
+            const double start = clock.now_seconds();
+            bool worked = true;
+            while (clock.now_seconds() - start < options.warmup_seconds) {
+                if (!scenario.frame(reason)) {
+                    worked = false;
+                    if (reason.empty())
+                        reason = "warmup frame failed";
+                    break;
+                }
+                ++trial.warmup_frames;
+            }
+            if (worked) {
+                trial.phases.push_back(Phase::Measurement);
+                const double measured_start = clock.now_seconds();
+                double previous_end = measured_start;
+                bool measured = true;
+                while (true) {
+                    if (trial.measured_frames == samples.size()) {
+                        measured = false;
+                        reason = "sample capacity exceeded";
+                        break;
+                    }
+                    const double frame_start = clock.now_seconds();
+                    if (!scenario.frame(reason)) {
+                        measured = false;
+                        if (reason.empty())
+                            reason = "measurement frame failed";
+                        break;
+                    }
+                    const double frame_end = clock.now_seconds();
+                    const FrameSample sample{frame_end - previous_end, frame_end - frame_start};
+                    if (!sample_valid(sample.wall_seconds) ||
+                        !sample_valid(sample.operation_seconds) || frame_end <= measured_start) {
+                        measured = false;
+                        reason = "non-monotonic or invalid frame timing";
+                        break;
+                    }
+                    samples[static_cast<size_t>(trial.measured_frames++)] = sample;
+                    previous_end = frame_end;
+                    if (options.measurement_frames != 0
+                            ? trial.measured_frames >= options.measurement_frames
+                            : frame_end - measured_start >= options.duration_seconds)
+                        break;
+                }
+                trial.measured_wall_seconds = previous_end - measured_start;
+                if (measured) {
+                    trial.phases.push_back(Phase::Completion);
+                    if (!scenario.complete(reason)) {
+                        measured = false;
+                        if (reason.empty())
+                            reason = "scenario completion failed";
+                    }
+                }
+                if (measured) {
+                    trial.outcome = "complete";
+                    trial.phases.push_back(Phase::Results);
+                    std::vector<FrameSample> measured_samples(
+                        samples.begin(),
+                        samples.begin() + static_cast<std::ptrdiff_t>(trial.measured_frames));
+                    trial.wall_frame = summarize(measured_samples, true);
+                    trial.cpu_operation = summarize(measured_samples, false);
+                    if (options.raw_samples)
+                        trial.raw_samples = std::move(measured_samples);
+                }
+            }
+        }
+    }
+    if (trial.outcome != "complete") {
+        trial.reason = reason.empty() ? "scenario preparation failed" : reason;
+    }
+    trial.phases.push_back(Phase::Cleanup);
+    scenario.cleanup();
+    return trial;
+}
+
+} // namespace
+
+bool validate_run_options(const Options& options, std::string& reason)
+{
+    reason.clear();
+    if (options.width <= 0 || options.width > 8192 || options.height <= 0 ||
+        options.height > 8192) {
+        reason = "window dimensions must be in 1..8192";
+    } else if (!std::isfinite(options.warmup_seconds) || options.warmup_seconds < 0.0 ||
+               options.warmup_seconds > 3600.0 || !std::isfinite(options.duration_seconds) ||
+               options.duration_seconds <= 0.0 || options.duration_seconds > 3600.0) {
+        reason = "invalid warmup or measurement duration";
+    } else if (!std::isfinite(options.ready_timeout_seconds) ||
+               options.ready_timeout_seconds <= 0.0 || options.ready_timeout_seconds > 3600.0) {
+        reason = "invalid readiness timeout";
+    } else if (options.repeats == 0 || options.repeats > 20) {
+        reason = "repeat count must be in 1..20";
+    } else if (options.measurement_frames > kMaxSamplesPerTrial) {
+        reason = "fixed frame count exceeds sample capacity (300000)";
+    } else if (!options.no_ui) {
+        reason = "benchmark dashboard not available until its dedicated frontend is implemented";
+    }
+    return reason.empty();
+}
+
+Distribution summarize(const std::vector<FrameSample>& samples, bool wall)
+{
+    Distribution result;
+    if (samples.empty())
+        return result;
+    std::vector<double> sorted;
+    sorted.reserve(samples.size());
+    for (const auto& sample : samples)
+        sorted.push_back((wall ? sample.wall_seconds : sample.operation_seconds) * 1000.0);
+    std::sort(sorted.begin(), sorted.end());
+    result.count = sorted.size();
+    result.min_ms = sorted.front();
+    result.max_ms = sorted.back();
+    result.mean_ms =
+        std::accumulate(sorted.begin(), sorted.end(), 0.0) / static_cast<double>(sorted.size());
+    double squared_deviation = 0.0;
+    for (const double value : sorted)
+        squared_deviation += (value - result.mean_ms) * (value - result.mean_ms);
+    result.standard_deviation_ms =
+        std::sqrt(squared_deviation / static_cast<double>(sorted.size()));
+    result.p50_ms = percentile(sorted, 0.50);
+    result.p95_ms = percentile(sorted, 0.95);
+    result.p99_ms = percentile(sorted, 0.99);
+    return result;
+}
+
+SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios, Clock& clock)
+{
+    SuiteResult suite;
+    std::string error;
+    if (!validate_run_options(options, error) || scenarios.empty())
+        return suite;
+
+    uint64_t successful_scenarios = 0;
+    uint64_t completed_trials = 0;
+    for (Scenario* scenario : scenarios) {
+        ScenarioResult result;
+        if (!scenario) {
+            result.scenario = "null";
+            suite.scenarios.push_back(std::move(result));
+            continue;
+        }
+        result.scenario = scenario->id();
+        result.description = scenario->description();
+        std::vector<FrameSample> combined_samples;
+        for (uint32_t trial_number = 0; trial_number < options.repeats; ++trial_number) {
+            const size_t capacity = options.measurement_frames != 0
+                                        ? static_cast<size_t>(options.measurement_frames)
+                                        : static_cast<size_t>(kMaxSamplesPerTrial);
+            // Allocate before preparing each trial; no growth during the sample window.
+            std::vector<FrameSample> samples(capacity);
+            auto trial = run_trial(options, *scenario, clock, samples);
+            if (trial.outcome == "complete") {
+                combined_samples.insert(combined_samples.end(), samples.begin(),
+                                        samples.begin() +
+                                            static_cast<std::ptrdiff_t>(trial.measured_frames));
+                result.measured_frames += trial.measured_frames;
+                result.measured_wall_seconds += trial.measured_wall_seconds;
+            }
+            result.trials.push_back(std::move(trial));
+        }
+        const auto passed =
+            std::count_if(result.trials.begin(), result.trials.end(),
+                          [](const TrialResult& trial) { return trial.outcome == "complete"; });
+        completed_trials += static_cast<uint64_t>(passed);
+        result.outcome = passed == static_cast<std::ptrdiff_t>(result.trials.size())
+                             ? "complete"
+                             : (passed > 0 ? "partial" : "failed");
+        result.wall_frame = summarize(combined_samples, true);
+        result.cpu_operation = summarize(combined_samples, false);
+        if (result.outcome == "complete")
+            ++successful_scenarios;
+        suite.scenarios.push_back(std::move(result));
+    }
+    if (successful_scenarios == suite.scenarios.size())
+        suite.outcome = "complete";
+    else if (completed_trials > 0)
+        suite.outcome = "partial";
+    return suite;
+}
+
+} // namespace noveltea::benchmark
