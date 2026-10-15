@@ -8,6 +8,7 @@ import { z } from 'zod';
 import {
   yamlCommentImpacts,
   yamlCommentTokenMentions,
+  annotatedYamlPaths,
   removeChangedYamlComments,
   type YamlCommentImpact,
 } from './yaml-comment-impact';
@@ -1324,10 +1325,15 @@ function externalSearchSources(
 function sparseTrackedEditorOrganization(
   editorState: EditorProjectState,
   previousText?: string,
+  keepCommentedDefaults = false,
 ): Record<string, unknown> {
   const previous = previousText
     ? (projectWorkspaceSourceCodec('editor.yaml').decode(previousText) as Record<string, unknown>)
     : {};
+  const notes =
+    keepCommentedDefaults && previousText ? annotatedYamlPaths(previousText) : new Set<string>();
+  const keep = (path: string) =>
+    [...notes].some((note) => note === path || note.startsWith(`${path}.`));
   const previousChapters = (previous.chapters ?? {}) as Record<string, unknown>;
   const previousTags = (previous.tags ?? {}) as Record<string, unknown>;
   const chapterRecords = editorState.chapters?.records ?? {};
@@ -1337,20 +1343,22 @@ function sparseTrackedEditorOrganization(
   if (
     Object.keys(chapterRecords).length ||
     (Object.hasOwn(previousChapters, 'records') &&
-      JSON.stringify(previousChapters.records) === JSON.stringify(chapterRecords))
+      (JSON.stringify(previousChapters.records) === JSON.stringify(chapterRecords) ||
+        keep('chapters.records')))
   )
     chapters.records = chapterRecords;
   if (
     Object.keys(chapterAssignments).length ||
     (Object.hasOwn(previousChapters, 'assignments') &&
-      JSON.stringify(previousChapters.assignments) === JSON.stringify(chapterAssignments))
+      (JSON.stringify(previousChapters.assignments) === JSON.stringify(chapterAssignments) ||
+        keep('chapters.assignments')))
   )
     chapters.assignments = chapterAssignments;
   const tags: Record<string, unknown> = {};
   if (
     Object.keys(tagRecords).length ||
     (Object.hasOwn(previousTags, 'records') &&
-      JSON.stringify(previousTags.records) === JSON.stringify(tagRecords))
+      (JSON.stringify(previousTags.records) === JSON.stringify(tagRecords) || keep('tags.records')))
   )
     tags.records = tagRecords;
   const previousMetadata = (previous.recordMetadata ?? {}) as Record<string, unknown>;
@@ -1368,7 +1376,8 @@ function sparseTrackedEditorOrganization(
               {
                 ...(assignedTags.length ||
                 (Object.hasOwn(prior, 'tags') &&
-                  JSON.stringify(prior.tags) === JSON.stringify(assignedTags))
+                  (JSON.stringify(prior.tags) === JSON.stringify(assignedTags) ||
+                    keep(`recordMetadata.${collection}.${id}.tags`)))
                   ? { tags: assignedTags }
                   : {}),
                 ...other,
@@ -1387,7 +1396,8 @@ function sparseTrackedEditorOrganization(
         ([collection, records]) =>
           Object.keys(records as Record<string, unknown>).length > 0 ||
           (Object.hasOwn(previousMetadata, collection) &&
-            JSON.stringify(previousMetadata[collection]) === JSON.stringify(records)),
+            (JSON.stringify(previousMetadata[collection]) === JSON.stringify(records) ||
+              keep(`recordMetadata.${collection}`))),
       ),
     ),
   };
@@ -1457,8 +1467,14 @@ export function projectWorkspaceFile(
               projectWorkspaceSourceCodec(file).decode(previousText) as object,
               'undefinedInteractionProgram',
             ) &&
-            workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
-              .undefinedInteractionProgram === null)
+            (workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
+              .undefinedInteractionProgram === null ||
+              (keepCommentedDefaults &&
+                [...annotatedYamlPaths(previousText)].some(
+                  (note) =>
+                    note === 'undefinedInteractionProgram' ||
+                    note.startsWith('undefinedInteractionProgram.'),
+                ))))
             ? { undefinedInteractionProgram: project.undefinedInteractionProgram }
             : {}),
           ...(project.entrypoint !== null ||
@@ -1467,8 +1483,12 @@ export function projectWorkspaceFile(
               projectWorkspaceSourceCodec(file).decode(previousText) as object,
               'entrypoint',
             ) &&
-            workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
-              .entrypoint === null)
+            (workspaceManifestSchema.parse(projectWorkspaceSourceCodec(file).decode(previousText))
+              .entrypoint === null ||
+              (keepCommentedDefaults &&
+                [...annotatedYamlPaths(previousText)].some(
+                  (note) => note === 'entrypoint' || note.startsWith('entrypoint.'),
+                ))))
             ? { entrypoint: project.entrypoint }
             : {}),
           inventories: project.inventories,
@@ -1487,7 +1507,7 @@ export function projectWorkspaceFile(
     );
   if (file === 'editor.yaml')
     return projectWorkspaceSourceCodec(file).encode(
-      sparseTrackedEditorOrganization(editorState, previousText),
+      sparseTrackedEditorOrganization(editorState, previousText, keepCommentedDefaults),
       trackedEditorOrganizationSchema,
       previousText,
     );
@@ -1529,6 +1549,7 @@ export function projectWorkspaceFile(
       record,
       authoringRecordSchemas.layouts,
       previousText,
+      keepCommentedDefaults,
     );
   }
   const recordMatch = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
@@ -4243,7 +4264,7 @@ export class ProjectWorkspaceService {
             projectedSourcePaths,
             file,
             restoreMissingYamlSource(currentText, nextText, restoration),
-            false,
+            options.commentDisposition === 'keep',
             projectedOwnerFiles,
           ) ?? null;
       }
@@ -4264,8 +4285,10 @@ export class ProjectWorkspaceService {
               // value still exists as a declared default. This is a change, not an
               // element deletion, so Keep must remain an available decision.
               const match = /^records\/([^/]+)\/([^/]+)\.yaml$/u.exec(file);
-              let effective: unknown =
-                match && isAuthoringCollectionKey(match[1]!)
+              const layout = /^records\/layouts\/([^/]+)\/layout\.yaml$/u.exec(file);
+              let effective: unknown = layout
+                ? project.layouts[layout[1]!]
+                : match && isAuthoringCollectionKey(match[1]!)
                   ? project[match[1] as AuthoringCollectionKey][match[2]!]
                   : file === 'project.yaml'
                     ? project
@@ -4274,8 +4297,9 @@ export class ProjectWorkspaceService {
                       : file === 'traits.yaml'
                         ? project.traits
                         : undefined;
-              let previousEffective: unknown =
-                match && isAuthoringCollectionKey(match[1]!)
+              let previousEffective: unknown = layout
+                ? openedSnapshot.project.layouts[layout[1]!]
+                : match && isAuthoringCollectionKey(match[1]!)
                   ? openedSnapshot.project[match[1] as AuthoringCollectionKey][match[2]!]
                   : file === 'project.yaml'
                     ? openedSnapshot.project

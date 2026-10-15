@@ -16,6 +16,73 @@ import { stripLayoutYamlDefaults } from '../../shared/project-workspace/layout-y
 import { featureLabYamlFiles, featureLabYamlRecord } from './feature-lab-yaml-fixtures';
 
 describe('Layout, Archetype and Script Module YAML owners', () => {
+  it('retains changed default-valued Layout fields and comments when Keep is approved', async () => {
+    const project = createAuthoringProject({ id: 'layout-comments', name: 'Layout Comments' });
+    const data = defaultLayoutData('HUD', 'fragment');
+    data.lua = { sourceMode: 'inline', sourceText: '' };
+    project.layouts.hud = { id: 'hud', label: 'HUD', data };
+    const root = '/layout-comments';
+    const path = 'records/layouts/hud/layout.yaml';
+    const original = projectWorkspaceFiles(project, project.editor, {}, new Set([path]));
+    const physical = {
+      ...original,
+      [path]: original[path]!.replace(
+        'layoutKind: fragment',
+        'layoutKind: fragment # retain this intent',
+      ),
+    };
+    const fs = new InMemoryProjectWorkspaceFileSystem(
+      Object.fromEntries(
+        Object.entries(physical).map(([name, value]) => [`${root}/${name}`, value]),
+      ),
+    );
+    const workspace = new ProjectWorkspaceService(fs);
+    const opened = await workspace.open(root);
+    expect(opened.ok ? '' : JSON.stringify(opened.diagnostics)).toBe('');
+    if (!opened.ok) return;
+    const changed = cloneAuthoringProject(opened.snapshot.project);
+    changed.layouts.hud!.data.layoutKind = 'document';
+    const preview = await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      changed,
+      changed.editor,
+      {},
+      {
+        dryRun: true,
+        affectedPaths: ['/layouts/hud/data/layoutKind'],
+      },
+    );
+    expect(preview.commentImpacts).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          file: path,
+          path: '/data/layoutKind',
+          kind: 'changed',
+          comment: ' retain this intent',
+        }),
+      ]),
+    );
+    const saved = await workspace.write(
+      root,
+      opened.snapshot.workspaceRevision,
+      changed,
+      changed.editor,
+      {},
+      {
+        commentDisposition: 'keep',
+        affectedPaths: ['/layouts/hud/data/layoutKind'],
+      },
+    );
+    const text = await fs.readText(`${root}/${path}`);
+    expect(text).toContain('layoutKind: document # retain this intent');
+    const reopened = await workspace.open(root);
+    expect(reopened.ok).toBe(true);
+    if (reopened.ok)
+      expect(reopened.snapshot.project.layouts.hud!.data.layoutKind).toBe('document');
+    expect(saved.commentImpacts.every((impact) => impact.kind === 'changed')).toBe(true);
+  });
+
   it('compacts valid Layout source selectors and sparsely persists newly selected defaults', () => {
     const project = createAuthoringProject({ id: 'layout-defaults', name: 'Layout Defaults' });
     const data = defaultLayoutData('HUD', 'fragment');

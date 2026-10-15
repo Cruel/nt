@@ -77,6 +77,25 @@ function stagedSources(project = sample()) {
 }
 
 describe('staged sparse Character and Interactable YAML', () => {
+  it('requires authored Profile and Expression selections instead of editor starter identities', () => {
+    const codec = projectWorkspaceSourceCodec(characterPath);
+    for (const text of [
+      'id: hero\nlabel: Hero\ndata: {}\n',
+      'id: hero\nlabel: Hero\ndata:\n  defaults:\n    profileId: stage\n',
+      'id: hero\nlabel: Hero\ndata:\n  defaults:\n    expressionId: neutral\n',
+    ])
+      expect(() => codec.decode(text)).toThrow(
+        /Character YAML requires explicit data.defaults.profileId and expressionId/u,
+      );
+    expect(
+      codec.decode(
+        'id: hero\nlabel: Hero\ndata:\n  defaults:\n    profileId: custom-stage\n    expressionId: custom-expression\n  inventories: []\n',
+      ),
+    ).toMatchObject({
+      data: { defaults: { profileId: 'custom-stage', expressionId: 'custom-expression' } },
+    });
+  });
+
   it('round-trips existing Feature Lab Characters and Interactables through the admitted schemas', () => {
     for (const collection of ['characters', 'interactables'] as const) {
       const names = featureLabYamlFiles(collection);

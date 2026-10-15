@@ -129,7 +129,10 @@ Characters and Interactables use `records/characters/<id>.yaml` and
 `records/interactables/<id>.yaml`.
 Character source omissions are based on the schema's typed
 dialogue/profile/pose/appearance/animation and initial-world-state defaults—not on
-the editor's initial named Profile, Pose, Expression, or other placeholder data. Required
+the editor's initial named Profile, Pose, Expression, or other placeholder data.
+Character YAML must explicitly author `data.defaults.profileId` and
+`data.defaults.expressionId`; the normalized editor choices `stage` and
+`neutral` are not inferred from omitted source. Required
 Profile/Pose/Layer IDs and heterogeneous `kind` discriminators remain authored. An
 Interactable Definition's `stackable` and `stackLimit` remain explicit gameplay policy,
 while empty visual presentation, Features and Inventories may be omitted. Feature-level

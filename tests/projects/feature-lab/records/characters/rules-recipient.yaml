@@ -1,6 +1,9 @@
 id: rules-recipient
 label: Rules Recipient
 data:
+  defaults:
+    profileId: stage
+    expressionId: neutral
   displayName: Rules Recipient
   dialogue:
     name: Rules Recipient

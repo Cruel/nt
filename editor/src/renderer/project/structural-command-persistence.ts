@@ -847,7 +847,10 @@ export async function persistAutoCommitPlan(
   const conflictDiagnostics = Object.entries(postSave.recovery.saveUnitsById)
     .filter(([, entry]) => entry.externalConflict)
     .map(([saveUnitId, entry]) => externalConflictDiagnostic(saveUnitId, entry.externalConflict!));
-  return { status: 'persisted', diagnostics: conflictDiagnostics };
+  return {
+    status: 'persisted',
+    diagnostics: [...normalizeToolDiagnostics(response.diagnostics ?? []), ...conflictDiagnostics],
+  };
 }
 
 export function structuralRuleForTests(commandType: string, originSaveUnitId: string) {

@@ -28,6 +28,11 @@ candidate must validate as semantically equivalent before any commit.
 empty collections as well as scalar shorthand and nested fields. Entity
 renames return informational diagnostics for surviving distinct-token mentions
 of the old ID in YAML comments, without modifying or blocking on the prose.
+Successful editor structural saves also present those informational notices.
+Test Step inputs and active payload identifiers must be explicitly authored;
+the generated source schema encodes the same conditional requirements as YAML
+admission, rather than editor-only placeholder defaults. Choosing Keep retains
+annotations on changed default-valued Layout, manifest, and tracked-editor fields.
 
 Core authoring commands are:
 
