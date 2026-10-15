@@ -186,6 +186,20 @@ malformed-input self-tests, and native/Zod differential tests certify the founda
 integration and distribution remain gates for the later host-packaging/cutover tickets. See
 [NATIVE_AUTHORING_CONTRACTS.md](NATIVE_AUTHORING_CONTRACTS.md).
 
+### Native YAML round-trip certification (#476)
+
+`noveltea_project_authoring_yaml` and the `noveltea-yaml-certify` host executable use libfyaml
+1.0.0-beta2 (MIT license), pinned to commit `7a0d93e17b7e694c45ffb1d726665030cf0cb4ed`.
+The pinned C source and its portable/transitively selected BLAKE3 objects compile into
+`fyaml_static`. Unused generic, reflection, Python, upstream CLI, shared library and test
+targets are excluded. The new codec uses jsoncons only inside its private C++ translation unit
+and native certification executable; neither dependency is exposed in a public header.
+`tools/project_authoring/` still rejects non-host builds, has no runtime link or install rule,
+and retains a zero player-size impact. It uses recoverable C parser/document lifetimes and the
+host-only exception boundary to reject invalid YAML/edit batches. Linux CTest and the native vs.
+TypeScript Room fixture tests certify the slice; Windows/macOS CI and final packaging gates
+remain requirements before authoritative cutover.
+
 ## Admission gate
 
 Any pull request or implementation that adds or materially upgrades a shipped C++ dependency must add

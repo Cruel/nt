@@ -1,6 +1,6 @@
 cmake_minimum_required(VERSION 3.25)
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
-    project(NovelTeaProjectAuthoring LANGUAGES CXX)
+    project(NovelTeaProjectAuthoring LANGUAGES C CXX)
     include(CTest)
 endif()
 if(CMAKE_CROSSCOMPILING OR EMSCRIPTEN OR CMAKE_SYSTEM_NAME STREQUAL "Android")
@@ -15,6 +15,26 @@ FetchContent_Declare(noveltea_jsoncons
     SOURCE_SUBDIR noveltea-no-upstream-build
 )
 FetchContent_MakeAvailable(noveltea_jsoncons)
+
+# Host-only YAML authoring codec. Pin the actual source commit, not a moving tag.
+FetchContent_Declare(noveltea_libfyaml
+    GIT_REPOSITORY https://github.com/pantoniou/libfyaml.git
+    GIT_TAG 7a0d93e17b7e694c45ffb1d726665030cf0cb4ed
+    GIT_SHALLOW FALSE
+    SOURCE_SUBDIR noveltea-no-upstream-build
+)
+FetchContent_MakeAvailable(noveltea_libfyaml)
+# Import only the pinned static parser into the ordinary host build; do not build
+# upstream CLI tools, Python bindings, shared libraries or tests with NovelTea.
+function(noveltea_add_host_libfyaml)
+    # Keep upstream's generic option names confined to this host-only dependency.
+    set(BUILD_TESTING OFF)
+    set(ENABLE_PYTHON_BINDINGS OFF)
+    set(ENABLE_REFLECTION OFF)
+    set(ENABLE_GENERIC OFF)
+    add_subdirectory("${noveltea_libfyaml_SOURCE_DIR}" "${noveltea_libfyaml_BINARY_DIR}" EXCLUDE_FROM_ALL)
+endfunction()
+noveltea_add_host_libfyaml()
 
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/generated/contracts.json")
 file(READ "${CMAKE_CURRENT_SOURCE_DIR}/generated/contracts.json" contract_json)
@@ -34,11 +54,21 @@ target_compile_features(noveltea_project_authoring_contracts PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_contracts PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
 target_include_directories(noveltea_project_authoring_contracts PRIVATE "${CMAKE_CURRENT_BINARY_DIR}")
 target_include_directories(noveltea_project_authoring_contracts SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+# Keep the new parser off the engine/player graph and outside the JSON schema library.
+add_library(noveltea_project_authoring_yaml STATIC yaml_codec.cpp)
+target_compile_features(noveltea_project_authoring_yaml PUBLIC cxx_std_20)
+target_include_directories(noveltea_project_authoring_yaml PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
+target_include_directories(noveltea_project_authoring_yaml SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+target_link_libraries(noveltea_project_authoring_yaml PRIVATE fyaml_static)
 # Deliberately no engine/player link or install rule: this is a certification-only host library.
 add_executable(noveltea-schema-certify certify.cpp types_compile.cpp)
 target_link_libraries(noveltea-schema-certify PRIVATE noveltea_project_authoring_contracts)
 if(BUILD_TESTING)
     add_test(NAME native_authoring_contracts COMMAND noveltea-schema-certify --self-test)
+    add_executable(noveltea-yaml-certify yaml_certify.cpp)
+    target_include_directories(noveltea-yaml-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+    target_link_libraries(noveltea-yaml-certify PRIVATE noveltea_project_authoring_yaml)
+    add_test(NAME native_authoring_yaml COMMAND noveltea-yaml-certify)
 endif()
 if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     foreach(mode IN ITEMS format format-check)

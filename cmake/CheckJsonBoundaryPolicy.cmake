@@ -69,7 +69,9 @@ set(approved_source_paths
     "tools/editor_tool/tooling_native_scriptc.cpp"
     "tools/editor_tool/tooling_runtime_cache.cpp"
     "tools/editor_tool/tooling_ui_test_runner.cpp"
-    "tools/project_authoring/contracts.cpp")
+    "tools/project_authoring/contracts.cpp"
+    "tools/project_authoring/yaml_codec.cpp"
+    "tools/project_authoring/yaml_certify.cpp")
 set(json_markers
     "#include <jsoncons/"
     "#include <jsoncons_ext/"
