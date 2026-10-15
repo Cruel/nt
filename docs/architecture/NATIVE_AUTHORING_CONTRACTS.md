@@ -13,8 +13,40 @@ while real localization key validation still has an unimplemented native operati
 It does not replace workspace admission, Project-wide semantic validation, editor working state,
 CLI validation, or the authoring compiler. No production caller uses it. Later family tickets must
 implement their registered native operations and cross-record validation before native admission can
-be authoritative. Sparse YAML decoding/default provenance and comment-aware persistence remain with
-the existing workspace implementation; this slice accepts decoded JSON-shaped records only.
+be authoritative. The #475 schema-validation boundary accepts decoded JSON-shaped records.
+The parallel source-aware YAML codec added in #476 does not change the TypeScript production
+workspace's current parsing, default expansion, or comment-aware persistence ownership.
+
+## Native YAML source round-trip certification (#476)
+
+`tools/project_authoring/yaml_codec.hpp` exposes a host-only libfyaml reader and
+source-aware edit API, with a pinned static libfyaml dependency. Opening a source retains its
+exact bytes and returns the JSON representation of its **explicit** values plus physical JSON
+Pointer locations, byte offsets, line/column, and comment presence. Omitted YAML fields are
+not synthesized as JSON nulls: sparse default expansion and typed-reference normalization
+remain the independent authoritative TypeScript reference until subsequent migration tickets.
+The parser and its owned input bytes stay alive together for the full AST/token traversal.
+
+For selected scalar field edits, the codec replaces only the original source token span,
+reopens the resulting YAML, and preserves unrelated source bytes. Existing unannotated values
+can be omitted when changed to a caller-supplied declared default; Keep retains explicitly
+commented defaults, and Remove drops the selected comment with the affected default. Supported
+insertion of missing mapping fields preserves their neighbors. Changes that would risk losing
+comments on a complex subtree or require unsafe multiline source rewriting fail closed rather
+than silently discard prose. Complete generic structural mutation, whole-Project admission,
+transactional persistence, and user-visible editor/session integration belong to later tickets.
+Every edit also verifies the reopened document has the requested target value and unchanged
+sibling values, mapping/sequence container types, and array lengths. Omitting the first field
+of a sequence mapping preserves its sequence marker. Root document-header comments are not
+treated as annotations owned by the first field; omitting a field with Remove deletes its
+owned preceding comments without transferring them to a neighbor. Explicit `!!str` tags
+override implicit scalar typing in both the native and restricted TypeScript readers.
+
+`noveltea-yaml-certify` provides a native CTest and an isolated `--open` / `--edit` JSON
+certification interface. `editor/src/renderer/test/native-yaml-parity.test.ts` compares it
+with the #449 restricted YAML reader and sparse Room codec, including an actual Feature Lab
+Room, nested typed reference edits, comments, retained defaults, unsafe scalars, and source
+reopen equivalence. The existing TypeScript implementation remains authoritative.
 
 ## Generation
 
@@ -100,9 +132,11 @@ cmake -S tools/project_authoring -B build/native-authoring -DCMAKE_BUILD_TYPE=De
 cmake --build build/native-authoring
 ctest --test-dir build/native-authoring --output-on-failure
 NOVELTEA_SCHEMA_CERTIFY="$PWD/build/native-authoring/noveltea-schema-certify" \
+NOVELTEA_YAML_CERTIFY="$PWD/build/native-authoring/noveltea-yaml-certify" \
   pnpm -C editor exec vp test run \
   src/renderer/test/native-schema-generation.test.ts \
-  src/renderer/test/native-schema-parity.test.ts
+  src/renderer/test/native-schema-parity.test.ts \
+  src/renderer/test/native-yaml-parity.test.ts
 ```
 
 The normal host-tools graph also builds the library and certification executable. Web, Android, and

@@ -87,7 +87,8 @@ jobs:
       - name: Certify native and Zod Project contract parity
         env:
           NOVELTEA_SCHEMA_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-schema-certify
-        run: pnpm -C editor exec vp test run src/renderer/test/native-schema-generation.test.ts src/renderer/test/native-schema-parity.test.ts
+          NOVELTEA_YAML_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-yaml-certify
+        run: pnpm -C editor exec vp test run src/renderer/test/native-schema-generation.test.ts src/renderer/test/native-schema-parity.test.ts src/renderer/test/native-yaml-parity.test.ts
       - name: Set up coverage contract reporter
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:

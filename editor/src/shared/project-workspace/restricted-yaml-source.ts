@@ -59,6 +59,7 @@ function inspectNode(node: Node | null | undefined, mappingKey = false): void {
     if (typeof spelling !== 'string') return;
     if (
       ambiguousPlainScalar(spelling) &&
+      node.tag !== 'tag:yaml.org,2002:str' &&
       !(typeof node.value !== 'string' && ['true', 'false', 'null'].includes(spelling))
     )
       invalid(`Ambiguous YAML scalar '${spelling}' must be quoted.`, node);
