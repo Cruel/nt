@@ -11,21 +11,17 @@ struct Options {
     double warmup_seconds = 3.0;
     double duration_seconds = 10.0;
     uint64_t measurement_frames = 0; // Zero selects duration-based measurement.
+    uint32_t repeats = 1;
+    double ready_timeout_seconds = 5.0;
+    bool raw_samples = false;
+    bool no_ui = true;
     bool vsync = false;
     bool help = false;
+    std::string scenario = "raw-bgfx-empty";
     std::string output_path;
+    std::string config_path;
 };
 
 bool parse_options(int argc, const char* const argv[], Options& options, std::string& error);
-
-struct FrameSummary {
-    uint64_t frames = 0;
-    double total_bgfx_call_seconds = 0.0;
-    double min_bgfx_call_seconds = 0.0;
-    double max_bgfx_call_seconds = 0.0;
-
-    void record(double bgfx_call_seconds);
-    [[nodiscard]] double mean_bgfx_call_ms() const;
-};
 
 } // namespace noveltea::benchmark

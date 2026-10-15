@@ -35,6 +35,7 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
 {
     options = {};
     error.clear();
+    bool has_cli_settings = false;
     for (int i = 1; i < argc; ++i) {
         const std::string_view flag = argv[i];
         if (flag == "--help") {
@@ -42,16 +43,27 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             return true;
         }
         if (flag == "--smoke") {
+            has_cli_settings = true;
             options.warmup_seconds = 0.0;
             options.measurement_frames = 30;
             continue;
         }
         if (flag == "--vsync") {
+            has_cli_settings = true;
             options.vsync = true;
             continue;
         }
+        if (flag == "--no-ui")
+            continue;
+        if (flag == "--raw-samples") {
+            has_cli_settings = true;
+            options.raw_samples = true;
+            continue;
+        }
         if (flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
-            flag != "--seconds" && flag != "--frames" && flag != "--output") {
+            flag != "--seconds" && flag != "--frames" && flag != "--output" &&
+            flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
+            flag != "--config") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -60,6 +72,22 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             return false;
         }
         const char* value = argv[++i];
+        if (flag == "--config") {
+            if (*value == '\0') {
+                error = "config path must not be empty";
+                return false;
+            }
+            options.config_path = value;
+            continue;
+        }
+        if (flag == "--profile") {
+            has_cli_settings = true;
+            if (std::string_view(value) != "clean") {
+                error = "only the clean profile is available in the Linux runner";
+                return false;
+            }
+            continue;
+        }
         if (flag == "--output") {
             if (*value == '\0') {
                 error = "output path must not be empty";
@@ -68,16 +96,20 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             options.output_path = value;
             continue;
         }
-        if (flag == "--seconds" || flag == "--warmup-seconds") {
+        has_cli_settings = true;
+        if (flag == "--seconds" || flag == "--warmup-seconds" ||
+            flag == "--ready-timeout-seconds") {
             double seconds = 0.0;
-            if (!parse_duration(value, seconds) || (flag == "--seconds" && seconds == 0.0)) {
+            if (!parse_duration(value, seconds) || (flag != "--warmup-seconds" && seconds == 0.0)) {
                 error = "invalid duration for " + std::string(flag);
                 return false;
             }
             if (flag == "--seconds")
                 options.duration_seconds = seconds;
-            else
+            else if (flag == "--warmup-seconds")
                 options.warmup_seconds = seconds;
+            else
+                options.ready_timeout_seconds = seconds;
             continue;
         }
         uint64_t number = 0;
@@ -86,11 +118,17 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             return false;
         }
         if (flag == "--frames") {
-            if (number > 1000000000) {
-                error = "--frames exceeds maximum (1000000000)";
+            if (number > 300000) {
+                error = "--frames exceeds maximum (300000)";
                 return false;
             }
             options.measurement_frames = number;
+        } else if (flag == "--repeats") {
+            if (number > 20) {
+                error = "--repeats exceeds maximum (20)";
+                return false;
+            }
+            options.repeats = static_cast<uint32_t>(number);
         } else {
             if (number > 8192) {
                 error = "width/height must be within 1..8192";
@@ -102,22 +140,11 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
                 options.height = static_cast<int>(number);
         }
     }
+    if (!options.config_path.empty() && has_cli_settings) {
+        error = "--config cannot be combined with run settings; --output is allowed";
+        return false;
+    }
     return true;
-}
-
-void FrameSummary::record(double seconds)
-{
-    if (frames == 0 || seconds < min_bgfx_call_seconds)
-        min_bgfx_call_seconds = seconds;
-    if (frames == 0 || seconds > max_bgfx_call_seconds)
-        max_bgfx_call_seconds = seconds;
-    ++frames;
-    total_bgfx_call_seconds += seconds;
-}
-
-double FrameSummary::mean_bgfx_call_ms() const
-{
-    return frames == 0 ? 0.0 : (total_bgfx_call_seconds * 1000.0 / static_cast<double>(frames));
 }
 
 } // namespace noveltea::benchmark
