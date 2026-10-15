@@ -2740,44 +2740,49 @@ async function certifyStandaloneAuthorityAndMutationHandling(tempRoot, pristine)
     // properties covered deterministically by native tests; CLI certification does not wait for a
     // real Project owner to become idle.
 
-    // Read-proof mismatch/retry behavior is forced deterministically below; do not arrange it
-    // by trying to land a filesystem edit inside an artificial delay window.
-
-    let churn = true;
-    let churnIndex = 0;
-    const churnTask = (async () => {
-      while (churn) {
-        const current = parseYaml(await readFile(galleryPath, 'utf8'));
-        current.label = `authority churn ${churnIndex++}`;
-        await writeFile(galleryPath, stringifyYaml(current));
-        await new Promise((resolve) => setTimeout(resolve, 50));
+    // The forced mismatch proves bounded retries without an unbounded disk-write storm.
+    // Continuous writes can make Windows daemon acceleration unavailable, triggering a
+    // nonresident local fallback that does not exercise the resident read-proof contract.
+    const churnGallery = structuredClone(overflowGallery);
+    churnGallery.label = 'authority retry change';
+    await writeFile(galleryPath, stringifyYaml(churnGallery));
+    const mismatchEnvironment = {
+      ...traceEnvironment,
+      NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '1',
+    };
+    for (const [label, command] of [
+      [
+        'resident read authority retries',
+        ['--project', root, '--json', 'usages', 'rooms', 'gallery'],
+      ],
+      ['scoped read authority retries', ['--project', root, '--json', 'platform', 'profiles']],
+    ]) {
+      const result = runNative(command, { cwd: root, env: mismatchEnvironment });
+      let response;
+      try {
+        response = JSON.parse(result.stdout);
+      } catch {
+        // A missing or malformed envelope fails the assertion below.
       }
-    })();
-    const churnInvocation = await runAsync(
-      nativeCli,
-      ['--project', root, '--json', 'usages', 'rooms', 'gallery'],
-      {
-        cwd: root,
-        env: {
-          ...traceEnvironment,
-          NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '1',
-        },
-      },
-    );
-    const churnResult = await churnInvocation.result();
-    churn = false;
-    await churnTask;
-    if (churnResult.status === 0)
-      fail(`Continuous authority churn unexpectedly succeeded: ${churnResult.stdout}`);
-    const scopedChurn = runNative(['--project', root, '--json', 'platform', 'profiles'], {
-      cwd: root,
-      env: {
-        ...traceEnvironment,
-        NOVELTEA_CLI_CERTIFICATION_FORCE_READ_AUTHORITY_MISMATCH: '1',
-      },
-    });
-    if (scopedChurn.status === 0)
-      fail(`Scoped read authority churn unexpectedly succeeded: ${scopedChurn.stdout}`);
+      if (
+        result.status !== 3 ||
+        response?.success !== false ||
+        response?.exitCode !== 3 ||
+        !Array.isArray(response?.diagnostics) ||
+        !response.diagnostics.some(
+          (diagnostic) => diagnostic.code === 'WORKSPACE_REVISION_CONFLICT',
+        )
+      )
+        fail(
+          label +
+            ' did not reject repeated mismatches: status=' +
+            result.status +
+            ' stdout=' +
+            result.stdout +
+            ' stderr=' +
+            result.stderr,
+        );
+    }
     await writeFile(galleryPath, stringifyYaml(originalGallery));
     requireSuccess(
       'authority churn repair',
