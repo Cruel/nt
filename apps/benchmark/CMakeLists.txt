@@ -33,14 +33,33 @@ noveltea_apply_policy_warnings(noveltea-benchmark-runner)
 # Benchmark ImGui is independent of engine devtools, including in optimized builds.
 find_package(imgui CONFIG REQUIRED)
 add_executable(noveltea-benchmark-app
-    main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp)
+    main.cpp benchmark_dashboard.cpp benchmark_completed_run.cpp raw_bgfx_geometry.cpp
+    standalone_rmlui.cpp)
 target_link_libraries(noveltea-benchmark-app PRIVATE SDL3::SDL3 bgfx::bgfx
-    imgui::imgui noveltea-benchmark-runner)
+    imgui::imgui rmlui_bgfx::rmlui_bgfx RmlUi::Core noveltea-benchmark-runner)
 noveltea_attach_generated_shaders(noveltea-benchmark-app)
 target_compile_definitions(noveltea-benchmark-app PRIVATE
     NOVELTEA_BENCHMARK_RESULTS_DIR="${CMAKE_BINARY_DIR}/benchmarks"
-    NOVELTEA_BENCHMARK_SHADER_ROOT="${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/glsl-330"
+    NOVELTEA_BENCHMARK_SHADER_ROOT="assets/shaders/bgfx/glsl-330"
+    NOVELTEA_BENCHMARK_FONT_PATH="assets/fonts/LiberationSans.ttf"
 )
+# The benchmark is relocatable: stage the same generated common system
+# shaders and font as the runtime, without its Engine asset-management graph.
+add_custom_target(noveltea-benchmark-stage-assets
+    COMMAND "${CMAKE_COMMAND}" -E make_directory
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts/LiberationSans.ttf"
+    COMMAND "${CMAKE_COMMAND}" -E copy_directory
+        "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/glsl-330"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/shaders/bgfx/glsl-330"
+    VERBATIM)
+if(TARGET noveltea-shaders)
+    add_dependencies(noveltea-benchmark-stage-assets noveltea-shaders)
+endif()
+# Run staging even when only shader assets change and C++ does not relink.
+add_dependencies(noveltea-benchmark-app noveltea-benchmark-stage-assets)
 noveltea_apply_runtime_compiler_policy(noveltea-benchmark-app)
 noveltea_apply_policy_warnings(noveltea-benchmark-app)
 
@@ -100,6 +119,22 @@ if(BUILD_TESTING)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 30 frames"
             TIMEOUT 45)
+        add_test(NAME noveltea_benchmark_rmlui_graphics_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario standalone-rmlui-simple --smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-rmlui-smoke.json")
+        set_tests_properties(noveltea_benchmark_rmlui_graphics_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "complete: 30 frames"
+            TIMEOUT 60)
+        add_test(NAME noveltea_benchmark_rmlui_dashboard_lifecycle_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --scenario standalone-rmlui-simple --dashboard-smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-rmlui-dashboard-smoke.json")
+        set_tests_properties(noveltea_benchmark_rmlui_dashboard_lifecycle_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
+            TIMEOUT 60)
         add_test(NAME noveltea_benchmark_geometry_dashboard_lifecycle_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario raw-bgfx-geometry --dashboard-smoke

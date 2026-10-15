@@ -1,4 +1,5 @@
 #include "benchmark_dashboard.hpp"
+#include "benchmark_assets.hpp"
 
 #include <imgui.h>
 #include <imgui_impl_sdl3.h>
@@ -16,7 +17,7 @@ namespace {
 
 bgfx::ShaderHandle load_shader(const char* file)
 {
-    std::ifstream input(file, std::ios::binary);
+    std::ifstream input(benchmark_asset_path(file), std::ios::binary);
     if (!input)
         return BGFX_INVALID_HANDLE;
     const std::vector<char> data((std::istreambuf_iterator<char>(input)),
@@ -275,10 +276,10 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         ImGui::TextDisabled("(dashboard and inspection frame excluded from measurement)");
         ImGui::Separator();
         ImGui::Text("Selected: %s", options.scenario.c_str());
-        ImGui::TextDisabled("Open full-scene inspection to see every reference rectangle.");
+        ImGui::TextDisabled("Full-scene inspection shows the selected workload.");
         ImGui::Spacing();
 
-        if (options.scenario == "raw-bgfx-geometry") {
+        if (options.scenario != "raw-bgfx-empty") {
             if (ImGui::Button("Inspect full scene"))
                 inspection_only_ = true;
         }
@@ -298,10 +299,11 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         if (ImGui::BeginTabBar("benchmark-tabs")) {
             if (ImGui::BeginTabItem("Scenarios")) {
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
-                    for (const char* candidate : {"raw-bgfx-empty", "raw-bgfx-geometry"}) {
+                    for (const char* candidate :
+                         {"raw-bgfx-empty", "raw-bgfx-geometry", "standalone-rmlui-simple"}) {
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options.scenario = candidate;
-                            if (options.scenario == "raw-bgfx-empty") {
+                            if (options.scenario != "raw-bgfx-geometry") {
                                 options.rect_count = 3;
                                 options.rect_scale = 1.0;
                             }
@@ -321,7 +323,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.rect_scale = 1.0;
                     }
                 }
-                ImGui::TextDisabled("Two raw-bgfx baselines; Engine and RmlUi scenarios follow.");
+                ImGui::TextDisabled("Raw bgfx and independent standalone RmlUi; Engine follows.");
                 ImGui::Spacing();
                 ImGui::TextWrapped(
                     "Preview renders the selected reference outside sampling. "

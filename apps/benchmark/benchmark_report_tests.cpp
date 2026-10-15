@@ -63,6 +63,18 @@ int main()
                        geometry_config,
                "geometry scenario canonical config roundtrip"))
         return 1;
+    Options ui_options;
+    ui_options.scenario = "standalone-rmlui-simple";
+    const auto ui_config = nlohmann::json::parse(encode_configuration(ui_options));
+    Options ui_roundtrip;
+    if (!check(ui_config["parameters"].empty() &&
+                   decode_configuration(ui_config.dump(), ui_roundtrip, error) &&
+                   ui_roundtrip.scenario == ui_options.scenario &&
+                   nlohmann::json::parse(encode_configuration(ui_roundtrip)) == ui_config,
+               "standalone RmlUi has a stable, parameter-free reference identity"))
+        return 1;
+    auto invalid_ui_parameters = ui_config;
+    invalid_ui_parameters["parameters"]["rect_count"] = 3;
     auto missing_geometry_count = geometry_config;
     missing_geometry_count["parameters"].erase("rect_count");
     auto extra_geometry_key = geometry_config;
@@ -93,9 +105,9 @@ int main()
                    rejected(bad_parameters) && rejected(bad_clock) && rejected(missing) &&
                    rejected(extra) && rejected(negative_frames) && rejected(wrong_profile) &&
                    rejected(extra_root) && rejected(missing_geometry_count) &&
-                   rejected(extra_geometry_key) && rejected(invalid_geometry_count) &&
-                   rejected(invalid_geometry_scale) && rejected(invalid_geometry_fraction) &&
-                   rejected(unknown_scenario),
+                   rejected(extra_geometry_key) && rejected(invalid_ui_parameters) &&
+                   rejected(invalid_geometry_count) && rejected(invalid_geometry_scale) &&
+                   rejected(invalid_geometry_fraction) && rejected(unknown_scenario),
                "reject unknown versions, settings, and invalid values"))
         return 1;
     auto diagnostic = configured;

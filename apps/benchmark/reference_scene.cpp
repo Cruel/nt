@@ -52,4 +52,12 @@ ReferenceScene geometry_reference_scene(uint32_t rect_count, double rect_scale)
     return scene;
 }
 
+ReferenceScene simple_ui_reference_scene()
+{
+    auto scene = geometry_reference_scene();
+    scene.id = "simple-ui-reference";
+    scene.texts.push_back({"title", "NovelTea UI reference", 90, 120, 32, {245, 245, 245, 255}});
+    return scene;
+}
+
 } // namespace noveltea::benchmark
