@@ -289,6 +289,38 @@ bool discovery_contract_matches(const Json& scopes)
     return scopes == expected;
 }
 
+// Cache manifests can be written by the JS workspace (declaration order) or by the
+// native authority manager (sorted order). Scope and extension order has no meaning;
+// membership does. Keep the exact shape and multiplicity so malformed or expanded
+// discovery contracts still invalidate the cached validation result.
+std::optional<Json> canonical_discovery_scopes(const Json& scopes)
+{
+    if (!scopes.is_array())
+        return std::nullopt;
+    Json canonical = Json::array();
+    for (const auto& scope : scopes) {
+        if (!scope.is_object() || scope.size() != 3 || !scope.contains("root") ||
+            !scope["root"].is_string() || !scope.contains("extensions") ||
+            !scope["extensions"].is_array() || !scope.contains("excludedPrefixes") ||
+            !scope["excludedPrefixes"].is_array())
+            return std::nullopt;
+        Json normalized = scope;
+        for (const auto* key : {"extensions", "excludedPrefixes"}) {
+            auto& values = normalized[key];
+            if (!std::all_of(values.begin(), values.end(),
+                             [](const Json& value) { return value.is_string(); }))
+                return std::nullopt;
+            std::sort(values.begin(), values.end());
+        }
+        canonical.push_back(std::move(normalized));
+    }
+    std::sort(canonical.begin(), canonical.end(), [](const Json& left, const Json& right) {
+        return left["root"].get_ref<const std::string&>() <
+               right["root"].get_ref<const std::string&>();
+    });
+    return canonical;
+}
+
 bool discovery_matches(const std::filesystem::path& root, const Json& scopes,
                        const std::set<std::string>& input_paths)
 {
@@ -732,9 +764,7 @@ Json probe_authoring(const Json& request)
     if (!validation_result_shape_valid(manifest["result"]))
         return response("unusable", "cache-result-contract-changed");
 
-    // ProjectAuthorityManager persists scopes and extensions in canonical sorted order.
-    // Keep the native exact-cache contract in that order, including shader includes,
-    // rather than the authoring-side spelling order.
+    // Both the JS workspace and the native authority manager publish this contract.
     const Json scopes =
         Json::array({{{"root", "i18n"},
                       {"extensions", Json::array({".json", ".yaml"})},
@@ -748,7 +778,8 @@ Json probe_authoring(const Json& request)
                      {{"root", "shaders"},
                       {"extensions", Json::array({".sc"})},
                       {"excludedPrefixes", Json::array()}}});
-    if (manifest["discoveryScopes"] != scopes)
+    if (canonical_discovery_scopes(manifest["discoveryScopes"]) !=
+        canonical_discovery_scopes(scopes))
         return response("stale", "discovery-contract-changed");
     std::set<std::string> inputs;
     Json current_inputs = Json::array();

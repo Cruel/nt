@@ -1692,6 +1692,17 @@ async function certifyAuthoringCache(tempRoot, pristine) {
   )
     fail('Authoring validation fixture did not exercise source locations.');
   invoke('authoring warm validation', false);
+  // The native daemon publishes canonical sorted scopes while the Node workspace
+  // writes declaration-ordered scopes. Both cache readers must accept either form.
+  const nativeOrderManifestPath = path.join(cacheRoot, 'current.json');
+  const nativeOrdered = JSON.parse(await readFile(nativeOrderManifestPath, 'utf8'));
+  nativeOrdered.discoveryScopes.reverse();
+  for (const scope of nativeOrdered.discoveryScopes) {
+    scope.extensions.sort();
+    scope.excludedPrefixes.sort();
+  }
+  await writeJson(nativeOrderManifestPath, nativeOrdered);
+  invoke('authoring native-ordered warm validation', false);
   await writeFile(path.join(root, 'scripts/README.md'), 'ignored notes');
   invoke('authoring ignored file', false);
   const candidate = path.join(root, 'scripts/cache-candidate.lua');
