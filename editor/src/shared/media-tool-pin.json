@@ -1,9 +1,9 @@
 {
-  "release": "ffmpeg-r2",
+  "release": "ffmpeg-r3",
   "version": "9.0.1",
   "artifacts": {
-    "linux-x64": "d7b5f111d686137db5353efd291dea01a1f8eb00bbc69c52a5c6c1776d520fcd",
-    "windows-x64": "32fa57cd005a8e4d6ac013004535e3c469d09018f37ba5c7e468ca5eaca95f07",
-    "macos-arm64": "c08dc12d86161c09564cb0d29ece7de58168e7e30df4013d61bf0599e07b0643"
+    "linux-x64": "cb2640b736c0b179b7e1cf292d69f87a264c1bb505d50b8d94d8febb04178d59",
+    "windows-x64": "416bcc6edbc0b0181d613d1430e543972abd5007c3f373a77bd2424b38c806eb",
+    "macos-arm64": "cefe210a2bf0bc88c7922ade3da8ce381647a963b82d4d2780b6ba2de0526e9a"
   }
 }

@@ -77,6 +77,7 @@ export function inspectMediaTool(tool: MediaTool, run: MediaToolRunner = runMedi
       '--disable-network',
       '--enable-libaom',
       '--enable-libvpx',
+      '--enable-libwebp',
       '--enable-libzimg',
     ]) {
       if (!text.split(/\s+/).includes(flag))
@@ -84,7 +85,7 @@ export function inspectMediaTool(tool: MediaTool, run: MediaToolRunner = runMedi
     }
   }
   const encoders = run(tool.executable, ['-hide_banner', '-encoders']);
-  for (const encoder of ['libaom-av1', 'libvpx-vp9']) {
+  for (const encoder of ['libaom-av1', 'libvpx-vp9', ...(tool.bundled ? ['libwebp_anim'] : [])]) {
     if (!(encoders.stdout + encoders.stderr).split(/\s+/).includes(encoder))
       throw new Error(`Media tool '${tool.executable}' is missing encoder ${encoder}.`);
   }

@@ -67,7 +67,7 @@ and remaining qualification limits.
 ### Automated checks
 
 Run the traced-media and conditional large-mask checks with a local FFmpeg
-that has `libwebp` enabled (until the next FFmpeg release is pinned):
+that has `libwebp` enabled (using the pinned `ffmpeg-r3` toolchain):
 
 ```sh
 export NOVELTEA_FFMPEG="$HOME/dev/nt-tools/ffmpeg-build/stage/bin/ffmpeg"
@@ -197,9 +197,10 @@ resolved by removing production Sharp imports; the rebuilt standalone CLI and
 Node CLI each successfully export transparent MOV to native and Web packages
 with the local FFmpeg override. The native service survives any future QuickJS
 removal unchanged. Windows and macOS process-path qualification is still due.
-The checked-in `ffmpeg-r2` binary does not yet provide the required
-`libwebp_anim` encoder or final-duration fix. Use `NOVELTEA_FFMPEG` with the
-patched local build until the updated encoder is certified and pinned.
+The `ffmpeg-r3` toolchain includes the `libwebp_anim` encoder required by
+production transparent-video preparation. The exact endpoint is corrected and
+validated by the native alpha-encoding service. Developers can still select
+an external FFmpeg executable with `NOVELTEA_FFMPEG`.
 Real Mac/Windows/Android device execution, hardware GPU timings and
 unbounded-duration memory profiling are additional release certification,
 not claims made by the Linux/Web tests.

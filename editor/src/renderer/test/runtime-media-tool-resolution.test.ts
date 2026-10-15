@@ -97,10 +97,11 @@ describe('runtime video media-tool discovery', () => {
           if (args.includes('-version'))
             return {
               stdout:
-                'ffmpeg version 9.0.1\nconfiguration: --disable-gpl --disable-nonfree --disable-version3 --disable-network --enable-libaom --enable-libvpx --enable-libzimg',
+                'ffmpeg version 9.0.1\nconfiguration: --disable-gpl --disable-nonfree --disable-version3 --disable-network --enable-libaom --enable-libvpx --enable-libwebp --enable-libzimg',
               stderr: '',
             };
-          if (args.includes('-encoders')) return { stdout: 'libaom-av1 libvpx-vp9', stderr: '' };
+          if (args.includes('-encoders'))
+            return { stdout: 'libaom-av1 libvpx-vp9 libwebp_anim', stderr: '' };
           if (args.includes('-protocols')) return { stdout: 'file pipe', stderr: '' };
           const output = args.at(-1)!;
           const timing = '[Parsed_showinfo_0] n:0 pts_time:0 duration_time:0.05\n';
