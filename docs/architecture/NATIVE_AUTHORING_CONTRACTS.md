@@ -67,9 +67,9 @@ codec. The source must reopen with the exact intended **explicit** values or Sav
 without discarding dirty state. Supported map-field insertions, scalar replacements and
 safe map-field removals preserve other YAML fields and comments. Complex annotated subtree
 rewrites and structural sequence insertions/removals fail closed rather than risking source
-corruption. A staged file is renamed only after a second byte-exact revision check. This
-is a one-source certification path, **not** the complete cross-process lock, multi-file
-transaction, journal, or external reconciliation coordinator planned in later #474 tickets.
+corruption. Since #495, this one-source Save uses the shared transactional writer, rather than
+performing a direct unjournaled rename. The remaining editor conflict/reconciliation coordinator
+is a later #474 responsibility.
 Source revisions use the same `sha256:<hex>` byte digest as the TypeScript
 Project Workspace; exact disk CAS authorization also depends on the full byte comparison.
 
@@ -119,6 +119,49 @@ coordination and CLI/editor production cutover remain separate follow-on work.
 The native Project session fixture exercises missed events, dynamic Asset paths,
 byte changes with restored timestamps, missing files and recovery, independent
 session ownership, directory replacement, and own-write suppression without Electron.
+
+## Native transactional YAML persistence (#495)
+
+`yaml_transaction.hpp` adds `YamlTransactionService`, used by both the parallel
+Room and Project manifest Save paths and available to later multi-record native
+sessions. Each scoped operation supplies exact admitted baseline bytes/revision
+and one or more source-aware YAML edits (or an explicit YAML create/delete).
+`prepare` compares current disk bytes with only the selected targets and returns
+a physical-revision-bound review of the proposed bytes and affected comments.
+Disjoint external changes within a YAML mapping can be rebased by comparing
+edited JSON Pointer values against the original source; overlapping paths,
+sequence changes, unavailable targets and malformed sources fail closed.
+The editor's Keep/Remove/Cancel decision must match the preflight decision at
+`commit`; Keep retains intentional commented source defaults. Existing native
+Room per-edit Keep/Remove semantics also pass through this writer.
+
+`commit` uses `.noveltea/transactions/.writer-lock` and the same v1 journal
+shape as the existing TypeScript transaction service. Before/after exact bytes
+are staged and durably synced in an unpublished preparation directory before
+atomically publishing the journal; an interrupted unpublished staging area can
+be discarded without touching source files. The journal records `prepared`, `writing`,
+`committed` and `rolled-back` states and a per-target completion list. A
+multi-file Save is one recoverable group, not an unsafe unjournaled series of
+renames. Only a proven-dead writer owner can be reclaimed under an exclusive
+reclaim guard. Recovery validates every observed physical revision against
+the recorded before/after states *before* rolling back an incomplete group or
+finishing a committed one. Malformed journals, an unverifiable lock, or an
+unknown concurrent revision remain in place for explicit intervention.
+
+Callers can attribute invalid sources to their affected save targets or report
+unattributable structural uncertainty to fail all writes closed. The Project
+manifest session also blocks Save while its owned watcher authority is
+uncertain. Normal Save performs neither a Project-wide open nor hashing of
+unrelated binary Assets. This is certification-only and does not cut over
+the production editor/CLI transaction or conflict-resolution code.
+
+`native_authoring_yaml_transaction` tests same-file external rebase, stale
+review rejection, commenter choices, commented defaults, scoped invalidity,
+target create/delete, grouped Save/rollback, writer contention, real Linux
+process-death recovery, unknown third-party bytes, repeated recovery, and
+malformed journals. Runtime Feature Lab is not applicable to this
+host-only persistence invariant; the existing Feature Lab Project provides
+the full Project/Room source certification fixtures.
 
 ## Generation
 

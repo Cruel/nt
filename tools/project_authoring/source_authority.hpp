@@ -49,6 +49,7 @@ public:
     bool acknowledge_own_write(std::string_view relative_path, std::string_view revision);
     void hint(std::string_view relative_path);
     void coverage_lost(); // watcher errors, overflow, resume, or a replaced directory
+    bool uncertain() const { return uncertain_; }
 
 private:
     struct NativeWatch;

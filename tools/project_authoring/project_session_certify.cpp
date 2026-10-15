@@ -272,14 +272,17 @@ Json roundtrip(const std::filesystem::path& fixture, bool verify)
             "Removed source directory cannot retain a stale watched child");
 
         project->source_watch_coverage_lost();
+        const auto observer_patch =
+            project->patch(saved.snapshot.working_revision,
+                           {{RoomPatch::Operation::Replace, "/project/name", "\"Own Write\""}});
+        require(observer_patch.accepted &&
+                    !project->save(saved.snapshot.disk_source_revision).accepted,
+                "Uncertain watcher authority blocks a Save without losing dirty working values");
         auto resumed = project->observe_sources();
         require(resumed.authoritative && resumed.full_rescan && resumed.unchanged,
                 "Lost watcher or resume forces a complete revision proof without false deltas");
 
-        const auto observer_patch =
-            project->patch(saved.snapshot.working_revision,
-                           {{RoomPatch::Operation::Replace, "/project/name", "\"Own Write\""}});
-        require(observer_patch.accepted, "Observer own-write certification edit admitted");
+        require(project->snapshot().dirty, "Blocked Save retains dirty working source");
         const auto own_saved = project->save(saved.snapshot.disk_source_revision);
         require(own_saved.accepted && project->observe_sources().unchanged,
                 "Own-write matching exact source revision is a watcher no-op");

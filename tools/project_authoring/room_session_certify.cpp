@@ -257,9 +257,46 @@ int main(int argc, char** argv)
             session->patch(6, {{RoomPatch::Operation::Replace, "/label", "\"Unsaved local\""}});
         write(temp.path(), read(temp.path()) + "# changed externally\n");
         const auto external = read(temp.path());
-        const auto conflict = session->save(race.snapshot.disk_source_revision);
-        require(!conflict.accepted && read(temp.path()) == external && conflict.snapshot.dirty,
-                "external source revision mismatch never overwrites disk or dirty work");
+        const auto adopted = session->save(race.snapshot.disk_source_revision);
+        require(adopted.accepted && !adopted.snapshot.dirty &&
+                    read(temp.path()).find("# changed externally\n") != std::string::npos &&
+                    read(temp.path()).find("Unsaved local") != std::string::npos,
+                "External comment-only source edit rebases without discarding an independent Save");
+        auto overlap = RoomSession::open(temp.root, "room-lifecycle-roundtrip", error);
+        const auto before_overlap = read(temp.path());
+        auto overlapping_patch =
+            overlap->patch(0, {{RoomPatch::Operation::Replace, "/label", "\"Local collision\""}});
+        const auto physical_overlap = read(temp.path());
+        const auto label = physical_overlap.find("Unsaved local");
+        require(label != std::string::npos, "Concurrent overlapping Room label fixture exists");
+        auto concurrent_source = physical_overlap;
+        concurrent_source.replace(label, std::string_view("Unsaved local").size(),
+                                  "External collision");
+        write(temp.path(), concurrent_source);
+        const auto conflict = overlap->save(overlapping_patch.snapshot.disk_source_revision);
+        require(!conflict.accepted && read(temp.path()) == concurrent_source &&
+                    conflict.snapshot.dirty && read(temp.path()) != before_overlap,
+                "Overlapping external Room edit fails closed without discarding dirty work");
+        auto independent = RoomSession::open(temp.root, "room-lifecycle-roundtrip", error);
+        require(independent != nullptr, "Independent Room rebase fixture admits");
+        const auto local_disjoint = independent->patch(
+            0, {{RoomPatch::Operation::Replace, "/label", "\"Local independent\""}});
+        auto remote_disjoint = read(temp.path());
+        const auto display_name = remote_disjoint.find("Lifecycle Round Trip Destination");
+        require(display_name != std::string::npos,
+                "Room fixture supplies an independently editable display name");
+        remote_disjoint.replace(display_name,
+                                std::string_view("Lifecycle Round Trip Destination").size(),
+                                "External Room Destination");
+        write(temp.path(), remote_disjoint);
+        const auto merged = independent->save(local_disjoint.snapshot.disk_source_revision);
+        require(merged.accepted && merged.snapshot.working_revision == 2 &&
+                    !merged.snapshot.dirty &&
+                    read(temp.path()).find("External Room Destination") != std::string::npos &&
+                    read(temp.path()).find("Local independent") != std::string::npos &&
+                    Json::parse(merged.snapshot.source_json).at("data").at("displayName") ==
+                        "External Room Destination",
+                "Disjoint same-Room semantic edit rebases and advances working revision once");
         require(!session->save("stale-revision").accepted,
                 "caller-supplied stale baseline is rejected before saving");
 
