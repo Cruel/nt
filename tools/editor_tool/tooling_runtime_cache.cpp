@@ -732,12 +732,15 @@ Json probe_authoring(const Json& request)
     if (!validation_result_shape_valid(manifest["result"]))
         return response("unusable", "cache-result-contract-changed");
 
+    // ProjectAuthorityManager persists scopes and extensions in canonical sorted order.
+    // Keep the native exact-cache contract in that order, including shader includes,
+    // rather than the authoring-side spelling order.
     const Json scopes =
         Json::array({{{"root", "i18n"},
-                      {"extensions", Json::array({".yaml", ".json"})},
+                      {"extensions", Json::array({".json", ".yaml"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "records"},
-                      {"extensions", Json::array({".yaml", ".json", ".lua", ".rcss", ".rml"})},
+                      {"extensions", Json::array({".json", ".lua", ".rcss", ".rml", ".yaml"})},
                       {"excludedPrefixes", Json::array()}},
                      {{"root", "scripts"},
                       {"extensions", Json::array({".lua"})},

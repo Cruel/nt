@@ -48,6 +48,17 @@ function field(source, name) {
   return match[1];
 }
 
+test('standalone CI contract tests install the editor YAML parser before execution', () => {
+  const policy = job('cxx-runtime-policy');
+  const installPnpm = step(policy, 'Install pnpm for CI contract fixtures');
+  const install = step(policy, 'Install workspace dependencies for YAML contract tests');
+  const testContracts = step(policy, 'Test CI contracts');
+  assert.match(installPnpm, /pnpm\/action-setup@v6/);
+  assert.match(install, /pnpm install --frozen-lockfile/);
+  assert.ok(policy.indexOf(installPnpm) < policy.indexOf(install));
+  assert.ok(policy.indexOf(install) < policy.indexOf(testContracts));
+});
+
 test('release Windows CLI build and certification are separate same-run artifact stages', () => {
   const producer = releaseJob('windows-cli-build');
   const consumer = releaseJob('windows-cli');
