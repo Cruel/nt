@@ -51,7 +51,10 @@ if [ ! -f "$BUILD_DIR/benchmark.html" ] || [ ! -f "$BUILD_DIR/benchmark.wasm" ];
 fi
 
 QUERY="$(node -e '
+const fs = require("node:fs");
 const params = new URLSearchParams();
+let hasConfig = false;
+let hasRunFlags = false;
 const keys = {
   "--scenario":"scenario", "--frames":"frames", "--seconds":"seconds",
   "--warmup-seconds":"warmup", "--repeats":"repeats", "--profile":"profile",
@@ -65,9 +68,28 @@ const switches = {"--smoke":"smoke", "--no-ui":"noUi", "--ui":"ui",
 const args = process.argv.slice(1);
 for (let i=0; i<args.length; ++i) {
   const key = args[i];
-  if (switches[key]) params.set(switches[key], "1");
-  else if (keys[key] && i+1<args.length) params.set(keys[key], args[++i]);
-  else { console.error("[benchmark] unsupported Web launcher argument: " + key); process.exit(2); }
+  if (key === "--config" && i+1<args.length) {
+    if (hasConfig) { console.error("[benchmark] repeated --config"); process.exit(2); }
+    const file = args[++i];
+    let bytes;
+    try { bytes = fs.readFileSync(file); }
+    catch (error) { console.error("[benchmark] cannot read config " + file + ": " + error.message); process.exit(2); }
+    if (!bytes.length || bytes.length > 8192) {
+      console.error("[benchmark] Web configuration must contain 1..8192 bytes"); process.exit(2);
+    }
+    params.set("configB64", bytes.toString("base64"));
+    hasConfig = true;
+  } else if (switches[key]) {
+    params.set(switches[key], "1");
+    hasRunFlags = true;
+  } else if (keys[key] && i+1<args.length) {
+    params.set(keys[key], args[++i]);
+    if (key !== "--output") hasRunFlags = true;
+  } else { console.error("[benchmark] unsupported Web launcher argument: " + key); process.exit(2); }
+}
+if (hasConfig && hasRunFlags) {
+  console.error("[benchmark] --config cannot be combined with run settings; --output is allowed");
+  process.exit(2);
 }
 process.stdout.write(params.toString());
 ' -- "${APP_ARGS[@]}")"

@@ -22,6 +22,11 @@ button{padding:6px 10px;background:#303c50;color:white;border:1px solid #66758b;
 <script>
 const params = new URLSearchParams(location.search);
 const args = [];
+const encodedConfig = params.get('configB64');
+if (encodedConfig !== null) args.push('--config', '/benchmark-canonical-config.json');
+if (encodedConfig !== null && [...params.keys()].some(key => key !== 'configB64' && key !== 'output')) {
+  throw new Error('Canonical --config cannot be combined with run settings');
+}
 for (const [key, flag] of Object.entries({
   scenario: '--scenario', frames: '--frames', seconds: '--seconds',
   warmup: '--warmup-seconds', repeats: '--repeats', profile: '--profile',
@@ -93,6 +98,21 @@ canvas.addEventListener('webglcontextrestored', () => {
 var Module = {
   canvas,
   arguments: args,
+  preRun: [() => {
+    if (encodedConfig === null) return;
+    try {
+      // Recover the exact UTF-8 bytes, without reparsing or normalizing JSON.
+      const binary = atob(encodedConfig);
+      if (binary.length < 1 || binary.length > 8192) throw new Error('invalid config size');
+      FS.writeFile('/benchmark-canonical-config.json',
+                   Uint8Array.from(binary, character => character.charCodeAt(0)));
+    } catch (error) {
+      // Keep --config in argv: native validation must report a failed startup,
+      // never silently switch to the dashboard/default benchmark.
+      console.error('Invalid canonical benchmark configuration transport:', error);
+      FS.writeFile('/benchmark-canonical-config.json', '');
+    }
+  }],
   print: (line) => { console.log(line); log.textContent = (log.textContent + line + '\n').slice(-3000); },
   printErr: (line) => { console.error(line); log.textContent = (log.textContent + line + '\n').slice(-3000); },
   onRuntimeInitialized: () => { status.textContent = 'Running · requestAnimationFrame-paced'; },

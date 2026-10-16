@@ -8,7 +8,7 @@ import { fileURLToPath } from 'node:url';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 
-for (const mode of ['release', 'debug', 'pull']) {
+for (const mode of ['release', 'debug', 'pull', 'config']) {
   test(`Android benchmark ${mode} selects its own APK, launcher and private result path`, async (t) => {
     const root = await mkdtemp(path.join(os.tmpdir(), 'nt-benchmark-android-'));
     t.after(() => rm(root, { recursive: true, force: true }));
@@ -23,6 +23,8 @@ for (const mode of ['release', 'debug', 'pull']) {
       await readFile(path.join(repository, 'scripts/android-device.sh')));
     await file('android/benchmark/build/outputs/apk/release/benchmark-release.apk', 'release');
     await file('android/benchmark/build/outputs/apk/debug/benchmark-debug.apk', 'debug');
+    const canonical = await readFile(path.join(repository, 'apps/benchmark/stage1-unattended.json'));
+    await file('staged/canonical file.json', canonical);
     await file('android/gradlew', `#!/usr/bin/env bash
 printf '%s\\n' "$*" >> "$TEST_ROOT/gradle-actions"
 `, true);
@@ -45,6 +47,7 @@ esac
 
     const scriptArgs = mode === 'debug' ? ['--debug'] :
       mode === 'pull' ? ['--no-build', '--pull'] :
+      mode === 'config' ? ['--no-build', '--', '--config', path.join(root, 'staged/canonical file.json')] :
       ['--', '--scenario', 'raw-bgfx-geometry', '--smoke', '--no-ui'];
     const run = spawnSync('bash', [path.join(root, 'scripts/run-benchmark-android.sh'), ...scriptArgs], {
       encoding: 'utf8',
@@ -66,13 +69,42 @@ esac
         path.join(root, 'build/benchmark-android-results/phone-01/raw-bgfx-geometry-123.json'),
         'utf8'), '{"format":"noveltea.benchmark.result"}\n');
     } else {
-      const gradle = await readFile(path.join(root, 'gradle-actions'), 'utf8');
-      assert.match(gradle, new RegExp(`:benchmark:assemble${mode === 'debug' ? 'Debug' : 'Release'}`));
-      assert.match(gradle, /-PnovelteaAbi=arm64-v8a/);
-      assert.match(actions, /am start -n org\.noveltea\.benchmark\/\.BenchmarkActivity/);
+      if (mode !== 'config') {
+        const gradle = await readFile(path.join(root, 'gradle-actions'), 'utf8');
+        assert.match(gradle, new RegExp(`:benchmark:assemble${mode === 'debug' ? 'Debug' : 'Release'}`));
+        assert.match(gradle, /-PnovelteaAbi=arm64-v8a/);
+      }
+      assert.match(actions, /am start -S -n org\.noveltea\.benchmark\/\.BenchmarkActivity/);
       if (mode === 'release') {
         assert.match(actions, /--scenario raw-bgfx-geometry --smoke --no-ui/);
+      } else if (mode === 'config') {
+        const match = actions.match(/--es novelteaBenchmarkConfigBase64 '([A-Za-z0-9+/=]+)'/);
+        assert.ok(match, 'launch passed a bounded canonical config via its own intent extra');
+        assert.deepEqual(Buffer.from(match[1], 'base64'), canonical);
+        assert.doesNotMatch(actions, /--es novelteaBenchmarkArgs/);
       }
     }
   });
 }
+
+test('Android unattended configuration fails closed before launching', async t => {
+  const root = await mkdtemp(path.join(os.tmpdir(), 'nt-benchmark-bad-config-'));
+  t.after(() => rm(root, {recursive: true, force: true}));
+  const launcher = path.join(root, 'run-benchmark-android.sh');
+  await writeFile(launcher, await readFile(path.join(repository, 'scripts/run-benchmark-android.sh')));
+  const file = path.join(root, 'config.json');
+  await writeFile(file, '{}');
+  const run = (...args) => spawnSync('bash', [launcher, '--no-build', '--', ...args], {
+    encoding: 'utf8', env: {...process.env, AVD_NAME: 'none'}
+  });
+  const mixed = run('--config', file, '--smoke');
+  assert.equal(mixed.status, 2);
+  assert.match(mixed.stderr, /cannot be mixed/);
+  const missing = run('--config', path.join(root, 'missing.json'));
+  assert.equal(missing.status, 2);
+  assert.match(missing.stderr, /cannot read/);
+  await writeFile(file, 'x'.repeat(8193));
+  const oversized = run('--config', file);
+  assert.equal(oversized.status, 2);
+  assert.match(oversized.stderr, /8192 bytes/);
+});

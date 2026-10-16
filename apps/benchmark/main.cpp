@@ -291,6 +291,7 @@ struct Graphics {
         }
         sdl_ready = true;
 #if defined(__ANDROID__)
+        SDL_Log("[benchmark] SDL video initialized; creating Android window");
         window = SDL_CreateWindow("NovelTea Graphics Benchmark", 0, 0,
                                   SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
 #else
@@ -302,6 +303,7 @@ struct Graphics {
             return false;
         }
 #if defined(__ANDROID__)
+        SDL_Log("[benchmark] Android SDL window created; waiting for native surface");
         // SDL_CreateWindow may change orientation and temporarily replace the
         // Activity's surface. Wait through that transition before handing bgfx
         // an EGL native window.
@@ -367,11 +369,17 @@ struct Graphics {
         init.swapChain.width = static_cast<uint32_t>(width);
         init.swapChain.height = static_cast<uint32_t>(height);
         init.reset = options.vsync ? BGFX_RESET_VSYNC : 0;
+#if defined(__ANDROID__)
+        SDL_Log("[benchmark] Android EGL/bgfx initialization beginning");
+#endif
         if (!bgfx::init(init)) {
             reason = "bgfx::init failed";
             return false;
         }
         bgfx_ready = true;
+#if defined(__ANDROID__)
+        SDL_Log("[benchmark] Android EGL/bgfx initialized");
+#endif
         vsync_enabled = options.vsync;
         bgfx::setDebug(BGFX_DEBUG_NONE);
         bgfx::setViewRect(0, 0, 0, static_cast<uint16_t>(width), static_cast<uint16_t>(height));
@@ -1266,6 +1274,9 @@ int run(const Options& options)
 
 int main(int argc, char* argv[])
 {
+#if defined(__ANDROID__)
+    SDL_Log("[benchmark] native launch: argc=%d first=%s", argc, argc > 1 ? argv[1] : "(none)");
+#endif
     Options options;
     std::string error;
     if (!noveltea::benchmark::parse_options(argc, const_cast<const char* const*>(argv), options,
