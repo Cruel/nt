@@ -34,6 +34,8 @@ ValidationResult validate_animation_source(std::string_view source_json);
 ValidationResult validate_asset_source(std::string_view source_json);
 ValidationResult validate_material_source(std::string_view source_json);
 ValidationResult validate_interactable_sparse_source(std::string_view source_json);
+ValidationResult validate_dialogue_source(std::string_view source_json);
+ValidationResult validate_scene_source(std::string_view source_json);
 // Layout YAML keeps file/asset/none selectors. Companion bytes are separate
 // physical owners; only the effective record contains inline source text.
 ValidationResult validate_layout_source(std::string_view source_json,
