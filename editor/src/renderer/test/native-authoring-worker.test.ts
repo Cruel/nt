@@ -268,8 +268,62 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
         accepted: false,
         snapshot: { workingRevision: 1 },
       });
-      // A malformed external source reports uncertainty instead of promoting
-      // unchecked bytes to a valid Project generation.
+      const originalRoom = await readFile(roomPath, 'utf8');
+      expect(originalRoom).toContain('direction: east');
+      await writeFile(roomPath, originalRoom.replace('direction: east', 'direction: west'));
+      const invalidRoom = await bridge.request({ operation: 'observe' });
+      const directionPath = '/rooms/room-lifecycle-roundtrip/data/exits/1/direction';
+      expect(invalidRoom).toMatchObject({
+        authoritative: true,
+        recordDiagnostics: [
+          expect.objectContaining({
+            path: directionPath,
+            code: 'room.exit.direction-duplicate',
+            severity: 'error',
+          }),
+        ],
+      });
+      // Diagnostics must persist even if a subsequent observation reports no new bytes.
+      const repeated = await bridge.request({ operation: 'observe' });
+      expect(repeated).toMatchObject({
+        unchanged: true,
+        recordDiagnostics: [expect.objectContaining({ path: directionPath })],
+      });
+      await writeFile(roomPath, originalRoom);
+      const repairedRoom = await bridge.request({ operation: 'observe' });
+      expect(repairedRoom).toMatchObject({ authoritative: true, recordDiagnostics: [] });
+      await mkdir(path.join(root, 'records/maps'), { recursive: true });
+      const mapPath = path.join(root, 'records/maps/world.yaml');
+      const duplicateMap = [
+        'id: world',
+        'label: World',
+        'data:',
+        '  locations:',
+        '    - id: foyer',
+        '      room: foyer',
+        '    - id: hall',
+        '      room: foyer',
+        '  connections: []',
+        '',
+      ].join('\n');
+      await writeFile(mapPath, duplicateMap);
+      const invalidMap = await bridge.request({ operation: 'observe' });
+      expect(invalidMap).toMatchObject({
+        recordDiagnostics: expect.arrayContaining([
+          expect.objectContaining({
+            path: '/maps/world/data/locations/1/room/$ref',
+            code: 'map.location.room-duplicate',
+          }),
+        ]),
+      });
+      await writeFile(
+        mapPath,
+        duplicateMap.replace('room: foyer\n  connections:', 'room: hall\n  connections:'),
+      );
+      const repairedMap = await bridge.request({ operation: 'observe' });
+      expect(repairedMap).toMatchObject({ recordDiagnostics: [] });
+      // Malformed external source bytes are reported as record diagnostics,
+      // never promoted to normalized Project values.
       await writeFile(roomPath, 'invalid: [');
       const malformed = await bridge.request({ operation: 'observe' });
       expect(malformed).toMatchObject({

@@ -23,6 +23,11 @@ match the observer's exact revision and runs the native sparse-source validator.
 Record-scoped diagnostics remain available until a verified repair or deletion;
 a malformed record is reported without claiming the physical observer lost
 coverage.
+After successful normalization, the worker also runs the native Room/Map
+local semantic validator (including duplicate exit directions, placement and
+presentation invariants), publishing record-absolute paths for both structural
+and local semantic errors. This does not substitute Project-wide cross-record
+reconciliation.
 
 `native-authoring-session-bridge.ts` is an opt-in **main-process** owner:
 the caller supplies a current opaque `projectSessionId`, which it verifies

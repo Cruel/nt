@@ -111,6 +111,11 @@ or warning diagnostics. The native schema registry also validates strictly
 increasing hotspot motion-keyframe times. Resolved Material roles and Hotspot
 sampler-interface requirements follow the same generated engine Material preset
 registry as the TypeScript validator, including inherited Material bases.
+Room cast references resolve the Character's selected/default Profile and Pose,
+as well as explicitly selected Expression, Appearance, and Idle; environment
+Animation motions resolve against the referenced Animation. Room lifecycle and
+Map visibility Conditions compare values against the referenced Variable's
+declared type, nullability, and normalized Enum membership.
 
 `noveltea-room-map-certify` and the optional
 `native-room-map-parity.test.ts` compare sparse Map and Room effective values
