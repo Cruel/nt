@@ -96,6 +96,7 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "material.shader-override",
                                                    "material.parameter-override",
                                                    "material.texture-override",
+                                                   "scene.material-value",
                                                    "layout.contract-input",
                                                    "layout.state-shape",
                                                    "property.default-unique",
@@ -304,9 +305,26 @@ UnionBranches tagged_union_branches(const Contracts& contracts, const Json& unio
         result.ids.push_back(item.value().as<std::string>());
     if (!value.is_object())
         return result;
-    for (const auto* tag : {"kind", "mode"}) {
-        // `mode` is relevant only after matching `kind`, and only if every
-        // remaining branch supplies a literal for this field.
+    const auto original = result.ids;
+    result.ids.clear();
+    const auto append = [&](auto&& self, const std::string& id, unsigned depth) -> void {
+        if (depth > 64 || result.ids.size() > 256)
+            throw std::runtime_error("Nested tagged union exceeds native branch limit.");
+        const auto& option = unwrapped_node(contracts, id);
+        if (option.at("type") == "union") {
+            for (const auto& child : option.at("children").object_range())
+                self(self, child.value().as<std::string>(), depth + 1);
+        } else {
+            result.ids.push_back(id);
+        }
+    };
+    for (const auto& id : original)
+        append(append, id, 0);
+    bool discriminated = false;
+    for (const auto* tag : {"kind", "mode", "type", "waitKind", "ownerKind"}) {
+        // Discriminators vary by authored union: Flow nodes use `type`, while
+        // Gameplay Commands and Locations generally use `kind`. A tag only
+        // selects a branch when every remaining alternative declares it.
         if (result.ids.empty())
             return result;
         bool all_tagged = true;
@@ -321,6 +339,7 @@ UnionBranches tagged_union_branches(const Contracts& contracts, const Json& unio
         }
         if (!all_tagged)
             continue;
+        discriminated = true;
         std::vector<std::string> matched;
         for (const auto& id : result.ids) {
             const auto& branch = unwrapped_node(contracts, id);
@@ -339,6 +358,10 @@ UnionBranches tagged_union_branches(const Contracts& contracts, const Json& unio
         }
         result.ids = std::move(matched);
     }
+    // Do not drop a nested union's wrapper (and its possible transforms) for
+    // a non-discriminated union. Flatten only to select actual tagged variants.
+    if (!discriminated)
+        result.ids = original;
     return result;
 }
 
@@ -516,6 +539,10 @@ class Validator {
                       : id == "material.parameter-override"
                           ? "Material parameter override cannot be empty."
                           : "Material texture override cannot be empty.");
+        } else if (id == "scene.material-value") {
+            if (value && value->is_null())
+                issue(errors, path, "semantic.scene.material-value",
+                      "Occurrence Material Parameters require a concrete value.");
         } else if (id == "layout.contract-input") {
             if (!value || !value->is_object() || !value->contains("defaultValue"))
                 return;
@@ -733,6 +760,10 @@ public:
             // invalid *known* field. Zod reports both in one parse, and the
             // actionable nested field is important for Gameplay Commands.
             if (errors.size() != before && type != "object")
+                return;
+            // A wrong-type object has no children to traverse. `contains()` on
+            // a scalar throws in jsoncons and obscures the offending pointer.
+            if (type == "object" && !value->is_object())
                 return;
             if (type == "object") {
                 for (const auto& child : children.object_range()) {
@@ -1145,6 +1176,16 @@ ValidationResult validate_interactable_sparse_source(std::string_view source_jso
 {
     return validate_sparse_record_source(source_json, "interactables", "InteractablesRecord",
                                          "interactable");
+}
+
+ValidationResult validate_dialogue_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "dialogues", "DialoguesRecord", "dialogue");
+}
+
+ValidationResult validate_scene_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "scenes", "ScenesRecord", "scene");
 }
 
 ValidationResult validate_layout_source(std::string_view source_json,

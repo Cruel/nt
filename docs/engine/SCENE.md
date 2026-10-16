@@ -1,5 +1,12 @@
 # Scene Component
 
+Native Scene source certification (#485) uses the generated sparse schema and
+validates Event/Outcome identities, dependencies, branches, wait references,
+recursive mutation programs, and typed Scene inputs. The tracked Scene YAML
+remains its physical owner, including after nested edits and scoped Save. The
+native authoring validator does not execute Scene programs or change runtime
+playback; this path stays parallel until the authoring cutover.
+
 ## Contract
 
 Scene is the canonical visual-novel orchestration component; new code never uses Cutscene. A

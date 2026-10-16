@@ -67,7 +67,7 @@ target_include_directories(noveltea_project_authoring_yaml PUBLIC "${CMAKE_CURRE
 target_include_directories(noveltea_project_authoring_yaml SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_yaml PRIVATE fyaml_static)
 # Native Room session remains independent of editor, CLI daemon, and runtime linkage.
-add_library(noveltea_project_authoring_session STATIC room_session.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp source_authority.cpp yaml_transaction.cpp)
+add_library(noveltea_project_authoring_session STATIC room_session.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp source_authority.cpp yaml_transaction.cpp)
 set_target_properties(noveltea_project_authoring_session PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(noveltea_project_authoring_session PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_session PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -140,6 +140,18 @@ if(BUILD_TESTING)
     target_link_libraries(noveltea-flow-session-certify PRIVATE noveltea_project_authoring_session)
     add_test(NAME native_authoring_flow_session COMMAND noveltea-flow-session-certify
         "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_executable(noveltea-dialogue-scene-certify dialogue_scene_certify.cpp)
+    target_include_directories(noveltea-dialogue-scene-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+    target_link_libraries(noveltea-dialogue-scene-certify PRIVATE noveltea_project_authoring_session)
+    add_test(NAME native_authoring_dialogue_scene COMMAND noveltea-dialogue-scene-certify
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    if(NOVELTEA_AUTHORING_TEST_NODE)
+        add_test(NAME native_authoring_dialogue_scene_differential
+            COMMAND "${NOVELTEA_AUTHORING_TEST_NODE}"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../editor/scripts/certify-native-dialogue-scenes.mjs"
+                "$<TARGET_FILE:noveltea-dialogue-scene-certify>"
+                "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    endif()
     add_executable(noveltea-yaml-certify yaml_certify.cpp)
     target_include_directories(noveltea-yaml-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
     target_link_libraries(noveltea-yaml-certify PRIVATE noveltea_project_authoring_yaml)

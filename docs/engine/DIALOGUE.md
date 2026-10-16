@@ -1,5 +1,12 @@
 # Dialogue Component
 
+Native authoring certification (#485) admits sparse Dialogue YAML through the
+generated schema, validates local block/edge and cue invariants, and resolves
+Scene input bindings and Flow completion targets against tracked Project owners.
+Its nested diagnostics retain owner-relative paths. This remains a parallel
+certification path: TypeScript authoring and runtime Dialogue execution are
+unchanged until the coordinated native cutover.
+
 ## Contract
 
 Dialogue is a specialized conversation graph. A `DialogueDefinition` owns immutable settings and a

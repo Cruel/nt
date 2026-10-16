@@ -4,6 +4,7 @@
 #include "asset_animation_semantics.hpp"
 #include "material_semantics.hpp"
 #include "interactable_inventory_semantics.hpp"
+#include "dialogue_scene_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -994,6 +995,41 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                                          compiled->second.diagnostics.end());
             }
         }
+        if (record.valid && (family == "dialogues" || family == "scenes")) {
+            const auto entrypoint = validate_dialogue_scene_entrypoint(
+                family, record.normalized_json, state.normalized_json);
+            state.valid &= entrypoint.accepted;
+            for (auto diagnostic : entrypoint.diagnostics) {
+                diagnostic.path = "/" + owner + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+            const auto exists = [&](std::string_view collection, std::string_view id) {
+                if (!is_id(id))
+                    return false;
+                if (collection == "interactableInstances") {
+                    const auto project = Json::parse(state.normalized_json);
+                    return project.contains("interactableInstances") &&
+                           project.at("interactableInstances").contains(id);
+                }
+                if (!record_contracts().contains(std::string(collection)))
+                    return false;
+                const auto owner = std::string(collection) + "/" + std::string(id);
+                if (records_.contains(owner))
+                    return true;
+                const auto file =
+                    collection == "layouts"
+                        ? root_ / "records" / "layouts" / std::string(id) / "layout.yaml"
+                        : root_ / "records" / std::string(collection) / (std::string(id) + ".yaml");
+                return std::filesystem::is_regular_file(file);
+            };
+            const auto dependent = validate_dialogue_scene_dependencies(
+                family, record.normalized_json, resolve_record, exists);
+            state.valid &= dependent.accepted;
+            for (auto diagnostic : dependent.diagnostics) {
+                diagnostic.path = "/" + owner + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+        }
         std::string effective_for_traits = record.normalized_json;
         if (record.valid && slash != std::string::npos &&
             (family == "rooms" || family == "characters" || family == "interactables" ||
@@ -1524,6 +1560,19 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                     !variable_id.empty() &&
                     diagnostic.code == "authoring.condition.variable-type-mismatch" &&
                     diagnostic.message.find("'" + variable_id + "'") != std::string::npos;
+                const bool scene_input_dependency =
+                    owner.starts_with("scenes/") && diagnostic.code.starts_with("scene.input.") &&
+                    diagnostic.message.find("Scene '" +
+                                            owner.substr(std::string("scenes/").size()) + "'") !=
+                        std::string::npos;
+                const bool entrypoint_dependency =
+                    owner == "project" &&
+                    (diagnostic.code.starts_with("scene.entrypoint.") ||
+                     diagnostic.code.starts_with("dialogue.entrypoint.")) &&
+                    (all_paths || std::any_of(filter->second.begin(), filter->second.end(),
+                                              [&](const std::string& path) {
+                                                  return paths_overlap(path, "/entrypoint");
+                                              }));
                 const bool instance_dependency =
                     owner == "project" && diagnostic.path.starts_with("/interactableInstances/") &&
                     (diagnostic.code.starts_with("authoring.trait.") ||
@@ -1581,7 +1630,8 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                     }
                 }
                 if (invalid_selected_record || trait_dependency || variable_dependency ||
-                    instance_dependency || owner_dependency)
+                    scene_input_dependency || entrypoint_dependency || instance_dependency ||
+                    owner_dependency)
                     throw std::runtime_error("Cannot save invalid dependent Project record: " +
                                              diagnostic.path);
             }
@@ -1909,6 +1959,14 @@ RoomSessionSnapshot RoomSession::snapshot() const
         if (!state.valid)
             state.normalized_json.clear();
     }
+    if (result.accepted && (record_family_ == "dialogues" || record_family_ == "scenes")) {
+        const auto local = validate_dialogue_scene_local(record_family_, result.effective_json);
+        state.valid &= local.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), local.diagnostics.begin(),
+                                 local.diagnostics.end());
+        if (!state.valid)
+            state.normalized_json.clear();
+    }
     if (result.accepted && !is_project_ && !is_editor_ && !is_traits_ &&
         validation_contract_.empty()) {
         const auto local =
@@ -1940,6 +1998,10 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_record("WorkspaceTrackedEditor", source_json);
     if (record_family_ == "interactables")
         return validate_interactable_source(source_json);
+    if (record_family_ == "dialogues")
+        return validate_dialogue_source(source_json);
+    if (record_family_ == "scenes")
+        return validate_scene_source(source_json);
     if (record_family_ == "characters")
         return validate_character_source(source_json);
     if (record_family_ == "archetypes")

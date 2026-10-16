@@ -156249,6 +156249,41 @@
       "data.profiles.*.poses.*.layers.*.visible": true,
       "data.profiles.*.poses.*.layers.*.visual": null
     },
+    "dialogues": {
+      "data.blocks.*.defaultSpeaker": null,
+      "data.blocks.*.segments.*.autosaveSafePoint": false,
+      "data.blocks.*.segments.*.cues": [],
+      "data.blocks.*.segments.*.cues.*.skippable": true,
+      "data.blocks.*.segments.*.cues.*.waitForCompletion": false,
+      "data.blocks.*.segments.*.effects": [],
+      "data.blocks.*.segments.*.inputs": [],
+      "data.blocks.*.segments.*.logged": true,
+      "data.blocks.*.segments.*.mayYield": true,
+      "data.blocks.*.segments.*.showOnce": false,
+      "data.blocks.*.segments.*.speaker": null,
+      "data.blocks.*.segments.*.uiPolicy": "conceal",
+      "data.completion": {
+        "kind": "end"
+      },
+      "data.defaultSpeaker": null,
+      "data.displayName": "",
+      "data.edges": [],
+      "data.edges.*.autosaveSafePoint": false,
+      "data.edges.*.effects": [],
+      "data.edges.*.logged": true,
+      "data.mediaSlots": [],
+      "data.mediaSlots.*.initial": null,
+      "data.mediaSlots.*.visible": true,
+      "data.settings": {
+        "logMode": "everything",
+        "showDisabledChoices": true
+      },
+      "data.settings.logMode": "everything",
+      "data.settings.showDisabledChoices": true,
+      "data.stageSlots": [],
+      "data.stageSlots.*.initial": null,
+      "data.stageSlots.*.speakerSync": true
+    },
     "interactables": {
       "data.features": [],
       "data.features.*.defaultProperties": [],
@@ -156387,6 +156422,20 @@
       "data.props.*.order": 0,
       "data.props.*.visible": true,
       "data.scriptHooks": []
+    },
+    "scenes": {
+      "data.displayName": "",
+      "data.events.*.autosaveSafePoint": false,
+      "data.events.*.completionDependencies": [],
+      "data.events.*.effects": [],
+      "data.events.*.enabled": true,
+      "data.events.*.inputs": [],
+      "data.events.*.mayYield": true,
+      "data.events.*.options.*.effects": [],
+      "data.events.*.skippable": true,
+      "data.events.*.waitForCompletion": false,
+      "data.inputs": [],
+      "data.outcomes": []
     }
   }
 }
