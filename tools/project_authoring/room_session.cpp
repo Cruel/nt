@@ -30,6 +30,7 @@
 namespace noveltea::authoring {
 namespace {
 using Json = jsoncons::ojson;
+std::string pointer_token(std::string_view token);
 
 std::string read_bytes(const std::filesystem::path& path)
 {
@@ -40,6 +41,47 @@ std::string read_bytes(const std::filesystem::path& path)
     if (input.bad())
         throw std::runtime_error("Cannot finish reading Room source: " + path.string());
     return result;
+}
+
+bool analyzable_text_path(std::string_view path)
+{
+    return (path.ends_with(".lua") || path.ends_with(".rml") || path.ends_with(".rcss")) &&
+           !path.starts_with(".noveltea/");
+}
+
+std::string source_diagnostic_owner(std::string_view path, std::string_view owner = {})
+{
+    if (owner.starts_with("scripts/"))
+        return "/" + pointer_token(owner.substr(0, 7)) + "/" + pointer_token(owner.substr(8)) +
+               "/data/source/path";
+    if (owner.starts_with("layouts/")) {
+        const auto id = owner.substr(8);
+        const auto stem = "records/layouts/" + std::string(id) + "/layout.";
+        if (path.starts_with(stem)) {
+            const auto channel = path.substr(stem.size());
+            if (channel == "lua" || channel == "rml" || channel == "rcss")
+                return "/layouts/" + pointer_token(id) + "/data/" + std::string(channel) +
+                       "/sourceText";
+        }
+        return "/layouts/" + pointer_token(id) + "/data/dependencies/scripts";
+    }
+    const auto name = std::string(path);
+    if (name.starts_with("records/layouts/")) {
+        const auto rest = name.substr(sizeof("records/layouts/") - 1);
+        const auto split = rest.find('/');
+        if (split != std::string::npos && rest.substr(split + 1).starts_with("layout.")) {
+            const auto suffix = rest.substr(split + sizeof("/layout.") - 1);
+            if (suffix == "rml" || suffix == "rcss" || suffix == "lua")
+                return "/layouts/" + pointer_token(rest.substr(0, split)) + "/data/" + suffix +
+                       "/sourceText";
+        }
+    }
+    if (name.starts_with("scripts/") && name.ends_with(".lua")) {
+        const auto id =
+            name.substr(sizeof("scripts/") - 1, name.size() - (sizeof("scripts/") - 1) - 4);
+        return "/scripts/" + pointer_token(id) + "/data/source/path";
+    }
+    return "/sources/" + pointer_token(path);
 }
 
 } // namespace
@@ -965,6 +1007,32 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
         // owners or change the worker's initial record-snapshot contract.
         auto project = std::unique_ptr<ProjectSession>(new ProjectSession(
             std::move(source), std::move(authority), root, traits->snapshot().normalized_json));
+        for (const auto& file : project->file_inventory()) {
+            if (!analyzable_text_path(file.path) ||
+                (file.kind != ProjectFileKind::ProjectSource &&
+                 !(file.kind == ProjectFileKind::TrackedSource &&
+                   file.path.starts_with("records/layouts/"))))
+                continue;
+            project->text_source_paths_.insert(file.path);
+            project->text_disk_revisions_.emplace(
+                file.path, exact_source_revision(read_bytes(root / file.path)));
+        }
+        for (const auto& file : project->file_inventory()) {
+            if (file.kind != ProjectFileKind::TrackedSource || !file.path.ends_with(".yaml") ||
+                (!file.path.starts_with("records/scripts/") &&
+                 !file.path.starts_with("records/layouts/")))
+                continue;
+            const auto parsed = open_yaml_source(read_bytes(root / file.path));
+            if (!parsed.accepted)
+                continue;
+            const auto source = Json::parse(parsed.source_json);
+            if (source.is_object() && source.contains("id") && source.at("id").is_string()) {
+                const auto family =
+                    file.path.starts_with("records/scripts/") ? "scripts/" : "layouts/";
+                project->index_text_owner(family + source.at("id").as<std::string>(),
+                                          parsed.source_json);
+            }
+        }
         project->localization_cache_ = validate_project_localization(root);
         if (project->localization_cache_->accepted) {
             const auto effective = Json::parse(project->localization_cache_->effective_json);
@@ -985,6 +1053,7 @@ RoomSessionSnapshot ProjectSession::snapshot() const
     const bool manifest_dirty = state.dirty;
     state.working_revision = working_revision_;
     state.dirty |= !shader_overlays_.empty();
+    state.dirty |= !text_source_overlays_.empty();
     const auto trait_owner = records_.find("traits");
     const auto traits_json = trait_owner == records_.end()
                                  ? traits_baseline_json_
@@ -1577,12 +1646,159 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         state.valid = false;
         state.diagnostics.push_back(std::move(issue));
     }
+    std::set<std::string> named_messages;
+    if (localization_cache_ && localization_cache_->accepted) {
+        const auto localization = Json::parse(localization_cache_->effective_json);
+        if (localization.contains("messages"))
+            for (const auto& entry : localization.at("messages").object_range()) {
+                const auto& message = entry.value();
+                if (message.contains("kind") && message.at("kind") == "named" &&
+                    message.contains("key") && message.at("key").is_string())
+                    named_messages.insert(message.at("key").as<std::string>());
+            }
+    }
+    for (const auto& [path, analysis] : source_analyses()) {
+        const auto owners = text_source_owners_.find(path);
+        if (owners == text_source_owners_.end())
+            continue;
+        for (const auto& owner : owners->second)
+            for (auto issue : analysis.diagnostics) {
+                issue.path = source_diagnostic_owner(analysis.source_path, owner);
+                state.valid &= issue.severity != "error";
+                state.diagnostics.push_back(std::move(issue));
+            }
+        for (const auto& owner : owners->second)
+            for (const auto& occurrence : analysis.messages) {
+                if (occurrence.kind != "named" || !localization_cache_ ||
+                    !localization_cache_->accepted || named_messages.contains(occurrence.source) ||
+                    is_localization_system_message_key(occurrence.source))
+                    continue;
+                Diagnostic issue{source_diagnostic_owner(path, owner),
+                                 "authoring.localization.lua_named_message_missing",
+                                 "Text.msg references unknown named Message '" + occurrence.source +
+                                     "'."};
+                issue.source_path = path;
+                issue.line = occurrence.line;
+                issue.column = occurrence.column;
+                state.diagnostics.push_back(std::move(issue));
+                state.valid = false;
+            }
+        for (const auto& owner : owners->second) {
+            if (!owner.starts_with("layouts/") || !path.ends_with(".rml"))
+                continue;
+            const auto declared = layout_declared_scripts_.find(owner);
+            for (const auto& reference : analysis.references) {
+                if (reference.kind != "script")
+                    continue;
+                std::string resolved = trim_ecmascript(reference.target);
+                if (resolved.starts_with("project:/"))
+                    resolved.erase(0, sizeof("project:/") - 1);
+                // Layout file-mode RML has no referenced Asset containing path,
+                // so only Project-absolute script dependencies are admissible.
+                if (declared != layout_declared_scripts_.end() &&
+                    declared->second.contains(resolved) && text_source_paths_.contains(resolved))
+                    continue;
+                Diagnostic issue{source_diagnostic_owner(path, owner),
+                                 "authoring.lua.external_source_unresolved",
+                                 "RML script '" + reference.target +
+                                     "' does not resolve to exactly one declared dependency.",
+                                 "warning"};
+                issue.source_path = path;
+                issue.line = reference.line;
+                issue.column = reference.column;
+                state.diagnostics.push_back(std::move(issue));
+            }
+        }
+    }
     return state;
+}
+
+const std::map<std::string, SourceAnalysis>& ProjectSession::source_analyses() const
+{
+    for (const auto& path : text_source_paths_) {
+        const auto overlay = text_source_overlays_.find(path);
+        const auto expected = overlay == text_source_overlays_.end()
+                                  ? text_disk_revisions_.at(path)
+                                  : exact_source_revision(overlay->second);
+        if (const auto cached = text_analysis_cache_.find(path);
+            cached != text_analysis_cache_.end() && cached->second.source_revision == expected)
+            continue;
+        const auto source =
+            overlay == text_source_overlays_.end() ? read_bytes(root_ / path) : overlay->second;
+        text_analysis_cache_.insert_or_assign(path, analyze_project_text(path, source));
+    }
+    for (auto it = text_analysis_cache_.begin(); it != text_analysis_cache_.end();) {
+        if (!text_source_paths_.contains(it->first))
+            it = text_analysis_cache_.erase(it);
+        else
+            ++it;
+    }
+    return text_analysis_cache_;
+}
+
+void ProjectSession::index_text_owner(std::string_view owner, std::string_view raw_json)
+{
+    const auto key = std::string(owner);
+    layout_declared_scripts_.erase(key);
+    for (auto it = text_source_owners_.begin(); it != text_source_owners_.end();) {
+        it->second.erase(key);
+        if (it->second.empty())
+            it = text_source_owners_.erase(it);
+        else
+            ++it;
+    }
+    const auto record = Json::parse(raw_json);
+    if (!record.is_object() || !record.contains("data") || !record.at("data").is_object())
+        return;
+    const auto& data = record.at("data");
+    const auto track = [&](std::string_view path) {
+        if (analyzable_text_path(path) && !path.starts_with("/") &&
+            path.find("..") == std::string_view::npos)
+            text_source_owners_[std::string(path)].insert(key);
+    };
+    if (owner.starts_with("scripts/")) {
+        if (data.contains("source") && data.at("source").is_object()) {
+            const auto& source = data.at("source");
+            if (source.contains("kind") && source.at("kind") == "project-file" &&
+                source.contains("path") && source.at("path").is_string())
+                track(source.at("path").as<std::string>());
+        }
+    } else if (owner.starts_with("layouts/")) {
+        const auto id = owner.substr(sizeof("layouts/") - 1);
+        for (const auto* channel : {"rml", "rcss", "lua"})
+            if (data.contains(channel) && data.at(channel).is_object() &&
+                data.at(channel).contains("sourceMode") &&
+                data.at(channel).at("sourceMode") == "file")
+                track("records/layouts/" + std::string(id) + "/layout." + channel);
+        if (data.contains("dependencies") && data.at("dependencies").is_object()) {
+            const auto& dependencies = data.at("dependencies");
+            if (dependencies.contains("scripts") && dependencies.at("scripts").is_array())
+                for (const auto& entry : dependencies.at("scripts").array_range())
+                    if (entry.is_string()) {
+                        layout_declared_scripts_[key].insert(entry.as<std::string>());
+                        track(entry.as<std::string>());
+                    }
+        }
+    }
 }
 
 SourceObservation ProjectSession::observe_sources()
 {
     auto observed = source_authority_->observe();
+    if (observed.authoritative || observed.scoped_authority) {
+        for (const auto& path : observed.delta.removed) {
+            text_source_paths_.erase(path);
+            text_disk_revisions_.erase(path);
+            text_analysis_cache_.erase(path);
+        }
+        for (const auto& [path, revision] : observed.delta_revisions) {
+            if (!analyzable_text_path(path) || revision == "absent")
+                continue;
+            text_source_paths_.insert(path);
+            text_disk_revisions_.insert_or_assign(path, revision);
+            text_analysis_cache_.erase(path);
+        }
+    }
     const auto changed_localization = [](const std::vector<std::string>& paths) {
         return std::any_of(paths.begin(), paths.end(),
                            [](const auto& path) { return path.starts_with("i18n/"); });
@@ -1620,6 +1836,58 @@ SourceObservation ProjectSession::observe_sources()
             material_compiler_results_.clear();
     }
     return observed;
+}
+
+RoomSessionResult ProjectSession::stage_text_source(std::uint64_t revision,
+                                                    std::string_view relative_path,
+                                                    std::string source_text)
+{
+    RoomSessionResult response;
+    const auto before = snapshot();
+    response.snapshot = before;
+    if (revision != working_revision_) {
+        response.error = "Stale working revision.";
+        return response;
+    }
+    const std::string path(relative_path);
+    const std::filesystem::path relative(path);
+    if (!analyzable_text_path(path) || !text_source_paths_.contains(path) ||
+        relative != relative.lexically_normal() || path.find_first_of(":\\") != std::string::npos ||
+        path.find("//") != std::string::npos || source_text.size() > 4 * 1024 * 1024) {
+        response.error = "Text overlay requires an admitted canonical Lua/RML/RCSS Project source.";
+        return response;
+    }
+    try {
+        const auto canonical = std::filesystem::canonical(root_ / relative);
+        const auto within = canonical.lexically_relative(std::filesystem::canonical(root_));
+        if (within.empty() || within == "." || *within.begin() == "..")
+            throw std::runtime_error("Text overlay source escapes Project root.");
+        const auto disk = read_bytes(canonical);
+        if (exact_source_revision(disk) != text_disk_revisions_.at(path))
+            throw std::runtime_error("External source conflict for " + path);
+        const auto current = text_source_overlays_.find(path);
+        const auto prior = current == text_source_overlays_.end() ? disk : current->second;
+        if (prior == source_text) {
+            response.accepted = true;
+            return response;
+        }
+        if (source_text == disk)
+            text_source_overlays_.erase(path);
+        else
+            text_source_overlays_.insert_or_assign(path, std::move(source_text));
+        text_analysis_cache_.erase(path);
+        ++working_revision_;
+        response.accepted = true;
+        if (const auto owners = text_source_owners_.find(path); owners != text_source_owners_.end())
+            response.affected_records.assign(owners->second.begin(), owners->second.end());
+        else
+            response.affected_records.push_back("source:" + path);
+        response.snapshot = snapshot();
+        diagnostic_delta(response, before);
+    } catch (const std::exception& error) {
+        response.error = error.what();
+    }
+    return response;
 }
 
 std::optional<std::string> ProjectSession::resolved_material(std::string_view material_id) const
@@ -1771,6 +2039,8 @@ RoomSessionResult ProjectSession::inspect_record(std::string_view owner)
                 result.error = error;
             else {
                 records_.emplace(name, std::move(record));
+                if (name.starts_with("layouts/") || name.starts_with("scripts/"))
+                    index_text_owner(name, records_.at(name)->snapshot().source_json);
                 if (name.starts_with("i18n/"))
                     localization_cache_.reset();
                 result.accepted = true;
@@ -1800,6 +2070,9 @@ RoomSessionResult ProjectSession::reconcile_owner(std::string_view owner)
         response = records_.at(name)->reconcile_disk();
     }
     if (response.accepted && !response.affected_records.empty()) {
+        if ((owner.starts_with("layouts/") || owner.starts_with("scripts/")) &&
+            records_.contains(std::string(owner)))
+            index_text_owner(owner, records_.at(std::string(owner))->snapshot().source_json);
         if (owner.starts_with("i18n/"))
             localization_cache_.reset();
         if (owner.starts_with("materials/"))
@@ -1831,6 +2104,9 @@ RoomSessionResult ProjectSession::use_disk(std::uint64_t revision, std::string_v
         response.error = "Unknown native Project owner.";
     }
     if (response.accepted && !response.affected_records.empty()) {
+        if ((owner.starts_with("layouts/") || owner.starts_with("scripts/")) &&
+            records_.contains(std::string(owner)))
+            index_text_owner(owner, records_.at(std::string(owner))->snapshot().source_json);
         if (owner.starts_with("i18n/"))
             localization_cache_.reset();
         ++working_revision_;
@@ -1915,6 +2191,9 @@ ProjectSession::use_disk_owners(std::uint64_t revision,
             const auto before = response.snapshot;
             source_ = std::move(manifest);
             records_ = std::move(staged);
+            for (const auto& owner : response.affected_records)
+                if (owner.starts_with("layouts/") || owner.starts_with("scripts/"))
+                    index_text_owner(owner, records_.at(owner)->snapshot().source_json);
             if (std::any_of(response.affected_records.begin(), response.affected_records.end(),
                             [](const auto& owner) { return owner.starts_with("i18n/"); }))
                 localization_cache_.reset();
@@ -2382,6 +2661,9 @@ ProjectSession::patch(std::uint64_t revision, const std::vector<RoomPatch>& patc
     const auto before = response.snapshot;
     source_ = std::move(manifest);
     records_ = std::move(staged);
+    for (const auto& owner : affected)
+        if (owner.starts_with("layouts/") || owner.starts_with("scripts/"))
+            index_text_owner(owner, records_.at(owner)->snapshot().source_json);
     if (std::any_of(affected.begin(), affected.end(),
                     [](const auto& owner) { return owner.starts_with("i18n/"); }))
         localization_cache_.reset();

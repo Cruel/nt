@@ -695,6 +695,168 @@ void property_semantics_roundtrip(const std::filesystem::path& fixture)
                     project->record_snapshots().at("variables/board-stock").normalized_json,
             "Reopened Variable retains the saved typed effective Value");
 }
+
+void source_analysis_roundtrip(const std::filesystem::path& fixture)
+{
+    const auto lua = analyze_project_text("scripts/probe.lua",
+                                          "-- Text.tr('ignored')\nlocal message = "
+                                          "Text.tr('Hello'); local named = Text.msg([[notice]])\n");
+    require(lua.complete && lua.diagnostics.empty() && lua.messages.size() == 2 &&
+                lua.messages[0].kind == "local" && lua.messages[0].source == "Hello" &&
+                lua.messages[0].line == 2 && lua.messages[1].kind == "named" &&
+                lua.messages[1].source == "notice",
+            "Native Lua analysis tracks direct managed literals with physical source locations");
+    const auto invalid = analyze_project_text("scripts/probe.lua", "Text.tr(variable)\n");
+    require(invalid.diagnostics.size() == 1 &&
+                invalid.diagnostics[0].code == "authoring.localization.lua_source_literal" &&
+                invalid.diagnostics[0].line == 1 &&
+                invalid.diagnostics[0].source_path == "scripts/probe.lua",
+            "Unsupported managed Lua calls carry existing diagnostic codes and file provenance");
+    const auto markup = analyze_project_text(
+        "records/layouts/probe/layout.rml",
+        "<body><button onclick=\"Text.tr('Click')\">OK</button>"
+        "<script>Text.tr('Inline')</script><script src=\"scripts/menu.lua\" /></body>");
+    require(markup.complete && markup.messages.size() == 2 &&
+                markup.messages[0].source == "Click" && markup.messages[1].source == "Inline" &&
+                markup.references.size() == 1 && markup.references[0].kind == "script" &&
+                markup.references[0].target == "scripts/menu.lua",
+            "RML event handlers, embedded Lua and external dependencies share source analysis");
+    const auto inline_messages = analyze_project_text(
+        "records/layouts/probe/layout.rml", "<rml><body><nt-tr>Source <b>markup</b></nt-tr>"
+                                            "<nt-tr key=\"lab.read\" /></body></rml>");
+    require(inline_messages.complete && inline_messages.messages.size() == 2 &&
+                inline_messages.messages[0].kind == "local" &&
+                inline_messages.messages[0].source == "Source <b>markup</b>" &&
+                inline_messages.messages[1].kind == "named" &&
+                inline_messages.messages[1].source == "lab.read",
+            "Native RML extraction retains local and named nt-tr occurrences");
+    const auto stylesheet =
+        analyze_project_text("records/layouts/probe/layout.rcss",
+                             "/* cursor: ignored */\nbutton { cursor: hand !important; }\n"
+                             "span { cursor: inspect; }\n");
+    require(stylesheet.complete && stylesheet.cursors.size() == 2 &&
+                stylesheet.cursors[0].name == "hand" && stylesheet.cursors[0].line == 2 &&
+                stylesheet.cursors[1].name == "inspect",
+            "RCSS source tracks cursor dependencies without matching comments");
+    const auto styled =
+        analyze_project_text("records/layouts/probe/layout.rml",
+                             "<rml><head><style>button { cursor: hand; }</style></head>"
+                             "<body style=\"cursor: inspect;\" /></rml>");
+    require(styled.cursors.size() == 2 && styled.cursors[0].name == "hand" &&
+                styled.cursors[1].name == "inspect",
+            "RML style elements and style attributes expose cursor occurrences");
+    const auto selectors = analyze_project_text(
+        "scripts/probe.lua",
+        "Text.plural(n, { one = 'One', other = '' })\n"
+        "Text.select(kind, { ['other'] = 'Fallback' }, { context = 'Notice' })\n"
+        "Text.tr('Hello', nil, { note = 'Reminder' })\n");
+    require(selectors.complete && selectors.diagnostics.empty() && selectors.messages.size() == 3 &&
+                selectors.messages[0].kind == "plural" && selectors.messages[0].source.empty() &&
+                selectors.messages[1].kind == "select" &&
+                selectors.messages[1].source == "Fallback",
+            "Static managed plural/select cases accept empty source and quoted keys");
+    const auto invalid_cases = analyze_project_text(
+        "scripts/probe.lua", "Text.plural(n, { weird = 'Unsupported', other = 'Fallback' })\n"
+                             "Text.select(n, { other = dynamic })\n"
+                             "Text.tr('Hello', nil, { note = dynamic })\n");
+    require(invalid_cases.diagnostics.size() == 3 &&
+                invalid_cases.diagnostics[0].code ==
+                    "authoring.localization.lua_plural_case_invalid" &&
+                invalid_cases.diagnostics[1].code == "authoring.localization.lua_cases_static" &&
+                invalid_cases.diagnostics[2].code == "authoring.localization.lua_metadata_static",
+            "Invalid managed cases and dynamic metadata keep the TypeScript diagnostic codes");
+
+    TemporaryProject temp(fixture);
+    std::string error;
+    auto editor = ProjectSession::open(temp.root, error);
+    require(editor != nullptr, "Cannot admit native source-analysis fixture: " + error);
+    const auto path = std::string("scripts/notice-board.lua");
+    const auto disk = read(temp.root / path);
+    const auto clean = editor->snapshot();
+    const auto baseline = editor->source_analyses();
+    require(baseline.contains(path), "Saved Lua Project source must be analyzed natively");
+    const auto unrelated = std::string("scripts/feature-lab-bootstrap.lua");
+    require(baseline.contains(unrelated), "Independent Project source must be indexed");
+    const auto staged = editor->stage_text_source(clean.working_revision, path,
+                                                  "local message = Text.tr(variable)\n");
+    require(staged.accepted && staged.snapshot.dirty && !staged.snapshot.valid &&
+                !staged.diagnostics_added.empty() &&
+                staged.diagnostics_added.front().source_path == path,
+            "Dirty source must update the working validation without writing physical bytes");
+    require(read(temp.root / path) == disk,
+            "Dirty source validation must not write to the Project Workspace");
+    const auto changed = editor->source_analyses();
+    require(changed.at(path).source_revision != baseline.at(path).source_revision &&
+                changed.at(unrelated).source_revision == baseline.at(unrelated).source_revision,
+            "One dirty source preserves unaffected analysis and dependency contributions");
+    auto cli = ProjectSession::open(temp.root, error);
+    require(cli && cli->snapshot().valid &&
+                cli->source_analyses().at(path).source_revision ==
+                    baseline.at(path).source_revision,
+            "Separate CLI Project admission reads only saved physical source");
+    require(!editor->stage_text_source(clean.working_revision, path, disk).accepted,
+            "Stale source revisions cannot overwrite newer working text");
+    require(!editor
+                 ->stage_text_source(staged.snapshot.working_revision,
+                                     "../scripts/notice-board.lua", "Text.tr('X')")
+                 .accepted,
+            "Text overlays cannot escape canonical Project paths");
+    const auto reverted = editor->stage_text_source(staged.snapshot.working_revision, path, disk);
+    require(reverted.accepted && reverted.snapshot.valid && !reverted.snapshot.dirty &&
+                editor->text_source_overlays().empty() &&
+                editor->source_analyses().at(path).source_revision ==
+                    baseline.at(path).source_revision,
+            "Reverting dirty Lua clears diagnostics without changing disk authority");
+
+    const auto layout_path = std::string("records/layouts/notice-board/layout.rml");
+    const auto layout_source = read(temp.root / layout_path);
+    const auto staged_layout = editor->stage_text_source(
+        reverted.snapshot.working_revision, layout_path,
+        "<rml><body><button onclick=\"Text.msg('absent.message')\">Review</button>"
+        "<script src=\"project:/scripts/not-declared.lua\" /></body></rml>");
+    require(staged_layout.accepted && !staged_layout.snapshot.valid &&
+                std::any_of(staged_layout.snapshot.diagnostics.begin(),
+                            staged_layout.snapshot.diagnostics.end(),
+                            [&](const Diagnostic& issue) {
+                                return issue.code ==
+                                           "authoring.localization.lua_named_message_missing" &&
+                                       issue.path == "/layouts/notice-board/data/rml/sourceText" &&
+                                       issue.source_path == layout_path && issue.line == 1;
+                            }) &&
+                std::any_of(staged_layout.snapshot.diagnostics.begin(),
+                            staged_layout.snapshot.diagnostics.end(),
+                            [&](const Diagnostic& issue) {
+                                return issue.code == "authoring.lua.external_source_unresolved" &&
+                                       issue.severity == "warning" &&
+                                       issue.source_path == layout_path;
+                            }),
+            "Dirty RML produces consuming-owner diagnostics for managed Messages and undeclared "
+            "dependencies");
+    require(read(temp.root / layout_path) == layout_source,
+            "A dirty Layout buffer is analyzed without writing its physical companion");
+    const auto restored_layout = editor->stage_text_source(staged_layout.snapshot.working_revision,
+                                                           layout_path, layout_source);
+    require(restored_layout.accepted && restored_layout.snapshot.valid &&
+                !restored_layout.snapshot.dirty,
+            "RML source restoration also clears dependent diagnostics");
+
+    write(temp.root / path, "Text.tr(dynamic_value)\n");
+    const auto observed = editor->observe_sources();
+    require(std::find(observed.delta.changed.begin(), observed.delta.changed.end(), path) !=
+                    observed.delta.changed.end() &&
+                editor->source_analyses().at(path).source_revision !=
+                    baseline.at(path).source_revision &&
+                !editor->snapshot().valid,
+            "External disk-only Lua changes invalidate the exact source analysis generation");
+    const auto from_disk = ProjectSession::open(temp.root, error);
+    require(
+        from_disk && !from_disk->snapshot().valid,
+        "A new CLI session sees the changed disk source rather than the editor's former overlay");
+    write(temp.root / path, disk);
+    editor->observe_sources();
+    require(editor->snapshot().valid,
+            "Restoring saved Lua re-admits its original native source diagnostics");
+}
 } // namespace
 
 int main(int argc, char** argv)
@@ -741,11 +903,16 @@ int main(int argc, char** argv)
             traits_editor_roundtrip(argv[2]);
             return 0;
         }
+        if (argc == 3 && std::string_view(argv[1]) == "--source-analysis") {
+            source_analysis_roundtrip(argv[2]);
+            return 0;
+        }
         if (argc == 3 && std::string_view(argv[1]) == "--properties") {
             property_semantics_roundtrip(argv[2]);
             return 0;
         }
         if (argc == 2) {
+            source_analysis_roundtrip(argv[1]);
             roundtrip(argv[1], true);
             traits_editor_roundtrip(argv[1]);
             property_semantics_roundtrip(argv[1]);

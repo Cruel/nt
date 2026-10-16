@@ -495,4 +495,8 @@ void apply_localization_operation(std::string_view operation, Json& value, const
             value.insert_or_assign("sourceLocaleLock", value.at("sourceLocale"));
     }
 }
+bool is_localization_system_message_key(std::string_view key)
+{
+    return system_keys().contains(std::string(key));
+}
 } // namespace noveltea::authoring

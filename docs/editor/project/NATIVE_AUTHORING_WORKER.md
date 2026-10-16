@@ -219,6 +219,34 @@ until an `i18n/` owner changes or the native source watcher observes an
 single-authority cutover remain governed by the existing Project Workspace
 contract and the parent native migration specification.
 
+## Native Lua/RML source analysis and dirty buffers (#492)
+
+The certification-only native Project session independently indexes admitted
+Lua source files, Layout RML/RCSS companion files, and declared Layout script
+dependencies. The host-side analyzer scans Lua literals and managed Text.tr,
+Text.msg, Text.plural, and Text.select calls, including inline RML scripts and
+event-handler attributes. RML external script/template references are also
+represented in source-analysis results. Invalid literal/case/metadata uses,
+unresolved named Messages, and undeclared RML script references produce
+authoring diagnostic codes with physical source paths and line/column
+locations. References and occurrences retain a source revision so dependency
+and localization adapters can reconcile their provenance. This is a static
+authoring adapter: it does not execute Lua or instantiate RmlUi.
+
+The resident session exposes sourceAnalyses, textSourceOverlays and
+stageTextSource through its opt-in Node-API certification addon. A dirty
+Lua/RML/RCSS buffer remains private to the working session, guarded by the
+working revision and its admitted physical byte revision. Validation uses the
+buffer without Save; a separate disk-authoritative session sees only the file.
+Reverting to exact disk content discards the overlay. Content caches invalidate
+only the edited or externally observed source; contributions are attributed to
+consuming Script/Layout owners, not rewritten into YAML.
+
+This slice does not replace the richer TypeScript source analyzer, authoring
+dependency graph, managed localization synchronization, or production editor
+source editor/CLI paths. Complete differential certification for RML templates
+and Asset-backed sources remains part of the atomic native cutover under #474.
+
 Full production editor cutover, the existing renderer Save coordinator and
 watcher replacements, Project-wide dependency reconciliation, and durable
 restart recovery remain future coordinated migration work; the native
