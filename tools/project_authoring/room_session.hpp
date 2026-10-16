@@ -75,6 +75,8 @@ public:
     open_project_source(const std::filesystem::path& project_root, std::string& error);
     static std::unique_ptr<RoomSession>
     open_editor_source(const std::filesystem::path& project_root, std::string& error);
+    static std::unique_ptr<RoomSession>
+    open_traits_source(const std::filesystem::path& project_root, std::string& error);
 
     RoomSessionSnapshot snapshot() const;
     RoomSessionResult patch(std::uint64_t expected_working_revision,
@@ -109,6 +111,7 @@ private:
     std::uint64_t working_revision_ = 0;
     bool is_project_ = false;
     bool is_editor_ = false;
+    bool is_traits_ = false;
     bool is_map_ = false;
     std::string record_family_ = "rooms";
     std::string validation_contract_;

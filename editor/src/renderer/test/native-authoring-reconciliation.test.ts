@@ -51,6 +51,56 @@ afterEach(async () => {
 });
 
 describe.skipIf(!addon)('native dirty Project reconciliation and transactional Save (#498)', () => {
+  it('saves Traits, Tags, and one record metadata unit without publishing unrelated dirty owners', async () => {
+    const { root, bridge, working } = await testProject();
+    cleanups.push(async () => {
+      bridge.close();
+      await rm(root, { recursive: true, force: true });
+    });
+    const traitsPath = path.join(root, 'traits.yaml');
+    const editorPath = path.join(root, 'editor.yaml');
+    const originalTraits = await readFile(traitsPath, 'utf8');
+    const originalEditor = await readFile(editorPath, 'utf8');
+    const traitLabel = '/traits/lab-layered/label';
+    const tag = '/editor/tags/records/review';
+    const metadata = `/editor/recordMetadata/rooms/${roomId}`;
+    const edited = await working.applyAction(
+      [
+        { op: 'replace', path: traitLabel, value: 'Edited native Trait' },
+        { op: 'add', path: tag, value: { name: 'Review', color: '#00aacc' } },
+        { op: 'add', path: metadata, value: { tags: ['review'] } },
+      ],
+      [
+        { op: 'remove', path: metadata },
+        { op: 'remove', path: tag },
+        { op: 'replace', path: traitLabel, value: 'Layered specimen' },
+      ],
+    );
+    expect(edited).toMatchObject({ accepted: true, affectedRecords: ['editor', 'traits'] });
+    expect(await working.saveUnit('project:tags')).toMatchObject({
+      accepted: true,
+      affectedRecords: ['editor'],
+    });
+    expect(await readFile(traitsPath, 'utf8')).toBe(originalTraits);
+    expect(await readFile(editorPath, 'utf8')).not.toBe(originalEditor);
+    expect(await readFile(editorPath, 'utf8')).not.toContain(roomId);
+    expect(working.snapshot()?.recordSnapshots?.traits?.dirty).toBe(true);
+    expect(working.snapshot()?.recordSnapshots?.editor?.dirty).toBe(true);
+
+    expect(await working.saveUnit('collection:traits')).toMatchObject({
+      accepted: true,
+      affectedRecords: ['traits'],
+    });
+    expect(await readFile(traitsPath, 'utf8')).toContain('Edited native Trait');
+    expect(working.snapshot()?.recordSnapshots?.editor?.dirty).toBe(true);
+    expect(await working.saveUnit(`record:rooms:${roomId}`)).toMatchObject({
+      accepted: true,
+      affectedRecords: ['editor'],
+    });
+    expect(await readFile(editorPath, 'utf8')).toContain(roomId);
+    expect(working.snapshot()?.dirty).toBe(false);
+  });
+
   it('merges disjoint same-record changes, retains dirty recovery, and writes only selected owners', async () => {
     const { root, roomPath, bridge, working } = await testProject();
     cleanups.push(async () => {

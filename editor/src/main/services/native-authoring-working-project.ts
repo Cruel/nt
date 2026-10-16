@@ -45,6 +45,7 @@ function sourceRevisions(snapshot: Snapshot, owners: readonly string[]): Record<
 
 function patchOwner(path: string): string {
   if (path.startsWith('/editor/')) return 'editor';
+  if (path.startsWith('/traits/')) return 'traits';
   const match = /^\/([^/]+)\/([^/]+)\//.exec(path);
   const recordFamilies = new Set([
     'animations',
@@ -87,6 +88,9 @@ function logicalSaveUnitPaths(saveUnitId: string): Record<string, string[]> {
   }
   if (saveUnitId === 'project:chapters') return { editor: ['/chapters'] };
   if (saveUnitId === 'project:tags') return { editor: ['/tags'] };
+  if (saveUnitId === 'collection:traits') return { traits: ['/'] };
+  if (saveUnitId === 'editor:organization')
+    return { editor: ['/chapters', '/tags', '/recordMetadata'] };
   if (saveUnitId === PROJECT_SETTINGS_SAVE_UNIT_ID)
     return { project: [...PROJECT_SETTINGS_OWNED_PATHS] };
   throw new Error(`Unsupported native logical Save unit: ${saveUnitId}`);

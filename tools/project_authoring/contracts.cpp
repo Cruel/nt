@@ -93,6 +93,9 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "property.default-value",
                                                    "property.local-unique",
                                                    "property.local-value",
+                                                   "trait.property",
+                                                   "trait.definition",
+                                                   "workspace.trait-key",
                                                    "project.canonical-inventory",
                                                    "project.notice-path",
                                                    "project.notice-extension",
@@ -365,7 +368,8 @@ class Validator {
                           "Property is declared more than once on this owner.");
                 ++index;
             }
-        } else if (id == "property.default-value" || id == "property.local-value") {
+        } else if (id == "property.default-value" || id == "property.local-value" ||
+                   id == "trait.property") {
             if (!value || !value->is_object())
                 return;
             const auto& property = *value;
@@ -391,6 +395,32 @@ class Validator {
             if (property.contains(key) && !property_value_compatible(property, property.at(key)))
                 issue(errors, path + "/" + key, "semantic." + id,
                       "Property value does not match its declaration.");
+        } else if (id == "trait.definition") {
+            if (!value || !value->is_object())
+                return;
+            for (const auto* key : {"ownerKinds", "properties"}) {
+                std::set<std::string> seen;
+                for (const auto& entry : value->at(key).array_range()) {
+                    const auto member = std::string(key) == "ownerKinds"
+                                            ? entry.as<std::string>()
+                                            : entry.at("id").as<std::string>();
+                    if (!seen.insert(member).second) {
+                        issue(errors, path + "/" + key, "semantic." + id,
+                              std::string(key) == "ownerKinds"
+                                  ? "Trait owner kinds must be unique."
+                                  : "Trait properties must be unique.");
+                        break;
+                    }
+                }
+            }
+        } else if (id == "workspace.trait-key") {
+            if (!value || !value->is_object())
+                return;
+            for (const auto& trait : value->object_range()) {
+                if (trait.value().at("id") != trait.key())
+                    issue(errors, path + "/" + pointer_token(trait.key()) + "/id", "semantic." + id,
+                          "Trait ID must match its map key.");
+            }
         } else if (id == "project.canonical-inventory") {
             if (value && value->is_array() && value->size() == 1 &&
                 (value->at(0).at("id") != "inventory" || value->at(0).at("label") != "Inventory"))
@@ -854,6 +884,21 @@ ValidationResult validate_record(std::string_view contract, std::string_view sou
             return result;
         Value value = Json::parse(source_json);
         validator.parse(id, value, "", result.diagnostics);
+        if (contract == "WorkspaceTrackedEditor" && value && value->is_object() &&
+            value->contains("recordMetadata") && value->at("recordMetadata").is_object()) {
+            for (const auto& collection : value->at("recordMetadata").object_range()) {
+                const auto prefix = "/recordMetadata/" + pointer_token(collection.key());
+                if (collection.key() == "__proto__")
+                    result.diagnostics.push_back(
+                        {prefix, "schema.record_key", "Prototype record metadata key is invalid."});
+                if (collection.value().is_object())
+                    for (const auto& record : collection.value().object_range())
+                        if (record.key() == "__proto__")
+                            result.diagnostics.push_back(
+                                {prefix + "/__proto__", "schema.record_key",
+                                 "Prototype record metadata key is invalid."});
+            }
+        }
         result.accepted = result.diagnostics.empty();
         if (result.accepted && value)
             result.effective_json = value->to_string();
