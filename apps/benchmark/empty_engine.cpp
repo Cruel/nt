@@ -1,6 +1,7 @@
 #include "empty_engine.hpp"
 
 #include "benchmark_assets.hpp"
+#include "benchmark_android_lifecycle.hpp"
 #include "benchmark_bgfx_diagnostics.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
@@ -30,6 +31,7 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
     if (!cleanup(reason))
         return false;
     environment_ = {};
+    last_interruption_ = Interruption::None;
 
     PlatformConfig platform;
     platform.title = "NovelTea Benchmark: Empty Engine";
@@ -39,8 +41,14 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
     platform.vsync = options.vsync;
 
     EngineConfig config;
+#if defined(__ANDROID__)
+    // The Android Engine mounts system:/ from the APK's SDL packaged asset source.
+    // A filesystem override would bypass that source and fail to find its files.
+    config.system_asset_root = system_asset_root_;
+#else
     config.system_asset_root =
         system_asset_root_.empty() ? benchmark_asset_path("system") : system_asset_root_;
+#endif
     config.compiled_project.clear();
     config.load_title_screen = false;
     config.enable_audio = false;
@@ -70,9 +78,10 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
         environment_.gpu_vendor_id = caps->vendorId;
         environment_.gpu_device_id = caps->deviceId;
     }
-    environment_.width_pixels = size.width;
-    environment_.height_pixels = size.height;
     const auto& presentation = engine_->presentation();
+    // Padded bgfx allocation dimensions are not the presented framebuffer.
+    environment_.width_pixels = presentation.viewport.host_framebuffer_rect.width;
+    environment_.height_pixels = presentation.viewport.host_framebuffer_rect.height;
     environment_.ui_reference_width = presentation.reference.size.width;
     environment_.ui_reference_height = presentation.reference.size.height;
     environment_.ui_raster_width = presentation.ui_raster.size.width;
@@ -117,10 +126,24 @@ Readiness EmptyEngine::readiness(std::string& reason)
 
 bool EmptyEngine::frame(std::string& reason)
 {
+#if defined(__ANDROID__)
+    if (!android_benchmark_foreground()) {
+        last_interruption_ = Interruption::Recoverable;
+        reason = "Android Activity suspended during empty Engine benchmark";
+        return false;
+    }
+#endif
     if (!engine_ || !engine_->is_running() || !engine_->tick()) {
         reason = "empty Engine frame failed or was interrupted";
         return false;
     }
+#if defined(__ANDROID__)
+    if (!android_benchmark_foreground()) {
+        last_interruption_ = Interruption::Recoverable;
+        reason = "Android Activity suspended during empty Engine frame";
+        return false;
+    }
+#endif
     return true;
 }
 

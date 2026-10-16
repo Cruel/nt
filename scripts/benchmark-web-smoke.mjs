@@ -29,6 +29,8 @@ await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
 const origin = 'http://127.0.0.1:' + server.address().port;
 let failures = 0;
 for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
+  if (process.env.NOVELTEA_BENCHMARK_BROWSER &&
+      process.env.NOVELTEA_BENCHMARK_BROWSER !== name) continue;
   let browser;
   try {
     browser = await engine.launch({
@@ -218,6 +220,30 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
       throw new Error('context restoration included invalid samples: ' + JSON.stringify(restored.scenarios[0].trials));
     console.log(name + ': WebGL context loss discards affected samples and rebuilds graphics');
 
+    // Exercise context-loss recovery while the production Engine, rather than
+    // the lightweight benchmark host, owns the SDL window and bgfx device.
+    await page.goto(origin + '/benchmark.html?noUi=1&scenario=engine-empty&frames=90&repeats=2&warmup=0');
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.ready);
+    await page.waitForTimeout(140);
+    await page.evaluate(() => {
+      const extension = document.querySelector('#canvas').getContext('webgl2')?.getExtension('WEBGL_lose_context');
+      if (!extension) throw new Error('Engine WebGL context-loss extension unavailable');
+      window.__engineLoss = extension;
+      extension.loseContext();
+    });
+    await page.waitForFunction(() => window.NovelTeaBenchmark.contextLost);
+    await page.waitForTimeout(150);
+    await page.evaluate(() => window.__engineLoss.restoreContext());
+    await page.waitForFunction(() => !window.NovelTeaBenchmark.contextLost, null, {timeout: 15000});
+    await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null, {timeout: 60000});
+    const engineRecovered = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+    if (engineRecovered.outcome !== 'complete' ||
+        engineRecovered.scenarios[0].aggregate.measured_frames !== 180 ||
+        !engineRecovered.scenarios[0].trials.some(trial => trial.interruption_retries > 0))
+      throw new Error('Engine WebGL context recovery failed: ' +
+        JSON.stringify(engineRecovered.scenarios[0].trials));
+    console.log(name + ': Engine-owned WebGL context loss retries without stale samples');
+
     // Escape must generate a terminal report even if the browser never
     // restores WebGL. Cleanup/destruction of GPU resources is deferred.
     await page.goto(origin + '/benchmark.html?noUi=1&scenario=raw-bgfx-geometry&frames=300&repeats=3&warmup=0&rawSamples=1');
@@ -306,15 +332,25 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
       'raw-bgfx-empty', 'raw-bgfx-geometry', 'standalone-rmlui-simple',
       'engine-empty', 'integrated-rmlui-controlled', 'integrated-rmlui-production'
     ];
-    if (quick.outcome !== 'partial' ||
+    if (quick.outcome !== 'complete' ||
         quick.scenarios.map(s => s.id).join(',') !== referenceOrder.join(',') ||
-        quick.scenarios.slice(0, 3).some(s => s.outcome !== 'complete' || s.aggregate.measured_frames !== 30) ||
-        quick.scenarios.slice(3).some(s => s.outcome !== 'failed' || !s.trials[0].reason) ||
+        quick.scenarios.some(s => s.outcome !== 'complete' || s.aggregate.measured_frames !== 30) ||
         quick.graphics !== null ||
         quick.scenarios[0].graphics.frame_path !== 'bgfx-frame' ||
         quick.scenarios[2].graphics.ui_render_path === null)
       throw new Error('Quick Suite scenario isolation/report failure: ' + JSON.stringify(quick.scenarios.map(s => ({id:s.id, outcome:s.outcome, frames:s.aggregate.measured_frames}))));
-    console.log(name + ': Quick Suite serial reference runs + independent unsupported-host outcomes passed');
+    console.log(name + ': all six Stage 1 scenarios and raw-to-Engine-to-raw ownership transfers passed');
+
+    for (const scenario of ['engine-empty', 'integrated-rmlui-controlled', 'integrated-rmlui-production']) {
+      await page.goto(origin + '/benchmark.html?scenario=' + scenario + '&smoke=1&noUi=1');
+      await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null, {timeout: 60000});
+      const report = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
+      if (report.outcome !== 'complete' || report.scenarios[0]?.aggregate.measured_frames !== 30 ||
+          report.scenarios[0].graphics?.frame_path !== 'engine-tick')
+        throw new Error('Web Engine single-scenario failure: ' + JSON.stringify([scenario, report.outcome,
+            report.scenarios[0]?.trials?.map(t => t.reason)]));
+    }
+    console.log(name + ': individual no-UI production Engine and integrated RmlUi trials passed');
 
     // Regression: selecting offscreen composition before Quick Suite must not
     // leak composition-only knobs into raw, RmlUi, or Engine reference presets.
@@ -322,9 +358,9 @@ for (const [name, engine] of [['Chromium', chromium], ['Firefox', firefox]]) {
     await page.waitForFunction(() => window.NovelTeaBenchmark?.runs.length === 1, null,
                                {timeout: 60000});
     const switched = await page.evaluate(() => window.NovelTeaBenchmark.runs[0].report);
-    if (switched.outcome !== 'partial' ||
+    if (switched.outcome !== 'complete' ||
         switched.scenarios.map(s => s.id).join(',') !== referenceOrder.join(',') ||
-        switched.scenarios.slice(0, 3).some(s => s.outcome !== 'complete' ||
+        switched.scenarios.some(s => s.outcome !== 'complete' ||
           s.aggregate.measured_frames !== 30) ||
         switched.configuration.parameters.composition_path !== 'direct' ||
         switched.configuration.parameters.composite_passes !== 0 ||

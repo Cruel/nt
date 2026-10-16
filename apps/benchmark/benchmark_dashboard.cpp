@@ -297,25 +297,12 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         if (ImGui::BeginTabBar("benchmark-tabs")) {
             if (ImGui::BeginTabItem("Scenarios")) {
                 if (ImGui::BeginCombo("Selected scenario", options.scenario.c_str())) {
-#if defined(__ANDROID__)
-                    for (const char* candidate :
-                         {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
-                          "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
-                          "raw-bgfx-draw-calls", "raw-bgfx-composition"}) {
-#elif defined(__EMSCRIPTEN__)
-                    for (const char* candidate :
-                         {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
-                          "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
-                          "raw-bgfx-draw-calls", "raw-bgfx-composition",
-                          "standalone-rmlui-simple"}) {
-#else
                     for (const char* candidate :
                          {"raw-bgfx-empty", "raw-bgfx-geometry", "raw-bgfx-clear",
                           "raw-bgfx-single-quad", "raw-bgfx-textured", "raw-bgfx-offscreen",
                           "raw-bgfx-draw-calls", "raw-bgfx-composition", "standalone-rmlui-simple",
                           "integrated-rmlui-controlled", "integrated-rmlui-production",
                           "engine-empty"}) {
-#endif
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options = reference_scenario_options(options, candidate);
                         }

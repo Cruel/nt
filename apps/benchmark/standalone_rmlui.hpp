@@ -10,6 +10,7 @@
 #include <chrono>
 #include <memory>
 #include <string>
+#include <vector>
 
 namespace noveltea::benchmark {
 
@@ -44,6 +45,8 @@ private:
     std::unique_ptr<rmlui_bgfx::RenderInterface> renderer_;
     Rml::Context* context_ = nullptr;
     bool core_initialized_ = false;
+    // RmlUi retains memory-backed font bytes until Rml::Shutdown().
+    std::vector<Rml::byte> font_memory_;
     Rml::ElementDocument* document_ = nullptr;
     int framebuffer_width_ = 0;
     int framebuffer_height_ = 0;

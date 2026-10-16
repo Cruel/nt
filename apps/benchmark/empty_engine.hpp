@@ -32,6 +32,7 @@ public:
     void diagnostic_frame(DiagnosticObservation& observation) override;
     bool complete(std::string& reason) override;
     bool cleanup(std::string& reason) override;
+    Interruption interruption() const override { return last_interruption_; }
 
     const Environment& environment() const { return environment_; }
 
@@ -39,6 +40,7 @@ private:
     std::filesystem::path system_asset_root_;
     std::unique_ptr<Engine> engine_;
     Environment environment_;
+    Interruption last_interruption_ = Interruption::None;
 };
 
 } // namespace noveltea::benchmark
