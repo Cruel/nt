@@ -92,6 +92,9 @@ int main()
     options.scenario = "integrated-rmlui-production";
     if (!noveltea::benchmark::validate_reference_options(options, error))
         return 1;
+    options.scenario = "engine-empty";
+    if (!noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
     options.scenario = "synthetic";
     if (noveltea::benchmark::validate_reference_options(options, error) || error.empty())
         return 1;

@@ -116,7 +116,8 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     const std::string scenario = root["scenario"].get<std::string>();
     const auto& parameters = root["parameters"];
     if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple" ||
-        scenario == "integrated-rmlui-production" || scenario == "integrated-rmlui-controlled") {
+        scenario == "integrated-rmlui-production" || scenario == "integrated-rmlui-controlled" ||
+        scenario == "engine-empty") {
         if (!parameters.empty()) {
             reason = "empty scenario does not take geometry parameters";
             return false;
@@ -236,6 +237,8 @@ std::string encode_result(const Options& options, const Environment& environment
         {"video_driver",
          environment.video_driver.empty() ? Json(nullptr) : Json(environment.video_driver)},
         {"renderer", environment.renderer.empty() ? Json(nullptr) : Json(environment.renderer)},
+        {"frame_path",
+         environment.frame_path.empty() ? Json(nullptr) : Json(environment.frame_path)},
         {"gpu_vendor_id",
          environment.gpu_vendor_id < 0 ? Json(nullptr) : Json(environment.gpu_vendor_id)},
         {"gpu_device_id",

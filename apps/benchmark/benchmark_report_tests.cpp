@@ -111,6 +111,21 @@ int main()
                    "render report preserves live backend settings without fabricated observations"))
             return 1;
     }
+    Options empty_engine_options;
+    empty_engine_options.scenario = "engine-empty";
+    const auto empty_engine_config =
+        nlohmann::json::parse(encode_configuration(empty_engine_options));
+    Options empty_engine_roundtrip;
+    if (!check(
+            empty_engine_config["parameters"].empty() &&
+                decode_configuration(empty_engine_config.dump(), empty_engine_roundtrip, error) &&
+                empty_engine_roundtrip.scenario == "engine-empty" &&
+                nlohmann::json::parse(encode_configuration(empty_engine_roundtrip)) ==
+                    empty_engine_config,
+            "empty Engine has stable, parameter-free configuration"))
+        return 1;
+    auto invalid_engine_parameters = empty_engine_config;
+    invalid_engine_parameters["parameters"]["project"] = "not-empty";
     auto invalid_ui_parameters = ui_config;
     invalid_ui_parameters["parameters"]["rect_count"] = 3;
     auto missing_geometry_count = geometry_config;
@@ -143,9 +158,10 @@ int main()
                    rejected(bad_parameters) && rejected(bad_clock) && rejected(missing) &&
                    rejected(extra) && rejected(negative_frames) && rejected(wrong_profile) &&
                    rejected(extra_root) && rejected(missing_geometry_count) &&
-                   rejected(extra_geometry_key) && rejected(invalid_ui_parameters) &&
-                   rejected(invalid_geometry_count) && rejected(invalid_geometry_scale) &&
-                   rejected(invalid_geometry_fraction) && rejected(unknown_scenario),
+                   rejected(extra_geometry_key) && rejected(invalid_engine_parameters) &&
+                   rejected(invalid_ui_parameters) && rejected(invalid_geometry_count) &&
+                   rejected(invalid_geometry_scale) && rejected(invalid_geometry_fraction) &&
+                   rejected(unknown_scenario),
                "reject unknown versions, settings, and invalid values"))
         return 1;
     auto diagnostic = configured;
@@ -186,6 +202,7 @@ int main()
                                                             {.platform = "Linux",
                                                              .video_driver = "x11",
                                                              .renderer = "OpenGL",
+                                                             .frame_path = "bgfx-frame",
                                                              .gpu_vendor_id = 12,
                                                              .gpu_device_id = 34,
                                                              .width_pixels = 1280,
@@ -200,6 +217,7 @@ int main()
                    result["configuration"]["clock_policy"] == "realtime" &&
                    result["configuration"]["parameters"].empty() &&
                    result["graphics"]["gpu_device_id"] == 34 &&
+                   result["graphics"]["frame_path"] == "bgfx-frame" &&
                    result["graphics"]["gpu_driver_version"].is_null() &&
                    result["graphics"]["internal_render_scale"] == 1.0 &&
                    result["graphics"]["render_width_pixels"] == 1280 &&
@@ -213,6 +231,16 @@ int main()
                "result identity, timing, metadata and raw samples"))
         return 1;
 
+    noveltea::benchmark::Environment engine_env;
+    engine_env.frame_path = "engine-tick";
+    engine_env.engine_postprocess_active = false;
+    const auto engine_result =
+        nlohmann::json::parse(encode_result(empty_engine_options, engine_env, {}));
+    if (!check(engine_result["graphics"]["frame_path"] == "engine-tick" &&
+                   engine_result["graphics"]["engine_postprocess_surface_active"] == false &&
+                   engine_result["configuration"]["parameters"].empty(),
+               "empty Engine metadata differs from raw bgfx with observed renderer state"))
+        return 1;
     original.profile = "diagnostic";
     const auto diagnostic_result = nlohmann::json::parse(encode_result(original, {}, suite));
     if (!check(diagnostic_result["timing"]["profile"] == "diagnostic" &&

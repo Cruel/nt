@@ -122,6 +122,7 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
         return false;
     }
     environment_.platform = SDL_GetPlatform();
+    environment_.frame_path = "engine-tick";
     if (const char* driver = SDL_GetCurrentVideoDriver())
         environment_.video_driver = driver;
     const auto* caps = bgfx::getCaps();

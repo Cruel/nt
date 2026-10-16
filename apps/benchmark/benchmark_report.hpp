@@ -24,6 +24,7 @@ struct Environment {
     std::string platform;
     std::string video_driver;
     std::string renderer;
+    std::string frame_path;
     int gpu_vendor_id = -1;
     int gpu_device_id = -1;
     int width_pixels = 0;
