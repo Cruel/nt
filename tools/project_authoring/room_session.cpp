@@ -2805,6 +2805,15 @@ ValidationResult RoomSession::validate_source(std::string_view source_json) cons
         return validate_asset_source(source_json);
     if (record_family_ == "materials")
         return validate_material_source(source_json);
+    if (record_family_ == "scripts") {
+        // Workspace script YAML deliberately omits the runtime schema's
+        // discriminant. Project it only into the effective, read-only record.
+        auto projected = Json::parse(source_json);
+        if (projected.is_object() && projected.contains("data") &&
+            projected.at("data").is_object() && !projected.at("data").contains("kind"))
+            projected["data"].insert_or_assign("kind", "script-module");
+        return validate_record(validation_contract_, projected.to_string());
+    }
     if (record_family_ == "layouts") {
         std::map<std::string, std::string> companions;
         for (const auto* channel : {"rml", "rcss", "lua"}) {

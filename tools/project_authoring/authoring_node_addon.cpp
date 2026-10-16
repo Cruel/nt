@@ -478,6 +478,41 @@ napi_value call(napi_env env, napi_callback_info info)
             }
             return js_string(env, sources.to_string());
         }
+        if (name == "prepareWorking") {
+            if (argc != 3)
+                throw std::runtime_error("Working preparation requires revision and Test ID.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid working preparation revision.");
+            const auto test_id = string_arg(env, argv[2]);
+            if (test_id.size() > 256)
+                throw std::runtime_error("Invalid authored Test ID.");
+            const auto prepared =
+                session.project->prepare_working(static_cast<std::uint64_t>(revision), test_id);
+            Json result = Json::object();
+            result["accepted"] = prepared.accepted;
+            result["error"] = prepared.error;
+            result["workingRevision"] = prepared.working_revision;
+            result["project"] =
+                prepared.accepted ? Json::parse(prepared.project_json) : Json::null();
+            result["recordOverrides"] =
+                prepared.accepted ? Json::parse(prepared.record_overrides_json) : Json::object();
+            result["sourceRevisions"] = Json::object();
+            for (const auto& [path, value] : prepared.source_revisions)
+                result["sourceRevisions"][path] = value;
+            result["textOverlays"] = Json::object();
+            for (const auto& [path, content] : prepared.text_overlays)
+                result["textOverlays"][path] = content;
+            result["shaderOverlays"] = Json::object();
+            for (const auto& [path, content] : prepared.shader_overlays)
+                result["shaderOverlays"][path] = content;
+            result["diagnostics"] =
+                Json::parse(
+                    noveltea::authoring::validation_result_json(
+                        noveltea::authoring::ValidationResult{false, "", prepared.diagnostics}))
+                    .at("diagnostics");
+            return js_string(env, result.to_string());
+        }
         if (name == "stageTextSource") {
             if (argc != 4)
                 throw std::runtime_error("Text source operation requires revision, path and body.");
@@ -586,6 +621,7 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "textSourceOverlays",
                                     "stageTextSource",
                                     "sourceAnalyses",
+                                    "prepareWorking",
                                     "publishMaterialCompilerResult"};
     for (const auto* name : operations) {
         napi_value callback = nullptr;

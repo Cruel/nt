@@ -247,6 +247,43 @@ dependency graph, managed localization synchronization, or production editor
 source editor/CLI paths. Complete differential certification for RML templates
 and Asset-backed sources remains part of the atomic native cutover under #474.
 
+## Dirty native preview and authored Tests (#499)
+
+The opt-in native session provides a revision-checked prepareWorking operation
+for preview and authored Tests. Its output contains normalized working Manifest
+and localization values, only dirty record overrides (including Layout companion
+sourceText), exact physical source revisions, text/shader overlays and native
+diagnostics. A bad working source or stale revision blocks preparation without
+writing Project files. Standalone CLI sessions remain disk-authoritative.
+
+The certification-only main-process adapter checks that the native revisions
+match a separately admitted saved workspace generation, combines its unchanged
+records with the native working overrides, and sends that effective Project
+through the **existing** runtime artifact compiler and authored Test spec
+builder. Lua/RML sources are read from the native overlays; temporary physical
+copies required for native runtime asset handoff live outside the Project root
+and have an explicit disposal lifecycle. The adapter does not publish canonical
+or preview runtime cache generations and does not change export Save policy.
+Authored Tests dispatch through the current run-test/run-ui-test native operation,
+not an authoring-worker interpreter. A superseded working revision is rejected
+before returning the prepared artifact.
+
+An optional per-session preparation cache keys runtime inputs independently of
+working revision and authored Test records. A Test-only edit reuses the compiled
+runtime while rebuilding the selected Test spec. Changed runtime source
+revisions/text overlays or other runtime-owned data invalidate that cache
+entry, leaving unrelated source-analysis contributions intact. Cache leases
+retain temporary source overlays until borrowers finish; the owning session
+clears its cache explicitly on close.
+
+This is deliberately a parallel certification seam; the current renderer,
+editor Play/Test coordinator and CLI/export remain unchanged. Later migration
+work will replace the saved-baseline projection with fully unified native
+working record admission, and close the remaining source/dependency
+incrementality and compiler-overlay differential gates before production cutover.
+Focused certification compares actual Feature Lab native dirty Room, Test, and
+RML projections against its separately loaded saved Workspace.
+
 Full production editor cutover, the existing renderer Save coordinator and
 watcher replacements, Project-wide dependency reconciliation, and durable
 restart recovery remain future coordinated migration work; the native

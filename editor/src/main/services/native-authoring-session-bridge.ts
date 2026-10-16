@@ -4,6 +4,7 @@ import {
   nativeAuthoringEventSchema,
   type NativeAuthoringCommand,
   type NativeAuthoringEvent,
+  type NativeAuthoringPreparation,
 } from './native-authoring-worker-contract';
 import type { ActiveProjectSessionService } from './active-project-session-service';
 
@@ -128,6 +129,12 @@ export class NativeAuthoringSessionBridge {
     });
   }
 
+  request(
+    command: Extract<Command, { operation: 'prepareWorking' }>,
+  ): Promise<NativeAuthoringPreparation>;
+  request(
+    command: Exclude<Command, { operation: 'prepareWorking' }>,
+  ): Promise<Exclude<Response['result'], NativeAuthoringPreparation>>;
   async request(command: Command): Promise<Response['result']> {
     const state = this.current;
     if (!state || !state.ready || !this.authority.isCurrent(state.sessionId))

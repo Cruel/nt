@@ -67,7 +67,7 @@ target_include_directories(noveltea_project_authoring_yaml PUBLIC "${CMAKE_CURRE
 target_include_directories(noveltea_project_authoring_yaml SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_yaml PRIVATE fyaml_static)
 # Native Room session remains independent of editor, CLI daemon, and runtime linkage.
-add_library(noveltea_project_authoring_session STATIC room_session.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp test_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp localization_semantics.cpp source_analysis.cpp source_authority.cpp yaml_transaction.cpp)
+add_library(noveltea_project_authoring_session STATIC room_session.cpp preview_preparation.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp test_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp localization_semantics.cpp source_analysis.cpp source_authority.cpp yaml_transaction.cpp)
 set_target_properties(noveltea_project_authoring_session PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(noveltea_project_authoring_session PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_session PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -170,6 +170,8 @@ if(BUILD_TESTING)
     add_test(NAME native_authoring_project_session COMMAND noveltea-project-session-certify "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_test(NAME native_authoring_source_analysis COMMAND noveltea-project-session-certify
         --source-analysis "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_test(NAME native_authoring_working_preparation COMMAND noveltea-project-session-certify
+        --working-preparation "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     add_executable(noveltea-character-archetype-certify character_archetype_certify.cpp)
     target_include_directories(noveltea-character-archetype-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
     target_link_libraries(noveltea-character-archetype-certify PRIVATE noveltea_project_authoring_session)

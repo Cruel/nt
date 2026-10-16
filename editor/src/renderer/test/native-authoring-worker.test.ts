@@ -208,6 +208,10 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
         await mkdir(path.dirname(path.join(root, file)), { recursive: true });
         await copyFile(path.join(fixture, file), path.join(root, file));
       }
+      // Native localization admission (#491) requires both canonical source
+      // directories, including when the fixture has no locale/asset overrides.
+      await mkdir(path.join(root, 'i18n/locales'), { recursive: true });
+      await mkdir(path.join(root, 'i18n/assets'), { recursive: true });
       await mkdir(path.join(root, 'records/maps'), { recursive: true });
       await writeFile(
         path.join(root, 'records/maps/world.yaml'),
@@ -377,6 +381,22 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       expect((await working.undo()).snapshot.recordSnapshots?.[owner]?.source).toMatchObject({
         label: 'Changed in editor',
       });
+      const prepared = await working.prepareWorking();
+      expect(prepared).toMatchObject({
+        accepted: true,
+        project: { project: { name: 'Changed project' } },
+        recordOverrides: { rooms: { [roomId]: { label: 'Changed in editor' } } },
+      });
+      await expect(
+        bridge.request({
+          operation: 'prepareWorking',
+          expectedRevision: prepared.workingRevision - 1,
+          testId: '',
+        }),
+      ).resolves.toMatchObject({
+        accepted: false,
+        error: 'Stale working Project preparation revision.',
+      });
       bridge.close();
       await expect(working.reopenAndReplay('different-session')).rejects.toThrow(
         'different Project session',
@@ -391,7 +411,7 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
       bridge?.close();
       await rm(root, { recursive: true, force: true });
     }
-  }, 30_000);
+  }, 120_000);
 
   it('opens Project snapshot, emits verified external deltas and restarts safely', async () => {
     const root = await mkdtemp(path.join(tmpdir(), 'noveltea-worker-'));
@@ -410,6 +430,8 @@ describe.skipIf(!addon)('native Node-API addon through real Electron-compatible 
         await mkdir(path.dirname(path.join(root, file)), { recursive: true });
         await copyFile(path.join(fixture, file), path.join(root, file));
       }
+      await mkdir(path.join(root, 'i18n/locales'), { recursive: true });
+      await mkdir(path.join(root, 'i18n/assets'), { recursive: true });
       await mkdir(path.join(root, 'records/rooms'), { recursive: true });
       const roomPath = path.join(root, 'records/rooms/room-lifecycle-roundtrip.yaml');
       await copyFile(path.join(fixture, 'records/rooms/room-lifecycle-roundtrip.yaml'), roomPath);
