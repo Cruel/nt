@@ -141,6 +141,46 @@ void check_pointer(std::string_view pointer)
     }
 }
 
+std::string pointer_token(std::string_view token);
+
+std::string resolve_id_pointer(const Json& document, std::string_view path)
+{
+    check_pointer(path);
+    const Json* current = &document;
+    std::string resolved;
+    for (std::size_t start = 1; start <= path.size();) {
+        const auto end = path.find('/', start);
+        const auto raw = path.substr(start, end == std::string_view::npos ? end : end - start);
+        auto token = parse_pointer_token(raw);
+        if (current && current->is_array() && token.starts_with('@')) {
+            const auto id = token.substr(1);
+            std::optional<std::size_t> index;
+            for (std::size_t i = 0; i < current->size(); ++i) {
+                const auto& entry = current->at(i);
+                if (entry.is_object() && entry.contains("id") && entry.at("id") == id) {
+                    if (index)
+                        throw std::runtime_error("Ambiguous ID-keyed JSON Pointer: " + id);
+                    index = i;
+                }
+            }
+            if (!index)
+                throw std::runtime_error("Missing ID-keyed JSON Pointer target: " + id);
+            token = std::to_string(*index);
+        }
+        resolved += "/" + pointer_token(token);
+        try {
+            current = &jsoncons::jsonpointer::get(document,
+                                                  jsoncons::jsonpointer::json_pointer(resolved));
+        } catch (...) {
+            current = nullptr;
+        }
+        if (end == std::string_view::npos)
+            break;
+        start = end + 1;
+    }
+    return resolved;
+}
+
 void apply_patch(Json& value, const RoomPatch& patch)
 {
     check_pointer(patch.path);
@@ -479,6 +519,32 @@ std::unique_ptr<RoomSession> RoomSession::open(const std::filesystem::path& proj
     }
 }
 
+std::unique_ptr<RoomSession> RoomSession::open_map(const std::filesystem::path& project_root,
+                                                   std::string map_id, std::string& error)
+{
+    try {
+        if (!is_id(map_id))
+            throw std::runtime_error("Invalid Map ID.");
+        const auto path = project_root / "records" / "maps" / (map_id + ".yaml");
+        auto source = read_bytes(path);
+        const auto opened = open_yaml_source(source);
+        if (!opened.accepted)
+            throw std::runtime_error("Invalid Map YAML: " + opened.error);
+        const auto value = Json::parse(opened.source_json);
+        if (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
+            value.at("id").as<std::string>() != map_id)
+            throw std::runtime_error("Map source ID must match its filename.");
+        auto result = std::unique_ptr<RoomSession>(
+            new RoomSession(path, std::move(map_id), std::move(source), opened.source_json));
+        result->is_map_ = true;
+        error.clear();
+        return result;
+    } catch (const std::exception& e) {
+        error = e.what();
+        return nullptr;
+    }
+}
+
 std::unique_ptr<RoomSession>
 RoomSession::open_project_source(const std::filesystem::path& project_root, std::string& error)
 {
@@ -534,18 +600,29 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.source_json = working_json_;
     state.dirty = Json::parse(disk_json_) != Json::parse(working_json_);
     const auto result = is_project_ ? validate_record("WorkspaceManifest", working_json_)
+                        : is_map_   ? validate_map_source(working_json_)
                                     : validate_room_source(working_json_);
     state.valid = result.accepted;
     state.normalized_json = result.effective_json;
     state.diagnostics = result.diagnostics;
+    if (result.accepted && !is_project_) {
+        const auto local =
+            validate_room_map_local(is_map_ ? "maps" : "rooms", result.effective_json);
+        state.valid = local.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), local.diagnostics.begin(),
+                                 local.diagnostics.end());
+        if (!state.valid)
+            state.normalized_json.clear();
+    }
     const auto value = Json::parse(working_json_);
     if (!is_project_ &&
         (!value.is_object() || !value.contains("id") || !value.at("id").is_string() ||
          value.at("id").as<std::string>() != room_id_)) {
         state.valid = false;
         state.normalized_json.clear();
-        state.diagnostics.push_back(
-            {"/id", "room.id_mismatch", "Room ID must match its source filename."});
+        state.diagnostics.push_back({"/id", is_map_ ? "map.id_mismatch" : "room.id_mismatch",
+                                     is_map_ ? "Map ID must match its source filename."
+                                             : "Room ID must match its source filename."});
     }
     return state;
 }
@@ -557,7 +634,9 @@ RoomSessionResult RoomSession::result(bool accepted, std::string error, bool cha
     response.error = std::move(error);
     response.snapshot = snapshot();
     if (changed)
-        response.affected_records.push_back(is_project_ ? "project" : "rooms/" + room_id_);
+        response.affected_records.push_back(is_project_ ? "project"
+                                            : is_map_   ? "maps/" + room_id_
+                                                        : "rooms/" + room_id_);
     return response;
 }
 
@@ -569,14 +648,19 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
     try {
         const auto previous = snapshot();
         Json next = Json::parse(working_json_);
-        for (const auto& operation : operations)
-            apply_patch(next, operation);
+        std::vector<RoomPatch> resolved;
+        for (const auto& operation : operations) {
+            auto concrete = operation;
+            concrete.path = resolve_id_pointer(next, operation.path);
+            apply_patch(next, concrete);
+            resolved.push_back(std::move(concrete));
+        }
         if (next.to_string() == working_json_)
             return result(true);
         // No structural/semantic validity gate here: representable invalid working
         // records must be diagnosable without obligating a Save.
         working_json_ = next.to_string();
-        unsaved_patches_.insert(unsaved_patches_.end(), operations.begin(), operations.end());
+        unsaved_patches_.insert(unsaved_patches_.end(), resolved.begin(), resolved.end());
         if (Json::parse(working_json_) == Json::parse(disk_json_))
             unsaved_patches_.clear();
         ++working_revision_;
@@ -603,6 +687,8 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
             return result(false, "Cannot save a Room whose ID does not match its filename.");
         if (is_project_ && !snapshot().valid)
             return result(false, "Cannot save a structurally invalid Project manifest.");
+        if (!is_project_ && !snapshot().valid)
+            return result(false, "Cannot save an invalid Room or Map source.");
         // Persist the final source-space delta, never temporary invalid intermediate
         // edits from the dirty session. This also preserves undo and generic batching.
         std::vector<YamlValueEdit> edits;
@@ -643,6 +729,14 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
         if (!is_project_ && (!merged_json.is_object() || !merged_json.contains("id") ||
                              !merged_json.at("id").is_string() || merged_json.at("id") != room_id_))
             return result(false, "Rebased Room source ID does not match filename.");
+        if (!is_project_) {
+            const auto normalized = is_map_ ? validate_map_source(merged.source_json)
+                                            : validate_room_source(merged.source_json);
+            if (!normalized.accepted ||
+                !validate_room_map_local(is_map_ ? "maps" : "rooms", normalized.effective_json)
+                     .accepted)
+                return result(false, "Rebased Room or Map failed semantic validation.");
+        }
         const auto committed = writer.commit(preflight, TransactionDecision::UseEditDecisions);
         if (!committed.accepted)
             return result(false, committed.error);

@@ -89,6 +89,40 @@ optional `native-room-session-parity.test.ts` compares the actual native normali
 saved result to TypeScript/Zod normalization and checks the session's actual affected-record
 delta. No editor, CLI or runtime path uses the native session yet.
 
+## Native Room, Map, and Hotspot domain certification (#480)
+
+The host-only sparse-source projector now expands the generated **Room and Map**
+omission defaults, inferred `data.kind`, scalar `always` Conditions, and bare
+typed references. `RoomSession::open_map` exposes the same versioned working
+state, source-aware transactional Save, exact disk revisions, and normalized
+reopen guarantee as the Room adapter. Generic JSON Pointers support
+`@<id>` array segments, resolved against unique current IDs before each patch;
+ambiguous or missing targets reject the entire edit batch.
+
+`validate_room_map_local` checks locally provable invariants on normalized
+single-record working values without treating unrelated missing Project records
+as errors. `validate_room_map_project` accepts an assembled effective Project
+to check cross-record references, exits, reciprocal Map connections, duplicate
+Map locations, placement and camera geometry, presentation order, lifecycle
+command eligibility, Hotspot image and subject/feature/exit ownership, and
+Interactable hotspot source and highlight constraints. Its diagnostic paths
+use Project-absolute JSON Pointers and errors are separated from informational
+or warning diagnostics. The native schema registry also validates strictly
+increasing hotspot motion-keyframe times. Resolved Material roles and Hotspot
+sampler-interface requirements follow the same generated engine Material preset
+registry as the TypeScript validator, including inherited Material bases.
+
+`noveltea-room-map-certify` and the optional
+`native-room-map-parity.test.ts` compare sparse Map and Room effective values
+and representative domain diagnostics with the current TypeScript validators.
+The Map session test patches an ID-keyed nested field, transactionally saves
+commented YAML and checks normalized values on reopen. Compiled-value
+equivalence is checked through the existing TypeScript authoring compiler
+against the native-reopened normalized record, rather than introducing a
+second gameplay or presentation compiler. These boundaries remain **parallel
+and certification-only**: the editor, CLI, runtime and TypeScript semantic
+validator have not cut over to them.
+
 ## Native physical source authority (#494)
 
 The certification-only `ProjectSession` now owns its own `SourceAuthority` under
@@ -196,7 +230,8 @@ reference-document exporter's deliberately permissive `unrepresentable: 'any'` b
 Committed outputs under `tools/project_authoring/generated/` are deterministic:
 
 - `contracts.json`: structural JSON Schemas, node/child relationships, ordered check stages, roots,
-  semantic operation references, literal defaults, and Room sparse-source omissions;
+  semantic operation references, literal defaults, Room/Map sparse-source omissions,
+  and Material preset roles/sampler contracts;
 - `project_types.hpp`: C++20 structural records, enums (with exact numeric/boolean literal values), tagged `std::variant` unions, optional fields,
   arrays, maps, and boxed recursive nodes, without a JSON-library dependency;
 - `operations.hpp`: stable native operation IDs and kinds.
@@ -262,11 +297,13 @@ ctest --test-dir build/native-authoring --output-on-failure
 NOVELTEA_SCHEMA_CERTIFY="$PWD/build/native-authoring/noveltea-schema-certify" \
 NOVELTEA_YAML_CERTIFY="$PWD/build/native-authoring/noveltea-yaml-certify" \
 NOVELTEA_ROOM_SESSION_CERTIFY="$PWD/build/native-authoring/noveltea-room-session-certify" \
+NOVELTEA_ROOM_MAP_CERTIFY="$PWD/build/native-authoring/noveltea-room-map-certify" \
   pnpm -C editor exec vp test run \
   src/renderer/test/native-schema-generation.test.ts \
   src/renderer/test/native-schema-parity.test.ts \
   src/renderer/test/native-yaml-parity.test.ts \
-  src/renderer/test/native-room-session-parity.test.ts
+  src/renderer/test/native-room-session-parity.test.ts \
+  src/renderer/test/native-room-map-parity.test.ts
 ```
 
 The normal host-tools graph also builds the library and certification executable. Web, Android, and

@@ -61,6 +61,8 @@ class RoomSession {
 public:
     static std::unique_ptr<RoomSession> open(const std::filesystem::path& project_root,
                                              std::string room_id, std::string& error);
+    static std::unique_ptr<RoomSession> open_map(const std::filesystem::path& project_root,
+                                                 std::string map_id, std::string& error);
     // The same generic patch/save boundary with a different admitted source owner.
     // Kept parallel to the production workspace until the migration cutover.
     static std::unique_ptr<RoomSession>
@@ -90,6 +92,7 @@ private:
     std::vector<RoomPatch> unsaved_patches_;
     std::uint64_t working_revision_ = 0;
     bool is_project_ = false;
+    bool is_map_ = false;
     std::vector<ProjectFile> file_inventory_;
 };
 
