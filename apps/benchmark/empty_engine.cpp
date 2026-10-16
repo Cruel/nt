@@ -11,13 +11,100 @@
 #include <SDL3/SDL.h>
 #include <bgfx/bgfx.h>
 
+#include <fstream>
 #include <utility>
 
 namespace noveltea::benchmark {
 
-EmptyEngine::EmptyEngine(std::filesystem::path system_asset_root)
-    : system_asset_root_(std::move(system_asset_root))
+namespace {
+
+bool stage_project(const Options& options, EngineWorkload workload,
+                   const std::filesystem::path& root, std::string& reason)
 {
+    std::error_code error;
+    std::filesystem::create_directories(root, error);
+    if (error) {
+        reason = "cannot create benchmark Compiled Project directory: " + error.message();
+        return false;
+    }
+    if (workload == EngineWorkload::FeatureLab && options.feature_lab_package.empty()) {
+        reason = "Feature Lab is optional: supply --feature-lab-package with an exported .ntpkg";
+        return false;
+    }
+    const auto source = workload == EngineWorkload::FeatureLab
+                            ? std::filesystem::path(options.feature_lab_package)
+                            : benchmark_asset_path("compiled-project-minimal.json");
+    size_t length = 0;
+    void* bytes = SDL_LoadFile(source.string().c_str(), &length);
+    if (!bytes || length == 0) {
+        SDL_free(bytes);
+        reason = "cannot read benchmark Compiled Project asset: " + source.string();
+        return false;
+    }
+    const auto destination =
+        root /
+        (workload == EngineWorkload::FeatureLab ? "feature-lab.ntpkg" : "benchmark-compiled.json");
+    std::ofstream output(destination, std::ios::binary | std::ios::trunc);
+    const bool saved = output && bool(output.write(static_cast<const char*>(bytes),
+                                                   static_cast<std::streamsize>(length)));
+    SDL_free(bytes);
+    if (!saved) {
+        reason = "cannot stage benchmark Compiled Project: " + destination.string();
+        return false;
+    }
+    if (workload != EngineWorkload::FeatureLab) {
+        // The canonical compiled golden fixture references this real Lua bootstrap.
+        // Copying the compiled project is not a synthetic Runtime Session.
+        std::filesystem::create_directories(root / "scripts", error);
+        if (error) {
+            reason = "cannot stage bootstrap script: " + error.message();
+            return false;
+        }
+        std::ofstream script(root / "scripts/bootstrap.lua", std::ios::trunc);
+        if (!(script << "return {}\n")) {
+            reason = "cannot write benchmark bootstrap script";
+            return false;
+        }
+    }
+    return true;
+}
+
+} // namespace
+
+EmptyEngine::EmptyEngine(std::filesystem::path system_asset_root, EngineWorkload workload)
+    : system_asset_root_(std::move(system_asset_root)), workload_(workload)
+{
+}
+
+const char* EmptyEngine::id() const
+{
+    switch (workload_) {
+    case EngineWorkload::EmptyEngine:
+        return "engine-empty";
+    case EngineWorkload::EmptyProject:
+        return "engine-compiled-empty";
+    case EngineWorkload::StaticMenu:
+        return "engine-compiled-menu";
+    case EngineWorkload::FeatureLab:
+        return "engine-feature-lab";
+    }
+    return "engine-empty";
+}
+
+const char* EmptyEngine::description() const
+{
+    switch (workload_) {
+    case EngineWorkload::EmptyEngine:
+        return "production Engine tick without a loaded Compiled Project";
+    case EngineWorkload::EmptyProject:
+        return "production Engine and running empty Compiled Project Runtime Session";
+    case EngineWorkload::StaticMenu:
+        return "production Engine with Compiled Project and static title-menu UI";
+    case EngineWorkload::FeatureLab:
+        return "production Engine with optional packaged Feature Lab authored home UI and "
+               "Runtime Session";
+    }
+    return "";
 }
 
 EmptyEngine::~EmptyEngine()
@@ -34,7 +121,9 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
     last_interruption_ = Interruption::None;
 
     PlatformConfig platform;
-    platform.title = "NovelTea Benchmark: Empty Engine";
+    platform.title = workload_ == EngineWorkload::EmptyEngine
+                         ? "NovelTea Benchmark: Empty Engine"
+                         : "NovelTea Benchmark: Compiled Project";
     platform.width = options.width;
     platform.height = options.height;
     platform.resizable = false;
@@ -52,16 +141,38 @@ bool EmptyEngine::prepare(const Options& options, std::string& reason)
     config.compiled_project.clear();
     config.load_title_screen = false;
     config.enable_audio = false;
+    if (workload_ != EngineWorkload::EmptyEngine) {
+#if defined(__ANDROID__)
+        const char* preference = SDL_GetPrefPath("org.noveltea", "benchmark");
+        if (!preference) {
+            reason = "cannot resolve Android benchmark project storage";
+            return false;
+        }
+        const auto project_root = std::filesystem::path(preference) / "compiled-project-workload";
+#else
+        const auto project_root =
+            std::filesystem::path(NOVELTEA_BENCHMARK_RESULTS_DIR) / "compiled-project-workload";
+#endif
+        if (!stage_project(options, workload_, project_root, reason))
+            return false;
+        config.project_asset_root = project_root;
+        config.compiled_project = workload_ == EngineWorkload::FeatureLab
+                                      ? "project:/feature-lab.ntpkg"
+                                      : "project:/benchmark-compiled.json";
+        config.load_title_screen = workload_ == EngineWorkload::StaticMenu;
+    }
 
     EngineToolingConfig tooling;
     tooling.enable_debug_ui = false;
     tooling.show_fps_counter = false;
     tooling.render_perf_logging = false;
     tooling.fps_cap = 0;
+    tooling.keep_runtime_running = workload_ != EngineWorkload::EmptyEngine;
+    tooling.fixed_delta_seconds = options.clock_policy == "fixed-step" ? 1.0 / 60.0 : 0.0;
 
     engine_ = std::make_unique<Engine>();
     if (!EngineTooling::initialize(*engine_, platform, config, tooling)) {
-        reason = "empty Engine initialization failed; inspect Engine logs";
+        reason = "production Engine initialization failed; inspect Engine logs";
         return false; // The runner also cleans up failed preparation.
     }
     const auto size = engine_->backbuffer_size();

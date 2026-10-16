@@ -70,7 +70,8 @@ const keys = {
   "--texture-size":"textureSize", "--coverage":"coverage",
   "--composition-path":"compositionPath", "--composite-passes":"compositePasses",
   "--target-scale":"targetScale", "--msaa-samples":"msaaSamples",
-  "--ready-timeout-seconds":"readyTimeout",
+  "--ready-timeout-seconds":"readyTimeout", "--clock-policy":"clockPolicy",
+  "--feature-lab-package":"featureLabPackage",
   "--output":"output"
 };
 const switches = {"--smoke":"smoke", "--no-ui":"noUi", "--ui":"ui",

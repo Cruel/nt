@@ -51,13 +51,14 @@ void print_usage()
     std::puts("       [--frames N] [--repeats N] [--ready-timeout-seconds N]");
     std::puts(
         "       [--width N] [--height N] [--vsync] [--profile clean|diagnostic] [--no-ui|--ui]");
-    std::puts(
-        "       [--scenario raw-bgfx-empty|raw-bgfx-geometry|raw-bgfx-clear|"
-        "raw-bgfx-single-quad|raw-bgfx-textured|raw-bgfx-offscreen|raw-bgfx-draw-calls|"
-        "raw-bgfx-composition|"
-        "standalone-rmlui-simple|standalone-rmlui-scaling|integrated-rmlui-scaling|"
-        "standalone-rmlui-effects|integrated-rmlui-effects|"
-        "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty] [--rect-count N]");
+    std::puts("       [--scenario raw-bgfx-empty|raw-bgfx-geometry|raw-bgfx-clear|"
+              "raw-bgfx-single-quad|raw-bgfx-textured|raw-bgfx-offscreen|raw-bgfx-draw-calls|"
+              "raw-bgfx-composition|"
+              "standalone-rmlui-simple|standalone-rmlui-scaling|integrated-rmlui-scaling|"
+              "standalone-rmlui-effects|integrated-rmlui-effects|"
+              "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty|"
+              "engine-compiled-empty|engine-compiled-menu|engine-feature-lab] [--rect-count N]");
+    std::puts("       [--clock-policy realtime|fixed-step] [--feature-lab-package FILE]");
     std::puts("       [--rect-scale 0.25..1.0] [--draw-calls N] [--quad-count N]");
     std::puts("       [--texture-size N] [--coverage 0.125..1.0] [--raw-samples]");
     std::puts("       [--composition-path direct|offscreen] [--composite-passes 0..4]");
@@ -930,6 +931,7 @@ int run_dashboard(Options options)
         !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_scaling_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_effects_scenario(options.scenario) &&
+        !noveltea::benchmark::is_compiled_project_scenario(options.scenario) &&
         options.scenario != "standalone-rmlui-simple" &&
         options.scenario != "integrated-rmlui-controlled" &&
         options.scenario != "integrated-rmlui-production" && options.scenario != "engine-empty") {
@@ -1066,6 +1068,11 @@ int run_dashboard(Options options)
         Options run_options =
             quick ? noveltea::benchmark::reference_scenario_options(options, options.scenario)
                   : options;
+        // The six Quick Suite references never advance a Compiled Project session.
+        if (quick) {
+            run_options.clock_policy = "realtime";
+            run_options.feature_lab_package.clear();
+        }
         run_options.quick_suite = quick;
 #if defined(__ANDROID__)
         EmptyBenchmarkCover cover;
@@ -1086,7 +1093,9 @@ int run_dashboard(Options options)
                                 run_options.scenario == "integrated-rmlui-production" ||
                                 run_options.scenario == "integrated-rmlui-scaling" ||
                                 run_options.scenario == "integrated-rmlui-effects";
-        const bool engine_owned = integrated || run_options.scenario == "engine-empty";
+        const bool engine_owned =
+            integrated || run_options.scenario == "engine-empty" ||
+            noveltea::benchmark::is_compiled_project_scenario(run_options.scenario);
         bool ran = false;
         if (quick) {
             std::vector<Environment> environments;
@@ -1119,7 +1128,8 @@ int run_dashboard(Options options)
                 run_options.scenario == "integrated-rmlui-controlled",
                 run_options.scenario == "integrated-rmlui-scaling",
                 run_options.scenario == "integrated-rmlui-effects");
-            noveltea::benchmark::EmptyEngine empty_engine;
+            noveltea::benchmark::EmptyEngine empty_engine(
+                {}, noveltea::benchmark::engine_workload(run_options.scenario));
             Scenario* selected = integrated ? static_cast<Scenario*>(&engine_ui)
                                             : static_cast<Scenario*>(&empty_engine);
             noveltea::benchmark::Recovery recover;
@@ -1270,12 +1280,14 @@ int run_dashboard(Options options)
                                        ? "raw-bgfx-empty"
                                        : "raw-bgfx-geometry";
 #else
-                options.scenario = (original_options.scenario == "standalone-rmlui-simple" ||
-                                    original_options.scenario == "integrated-rmlui-controlled" ||
-                                    original_options.scenario == "integrated-rmlui-production" ||
-                                    original_options.scenario == "engine-empty")
-                                       ? "raw-bgfx-geometry"
-                                       : "integrated-rmlui-production";
+                options.scenario =
+                    (original_options.scenario == "standalone-rmlui-simple" ||
+                     original_options.scenario == "integrated-rmlui-controlled" ||
+                     original_options.scenario == "integrated-rmlui-production" ||
+                     original_options.scenario == "engine-empty" ||
+                     noveltea::benchmark::is_compiled_project_scenario(original_options.scenario))
+                        ? "raw-bgfx-geometry"
+                        : "integrated-rmlui-production";
 #endif
                 options =
                     noveltea::benchmark::reference_scenario_options(options, options.scenario);
@@ -1287,7 +1299,8 @@ int run_dashboard(Options options)
             if (options.scenario != "raw-bgfx-empty" &&
                 options.scenario != "integrated-rmlui-production" &&
                 options.scenario != "integrated-rmlui-controlled" &&
-                options.scenario != "engine-empty")
+                options.scenario != "engine-empty" &&
+                !noveltea::benchmark::is_compiled_project_scenario(options.scenario))
                 dashboard.set_inspection_only(cycle % 2 == 0);
             else
                 dashboard.set_inspection_only(false);
@@ -1380,6 +1393,7 @@ int run(const Options& options)
         !noveltea::benchmark::is_extended_raw_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_scaling_scenario(options.scenario) &&
         !noveltea::benchmark::is_ui_effects_scenario(options.scenario) &&
+        !noveltea::benchmark::is_compiled_project_scenario(options.scenario) &&
         options.scenario != "standalone-rmlui-simple" &&
         options.scenario != "integrated-rmlui-controlled" &&
         options.scenario != "integrated-rmlui-production" && options.scenario != "engine-empty") {
@@ -1389,8 +1403,10 @@ int run(const Options& options)
     SteadyClock clock;
     if (options.quick_suite) {
         Graphics graphics;
-        const Options suite_options =
+        Options suite_options =
             noveltea::benchmark::reference_scenario_options(options, options.scenario);
+        suite_options.clock_policy = "realtime";
+        suite_options.feature_lab_package.clear();
         std::vector<Environment> environments;
         const SuiteResult suite =
             run_native_quick_suite(suite_options, graphics, clock, environments);
@@ -1419,7 +1435,8 @@ int run(const Options& options)
     noveltea::benchmark::IntegratedRmlUi effects_engine(false, false, true);
     noveltea::benchmark::IntegratedRmlUi controlled(true);
     noveltea::benchmark::IntegratedRmlUi production(false);
-    noveltea::benchmark::EmptyEngine empty_engine;
+    noveltea::benchmark::EmptyEngine empty_engine(
+        {}, noveltea::benchmark::engine_workload(options.scenario));
     Scenario* selected =
         options.scenario == "raw-bgfx-geometry" ? static_cast<Scenario*>(&geometry)
         : noveltea::benchmark::is_extended_raw_scenario(options.scenario)
@@ -1431,11 +1448,15 @@ int run(const Options& options)
         : options.scenario == "integrated-rmlui-scaling" ? static_cast<Scenario*>(&scaling_engine)
         : options.scenario == "integrated-rmlui-controlled" ? static_cast<Scenario*>(&controlled)
         : options.scenario == "integrated-rmlui-production" ? static_cast<Scenario*>(&production)
-        : options.scenario == "engine-empty"                ? static_cast<Scenario*>(&empty_engine)
-                                                            : static_cast<Scenario*>(&empty);
+        : options.scenario == "engine-empty" ||
+                noveltea::benchmark::is_compiled_project_scenario(options.scenario)
+            ? static_cast<Scenario*>(&empty_engine)
+            : static_cast<Scenario*>(&empty);
     noveltea::benchmark::Recovery recover;
 #if defined(__ANDROID__)
-    if (options.scenario == "engine-empty" || options.scenario == "integrated-rmlui-controlled" ||
+    if (options.scenario == "engine-empty" ||
+        noveltea::benchmark::is_compiled_project_scenario(options.scenario) ||
+        options.scenario == "integrated-rmlui-controlled" ||
         options.scenario == "integrated-rmlui-production" ||
         options.scenario == "integrated-rmlui-scaling" ||
         options.scenario == "integrated-rmlui-effects")
@@ -1443,7 +1464,9 @@ int run(const Options& options)
 #endif
     const SuiteResult result = noveltea::benchmark::run_suite(options, {selected}, clock, recover);
     const Environment environment =
-        options.scenario == "engine-empty"                  ? empty_engine.environment()
+        options.scenario == "engine-empty" ||
+                noveltea::benchmark::is_compiled_project_scenario(options.scenario)
+            ? empty_engine.environment()
         : options.scenario == "integrated-rmlui-controlled" ? controlled.environment()
         : options.scenario == "integrated-rmlui-production" ? production.environment()
         : options.scenario == "integrated-rmlui-scaling"    ? scaling_engine.environment()

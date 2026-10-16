@@ -1,0 +1,23 @@
+{
+  "format": "noveltea.benchmark.configuration",
+  "version": 1,
+  "scenario": "engine-compiled-empty",
+  "scenario_version": 1,
+  "parameters": {},
+  "clock_policy": "fixed-step",
+  "settings": {
+    "width": 1280,
+    "height": 720,
+    "warmup_seconds": 0.5,
+    "measurement_seconds": 2,
+    "measurement_frames": 60,
+    "repeats": 2,
+    "ready_timeout_seconds": 5,
+    "profile": "clean",
+    "no_ui": true,
+    "quick_suite": false,
+    "raw_samples": true,
+    "vsync": false,
+    "output": ""
+  }
+}

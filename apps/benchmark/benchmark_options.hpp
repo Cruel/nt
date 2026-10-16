@@ -19,6 +19,8 @@ struct Options {
     bool raw_samples = false;
     bool no_ui = true;
     std::string profile = "clean";
+    std::string clock_policy = "realtime"; // Full Engine workloads may use fixed 60 Hz steps.
+    std::string feature_lab_package;       // Optional exported .ntpkg, staged before warmup.
     bool vsync = false;
     bool help = false;
     bool dashboard_smoke = false;
