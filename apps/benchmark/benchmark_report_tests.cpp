@@ -270,6 +270,44 @@ int main()
                     empty_engine_config,
             "empty Engine has stable, parameter-free configuration"))
         return 1;
+    for (const char* id : {"engine-compiled-empty", "engine-compiled-menu"}) {
+        Options project;
+        project.scenario = id;
+        project.clock_policy = "fixed-step";
+        const auto encoded = nlohmann::json::parse(encode_configuration(project));
+        Options decoded;
+        if (!check(encoded["clock_policy"] == "fixed-step" && encoded["parameters"].empty() &&
+                       decode_configuration(encoded.dump(), decoded, error) &&
+                       decoded.scenario == id && decoded.clock_policy == "fixed-step" &&
+                       nlohmann::json::parse(encode_configuration(decoded)) == encoded,
+                   "Compiled Project reference and fixed clock roundtrip"))
+            return 1;
+        auto wrong_parameters = encoded;
+        wrong_parameters["parameters"]["unknown"] = 1;
+        if (!check(rejected(wrong_parameters), "Compiled Project must reject extra parameters"))
+            return 1;
+    }
+    Options feature_lab;
+    feature_lab.scenario = "engine-feature-lab";
+    feature_lab.feature_lab_package = "local/feature-lab.ntpkg";
+    const auto feature_encoded = nlohmann::json::parse(encode_configuration(feature_lab));
+    Options feature_decoded;
+    if (!check(decode_configuration(feature_encoded.dump(), feature_decoded, error) &&
+                   feature_decoded.scenario == "engine-feature-lab" &&
+                   feature_decoded.feature_lab_package == feature_lab.feature_lab_package &&
+                   nlohmann::json::parse(encode_configuration(feature_decoded)) == feature_encoded,
+               "optional Feature Lab path roundtrips explicitly"))
+        return 1;
+    auto missing_package_field = feature_encoded;
+    missing_package_field["parameters"] = nlohmann::json::object();
+    auto bad_package_field = feature_encoded;
+    bad_package_field["parameters"]["package_path"] = 5;
+    auto mismatched_fixed = empty_engine_config;
+    mismatched_fixed["clock_policy"] = "fixed-step";
+    if (!check(rejected(missing_package_field) && rejected(bad_package_field) &&
+                   rejected(mismatched_fixed),
+               "strict feature parameters and engine clock compatibility"))
+        return 1;
     auto invalid_engine_parameters = empty_engine_config;
     invalid_engine_parameters["parameters"]["project"] = "not-empty";
     auto invalid_ui_parameters = ui_config;

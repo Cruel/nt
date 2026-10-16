@@ -50,6 +50,7 @@ private:
     bgfx::UniformHandle sampler_ = BGFX_INVALID_HANDLE;
     bgfx::TextureHandle font_ = BGFX_INVALID_HANDLE;
     std::array<char, 512> output_path_{};
+    std::array<char, 1024> feature_lab_path_{};
 };
 
 } // namespace noveltea::benchmark

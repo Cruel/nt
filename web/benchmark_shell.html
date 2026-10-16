@@ -42,7 +42,8 @@ for (const [key, flag] of Object.entries({
   textureSize: '--texture-size', coverage: '--coverage',
   compositionPath: '--composition-path', compositePasses: '--composite-passes',
   targetScale: '--target-scale', msaaSamples: '--msaa-samples',
-  readyTimeout: '--ready-timeout-seconds',
+  readyTimeout: '--ready-timeout-seconds', clockPolicy: '--clock-policy',
+  featureLabPackage: '--feature-lab-package',
   output: '--output'
 })) {
   if (params.has(key)) args.push(flag, params.get(key));

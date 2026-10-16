@@ -88,6 +88,8 @@ bool Dashboard::initialize(SDL_Window* window, const Options& options, std::stri
     window_ = window;
     output_path_.fill(0);
     std::snprintf(output_path_.data(), output_path_.size(), "%s", options.output_path.c_str());
+    std::snprintf(feature_lab_path_.data(), feature_lab_path_.size(), "%s",
+                  options.feature_lab_package.c_str());
     IMGUI_CHECKVERSION();
     ImGui::CreateContext();
     ImGui::GetIO().IniFilename = nullptr;
@@ -278,7 +280,9 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
         if (options.scenario != "raw-bgfx-empty" &&
             options.scenario != "integrated-rmlui-controlled" &&
             options.scenario != "integrated-rmlui-production" &&
-            options.scenario != "engine-empty") {
+            options.scenario != "engine-empty" && options.scenario != "engine-compiled-empty" &&
+            options.scenario != "engine-compiled-menu" &&
+            options.scenario != "engine-feature-lab") {
             if (ImGui::Button("Inspect full scene"))
                 inspection_only_ = true;
         }
@@ -304,12 +308,38 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                           "raw-bgfx-draw-calls", "raw-bgfx-composition", "standalone-rmlui-simple",
                           "integrated-rmlui-controlled", "integrated-rmlui-production",
                           "standalone-rmlui-scaling", "integrated-rmlui-scaling",
-                          "standalone-rmlui-effects", "integrated-rmlui-effects", "engine-empty"}) {
+                          "standalone-rmlui-effects", "integrated-rmlui-effects", "engine-empty",
+                          "engine-compiled-empty", "engine-compiled-menu", "engine-feature-lab"}) {
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
                             options = reference_scenario_options(options, candidate);
+                            // Preserve the explicitly chosen optional package across scenario
+                            // switches without attaching it to unrelated references.
+                            if (options.scenario == "engine-feature-lab")
+                                options.feature_lab_package = feature_lab_path_.data();
                         }
                     }
                     ImGui::EndCombo();
+                }
+                if (options.scenario == "engine-compiled-empty" ||
+                    options.scenario == "engine-compiled-menu" ||
+                    options.scenario == "engine-feature-lab") {
+                    if (ImGui::BeginCombo("Runtime Session clock", options.clock_policy.c_str())) {
+                        for (const char* policy : {"realtime", "fixed-step"}) {
+                            if (ImGui::Selectable(policy, options.clock_policy == policy))
+                                options.clock_policy = policy;
+                        }
+                        ImGui::EndCombo();
+                    }
+                    ImGui::TextWrapped(
+                        "Fixed-step uses 1/60 s per Engine tick; real-time "
+                        "uses the production host clock. Both present frames normally.");
+                    if (options.scenario == "engine-feature-lab") {
+                        if (ImGui::InputText("Exported Feature Lab package (.ntpkg)",
+                                             feature_lab_path_.data(), feature_lab_path_.size()))
+                            options.feature_lab_package = feature_lab_path_.data();
+                        ImGui::TextWrapped("Feature Lab is optional. Export its runtime package "
+                                           "before running; preparation does not enter sampling.");
+                    }
                 }
                 if (is_ui_scaling_scenario(options.scenario)) {
                     int count = static_cast<int>(options.ui_elements);
@@ -457,20 +487,17 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         options.coverage = 1.0;
                     }
                 }
-#if defined(__ANDROID__)
-                ImGui::TextDisabled("Android: raw bgfx references only.");
-#elif defined(__EMSCRIPTEN__)
-                ImGui::TextDisabled("Web: raw bgfx and standalone RmlUi references.");
-#else
                 ImGui::TextDisabled("Engine-owned scenarios use the production Engine and a "
-                                    "separate graphics host.");
+                                    "separate graphics host on all platforms.");
                 if (options.scenario == "integrated-rmlui-controlled" ||
                     options.scenario == "integrated-rmlui-production" ||
-                    options.scenario == "engine-empty")
+                    options.scenario == "engine-empty" ||
+                    options.scenario == "engine-compiled-empty" ||
+                    options.scenario == "engine-compiled-menu" ||
+                    options.scenario == "engine-feature-lab")
                     ImGui::TextWrapped("Engine preview requires exclusive graphics ownership. "
                                        "The actual Engine output is visible during a run; the "
                                        "dashboard does not substitute a fake Engine preview.");
-#endif
                 ImGui::Spacing();
                 ImGui::TextWrapped(
                     "Preview renders the selected reference outside sampling. "

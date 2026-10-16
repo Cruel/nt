@@ -122,7 +122,7 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
             flag != "--width" && flag != "--height" && flag != "--warmup-seconds" &&
             flag != "--seconds" && flag != "--frames" && flag != "--output" &&
             flag != "--repeats" && flag != "--ready-timeout-seconds" && flag != "--profile" &&
-            flag != "--config") {
+            flag != "--config" && flag != "--clock-policy" && flag != "--feature-lab-package") {
             error = "unknown argument: " + std::string(flag);
             return false;
         }
@@ -142,6 +142,24 @@ bool parse_options(int argc, const char* const argv[], Options& options, std::st
         if (flag == "--scenario") {
             has_cli_settings = true;
             options.scenario = value;
+            continue;
+        }
+        if (flag == "--clock-policy") {
+            has_cli_settings = true;
+            options.clock_policy = value;
+            if (options.clock_policy != "realtime" && options.clock_policy != "fixed-step") {
+                error = "--clock-policy must be realtime or fixed-step";
+                return false;
+            }
+            continue;
+        }
+        if (flag == "--feature-lab-package") {
+            has_cli_settings = true;
+            if (!*value) {
+                error = "--feature-lab-package requires a path";
+                return false;
+            }
+            options.feature_lab_package = value;
             continue;
         }
         if (flag == "--ui-preset") {
@@ -411,6 +429,11 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
 {
     Options selected = base;
     selected.scenario = scenario;
+    if (scenario != "engine-feature-lab")
+        selected.feature_lab_package.clear();
+    if (scenario != "engine-compiled-empty" && scenario != "engine-compiled-menu" &&
+        scenario != "engine-feature-lab")
+        selected.clock_policy = "realtime";
     const Options defaults;
     selected.rect_count = defaults.rect_count;
     selected.ui_elements = defaults.ui_elements;
@@ -442,6 +465,16 @@ Options reference_scenario_options(const Options& base, std::string_view scenari
 bool validate_reference_options(const Options& options, std::string& reason)
 {
     const Options defaults;
+    const bool project_scenario = options.scenario == "engine-compiled-empty" ||
+                                  options.scenario == "engine-compiled-menu" ||
+                                  options.scenario == "engine-feature-lab";
+    if ((options.clock_policy != "realtime" && options.clock_policy != "fixed-step") ||
+        (options.clock_policy == "fixed-step" && !project_scenario) ||
+        (!options.feature_lab_package.empty() && options.scenario != "engine-feature-lab")) {
+        reason = "fixed-step clock requires a Compiled Project scenario; package path requires "
+                 "Feature Lab";
+        return false;
+    }
     const bool effects_scenario = is_ui_effects_scenario(options.scenario);
     const auto effects = ui_effect_counts(options);
     const auto default_effects = ui_effect_counts(defaults);
@@ -533,7 +566,8 @@ bool validate_reference_options(const Options& options, std::string& reason)
     }
     if ((options.scenario == "raw-bgfx-empty" || options.scenario == "standalone-rmlui-simple" ||
          options.scenario == "integrated-rmlui-production" ||
-         options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty") &&
+         options.scenario == "integrated-rmlui-controlled" || options.scenario == "engine-empty" ||
+         project_scenario) &&
         options.rect_count == kReferenceRectCount && options.rect_scale == kReferenceRectScale &&
         options.draw_calls == 64 && options.quad_count == 1 && options.texture_size == 256 &&
         options.coverage == 1.0) {

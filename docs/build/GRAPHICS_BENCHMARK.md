@@ -1,15 +1,87 @@
-# Graphics Benchmark (Linux, Android, and Web, #422–#436)
+# Graphics Benchmark (Linux, Android, and Web, #422–#438)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
-the NovelTea Engine, while `engine-empty` and the integrated RmlUi modes use
-the real Engine and production Renderer. The binary links the Engine library
+the NovelTea Engine, while `engine-empty`, the Compiled Project workloads,
+and the integrated RmlUi modes use the real Engine and production Renderer. The binary links the Engine library
 for Engine-owned scenarios; standalone scenarios remain separately owned.
 Interactive use adds a dedicated Dear ImGui frontend that is fully destroyed before
 sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## Production Compiled Project workloads (#438)
+
+Three additional, opt-in Engine workloads compare application frames with real
+Compiled Project and Runtime Session ownership. They share the same Engine
+initialization, production renderer, frame loop, and teardown as `engine-empty`;
+no benchmark-only game simulation or alternate Runtime Session is introduced.
+The existing six-scenario Quick Suite remains unchanged.
+
+- `engine-compiled-empty` loads the deterministic, minimal compiled-project
+  golden fixture (one empty entry Room, no gameplay graphics) and enters its
+  real Runtime Session without displaying the title screen.
+- `engine-compiled-menu` loads that same project but displays NovelTea's
+  production default, static title-menu document instead of entering gameplay.
+- `engine-feature-lab` loads an **optional** exported Feature Lab runtime
+  `.ntpkg`, enters the actual authored Feature Lab Runtime Session, and
+  displays its game UI. An absent/unreadable package is a preparation **failure**
+  with zero measurements, not a substituted minimal project.
+
+The two built-in Compiled Project presets are checked in at
+`apps/benchmark/stage2-compiled-empty.json` (fixed-step) and
+`apps/benchmark/stage2-compiled-menu.json` (real-time). Each specifies a
+1280×720 Clean run, 0.5 s warmup, two 60-frame trials, and raw CPU samples:
+
+```sh
+./scripts/run-benchmark.sh -- --config apps/benchmark/stage2-compiled-empty.json
+./scripts/run-benchmark.sh -- --config apps/benchmark/stage2-compiled-menu.json
+```
+
+Alternatively select the scenario in the dashboard or by `--scenario` and
+choose `--clock-policy fixed-step|realtime` (default: `realtime`). Fixed-step
+submits 1/60 s to the **production** Engine simulation each tick for repeatable
+isolated update patterns; it does *not* disable normal bgfx presentation or
+make wall-clock frame timing deterministic. Real-time ticks advance from the
+platform clock. `configuration.clock_policy` records the actual selection;
+non-Compiled-Project references reject fixed-step to prevent misleading
+comparisons. CPU timing and framebuffer presentation are measured normally
+under either clock policy. Creation, project staging, asset loads, Engine
+initialization, initial four settling ticks, and cleanup are outside timed
+measurements. Each trial creates and destroys a fresh Engine/Runtime Session.
+
+Feature Lab is opt-in. Export it from the normal CLI **before** running; no
+Feature Lab files are required to build or run the other benchmarks:
+
+```sh
+build/cli/linux/noveltea --project tests/projects/feature-lab package export \
+  --output build/linux-debug/benchmarks/feature-lab.ntpkg \
+  --include-unused-assets --allow-localization-warnings
+./scripts/run-benchmark.sh -- --scenario engine-feature-lab \
+  --feature-lab-package build/linux-debug/benchmarks/feature-lab.ntpkg \
+  --smoke --profile clean
+```
+
+The packaged project is loaded through Engine's normal `project:/` source and
+contains its own compiled runtime/assets. The benchmark copies it into its
+private fixture directory during preparation. The path is included in the
+canonical `configuration.parameters.package_path`, making accidental use of
+a different exported package visible; record and preserve the actual `.ntpkg`
+artifact for comparisons. On Android, stage a readable local path in app-private
+storage before passing `--feature-lab-package`; on Web, the file must already
+be available inside Emscripten's virtual filesystem (a host filesystem path
+or URL is not automatically mounted). The built-in projects are packaged in
+the benchmark's own native/Web/Android assets and need no external staging.
+
+For cross-host comparisons keep the compiled content revision, clock policy,
+width, VSync, frame count, warmup, build profile, and runtime package constant.
+These are full Engine workloads, **not** CPU-only Runtime Session microbenchmarks;
+RmlUi/bgfx costs and ordinary host presentation remain included. The
+`noveltea_benchmark_engine_compiled-*_graphics_smoke` CTests exercise repeated
+real startup/tick/shutdown, and the Engine integration test checks the missing
+Feature Lab package failure; successful opt-in Feature Lab reproduction is
+verified by explicitly exporting and running its `.ntpkg`.
 
 ## RmlUi element, text, and context scaling (#436)
 

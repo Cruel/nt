@@ -265,6 +265,38 @@ int main()
     options.ui_elements = 513;
     if (noveltea::benchmark::validate_reference_options(options, error))
         return 1;
+    const char* const project_cli[] = {"benchmark", "--scenario", "engine-compiled-empty",
+                                       "--clock-policy", "fixed-step"};
+    const char* const feature_cli[] = {"benchmark", "--scenario", "engine-feature-lab",
+                                       "--feature-lab-package", "lab.ntpkg"};
+    const char* const invalid_clock[] = {"benchmark", "--clock-policy", "30fps"};
+    const char* const invalid_package[] = {"benchmark", "--feature-lab-package", ""};
+    if (!expect_options(project_cli, 5, true) || !expect_options(feature_cli, 5, true) ||
+        !expect_options(invalid_clock, 3, false) || !expect_options(invalid_package, 3, false))
+        return 1;
+    if (!noveltea::benchmark::parse_options(5, project_cli, options, error) ||
+        options.clock_policy != "fixed-step" ||
+        !noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
+    const auto menu =
+        noveltea::benchmark::reference_scenario_options(options, "engine-compiled-menu");
+    if (menu.clock_policy != "fixed-step" ||
+        !noveltea::benchmark::validate_reference_options(menu, error))
+        return 1;
+    const auto raw = noveltea::benchmark::reference_scenario_options(menu, "raw-bgfx-empty");
+    if (raw.clock_policy != "realtime" || !raw.feature_lab_package.empty() ||
+        !noveltea::benchmark::validate_reference_options(raw, error))
+        return 1;
+    if (!noveltea::benchmark::parse_options(5, feature_cli, options, error) ||
+        options.feature_lab_package != "lab.ntpkg" ||
+        !noveltea::benchmark::validate_reference_options(options, error) ||
+        !noveltea::benchmark::reference_scenario_options(options, "engine-compiled-menu")
+             .feature_lab_package.empty())
+        return 1;
+    options.clock_policy = "fixed-step";
+    options.scenario = "engine-empty";
+    if (noveltea::benchmark::validate_reference_options(options, error))
+        return 1;
     options = {};
     for (const char* id : {"raw-bgfx-clear", "raw-bgfx-single-quad", "raw-bgfx-textured",
                            "raw-bgfx-offscreen", "raw-bgfx-draw-calls"}) {

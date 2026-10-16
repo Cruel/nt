@@ -92,6 +92,9 @@ add_custom_target(noveltea-benchmark-stage-assets
     COMMAND "${CMAKE_COMMAND}" -E copy_if_different
         "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
         "${CMAKE_CURRENT_BINARY_DIR}/assets/fonts/LiberationSans.ttf"
+    COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+        "${PROJECT_SOURCE_DIR}/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
+        "${CMAKE_CURRENT_BINARY_DIR}/assets/compiled-project-minimal.json"
     COMMAND "${CMAKE_COMMAND}" -E copy_directory
         "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/glsl-330"
         "${CMAKE_CURRENT_BINARY_DIR}/assets/shaders/bgfx/glsl-330"
@@ -119,6 +122,9 @@ if(EMSCRIPTEN)
         COMMAND "${CMAKE_COMMAND}" -E copy_if_different
             "${PROJECT_SOURCE_DIR}/engine/assets/system/fonts/LiberationSans.ttf"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/fonts/LiberationSans.ttf"
+        COMMAND "${CMAKE_COMMAND}" -E copy_if_different
+            "${PROJECT_SOURCE_DIR}/editor/src/renderer/test/fixtures/compiled-project-golden/minimal.json"
+            "${NOVELTEA_WEB_BENCHMARK_ASSETS}/compiled-project-minimal.json"
         COMMAND "${CMAKE_COMMAND}" -E copy_directory
             "${NOVELTEA_ACTIVE_SHADER_ASSET_ROOT}/shaders/bgfx/essl-300"
             "${NOVELTEA_WEB_BENCHMARK_ASSETS}/shaders/bgfx/essl-300"
@@ -269,6 +275,27 @@ if(BUILD_TESTING AND NOT ANDROID)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
             TIMEOUT 120)
+        foreach(project_case compiled-empty compiled-menu)
+            add_test(NAME "noveltea_benchmark_engine_${project_case}_graphics_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --scenario "engine-${project_case}" --smoke --repeats 2
+                    --clock-policy fixed-step
+                    --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-${project_case}.json")
+            set_tests_properties("noveltea_benchmark_engine_${project_case}_graphics_smoke"
+                PROPERTIES LABELS "benchmark;graphics;smoke"
+                PASS_REGULAR_EXPRESSION "complete: 60 frames across 2 trial"
+                TIMEOUT 120)
+        endforeach()
+        foreach(project_case compiled-empty compiled-menu)
+            add_test(NAME "noveltea_benchmark_${project_case}_canonical_smoke"
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                    --config "${CMAKE_CURRENT_SOURCE_DIR}/stage2-${project_case}.json"
+                    --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-${project_case}-canonical.json")
+            set_tests_properties("noveltea_benchmark_${project_case}_canonical_smoke" PROPERTIES
+                LABELS "benchmark;graphics;smoke"
+                PASS_REGULAR_EXPRESSION "complete: 120 frames across 2 trial"
+                TIMEOUT 120)
+        endforeach()
         add_test(NAME noveltea_benchmark_empty_engine_dashboard_lifecycle_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario engine-empty --dashboard-smoke

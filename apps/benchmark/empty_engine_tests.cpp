@@ -118,6 +118,34 @@ int main()
                "Engine must recover from failed preparation in the same process"))
         return 1;
 
+    // Each Compiled Project fixture must run a real, repeatedly initialized
+    // Runtime Session, without retaining graphics objects between trials.
+    for (const auto workload : {EngineWorkload::EmptyProject, EngineWorkload::StaticMenu}) {
+        EmptyEngine loaded({}, workload);
+        options.scenario = loaded.id();
+        options.clock_policy = "fixed-step";
+        options.repeats = 2;
+        const auto result = run_suite(options, {&loaded}, clock);
+        if (!check(result.outcome == "complete" && result.scenarios.front().measured_frames == 6 &&
+                       result.scenarios.front().trials.size() == 2 &&
+                       loaded.environment().frame_path == "engine-tick",
+                   "Compiled Project must execute two full Engine/Runtime Session trials"))
+            return 1;
+    }
+    EmptyEngine optional({}, EngineWorkload::FeatureLab);
+    options.scenario = optional.id();
+    options.repeats = 1;
+    options.feature_lab_package.clear();
+    const auto omitted = run_suite(options, {&optional}, clock);
+    if (!check(omitted.outcome == "failed" &&
+                   omitted.scenarios.front().trials.front().reason.find("--feature-lab-package") !=
+                       std::string::npos &&
+                   omitted.scenarios.front().measured_frames == 0,
+               "Feature Lab missing package must fail preparation without sampling"))
+        return 1;
+    options.clock_policy = "realtime";
+    options.scenario = "engine-empty";
+
     // Escape during both warmup and measurement must cancel all repeats and
     // never start the next Quick Suite scenario. Exercise both real adapters.
     for (const char* id :

@@ -80,6 +80,10 @@ tasks.register("stageBenchmarkAssets", Sync) {
         include "LiberationSans.ttf"
         into "fonts"
     }
+    from(file("../../editor/src/renderer/test/fixtures/compiled-project-golden")) {
+        include "minimal.json"
+        rename "minimal.json", "compiled-project-minimal.json"
+    }
     // Real Engine-owned scenarios mount system:/ from the APK asset manager.
     from(file("../../engine/assets/system")) {
         into "system"

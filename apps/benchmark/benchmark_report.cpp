@@ -52,6 +52,8 @@ Json configuration(const Options& options)
                       {"hidden_contexts", options.ui_hidden_contexts},
                       {"text_mode", options.ui_text_mode},
                       {"redraw", options.ui_redraw}};
+    else if (options.scenario == "engine-feature-lab")
+        parameters = {{"package_path", options.feature_lab_package}};
     else if (options.scenario == "raw-bgfx-draw-calls")
         parameters = {{"draw_calls", options.draw_calls},
                       {"quad_count", options.quad_count},
@@ -62,7 +64,7 @@ Json configuration(const Options& options)
             {"scenario", options.scenario},
             {"scenario_version", 1},
             {"parameters", parameters},
-            {"clock_policy", "realtime"},
+            {"clock_policy", options.clock_policy},
             {"settings",
              {{"width", options.width},
               {"height", options.height},
@@ -182,7 +184,7 @@ bool decode_configuration(std::string_view source, Options& options, std::string
         !root["scenario"].is_string() || root["scenario"].get<std::string>().empty() ||
         !root["scenario_version"].is_number_integer() || root["scenario_version"] != 1 ||
         !root["parameters"].is_object() || !root["clock_policy"].is_string() ||
-        root["clock_policy"] != "realtime") {
+        (root["clock_policy"] != "realtime" && root["clock_policy"] != "fixed-step")) {
         reason = "invalid or unsupported benchmark configuration schema";
         return false;
     }
@@ -190,9 +192,15 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     const auto& parameters = root["parameters"];
     if (scenario == "raw-bgfx-empty" || scenario == "standalone-rmlui-simple" ||
         scenario == "integrated-rmlui-production" || scenario == "integrated-rmlui-controlled" ||
-        scenario == "engine-empty") {
+        scenario == "engine-empty" || scenario == "engine-compiled-empty" ||
+        scenario == "engine-compiled-menu") {
         if (!parameters.empty()) {
             reason = "empty scenario does not take geometry parameters";
+            return false;
+        }
+    } else if (scenario == "engine-feature-lab") {
+        if (!has_fields(parameters, {"package_path"}) || !parameters["package_path"].is_string()) {
+            reason = "invalid Feature Lab package path";
             return false;
         }
     } else if (is_ui_effects_scenario(scenario)) {
@@ -318,6 +326,9 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     }
     Options next;
     next.scenario = scenario;
+    next.clock_policy = root["clock_policy"].get<std::string>();
+    if (scenario == "engine-feature-lab")
+        next.feature_lab_package = parameters["package_path"].get<std::string>();
     if (is_ui_effects_scenario(scenario)) {
         next.ui_clipping = static_cast<uint32_t>(parameters["clipping"].get<uint64_t>());
         next.ui_transforms = static_cast<uint32_t>(parameters["transforms"].get<uint64_t>());

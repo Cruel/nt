@@ -54,7 +54,9 @@ struct WebBenchmarkApp {
 
     static bool engine_owned(const std::string& id)
     {
-        return id == "engine-empty" || id == "integrated-rmlui-controlled" ||
+        return id == "engine-empty" ||
+               noveltea::benchmark::is_compiled_project_scenario(id) ||
+               id == "integrated-rmlui-controlled" ||
                id == "integrated-rmlui-production" || id == "integrated-rmlui-scaling" ||
                id == "integrated-rmlui-effects";
     }
@@ -69,7 +71,8 @@ struct WebBenchmarkApp {
 
     Environment scenario_environment() const
     {
-        if (current_options.scenario == "engine-empty")
+        if (current_options.scenario == "engine-empty" ||
+            noveltea::benchmark::is_compiled_project_scenario(current_options.scenario))
             return static_cast<const noveltea::benchmark::EmptyEngine&>(*active_scenario)
                 .environment();
         if (current_options.scenario == "integrated-rmlui-controlled" ||
@@ -274,8 +277,10 @@ struct WebBenchmarkApp {
                 }
             }
         }
-        if (frozen.scenario == "engine-empty")
-            active_scenario = std::make_unique<noveltea::benchmark::EmptyEngine>();
+        if (frozen.scenario == "engine-empty" ||
+            noveltea::benchmark::is_compiled_project_scenario(frozen.scenario))
+            active_scenario = std::make_unique<noveltea::benchmark::EmptyEngine>(
+                std::filesystem::path{}, noveltea::benchmark::engine_workload(frozen.scenario));
         else if (frozen.scenario == "integrated-rmlui-controlled" ||
                  frozen.scenario == "integrated-rmlui-production" ||
                  frozen.scenario == "integrated-rmlui-scaling" ||
@@ -349,6 +354,10 @@ struct WebBenchmarkApp {
                                ? noveltea::benchmark::reference_scenario_options(
                                      options, options.scenario)
                                : options;
+        if (quick_suite_active) {
+            reported.clock_policy = "realtime";
+            reported.feature_lab_package.clear();
+        }
         reported.quick_suite = quick_suite_active;
         completed_run = noveltea::benchmark::CompletedRun{reported, collected, {}};
         quick_suite_active = false;
