@@ -53,7 +53,7 @@ set(NOVELTEA_MATERIAL_REGISTRY "${CMAKE_CURRENT_SOURCE_DIR}/../../engine/materia
 set_property(DIRECTORY APPEND PROPERTY CMAKE_CONFIGURE_DEPENDS "${NOVELTEA_MATERIAL_REGISTRY}")
 file(READ "${NOVELTEA_MATERIAL_REGISTRY}" NOVELTEA_MATERIAL_REGISTRY_JSON)
 configure_file(embedded_material_registry.hpp.in embedded_material_registry.hpp @ONLY)
-add_library(noveltea_project_authoring_contracts STATIC contracts.cpp room_map_semantics.cpp)
+add_library(noveltea_project_authoring_contracts STATIC contracts.cpp room_map_semantics.cpp localization_operations.cpp)
 set_target_properties(noveltea_project_authoring_contracts PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(noveltea_project_authoring_contracts PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_contracts PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -67,7 +67,7 @@ target_include_directories(noveltea_project_authoring_yaml PUBLIC "${CMAKE_CURRE
 target_include_directories(noveltea_project_authoring_yaml SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
 target_link_libraries(noveltea_project_authoring_yaml PRIVATE fyaml_static)
 # Native Room session remains independent of editor, CLI daemon, and runtime linkage.
-add_library(noveltea_project_authoring_session STATIC room_session.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp test_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp source_authority.cpp yaml_transaction.cpp)
+add_library(noveltea_project_authoring_session STATIC room_session.cpp property_semantics.cpp character_archetype_semantics.cpp interactable_inventory_semantics.cpp dialogue_scene_semantics.cpp verb_interaction_semantics.cpp test_semantics.cpp asset_animation_semantics.cpp material_semantics.cpp localization_semantics.cpp source_authority.cpp yaml_transaction.cpp)
 set_target_properties(noveltea_project_authoring_session PROPERTIES POSITION_INDEPENDENT_CODE ON)
 target_compile_features(noveltea_project_authoring_session PUBLIC cxx_std_20)
 target_include_directories(noveltea_project_authoring_session PUBLIC "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -193,6 +193,11 @@ if(BUILD_TESTING)
     target_include_directories(noveltea-test-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
     target_link_libraries(noveltea-test-certify PRIVATE noveltea_project_authoring_session)
     add_test(NAME native_authoring_tests COMMAND noveltea-test-certify
+        "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
+    add_executable(noveltea-localization-certify localization_certify.cpp)
+    target_include_directories(noveltea-localization-certify SYSTEM PRIVATE "${noveltea_jsoncons_SOURCE_DIR}/include")
+    target_link_libraries(noveltea-localization-certify PRIVATE noveltea_project_authoring_session)
+    add_test(NAME native_authoring_localization COMMAND noveltea-localization-certify
         "${CMAKE_CURRENT_SOURCE_DIR}/../../tests/projects/feature-lab")
     if(NOVELTEA_AUTHORING_TEST_NODE)
         add_test(NAME native_authoring_tests_differential

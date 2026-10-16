@@ -77,6 +77,9 @@ public:
     open_editor_source(const std::filesystem::path& project_root, std::string& error);
     static std::unique_ptr<RoomSession>
     open_traits_source(const std::filesystem::path& project_root, std::string& error);
+    static std::unique_ptr<RoomSession>
+    open_localization_source(const std::filesystem::path& project_root,
+                             std::string_view relative_path, std::string& error);
 
     RoomSessionSnapshot snapshot() const;
     RoomSessionResult patch(std::uint64_t expected_working_revision,
@@ -113,6 +116,7 @@ private:
     bool is_project_ = false;
     bool is_editor_ = false;
     bool is_traits_ = false;
+    bool is_localization_ = false;
     bool is_map_ = false;
     std::string record_family_ = "rooms";
     std::string validation_contract_;
@@ -216,6 +220,12 @@ private:
     mutable std::optional<std::vector<std::pair<std::string, std::string>>> interaction_sources_;
     mutable std::optional<std::vector<std::pair<std::string, std::string>>> test_sources_;
     mutable std::vector<std::pair<std::string, std::string>> interaction_resolver_sources_;
+    // Reuse unchanged localization fragments across unrelated Project snapshots;
+    // only native i18n edits and observed i18n source changes invalidate them.
+    mutable std::optional<ValidationResult> localization_cache_;
+    // An effective lock materialized from sparse disk content is still a
+    // working-session invariant, even before the policy YAML is next saved.
+    std::optional<std::string> localization_source_lock_;
 };
 
 } // namespace noveltea::authoring

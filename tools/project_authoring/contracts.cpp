@@ -1,6 +1,7 @@
 #include "contracts.hpp"
 #include "embedded_contracts.hpp"
 #include "generated/operations.hpp"
+#include "localization_operations.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonschema/jsonschema.hpp>
@@ -112,7 +113,12 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "project.notice-path",
                                                    "project.notice-extension",
                                                    "export.localization-policy",
-                                                   "export.android-profile"};
+                                                   "export.android-profile",
+                                                   "localization.locale-id",
+                                                   "localization.lock-source",
+                                                   "localization.pattern.plural",
+                                                   "localization.pattern.select",
+                                                   "localization.validate"};
 
 bool safe_notice_path(std::string_view path)
 {
@@ -456,6 +462,9 @@ class Validator {
         } else if (id == "string.trim") {
             if (value && value->is_string())
                 value = trim_ecmascript(value->as<std::string>());
+        } else if (id.starts_with("localization.")) {
+            if (value)
+                apply_localization_operation(id, *value, path, errors);
         } else if (id == "lua.dependencies.empty") {
             if (!value)
                 value = Json::parse(R"({"targets":[]})");
@@ -835,7 +844,11 @@ public:
         } else if (!value) {
             issue(errors, path, "schema.required", "Required value is missing.");
         } else {
-            structural(id, *value, path, errors);
+            // Record key and value nodes are validated below, with their own
+            // source pointers. jsoncons reports patternProperties failures
+            // against the parent mapping instead of the offending key.
+            if (type != "record")
+                structural(id, *value, path, errors);
             // A strict object's unknown-key issue must not hide a missing or
             // invalid *known* field. Zod reports both in one parse, and the
             // actionable nested field is important for Gameplay Commands.
