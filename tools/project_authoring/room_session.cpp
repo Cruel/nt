@@ -1,5 +1,6 @@
 #include "room_session.hpp"
 #include "property_semantics.hpp"
+#include "character_archetype_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -903,6 +904,36 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         referenced_variables.emplace(key, value);
         return value;
     };
+    std::map<std::string, std::optional<std::string>> referenced_records;
+    const AuthoringRecordResolver resolve_record =
+        [&](std::string_view family, std::string_view id) -> std::optional<std::string> {
+        const auto owner = std::string(family) + "/" + std::string(id);
+        if (const auto found = referenced_records.find(owner); found != referenced_records.end())
+            return found->second;
+        std::optional<std::string> value;
+        if (const auto edited = records_.find(owner); edited != records_.end()) {
+            const auto record = edited->second->snapshot();
+            if (record.valid)
+                value = record.normalized_json;
+            else
+                value = character_reference_resource_source(family, record.source_json,
+                                                            record.diagnostics);
+        } else if (record_contracts().contains(std::string(family)) && is_id(id)) {
+            std::string error;
+            auto record =
+                RoomSession::open_record(root_, std::string(family), std::string(id), error);
+            if (record) {
+                const auto snapshot = record->snapshot();
+                if (snapshot.valid)
+                    value = snapshot.normalized_json;
+                else
+                    value = character_reference_resource_source(family, snapshot.source_json,
+                                                                snapshot.diagnostics);
+            }
+        }
+        referenced_records.emplace(owner, value);
+        return value;
+    };
     for (const auto& [owner, session] : records_) {
         const auto record = session->snapshot();
         state.dirty |= record.dirty;
@@ -913,8 +944,68 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         }
         const auto slash = owner.find('/');
         const auto family = owner.substr(0, slash);
+        std::string effective_for_traits = record.normalized_json;
+        if (record.valid && slash != std::string::npos &&
+            (family == "rooms" || family == "characters" || family == "interactables" ||
+             family == "archetypes")) {
+            const auto record_value = Json::parse(record.normalized_json);
+            if (family == "archetypes") {
+                const auto semantic = validate_archetype_dependencies(
+                    owner.substr(slash + 1), record.normalized_json, resolve_record);
+                state.valid &= semantic.accepted;
+                for (auto diagnostic : semantic.diagnostics) {
+                    diagnostic.path = "/" + owner + diagnostic.path;
+                    state.diagnostics.push_back(std::move(diagnostic));
+                }
+                if (!semantic.effective_json.empty() && !traits_json.empty()) {
+                    const auto traits =
+                        validate_reusable_trait_configuration(Json::parse(record.normalized_json)
+                                                                  .at("data")
+                                                                  .at("instanceKind")
+                                                                  .as<std::string>(),
+                                                              semantic.effective_json, traits_json);
+                    state.valid &= traits.accepted;
+                    for (auto diagnostic : traits.diagnostics) {
+                        diagnostic.path =
+                            "/" + owner + "/data/effectiveConfiguration" + diagnostic.path;
+                        state.diagnostics.push_back(std::move(diagnostic));
+                    }
+                }
+            } else {
+                const auto semantic =
+                    validate_archetype_owner(family, record.normalized_json, resolve_record);
+                if (!semantic.effective_json.empty())
+                    effective_for_traits = semantic.effective_json;
+                state.valid &= semantic.accepted;
+                for (auto diagnostic : semantic.diagnostics) {
+                    diagnostic.path = "/" + owner + diagnostic.path;
+                    state.diagnostics.push_back(std::move(diagnostic));
+                }
+                if (family == "characters") {
+                    const auto effective = semantic.effective_json.empty()
+                                               ? record.normalized_json
+                                               : semantic.effective_json;
+                    if (record_value.contains("archetype") &&
+                        !record_value.at("archetype").is_null() && semantic.accepted) {
+                        const auto local = validate_character_local(effective);
+                        state.valid &= local.accepted;
+                        for (auto diagnostic : local.diagnostics) {
+                            diagnostic.path = "/" + owner + diagnostic.path;
+                            state.diagnostics.push_back(std::move(diagnostic));
+                        }
+                    }
+                    const auto references =
+                        validate_character_dependencies(effective, resolve_record);
+                    state.valid &= references.accepted;
+                    for (auto diagnostic : references.diagnostics) {
+                        diagnostic.path = "/" + owner + diagnostic.path;
+                        state.diagnostics.push_back(std::move(diagnostic));
+                    }
+                }
+            }
+        }
         if (record.valid && slash != std::string::npos && !traits_json.empty()) {
-            const auto semantic = validate_property_dependencies(family, record.normalized_json,
+            const auto semantic = validate_property_dependencies(family, effective_for_traits,
                                                                  traits_json, resolve_variable);
             state.valid &= semantic.accepted;
             for (auto diagnostic : semantic.diagnostics) {
@@ -1521,19 +1612,27 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.baseline_json = disk_json_;
     state.dirty = Json::parse(disk_json_) != Json::parse(working_json_);
     state.conflicting_paths = conflicting_paths_;
-    const auto result =
-        is_project_  ? validate_record("WorkspaceManifest", working_json_)
-        : is_editor_ ? validate_record("WorkspaceTrackedEditor", working_json_)
-        : record_family_ == "interactables" ? validate_interactable_source(working_json_)
-        : !validation_contract_.empty()     ? validate_record(validation_contract_, working_json_)
-        : is_map_                           ? validate_map_source(working_json_)
-                                            : validate_room_source(working_json_);
+    const auto result = validate_source(working_json_);
     state.valid = result.accepted;
     state.normalized_json = result.effective_json;
     state.diagnostics = result.diagnostics;
     if (result.accepted && record_family_ == "variables") {
         const auto semantic = validate_variable_semantics(result.effective_json);
         state.valid = semantic.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), semantic.diagnostics.begin(),
+                                 semantic.diagnostics.end());
+        if (!state.valid)
+            state.normalized_json.clear();
+    }
+    if (result.accepted && (record_family_ == "characters" || record_family_ == "archetypes")) {
+        const auto normalized = Json::parse(result.effective_json);
+        const bool inherits = record_family_ == "characters" && normalized.contains("archetype") &&
+                              !normalized.at("archetype").is_null();
+        const auto semantic = record_family_ == "archetypes"
+                                  ? validate_archetype_local(result.effective_json)
+                              : inherits ? ValidationResult{true, {}, {}}
+                                         : validate_character_local(result.effective_json);
+        state.valid &= semantic.accepted;
         state.diagnostics.insert(state.diagnostics.end(), semantic.diagnostics.begin(),
                                  semantic.diagnostics.end());
         if (!state.valid)
@@ -1562,6 +1661,27 @@ RoomSessionSnapshot RoomSession::snapshot() const
     return state;
 }
 
+ValidationResult RoomSession::validate_source(std::string_view source_json) const
+{
+    if (is_project_)
+        return validate_record("WorkspaceManifest", source_json);
+    if (is_editor_)
+        return validate_record("WorkspaceTrackedEditor", source_json);
+    if (record_family_ == "interactables")
+        return validate_interactable_source(source_json);
+    if (record_family_ == "characters")
+        return validate_character_source(source_json);
+    if (record_family_ == "archetypes")
+        return validate_archetype_source(source_json);
+    if (record_family_ == "animations")
+        return validate_animation_source(source_json);
+    if (record_family_ == "materials")
+        return validate_material_source(source_json);
+    if (!validation_contract_.empty())
+        return validate_record(validation_contract_, source_json);
+    return is_map_ ? validate_map_source(source_json) : validate_room_source(source_json);
+}
+
 RoomSessionResult RoomSession::result(bool accepted, std::string error, bool changed) const
 {
     RoomSessionResult response;
@@ -1586,13 +1706,7 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
         Json next = Json::parse(working_json_);
         std::vector<RoomPatch> resolved;
         const auto baseline = Json::parse(disk_json_);
-        const auto baseline_validation =
-            is_project_  ? validate_record("WorkspaceManifest", disk_json_)
-            : is_editor_ ? validate_record("WorkspaceTrackedEditor", disk_json_)
-            : record_family_ == "interactables" ? validate_interactable_source(disk_json_)
-            : !validation_contract_.empty()     ? validate_record(validation_contract_, disk_json_)
-            : is_map_                           ? validate_map_source(disk_json_)
-                                                : validate_room_source(disk_json_);
+        const auto baseline_validation = validate_source(disk_json_);
         const auto baseline_effective =
             baseline_validation.accepted
                 ? std::optional<Json>{Json::parse(baseline_validation.effective_json)}
@@ -1639,14 +1753,7 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
             if (concrete.operation == RoomPatch::Operation::Add && !is_project_) {
                 if (is_editor_)
                     materialize_editor_metadata_parents(next, concrete, resolved);
-                const auto current_validation =
-                    is_editor_ ? validate_record("WorkspaceTrackedEditor", next.to_string())
-                    : record_family_ == "interactables"
-                        ? validate_interactable_source(next.to_string())
-                    : !validation_contract_.empty()
-                        ? validate_record(validation_contract_, next.to_string())
-                    : is_map_ ? validate_map_source(next.to_string())
-                              : validate_room_source(next.to_string());
+                const auto current_validation = validate_source(next.to_string());
                 if (current_validation.accepted)
                     materialize_implicit_parents(
                         next, Json::parse(current_validation.effective_json), concrete, resolved);
@@ -1671,14 +1778,7 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                             "Normalized patch requires unsupported source parent projection.");
                     concrete.operation = RoomPatch::Operation::Add;
                 } else if (!original && !is_project_) {
-                    const auto baseline_effective =
-                        is_editor_ ? validate_record("WorkspaceTrackedEditor", disk_json_)
-                        : record_family_ == "interactables"
-                            ? validate_interactable_source(disk_json_)
-                        : !validation_contract_.empty()
-                            ? validate_record(validation_contract_, disk_json_)
-                        : is_map_ ? validate_map_source(disk_json_)
-                                  : validate_room_source(disk_json_);
+                    const auto baseline_effective = validate_source(disk_json_);
                     if (baseline_effective.accepted &&
                         at_pointer(Json::parse(baseline_effective.effective_json), concrete.path) ==
                             std::optional<Json>{Json::parse(concrete.value_json)}) {
@@ -1889,12 +1989,17 @@ RoomSessionResult RoomSession::save(std::string_view expected_disk_revision,
              !merged_json.at("id").is_string() || merged_json.at("id") != room_id_))
             return result(false, "Rebased Room source ID does not match filename.");
         if (!is_project_ && !is_editor_ && !is_traits_) {
-            const auto normalized = is_map_ ? validate_map_source(merged.source_json)
-                                            : validate_room_source(merged.source_json);
+            const auto normalized = validate_source(merged.source_json);
+            const auto* attached =
+                merged_json.contains("archetype") ? &merged_json.at("archetype") : nullptr;
             if (!normalized.accepted ||
-                !validate_room_map_local(is_map_ ? "maps" : "rooms", normalized.effective_json)
-                     .accepted)
-                return result(false, "Rebased Room or Map failed semantic validation.");
+                ((record_family_ == "rooms" || record_family_ == "maps") &&
+                 !validate_room_map_local(record_family_, normalized.effective_json).accepted) ||
+                (record_family_ == "characters" && (!attached || attached->is_null()) &&
+                 !validate_character_local(normalized.effective_json).accepted) ||
+                (record_family_ == "archetypes" &&
+                 !validate_archetype_local(normalized.effective_json).accepted))
+                return result(false, "Rebased Project record failed native validation.");
         }
         const auto committed = writer.commit(preflight, TransactionDecision::UseEditDecisions);
         if (!committed.accepted)

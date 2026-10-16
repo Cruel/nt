@@ -28,4 +28,10 @@ ValidationResult validate_interactable_instance(std::string_view instance_json,
                                                 std::string_view definition_json,
                                                 std::string_view traits_json);
 
+// Archetype configuration is reusable: Trait definitions and defaults must be
+// compatible, but required concrete owner values may be supplied by an Instance.
+ValidationResult validate_reusable_trait_configuration(std::string_view kind,
+                                                       std::string_view configuration_json,
+                                                       std::string_view traits_json);
+
 } // namespace noveltea::authoring

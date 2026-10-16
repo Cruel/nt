@@ -954,6 +954,64 @@ ValidationResult validate_map_source(std::string_view source_json)
     }
 }
 
+namespace {
+ValidationResult validate_sparse_record_source(std::string_view source_json,
+                                               std::string_view family, std::string_view contract,
+                                               std::string_view kind)
+{
+    try {
+        static const Contracts contracts;
+        Json source = Json::parse(source_json);
+        if (source.is_object() && source.contains("data") && source.at("data").is_object() &&
+            source.at("data").contains("kind")) {
+            ValidationResult invalid;
+            invalid.diagnostics.push_back({"/data/kind", "source.redundant_kind",
+                                           "Record YAML must omit the inferred data.kind field."});
+            return invalid;
+        }
+        return validate_record(contract, SparseSourceProjection(contracts, family, contract, kind)
+                                             .project(std::move(source))
+                                             .to_string());
+    } catch (const std::exception& error) {
+        ValidationResult invalid;
+        invalid.diagnostics.push_back({"", "source.projection", error.what()});
+        return invalid;
+    }
+}
+} // namespace
+
+ValidationResult validate_character_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "characters", "CharactersRecord",
+                                         "character");
+}
+
+ValidationResult validate_archetype_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "archetypes", "ArchetypesRecord",
+                                         "archetype");
+}
+
+ValidationResult validate_animation_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "animations", "AnimationsRecord",
+                                         "animation");
+}
+
+ValidationResult validate_material_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "materials", "MaterialsRecord", "material");
+}
+
+std::optional<std::string> archetype_template_json(std::string_view instance_kind)
+{
+    static const Contracts contracts;
+    const auto& templates = contracts.document.at("archetypeTemplates");
+    if (!templates.contains(instance_kind))
+        return std::nullopt;
+    return templates.at(instance_kind).to_string();
+}
+
 std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id)
 {
     static const Contracts contracts;
