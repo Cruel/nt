@@ -226,8 +226,8 @@ Session& session_arg(napi_env env, napi_value value)
 napi_value call(napi_env env, napi_callback_info info)
 {
     void* callback_data = nullptr;
-    napi_value argv[5]{};
-    std::size_t argc = 5;
+    napi_value argv[6]{};
+    std::size_t argc = 6;
     if (napi_get_cb_info(env, info, &argc, argv, nullptr, &callback_data) != napi_ok)
         return nullptr;
     const std::string name(static_cast<const char*>(callback_data));
@@ -284,17 +284,65 @@ napi_value call(napi_env env, napi_callback_info info)
             return js_string(env, result_json(*session.project, reconciled).to_string());
         }
         if (name == "useDisk") {
-            if (argc != 3)
+            if (argc != 3 && argc != 4)
                 throw std::runtime_error("useDisk requires working revision and owner.");
             std::int64_t revision = -1;
             if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
                 throw std::runtime_error("Invalid working revision.");
+            std::vector<std::string> paths;
+            if (argc == 4) {
+                const auto selection = Json::parse(string_arg(env, argv[3]));
+                if (!selection.is_array() || selection.size() > 256)
+                    throw std::runtime_error("Invalid logical Use Disk paths.");
+                for (const auto& path : selection.array_range())
+                    paths.push_back(path.as<std::string>());
+            }
             const auto resolved = session.project->use_disk(static_cast<std::uint64_t>(revision),
-                                                            string_arg(env, argv[2]));
+                                                            string_arg(env, argv[2]), paths);
             return js_string(env, result_json(*session.project, resolved).to_string());
         }
+        if (name == "restoreConflicts") {
+            if (argc != 3)
+                throw std::runtime_error("Conflict restoration requires revision and paths.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid conflict restoration revision.");
+            const auto source = Json::parse(string_arg(env, argv[2]));
+            if (!source.is_object() || source.size() > 256)
+                throw std::runtime_error("Invalid conflict restoration owners.");
+            std::map<std::string, std::vector<std::string>> conflicts;
+            for (const auto& owner : source.object_range()) {
+                if (!owner.value().is_array() || owner.value().size() > 256)
+                    throw std::runtime_error("Invalid conflict restoration paths.");
+                for (const auto& path : owner.value().array_range())
+                    conflicts[owner.key()].push_back(path.as<std::string>());
+            }
+            const auto restored =
+                session.project->restore_conflicts(static_cast<std::uint64_t>(revision), conflicts);
+            return js_string(env, result_json(*session.project, restored).to_string());
+        }
+        if (name == "useDiskOwners") {
+            if (argc != 3)
+                throw std::runtime_error("Use Disk owners requires revision and paths.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid Use Disk owners revision.");
+            const auto source = Json::parse(string_arg(env, argv[2]));
+            if (!source.is_object() || source.empty() || source.size() > 256)
+                throw std::runtime_error("Invalid Use Disk owner selection.");
+            std::map<std::string, std::vector<std::string>> paths;
+            for (const auto& owner : source.object_range()) {
+                if (!owner.value().is_array() || owner.value().size() > 256)
+                    throw std::runtime_error("Invalid Use Disk owner paths.");
+                for (const auto& path : owner.value().array_range())
+                    paths[owner.key()].push_back(path.as<std::string>());
+            }
+            const auto result =
+                session.project->use_disk_owners(static_cast<std::uint64_t>(revision), paths);
+            return js_string(env, result_json(*session.project, result).to_string());
+        }
         if (name == "saveOwners") {
-            if (argc != 5)
+            if (argc != 5 && argc != 6)
                 throw std::runtime_error("saveOwners needs revision, owners, keepMine, comments.");
             std::int64_t revision = -1;
             bool keep_mine = false;
@@ -314,8 +362,20 @@ napi_value call(napi_env env, napi_callback_info info)
                 : choice == "cancel"  ? noveltea::authoring::TransactionDecision::Cancel
                 : choice == "perEdit" ? noveltea::authoring::TransactionDecision::UseEditDecisions
                                       : throw std::runtime_error("Invalid comment decision.");
+            std::map<std::string, std::vector<std::string>> paths;
+            if (argc == 6) {
+                const auto logical = Json::parse(string_arg(env, argv[5]));
+                if (!logical.is_object() || logical.size() > 256)
+                    throw std::runtime_error("Invalid logical Save selections.");
+                for (const auto& item : logical.object_range()) {
+                    if (!item.value().is_array() || item.value().size() > 256)
+                        throw std::runtime_error("Invalid logical Save paths.");
+                    for (const auto& value : item.value().array_range())
+                        paths[item.key()].push_back(value.as<std::string>());
+                }
+            }
             const auto saved = session.project->save_owners(static_cast<std::uint64_t>(revision),
-                                                            selected, keep_mine, decision);
+                                                            selected, keep_mine, decision, paths);
             return js_string(env, result_json(*session.project, saved).to_string());
         }
         if (name == "observe") {
@@ -392,9 +452,10 @@ napi_value call(napi_env env, napi_callback_info info)
 
 napi_value initialize(napi_env env, napi_value exports)
 {
-    static const char* operations[]{"open",         "close",     "snapshot", "observe",
-                                    "inspect",      "reconcile", "useDisk",  "saveOwners",
-                                    "coverageLost", "hint",      "save",     "patch"};
+    static const char* operations[]{
+        "open",    "close",      "snapshot",         "observe",       "inspect",      "reconcile",
+        "useDisk", "saveOwners", "restoreConflicts", "useDiskOwners", "coverageLost", "hint",
+        "save",    "patch"};
     for (const auto* name : operations) {
         napi_value callback = nullptr;
         if (napi_create_function(env, name, NAPI_AUTO_LENGTH, call, const_cast<char*>(name),

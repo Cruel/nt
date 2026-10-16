@@ -85,6 +85,7 @@ public:
                            const std::vector<std::string>& invalid_source_paths = {});
     RoomSessionResult reconcile_disk();
     RoomSessionResult use_disk();
+    RoomSessionResult use_disk_paths(const std::vector<std::string>& paths);
     std::unique_ptr<RoomSession> clone() const
     {
         return std::unique_ptr<RoomSession>(new RoomSession(*this));
@@ -126,9 +127,17 @@ public:
                             const std::map<std::string, std::string>& disk_preconditions = {});
     RoomSessionResult inspect_record(std::string_view owner);
     RoomSessionResult reconcile_owner(std::string_view owner);
-    RoomSessionResult use_disk(std::uint64_t revision, std::string_view owner);
-    RoomSessionResult save_owners(std::uint64_t revision, const std::vector<std::string>& owners,
-                                  bool keep_mine, TransactionDecision comments);
+    RoomSessionResult use_disk(std::uint64_t revision, std::string_view owner,
+                               const std::vector<std::string>& paths = {});
+    RoomSessionResult use_disk_owners(std::uint64_t revision,
+                                      const std::map<std::string, std::vector<std::string>>& paths);
+    RoomSessionResult
+    restore_conflicts(std::uint64_t revision,
+                      const std::map<std::string, std::vector<std::string>>& conflicts);
+    RoomSessionResult
+    save_owners(std::uint64_t revision, const std::vector<std::string>& owners, bool keep_mine,
+                TransactionDecision comments,
+                const std::map<std::string, std::vector<std::string>>& paths = {});
     std::map<std::string, RoomSessionSnapshot> record_snapshots() const;
     RoomSessionResult save(std::string_view disk_revision)
     {
