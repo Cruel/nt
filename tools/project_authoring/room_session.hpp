@@ -2,6 +2,7 @@
 
 #include "contracts.hpp"
 #include "source_authority.hpp"
+#include "source_analysis.hpp"
 #include "yaml_codec.hpp"
 #include "yaml_transaction.hpp"
 
@@ -10,6 +11,7 @@
 #include <memory>
 #include <map>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -146,6 +148,15 @@ public:
     // tool compiles it via an overlay root. Do not insert it into Material YAML.
     RoomSessionResult stage_shader_source(std::uint64_t revision, std::string_view relative_path,
                                           std::string source_text);
+    // Unsaved Lua/RML/RCSS buffers are private to this editor-side session.
+    // Source text is not inserted into YAML, and CLI sessions see only disk.
+    RoomSessionResult stage_text_source(std::uint64_t revision, std::string_view relative_path,
+                                        std::string source_text);
+    const std::map<std::string, SourceAnalysis>& source_analyses() const;
+    const std::map<std::string, std::string>& text_source_overlays() const
+    {
+        return text_source_overlays_;
+    }
     RoomSessionResult publish_material_compiler_result(std::uint64_t revision,
                                                        std::string_view material_id,
                                                        std::string_view native_tool_result_json);
@@ -204,12 +215,19 @@ private:
     {
     }
     std::optional<std::string> resolved_material(std::string_view material_id) const;
+    void index_text_owner(std::string_view owner, std::string_view raw_json);
     std::unique_ptr<RoomSession> source_;
     std::unique_ptr<SourceAuthority> source_authority_;
     std::filesystem::path root_;
     std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
     std::map<std::string, std::string> shader_overlays_;
+    std::map<std::string, std::string> text_source_overlays_;
+    std::set<std::string> text_source_paths_;
+    std::map<std::string, std::string> text_disk_revisions_;
+    std::map<std::string, std::set<std::string>> text_source_owners_;
+    std::map<std::string, std::set<std::string>> layout_declared_scripts_;
+    mutable std::map<std::string, SourceAnalysis> text_analysis_cache_;
     std::map<std::string, ValidationResult> material_compiler_results_;
     std::uint64_t working_revision_ = 0;
     // Full cross-record resolver analysis is immutable between Project edit

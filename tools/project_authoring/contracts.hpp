@@ -3,6 +3,7 @@
 #include <string>
 #include <string_view>
 #include <map>
+#include <cstddef>
 #include <optional>
 #include <vector>
 
@@ -13,6 +14,8 @@ struct Diagnostic {
     std::string message;
     std::string severity = "error";
     std::string source_path; // physical source provenance for compiler diagnostics
+    std::optional<std::size_t> line;
+    std::optional<std::size_t> column;
 };
 struct ValidationResult {
     bool accepted = false;

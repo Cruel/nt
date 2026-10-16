@@ -1586,6 +1586,10 @@ std::string validation_result_json(const ValidationResult& result)
         entry["severity"] = error.severity;
         if (!error.source_path.empty())
             entry["sourcePath"] = error.source_path;
+        if (error.line)
+            entry["line"] = *error.line;
+        if (error.column)
+            entry["column"] = *error.column;
         output["diagnostics"].push_back(std::move(entry));
     }
     if (result.accepted && !result.effective_json.empty())

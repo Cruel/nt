@@ -82,6 +82,10 @@ Json snapshot_json(const RoomSessionSnapshot& state)
         entry["severity"] = error.severity;
         if (!error.source_path.empty())
             entry["sourcePath"] = error.source_path;
+        if (error.line)
+            entry["line"] = *error.line;
+        if (error.column)
+            entry["column"] = *error.column;
         result["diagnostics"].push_back(std::move(entry));
     }
     return result;
@@ -121,6 +125,10 @@ Json result_json(const ProjectSession& project, const RoomSessionResult& result)
             value["severity"] = entry.severity;
             if (!entry.source_path.empty())
                 value["sourcePath"] = entry.source_path;
+            if (entry.line)
+                value["line"] = *entry.line;
+            if (entry.column)
+                value["column"] = *entry.column;
             list.push_back(std::move(value));
         }
         return list;
@@ -417,6 +425,75 @@ napi_value call(napi_env env, napi_callback_info info)
                 overlays[path] = content;
             return js_string(env, overlays.to_string());
         }
+        if (name == "textSourceOverlays") {
+            if (argc != 1)
+                throw std::runtime_error("Text overlays require only the session handle.");
+            Json overlays = Json::object();
+            for (const auto& [path, content] : session.project->text_source_overlays())
+                overlays[path] = content;
+            return js_string(env, overlays.to_string());
+        }
+        if (name == "sourceAnalyses") {
+            if (argc != 1)
+                throw std::runtime_error("Source analyses require only the session handle.");
+            Json sources = Json::object();
+            for (const auto& [path, analysis] : session.project->source_analyses()) {
+                Json entry = Json::object();
+                entry["sourceRevision"] = analysis.source_revision;
+                entry["complete"] = analysis.complete;
+                entry["messages"] = Json::array();
+                for (const auto& message : analysis.messages) {
+                    Json item = Json::object();
+                    item["kind"] = message.kind;
+                    item["source"] = message.source;
+                    item["sourcePath"] = message.source_path;
+                    item["sourceRevision"] = message.source_revision;
+                    item["line"] = message.line;
+                    item["column"] = message.column;
+                    entry["messages"].push_back(std::move(item));
+                }
+                entry["references"] = Json::array();
+                for (const auto& reference : analysis.references) {
+                    Json item = Json::object();
+                    item["kind"] = reference.kind;
+                    item["target"] = reference.target;
+                    item["line"] = reference.line;
+                    item["column"] = reference.column;
+                    entry["references"].push_back(std::move(item));
+                }
+                entry["cursors"] = Json::array();
+                for (const auto& cursor : analysis.cursors) {
+                    Json item = Json::object();
+                    item["name"] = cursor.name;
+                    item["line"] = cursor.line;
+                    item["column"] = cursor.column;
+                    entry["cursors"].push_back(std::move(item));
+                }
+                entry["diagnostics"] =
+                    Json::parse(
+                        noveltea::authoring::validation_result_json(
+                            noveltea::authoring::ValidationResult{false, "", analysis.diagnostics}))
+                        .at("diagnostics");
+                sources[path] = std::move(entry);
+            }
+            return js_string(env, sources.to_string());
+        }
+        if (name == "stageTextSource") {
+            if (argc != 4)
+                throw std::runtime_error("Text source operation requires revision, path and body.");
+            std::int64_t revision = -1;
+            if (napi_get_value_int64(env, argv[1], &revision) != napi_ok || revision < 0)
+                throw std::runtime_error("Invalid text source revision.");
+            const auto path = string_arg(env, argv[2]);
+            const auto content = string_arg(env, argv[3]);
+            if (content.size() > 4 * 1024 * 1024)
+                throw std::runtime_error("Text source overlay exceeds 4 MiB.");
+            return js_string(env,
+                             result_json(*session.project,
+                                         session.project->stage_text_source(
+                                             static_cast<std::uint64_t>(revision), path, content))
+                                 .to_string());
+        }
         if (name == "stageShaderSource" || name == "publishMaterialCompilerResult") {
             if (argc != 4)
                 throw std::runtime_error(
@@ -506,6 +583,9 @@ napi_value initialize(napi_env env, napi_value exports)
                                     "materialCompilerRequest",
                                     "shaderSourceOverlays",
                                     "stageShaderSource",
+                                    "textSourceOverlays",
+                                    "stageTextSource",
+                                    "sourceAnalyses",
                                     "publishMaterialCompilerResult"};
     for (const auto* name : operations) {
         napi_value callback = nullptr;
