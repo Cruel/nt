@@ -428,12 +428,18 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                             show_distribution("GPU execution (identified completions)",
                                               trial.diagnostic.gpu_execution_ms);
                             if (trial.diagnostic.draw_calls.count)
-                                ImGui::Text("bgfx snapshots: draw mean %.1f, views mean %.1f, "
-                                            "textures mean %.1f, programs mean %.1f",
+                                ImGui::Text("bgfx snapshots: draw mean %.1f, textures mean %.1f, "
+                                            "programs mean %.1f",
                                             trial.diagnostic.draw_calls.mean,
-                                            trial.diagnostic.view_count.mean,
                                             trial.diagnostic.textures.mean,
                                             trial.diagnostic.programs.mean);
+                            if (trial.diagnostic.view_count.count)
+                                ImGui::Text("Profiled view records: mean %.1f (%llu snapshots)",
+                                            trial.diagnostic.view_count.mean,
+                                            static_cast<unsigned long long>(
+                                                trial.diagnostic.view_count.count));
+                            else
+                                ImGui::TextUnformatted("Profiled view records: unavailable");
                             ImGui::TextDisabled(
                                 "bgfx counters may lag/repeat; never paired to CPU frames.");
                         }
@@ -459,7 +465,8 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                 ImGui::TextUnformatted("GPU driver version: unavailable");
                 ImGui::TextUnformatted("Confirmed presented FPS: unavailable");
                 ImGui::TextWrapped("Diagnostic adds bgfx CPU handoff, render-thread waits, "
-                                   "draw/view/resource snapshots and GPU completed-frame "
+                                   "draw/resource snapshots, profiler-supported view "
+                                   "records and GPU completed-frame "
                                    "timestamps only when a measured bgfx::frame ID matches. "
                                    "Asynchronous snapshots may lag or repeat and cannot be "
                                    "aligned to CPU samples by array index.");

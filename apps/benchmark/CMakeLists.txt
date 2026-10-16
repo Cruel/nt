@@ -78,6 +78,14 @@ if(BUILD_TESTING)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-runner-tests)
     add_test(NAME noveltea_benchmark_runner COMMAND noveltea-benchmark-runner-tests)
+
+    add_executable(noveltea-benchmark-bgfx-diagnostics-tests
+        benchmark_bgfx_diagnostics_tests.cpp)
+    target_link_libraries(noveltea-benchmark-bgfx-diagnostics-tests PRIVATE bgfx::bgfx)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-bgfx-diagnostics-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-bgfx-diagnostics-tests)
+    add_test(NAME noveltea_benchmark_bgfx_diagnostics
+        COMMAND noveltea-benchmark-bgfx-diagnostics-tests)
     add_test(NAME noveltea_benchmark_source_identity
         COMMAND "${CMAKE_COMMAND}"
             "-DTEST_ROOT=${CMAKE_CURRENT_BINARY_DIR}/source-identity-test"
@@ -116,7 +124,7 @@ if(BUILD_TESTING)
     add_dependencies(noveltea-benchmark-empty-engine-tests noveltea-benchmark-stage-assets)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-empty-engine-tests)
     noveltea_apply_policy_warnings(noveltea-benchmark-empty-engine-tests)
-    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_completed_run noveltea_benchmark_app_help
+    set_tests_properties(noveltea_benchmark_options noveltea_benchmark_report noveltea_benchmark_runner noveltea_benchmark_source_identity noveltea_benchmark_reference_scene noveltea_benchmark_completed_run noveltea_benchmark_bgfx_diagnostics noveltea_benchmark_app_help
         PROPERTIES LABELS "benchmark;graphics")
 
     find_program(NOVELTEA_XVFB_RUN NAMES xvfb-run)
