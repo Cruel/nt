@@ -224,6 +224,8 @@ int main()
                    result["graphics"]["render_height_pixels"] == 720 &&
                    result["timing"]["profile"] == "clean" &&
                    result["timing"]["gpu_execution_ms"].is_null() &&
+                   result["timing"]["instrumentation_control"].is_null() &&
+                   result["scenarios"][0]["trials"][0]["diagnostic"].is_null() &&
                    result["timing"]["presented_frame_count"].is_null() &&
                    result["scenarios"][0]["aggregate"]["frame_loop_cadence_hz"] == 100 &&
                    result["scenarios"][0]["trials"][0]["raw_samples"].size() == 2 &&
@@ -242,12 +244,28 @@ int main()
                "empty Engine metadata differs from raw bgfx with observed renderer state"))
         return 1;
     original.profile = "diagnostic";
+    suite.instrumentation_control =
+        noveltea::benchmark::InstrumentationControl{20000, 45.0, 65.0, 20.0};
+    auto& diagnostic_metrics = suite.scenarios[0].trials[0].diagnostic;
+    diagnostic_metrics.observations = 2;
+    diagnostic_metrics.bgfx_stats_observations = 2;
+    diagnostic_metrics.cpu_submission_ms = trial.cpu_operation;
+    diagnostic_metrics.bgfx_wait_render_ms = trial.cpu_operation;
+    diagnostic_metrics.draw_calls = {2, 1.0, 1, 1};
     const auto diagnostic_result = nlohmann::json::parse(encode_result(original, {}, suite));
+    const auto& diagnostic_trial = diagnostic_result["scenarios"][0]["trials"][0]["diagnostic"];
     if (!check(diagnostic_result["timing"]["profile"] == "diagnostic" &&
                    diagnostic_result["configuration"]["settings"]["profile"] == "diagnostic" &&
                    diagnostic_result["timing"]["gpu_execution_ms"].is_null() &&
-                   diagnostic_result["timing"]["bgfx_wait_render_ms"].is_null(),
-               "diagnostic profile does not fabricate GPU statistics"))
+                   diagnostic_result["timing"]["bgfx_wait_render_ms"].is_null() &&
+                   diagnostic_result["timing"]["instrumentation_control"]["incremental_ns"] ==
+                       20.0 &&
+                   diagnostic_trial["cpu_submission_ms"]["mean_ms"] == 8.0 &&
+                   diagnostic_trial["bgfx_wait_render_ms"]["mean_ms"] == 8.0 &&
+                   diagnostic_trial["gpu_execution_ms"].is_null() &&
+                   diagnostic_trial["draw_calls"]["mean"] == 1.0 &&
+                   diagnostic_trial["stats_scope"].is_string(),
+               "diagnostic report preserves separate scopes and honest absent GPU timing"))
         return 1;
     original.raw_samples = false;
     suite.scenarios[0].trials[0].outcome = "failed";

@@ -25,6 +25,7 @@ public:
     bool prepare(const Options& options, std::string& reason) override;
     Readiness readiness(std::string& reason) override;
     bool frame(std::string& reason) override;
+    void diagnostic_frame(DiagnosticObservation& observation) override;
     bool complete(std::string& reason) override;
     bool cleanup(std::string& reason) override;
 

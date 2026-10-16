@@ -1,4 +1,5 @@
 #include "integrated_rmlui.hpp"
+#include "benchmark_bgfx_diagnostics.hpp"
 
 #include "reference_scene.hpp"
 #include "benchmark_assets.hpp"
@@ -194,6 +195,12 @@ bool IntegratedRmlUi::frame(std::string& reason)
         return false;
     }
     return true; // One tick renders one full Engine frame, not context completions.
+}
+
+void IntegratedRmlUi::diagnostic_frame(DiagnosticObservation& observation)
+{
+    capture_bgfx_diagnostics(observation);
+    // No submitted-frame identity crosses the production Engine tick boundary.
 }
 
 bool IntegratedRmlUi::complete(std::string&) { return true; }

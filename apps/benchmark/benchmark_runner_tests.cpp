@@ -29,6 +29,10 @@ struct FakeScenario final : Scenario {
     bool fail_completion = false;
     bool fail_cleanup = false;
     bool graphics = false;
+    int diagnostic_calls = 0;
+    int diagnostic_completion_calls = 0;
+    bool emit_diagnostics = false;
+    uint32_t frame_number = 19;
 
     explicit FakeScenario(FakeClock& value) : clock(value) {}
     const char* id() const override { return "synthetic"; }
@@ -61,6 +65,28 @@ struct FakeScenario final : Scenario {
         }
         ++completed_frames;
         return true;
+    }
+    void diagnostic_frame(DiagnosticObservation& observation) override
+    {
+        ++diagnostic_calls;
+        if (!emit_diagnostics)
+            return;
+        observation.cpu_submission_ms = 2.0;
+        observation.bgfx_frame_cpu_ms = 3.0;
+        observation.bgfx_wait_render_ms = 0.5;
+        observation.bgfx_wait_submit_ms = 0.25;
+        observation.draw_calls = 4;
+        observation.view_count = 2;
+        observation.textures = 7;
+        observation.submitted_frame = ++frame_number;
+        observation.gpu_completed_frame = frame_number - 1;
+        observation.gpu_execution_ms = 1.25;
+    }
+    void diagnostic_completion(std::vector<DiagnosticObservation>& late) override
+    {
+        ++diagnostic_completion_calls;
+        if (emit_diagnostics)
+            late.push_back({.gpu_execution_ms = 1.0, .gpu_completed_frame = frame_number});
     }
     bool complete(std::string& reason) override
     {
@@ -275,6 +301,65 @@ int main()
     if (!check(silent_failure.scenarios[0].trials[0].reason ==
                    "scenario preparation failed; cleanup failed: host shutdown failed",
                "cleanup failure cannot hide an earlier undiagnosed preparation failure"))
+        return 1;
+
+    FakeClock diagnostic_clock;
+    FakeScenario instrumented(diagnostic_clock);
+    instrumented.emit_diagnostics = true;
+    Options diagnostic_options = options;
+    diagnostic_options.profile = "diagnostic";
+    diagnostic_options.warmup_seconds = 0.0;
+    diagnostic_options.measurement_frames = 4;
+    diagnostic_options.repeats = 1;
+    const auto diagnostic_run = run_suite(diagnostic_options, {&instrumented}, diagnostic_clock);
+    const auto& measurements = diagnostic_run.scenarios[0].trials[0].diagnostic;
+    if (!check(diagnostic_run.instrumentation_control.has_value() &&
+                   diagnostic_run.instrumentation_control->iterations == 20000 &&
+                   instrumented.diagnostic_calls == 4 && measurements.observations == 4 &&
+                   measurements.cpu_submission_ms.count == 4 &&
+                   measurements.bgfx_frame_cpu_ms.mean_ms == 3.0 &&
+                   measurements.bgfx_wait_render_ms.mean_ms == 0.5 &&
+                   measurements.draw_calls.mean == 4.0 && measurements.textures.mean == 7.0 &&
+                   measurements.gpu_execution_ms.count == 4 &&
+                   instrumented.diagnostic_completion_calls == 1,
+               "diagnostic tracks separate CPU stages and distinct completed GPU frames"))
+        return 1;
+    FakeClock clean_clock;
+    FakeScenario clean_scenario(clean_clock);
+    clean_scenario.emit_diagnostics = true;
+    const auto clean_run = run_suite(options, {&clean_scenario}, clean_clock);
+    if (!check(!clean_run.instrumentation_control && clean_scenario.diagnostic_calls == 0 &&
+                   clean_scenario.diagnostic_completion_calls == 0 &&
+                   clean_run.scenarios[0].trials[0].diagnostic.observations == 0 &&
+                   clean_run.scenarios[0].trials[0].diagnostic.gpu_execution_ms.count == 0,
+               "clean profile never invokes diagnostic observation"))
+        return 1;
+    FakeClock missing_clock;
+    FakeScenario missing(missing_clock);
+    const auto missing_run = run_suite(diagnostic_options, {&missing}, missing_clock);
+    if (!check(missing.diagnostic_calls == 4 &&
+                   missing_run.scenarios[0].trials[0].diagnostic.gpu_execution_ms.count == 0 &&
+                   missing_run.scenarios[0].trials[0].diagnostic.bgfx_wait_render_ms.count == 0,
+               "unsupported statistics remain unavailable"))
+        return 1;
+
+    const std::vector<DiagnosticObservation> asynchronous = {
+        {.gpu_execution_ms = 4.0, .submitted_frame = 40, .gpu_completed_frame = 39},
+        {.gpu_execution_ms = 2.0, .submitted_frame = 41, .gpu_completed_frame = 40},
+        {.gpu_execution_ms = 9.0, .submitted_frame = 42, .gpu_completed_frame = 40},
+    };
+    const std::vector<DiagnosticObservation> delayed = {
+        {.gpu_execution_ms = 3.0, .gpu_completed_frame = 41},
+        {.gpu_execution_ms = 3.5, .gpu_completed_frame = 42},
+        {.gpu_execution_ms = 9.0, .gpu_completed_frame = 43},
+        {.gpu_execution_ms = 7.0}, // No identity: do not guess.
+    };
+    const auto asynchronously_completed = summarize_diagnostics(asynchronous, delayed);
+    if (!check(asynchronously_completed.gpu_execution_ms.count == 3 &&
+                   asynchronously_completed.gpu_execution_ms.min_ms == 2.0 &&
+                   asynchronously_completed.gpu_execution_ms.max_ms == 3.5 &&
+                   asynchronously_completed.observations == 3,
+               "delayed GPU frames are deduplicated, bounded and not counted as CPU samples"))
         return 1;
 
     Options invalid = options;

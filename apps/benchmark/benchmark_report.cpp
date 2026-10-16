@@ -52,6 +52,40 @@ Json distribution(const Distribution& value)
             {"p99_ms", value.p99_ms}, {"standard_deviation_ms", value.standard_deviation_ms}};
 }
 
+Json counter_summary(const CounterSummary& value)
+{
+    if (!value.count)
+        return nullptr;
+    return {
+        {"snapshots", value.count}, {"mean", value.mean}, {"min", value.min}, {"max", value.max}};
+}
+
+Json diagnostic_result(const DiagnosticSummary& value)
+{
+    return {
+        {"observations", value.observations},
+        {"bgfx_stats_snapshots", value.bgfx_stats_observations},
+        {"stats_scope", "asynchronous bgfx completed-frame snapshots; may repeat or lag; "
+                        "not paired to CPU frame indices"},
+        {"cpu_update_ms", distribution(value.cpu_update_ms)},
+        {"cpu_submission_ms", distribution(value.cpu_submission_ms)},
+        {"bgfx_frame_cpu_ms", distribution(value.bgfx_frame_cpu_ms)},
+        {"bgfx_render_thread_ms", distribution(value.bgfx_render_thread_ms)},
+        {"bgfx_wait_render_ms", distribution(value.bgfx_wait_render_ms)},
+        {"bgfx_wait_submit_ms", distribution(value.bgfx_wait_submit_ms)},
+        {"gpu_execution_ms", distribution(value.gpu_execution_ms)},
+        {"gpu_scope", "unique gpuFrameNum matched to a measured bgfx::frame ID; "
+                      "incomplete delayed GPU completions are omitted"},
+        {"draw_calls", counter_summary(value.draw_calls)},
+        {"compute_calls", counter_summary(value.compute_calls)},
+        {"blit_calls", counter_summary(value.blit_calls)},
+        {"view_count", counter_summary(value.view_count)},
+        {"resource_textures", counter_summary(value.textures)},
+        {"resource_framebuffers", counter_summary(value.framebuffers)},
+        {"resource_programs", counter_summary(value.programs)},
+    };
+}
+
 const char* phase_name(Phase value)
 {
     switch (value) {
@@ -215,6 +249,9 @@ std::string encode_result(const Options& options, const Environment& environment
                       : Json(nullptr)},
                  {"frame_wall_ms", distribution(trial.wall_frame)},
                  {"cpu_operation_ms", distribution(trial.cpu_operation)},
+                 {"diagnostic", options.profile == "diagnostic" && trial.outcome == "complete"
+                                    ? diagnostic_result(trial.diagnostic)
+                                    : Json(nullptr)},
                  {"raw_samples", std::move(raw)}});
         }
         scenarios.push_back(
@@ -326,10 +363,20 @@ std::string encode_result(const Options& options, const Environment& environment
           {"frame_wall", "end-to-end CPU frame-loop interval; not confirmed presentation"},
           {"cpu_operation", "CPU wall duration of scenario frame operation"},
           {"gpu_execution_ms", nullptr},
-          {"gpu_timing_status", "unavailable"},
+          {"gpu_timing_status", options.profile == "diagnostic"
+                                    ? "per-trial when GPU completed-frame IDs are available"
+                                    : "unavailable in Clean"},
           {"presented_frame_count", nullptr},
           {"bgfx_wait_submit_ms", nullptr},
-          {"bgfx_wait_render_ms", nullptr}}},
+          {"bgfx_wait_render_ms", nullptr},
+          {"instrumentation_control",
+           options.profile == "diagnostic" && result.instrumentation_control
+               ? Json{{"scope", "clock-only control after all trials; not full profiling overhead"},
+                      {"iterations", result.instrumentation_control->iterations},
+                      {"two_clock_reads_ns", result.instrumentation_control->two_clock_reads_ns},
+                      {"four_clock_reads_ns", result.instrumentation_control->four_clock_reads_ns},
+                      {"incremental_ns", result.instrumentation_control->incremental_ns}}
+               : Json(nullptr)}}},
         {"outcome", result.outcome},
         {"scenarios", std::move(scenarios)}};
     return report.dump(2);

@@ -3,6 +3,7 @@
 #include "benchmark_options.hpp"
 
 #include <cstdint>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -39,6 +40,53 @@ struct Distribution {
     double standard_deviation_ms = 0.0;
 };
 
+// Populated only for Diagnostic frames. bgfx stats describe an asynchronous
+// completed-frame snapshot, not necessarily the frame just submitted.
+struct DiagnosticObservation {
+    std::optional<double> cpu_update_ms;
+    std::optional<double> cpu_submission_ms;
+    std::optional<double> bgfx_frame_cpu_ms;
+    std::optional<double> bgfx_render_thread_ms;
+    std::optional<double> bgfx_wait_render_ms;
+    std::optional<double> bgfx_wait_submit_ms;
+    std::optional<double> gpu_execution_ms;
+    std::optional<uint32_t> submitted_frame;
+    std::optional<uint32_t> gpu_completed_frame;
+    std::optional<uint32_t> draw_calls;
+    std::optional<uint32_t> compute_calls;
+    std::optional<uint32_t> blit_calls;
+    std::optional<uint32_t> view_count;
+    std::optional<uint32_t> textures;
+    std::optional<uint32_t> framebuffers;
+    std::optional<uint32_t> programs;
+};
+
+struct CounterSummary {
+    uint64_t count = 0;
+    double mean = 0.0;
+    uint32_t min = 0;
+    uint32_t max = 0;
+};
+
+struct DiagnosticSummary {
+    uint64_t observations = 0;
+    uint64_t bgfx_stats_observations = 0;
+    Distribution cpu_update_ms;
+    Distribution cpu_submission_ms;
+    Distribution bgfx_frame_cpu_ms;
+    Distribution bgfx_render_thread_ms;
+    Distribution bgfx_wait_render_ms;
+    Distribution bgfx_wait_submit_ms;
+    Distribution gpu_execution_ms;
+    CounterSummary draw_calls;
+    CounterSummary compute_calls;
+    CounterSummary blit_calls;
+    CounterSummary view_count;
+    CounterSummary textures;
+    CounterSummary framebuffers;
+    CounterSummary programs;
+};
+
 struct TrialResult {
     std::string outcome = "failed";
     std::string reason;
@@ -48,6 +96,7 @@ struct TrialResult {
     double measured_wall_seconds = 0.0;
     Distribution wall_frame;
     Distribution cpu_operation;
+    DiagnosticSummary diagnostic;
     std::vector<FrameSample> raw_samples;
 };
 
@@ -62,9 +111,17 @@ struct ScenarioResult {
     Distribution cpu_operation;
 };
 
+struct InstrumentationControl {
+    uint64_t iterations = 0;
+    double two_clock_reads_ns = 0.0;
+    double four_clock_reads_ns = 0.0;
+    double incremental_ns = 0.0;
+};
+
 struct SuiteResult {
     std::vector<ScenarioResult> scenarios;
     std::string outcome = "failed";
+    std::optional<InstrumentationControl> instrumentation_control;
 };
 
 class Clock {
@@ -82,6 +139,12 @@ public:
     virtual bool prepare(const Options& options, std::string& reason) = 0;
     virtual Readiness readiness(std::string& reason) = 0;
     virtual bool frame(std::string& reason) = 0;
+    // Only called after a successful measured frame in the Diagnostic profile.
+    // CPU-only scenarios and unsupported backends leave fields unavailable.
+    virtual void diagnostic_frame(DiagnosticObservation&) {}
+    // Optional late GPU observations after the timed interval, before cleanup.
+    // Must not be used to infer a CPU-to-GPU frame pairing without IDs.
+    virtual void diagnostic_completion(std::vector<DiagnosticObservation>&) {}
     virtual bool complete(std::string& reason) = 0;
     // Return false with a diagnostic if teardown cannot release scenario resources.
     virtual bool cleanup(std::string& reason) = 0;
@@ -89,6 +152,9 @@ public:
 
 [[nodiscard]] bool validate_run_options(const Options& options, std::string& reason);
 [[nodiscard]] Distribution summarize(const std::vector<FrameSample>& samples, bool wall);
+[[nodiscard]] DiagnosticSummary
+summarize_diagnostics(const std::vector<DiagnosticObservation>& observations,
+                      const std::vector<DiagnosticObservation>& late_observations = {});
 [[nodiscard]] SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios,
                                     Clock& clock);
 
