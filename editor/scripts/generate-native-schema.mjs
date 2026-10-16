@@ -7,6 +7,8 @@ const { generateNativeContracts, canonicalJson } = await import('./native-schema
 const { nativeSchemaSources } = await import('./native-schema/sources.ts');
 const { sparseRecordYamlSourceDefaults } =
   await import('../src/shared/project-workspace/sparse-record-yaml-source.ts');
+const { testSourceStepPayloads, testSourceExpectationPayloads, testSourceValueExpectations } =
+  await import('../src/shared/project-schema/test-source-intent.ts');
 const { defaultArchetypeConfiguration } =
   await import('../src/shared/project-schema/authoring-archetypes.ts');
 const { materialContractRegistry } =
@@ -38,7 +40,13 @@ const files = new Map([
         interactions: sparseRecordYamlSourceDefaults('interactions'),
         dialogues: sparseRecordYamlSourceDefaults('dialogues'),
         scenes: sparseRecordYamlSourceDefaults('scenes'),
+        tests: sparseRecordYamlSourceDefaults('tests'),
         layouts: sparseRecordYamlSourceDefaults('layouts'),
+      },
+      testSourceIntent: {
+        steps: testSourceStepPayloads,
+        expectations: testSourceExpectationPayloads,
+        valueTypes: testSourceValueExpectations,
       },
       archetypeTemplates: Object.fromEntries(
         ['room', 'character', 'interactable'].map((kind) => [

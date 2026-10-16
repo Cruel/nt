@@ -156459,6 +156459,19 @@
       "data.inputs": [],
       "data.outcomes": []
     },
+    "tests": {
+      "data.displayName": "",
+      "data.finalExpectations": [],
+      "data.steps": [],
+      "data.steps.*.enabled": true,
+      "data.steps.*.expectations": [],
+      "data.steps.*.selectSubjects": {
+        "subjects": []
+      },
+      "data.steps.*.tick": {
+        "deltaSeconds": 0
+      }
+    },
     "verbs": {
       "data.availability": {
         "kind": "always"
@@ -156481,5 +156494,148 @@
       "data.offers.*.rank": 0,
       "data.slots": []
     }
+  },
+  "testSourceIntent": {
+    "expectations": {
+      "active-flow": {
+        "fields": [
+          "kind",
+          "flowId"
+        ],
+        "key": "activeFlow"
+      },
+      "current-room": {
+        "fields": [
+          "roomId"
+        ],
+        "key": "currentRoom"
+      },
+      "diagnostic": {
+        "fields": [
+          "code"
+        ],
+        "key": "diagnostic"
+      },
+      "entity-state": {
+        "fields": [
+          "entityKind",
+          "entityId",
+          "field"
+        ],
+        "key": "entityState"
+      },
+      "event": {
+        "fields": [
+          "kind"
+        ],
+        "key": "event"
+      },
+      "layout": {
+        "fields": [
+          "layoutId",
+          "field"
+        ],
+        "key": "layout"
+      },
+      "location": {
+        "fields": [
+          "entityKind",
+          "entityId",
+          "locationKind"
+        ],
+        "key": "location"
+      },
+      "property": {
+        "fields": [
+          "scope",
+          "propertyId"
+        ],
+        "key": "property"
+      },
+      "quantity": {
+        "fields": [
+          "interactableId"
+        ],
+        "key": "quantity"
+      },
+      "trait": {
+        "fields": [
+          "ownerKind",
+          "ownerId",
+          "traitId"
+        ],
+        "key": "trait"
+      },
+      "ui-element": {
+        "fields": [
+          "selector",
+          "field"
+        ],
+        "key": "uiElement"
+      }
+    },
+    "steps": {
+      "dialogue-choice": {
+        "fields": [
+          "edgeId"
+        ],
+        "key": "dialogueChoice"
+      },
+      "load": {
+        "fields": [
+          "slotId"
+        ],
+        "key": "saveSlot"
+      },
+      "navigate": {
+        "fields": [
+          "exitId"
+        ],
+        "key": "navigate"
+      },
+      "open-verb-menu": {
+        "fields": [
+          "subject"
+        ],
+        "key": "subjectAction"
+      },
+      "primary-activate": {
+        "fields": [
+          "subject"
+        ],
+        "key": "subjectAction"
+      },
+      "run-interaction": {
+        "fields": [
+          "verb",
+          "bindings"
+        ],
+        "key": "runInteraction"
+      },
+      "save": {
+        "fields": [
+          "slotId"
+        ],
+        "key": "saveSlot"
+      },
+      "scene-choice": {
+        "fields": [
+          "optionId"
+        ],
+        "key": "sceneChoice"
+      },
+      "ui-click": {
+        "fields": [
+          "selector"
+        ],
+        "key": "uiClick"
+      }
+    },
+    "valueTypes": [
+      "property",
+      "quantity",
+      "entity-state",
+      "event"
+    ]
   }
 }

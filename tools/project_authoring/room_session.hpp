@@ -214,6 +214,7 @@ private:
     mutable std::uint64_t interaction_resolver_revision_ = 0;
     mutable std::size_t interaction_resolver_owner_count_ = 0;
     mutable std::optional<std::vector<std::pair<std::string, std::string>>> interaction_sources_;
+    mutable std::optional<std::vector<std::pair<std::string, std::string>>> test_sources_;
     mutable std::vector<std::pair<std::string, std::string>> interaction_resolver_sources_;
 };
 

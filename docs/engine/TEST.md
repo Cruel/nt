@@ -242,6 +242,21 @@ normalizes and uniquifies IDs when inserting or duplicating steps.
 Test validation runs from `validateAuthoringProject()` via `validateTestData()`.
 Diagnostics use category `authoring-tests`.
 
+The parallel native authoring session also normalizes sparse Test YAML through
+the generated `TestsRecord` contract, including compact Character, Verb and
+Interactable Instance references. Its host-only `test_semantics` module checks
+local Test and expectation invariants and Project-dependent references using
+the resident session's dirty working records. Native diagnostics retain indexed
+Test owner paths and severity, including nonblocking preview warnings. The
+source-intent requirements for explicit commands, expectation payloads, and UI
+addresses are generated from the same declarations used by the TypeScript YAML
+reader; omitted semantic targets cannot inherit form placeholders. The
+`noveltea-test-certify` target exercises native edit, rejection, scoped Save,
+reopen and local semantic diagnostics; `certify-native-tests.mjs` compares
+Feature Lab record normalization to the TypeScript/Zod reference. This is a
+certification-only implementation until the single native Project cutover;
+the compiled Test catalog and native playback runners are unchanged.
+
 Validation currently checks:
 
 - the `record.data` shape matches `testDataSchema`;
