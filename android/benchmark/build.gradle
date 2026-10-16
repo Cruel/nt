@@ -1,0 +1,100 @@
+plugins {
+    id("com.android.application")
+}
+
+// Development-only application: independent of the player/export module.
+android {
+    namespace "org.noveltea.benchmark"
+    compileSdk 35
+
+    buildFeatures {
+        prefab true
+    }
+
+    def benchmarkAbi = providers.gradleProperty("novelteaAbi").orElse("arm64-v8a").get()
+    if (!(benchmarkAbi in ["arm64-v8a", "x86_64"])) {
+        throw new GradleException("novelteaAbi must be arm64-v8a or x86_64.")
+    }
+
+    defaultConfig {
+        applicationId "org.noveltea.benchmark"
+        minSdk 24
+        targetSdk 35
+        versionCode 1
+        versionName "0.1"
+        ndkVersion "28.2.13676358"
+        ndk {
+            abiFilters benchmarkAbi
+        }
+        externalNativeBuild {
+            cmake {
+                arguments "-DANDROID_PLATFORM=android-24",
+                        "-DNOVELTEA_BUILD_BENCHMARK_APP=ON",
+                        "-DNOVELTEA_BUILD_PLAYER=OFF",
+                        "-DNOVELTEA_BUILD_SANDBOX=OFF",
+                        "-DNOVELTEA_BUILD_HOST_TOOLS=OFF",
+                        "-DBUILD_TESTING=OFF",
+                        "-DNOVELTEA_COMPILE_SHADERS=OFF",
+                        "-DNOVELTEA_ENABLE_DEVTOOLS=OFF",
+                        "-DNOVELTEA_JOB_WORKER_COUNT=0"
+                if (project.hasProperty("novelteaUseCcache")) {
+                    arguments "-DCMAKE_C_COMPILER_LAUNCHER=ccache",
+                            "-DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+                }
+            }
+        }
+    }
+
+    buildTypes {
+        debug {
+            debuggable true
+        }
+        release {
+            // Retain optimized native code but allow adb run-as retrieval of private reports.
+            debuggable true
+            minifyEnabled false
+            signingConfig signingConfigs.debug
+        }
+    }
+
+    sourceSets {
+        main {
+            assets.srcDirs += file("$buildDir/generated/benchmark-assets")
+        }
+    }
+
+    externalNativeBuild {
+        cmake {
+            path file("../../CMakeLists.txt")
+            version "3.31.6"
+        }
+    }
+}
+
+tasks.register("stageBenchmarkAssets", Sync) {
+    dependsOn(":app:compileNovelTeaShaderAssets")
+    from(project(":app").file("build/generated/noveltea/shaders")) {
+        include "shaders/bgfx/essl-300/**"
+    }
+    from(file("../../engine/assets/system/fonts")) {
+        include "LiberationSans.ttf"
+        into "fonts"
+    }
+    into file("$buildDir/generated/benchmark-assets")
+    doLast {
+        ["shaders/bgfx/essl-300/imgui.vs.bin",
+         "shaders/bgfx/essl-300/imgui.fs.bin",
+         "shaders/bgfx/essl-300/quad.vs.bin",
+         "shaders/bgfx/essl-300/quad.fs.bin"].each { asset ->
+            if (!file("$buildDir/generated/benchmark-assets/$asset").isFile()) {
+                throw new GradleException("Missing Android benchmark shader: $asset")
+            }
+        }
+    }
+}
+
+preBuild.dependsOn("stageBenchmarkAssets")
+
+dependencies {
+    implementation files("../app/libs/SDL3-3.4.10.aar")
+}

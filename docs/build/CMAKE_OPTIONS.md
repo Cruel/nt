@@ -36,7 +36,7 @@ developer frontends that opt into it.
 | `NOVELTEA_BUILD_HOST_TOOLS` | `ON` | Build native editor/host-tool targets, including the embedded shaderc tooling. Player-only builds can disable this to avoid compiling host tooling. |
 | `NOVELTEA_ENABLE_COVERAGE` | `OFF` | Instrument first-party targets in native GCC builds for informational gcov coverage. See [Coverage](COVERAGE.md). |
 | `NOVELTEA_BUILD_BENCHMARKS` | `OFF` | Build the existing native JSON/Lua microbenchmark executable (`noveltea-benchmark`); separate from the graphics app. |
-| `NOVELTEA_BUILD_BENCHMARK_APP` | `OFF` | Build the standalone Linux SDL3/bgfx benchmark app with the portable runner, strict Clean trials, and JSON results (`noveltea-benchmark-app`); does not link or initialize NovelTea Engine. |
+| `NOVELTEA_BUILD_BENCHMARK_APP` | `OFF` | Build the standalone Linux/Android SDL3/bgfx graphics benchmark app with a portable runner, strict Clean trials, ImGui dashboard, and JSON reports (`noveltea-benchmark-app`); raw reference scenarios do not initialize NovelTea Engine. |
 | `NOVELTEA_ENABLE_DEVTOOLS` | `ON` | Compile shared developer-observation/debugging infrastructure and versioned Devtools Snapshot capabilities. Host composition decides whether a Dear ImGui frontend is also compiled; the optimized Web editor-preview preset enables instrumentation without ImGui. |
 | `NOVELTEA_ENABLE_EDITOR_ASSET_PROFILER` | `OFF` | Compile the editor-only asset memory and prefetch profiler. Enabled only by dedicated editor-profiler presets. |
 | `NOVELTEA_COMPILE_SHADERS` | `ON` | Compile bgfx shader binaries through the host `noveltea` CLI's embedded shaderc. Set `OFF` to use prebuilt shaders from `NOVELTEA_PREBUILT_SHADER_ASSET_ROOT`. |

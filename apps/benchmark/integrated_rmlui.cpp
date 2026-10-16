@@ -85,7 +85,7 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
 
     EngineConfig config;
     config.project_asset_root = project_root;
-    config.system_asset_root = benchmark_asset_path("assets/system");
+    config.system_asset_root = benchmark_asset_path("system");
     config.load_title_screen = false;
     config.enable_audio = false;
 

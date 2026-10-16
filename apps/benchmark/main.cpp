@@ -33,7 +33,7 @@ using noveltea::benchmark::SuiteResult;
 
 void print_usage()
 {
-    std::puts("noveltea-benchmark-app: standalone Linux SDL3/bgfx benchmark dashboard");
+    std::puts("noveltea-benchmark-app: standalone SDL3/bgfx benchmark dashboard");
     std::puts("usage: noveltea-benchmark-app [--smoke] [--warmup-seconds N] [--seconds N]");
     std::puts("       [--frames N] [--repeats N] [--ready-timeout-seconds N]");
     std::puts(
@@ -49,7 +49,7 @@ void print_usage()
     std::puts("  --repeats       Trials per scenario; default 1, maximum 20");
     std::puts("  --config        Exact current JSON configuration; cannot mix with run flags");
     std::puts("  --raw-samples   Include per-frame CPU timing pairs in the report");
-    std::puts("  --output        Report path (defaults to build/<preset>/benchmarks)");
+    std::puts("  --output        Report path (defaults to platform-local benchmark storage)");
     std::puts("  --help          Print help without initializing graphics");
     std::puts("Without arguments, opens the dashboard; CLI settings default to no-UI.");
     std::puts("Reference scenes: Clean has no GPU timers; Diagnostic reports supported identified "
@@ -97,6 +97,7 @@ struct Graphics {
         int logical_width = 0;
         int logical_height = 0;
         SDL_GetWindowSize(window, &logical_width, &logical_height);
+#if !defined(__ANDROID__)
         if (logical_width != options.width || logical_height != options.height) {
             if (!SDL_SetWindowSize(window, options.width, options.height)) {
                 reason = std::string("SDL_SetWindowSize: ") + SDL_GetError();
@@ -107,6 +108,10 @@ struct Graphics {
                 return false;
             }
         }
+#else
+        (void)logical_width;
+        (void)logical_height;
+#endif
         int pixel_width = 0;
         int pixel_height = 0;
         if (!SDL_GetWindowSizeInPixels(window, &pixel_width, &pixel_height) || pixel_width < 1 ||
@@ -139,13 +144,24 @@ struct Graphics {
             return false;
         }
         sdl_ready = true;
+#if defined(__ANDROID__)
+        window = SDL_CreateWindow("NovelTea Graphics Benchmark", 0, 0,
+                                  SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY);
+#else
         window = SDL_CreateWindow("NovelTea Graphics Benchmark: Empty bgfx", options.width,
                                   options.height, 0);
+#endif
         if (!window) {
             reason = std::string("SDL_CreateWindow: ") + SDL_GetError();
             return false;
         }
         SDL_PropertiesID props = SDL_GetWindowProperties(window);
+#if defined(__ANDROID__)
+        void* display = nullptr;
+        void* native_window =
+            SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
+        const auto handle_type = bgfx::NativeWindowHandleType::Default;
+#else
         void* display = SDL_GetPointerProperty(props, SDL_PROP_WINDOW_X11_DISPLAY_POINTER, nullptr);
         const uint64_t x11_window =
             SDL_GetNumberProperty(props, SDL_PROP_WINDOW_X11_WINDOW_NUMBER, 0);
@@ -164,6 +180,13 @@ struct Graphics {
             reason = "no X11 or Wayland native window/display handles";
             return false;
         }
+#endif
+#if defined(__ANDROID__)
+        if (!native_window) {
+            reason = "Android surface is not ready";
+            return false;
+        }
+#endif
         int width = 0;
         int height = 0;
         if (!SDL_GetWindowSizeInPixels(window, &width, &height) || width <= 0 || height <= 0) {
@@ -171,7 +194,11 @@ struct Graphics {
             return false;
         }
         bgfx::Init init;
+#if defined(__ANDROID__)
+        init.type = bgfx::RendererType::OpenGLES;
+#else
         init.type = bgfx::RendererType::OpenGL;
+#endif
         init.platformData.type = handle_type;
         init.swapChain.nwh = native_window;
         init.swapChain.ndt = display;
@@ -311,6 +338,7 @@ struct EmptyBgfxScenario : Scenario {
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
                 event.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
+                event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
                 event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
                 reason = "interrupted by SDL event " + std::to_string(event.type);
                 return false;
@@ -417,8 +445,18 @@ bool write_report(const Options& options, const Environment& environment, const 
         const auto stamp = std::chrono::duration_cast<std::chrono::microseconds>(
                                std::chrono::system_clock::now().time_since_epoch())
                                .count();
+#if defined(__ANDROID__)
+        const char* private_path = SDL_GetPrefPath("NovelTea", "Benchmark");
+        if (!private_path) {
+            std::fprintf(stderr, "[benchmark] SDL_GetPrefPath failed: %s\n", SDL_GetError());
+            return false;
+        }
+        path = fs::path(private_path) / "results" /
+               (options.scenario + "-" + std::to_string(stamp) + ".json");
+#else
         path = fs::path(NOVELTEA_BENCHMARK_RESULTS_DIR) /
                (options.scenario + "-" + std::to_string(stamp) + ".json");
+#endif
     } else {
         path = options.output_path;
     }
@@ -447,6 +485,12 @@ bool write_report(const Options& options, const Environment& environment, const 
 
 int run_dashboard(Options options)
 {
+#if defined(__ANDROID__)
+    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry") {
+        std::fprintf(stderr, "[benchmark] Android Stage 1 supports raw-bgfx only\n");
+        return 2;
+    }
+#endif
     if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry" &&
         options.scenario != "standalone-rmlui-simple" &&
         options.scenario != "integrated-rmlui-controlled" &&
@@ -468,6 +512,10 @@ int run_dashboard(Options options)
     SteadyClock clock;
     std::optional<noveltea::benchmark::CompletedRun> completed_run;
     std::string feedback;
+#if defined(__ANDROID__)
+    bool suspended = false;
+    bool needs_surface_recreation = false;
+#endif
     noveltea::benchmark::RawBgfxGeometry preview_geometry;
     noveltea::benchmark::StandaloneRmlUi preview_ui;
     uint32_t preview_count = 0;
@@ -518,6 +566,13 @@ int run_dashboard(Options options)
         // The run configuration is frozen before any result is produced; later
         // dashboard edits must not change the identity of displayed samples.
         const Options run_options = options;
+#if defined(__ANDROID__)
+        if (run_options.scenario != "raw-bgfx-empty" &&
+            run_options.scenario != "raw-bgfx-geometry") {
+            feedback = "Android Stage 1 supports raw-bgfx-empty and raw-bgfx-geometry only";
+            return;
+        }
+#endif
         // Preview GPU geometry also has to be released before the strict run.
         preview_geometry.shutdown();
         preview_ui.shutdown();
@@ -596,18 +651,37 @@ int run_dashboard(Options options)
                             item.scenario.c_str(), item.outcome.c_str(),
                             static_cast<unsigned long long>(item.measured_frames),
                             item.measured_wall_seconds, item.cpu_operation.mean_ms);
+#if defined(__ANDROID__)
+                SDL_Log(
+                    "[benchmark] %s: %s, %llu frames in %.3f s; CPU mean %.3f ms (not GPU time)",
+                    item.scenario.c_str(), item.outcome.c_str(),
+                    static_cast<unsigned long long>(item.measured_frames),
+                    item.measured_wall_seconds, item.cpu_operation.mean_ms);
+#endif
                 for (const auto& trial : item.trials) {
                     if (trial.outcome != "complete")
                         std::fprintf(stderr, "[benchmark] trial failed: %s\n",
                                      trial.reason.c_str());
                 }
             }
-            if (!completed_run->report_path.empty())
+            if (!completed_run->report_path.empty()) {
                 std::printf("[benchmark] report: %s (outcome=%s)\n",
                             completed_run->report_path.c_str(),
                             completed_run->result.outcome.c_str());
+#if defined(__ANDROID__)
+                SDL_Log("[benchmark] report: %s (outcome=%s)", completed_run->report_path.c_str(),
+                        completed_run->result.outcome.c_str());
+#endif
+            }
         }
         // Sampled bgfx views must no longer be active; re-create UI only after cleanup.
+#if defined(__ANDROID__)
+        if (graphics.window && !(SDL_GetWindowFlags(graphics.window) & SDL_WINDOW_INPUT_FOCUS)) {
+            suspended = true;
+            needs_surface_recreation = true;
+            return;
+        }
+#endif
         if (!dashboard.initialize(graphics.window, options, error)) {
             feedback = "dashboard reinitialization: " + error;
             std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
@@ -639,12 +713,18 @@ int run_dashboard(Options options)
         for (int cycle = 0; cycle < 3; ++cycle) {
             if (cycle == 1) {
                 // Cross renderer ownership boundaries without destroying the SDL/bgfx host.
+#if defined(__ANDROID__)
+                options.scenario = original_options.scenario == "raw-bgfx-geometry"
+                                       ? "raw-bgfx-empty"
+                                       : "raw-bgfx-geometry";
+#else
                 options.scenario = (original_options.scenario == "standalone-rmlui-simple" ||
                                     original_options.scenario == "integrated-rmlui-controlled" ||
                                     original_options.scenario == "integrated-rmlui-production" ||
                                     original_options.scenario == "engine-empty")
                                        ? "raw-bgfx-geometry"
                                        : "integrated-rmlui-production";
+#endif
                 options.rect_count = 3;
                 options.rect_scale = 1.0;
             } else if (cycle == 2) {
@@ -672,7 +752,11 @@ int run_dashboard(Options options)
         return 0;
     }
 
-    while (dashboard.initialized()) {
+    while (dashboard.initialized()
+#if defined(__ANDROID__)
+           || suspended
+#endif
+    ) {
         SDL_Event event;
         bool exit_requested = false;
         while (SDL_PollEvent(&event)) {
@@ -680,10 +764,48 @@ int run_dashboard(Options options)
                 exit_requested = true;
                 break;
             }
-            dashboard.process_event(event);
+#if defined(__ANDROID__)
+            if (event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
+                event.type == SDL_EVENT_WINDOW_FOCUS_LOST) {
+                suspended = true;
+                needs_surface_recreation = true;
+                continue;
+            }
+            if (event.type == SDL_EVENT_DID_ENTER_FOREGROUND ||
+                event.type == SDL_EVENT_WINDOW_FOCUS_GAINED) {
+                suspended = false;
+                continue;
+            }
+            if (event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+                needs_surface_recreation = true;
+                continue;
+            }
+#endif
+            if (dashboard.initialized())
+                dashboard.process_event(event);
         }
         if (exit_requested)
             break;
+#if defined(__ANDROID__)
+        if (suspended) {
+            SDL_Delay(50);
+            continue;
+        }
+        if (needs_surface_recreation) {
+            // Android may replace its ANativeWindow while the Activity is paused.
+            // Do not reuse bgfx's old EGL surface or the old ImGui GPU resources.
+            preview_geometry.shutdown();
+            preview_ui.shutdown();
+            dashboard.shutdown();
+            graphics.shutdown();
+            if (!graphics.initialize(options, error) ||
+                !dashboard.initialize(graphics.window, options, error)) {
+                std::fprintf(stderr, "[benchmark] Android surface recovery: %s\n", error.c_str());
+                return 3;
+            }
+            needs_surface_recreation = false;
+        }
+#endif
         const auto action = dashboard.frame(options, completed_run ? &*completed_run : nullptr,
                                             feedback, draw_preview);
         if (action == noveltea::benchmark::DashboardAction::Exit)
@@ -707,6 +829,12 @@ int run(const Options& options)
         std::fprintf(stderr, "[benchmark] unsupported scenario: %s\n", options.scenario.c_str());
         return 2;
     }
+#if defined(__ANDROID__)
+    if (options.scenario != "raw-bgfx-empty" && options.scenario != "raw-bgfx-geometry") {
+        std::fprintf(stderr, "[benchmark] Android Stage 1 supports raw-bgfx only\n");
+        return 2;
+    }
+#endif
     SteadyClock clock;
     EmptyBgfxScenario empty;
     GeometryBgfxScenario geometry;
@@ -748,6 +876,12 @@ int run(const Options& options)
         }
     }
     std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
+#if defined(__ANDROID__)
+    SDL_Log("[benchmark] %s: %s, %llu frames, CPU mean %.3f ms (not GPU time); report: %s",
+            scenario_result.scenario.c_str(), scenario_result.outcome.c_str(),
+            static_cast<unsigned long long>(scenario_result.measured_frames),
+            scenario_result.cpu_operation.mean_ms, output.c_str());
+#endif
     return result.outcome == "complete" ? 0 : 2;
 }
 
