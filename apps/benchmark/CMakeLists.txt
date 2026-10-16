@@ -157,6 +157,12 @@ if(BUILD_TESTING AND NOT ANDROID)
     noveltea_apply_policy_warnings(noveltea-benchmark-frame-driven-tests)
     add_test(NAME noveltea_benchmark_frame_driven COMMAND noveltea-benchmark-frame-driven-tests)
 
+    add_executable(noveltea-benchmark-suite-tests benchmark_suite_tests.cpp)
+    target_link_libraries(noveltea-benchmark-suite-tests PRIVATE noveltea-benchmark-runner)
+    noveltea_apply_runtime_compiler_policy(noveltea-benchmark-suite-tests)
+    noveltea_apply_policy_warnings(noveltea-benchmark-suite-tests)
+    add_test(NAME noveltea_benchmark_suite COMMAND noveltea-benchmark-suite-tests)
+
     add_executable(noveltea-benchmark-runner-tests benchmark_runner_tests.cpp)
     target_link_libraries(noveltea-benchmark-runner-tests PRIVATE noveltea-benchmark-runner)
     noveltea_apply_runtime_compiler_policy(noveltea-benchmark-runner-tests)
@@ -289,6 +295,22 @@ if(BUILD_TESTING AND NOT ANDROID)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
             TIMEOUT 120)
+        add_test(NAME noveltea_benchmark_quick_suite_graphics_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --quick-suite --smoke
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-quick-suite.json")
+        set_tests_properties(noveltea_benchmark_quick_suite_graphics_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "Quick Suite complete"
+            TIMEOUT 180)
+        add_test(NAME noveltea_benchmark_quick_suite_dashboard_smoke
+            COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
+                --dashboard-smoke --quick-suite
+                --output "${CMAKE_BINARY_DIR}/benchmarks/ctest-quick-suite-dashboard.json")
+        set_tests_properties(noveltea_benchmark_quick_suite_dashboard_smoke PROPERTIES
+            LABELS "benchmark;graphics;smoke"
+            PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
+            TIMEOUT 240)
         # Presented pixel check, outside all benchmark sampling. Optional on
         # minimal builders that do not install ImageMagick and Python.
         find_program(NOVELTEA_IMAGEMAGICK_IMPORT NAMES import)

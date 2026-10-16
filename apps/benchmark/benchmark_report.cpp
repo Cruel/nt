@@ -45,6 +45,7 @@ Json configuration(const Options& options)
               {"ready_timeout_seconds", options.ready_timeout_seconds},
               {"profile", options.profile},
               {"no_ui", options.no_ui},
+              {"quick_suite", options.quick_suite},
               {"raw_samples", options.raw_samples},
               {"vsync", options.vsync},
               {"output", options.output_path}}}};
@@ -183,15 +184,16 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     const auto& settings = root["settings"];
     if (!has_fields(settings, {"width", "height", "warmup_seconds", "measurement_seconds",
                                "measurement_frames", "repeats", "ready_timeout_seconds", "profile",
-                               "no_ui", "raw_samples", "vsync", "output"}) ||
+                               "no_ui", "quick_suite", "raw_samples", "vsync", "output"}) ||
         !unsigned_integer(settings, "width") || !unsigned_integer(settings, "height") ||
         !numeric(settings, "warmup_seconds") || !numeric(settings, "measurement_seconds") ||
         !unsigned_integer(settings, "measurement_frames") ||
         !unsigned_integer(settings, "repeats") || !numeric(settings, "ready_timeout_seconds") ||
         !settings["profile"].is_string() ||
         (settings["profile"] != "clean" && settings["profile"] != "diagnostic") ||
-        !settings["no_ui"].is_boolean() || !settings["raw_samples"].is_boolean() ||
-        !settings["vsync"].is_boolean() || !settings["output"].is_string()) {
+        !settings["no_ui"].is_boolean() || !settings["quick_suite"].is_boolean() ||
+        !settings["raw_samples"].is_boolean() || !settings["vsync"].is_boolean() ||
+        !settings["output"].is_string()) {
         reason = "invalid benchmark configuration settings";
         return false;
     }
@@ -218,6 +220,7 @@ bool decode_configuration(std::string_view source, Options& options, std::string
     next.raw_samples = settings["raw_samples"].get<bool>();
     next.profile = settings["profile"].get<std::string>();
     next.no_ui = settings["no_ui"].get<bool>();
+    next.quick_suite = settings["quick_suite"].get<bool>();
     next.vsync = settings["vsync"].get<bool>();
     next.output_path = settings["output"].get<std::string>();
     if (!validate_run_options(next, reason))
@@ -228,7 +231,8 @@ bool decode_configuration(std::string_view source, Options& options, std::string
 }
 
 std::string encode_result(const Options& options, const Environment& environment,
-                          const SuiteResult& result)
+                          const SuiteResult& result,
+                          const std::vector<Environment>& scenario_environments)
 {
     Json scenarios = Json::array();
     for (const auto& scenario : result.scenarios) {
@@ -280,82 +284,101 @@ std::string encode_result(const Options& options, const Environment& environment
                {"frame_wall_ms", distribution(scenario.wall_frame)},
                {"cpu_operation_ms", distribution(scenario.cpu_operation)}}}});
     }
-    const Json graphics = {
-        {"platform", environment.platform},
-        {"video_driver",
-         environment.video_driver.empty() ? Json(nullptr) : Json(environment.video_driver)},
-        {"renderer", environment.renderer.empty() ? Json(nullptr) : Json(environment.renderer)},
-        {"frame_path",
-         environment.frame_path.empty() ? Json(nullptr) : Json(environment.frame_path)},
-        {"gpu_vendor_id",
-         environment.gpu_vendor_id < 0 ? Json(nullptr) : Json(environment.gpu_vendor_id)},
-        {"gpu_device_id",
-         environment.gpu_device_id < 0 ? Json(nullptr) : Json(environment.gpu_device_id)},
-        {"gpu_driver_version", nullptr},
-        {"width_pixels",
-         environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
-        {"height_pixels",
-         environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)},
-        // These are captured from the actual initialized RmlUi adapter,
-        // not inferred from the scenario name. A multisampled reference
-        // layer must use offscreen base presentation by backend policy.
-        {"ui_render_path",
-         environment.ui_backend
-             ? Json(environment.ui_backend->optimized_render_path ? "optimized" : "reference")
-             : Json(nullptr)},
-        {"ui_base_direct_compat",
-         environment.ui_backend ? Json(environment.ui_backend->base_direct_compatibility_requested)
-                                : Json(nullptr)},
-        {"ui_reference_msaa_samples", environment.ui_backend
-                                          ? Json(environment.ui_backend->reference_msaa_samples)
+    const auto encode_graphics = [](const Environment& environment) -> Json {
+        return {
+            {"platform", environment.platform},
+            {"video_driver",
+             environment.video_driver.empty() ? Json(nullptr) : Json(environment.video_driver)},
+            {"renderer", environment.renderer.empty() ? Json(nullptr) : Json(environment.renderer)},
+            {"frame_path",
+             environment.frame_path.empty() ? Json(nullptr) : Json(environment.frame_path)},
+            {"gpu_vendor_id",
+             environment.gpu_vendor_id < 0 ? Json(nullptr) : Json(environment.gpu_vendor_id)},
+            {"gpu_device_id",
+             environment.gpu_device_id < 0 ? Json(nullptr) : Json(environment.gpu_device_id)},
+            {"gpu_driver_version", nullptr},
+            {"width_pixels",
+             environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
+            {"height_pixels",
+             environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)},
+            // These are captured from the actual initialized RmlUi adapter,
+            // not inferred from the scenario name. A multisampled reference
+            // layer must use offscreen base presentation by backend policy.
+            {"ui_render_path",
+             environment.ui_backend
+                 ? Json(environment.ui_backend->optimized_render_path ? "optimized" : "reference")
+                 : Json(nullptr)},
+            {"ui_base_direct_compat",
+             environment.ui_backend
+                 ? Json(environment.ui_backend->base_direct_compatibility_requested)
+                 : Json(nullptr)},
+            {"ui_reference_msaa_samples", environment.ui_backend
+                                              ? Json(environment.ui_backend->reference_msaa_samples)
+                                              : Json(nullptr)},
+            {"ui_preserve_backbuffer", environment.ui_backend
+                                           ? Json(environment.ui_backend->preserve_backbuffer)
+                                           : Json(nullptr)},
+            {"ui_base_presentation_policy",
+             environment.ui_backend ? Json(environment.ui_backend->reference_msaa_samples > 0
+                                               ? "offscreen-required-by-msaa"
+                                               : "depends-on-root-and-capabilities")
+                                    : Json(nullptr)},
+            {"ui_output_framebuffer", environment.ui_backend
+                                          ? Json(environment.ui_backend->output_framebuffer_bound
+                                                     ? "explicit-offscreen-target"
+                                                     : "backbuffer")
                                           : Json(nullptr)},
-        {"ui_preserve_backbuffer", environment.ui_backend
-                                       ? Json(environment.ui_backend->preserve_backbuffer)
-                                       : Json(nullptr)},
-        {"ui_base_presentation_policy",
-         environment.ui_backend ? Json(environment.ui_backend->reference_msaa_samples > 0
-                                           ? "offscreen-required-by-msaa"
-                                           : "depends-on-root-and-capabilities")
-                                : Json(nullptr)},
-        {"ui_output_framebuffer",
-         environment.ui_backend
-             ? Json(environment.ui_backend->output_framebuffer_bound ? "explicit-offscreen-target"
-                                                                     : "backbuffer")
-             : Json(nullptr)},
-        {"ui_raster_snapping_geometry", environment.ui_backend
-                                            ? Json(environment.ui_backend->geometry_raster_snapping)
+            {"ui_raster_snapping_geometry",
+             environment.ui_backend ? Json(environment.ui_backend->geometry_raster_snapping)
+                                    : Json(nullptr)},
+            {"ui_raster_snapping_text", environment.ui_backend
+                                            ? Json(environment.ui_backend->text_raster_snapping)
                                             : Json(nullptr)},
-        {"ui_raster_snapping_text", environment.ui_backend
-                                        ? Json(environment.ui_backend->text_raster_snapping)
-                                        : Json(nullptr)},
-        {"ui_backend_viewport_width",
-         environment.ui_backend ? Json(environment.ui_backend->viewport_width) : Json(nullptr)},
-        {"ui_backend_viewport_height",
-         environment.ui_backend ? Json(environment.ui_backend->viewport_height) : Json(nullptr)},
-        {"engine_ui_reference_width",
-         environment.ui_reference_width > 0 ? Json(environment.ui_reference_width) : Json(nullptr)},
-        {"engine_ui_reference_height", environment.ui_reference_height > 0
-                                           ? Json(environment.ui_reference_height)
-                                           : Json(nullptr)},
-        {"ui_raster_width_pixels",
-         environment.ui_raster_width > 0 ? Json(environment.ui_raster_width) : Json(nullptr)},
-        {"ui_raster_height_pixels",
-         environment.ui_raster_height > 0 ? Json(environment.ui_raster_height) : Json(nullptr)},
-        {"world_raster_width_pixels",
-         environment.world_raster_width > 0 ? Json(environment.world_raster_width) : Json(nullptr)},
-        {"world_raster_height_pixels", environment.world_raster_height > 0
-                                           ? Json(environment.world_raster_height)
-                                           : Json(nullptr)},
-        {"engine_postprocess_surface_active", environment.engine_postprocess_active
-                                                  ? Json(*environment.engine_postprocess_active)
-                                                  : Json(nullptr)},
-        {"ui_offscreen_rendering_observed", nullptr},
-        {"internal_render_scale",
-         environment.width_pixels > 0 && environment.height_pixels > 0 ? Json(1.0) : Json(nullptr)},
-        {"render_width_pixels",
-         environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
-        {"render_height_pixels",
-         environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)}};
+            {"ui_backend_viewport_width",
+             environment.ui_backend ? Json(environment.ui_backend->viewport_width) : Json(nullptr)},
+            {"ui_backend_viewport_height", environment.ui_backend
+                                               ? Json(environment.ui_backend->viewport_height)
+                                               : Json(nullptr)},
+            {"engine_ui_reference_width", environment.ui_reference_width > 0
+                                              ? Json(environment.ui_reference_width)
+                                              : Json(nullptr)},
+            {"engine_ui_reference_height", environment.ui_reference_height > 0
+                                               ? Json(environment.ui_reference_height)
+                                               : Json(nullptr)},
+            {"ui_raster_width_pixels",
+             environment.ui_raster_width > 0 ? Json(environment.ui_raster_width) : Json(nullptr)},
+            {"ui_raster_height_pixels",
+             environment.ui_raster_height > 0 ? Json(environment.ui_raster_height) : Json(nullptr)},
+            {"world_raster_width_pixels", environment.world_raster_width > 0
+                                              ? Json(environment.world_raster_width)
+                                              : Json(nullptr)},
+            {"world_raster_height_pixels", environment.world_raster_height > 0
+                                               ? Json(environment.world_raster_height)
+                                               : Json(nullptr)},
+            {"engine_postprocess_surface_active", environment.engine_postprocess_active
+                                                      ? Json(*environment.engine_postprocess_active)
+                                                      : Json(nullptr)},
+            {"ui_offscreen_rendering_observed", nullptr},
+            {"internal_render_scale", environment.width_pixels > 0 && environment.height_pixels > 0
+                                          ? Json(1.0)
+                                          : Json(nullptr)},
+            {"render_width_pixels",
+             environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
+            {"render_height_pixels",
+             environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)}};
+    };
+    for (size_t i = 0; i < result.scenarios.size(); ++i) {
+        if (i < scenario_environments.size())
+            scenarios[i]["graphics"] = encode_graphics(scenario_environments[i]);
+        else if (result.scenarios.size() == 1)
+            scenarios[i]["graphics"] = encode_graphics(environment);
+        else
+            scenarios[i]["graphics"] = nullptr;
+    }
+    // A mixed-host suite has no single truthful renderer or framebuffer.
+    const Json graphics = result.scenarios.size() == 1 || scenario_environments.empty()
+                              ? encode_graphics(environment)
+                              : Json(nullptr);
     const Json report = {
         {"format", kResultFormat},
         {"version", 1},

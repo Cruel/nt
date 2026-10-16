@@ -139,6 +139,13 @@ struct SuiteResult {
     std::optional<InstrumentationControl> instrumentation_control;
 };
 
+// The fixed reference comparison order; each scenario keeps its own trials and outcome.
+[[nodiscard]] const std::vector<std::string>& quick_suite_scenarios();
+// Append a separately executed scenario and recompute the suite outcome. A failed
+// scenario is not a reason to discard subsequent independent comparisons.
+void append_suite_result(SuiteResult& destination, SuiteResult source);
+void append_failed_scenario(SuiteResult& destination, std::string id, std::string reason);
+
 class Clock {
 public:
     virtual ~Clock() = default;

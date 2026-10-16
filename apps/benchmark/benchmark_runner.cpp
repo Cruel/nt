@@ -336,6 +336,47 @@ DiagnosticSummary summarize_diagnostics(const std::vector<DiagnosticObservation>
     return result;
 }
 
+const std::vector<std::string>& quick_suite_scenarios()
+{
+    static const std::vector<std::string> scenarios = {
+        "raw-bgfx-empty", "raw-bgfx-geometry",           "standalone-rmlui-simple",
+        "engine-empty",   "integrated-rmlui-controlled", "integrated-rmlui-production"};
+    return scenarios;
+}
+
+void append_suite_result(SuiteResult& destination, SuiteResult source)
+{
+    if (source.instrumentation_control)
+        destination.instrumentation_control = source.instrumentation_control;
+    for (auto& scenario : source.scenarios)
+        destination.scenarios.push_back(std::move(scenario));
+    size_t complete = 0;
+    bool any_measurements = false;
+    bool cancelled = false;
+    for (const auto& scenario : destination.scenarios) {
+        complete += scenario.outcome == "complete" ? 1u : 0u;
+        any_measurements |= scenario.measured_frames != 0;
+        cancelled |= scenario.outcome == "cancelled";
+    }
+    destination.outcome = cancelled ? "cancelled"
+                          : complete == destination.scenarios.size()
+                              ? "complete"
+                              : (any_measurements ? "partial" : "failed");
+}
+
+void append_failed_scenario(SuiteResult& destination, std::string id, std::string reason)
+{
+    ScenarioResult failed;
+    failed.scenario = std::move(id);
+    failed.description = "scenario could not acquire graphics ownership";
+    TrialResult trial;
+    trial.reason = std::move(reason);
+    failed.trials.push_back(std::move(trial));
+    SuiteResult single;
+    single.scenarios.push_back(std::move(failed));
+    append_suite_result(destination, std::move(single));
+}
+
 SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios, Clock& clock,
                       Recovery recovery)
 {

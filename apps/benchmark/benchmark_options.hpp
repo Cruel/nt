@@ -19,6 +19,7 @@ struct Options {
     bool vsync = false;
     bool help = false;
     bool dashboard_smoke = false;
+    bool quick_suite = false;
     bool dashboard_visual_smoke = false;
     std::string scenario = "raw-bgfx-empty";
     uint32_t rect_count = 3;

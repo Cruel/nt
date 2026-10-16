@@ -54,6 +54,7 @@ void print_usage()
         "integrated-rmlui-controlled|integrated-rmlui-production|engine-empty] [--rect-count N]");
     std::puts("       [--rect-scale 0.25..1.0] [--raw-samples] [--config PATH] [--output PATH]");
     std::puts("  --smoke         30 measured frames, no warmup");
+    std::puts("  --quick-suite   Run all six reference comparisons with independent outcomes");
     std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
     std::puts("  --dashboard-visual-smoke  Untimed two-stage preview pixel fixture");
     std::puts("  --frames        Fixed frames per trial; maximum 300000");
@@ -611,7 +612,7 @@ struct RmlUiScenario final : EmptyBgfxScenario {
 };
 
 bool write_report(const Options& options, const Environment& environment, const SuiteResult& result,
-                  std::string& output)
+                  std::string& output, const std::vector<Environment>& scenario_environments = {})
 {
     namespace fs = std::filesystem;
     fs::path path;
@@ -626,10 +627,12 @@ bool write_report(const Options& options, const Environment& environment, const 
             return false;
         }
         path = fs::path(private_path) / "results" /
-               (options.scenario + "-" + std::to_string(stamp) + ".json");
+               ((options.quick_suite ? "quick-suite" : options.scenario) + "-" +
+                std::to_string(stamp) + ".json");
 #else
         path = fs::path(NOVELTEA_BENCHMARK_RESULTS_DIR) /
-               (options.scenario + "-" + std::to_string(stamp) + ".json");
+               ((options.quick_suite ? "quick-suite" : options.scenario) + "-" +
+                std::to_string(stamp) + ".json");
 #endif
     } else {
         path = options.output_path;
@@ -647,7 +650,8 @@ bool write_report(const Options& options, const Environment& environment, const 
         std::fprintf(stderr, "[benchmark] cannot open report %s\n", path.string().c_str());
         return false;
     }
-    file << noveltea::benchmark::encode_result(options, environment, result) << '\n';
+    file << noveltea::benchmark::encode_result(options, environment, result, scenario_environments)
+         << '\n';
     file.close();
     if (!file) {
         std::fprintf(stderr, "[benchmark] could not write report %s\n", path.string().c_str());
@@ -656,7 +660,8 @@ bool write_report(const Options& options, const Environment& environment, const 
     output = path.string();
 #if defined(__EMSCRIPTEN__)
     const std::string name = path.filename().string();
-    const std::string json = noveltea::benchmark::encode_result(options, environment, result);
+    const std::string json =
+        noveltea::benchmark::encode_result(options, environment, result, scenario_environments);
     EM_ASM(
         {
             if (window.NovelTeaBenchmark)
@@ -670,6 +675,107 @@ bool write_report(const Options& options, const Environment& environment, const 
 }
 
 #if !defined(__EMSCRIPTEN__)
+// One suite collection keeps the ImGui host absent across all measurements.
+// Hosts with incompatible ownership never coexist: the Engine creates its own
+// SDL window and bgfx device, while the raw/standalone cases borrow Graphics.
+SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Clock& clock,
+                                   std::vector<Environment>& environments,
+                                   bool* ownership_safe = nullptr)
+{
+    SuiteResult collection;
+    bool unsafe_cleanup = false;
+    for (const auto& id : noveltea::benchmark::quick_suite_scenarios()) {
+        if (unsafe_cleanup) {
+            noveltea::benchmark::append_failed_scenario(
+                collection, id, "previous renderer cleanup failed; ownership transfer unsafe");
+            environments.emplace_back();
+            continue;
+        }
+        Options selected = base;
+        selected.scenario = id;
+        selected.rect_count = 3;
+        selected.rect_scale = 1.0;
+        std::string reason;
+        const bool engine_owned = id == "engine-empty" || id == "integrated-rmlui-controlled" ||
+                                  id == "integrated-rmlui-production";
+#if defined(__ANDROID__)
+        if (engine_owned || id == "standalone-rmlui-simple") {
+            noveltea::benchmark::append_failed_scenario(
+                collection, id, "This reference renderer is not yet supported by the Android host");
+            environments.emplace_back();
+            continue;
+        }
+#endif
+        SuiteResult item;
+        if (engine_owned) {
+            // Shutdown bgfx and SDL before EngineTooling takes ownership.
+            graphics.shutdown();
+            noveltea::benchmark::EmptyEngine empty;
+            noveltea::benchmark::IntegratedRmlUi controlled(true);
+            noveltea::benchmark::IntegratedRmlUi production(false);
+            Scenario* target = id == "engine-empty" ? static_cast<Scenario*>(&empty)
+                               : id == "integrated-rmlui-controlled"
+                                   ? static_cast<Scenario*>(&controlled)
+                                   : static_cast<Scenario*>(&production);
+            item = noveltea::benchmark::run_suite(selected, {target}, clock);
+            environments.push_back(id == "engine-empty" ? empty.environment()
+                                   : id == "integrated-rmlui-controlled"
+                                       ? controlled.environment()
+                                       : production.environment());
+        } else {
+            if ((!graphics.bgfx_ready && !graphics.initialize(selected, reason)) ||
+                !graphics.reconfigure(selected, reason)) {
+                noveltea::benchmark::append_failed_scenario(collection, id, reason);
+                environments.emplace_back();
+                // A failed bgfx initialization cannot safely be followed by another host.
+                graphics.shutdown();
+                unsafe_cleanup = true;
+                continue;
+            }
+            // Clear old UI/Engine contents before the next timed raw reference.
+            bgfx::setViewClear(0, BGFX_CLEAR_COLOR, 0x000000ff);
+            for (int i = 0; i < 4; ++i) {
+                bgfx::touch(0);
+                bgfx::frame();
+            }
+            bgfx::setViewClear(0, BGFX_CLEAR_NONE);
+            for (int i = 0; i < 2; ++i) {
+                bgfx::touch(0);
+                bgfx::frame();
+            }
+#if defined(__ANDROID__)
+            EmptyBenchmarkCover cover;
+            if (id == "raw-bgfx-empty" && !cover.show(reason)) {
+                noveltea::benchmark::append_failed_scenario(collection, id, reason);
+                environments.emplace_back();
+                continue;
+            }
+#endif
+            EmptyBgfxScenario empty(&graphics);
+            GeometryBgfxScenario geometry(&graphics);
+            RmlUiScenario rmlui(&graphics);
+            Scenario* target = id == "raw-bgfx-geometry"         ? static_cast<Scenario*>(&geometry)
+                               : id == "standalone-rmlui-simple" ? static_cast<Scenario*>(&rmlui)
+                                                                 : static_cast<Scenario*>(&empty);
+            item = noveltea::benchmark::run_suite(selected, {target}, clock);
+            environments.push_back(graphics.environment);
+        }
+        for (const auto& scenario : item.scenarios) {
+            for (const auto& trial : scenario.trials) {
+                if (trial.reason.find("cleanup failed") != std::string::npos)
+                    unsafe_cleanup = true;
+            }
+        }
+        const bool cancelled = item.outcome == "cancelled";
+        noveltea::benchmark::append_suite_result(collection, std::move(item));
+        if (cancelled)
+            break;
+    }
+    if (ownership_safe)
+        *ownership_safe = !unsafe_cleanup;
+    return collection;
+}
+
 int run_dashboard(Options options)
 {
 #if defined(__ANDROID__)
@@ -743,16 +849,21 @@ int run_dashboard(Options options)
             return;
     };
 
-    const auto benchmark_once = [&]() {
+    const auto benchmark_once = [&](bool quick = false) {
         std::string validation;
         if (!noveltea::benchmark::validate_run_options(options, validation) ||
-            !noveltea::benchmark::validate_reference_options(options, validation)) {
+            (!quick && !noveltea::benchmark::validate_reference_options(options, validation))) {
             feedback = validation;
             return;
         }
         // The run configuration is frozen before any result is produced; later
         // dashboard edits must not change the identity of displayed samples.
-        const Options run_options = options;
+        Options run_options = options;
+        run_options.quick_suite = quick;
+        if (quick) {
+            run_options.rect_count = 3;
+            run_options.rect_scale = 1.0;
+        }
 #if defined(__ANDROID__)
         if (run_options.scenario != "raw-bgfx-empty" &&
             run_options.scenario != "raw-bgfx-geometry") {
@@ -760,7 +871,7 @@ int run_dashboard(Options options)
             return;
         }
         EmptyBenchmarkCover cover;
-        if (run_options.scenario == "raw-bgfx-empty" && !cover.show(feedback))
+        if (!quick && run_options.scenario == "raw-bgfx-empty" && !cover.show(feedback))
             return;
 #endif
         // Preview GPU geometry also has to be released before the strict run.
@@ -776,7 +887,31 @@ int run_dashboard(Options options)
                                 run_options.scenario == "integrated-rmlui-production";
         const bool engine_owned = integrated || run_options.scenario == "engine-empty";
         bool ran = false;
-        if (engine_owned) {
+        if (quick) {
+            std::vector<Environment> environments;
+            bool ownership_safe = true;
+            auto result =
+                run_native_quick_suite(run_options, graphics, clock, environments, &ownership_safe);
+            ran = true;
+            completed_run = noveltea::benchmark::CompletedRun{run_options, std::move(result), {}};
+            if (!write_report(run_options, graphics.environment, completed_run->result,
+                              completed_run->report_path, environments))
+                feedback = "failed to write benchmark report";
+            else
+                feedback.clear();
+            if (!ownership_safe) {
+                // The report is safe to publish, but a new bgfx owner is not.
+                // Leave the UI stopped instead of initializing over a live device.
+                feedback = "Quick Suite renderer cleanup failed; dashboard cannot be restored";
+                std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
+                return;
+            }
+            if (!graphics.bgfx_ready && !graphics.initialize(options, error)) {
+                feedback = "dashboard graphics recreation: " + error;
+                std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
+                return;
+            }
+        } else if (engine_owned) {
             // Engine must own SDL, its window and bgfx. Do not overlap hosts.
             graphics.shutdown();
             noveltea::benchmark::IntegratedRmlUi engine_ui(run_options.scenario ==
@@ -953,7 +1088,7 @@ int run_dashboard(Options options)
                 dashboard.set_inspection_only(false);
             (void)dashboard.frame(options, completed_run ? &*completed_run : nullptr, feedback,
                                   draw_preview);
-            benchmark_once();
+            benchmark_once(options.quick_suite);
             if (!dashboard.initialized() || !completed_run ||
                 completed_run->result.outcome != "complete" || !feedback.empty())
                 return 4;
@@ -1024,7 +1159,7 @@ int run_dashboard(Options options)
             break;
         if (action == noveltea::benchmark::DashboardAction::Run ||
             action == noveltea::benchmark::DashboardAction::QuickSuite)
-            benchmark_once();
+            benchmark_once(action == noveltea::benchmark::DashboardAction::QuickSuite);
         SDL_Delay(10);
     }
     preview_geometry.shutdown();
@@ -1048,6 +1183,29 @@ int run(const Options& options)
     }
 #endif
     SteadyClock clock;
+    if (options.quick_suite) {
+        Graphics graphics;
+        Options suite_options = options;
+        suite_options.rect_count = 3;
+        suite_options.rect_scale = 1.0;
+        std::vector<Environment> environments;
+        const SuiteResult suite =
+            run_native_quick_suite(suite_options, graphics, clock, environments);
+        std::string output;
+        if (!write_report(suite_options, graphics.environment, suite, output, environments))
+            return 3;
+        for (const auto& scenario : suite.scenarios) {
+            std::printf("[benchmark] suite %s: %s, %llu measured frames\n",
+                        scenario.scenario.c_str(), scenario.outcome.c_str(),
+                        static_cast<unsigned long long>(scenario.measured_frames));
+            for (const auto& trial : scenario.trials)
+                if (trial.outcome != "complete")
+                    std::fprintf(stderr, "[benchmark] %s: %s\n", scenario.scenario.c_str(),
+                                 trial.reason.c_str());
+        }
+        std::printf("[benchmark] Quick Suite %s: %s\n", suite.outcome.c_str(), output.c_str());
+        return suite.outcome == "complete" ? 0 : 2;
+    }
     EmptyBgfxScenario empty;
     GeometryBgfxScenario geometry;
     RmlUiScenario rmlui;

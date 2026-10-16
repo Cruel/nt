@@ -44,6 +44,20 @@ int main()
                "current config roundtrip"))
         return 1;
 
+    Options quick_options = original;
+    quick_options.quick_suite = true;
+    const auto quick_config = nlohmann::json::parse(encode_configuration(quick_options));
+    Options quick_roundtrip;
+    auto invalid_quick = quick_config;
+    invalid_quick["settings"]["quick_suite"] = "yes";
+    if (!check(quick_config["settings"]["quick_suite"] == true &&
+                   decode_configuration(quick_config.dump(), quick_roundtrip, error) &&
+                   quick_roundtrip.quick_suite &&
+                   nlohmann::json::parse(encode_configuration(quick_roundtrip)) == quick_config &&
+                   rejected(invalid_quick),
+               "Quick Suite is encoded in the canonical run configuration"))
+        return 1;
+
     auto old_version = configured;
     old_version["version"] = 0;
     auto wrong_scenario_version = configured;
@@ -242,6 +256,22 @@ int main()
                    engine_result["graphics"]["engine_postprocess_surface_active"] == false &&
                    engine_result["configuration"]["parameters"].empty(),
                "empty Engine metadata differs from raw bgfx with observed renderer state"))
+        return 1;
+    // A mixed renderer suite must not claim all entries ran with one host.
+    auto mixed = suite;
+    mixed.scenarios.push_back(scenario);
+    mixed.scenarios.back().scenario = "engine-empty";
+    noveltea::benchmark::Environment raw_env;
+    raw_env.frame_path = "bgfx-frame";
+    raw_env.renderer = "OpenGL";
+    const auto multi =
+        nlohmann::json::parse(encode_result(original, raw_env, mixed, {raw_env, engine_env}));
+    if (!check(multi["graphics"].is_null() &&
+                   multi["scenarios"][0]["graphics"]["frame_path"] == "bgfx-frame" &&
+                   multi["scenarios"][1]["graphics"]["frame_path"] == "engine-tick" &&
+                   multi["scenarios"][0]["graphics"]["renderer"] == "OpenGL" &&
+                   multi["scenarios"][1]["graphics"]["renderer"].is_null(),
+               "mixed host suite preserves per-scenario graphics identity"))
         return 1;
     original.profile = "diagnostic";
     suite.instrumentation_control =
