@@ -1,4 +1,5 @@
 #include "room_session.hpp"
+#include "property_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -851,15 +852,16 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
         auto authority = std::make_unique<SourceAuthority>(root);
         if (!authority->initialize(error))
             return nullptr;
-        if (!RoomSession::open_traits_source(root, error))
+        auto traits = RoomSession::open_traits_source(root, error);
+        if (!traits)
             return nullptr;
         if (!RoomSession::open_editor_source(root, error))
             return nullptr;
         // Check tracked source validity at Project admission, but keep their
         // working sessions lazy: opening a Project must not publish untouched
         // owners or change the worker's initial record-snapshot contract.
-        return std::unique_ptr<ProjectSession>(
-            new ProjectSession(std::move(source), std::move(authority), root));
+        return std::unique_ptr<ProjectSession>(new ProjectSession(
+            std::move(source), std::move(authority), root, traits->snapshot().normalized_json));
     } catch (const std::exception& e) {
         error = e.what();
         return nullptr;
@@ -869,7 +871,38 @@ std::unique_ptr<ProjectSession> ProjectSession::open(const std::filesystem::path
 RoomSessionSnapshot ProjectSession::snapshot() const
 {
     auto state = source_->snapshot();
+    const bool manifest_dirty = state.dirty;
     state.working_revision = working_revision_;
+    const auto trait_owner = records_.find("traits");
+    const auto traits_json = trait_owner == records_.end()
+                                 ? traits_baseline_json_
+                                 : trait_owner->second->snapshot().normalized_json;
+    // Load only a referenced Variable, never reconstruct the complete Project.
+    // Inspected working owners take precedence over their disk sources.
+    std::map<std::string, std::optional<std::string>> referenced_variables;
+    const VariableResolver resolve_variable =
+        [&](std::string_view id) -> std::optional<std::string> {
+        const auto key = std::string(id);
+        if (const auto cached = referenced_variables.find(key);
+            cached != referenced_variables.end())
+            return cached->second;
+        std::optional<std::string> value;
+        if (const auto edited = records_.find("variables/" + key); edited != records_.end()) {
+            const auto record = edited->second->snapshot();
+            if (record.valid)
+                value = record.normalized_json;
+        } else if (is_id(key)) {
+            std::string error;
+            auto record = RoomSession::open_record(root_, "variables", key, error);
+            if (record) {
+                const auto snapshot = record->snapshot();
+                if (snapshot.valid)
+                    value = snapshot.normalized_json;
+            }
+        }
+        referenced_variables.emplace(key, value);
+        return value;
+    };
     for (const auto& [owner, session] : records_) {
         const auto record = session->snapshot();
         state.dirty |= record.dirty;
@@ -877,6 +910,81 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         for (auto diagnostic : record.diagnostics) {
             diagnostic.path = "/" + owner + diagnostic.path;
             state.diagnostics.push_back(std::move(diagnostic));
+        }
+        const auto slash = owner.find('/');
+        const auto family = owner.substr(0, slash);
+        if (record.valid && slash != std::string::npos && !traits_json.empty()) {
+            const auto semantic = validate_property_dependencies(family, record.normalized_json,
+                                                                 traits_json, resolve_variable);
+            state.valid &= semantic.accepted;
+            for (auto diagnostic : semantic.diagnostics) {
+                diagnostic.path = "/" + owner + diagnostic.path;
+                state.diagnostics.push_back(std::move(diagnostic));
+            }
+        }
+    }
+    // An Instance is owned by the manifest rather than by a separate YAML
+    // record. Validate only changed Instances and Instances whose Definition
+    // is resident, not every unrelated definition in the Project.
+    const bool inspected_definition =
+        std::any_of(records_.begin(), records_.end(),
+                    [](const auto& record) { return record.first.starts_with("interactables/"); });
+    if ((manifest_dirty || inspected_definition) && !state.normalized_json.empty() &&
+        !traits_json.empty()) {
+        const auto working = Json::parse(state.normalized_json);
+        const auto authored = Json::parse(state.source_json);
+        const auto baseline = Json::parse(state.baseline_json);
+        const auto* instances = working.contains("interactableInstances")
+                                    ? &working.at("interactableInstances")
+                                    : nullptr;
+        const auto* old_instances = baseline.contains("interactableInstances")
+                                        ? &baseline.at("interactableInstances")
+                                        : nullptr;
+        const auto* authored_instances = authored.contains("interactableInstances")
+                                             ? &authored.at("interactableInstances")
+                                             : nullptr;
+        std::map<std::string, std::optional<std::string>> definitions;
+        if (instances && instances->is_object()) {
+            for (const auto& entry : instances->object_range()) {
+                const auto id = std::string(entry.key());
+                const auto definition =
+                    entry.value().at("definition").at("$ref").at("id").as<std::string>();
+                const auto* old =
+                    old_instances && old_instances->contains(id) ? &old_instances->at(id) : nullptr;
+                const auto* source = authored_instances && authored_instances->contains(id)
+                                         ? &authored_instances->at(id)
+                                         : nullptr;
+                if (old && source && *old == *source &&
+                    !records_.contains("interactables/" + definition))
+                    continue;
+                auto found = definitions.find(definition);
+                if (found == definitions.end()) {
+                    std::optional<std::string> effective;
+                    if (const auto record = records_.find("interactables/" + definition);
+                        record != records_.end()) {
+                        const auto snapshot = record->second->snapshot();
+                        if (snapshot.valid)
+                            effective = snapshot.normalized_json;
+                    } else if (is_id(definition)) {
+                        std::string error;
+                        auto record =
+                            RoomSession::open_record(root_, "interactables", definition, error);
+                        if (record && record->snapshot().valid)
+                            effective = record->snapshot().normalized_json;
+                    }
+                    found = definitions.emplace(definition, effective).first;
+                }
+                if (!found->second)
+                    continue; // malformed/missing Definition is diagnosed at its source boundary
+                const auto semantic = validate_interactable_instance(entry.value().to_string(),
+                                                                     *found->second, traits_json);
+                state.valid &= semantic.accepted;
+                for (auto diagnostic : semantic.diagnostics) {
+                    diagnostic.path =
+                        "/interactableInstances/" + pointer_token(id) + diagnostic.path;
+                    state.diagnostics.push_back(std::move(diagnostic));
+                }
+            }
         }
     }
     return state;
@@ -1089,6 +1197,47 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                 session = found->second.get();
             if (!session || !selected.emplace(owner, session).second)
                 throw std::runtime_error("Unknown or duplicate native Save owner: " + owner);
+        }
+        // Save validates the selected dirty owner and its already-inspected
+        // dependents. Unrelated invalid owners must not block a scoped Save.
+        const auto current = snapshot();
+        for (const auto& [owner, session] : selected) {
+            if (!session->snapshot().dirty)
+                continue;
+            const auto variable_id = owner.starts_with("variables/")
+                                         ? owner.substr(std::string("variables/").size())
+                                         : std::string{};
+            const auto filter = paths.find(owner);
+            const bool all_paths =
+                filter == paths.end() || (filter->second.size() == 1 && filter->second[0] == "/");
+            for (const auto& diagnostic : current.diagnostics) {
+                const bool invalid_selected_record =
+                    diagnostic.path.starts_with("/" + owner + "/") &&
+                    (all_paths || std::any_of(filter->second.begin(), filter->second.end(),
+                                              [&](const std::string& path) {
+                                                  return paths_overlap("/" + owner + path,
+                                                                       diagnostic.path);
+                                              }));
+                const bool trait_dependency =
+                    owner == "traits" && (diagnostic.code.starts_with("authoring.trait.") ||
+                                          diagnostic.code == "authoring.trait.missing_reference");
+                const bool variable_dependency =
+                    !variable_id.empty() &&
+                    diagnostic.code == "authoring.condition.variable-type-mismatch" &&
+                    diagnostic.message.find("'" + variable_id + "'") != std::string::npos;
+                const bool instance_dependency =
+                    owner == "project" && diagnostic.path.starts_with("/interactableInstances/") &&
+                    (diagnostic.code.starts_with("authoring.trait.") ||
+                     diagnostic.code.starts_with("authoring.interactable.")) &&
+                    (all_paths || std::any_of(filter->second.begin(), filter->second.end(),
+                                              [&](const std::string& path) {
+                                                  return paths_overlap(path, diagnostic.path);
+                                              }));
+                if (invalid_selected_record || trait_dependency || variable_dependency ||
+                    instance_dependency)
+                    throw std::runtime_error("Cannot save invalid dependent Project record: " +
+                                             diagnostic.path);
+            }
         }
         std::vector<YamlTransactionTarget> targets;
         std::map<std::string, Json> projected;
@@ -1372,15 +1521,24 @@ RoomSessionSnapshot RoomSession::snapshot() const
     state.baseline_json = disk_json_;
     state.dirty = Json::parse(disk_json_) != Json::parse(working_json_);
     state.conflicting_paths = conflicting_paths_;
-    const auto result = is_project_  ? validate_record("WorkspaceManifest", working_json_)
-                        : is_editor_ ? validate_record("WorkspaceTrackedEditor", working_json_)
-                        : !validation_contract_.empty()
-                            ? validate_record(validation_contract_, working_json_)
-                        : is_map_ ? validate_map_source(working_json_)
-                                  : validate_room_source(working_json_);
+    const auto result =
+        is_project_  ? validate_record("WorkspaceManifest", working_json_)
+        : is_editor_ ? validate_record("WorkspaceTrackedEditor", working_json_)
+        : record_family_ == "interactables" ? validate_interactable_source(working_json_)
+        : !validation_contract_.empty()     ? validate_record(validation_contract_, working_json_)
+        : is_map_                           ? validate_map_source(working_json_)
+                                            : validate_room_source(working_json_);
     state.valid = result.accepted;
     state.normalized_json = result.effective_json;
     state.diagnostics = result.diagnostics;
+    if (result.accepted && record_family_ == "variables") {
+        const auto semantic = validate_variable_semantics(result.effective_json);
+        state.valid = semantic.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), semantic.diagnostics.begin(),
+                                 semantic.diagnostics.end());
+        if (!state.valid)
+            state.normalized_json.clear();
+    }
     if (result.accepted && !is_project_ && !is_editor_ && !is_traits_ &&
         validation_contract_.empty()) {
         const auto local =
@@ -1429,11 +1587,12 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
         std::vector<RoomPatch> resolved;
         const auto baseline = Json::parse(disk_json_);
         const auto baseline_validation =
-            is_project_                     ? validate_record("WorkspaceManifest", disk_json_)
-            : is_editor_                    ? validate_record("WorkspaceTrackedEditor", disk_json_)
-            : !validation_contract_.empty() ? validate_record(validation_contract_, disk_json_)
-            : is_map_                       ? validate_map_source(disk_json_)
-                                            : validate_room_source(disk_json_);
+            is_project_  ? validate_record("WorkspaceManifest", disk_json_)
+            : is_editor_ ? validate_record("WorkspaceTrackedEditor", disk_json_)
+            : record_family_ == "interactables" ? validate_interactable_source(disk_json_)
+            : !validation_contract_.empty()     ? validate_record(validation_contract_, disk_json_)
+            : is_map_                           ? validate_map_source(disk_json_)
+                                                : validate_room_source(disk_json_);
         const auto baseline_effective =
             baseline_validation.accepted
                 ? std::optional<Json>{Json::parse(baseline_validation.effective_json)}
@@ -1482,6 +1641,8 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                     materialize_editor_metadata_parents(next, concrete, resolved);
                 const auto current_validation =
                     is_editor_ ? validate_record("WorkspaceTrackedEditor", next.to_string())
+                    : record_family_ == "interactables"
+                        ? validate_interactable_source(next.to_string())
                     : !validation_contract_.empty()
                         ? validate_record(validation_contract_, next.to_string())
                     : is_map_ ? validate_map_source(next.to_string())
@@ -1512,6 +1673,8 @@ RoomSessionResult RoomSession::patch(std::uint64_t expected_working_revision,
                 } else if (!original && !is_project_) {
                     const auto baseline_effective =
                         is_editor_ ? validate_record("WorkspaceTrackedEditor", disk_json_)
+                        : record_family_ == "interactables"
+                            ? validate_interactable_source(disk_json_)
                         : !validation_contract_.empty()
                             ? validate_record(validation_contract_, disk_json_)
                         : is_map_ ? validate_map_source(disk_json_)

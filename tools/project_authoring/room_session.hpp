@@ -180,14 +180,16 @@ public:
 
 private:
     ProjectSession(std::unique_ptr<RoomSession> source,
-                   std::unique_ptr<SourceAuthority> source_authority, std::filesystem::path root)
+                   std::unique_ptr<SourceAuthority> source_authority, std::filesystem::path root,
+                   std::string traits_baseline_json)
         : source_(std::move(source)), source_authority_(std::move(source_authority)),
-          root_(std::move(root))
+          root_(std::move(root)), traits_baseline_json_(std::move(traits_baseline_json))
     {
     }
     std::unique_ptr<RoomSession> source_;
     std::unique_ptr<SourceAuthority> source_authority_;
     std::filesystem::path root_;
+    std::string traits_baseline_json_;
     std::map<std::string, std::unique_ptr<RoomSession>> records_;
     std::uint64_t working_revision_ = 0;
 };
