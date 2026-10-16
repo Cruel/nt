@@ -50,6 +50,24 @@ Project shader files live beneath `shaders/`. Engine shader sources and varying 
 
 ## Material Presets
 
+The parallel native Project authoring certification (#489) validates Material source
+metadata against the generated Zod contract and resolves single-parent inheritance
+using the same checked-in engine Material-contract registry as the TypeScript and
+shader tooling. It preserves sparse source YAML while checking missing/cyclic bases,
+inherited parameter types/bindings, renderer-owned sampler policies, and referenced
+texture Assets. Source-file checks verify canonical contained Project shader paths;
+they do not treat source files as authored Shader records.
+
+The native Project session exposes a revision-checked, unsaved `shaders/*.sc` overlay
+for certification. The shader compiler remains the existing native
+`compile-shaders` tool: the session publishes a canonical
+`noveltea.shader-source-programs` request with the generated contract fingerprint
+and consumes the compiler's real diagnostics/reflected inputs. The compiler's
+physical source path is retained in diagnostic provenance; late results are rejected
+and shader text edits invalidate earlier compiler results. The overlay is not a
+second YAML Save path; physical shader-source persistence and production routing
+remain with the existing editor source-file service until final migration cutover.
+
 Built-in Material Presets are stable engine contracts. Current preset IDs include `engine-2d`, `active-text`, `rmlui-decorator`, `postprocess-tint`, `hotspot-overlay-alpha`, and `hotspot-overlay-custom`.
 
 A preset defines:
