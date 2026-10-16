@@ -162,13 +162,9 @@ struct WebBenchmarkApp {
         if (quick_suite_active) {
             const auto& ids = noveltea::benchmark::quick_suite_scenarios();
             while (quick_index < ids.size()) {
-                current_options.scenario = ids[quick_index];
-                current_options.rect_count = 3;
-                current_options.rect_scale = 1.0;
-                current_options.draw_calls = 64;
-                current_options.quad_count = 1;
-                current_options.texture_size = 256;
-                current_options.coverage = 1.0;
+                current_options = noveltea::benchmark::reference_scenario_options(
+                    options, ids[quick_index]);
+                current_options.quick_suite = true;
                 if (supported_scenario(current_options.scenario))
                     break;
                 noveltea::benchmark::append_failed_scenario(
@@ -263,16 +259,11 @@ struct WebBenchmarkApp {
 
     void finish_collection(bool graphics_unavailable = false)
     {
-        Options reported = options;
+        Options reported = quick_suite_active
+                               ? noveltea::benchmark::reference_scenario_options(
+                                     options, options.scenario)
+                               : options;
         reported.quick_suite = quick_suite_active;
-        if (quick_suite_active) {
-            reported.rect_count = 3;
-            reported.rect_scale = 1.0;
-            reported.draw_calls = 64;
-            reported.quad_count = 1;
-            reported.texture_size = 256;
-            reported.coverage = 1.0;
-        }
         completed_run = noveltea::benchmark::CompletedRun{reported, collected, {}};
         quick_suite_active = false;
         if (!write_report(completed_run->configuration, graphics.environment, completed_run->result,
@@ -306,8 +297,9 @@ struct WebBenchmarkApp {
         if (options.dashboard_smoke && completed_run->result.outcome == "complete") {
             std::printf("[benchmark] web dashboard cycle %d complete\n", ++smoke_cycle);
             if (smoke_cycle < 3) {
-                options.scenario =
-                    smoke_cycle == 1 ? "raw-bgfx-geometry" : "standalone-rmlui-simple";
+                options = noveltea::benchmark::reference_scenario_options(
+                    options, smoke_cycle == 1 ? "raw-bgfx-geometry"
+                                              : "standalone-rmlui-simple");
                 start();
             }
         }

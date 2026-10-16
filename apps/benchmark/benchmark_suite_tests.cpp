@@ -1,4 +1,5 @@
 #include "benchmark_runner.hpp"
+#include "benchmark_options.hpp"
 
 #include <cstdio>
 #include <string>
@@ -63,6 +64,40 @@ int main()
                                                     "integrated-rmlui-production"},
                "fixed comparison order"))
         return 1;
+
+    Options non_default;
+    non_default.scenario = "raw-bgfx-composition";
+    non_default.composition_path = "offscreen";
+    non_default.composite_passes = 4;
+    non_default.msaa_samples = 4;
+    non_default.target_scale = 0.5;
+    non_default.transparent_overlay = false;
+    non_default.coverage = 0.375;
+    non_default.texture_size = 64;
+    non_default.quad_count = 11;
+    non_default.draw_calls = 8;
+    non_default.rect_count = 22;
+    non_default.rect_scale = 0.75;
+    non_default.repeats = 2;
+    non_default.measurement_frames = 50;
+    non_default.output_path = "reference.json";
+    non_default.profile = "diagnostic";
+    for (const auto& id : manifest) {
+        const auto normalized = reference_scenario_options(non_default, id);
+        std::string reason;
+        if (!check(normalized.scenario == id && normalized.rect_count == 3 &&
+                       normalized.rect_scale == 1.0 && normalized.draw_calls == 64 &&
+                       normalized.quad_count == 1 && normalized.texture_size == 256 &&
+                       normalized.coverage == 1.0 && normalized.composition_path == "direct" &&
+                       normalized.composite_passes == 0 && normalized.msaa_samples == 0 &&
+                       normalized.target_scale == 1.0 && normalized.transparent_overlay &&
+                       normalized.repeats == 2 && normalized.measurement_frames == 50 &&
+                       normalized.profile == "diagnostic" &&
+                       normalized.output_path == "reference.json" &&
+                       validate_reference_options(normalized, reason),
+                   "all Quick Suite scenarios reset composition and preserve timing/output"))
+            return 1;
+    }
 
     FakeClock clock;
     std::vector<std::string> events;

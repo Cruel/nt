@@ -317,18 +317,7 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                           "engine-empty"}) {
 #endif
                         if (ImGui::Selectable(candidate, options.scenario == candidate)) {
-                            options.scenario = candidate;
-                            options.rect_count = 3;
-                            options.rect_scale = 1.0;
-                            options.draw_calls = 64;
-                            options.quad_count = 1;
-                            options.texture_size = 256;
-                            options.coverage = 1.0;
-                            options.composition_path = "direct";
-                            options.composite_passes = 0;
-                            options.target_scale = 1.0;
-                            options.msaa_samples = 0;
-                            options.transparent_overlay = true;
+                            options = reference_scenario_options(options, candidate);
                         }
                     }
                     ImGui::EndCombo();

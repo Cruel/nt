@@ -417,6 +417,26 @@ struct Graphics {
     }
 };
 
+#if defined(__ANDROID__)
+// Shared-host trials release their scenario-owned GPU objects on interruption, but
+// intentionally retain Graphics. Rebuild that Android surface/EGL owner before
+// retrying after foreground restoration, just like a single dashboard run.
+noveltea::benchmark::Recovery android_shared_graphics_recovery(Graphics& graphics,
+                                                               const Options& selected)
+{
+    return [&graphics, selected](std::string& reason) {
+        if (!wait_for_android_foreground(reason))
+            return noveltea::benchmark::RecoveryState::Failed;
+        graphics.shutdown();
+        if (!graphics.initialize(selected, reason) || !graphics.reconfigure(selected, reason)) {
+            graphics.shutdown();
+            return noveltea::benchmark::RecoveryState::Failed;
+        }
+        return noveltea::benchmark::RecoveryState::Ready;
+    };
+}
+#endif
+
 struct EmptyBgfxScenario : Scenario {
     explicit EmptyBgfxScenario(Graphics* shared = nullptr) : shared_graphics(shared) {}
     Graphics graphics;
@@ -769,14 +789,7 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
             environments.emplace_back();
             continue;
         }
-        Options selected = base;
-        selected.scenario = id;
-        selected.rect_count = 3;
-        selected.rect_scale = 1.0;
-        selected.draw_calls = 64;
-        selected.quad_count = 1;
-        selected.texture_size = 256;
-        selected.coverage = 1.0;
+        Options selected = noveltea::benchmark::reference_scenario_options(base, id);
         std::string reason;
         const bool engine_owned = id == "engine-empty" || id == "integrated-rmlui-controlled" ||
                                   id == "integrated-rmlui-production";
@@ -839,12 +852,18 @@ SuiteResult run_native_quick_suite(const Options& base, Graphics& graphics, Cloc
             Scenario* target = id == "raw-bgfx-geometry"         ? static_cast<Scenario*>(&geometry)
                                : id == "standalone-rmlui-simple" ? static_cast<Scenario*>(&rmlui)
                                                                  : static_cast<Scenario*>(&empty);
+#if defined(__ANDROID__)
+            item = noveltea::benchmark::run_suite(
+                selected, {target}, clock, android_shared_graphics_recovery(graphics, selected));
+#else
             item = noveltea::benchmark::run_suite(selected, {target}, clock);
+#endif
             environments.push_back(graphics.environment);
         }
         for (const auto& scenario : item.scenarios) {
             for (const auto& trial : scenario.trials) {
-                if (trial.reason.find("cleanup failed") != std::string::npos)
+                if (trial.reason.find("cleanup failed") != std::string::npos ||
+                    trial.reason.find("graphics recovery failed") != std::string::npos)
                     unsafe_cleanup = true;
             }
         }
@@ -975,16 +994,10 @@ int run_dashboard(Options options)
         }
         // The run configuration is frozen before any result is produced; later
         // dashboard edits must not change the identity of displayed samples.
-        Options run_options = options;
+        Options run_options =
+            quick ? noveltea::benchmark::reference_scenario_options(options, options.scenario)
+                  : options;
         run_options.quick_suite = quick;
-        if (quick) {
-            run_options.rect_count = 3;
-            run_options.rect_scale = 1.0;
-            run_options.draw_calls = 64;
-            run_options.quad_count = 1;
-            run_options.texture_size = 256;
-            run_options.coverage = 1.0;
-        }
 #if defined(__ANDROID__)
         if (run_options.scenario != "raw-bgfx-empty" &&
             run_options.scenario != "raw-bgfx-geometry" &&
@@ -1085,17 +1098,7 @@ int run_dashboard(Options options)
                     : static_cast<Scenario*>(&empty);
             noveltea::benchmark::Recovery recover;
 #if defined(__ANDROID__)
-            recover = [&](std::string& reason) {
-                if (!wait_for_android_foreground(reason))
-                    return noveltea::benchmark::RecoveryState::Failed;
-                // Surface loss invalidates the old ANativeWindow/EGL host.
-                // Rebuild only after the failed attempt has cleaned up.
-                graphics.shutdown();
-                if (!graphics.initialize(run_options, reason) ||
-                    !graphics.reconfigure(run_options, reason))
-                    return noveltea::benchmark::RecoveryState::Failed;
-                return noveltea::benchmark::RecoveryState::Ready;
-            };
+            recover = android_shared_graphics_recovery(graphics, run_options);
 #endif
             auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock, recover);
             ran = true;
@@ -1198,8 +1201,8 @@ int run_dashboard(Options options)
                                        ? "raw-bgfx-geometry"
                                        : "integrated-rmlui-production";
 #endif
-                options.rect_count = 3;
-                options.rect_scale = 1.0;
+                options =
+                    noveltea::benchmark::reference_scenario_options(options, options.scenario);
             } else if (cycle == 2) {
                 options = original_options;
             }
@@ -1315,13 +1318,8 @@ int run(const Options& options)
     SteadyClock clock;
     if (options.quick_suite) {
         Graphics graphics;
-        Options suite_options = options;
-        suite_options.rect_count = 3;
-        suite_options.rect_scale = 1.0;
-        suite_options.draw_calls = 64;
-        suite_options.quad_count = 1;
-        suite_options.texture_size = 256;
-        suite_options.coverage = 1.0;
+        const Options suite_options =
+            noveltea::benchmark::reference_scenario_options(options, options.scenario);
         std::vector<Environment> environments;
         const SuiteResult suite =
             run_native_quick_suite(suite_options, graphics, clock, environments);

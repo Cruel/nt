@@ -6,6 +6,7 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace noveltea::benchmark {
 
@@ -37,6 +38,16 @@ struct RawWorkloadReference {
     uint64_t triangles_per_frame = 0;
     uint64_t texture_bytes = 0;
 };
+
+// Each quad partitions the complete unit-coverage rectangle without gaps or overdraw,
+// including when the last row contains fewer quads than the other rows.
+struct QuadTile {
+    float x = 0;
+    float y = 0;
+    float width = 0;
+    float height = 0;
+};
+[[nodiscard]] std::vector<QuadTile> reference_quad_partition(uint32_t quad_count);
 
 [[nodiscard]] bool is_extended_raw_scenario(std::string_view id);
 [[nodiscard]] std::optional<RawWorkloadReference>

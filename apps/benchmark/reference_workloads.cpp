@@ -1,9 +1,30 @@
 #include "reference_workloads.hpp"
 
+#include <algorithm>
 #include <bit>
 #include <cmath>
 
 namespace noveltea::benchmark {
+
+std::vector<QuadTile> reference_quad_partition(uint32_t quad_count)
+{
+    if (quad_count == 0 || quad_count > 512)
+        return {};
+    uint32_t columns = 1;
+    while (columns * columns < quad_count)
+        ++columns;
+    const uint32_t rows = (quad_count + columns - 1) / columns;
+    std::vector<QuadTile> tiles;
+    tiles.reserve(quad_count);
+    for (uint32_t row = 0; row < rows; ++row) {
+        const uint32_t row_count = std::min(columns, quad_count - row * columns);
+        for (uint32_t column = 0; column < row_count; ++column) {
+            tiles.push_back(
+                {float(column) / row_count, float(row) / rows, 1.0f / row_count, 1.0f / rows});
+        }
+    }
+    return tiles;
+}
 
 bool is_extended_raw_scenario(std::string_view id)
 {

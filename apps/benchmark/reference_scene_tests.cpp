@@ -79,6 +79,43 @@ int main()
                "valid parameter bounds"))
         return 1;
 
+    for (uint32_t count : {1u, 2u, 3u, 4u, 5u, 7u, 511u, 512u}) {
+        const auto tiles = reference_quad_partition(count);
+        if (!check(tiles.size() == count, "quad partition uses exactly the requested geometry"))
+            return 1;
+        double area = 0;
+        for (const auto& tile : tiles) {
+            if (!check(tile.width > 0 && tile.height > 0 && tile.x >= 0 && tile.y >= 0 &&
+                           tile.x + tile.width <= 1.00001 && tile.y + tile.height <= 1.00001,
+                       "quad tiles remain inside the exact covered area"))
+                return 1;
+            area += double(tile.width) * tile.height;
+        }
+        if (!check(std::abs(area - 1.0) < 0.00001,
+                   "odd and even quad counts always cover the entire region"))
+            return 1;
+        // Every occupied row starts at x=0, ends at x=1, and is gap-free.
+        size_t begin = 0;
+        while (begin < tiles.size()) {
+            size_t end = begin;
+            float right = 0;
+            while (end < tiles.size() && tiles[end].y == tiles[begin].y) {
+                if (!check(std::abs(tiles[end].x - right) < 0.00001,
+                           "quad row has no gap or overlap"))
+                    return 1;
+                right = tiles[end].x + tiles[end].width;
+                ++end;
+            }
+            if (!check(std::abs(right - 1.0f) < 0.00001,
+                       "incomplete final row spans full covered width"))
+                return 1;
+            begin = end;
+        }
+    }
+    if (!check(reference_quad_partition(0).empty() && reference_quad_partition(513).empty(),
+               "invalid quad counts have no partition"))
+        return 1;
+
     Options raw;
     raw.scenario = "raw-bgfx-clear";
     const auto clear = raw_workload_reference(raw, 1280, 720);
