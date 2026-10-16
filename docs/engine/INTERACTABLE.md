@@ -148,6 +148,17 @@ Feature Properties through the owner-qualified Feature helpers; neither API muta
 
 ## Implementation
 
+The parallel native Project authoring certification (#482) projects sparse
+Interactable Definition YAML through the generated schema and validates
+Definition stack rules, nested Inventory and Feature ownership, and local
+Hotspot target identities. Exact Instances continue to belong to `project.yaml`;
+their quantity, location, Inventory-owner, Feature-override and containment
+diagnostics use manifest-relative JSON Pointers. A dirty manifest or inspected
+Definition invalidates the affected Instance closure, and native scoped Save
+checks those dependent errors before writing either physical owner. The
+existing TypeScript authoring/runtime pipeline remains authoritative until the
+coordinated native cutover.
+
 The editor authoring schema uses the current `interactables` collection for Definitions and the
 project-level `interactableInstances` registry for exact Instances. The editor supports Definition
 creation, nested Feature editing, semantic Hotspot target editing, an Instance list in the

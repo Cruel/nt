@@ -156249,6 +156249,26 @@
       "data.profiles.*.poses.*.layers.*.visible": true,
       "data.profiles.*.poses.*.layers.*.visual": null
     },
+    "interactables": {
+      "data.features": [],
+      "data.features.*.defaultProperties": [],
+      "data.features.*.inventories": [],
+      "data.features.*.localProperties": [],
+      "data.features.*.traits": [],
+      "data.inventories": [],
+      "data.presentation": {
+        "hotspots": {
+          "kind": "none"
+        },
+        "materialApplication": null,
+        "visual": null
+      },
+      "data.presentation.hotspots": {
+        "kind": "none"
+      },
+      "data.presentation.materialApplication": null,
+      "data.presentation.visual": null
+    },
     "layouts": {},
     "maps": {
       "data.connections": [],
