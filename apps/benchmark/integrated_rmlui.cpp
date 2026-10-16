@@ -10,6 +10,10 @@
 #include "noveltea/renderer.hpp"
 
 #include <SDL3/SDL.h>
+#include <RmlUi/Core/Core.h>
+#include <RmlUi/Core/Context.h>
+#include <RmlUi/Core/ElementDocument.h>
+#include <RmlUi/Core/Element.h>
 #include <bgfx/bgfx.h>
 
 #include <cstdio>
@@ -19,7 +23,10 @@
 
 namespace noveltea::benchmark {
 
-IntegratedRmlUi::IntegratedRmlUi(bool controlled) : controlled_(controlled) {}
+IntegratedRmlUi::IntegratedRmlUi(bool controlled, bool scaling)
+    : controlled_(controlled), scaling_(scaling)
+{
+}
 IntegratedRmlUi::~IntegratedRmlUi()
 {
     std::string ignored;
@@ -28,11 +35,15 @@ IntegratedRmlUi::~IntegratedRmlUi()
 
 const char* IntegratedRmlUi::id() const
 {
-    return controlled_ ? "integrated-rmlui-controlled" : "integrated-rmlui-production";
+    return scaling_      ? "integrated-rmlui-scaling"
+           : controlled_ ? "integrated-rmlui-controlled"
+                         : "integrated-rmlui-production";
 }
 
 const char* IntegratedRmlUi::description() const
 {
+    if (scaling_)
+        return "production Engine/RmlUiHost scaling: elements, text and lifecycle contexts";
     return controlled_
                ? "production Engine/RuntimeUI/RmlUiHost reference, base-direct "
                  "compatibility"
@@ -45,6 +56,8 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     (void)cleanup(ignored);
     environment_ = {};
     last_interruption_ = Interruption::None;
+    scaling_options_ = options;
+    frame_index_ = 0;
     // A different aspect ratio introduces production letterboxing. This
     // Stage-1 fixed reference deliberately supports only comparable 16:9
     // windows, rather than presenting misleading cross-host equivalence.
@@ -80,7 +93,9 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
         std::ofstream output(document_path, std::ios::trunc);
         // Engine's reference canvas is 1920x1080. Convert the same
         // 1280x720 scene into that coordinate domain before loading RML.
-        const auto scene = simple_ui_reference_scene();
+        const auto scene =
+            scaling_ ? ui_scaling_reference_scene(options.ui_elements, options.ui_text_lines)
+                     : simple_ui_reference_scene();
         constexpr float engine_reference_width = 1920.0f;
         const float scale = engine_reference_width / static_cast<float>(scene.width);
         if (!output || !(output << simple_ui_reference_markup(scene, scale))) {
@@ -128,6 +143,30 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
         return false;
     }
 
+    if (scaling_) {
+        const auto scene = ui_scaling_reference_scene(options.ui_elements, options.ui_text_lines);
+        const auto markup = simple_ui_reference_markup(scene, 1.5f);
+        const uint32_t total =
+            options.ui_visible_contexts + options.ui_empty_contexts + options.ui_hidden_contexts;
+        for (uint32_t index = 1; index < total; ++index) {
+            const bool visible = index < options.ui_visible_contexts;
+            const bool empty =
+                index < options.ui_visible_contexts + options.ui_empty_contexts && !visible;
+            const std::string id = "benchmark-layout-" + std::to_string(index);
+            if (!EngineTooling::load_ui_fixture_context(*engine_, id, markup, index, visible,
+                                                        empty)) {
+                reason = "could not create Engine-owned UI context " + id;
+                (void)cleanup(ignored);
+                return false;
+            }
+            if (!empty && !EngineTooling::runtime_ui_document_ready(*engine_, id)) {
+                reason = "Engine lost scaling fixture document " + id;
+                (void)cleanup(ignored);
+                return false;
+            }
+        }
+    }
+
     const auto size = engine_->backbuffer_size();
     const auto& presentation = engine_->presentation();
     if (presentation.reference.size.width != 1920 || presentation.reference.size.height != 1080 ||
@@ -169,6 +208,9 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
         (void)cleanup(ignored);
         return false;
     }
+
+    // No extra clock reads or stage accumulation in Clean-mode Engine ticks.
+    EngineTooling::set_ui_benchmark_timing(*engine_, options.profile == "diagnostic");
 
     // First rendered frames exercise the real UI compilation and font atlas
     // outside any timed samples, including --smoke / zero-warmup runs.
@@ -233,6 +275,36 @@ bool IntegratedRmlUi::frame(std::string& reason)
         return false;
     }
 #endif
+    if (scaling_ &&
+        (scaling_options_.ui_redraw == "continuous" ||
+         (scaling_options_.ui_text_mode == "dynamic" && scaling_options_.ui_text_lines > 0))) {
+        const bool dynamic =
+            scaling_options_.ui_text_mode == "dynamic" && scaling_options_.ui_text_lines > 0;
+        const bool continuous = scaling_options_.ui_redraw == "continuous";
+        const auto replacement = dynamic ? ui_dynamic_text(frame_index_) : std::string{};
+        // Every Engine-created lifecycle context is updated/rendered through the
+        // production host; only the text mutation is driven by this fixture.
+        for (int i = 0; i < Rml::GetNumContexts(); ++i) {
+            if (auto* context = Rml::GetContext(i)) {
+                for (int j = 0; j < context->GetNumDocuments(); ++j) {
+                    if (auto* document = context->GetDocument(j)) {
+                        if (document->IsVisible()) {
+                            if (continuous) {
+                                if (auto* element = document->GetElementById("ui-element-0"))
+                                    element->SetProperty("width", frame_index_ % 2 == 0 ? "22.50px"
+                                                                                        : "22.5px");
+                            }
+                            if (dynamic) {
+                                if (auto* text = document->GetElementById("ui-text-0"))
+                                    text->SetInnerRML(replacement);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    ++frame_index_;
     const bool ticked = engine_ && engine_->is_running() && engine_->tick();
     if (engine_ && EngineTooling::host_quit_requested(*engine_)) {
         last_interruption_ = Interruption::Cancelled;
@@ -256,6 +328,12 @@ bool IntegratedRmlUi::frame(std::string& reason)
 void IntegratedRmlUi::diagnostic_frame(DiagnosticObservation& observation)
 {
     capture_bgfx_diagnostics(observation);
+    if (engine_) {
+        if (const auto stages = EngineTooling::ui_benchmark_frame_timing(*engine_)) {
+            observation.cpu_update_ms = stages->first * 1000.0;
+            observation.cpu_submission_ms = stages->second * 1000.0;
+        }
+    }
     // No submitted-frame identity crosses the production Engine tick boundary.
 }
 

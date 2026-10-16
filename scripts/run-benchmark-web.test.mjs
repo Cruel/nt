@@ -46,6 +46,21 @@ test('Web launcher transports exact canonical JSON and rejects mixed run flags',
   assert.equal(compositionParams.get('targetScale'), '0.5');
   assert.equal(compositionParams.get('msaaSamples'), '2');
   assert.equal(compositionParams.get('noTransparentOverlay'), '1');
+  const scaling = run('--scenario', 'integrated-rmlui-scaling',
+    '--ui-preset', 'contexts-heavy', '--ui-elements', '1024',
+    '--ui-text-lines', '128', '--ui-visible-contexts', '2',
+    '--ui-empty-contexts', '3', '--ui-hidden-contexts', '4',
+    '--ui-text-mode', 'dynamic', '--ui-redraw', 'dirty-only');
+  assert.equal(scaling.status, 0, scaling.stderr);
+  const scalingParams = new URL(scaling.stdout.match(/ at (\S+)/)[1]).searchParams;
+  for (const [key, expected] of Object.entries({
+    scenario: 'integrated-rmlui-scaling', uiPreset: 'contexts-heavy',
+    uiElements: '1024', uiTextLines: '128', uiVisibleContexts: '2',
+    uiEmptyContexts: '3', uiHiddenContexts: '4',
+    uiTextMode: 'dynamic', uiRedraw: 'dirty-only',
+  })) {
+    assert.equal(scalingParams.get(key), expected, key);
+  }
   const overridden = run('--config', filename, '--output', 'selected.json');
   assert.equal(overridden.status, 0, overridden.stderr);
   assert.equal(new URL(overridden.stdout.match(/ at (\S+)/)[1]).searchParams.get('output'), 'selected.json');

@@ -1,6 +1,7 @@
 #include "reference_scene.hpp"
 
 #include <cmath>
+#include <algorithm>
 #include <sstream>
 #include <string>
 #include <utility>
@@ -77,16 +78,74 @@ std::string simple_ui_reference_markup(const ReferenceScene& scene, float refere
                << "px;height:" << rect.height * reference_scale
                << "px;background-color:" << css_color(rect.color) << ";'></div>";
     }
+    const bool scaling_text = scene.id == "ui-scaling-reference";
     for (const auto& item : scene.texts) {
         source << "<p id='" << item.id << "' style='left:" << item.x * reference_scale
-               << "px;top:" << item.y * reference_scale << "px;width:" << 600.0f * reference_scale
-               << "px;height:" << 52.0f * reference_scale
+               << "px;top:" << item.y * reference_scale
+               << "px;width:" << (scaling_text ? 300.0f : 600.0f) * reference_scale
+               << "px;height:" << (scaling_text ? 12.0f : 52.0f) * reference_scale
                << "px;font-family:Liberation Sans;font-size:" << item.font_size * reference_scale
-               << "px;line-height:" << 40.0f * reference_scale
+               << "px;line-height:" << (scaling_text ? 11.0f : 40.0f) * reference_scale
                << "px;color:" << css_color(item.color) << ";'>" << item.content << "</p>";
     }
     source << "</body></rml>";
     return source.str();
+}
+
+bool is_ui_scaling_scenario(std::string_view id)
+{
+    return id == "standalone-rmlui-scaling" || id == "integrated-rmlui-scaling";
+}
+
+bool valid_ui_scaling_parameters(uint32_t elements, uint32_t text_lines, uint32_t visible,
+                                 uint32_t empty, uint32_t hidden, std::string_view text_mode,
+                                 std::string_view redraw)
+{
+    return elements >= 1 && elements <= 2048 && text_lines <= 256 && visible >= 1 && visible <= 8 &&
+           empty <= 16 && hidden <= 16 && visible + empty + hidden <= 24 &&
+           (text_mode == "static" || text_mode == "dynamic") &&
+           (redraw == "continuous" || redraw == "dirty-only");
+}
+
+std::string ui_dynamic_text(uint32_t frame)
+{
+    // Fixed-width digits keep geometry stable while invalidating text every frame.
+    char digits[9] = {};
+    for (int i = 7; i >= 0; --i) {
+        digits[i] = char('0' + frame % 10);
+        frame /= 10;
+    }
+    return std::string("NovelTea dynamic ") + digits;
+}
+
+ReferenceScene ui_scaling_reference_scene(uint32_t elements, uint32_t text_lines)
+{
+    ReferenceScene scene;
+    scene.id = "ui-scaling-reference";
+    scene.rects.reserve(elements);
+    scene.texts.reserve(text_lines);
+    for (uint32_t i = 0; i < elements; ++i) {
+        const auto column = i % 64;
+        const auto row = (i / 64) % 32;
+        scene.rects.push_back(
+            {"ui-element-" + std::to_string(i),
+             20.0f + column * 19.0f,
+             80.0f + row * 17.0f,
+             15.0f,
+             12.0f,
+             {static_cast<uint8_t>(80 + i % 120), static_cast<uint8_t>(100 + (i * 3) % 110),
+              static_cast<uint8_t>(130 + (i * 7) % 100), 255}});
+    }
+    for (uint32_t i = 0; i < text_lines; ++i) {
+        scene.texts.push_back(
+            {"ui-text-" + std::to_string(i),
+             i == 0 ? ui_dynamic_text(0) : "NovelTea scaling reference line " + std::to_string(i),
+             24.0f + (i % 4) * 310.0f,
+             15.0f + (i / 4) * 11.0f,
+             10.0f,
+             {245, 245, 245, 255}});
+    }
+    return scene;
 }
 
 ReferenceScene simple_ui_reference_scene()

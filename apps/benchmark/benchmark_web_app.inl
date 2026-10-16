@@ -9,6 +9,7 @@ struct WebBenchmarkApp {
     noveltea::benchmark::RawBgfxGeometry preview_geometry;
     noveltea::benchmark::RawBgfxWorkloads preview_workload;
     noveltea::benchmark::StandaloneRmlUi preview_ui;
+    Options preview_ui_options;
     Options preview_raw_options;
     int preview_raw_width = 0;
     int preview_raw_height = 0;
@@ -54,14 +55,14 @@ struct WebBenchmarkApp {
     static bool engine_owned(const std::string& id)
     {
         return id == "engine-empty" || id == "integrated-rmlui-controlled" ||
-               id == "integrated-rmlui-production";
+               id == "integrated-rmlui-production" || id == "integrated-rmlui-scaling";
     }
 
     bool supported_scenario(const std::string& id) const
     {
         return engine_owned(id) || id == "raw-bgfx-empty" || id == "raw-bgfx-geometry" ||
                noveltea::benchmark::is_extended_raw_scenario(id) ||
-               id == "standalone-rmlui-simple";
+               id == "standalone-rmlui-simple" || id == "standalone-rmlui-scaling";
     }
 
     Environment scenario_environment() const
@@ -70,7 +71,8 @@ struct WebBenchmarkApp {
             return static_cast<const noveltea::benchmark::EmptyEngine&>(*active_scenario)
                 .environment();
         if (current_options.scenario == "integrated-rmlui-controlled" ||
-            current_options.scenario == "integrated-rmlui-production")
+            current_options.scenario == "integrated-rmlui-production" ||
+            current_options.scenario == "integrated-rmlui-scaling")
             return static_cast<const noveltea::benchmark::IntegratedRmlUi&>(*active_scenario)
                 .environment();
         return graphics.environment;
@@ -82,14 +84,29 @@ struct WebBenchmarkApp {
             preview_geometry.shutdown();
         if (!noveltea::benchmark::is_extended_raw_scenario(options.scenario))
             preview_workload.shutdown();
-        if (options.scenario != "standalone-rmlui-simple")
+        const bool scaling_preview = options.scenario == "standalone-rmlui-scaling";
+        if (options.scenario != "standalone-rmlui-simple" && !scaling_preview)
             preview_ui.shutdown();
-        if (options.scenario == "standalone-rmlui-simple") {
-            if (!preview_ui.initialized() &&
-                !preview_ui.initialize(noveltea::benchmark::simple_ui_reference_scene(),
-                                       graphics.environment.width_pixels,
-                                       graphics.environment.height_pixels, feedback))
-                return;
+        if (options.scenario == "standalone-rmlui-simple" || scaling_preview) {
+            if (preview_ui.initialized() &&
+                (options.scenario != preview_ui_options.scenario || options.ui_elements != preview_ui_options.ui_elements ||
+                 options.ui_text_lines != preview_ui_options.ui_text_lines ||
+                 options.ui_visible_contexts != preview_ui_options.ui_visible_contexts ||
+                 options.ui_empty_contexts != preview_ui_options.ui_empty_contexts ||
+                 options.ui_hidden_contexts != preview_ui_options.ui_hidden_contexts ||
+                 options.ui_text_mode != preview_ui_options.ui_text_mode ||
+                 options.ui_redraw != preview_ui_options.ui_redraw))
+                preview_ui.shutdown();
+            if (!preview_ui.initialized()) {
+                const auto scene = scaling_preview
+                    ? noveltea::benchmark::ui_scaling_reference_scene(options.ui_elements, options.ui_text_lines)
+                    : noveltea::benchmark::simple_ui_reference_scene();
+                if (!preview_ui.initialize(scene, graphics.environment.width_pixels,
+                                           graphics.environment.height_pixels, feedback,
+                                           scaling_preview ? &options : nullptr))
+                    return;
+                preview_ui_options = options;
+            }
             (void)preview_ui.submit(false, feedback);
         } else if (options.scenario == "raw-bgfx-geometry") {
             const auto scene = noveltea::benchmark::geometry_reference_scene(options.rect_count,
@@ -247,15 +264,19 @@ struct WebBenchmarkApp {
         if (frozen.scenario == "engine-empty")
             active_scenario = std::make_unique<noveltea::benchmark::EmptyEngine>();
         else if (frozen.scenario == "integrated-rmlui-controlled" ||
-                 frozen.scenario == "integrated-rmlui-production")
+                 frozen.scenario == "integrated-rmlui-production" ||
+                 frozen.scenario == "integrated-rmlui-scaling")
             active_scenario = std::make_unique<noveltea::benchmark::IntegratedRmlUi>(
-                frozen.scenario == "integrated-rmlui-controlled");
+                frozen.scenario == "integrated-rmlui-controlled",
+                frozen.scenario == "integrated-rmlui-scaling");
         else if (frozen.scenario == "raw-bgfx-geometry")
             active_scenario = std::make_unique<GeometryBgfxScenario>(&graphics);
         else if (noveltea::benchmark::is_extended_raw_scenario(frozen.scenario))
             active_scenario = std::make_unique<RawReferenceScenario>(&graphics, frozen.scenario);
-        else if (frozen.scenario == "standalone-rmlui-simple")
-            active_scenario = std::make_unique<RmlUiScenario>(&graphics);
+        else if (frozen.scenario == "standalone-rmlui-simple" ||
+                 frozen.scenario == "standalone-rmlui-scaling")
+            active_scenario = std::make_unique<RmlUiScenario>(
+                &graphics, frozen.scenario == "standalone-rmlui-scaling");
         else
             active_scenario = std::make_unique<EmptyBgfxScenario>(&graphics);
         // A hidden browser page cannot provide trustworthy frame cadence.

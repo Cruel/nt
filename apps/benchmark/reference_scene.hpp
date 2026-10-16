@@ -2,6 +2,7 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace noveltea::benchmark {
@@ -42,6 +43,14 @@ constexpr double kReferenceRectScale = 1.0;
 [[nodiscard]] ReferenceScene geometry_reference_scene(uint32_t rect_count = kReferenceRectCount,
                                                       double rect_scale = kReferenceRectScale);
 [[nodiscard]] ReferenceScene simple_ui_reference_scene();
+// Bounded reproducible UI scaling fixture shared by the standalone and Engine adapters.
+[[nodiscard]] bool valid_ui_scaling_parameters(uint32_t elements, uint32_t text_lines,
+                                               uint32_t visible, uint32_t empty, uint32_t hidden,
+                                               std::string_view text_mode, std::string_view redraw);
+[[nodiscard]] ReferenceScene ui_scaling_reference_scene(uint32_t elements, uint32_t text_lines);
+[[nodiscard]] bool is_ui_scaling_scenario(std::string_view id);
+// Fixed-width content for per-frame text mutation; allocation/markup updates are workload work.
+[[nodiscard]] std::string ui_dynamic_text(uint32_t frame);
 // One exact markup generator feeds both the independent and integrated RmlUi hosts.
 [[nodiscard]] std::string simple_ui_reference_markup(const ReferenceScene& scene,
                                                      float reference_scale = 1.0f);

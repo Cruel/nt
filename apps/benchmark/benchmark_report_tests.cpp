@@ -190,6 +190,46 @@ int main()
                    "render report preserves live backend settings without fabricated observations"))
             return 1;
     }
+    for (const char* id : {"standalone-rmlui-scaling", "integrated-rmlui-scaling"}) {
+        Options scaling;
+        scaling.scenario = id;
+        scaling.ui_elements = 2048;
+        scaling.ui_text_lines = 256;
+        scaling.ui_visible_contexts = 8;
+        scaling.ui_empty_contexts = 8;
+        scaling.ui_hidden_contexts = 8;
+        scaling.ui_text_mode = "dynamic";
+        scaling.ui_redraw = "dirty-only";
+        const auto encoded = nlohmann::json::parse(encode_configuration(scaling));
+        Options decoded;
+        if (!check(encoded["parameters"].size() == 7 && encoded["parameters"]["elements"] == 2048 &&
+                       encoded["parameters"]["text_lines"] == 256 &&
+                       encoded["parameters"]["visible_contexts"] == 8 &&
+                       encoded["parameters"]["empty_contexts"] == 8 &&
+                       encoded["parameters"]["hidden_contexts"] == 8 &&
+                       encoded["parameters"]["text_mode"] == "dynamic" &&
+                       encoded["parameters"]["redraw"] == "dirty-only" &&
+                       decode_configuration(encoded.dump(), decoded, error) &&
+                       nlohmann::json::parse(encode_configuration(decoded)) == encoded,
+                   "scaling workload parameters roundtrip with strict identity"))
+            return 1;
+        auto unknown = encoded;
+        unknown["parameters"]["stray"] = 1;
+        auto negative = encoded;
+        negative["parameters"]["elements"] = -1;
+        auto too_many = encoded;
+        too_many["parameters"]["hidden_contexts"] = 9;
+        auto bad_text = encoded;
+        bad_text["parameters"]["text_mode"] = "reactive";
+        auto bad_redraw = encoded;
+        bad_redraw["parameters"]["redraw"] = "skip";
+        auto bad_type = encoded;
+        bad_type["parameters"]["text_lines"] = "256";
+        if (!check(rejected(unknown) && rejected(negative) && rejected(too_many) &&
+                       rejected(bad_text) && rejected(bad_redraw) && rejected(bad_type),
+                   "strict scaling schema rejects extra, malformed and out-of-bounds values"))
+            return 1;
+    }
     Options empty_engine_options;
     empty_engine_options.scenario = "engine-empty";
     const auto empty_engine_config =

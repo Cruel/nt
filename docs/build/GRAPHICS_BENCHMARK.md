@@ -1,4 +1,4 @@
-# Graphics Benchmark (Linux, Android, and Web, #422–#431)
+# Graphics Benchmark (Linux, Android, and Web, #422–#436)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
@@ -10,6 +10,87 @@ sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
 collector are unaffected. The portable runner and JSON contracts cover Linux,
 Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## RmlUi element, text, and context scaling (#436)
+
+Two opt-in scenarios extend the original fixed RmlUi baseline without changing
+its Quick Suite or the production Engine/player/sandbox contracts:
+`standalone-rmlui-scaling` creates a benchmark-owned RmlUi renderer and
+contexts; `integrated-rmlui-scaling` uses the actual Engine, RuntimeUI,
+RmlUiHost, bgfx, and SDL lifecycle. The shared, deterministic fixture contains
+colored rectangles and real, font-rendered text, sized to the same physical
+viewport (1280×720 reference units standalone; 1920×1080 Engine layout units
+scaled by 1.5). Each **visible** scaling context shows an identical fixture.
+**Empty** contexts still run Update but own no loaded document (the integrated
+host exercises its ordinary unload lifecycle); **hidden** contexts have a
+loaded but hidden document. The Engine may also own other internal contexts,
+which are not counted as fixture contexts.
+
+The fixed, reproducible reference for both new IDs is **512 rectangles, 64
+text lines, one visible context, zero empty/hidden contexts, static text, and
+continuous redraw**. The named `--ui-preset` selections are `balanced`
+(the default), `elements-heavy` (2048 rectangles), `text-heavy` (256 lines
+with per-frame text changes), `contexts-heavy` (4 visible + 8 empty + 8 hidden
+contexts), and `dirty-static` (cached layout, static text). The dashboard
+exposes the same preset selector. The last named preset is applied first;
+explicit element/text/context/redraw flags override its individual values
+regardless of argument order, including through the Web URL transport.
+Independently change `--ui-elements` (1–2048),
+`--ui-text-lines` (0–256), `--ui-visible-contexts` (1–8),
+`--ui-empty-contexts` and `--ui-hidden-contexts` (0–16 each; 24 total at most),
+`--ui-text-mode static|dynamic`, and `--ui-redraw continuous|dirty-only`.
+The dashboard exposes the same independent controls and a Restore RmlUi
+reference action. The Web launcher forwards the matching flags as URL
+parameters; canonical JSON `--config` works on all three targets. The strict JSON `configuration.parameters` object records
+all seven settings, so arbitrary test runs are reproducible and not mistaken
+for fixed reference comparisons. Out-of-bounds counts and incompatible flags
+are rejected rather than silently clamped by the runner.
+
+For an equivalent pair of measured application-frame workloads:
+
+```sh
+./scripts/run-benchmark.sh --no-build --scenario standalone-rmlui-scaling \
+  --ui-elements 1024 --ui-text-lines 128 --ui-visible-contexts 2 \
+  --ui-empty-contexts 3 --ui-hidden-contexts 3 --ui-text-mode dynamic \
+  --ui-redraw continuous --frames 300 --profile diagnostic
+./scripts/run-benchmark.sh --no-build --scenario integrated-rmlui-scaling \
+  --ui-elements 1024 --ui-text-lines 128 --ui-visible-contexts 2 \
+  --ui-empty-contexts 3 --ui-hidden-contexts 3 --ui-text-mode dynamic \
+  --ui-redraw continuous --frames 300 --profile diagnostic
+```
+
+Static text never changes; dynamic text replaces the first real RmlUi text
+node in each visible document on every submitted frame with fixed-width
+changing content. In **continuous** mode the first rectangle's equivalent
+CSS width spelling alternates each frame to force actual layout invalidation
+without changing its pixels. In **dirty-only** mode the application leaves
+static layout unmodified; dynamic text still invalidates its content. Both
+modes render and present the **complete frame every tick**, preserving visible
+output on backbuffers that do not retain previous contents. In particular,
+"dirty-only" does **not** skip the whole SDL/bgfx/Engine frame, and it must
+not be read as zero GPU rendering work. Changing redraw mode changes layout
+recomputation, not the scene's pixel coverage.
+
+Clean runs accumulate only their existing application-frame/CPU operation
+metrics. In Diagnostic mode, `cpu_update_ms` measures the combined RmlUi
+contexts' Update stage and `cpu_submission_ms` measures the RmlUi Render
+stage. The integrated implementation measures these stages inside the
+**production** host, with conditional clocks disabled in Clean mode. These
+are per-application-frame aggregate UI stages, not per-context FPS; they
+exclude other Engine stages and do not approximate GPU execution. For
+fairness, compare reports at the same device, physical dimensions, VSync,
+profile, content parameters and renderer path; the Engine case includes
+production composition and is not a pure RmlUi microbenchmark. CLI previews,
+cleanup, and font/resource generation stay outside measurement, with a new
+Engine and fresh contexts for every trial.
+
+The `noveltea_benchmark_reference_scene`, `noveltea_benchmark_options`, and
+`noveltea_benchmark_report` tests check fixture determinism, bounds, and JSON
+contract. The scaling Xvfb smoke tests run both real hosts with multiple
+visible/empty/hidden contexts and Diagnostic stage timing. This validates
+Linux functional rendering under a software/virtual display, **not hardware
+performance**. Android and Web renderer, font and context-loss visual behavior
+require their own target-specific certification.
 
 ## Unattended Stage 1 certification (#433)
 
