@@ -283,6 +283,7 @@ private:
     bool m_headless_render = false;
     bool m_perf_logging = false;
     bool m_benchmark_timing = false;
+    bool m_ui_effect_observation = false;
     double m_benchmark_update_seconds = 0.0;
     double m_benchmark_render_seconds = 0.0;
     bool m_base_direct_compatibility = false;

@@ -287,7 +287,10 @@ linear-gradient decorators, drop-shadow filters, radial-gradient mask images,
 and nested blur/opacity layers. Every dimension has its own visible column,
 so changing one dimension does not replace another with a cheaper effect.
 The integrated renderer applies the normal reference-to-raster scale; the
-strict frame-sampling lifecycle is unchanged.
+strict frame-sampling lifecycle is unchanged. Both scenarios alternate equivalent
+CSS width spellings on the shared background element each frame, preserving
+all pixels while invalidating cached UI layout so the measured workload
+continuously submits advanced effects instead of timing an idle retained layer.
 
 ```sh
 ./scripts/run-benchmark.sh --no-build --no-ui --scenario standalone-rmlui-effects \
@@ -328,7 +331,9 @@ Both scenarios work through the normal CLI, native dashboard, Android host
 and Web host. The Web launcher accepts the same six count flags. Tests
 `noveltea_benchmark_standalone_rmlui_effects_smoke` and
 `noveltea_benchmark_integrated_rmlui_effects_smoke` run repeated native
-frame collections to exercise resource creation and teardown. Like all
+frame collections to exercise resource creation and teardown. Both CTest
+checks are serialized against other GPU benchmarks to keep resource contention
+from spuriously suppressing the advanced-effect submissions. Like all
 extra Stage 2 workloads, they are run separately, not in the fixed
 six-scenario Stage 1 Quick Suite.
 

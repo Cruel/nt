@@ -91,6 +91,7 @@ struct StandaloneRmlUi::Shaders final : rmlui_bgfx::ShaderProvider {
 };
 
 struct StandaloneRmlUi::EffectDiagnostics final : rmlui_bgfx::Diagnostics {
+    bool capturing = false;
     uint32_t errors = 0;
     void warning(std::string_view message) override
     {
@@ -161,6 +162,7 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
     }
     Rml::SetSystemInterface(system_.get());
     requested_effects_ = scene.effects;
+    effects_ = scene.id == "ui-effects-reference";
     effect_probe_ = std::make_unique<RmlUiEffectProbe>(*renderer_);
     effect_probe_->capture(scene.id == "ui-effects-reference");
     Rml::SetRenderInterface(effect_probe_.get());
@@ -273,6 +275,13 @@ bool StandaloneRmlUi::submit(bool diagnostic, std::string& reason)
     renderer_->begin_frame();
     const auto start =
         diagnostic ? std::chrono::steady_clock::now() : std::chrono::steady_clock::time_point{};
+    if (effects_) {
+        // Equivalent CSS widths keep every pixel fixed but ensure each
+        // benchmark frame exercises the actual effect submission path rather
+        // than an idle/cached UI layer.
+        if (auto* background = document_->GetElementById("reference-background"))
+            background->SetProperty("width", frame_index_ % 2 == 0 ? "1280.0px" : "1280px");
+    }
     if (scaling_ && !dirty_only_) {
         // Equivalent CSS spellings force a layout invalidation while the
         // presented rectangle dimensions and all pixels stay unchanged.
@@ -327,6 +336,8 @@ bool StandaloneRmlUi::verify_effects(std::string& reason)
         return false;
     const auto activity = effect_activity();
     effect_probe_->capture(false);
+    if (effect_diagnostics_)
+        effect_diagnostics_->capturing = false;
     return verify_ui_effect_activity(requested_effects_, activity, reason);
 }
 
@@ -337,6 +348,7 @@ void StandaloneRmlUi::shutdown()
         Rml::RemoveContext("benchmark-ui-" + std::to_string(i + 1));
     extra_contexts_.clear();
     scaling_ = false;
+    effects_ = false;
     dynamic_text_ = false;
     dirty_only_ = false;
     frame_index_ = 0;

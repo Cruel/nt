@@ -278,6 +278,7 @@ struct BgfxRenderInterface::Adapter final : rmlui_bgfx::ShaderProvider,
                                             rmlui_bgfx::Diagnostics,
                                             rmlui_bgfx::PerfLogger,
                                             rmlui_bgfx::MaterialShaderProvider {
+    bool capture_effect_errors = false;
     uint32_t effect_errors = 0;
     explicit Adapter(const PresentationMetrics& presentation, const ResolvedContextMetrics& context,
                      const assets::AssetManager& asset_manager,
@@ -1090,9 +1091,10 @@ Rml::TextureHandle BgfxRenderInterface::SaveLayerAsTexture()
 }
 Rml::CompiledFilterHandle BgfxRenderInterface::SaveLayerAsMaskImage()
 {
-    if (m_capture_effects)
+    const auto handle = m_core->SaveLayerAsMaskImage();
+    if (m_capture_effects && handle != 0)
         ++m_effect_activity.mask_saves;
-    return m_core->SaveLayerAsMaskImage();
+    return handle;
 }
 Rml::CompiledFilterHandle BgfxRenderInterface::CompileFilter(const Rml::String& name,
                                                              const Rml::Dictionary& parameters)
