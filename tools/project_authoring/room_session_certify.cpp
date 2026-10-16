@@ -297,6 +297,17 @@ int main(int argc, char** argv)
                     Json::parse(merged.snapshot.source_json).at("data").at("displayName") ==
                         "External Room Destination",
                 "Disjoint same-Room semantic edit rebases and advances working revision once");
+        auto scoped_block = RoomSession::open(temp.root, "room-lifecycle-roundtrip", error);
+        require(scoped_block != nullptr, "Scoped dependency-block fixture admits");
+        const auto blocked_patch = scoped_block->patch(
+            0, {{RoomPatch::Operation::Replace, "/label", "\"Blocked owner\""}});
+        const auto previous_bytes = read(temp.path());
+        const auto blocked_by_owner =
+            scoped_block->save(blocked_patch.snapshot.disk_source_revision,
+                               {"records/rooms/room-lifecycle-roundtrip.yaml"});
+        require(blocked_patch.accepted && !blocked_by_owner.accepted &&
+                    blocked_by_owner.snapshot.dirty && read(temp.path()) == previous_bytes,
+                "An attributable invalid source blocks its own Save through the session writer");
         require(!session->save("stale-revision").accepted,
                 "caller-supplied stale baseline is rejected before saving");
 

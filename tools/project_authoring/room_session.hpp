@@ -71,7 +71,8 @@ public:
                             const std::vector<RoomPatch>& operations);
     // A scoped Save of this Room only. The expected disk identity must match the
     // admitted source; physical content is also compared exactly before replacement.
-    RoomSessionResult save(std::string_view expected_disk_revision);
+    RoomSessionResult save(std::string_view expected_disk_revision,
+                           const std::vector<std::string>& invalid_source_paths = {});
     const std::filesystem::path& source_path() const { return path_; }
     const std::vector<ProjectFile>& file_inventory() const { return file_inventory_; }
 
@@ -112,7 +113,7 @@ public:
             return blocked;
         }
         const auto prior_revision = source_->snapshot().disk_source_revision;
-        auto result = source_->save(disk_revision);
+        auto result = source_->save(disk_revision, source_authority_->invalid_source_paths());
         if (result.accepted && result.snapshot.disk_source_revision != prior_revision &&
             !source_authority_->acknowledge_own_write("project.yaml",
                                                       result.snapshot.disk_source_revision))

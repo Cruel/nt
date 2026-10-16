@@ -78,7 +78,7 @@ bool proven_dead(std::uint64_t pid)
 void sync_file(const fs::path& path)
 {
 #ifdef _WIN32
-    HANDLE handle = CreateFileW(path.c_str(), GENERIC_READ,
+    HANDLE handle = CreateFileW(path.c_str(), GENERIC_WRITE,
                                 FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE, nullptr,
                                 OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
     if (handle == INVALID_HANDLE_VALUE)
