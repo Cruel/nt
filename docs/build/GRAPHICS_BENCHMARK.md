@@ -1,4 +1,4 @@
-# Graphics Benchmark (Linux and Android, #422–#430)
+# Graphics Benchmark (Linux, Android, and Web, #422–#431)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
@@ -8,8 +8,73 @@ for Engine-owned scenarios; standalone scenarios remain separately owned.
 Interactive use adds a dedicated Dear ImGui frontend that is fully destroyed before
 sampling. The no-UI path initializes no ImGui resources.
 The original `noveltea-benchmark` JSON/Lua microbenchmark and release-report
-collector are unaffected. The portable runner and JSON contracts now provide
-the foundation for later Android/Web ports and additional scenario hosts.
+collector are unaffected. The portable runner and JSON contracts cover Linux,
+Android, and Web with distinct platform launchers and additional scenario hosts.
+
+## Standalone Web benchmark (#431)
+
+Run the optimized WebGL2 benchmark using Emscripten's SDK environment:
+
+```sh
+./scripts/run-benchmark-web.sh
+./scripts/run-benchmark-web.sh --debug
+./scripts/run-benchmark-web.sh --no-build --no-ui --scenario raw-bgfx-geometry --frames 300
+./scripts/run-benchmark-web.sh --no-build --ui --scenario raw-bgfx-geometry
+./scripts/run-benchmark-web.sh --no-build --dashboard-smoke --smoke
+```
+
+The launcher configures and builds only `noveltea-benchmark-app` using the
+`web-benchmark-release` preset (optimized, single-threaded) or
+`web-benchmark-debug` with `--debug`; it then serves
+`build/<preset>/apps/benchmark/benchmark.html` from a local HTTP server.
+`--port N` changes the default port (8000), `--no-browser` disables
+automatic browser opening, and `--no-build` reuses an existing artifact.
+Command-line run flags become URL parameters (`?noUi=1&scenario=raw-bgfx-geometry&frames=300`);
+the page also accepts `ui=1`, `vsync=1`, `smoke=1`, `rawSamples=1`,
+`profile=diagnostic`, `warmup=N`, `seconds=N`, `repeats=N`, `readyTimeout=N`,
+`rectCount=N`, `rectScale=N`, and `output=filename.json`. Explicit `ui=1`
+retains the dashboard when scenario settings are supplied; otherwise CLI
+run settings follow the native no-UI default.
+The Debug build is **not** comparable to optimized performance results.
+
+Web Stage 1 supports `raw-bgfx-empty`, `raw-bgfx-geometry`, and
+`standalone-rmlui-simple`. Engine-owned scenarios are not exposed on Web
+at this stage. The Emscripten host uses SDL3 and bgfx OpenGLES/WebGL2;
+the ImGui dashboard is the real benchmark frontend, not a JavaScript
+replacement. Its resources and preview resources are destroyed and GPU
+deletion drained outside sampling, then reconstructed for the Results
+tab. A browser callback advances at most one workload frame per
+`requestAnimationFrame` to keep the event loop responsive, including
+when the dashboard is closed and after an unattended run completes.
+A latched browser visibility event invalidates a background-tab trial even
+if rAF never fires while the page is hidden. The Web runner
+records both callback-to-callback wall cadence and the CPU operation
+duration; **rAF-paced cadence is not uncapped GPU throughput or
+independently verified presented FPS**.
+
+Reports are written to Web MEMFS and offered immediately as local
+`.json` downloads after each run. The page retains the latest report
+behind the **Download last JSON** button. Nothing is uploaded or
+committed, and downloading/exporting is outside measured frames.
+The existing native JSON schema and raw sample option are reused.
+
+Browser correctness/visual smoke (no FPS thresholds):
+
+```sh
+node scripts/benchmark-web-smoke.mjs build/web-benchmark-release/apps/benchmark
+# On Linux without an accelerated interactive X display, Firefox may need
+# a software WebGL2 context in a graphical Xvfb session:
+xvfb-run -a env NOVELTEA_BENCHMARK_FIREFOX_HEADFUL=1 \
+  node scripts/benchmark-web-smoke.mjs build/web-benchmark-release/apps/benchmark
+```
+
+The smoke runs in Chromium and Firefox, compares untimed reference-preview
+pixels to the empty reference, checks a no-ImGui geometry trial and browser
+JSON download, verifies that hidden-tab sampling fails, confirms event-loop
+progress, and exercises three dashboard teardown/recreate cycles crossing raw
+bgfx and standalone RmlUi scenes. It verifies completion and sample counts, never
+hardware FPS. A browser that does not expose WebGL2 fails the check
+rather than being misrepresented as a performance result.
 
 ## Interactive Linux dashboard (#424)
 

@@ -91,6 +91,12 @@ cmake --build --preset web-release-no-threads --target noveltea-player
 cmake --preset web-profile
 cmake --build --preset web-profile
 pnpm run web:smoke:profile
+# Standalone SDL3/bgfx/ImGui Web benchmark (optimized or Debug):
+./scripts/run-benchmark-web.sh --no-browser --no-ui --smoke
+./scripts/run-benchmark-web.sh --debug --no-browser --no-ui --smoke
+# Real Chromium/Firefox rendering, JSON download, and dashboard lifecycle smoke:
+xvfb-run -a env NOVELTEA_BENCHMARK_FIREFOX_HEADFUL=1 \
+  node scripts/benchmark-web-smoke.mjs build/web-benchmark-release/apps/benchmark
 ```
 
 For C/C++ formatting, use the CMake targets rather than invoking `clang-format` directly:

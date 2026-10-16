@@ -13,7 +13,10 @@ namespace noveltea::benchmark {
 // or the source checkout. These are staged from NovelTea's common build assets.
 [[nodiscard]] inline std::filesystem::path benchmark_asset_path(const char* relative)
 {
-#if defined(__ANDROID__)
+#if defined(__EMSCRIPTEN__)
+    // Emscripten preloads the standalone benchmark's assets into MEMFS.
+    return std::filesystem::path("/assets") / relative;
+#elif defined(__ANDROID__)
     // SDL_IOFromFile resolves these relative paths through the APK asset manager.
     return relative;
 #else

@@ -2,6 +2,10 @@
 #include <SDL3/SDL_main.h>
 #include <bgfx/bgfx.h>
 
+#if defined(__EMSCRIPTEN__)
+#include <emscripten/emscripten.h>
+#endif
+
 #if defined(__ANDROID__)
 #include <SDL3/SDL_system.h>
 #include <android/native_window.h>
@@ -25,6 +29,7 @@
 #include <filesystem>
 #include <fstream>
 #include <iterator>
+#include <memory>
 #include <optional>
 #include <string>
 #include <utility>
@@ -237,10 +242,12 @@ struct Graphics {
                 reason = std::string("SDL_SetWindowSize: ") + SDL_GetError();
                 return false;
             }
+#if !defined(__EMSCRIPTEN__)
             if (!SDL_SyncWindow(window)) {
                 reason = std::string("SDL_SyncWindow: ") + SDL_GetError();
                 return false;
             }
+#endif
         }
 #else
         (void)logical_width;
@@ -301,7 +308,11 @@ struct Graphics {
             return false;
 #endif
         SDL_PropertiesID props = SDL_GetWindowProperties(window);
-#if defined(__ANDROID__)
+#if defined(__EMSCRIPTEN__)
+        void* display = nullptr;
+        void* native_window = const_cast<char*>("#canvas");
+        const auto handle_type = bgfx::NativeWindowHandleType::Default;
+#elif defined(__ANDROID__)
         void* display = nullptr;
         void* native_window =
             SDL_GetPointerProperty(props, SDL_PROP_WINDOW_ANDROID_WINDOW_POINTER, nullptr);
@@ -344,7 +355,7 @@ struct Graphics {
             return false;
         }
         bgfx::Init init;
-#if defined(__ANDROID__)
+#if defined(__ANDROID__) || defined(__EMSCRIPTEN__)
         init.type = bgfx::RendererType::OpenGLES;
 #else
         init.type = bgfx::RendererType::OpenGL;
@@ -630,9 +641,22 @@ bool write_report(const Options& options, const Environment& environment, const 
         return false;
     }
     output = path.string();
+#if defined(__EMSCRIPTEN__)
+    const std::string name = path.filename().string();
+    const std::string json = noveltea::benchmark::encode_result(options, environment, result);
+    EM_ASM(
+        {
+            if (window.NovelTeaBenchmark)
+                window.NovelTeaBenchmark.report(UTF8ToString($0), UTF8ToString($1),
+                                                UTF8ToString($2));
+        },
+        name.c_str(), json.c_str(), result.outcome.c_str());
+    output = "download: " + name;
+#endif
     return true;
 }
 
+#if !defined(__EMSCRIPTEN__)
 int run_dashboard(Options options)
 {
 #if defined(__ANDROID__)
@@ -1046,6 +1070,12 @@ int run(const Options& options)
     return result.outcome == "complete" ? 0 : 2;
 }
 
+#endif // !__EMSCRIPTEN__
+
+#if defined(__EMSCRIPTEN__)
+#include "benchmark_web_app.inl"
+#endif
+
 } // namespace
 
 int main(int argc, char* argv[])
@@ -1084,5 +1114,9 @@ int main(int argc, char* argv[])
         std::fprintf(stderr, "[benchmark] %s\n", error.c_str());
         return 2;
     }
+#if defined(__EMSCRIPTEN__)
+    return run_web(options);
+#else
     return options.no_ui ? run(options) : run_dashboard(options);
+#endif
 }
