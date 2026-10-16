@@ -1,6 +1,7 @@
 #pragma once
 
 #include "reference_scene.hpp"
+#include "benchmark_report.hpp"
 
 #include <RmlUi/Core/Core.h>
 #include <RmlUi/Core/ElementDocument.h>
@@ -33,6 +34,7 @@ public:
     [[nodiscard]] bool initialized() const { return context_ != nullptr; }
     // Captured only for Diagnostic runs; Clean frames perform no stage timing.
     [[nodiscard]] DiagnosticStages last_diagnostic_stages() const { return stages_; }
+    [[nodiscard]] UiBackendSettings backend_settings() const { return backend_settings_; }
 
 private:
     struct Shaders;
@@ -47,6 +49,7 @@ private:
     int framebuffer_height_ = 0;
     uint32_t clear_rgba_ = 0;
     DiagnosticStages stages_;
+    UiBackendSettings backend_settings_;
 };
 
 } // namespace noveltea::benchmark

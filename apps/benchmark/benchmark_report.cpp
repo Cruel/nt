@@ -245,21 +245,42 @@ std::string encode_result(const Options& options, const Environment& environment
          environment.width_pixels > 0 ? Json(environment.width_pixels) : Json(nullptr)},
         {"height_pixels",
          environment.height_pixels > 0 ? Json(environment.height_pixels) : Json(nullptr)},
+        // These are captured from the actual initialized RmlUi adapter,
+        // not inferred from the scenario name. A multisampled reference
+        // layer must use offscreen base presentation by backend policy.
         {"ui_render_path",
-         options.scenario == "integrated-rmlui-production"   ? Json("engine-production")
-         : options.scenario == "integrated-rmlui-controlled" ? Json("engine-controlled-base-direct")
-         : options.scenario == "standalone-rmlui-simple"     ? Json("standalone-direct")
-                                                             : Json(nullptr)},
-        {"ui_base_direct_compat", options.scenario == "integrated-rmlui-production" ? Json(false)
-                                  : options.scenario == "integrated-rmlui-controlled"
-                                      ? Json(true)
-                                      : Json(nullptr)},
-        {"ui_output_framebuffer", options.scenario == "integrated-rmlui-production" ||
-                                          options.scenario == "integrated-rmlui-controlled"
-                                      ? Json("engine-managed-postprocess-and-composite")
-                                  : options.scenario == "standalone-rmlui-simple"
-                                      ? Json("backbuffer")
-                                      : Json(nullptr)},
+         environment.ui_backend
+             ? Json(environment.ui_backend->optimized_render_path ? "optimized" : "reference")
+             : Json(nullptr)},
+        {"ui_base_direct_compat",
+         environment.ui_backend ? Json(environment.ui_backend->base_direct_compatibility_requested)
+                                : Json(nullptr)},
+        {"ui_reference_msaa_samples", environment.ui_backend
+                                          ? Json(environment.ui_backend->reference_msaa_samples)
+                                          : Json(nullptr)},
+        {"ui_preserve_backbuffer", environment.ui_backend
+                                       ? Json(environment.ui_backend->preserve_backbuffer)
+                                       : Json(nullptr)},
+        {"ui_base_presentation_policy",
+         environment.ui_backend ? Json(environment.ui_backend->reference_msaa_samples > 0
+                                           ? "offscreen-required-by-msaa"
+                                           : "depends-on-root-and-capabilities")
+                                : Json(nullptr)},
+        {"ui_output_framebuffer",
+         environment.ui_backend
+             ? Json(environment.ui_backend->output_framebuffer_bound ? "explicit-offscreen-target"
+                                                                     : "backbuffer")
+             : Json(nullptr)},
+        {"ui_raster_snapping_geometry", environment.ui_backend
+                                            ? Json(environment.ui_backend->geometry_raster_snapping)
+                                            : Json(nullptr)},
+        {"ui_raster_snapping_text", environment.ui_backend
+                                        ? Json(environment.ui_backend->text_raster_snapping)
+                                        : Json(nullptr)},
+        {"ui_backend_viewport_width",
+         environment.ui_backend ? Json(environment.ui_backend->viewport_width) : Json(nullptr)},
+        {"ui_backend_viewport_height",
+         environment.ui_backend ? Json(environment.ui_backend->viewport_height) : Json(nullptr)},
         {"engine_ui_reference_width",
          environment.ui_reference_width > 0 ? Json(environment.ui_reference_width) : Json(nullptr)},
         {"engine_ui_reference_height", environment.ui_reference_height > 0

@@ -168,6 +168,21 @@ if(BUILD_TESTING)
             LABELS "benchmark;graphics;smoke"
             PASS_REGULAR_EXPRESSION "dashboard cycle 3 complete"
             TIMEOUT 120)
+        # Presented pixel check, outside all benchmark sampling. Optional on
+        # minimal builders that do not install ImageMagick and Python.
+        find_program(NOVELTEA_IMAGEMAGICK_IMPORT NAMES import)
+        find_program(NOVELTEA_XWININFO NAMES xwininfo)
+        find_package(Python3 COMPONENTS Interpreter QUIET)
+        if(NOVELTEA_IMAGEMAGICK_IMPORT AND NOVELTEA_XWININFO AND Python3_Interpreter_FOUND)
+            add_test(NAME noveltea_benchmark_dashboard_visual_smoke
+                COMMAND "${NOVELTEA_XVFB_RUN}" -a "${Python3_EXECUTABLE}"
+                    "${CMAKE_CURRENT_SOURCE_DIR}/dashboard_visual_smoke.py"
+                    "$<TARGET_FILE:noveltea-benchmark-app>")
+            set_tests_properties(noveltea_benchmark_dashboard_visual_smoke PROPERTIES
+                LABELS "benchmark;graphics;visual"
+                PASS_REGULAR_EXPRESSION "standalone and integrated text visibly equivalent"
+                TIMEOUT 80)
+        endif()
         add_test(NAME noveltea_benchmark_rmlui_dashboard_lifecycle_smoke
             COMMAND "${NOVELTEA_XVFB_RUN}" -a "$<TARGET_FILE:noveltea-benchmark-app>"
                 --scenario standalone-rmlui-simple --dashboard-smoke

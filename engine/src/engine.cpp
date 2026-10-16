@@ -4218,6 +4218,15 @@ bool EngineTooling::runtime_ui_document_ready(const Engine& engine, std::string_
            engine.m_impl->m_runtime_ui.has_document(std::string(id));
 }
 
+std::optional<UiRenderConfiguration>
+EngineTooling::runtime_ui_render_configuration(const Engine& engine)
+{
+    if (!engine.m_impl->m_initialized)
+        return std::nullopt;
+    return ui::rmlui::RuntimeUiFacadeAccess::game_ui_render_configuration(
+        engine.m_impl->m_runtime_ui);
+}
+
 Renderer& EngineTooling::renderer(Engine& engine) noexcept { return engine.m_impl->m_renderer; }
 
 assets::AssetManager& EngineTooling::assets(Engine& engine) noexcept

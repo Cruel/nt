@@ -130,10 +130,21 @@ bool StandaloneRmlUi::initialize(const ReferenceScene& scene, int framebuffer_wi
                       static_cast<float>(framebuffer_width) / scene.width,
                       static_cast<float>(framebuffer_height) / scene.height};
     config.viewport = {0, 0, framebuffer_width, framebuffer_height};
-    config.views = {2, 63}; // View 0 clears; View 1 belongs exclusively to ImGui preview.
+    config.views = {2, 63}; // View 0 clears; preview remaps view 1 (ImGui) to last.
     config.shaders = shaders_.get();
     config.enable_perf_logging = false;
     config.render_path = rmlui_bgfx::RenderPath::Optimized;
+    // Capture *effective constructor inputs*, not a label guessed from
+    // scenario name. MSAA=2 means the base layer cannot be direct.
+    backend_settings_ = {
+        .reference_msaa_samples = config.reference_msaa_samples,
+        .base_direct_compatibility_requested = false,
+        .preserve_backbuffer = config.preserve_backbuffer,
+        .optimized_render_path = config.render_path == rmlui_bgfx::RenderPath::Optimized,
+        .output_framebuffer_bound = bgfx::isValid(config.output_framebuffer),
+        .viewport_width = config.viewport.width,
+        .viewport_height = config.viewport.height,
+    };
     renderer_ = std::make_unique<rmlui_bgfx::RenderInterface>(config);
     if (!*renderer_) {
         reason = "rmlui-bgfx renderer initialization failed (check packaged shaders)";
@@ -236,6 +247,7 @@ void StandaloneRmlUi::shutdown()
     framebuffer_width_ = 0;
     framebuffer_height_ = 0;
     stages_ = {};
+    backend_settings_ = {};
 }
 
 } // namespace noveltea::benchmark

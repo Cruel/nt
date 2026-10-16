@@ -41,6 +41,7 @@ void print_usage()
     std::puts("       [--rect-scale 0.25..1.0] [--raw-samples] [--config PATH] [--output PATH]");
     std::puts("  --smoke         30 measured frames, no warmup");
     std::puts("  --dashboard-smoke  Repeat dashboard teardown/recreate with 30-frame trials");
+    std::puts("  --dashboard-visual-smoke  Untimed two-stage preview pixel fixture");
     std::puts("  --frames        Fixed frames per trial; maximum 300000");
     std::puts("  --repeats       Trials per scenario; default 1, maximum 20");
     std::puts("  --config        Exact current JSON configuration; cannot mix with run flags");
@@ -219,6 +220,7 @@ struct EmptyBgfxScenario : Scenario {
     bool requires_graphics() const override { return true; }
     bool prepare(const Options& options, std::string& reason) override
     {
+        host().environment.ui_backend.reset();
         if (!shared_graphics)
             return graphics.initialize(options, reason);
         if (!shared_graphics->bgfx_ready) {
@@ -323,6 +325,7 @@ struct RmlUiScenario final : EmptyBgfxScenario {
                            host().environment.width_pixels, host().environment.height_pixels,
                            reason))
             return false;
+        host().environment.ui_backend = ui.backend_settings();
         // Compile font glyphs and upload backend resources outside all measured frames.
         for (int i = 0; i < 4; ++i) {
             if (!ui.submit(false, reason))
@@ -539,6 +542,26 @@ int run_dashboard(Options options)
             std::fprintf(stderr, "[benchmark] %s\n", feedback.c_str());
         }
     };
+
+    if (options.dashboard_visual_smoke) {
+        if (options.scenario != "standalone-rmlui-simple") {
+            std::fprintf(stderr, "[benchmark] visual preview fixture requires standalone RmlUi\n");
+            return 2;
+        }
+        // This fixture only renders the dashboard and preview, never invokes
+        // run_suite or measures frames. External pixel tests can inspect both
+        // the ordinary panel and the return-to-dashboard control.
+        for (bool inspect : {false, true}) {
+            dashboard.set_inspection_only(inspect);
+            for (int frame = 0; frame < 15; ++frame)
+                (void)dashboard.frame(options, nullptr, feedback, draw_preview);
+            std::printf("[benchmark] visual %s ready\n", inspect ? "inspection" : "dashboard");
+            std::fflush(stdout);
+            SDL_Delay(1800);
+        }
+        preview_ui.shutdown();
+        return feedback.empty() ? 0 : 3;
+    }
 
     if (options.dashboard_smoke) {
         const Options original_options = options;

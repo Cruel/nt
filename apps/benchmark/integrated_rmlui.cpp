@@ -157,6 +157,23 @@ bool IntegratedRmlUi::prepare(const Options& options, std::string& reason)
     // frames have run; the report must not infer it from the scenario name.
     const auto& renderer = EngineTooling::renderer(*engine_);
     environment_.engine_postprocess_active = renderer.postprocess_surface_diagnostics().active;
+    const auto backend = EngineTooling::runtime_ui_render_configuration(*engine_);
+    if (!backend) {
+        reason = "Engine UI renderer settings unavailable despite loaded document";
+        (void)cleanup(ignored);
+        return false;
+    }
+    environment_.ui_backend = UiBackendSettings{
+        .reference_msaa_samples = backend->reference_msaa_samples,
+        .base_direct_compatibility_requested = backend->base_direct_compatibility_requested,
+        .preserve_backbuffer = backend->preserve_backbuffer,
+        .optimized_render_path = backend->optimized_render_path,
+        .output_framebuffer_bound = backend->output_framebuffer_bound,
+        .geometry_raster_snapping = backend->geometry_raster_snapping,
+        .text_raster_snapping = backend->text_raster_snapping,
+        .viewport_width = backend->viewport_width,
+        .viewport_height = backend->viewport_height,
+    };
     return true;
 }
 

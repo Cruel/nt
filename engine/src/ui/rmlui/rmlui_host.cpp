@@ -363,6 +363,15 @@ Rml::Context* RmlUiHost::debugger_host_context() const noexcept { return m_debug
 
 Rml::Context* RmlUiHost::primary_context() const noexcept { return m_primary_context; }
 
+std::optional<UiRenderConfiguration> RmlUiHost::game_ui_render_configuration() const
+{
+    for (const auto& renderer : m_plane_renderers) {
+        if (renderer.plane == core::PresentationPlane::GameUi && renderer.bgfx)
+            return renderer.bgfx->render_configuration();
+    }
+    return std::nullopt;
+}
+
 Rml::RenderInterface* RmlUiHost::renderer_for(ContextKey key, const ResolvedContextMetrics& metrics)
 {
     const bool world_transition_source =

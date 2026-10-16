@@ -6,6 +6,7 @@
 #include "noveltea/core/runtime_presentation_contracts.hpp"
 #include "noveltea/core/runtime_user_settings.hpp"
 #include "noveltea/surface.hpp"
+#include "noveltea/ui_render_configuration.hpp"
 #include "noveltea/devtools_snapshot.hpp"
 #if NOVELTEA_ENABLE_DEVTOOLS
 #include "noveltea/devtools_console.hpp"
@@ -127,6 +128,7 @@ public:
 #endif
 
     [[nodiscard]] Rml::Context* primary_context() const noexcept;
+    [[nodiscard]] std::optional<UiRenderConfiguration> game_ui_render_configuration() const;
     [[nodiscard]] Rml::Context* context_for(ContextKey key);
     [[nodiscard]] Rml::Context* find_context(ContextKey key) const noexcept;
     [[nodiscard]] const std::vector<ContextRecord>& contexts() const noexcept;

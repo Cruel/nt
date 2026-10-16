@@ -9,6 +9,7 @@
 #include "noveltea/devtools_console.hpp"
 #include "noveltea/devtools_trace.hpp"
 #include "noveltea/engine.hpp"
+#include "noveltea/ui_render_configuration.hpp"
 #include "noveltea/render/material.hpp"
 
 #include <cstdint>
@@ -103,6 +104,8 @@ public:
     // Read-only runtime document probe for host certification and integrations.
     // Never initializes UI or alters its renderer ownership.
     [[nodiscard]] static bool runtime_ui_document_ready(const Engine& engine, std::string_view id);
+    [[nodiscard]] static std::optional<UiRenderConfiguration>
+    runtime_ui_render_configuration(const Engine& engine);
     [[nodiscard]] static Renderer& renderer(Engine& engine) noexcept;
     [[nodiscard]] static assets::AssetManager& assets(Engine& engine) noexcept;
     [[nodiscard]] static core::Result<core::AssetProfilerSnapshot, core::Diagnostic>

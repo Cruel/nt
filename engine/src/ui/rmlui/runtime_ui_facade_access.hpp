@@ -21,6 +21,8 @@ public:
         RuntimeUI& runtime_ui,
         std::function<void(const LifecycleContextKey&, const ResolvedContextMetrics&)> observer);
     [[nodiscard]] static host::CursorInspection cursor_inspection(const RuntimeUI& runtime_ui);
+    [[nodiscard]] static std::optional<UiRenderConfiguration>
+    game_ui_render_configuration(const RuntimeUI& runtime_ui);
 
     [[nodiscard]] static bool load_document(RuntimeUI& runtime_ui, const std::string& id,
                                             const std::string& path, bool show = true);
