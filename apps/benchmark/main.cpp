@@ -2,6 +2,7 @@
 #include <SDL3/SDL_main.h>
 #include <bgfx/bgfx.h>
 
+#include "benchmark_bgfx_diagnostics.hpp"
 #include "benchmark_completed_run.hpp"
 #include "benchmark_dashboard.hpp"
 #include "benchmark_options.hpp"
@@ -51,8 +52,8 @@ void print_usage()
     std::puts("  --output        Report path (defaults to build/<preset>/benchmarks)");
     std::puts("  --help          Print help without initializing graphics");
     std::puts("Without arguments, opens the dashboard; CLI settings default to no-UI.");
-    std::puts(
-        "Reference scenes: empty bgfx, raw geometry and standalone RmlUi; GPU timing unavailable.");
+    std::puts("Reference scenes: Clean has no GPU timers; Diagnostic reports supported identified "
+              "GPU frames.");
 }
 
 struct SteadyClock final : Clock {
@@ -213,6 +214,10 @@ struct EmptyBgfxScenario : Scenario {
     explicit EmptyBgfxScenario(Graphics* shared = nullptr) : shared_graphics(shared) {}
     Graphics graphics;
     Graphics* shared_graphics = nullptr;
+    bool diagnostic = false;
+    uint32_t submitted_frame = 0;
+    double cpu_submission_ms = 0.0;
+    double bgfx_frame_cpu_ms = 0.0;
     Graphics& host() { return shared_graphics ? *shared_graphics : graphics; }
 
     const char* id() const override { return "raw-bgfx-empty"; }
@@ -223,6 +228,7 @@ struct EmptyBgfxScenario : Scenario {
     bool requires_graphics() const override { return true; }
     bool prepare(const Options& options, std::string& reason) override
     {
+        diagnostic = options.profile == "diagnostic";
         host().environment.ui_backend.reset();
         if (!shared_graphics)
             return graphics.initialize(options, reason);
@@ -241,9 +247,49 @@ struct EmptyBgfxScenario : Scenario {
     {
         if (!poll(reason))
             return false;
-        bgfx::touch(0);
-        bgfx::frame();
+        return submit_frame([&]() {
+            bgfx::touch(0);
+            return true;
+        });
+    }
+    template<typename Submit> bool submit_frame(Submit&& submit)
+    {
+        if (!diagnostic) {
+            if (!submit())
+                return false;
+            bgfx::frame();
+            return true;
+        }
+        const auto begin = std::chrono::steady_clock::now();
+        if (!submit())
+            return false;
+        const auto submitted = std::chrono::steady_clock::now();
+        submitted_frame = bgfx::frame();
+        const auto completed = std::chrono::steady_clock::now();
+        cpu_submission_ms = std::chrono::duration<double, std::milli>(submitted - begin).count();
+        bgfx_frame_cpu_ms =
+            std::chrono::duration<double, std::milli>(completed - submitted).count();
         return true;
+    }
+    void diagnostic_frame(noveltea::benchmark::DiagnosticObservation& observation) override
+    {
+        observation.submitted_frame = submitted_frame;
+        observation.cpu_submission_ms = cpu_submission_ms;
+        observation.bgfx_frame_cpu_ms = bgfx_frame_cpu_ms;
+        noveltea::benchmark::capture_bgfx_diagnostics(observation);
+    }
+    void
+    diagnostic_completion(std::vector<noveltea::benchmark::DiagnosticObservation>& late) override
+    {
+        // Only three untimed bgfx advances, not one GPU fence per sample.
+        // GPU IDs outside the measured submissions are rejected by the runner.
+        for (int i = 0; i < 3; ++i) {
+            bgfx::touch(0);
+            bgfx::frame();
+            noveltea::benchmark::DiagnosticObservation observation;
+            noveltea::benchmark::capture_bgfx_diagnostics(observation);
+            late.push_back(observation);
+        }
     }
     bool complete(std::string&) override { return true; }
     bool cleanup(std::string&) override
@@ -297,10 +343,9 @@ struct GeometryBgfxScenario final : EmptyBgfxScenario {
     }
     bool frame(std::string& reason) override
     {
-        if (!poll(reason) || !geometry.submit(reason))
+        if (!poll(reason))
             return false;
-        bgfx::frame();
-        return true;
+        return submit_frame([&]() { return geometry.submit(reason); });
     }
     bool cleanup(std::string& reason) override
     {
@@ -312,7 +357,6 @@ struct GeometryBgfxScenario final : EmptyBgfxScenario {
 struct RmlUiScenario final : EmptyBgfxScenario {
     explicit RmlUiScenario(Graphics* shared = nullptr) : EmptyBgfxScenario(shared) {}
     noveltea::benchmark::StandaloneRmlUi ui;
-    bool diagnostic = false;
 
     const char* id() const override { return "standalone-rmlui-simple"; }
     const char* description() const override
@@ -339,10 +383,17 @@ struct RmlUiScenario final : EmptyBgfxScenario {
     }
     bool frame(std::string& reason) override
     {
-        if (!poll(reason) || !ui.submit(diagnostic, reason))
+        if (!poll(reason))
             return false;
-        bgfx::frame();
-        return true;
+        return submit_frame([&]() { return ui.submit(diagnostic, reason); });
+    }
+    void diagnostic_frame(noveltea::benchmark::DiagnosticObservation& observation) override
+    {
+        EmptyBgfxScenario::diagnostic_frame(observation);
+        const auto stages = ui.last_diagnostic_stages();
+        observation.cpu_update_ms = stages.update_seconds * 1000.0;
+        // RmlUi Render() submits its draws; this stays distinct from bgfx::frame().
+        observation.cpu_submission_ms = stages.render_seconds * 1000.0;
     }
     bool cleanup(std::string& reason) override
     {

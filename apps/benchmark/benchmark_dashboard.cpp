@@ -402,9 +402,50 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                         show_distribution("CPU operation", scenario.cpu_operation);
                         for (size_t n = 0; n < scenario.trials.size(); ++n) {
                             const auto& trial = scenario.trials[n];
-                            if (trial.outcome != "complete")
+                            if (trial.outcome != "complete") {
                                 ImGui::TextWrapped("Trial %zu %s: %s", n + 1, trial.outcome.c_str(),
                                                    trial.reason.c_str());
+                                continue;
+                            }
+                            if (last_run->configuration.profile != "diagnostic")
+                                continue;
+                            ImGui::SeparatorText("Diagnostic (non-authoritative)");
+                            ImGui::Text(
+                                "Trial %zu: %llu CPU observations, %llu bgfx snapshots", n + 1,
+                                static_cast<unsigned long long>(trial.diagnostic.observations),
+                                static_cast<unsigned long long>(
+                                    trial.diagnostic.bgfx_stats_observations));
+                            show_distribution("UI update", trial.diagnostic.cpu_update_ms);
+                            show_distribution("CPU submission", trial.diagnostic.cpu_submission_ms);
+                            show_distribution("bgfx::frame CPU handoff",
+                                              trial.diagnostic.bgfx_frame_cpu_ms);
+                            show_distribution("bgfx render-thread",
+                                              trial.diagnostic.bgfx_render_thread_ms);
+                            show_distribution("bgfx waitRender",
+                                              trial.diagnostic.bgfx_wait_render_ms);
+                            show_distribution("bgfx waitSubmit",
+                                              trial.diagnostic.bgfx_wait_submit_ms);
+                            show_distribution("GPU execution (identified completions)",
+                                              trial.diagnostic.gpu_execution_ms);
+                            if (trial.diagnostic.draw_calls.count)
+                                ImGui::Text("bgfx snapshots: draw mean %.1f, views mean %.1f, "
+                                            "textures mean %.1f, programs mean %.1f",
+                                            trial.diagnostic.draw_calls.mean,
+                                            trial.diagnostic.view_count.mean,
+                                            trial.diagnostic.textures.mean,
+                                            trial.diagnostic.programs.mean);
+                            ImGui::TextDisabled(
+                                "bgfx counters may lag/repeat; never paired to CPU frames.");
+                        }
+                        if (last_run->configuration.profile == "diagnostic" &&
+                            last_run->result.instrumentation_control) {
+                            const auto& control = *last_run->result.instrumentation_control;
+                            ImGui::Text("Clock-only control: 2 reads %.1f ns, 4 reads %.1f ns, "
+                                        "increment %.1f ns",
+                                        control.two_clock_reads_ns, control.four_clock_reads_ns,
+                                        control.incremental_ns);
+                            ImGui::TextDisabled(
+                                "Lower-bound timer overhead, not full profiling cost.");
                         }
                     }
                 }
@@ -415,12 +456,16 @@ DashboardAction Dashboard::frame(Options& options, const CompletedRun* last_run,
                     "Strict samples exclude ImGui allocations, context, events, "
                     "rendering and GPU objects. Raw/standalone trials retain the host; "
                     "Engine-owned trials recreate their own SDL/bgfx host.");
-                ImGui::TextUnformatted("GPU execution time: unavailable");
                 ImGui::TextUnformatted("GPU driver version: unavailable");
                 ImGui::TextUnformatted("Confirmed presented FPS: unavailable");
-                ImGui::TextUnformatted("bgfx wait statistics: unavailable");
-                ImGui::TextWrapped("Diagnostic runs are labeled separately; they currently provide "
-                                   "the same CPU boundary timers, not fabricated GPU counters.");
+                ImGui::TextWrapped("Diagnostic adds bgfx CPU handoff, render-thread waits, "
+                                   "draw/view/resource snapshots and GPU completed-frame "
+                                   "timestamps only when a measured bgfx::frame ID matches. "
+                                   "Asynchronous snapshots may lag or repeat and cannot be "
+                                   "aligned to CPU samples by array index.");
+                ImGui::TextWrapped("The production Engine does not expose bgfx submitted-frame "
+                                   "identity, so GPU timing is unavailable there. Clean runs "
+                                   "never sample diagnostic counters.");
                 ImGui::EndTabItem();
             }
             ImGui::EndTabBar();

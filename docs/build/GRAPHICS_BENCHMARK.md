@@ -1,4 +1,4 @@
-# Graphics Benchmark (Linux reference workloads, #422–#428)
+# Graphics Benchmark (Linux reference workloads, #422–#429)
 
 The dedicated `noveltea-benchmark-app` measures SDL3/bgfx, an empty Engine,
 and RmlUi reference workloads. Raw and standalone RmlUi **do not instantiate**
@@ -44,11 +44,12 @@ completed scenario, rectangle count/scale when applicable, requested
 resolution and VSync. Switching the editable profile or workload without
 running again never relabels old results. Results also show individual
 failures, CPU operation/wall-frame distributions, measured work-unit
-cadence (not confirmed display FPS), and the JSON report path. Unsupported GPU execution timing, driver details, confirmed
-presentation FPS and bgfx wait counters are explicitly unavailable.
-Diagnostic profile currently uses the same CPU timing boundaries but is
-labeled non-authoritative; it does **not** invent deeper counters. A bad
-run setting is reported in the dashboard instead of silently corrected.
+cadence (not confirmed display FPS), and the JSON report path. Diagnostic
+trials additionally display CPU stages, bgfx wait/render-thread statistics,
+draw/view/resource snapshots, and **identified** GPU completed-frame timing
+where supported. Missing observations are labeled unavailable; confirmed
+presentation FPS and driver version remain unavailable. A bad run setting
+is reported in the dashboard instead of silently corrected.
 
 The lifecycle regression smoke exercises three dashboard
 create/render/destroy → no-ImGui run → recreate cycles while retaining the
@@ -84,8 +85,10 @@ the existing binary. CMake build concurrency honors
 `build/linux-benchmark-release/benchmarks/` or the chosen preset's equivalent.
 
 The reference workload touches one empty bgfx view and advances one frame
-without clearing, geometry, UI, or Engine activity. It does **not** establish
-GPU-execution time or independently confirmed presented-frame counts.
+without clearing, geometry, UI, or Engine activity. The Clean profile does
+**not** establish GPU-execution time or independently confirmed presented-frame
+counts; Diagnostic may yield frame-ID-attributed GPU timestamps on supported
+backends.
 
 `--warmup-seconds` defaults to 3, `--seconds` to 10, `--repeats` to 1,
 `--ready-timeout-seconds` to 5. `--frames` selects a fixed count
@@ -99,12 +102,57 @@ The Linux app supports the raw bgfx, standalone RmlUi, empty Engine, and integra
 
 CLI run-setting invocations still default to no-UI, with `--no-ui` explicit.
 An unqualified invocation opens the dashboard. The `--profile diagnostic`
-option selects a separate, non-authoritative Diagnostic run, with no further
-GPU counters available yet. `--smoke` requests 30 measured frames without warmup. At most 20 trials and 300,000 measured
+option selects a separate, non-authoritative Diagnostic run with additional
+optional bgfx statistics. `--smoke` requests 30 measured frames without warmup. At most 20 trials and 300,000 measured
 frames per trial are accepted. Duration runs also use a fixed 300,000-sample
 capacity; exceeding it fails with an explicit error rather than allocating
 during sampling or silently dropping samples. No logger or JSON encoder runs
 inside the measurement loop.
+
+## Diagnostic measurement (#429)
+
+Select `--profile diagnostic` or the dashboard's Diagnostic profile. Diagnostic
+runs remain **non-authoritative**, separate from minimal Clean runs. Sampling
+retains the Clean wall and CPU operation boundaries and adds, when available:
+
+- CPU RmlUi Update and Render submission stages, raw geometry/draw submission,
+  and CPU time blocked in `bgfx::frame()`, **never** called GPU execution time.
+- bgfx render-thread CPU duration, `waitRender`, `waitSubmit`, plus observed
+  draw/compute/blit/view counts and texture/framebuffer/program counts.
+- Actual GPU timestamp durations only for unique `gpuFrameNum` values that
+  match the benchmark's measured `bgfx::frame()` submission IDs.
+
+`bgfx::getStats()` observes **asynchronous completed-frame snapshots**. Snapshot
+draw/view/resource and wait distributions are **not paired** with CPU frame
+samples by index and may repeat, lag or include nearby warmup work. The raw
+bgfx and standalone hosts additionally advance three untimed frames during
+Completion, collecting late GPU timestamps without inserting GPU fences in the
+measured loop; only identified measured submissions count as GPU durations.
+The Engine-hosted scenarios do not export submitted bgfx IDs and therefore
+leave their GPU execution fields unavailable rather than guessing. A backend
+that does not provide positive-frequency, valid GPU timestamp pairs also
+reports GPU timing as unavailable.
+
+JSON stores Diagnostic detail **per successful trial** at
+`scenarios[].trials[].diagnostic`, including observation counts and explicit
+scope strings; aggregate Clean wall/operation distributions remain unchanged.
+The report's top-level timing fields are descriptions/availability markers,
+not made-up global GPU measurements. Raw CPU samples remain optional.
+An isolated 20,000-iteration **two-clock-read versus four-clock-read control**
+runs after the suite in Diagnostic mode and records nanosecond costs under
+`timing.instrumentation_control`; it characterizes lower-bound timer overhead,
+not GPU-query cost or the full instrumentation penalty.
+
+For a functional (non-performance) smoke test:
+
+```sh
+./scripts/run-benchmark.sh --no-build --scenario raw-bgfx-geometry \
+  --profile diagnostic --frames 300 --output /tmp/diagnostic.json
+```
+
+Use the same workload separately under `--profile clean` for authoritative
+comparisons. GPU timing/counter availability varies by backend. Never compare
+Debug, Xvfb or software-rendered numbers as real-device performance.
 
 ## Standalone RmlUi reference (#426)
 
@@ -119,8 +167,8 @@ asset manager; the combined executable does link Engine for integrated modes.
 
 Preparation compiles shaders and rasterizes initial text before Ready.
 Measured frames submit RmlUi Update, Render and bgfx frame handoff.
-Clean runs collect no RmlUi stage timings. Diagnostic runs have a separately
-accessible Update/Render timing sample for future reporting extensions.
+Clean runs collect no RmlUi stage timings. Diagnostic reports RmlUi Update
+and Render submission independently of the CPU time spent in bgfx::frame().
 ImGui and the RmlUi debugger are absent during measurement.
 
 The dashboard orders all RmlUi preview views (2–63) before ImGui view 1,
@@ -227,8 +275,10 @@ activating diagnostic performance logging, so
 `ui_offscreen_rendering_observed` remains `null` rather than fabricating a
 measurement. The integrated scenario always runs the
 production Engine compositor. Its costs are **not identical** to a standalone
-backbuffer UI render. GPU time and independently verified displayed frames
-remain unavailable.
+backbuffer UI render. The Engine-owned host does not expose its submitted bgfx
+frame IDs at the scenario boundary, so GPU execution timing remains
+unavailable there even when bgfx reports GPU timestamps. Independently
+verified displayed frames also remain unavailable.
 
 During each trial, the standalone dashboard releases all ImGui and bgfx
 resources before the Engine initializes. Engine owns its SDL window and bgfx
@@ -350,9 +400,11 @@ measurement start). `cpu_operation_ms` measures the scenario's frame
 operation, including SDL event polling and bgfx frame submission/wait.
 `frame_loop_cadence_hz` is measured completed work units divided by
 measured wall seconds, **not independently verified display FPS**.
-GPU execution, bgfx synchronization counters, driver version, and displayed
-frame count are `null` where unavailable, never inferred from the
-duration of `bgfx::frame()`. Cleanup and any asynchronous completion work
+Clean reports keep GPU execution and bgfx synchronization counters `null`.
+Diagnostic trial objects expose separately labeled CPU stages and asynchronous
+bgfx snapshots; absent fields remain `null`. Driver version and independently
+confirmed displayed-frame counts remain `null`. None of these infer GPU time
+from the duration of `bgfx::frame()`. Cleanup and any asynchronous completion work
 are excluded from measured samples. Incomplete trials retain their actual
 observed frame counts but do not contribute to successful aggregates. Scenario
 cleanup returns an explicit success/failure and diagnostic. If teardown fails,

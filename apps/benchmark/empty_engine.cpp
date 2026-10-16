@@ -1,6 +1,7 @@
 #include "empty_engine.hpp"
 
 #include "benchmark_assets.hpp"
+#include "benchmark_bgfx_diagnostics.hpp"
 #include "noveltea/engine.hpp"
 #include "noveltea/engine_tooling.hpp"
 #include "noveltea/platform.hpp"
@@ -121,6 +122,13 @@ bool EmptyEngine::frame(std::string& reason)
         return false;
     }
     return true;
+}
+
+void EmptyEngine::diagnostic_frame(DiagnosticObservation& observation)
+{
+    capture_bgfx_diagnostics(observation);
+    // Engine owns bgfx::frame(); its submitted frame ID is not exported, so
+    // render-thread snapshots cannot establish a GPU measurement window.
 }
 
 bool EmptyEngine::complete(std::string&) { return true; }
