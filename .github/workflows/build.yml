@@ -88,7 +88,8 @@ jobs:
         env:
           NOVELTEA_SCHEMA_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-schema-certify
           NOVELTEA_YAML_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-yaml-certify
-        run: pnpm -C editor exec vp test run src/renderer/test/native-schema-generation.test.ts src/renderer/test/native-schema-parity.test.ts src/renderer/test/native-yaml-parity.test.ts
+          NOVELTEA_ROOM_MAP_CERTIFY: ${{ github.workspace }}/build/native-authoring/noveltea-room-map-certify
+        run: pnpm -C editor exec vp test run src/renderer/test/native-schema-generation.test.ts src/renderer/test/native-schema-parity.test.ts src/renderer/test/native-yaml-parity.test.ts src/renderer/test/native-room-map-parity.test.ts
       - name: Set up coverage contract reporter
         uses: astral-sh/setup-uv@c18668ad3cf93ea998bef934396af7bb5c839dc7 # v10.2.0
         with:
@@ -785,11 +786,11 @@ jobs:
 
       - name: Build Windows native Project transaction certifications
         shell: pwsh
-        run: cmake --build --preset windows-release --target noveltea-yaml-transaction-certify noveltea-room-session-certify noveltea-project-session-certify
+        run: cmake --build --preset windows-release --target noveltea-yaml-transaction-certify noveltea-room-session-certify noveltea-room-map-certify noveltea-project-session-certify
 
       - name: Certify Windows native Project transaction commit and recovery
         shell: pwsh
-        run: ctest --test-dir build/windows-release --output-on-failure -R '^native_authoring_(yaml_transaction|room_session|project_session)$'
+        run: ctest --test-dir build/windows-release --output-on-failure -R '^native_authoring_(yaml_transaction|room_session|room_map|project_session)$'
 
       - name: Build shipped Windows targets
         shell: pwsh

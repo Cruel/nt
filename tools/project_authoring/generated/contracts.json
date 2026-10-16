@@ -1,4 +1,36 @@
 {
+  "materialPresets": {
+    "active-text": {
+      "hotspotImage": null,
+      "hotspotMask": null,
+      "role": "active-text"
+    },
+    "engine-2d": {
+      "hotspotImage": null,
+      "hotspotMask": null,
+      "role": "engine-2d"
+    },
+    "hotspot-overlay-alpha": {
+      "hotspotImage": "required",
+      "hotspotMask": "disabled",
+      "role": "hotspot-overlay"
+    },
+    "hotspot-overlay-custom": {
+      "hotspotImage": "required",
+      "hotspotMask": "required",
+      "role": "hotspot-overlay"
+    },
+    "postprocess-tint": {
+      "hotspotImage": null,
+      "hotspotMask": null,
+      "role": "postprocess"
+    },
+    "rmlui-decorator": {
+      "hotspotImage": null,
+      "hotspotMask": null,
+      "role": "rmlui-decorator"
+    }
+  },
   "nodes": {
     "n0": {
       "children": {
@@ -153318,6 +153350,36 @@
     }
   },
   "sourceDefaults": {
+    "maps": {
+      "data.connections": [],
+      "data.connections.*.hitRegions": [],
+      "data.connections.*.icon": null,
+      "data.connections.*.label": null,
+      "data.connections.*.logicalOrder": 0,
+      "data.connections.*.path": [],
+      "data.connections.*.style": null,
+      "data.connections.*.visibility": {
+        "kind": "always"
+      },
+      "data.locations": [],
+      "data.locations.*.connectionAnchor": null,
+      "data.locations.*.icon": null,
+      "data.locations.*.label": null,
+      "data.locations.*.labelAnchor": null,
+      "data.locations.*.logicalOrder": 0,
+      "data.locations.*.pickOrder": 0,
+      "data.locations.*.regions": [],
+      "data.locations.*.style": null,
+      "data.locations.*.visibility": {
+        "kind": "always"
+      },
+      "data.presentation": {
+        "background": null,
+        "initialMode": "full-map",
+        "layout": null,
+        "title": null
+      }
+    },
     "rooms": {
       "data.anchors": [],
       "data.background": {

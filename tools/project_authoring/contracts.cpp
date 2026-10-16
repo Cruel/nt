@@ -87,6 +87,7 @@ const std::set<std::string> implemented_operations{"value.default",
                                                    "lua.dependencies.empty",
                                                    "animation.loop-range",
                                                    "hotspot.bounds",
+                                                   "hotspot.motion-track",
                                                    "material.application-parameter",
                                                    "property.default-unique",
                                                    "property.default-value",
@@ -330,6 +331,16 @@ class Validator {
             if (bounds.at("y").as<double>() + bounds.at("height").as<double>() > 1)
                 issue(errors, path + "/height", "semantic." + id,
                       "Rectangle exceeds image height.");
+        } else if (id == "hotspot.motion-track") {
+            if (!value || !value->is_object() || !value->contains("keyframes"))
+                return;
+            const auto& frames = value->at("keyframes");
+            for (std::size_t i = 1; i < frames.size(); ++i)
+                if (frames.at(i).at("timeMs").as<std::int64_t>() <=
+                    frames.at(i - 1).at("timeMs").as<std::int64_t>())
+                    issue(errors, path + "/keyframes/" + std::to_string(i) + "/timeMs",
+                          "semantic." + id,
+                          "Hotspot motion keyframe times must be strictly increasing.");
         } else if (id == "material.application-parameter") {
             if (!value || !value->is_object())
                 return;
@@ -634,9 +645,11 @@ public:
 // Source-only Room projection uses metadata generated from the TypeScript sparse
 // YAML contract and the same generated schema graph as the native validator.
 // No independent handwritten Room type hierarchy or default table lives here.
-class RoomSourceProjection {
+class SparseSourceProjection {
     const Contracts& contracts_;
     const Json& defaults_;
+    const std::string root_id_;
+    const std::string family_kind_;
     const std::string condition_id_;
 
     const Json& node(std::string_view id) const { return contracts_.document.at("nodes").at(id); }
@@ -728,7 +741,7 @@ class RoomSourceProjection {
                  unsigned int depth) const
     {
         if (depth > 128)
-            throw std::runtime_error("Room source projection depth exceeded.");
+            throw std::runtime_error("Sparse source projection depth exceeded.");
         if (!value)
             value = fallback(path);
         if (!value)
@@ -766,7 +779,7 @@ class RoomSourceProjection {
         }
         if (kind == "object" && value->is_object()) {
             if (path.size() == 1 && path[0] == "data")
-                value->insert_or_assign("kind", "room");
+                value->insert_or_assign("kind", family_kind_);
             for (const auto& child : children.object_range()) {
                 if (child.key() == "$catchall")
                     continue;
@@ -801,8 +814,11 @@ class RoomSourceProjection {
     }
 
 public:
-    explicit RoomSourceProjection(const Contracts& contracts)
-        : contracts_(contracts), defaults_(contracts.document.at("sourceDefaults").at("rooms")),
+    SparseSourceProjection(const Contracts& contracts, std::string_view family,
+                           std::string_view contract, std::string_view kind)
+        : contracts_(contracts), defaults_(contracts.document.at("sourceDefaults").at(family)),
+          root_id_(contracts.document.at("roots").at(contract).as<std::string>()),
+          family_kind_(kind),
           condition_id_(contracts.document.at("roots").at("Condition").as<std::string>())
     {
     }
@@ -811,8 +827,7 @@ public:
     {
         Value value = std::move(source);
         std::vector<std::string> path;
-        project(value, contracts_.document.at("roots").at("RoomsRecord").as<std::string>(), path,
-                0);
+        project(value, root_id_, path, 0);
         return std::move(*value);
     }
 };
@@ -857,12 +872,51 @@ ValidationResult validate_room_source(std::string_view source_json)
             return invalid;
         }
         return validate_record("RoomsRecord",
-                               RoomSourceProjection(contracts).project(source).to_string());
+                               SparseSourceProjection(contracts, "rooms", "RoomsRecord", "room")
+                                   .project(source)
+                                   .to_string());
     } catch (const std::exception& error) {
         ValidationResult invalid;
         invalid.diagnostics.push_back({"", "source.projection", error.what()});
         return invalid;
     }
+}
+
+ValidationResult validate_map_source(std::string_view source_json)
+{
+    try {
+        static const Contracts contracts;
+        Json source = Json::parse(source_json);
+        if (source.is_object() && source.contains("data") && source.at("data").is_object() &&
+            source.at("data").contains("kind")) {
+            ValidationResult invalid;
+            invalid.diagnostics.push_back({"/data/kind", "source.redundant_kind",
+                                           "Map YAML must omit the inferred data.kind field."});
+            return invalid;
+        }
+        return validate_record("MapsRecord",
+                               SparseSourceProjection(contracts, "maps", "MapsRecord", "map")
+                                   .project(source)
+                                   .to_string());
+    } catch (const std::exception& error) {
+        ValidationResult invalid;
+        invalid.diagnostics.push_back({"", "source.projection", error.what()});
+        return invalid;
+    }
+}
+
+std::optional<MaterialPresetContract> material_preset_contract(std::string_view preset_id)
+{
+    static const Contracts contracts;
+    const auto& presets = contracts.document.at("materialPresets");
+    if (!presets.contains(preset_id))
+        return std::nullopt;
+    const auto& value = presets.at(preset_id);
+    const auto sampler = [&](std::string_view name) {
+        return value.at(name).is_string() ? value.at(name).as<std::string>() : "";
+    };
+    return MaterialPresetContract{value.at("role").as<std::string>(), sampler("hotspotImage"),
+                                  sampler("hotspotMask")};
 }
 
 std::string validation_result_json(const ValidationResult& result)

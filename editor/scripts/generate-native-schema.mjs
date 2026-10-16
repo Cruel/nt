@@ -44,6 +44,8 @@ const { generateNativeContracts, canonicalJson } = await import('./native-schema
 const { nativeSchemaSources } = await import('./native-schema/sources.ts');
 const { sparseRecordYamlSourceDefaults } =
   await import('../src/shared/project-workspace/sparse-record-yaml-source.ts');
+const { materialContractRegistry } =
+  await import('../src/shared/project-schema/material-contract-registry.generated.ts');
 const { types, ...contracts } = generateNativeContracts(nativeSchemaSources);
 const outputIndex = process.argv.indexOf('--output');
 if (outputIndex !== -1 && !process.argv[outputIndex + 1])
@@ -59,7 +61,20 @@ const files = new Map([
     canonicalJson({
       schema: 'noveltea.native-authoring-contracts',
       ...contracts,
-      sourceDefaults: { rooms: sparseRecordYamlSourceDefaults('rooms') },
+      sourceDefaults: {
+        rooms: sparseRecordYamlSourceDefaults('rooms'),
+        maps: sparseRecordYamlSourceDefaults('maps'),
+      },
+      materialPresets: Object.fromEntries(
+        materialContractRegistry.presets.map((preset) => [
+          preset.id,
+          {
+            role: preset.role,
+            hotspotImage: preset.capabilities.samplers.s_hotspotImage ?? null,
+            hotspotMask: preset.capabilities.samplers.s_hotspotMask ?? null,
+          },
+        ]),
+      ),
     }),
   ],
   [
