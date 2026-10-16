@@ -3,6 +3,7 @@
 #include "character_archetype_semantics.hpp"
 #include "asset_animation_semantics.hpp"
 #include "material_semantics.hpp"
+#include "interactable_inventory_semantics.hpp"
 
 #include <jsoncons/json.hpp>
 #include <jsoncons_ext/jsonpointer/jsonpointer.hpp>
@@ -1050,6 +1051,13 @@ RoomSessionSnapshot ProjectSession::snapshot() const
                         diagnostic.path = "/" + owner + diagnostic.path;
                         state.diagnostics.push_back(std::move(diagnostic));
                     }
+                } else if (family == "interactables") {
+                    const auto local = validate_interactable_definition_local(effective_for_traits);
+                    state.valid &= local.accepted;
+                    for (auto diagnostic : local.diagnostics) {
+                        diagnostic.path = "/" + owner + diagnostic.path;
+                        state.diagnostics.push_back(std::move(diagnostic));
+                    }
                 }
             }
         }
@@ -1077,69 +1085,74 @@ RoomSessionSnapshot ProjectSession::snapshot() const
         state.diagnostics.insert(state.diagnostics.end(), locales.diagnostics.begin(),
                                  locales.diagnostics.end());
     }
-    // An Instance is owned by the manifest rather than by a separate YAML
-    // record. Validate only changed Instances and Instances whose Definition
-    // is resident, not every unrelated definition in the Project.
+    // Exact Instance membership is manifest-owned; its Definition and Inventory
+    // owners are independent records. A dirty manifest or inspected Definition
+    // invalidates the dependent inventory/quantity/containment closure.
     const bool inspected_definition =
         std::any_of(records_.begin(), records_.end(),
                     [](const auto& record) { return record.first.starts_with("interactables/"); });
-    if ((manifest_dirty || inspected_definition) && !state.normalized_json.empty() &&
-        !traits_json.empty()) {
+    const bool inspected_inventory_owner =
+        std::any_of(records_.begin(), records_.end(), [](const auto& record) {
+            return record.first.starts_with("characters/") || record.first.starts_with("rooms/");
+        });
+    if ((manifest_dirty || inspected_definition || inspected_inventory_owner) &&
+        !state.normalized_json.empty() && !traits_json.empty()) {
         const auto working = Json::parse(state.normalized_json);
-        const auto authored = Json::parse(state.source_json);
         const auto baseline = Json::parse(state.baseline_json);
-        const auto* instances = working.contains("interactableInstances")
-                                    ? &working.at("interactableInstances")
-                                    : nullptr;
-        const auto* old_instances = baseline.contains("interactableInstances")
-                                        ? &baseline.at("interactableInstances")
-                                        : nullptr;
-        const auto* authored_instances = authored.contains("interactableInstances")
-                                             ? &authored.at("interactableInstances")
-                                             : nullptr;
-        std::map<std::string, std::optional<std::string>> definitions;
-        if (instances && instances->is_object()) {
-            for (const auto& entry : instances->object_range()) {
-                const auto id = std::string(entry.key());
-                const auto definition =
-                    entry.value().at("definition").at("$ref").at("id").as<std::string>();
-                const auto* old =
-                    old_instances && old_instances->contains(id) ? &old_instances->at(id) : nullptr;
-                const auto* source = authored_instances && authored_instances->contains(id)
-                                         ? &authored_instances->at(id)
-                                         : nullptr;
-                if (old && source && *old == *source &&
-                    !records_.contains("interactables/" + definition))
-                    continue;
-                auto found = definitions.find(definition);
-                if (found == definitions.end()) {
-                    std::optional<std::string> effective;
-                    if (const auto record = records_.find("interactables/" + definition);
-                        record != records_.end()) {
-                        const auto snapshot = record->second->snapshot();
-                        if (snapshot.valid)
-                            effective = snapshot.normalized_json;
-                    } else if (is_id(definition)) {
-                        std::string error;
-                        auto record =
-                            RoomSession::open_record(root_, "interactables", definition, error);
-                        if (record && record->snapshot().valid)
-                            effective = record->snapshot().normalized_json;
-                    }
-                    found = definitions.emplace(definition, effective).first;
-                }
-                if (!found->second)
-                    continue; // malformed/missing Definition is diagnosed at its source boundary
-                const auto semantic = validate_interactable_instance(entry.value().to_string(),
-                                                                     *found->second, traits_json);
-                state.valid &= semantic.accepted;
-                for (auto diagnostic : semantic.diagnostics) {
-                    diagnostic.path =
-                        "/interactableInstances/" + pointer_token(id) + diagnostic.path;
-                    state.diagnostics.push_back(std::move(diagnostic));
+        const auto& instances = working.at("interactableInstances");
+        const auto& old_instances = baseline.at("interactableInstances");
+        const bool inventory_changed = working.at("inventories") != baseline.at("inventories");
+        std::set<std::string> affected_instances;
+        for (const auto& entry : instances.object_range()) {
+            const auto id = std::string(entry.key());
+            const auto definition =
+                entry.value().at("definition").at("$ref").at("id").as<std::string>();
+            const auto& location = entry.value().at("location");
+            bool owner_inspected = false;
+            if (location.at("kind") == "inventory") {
+                const auto& inventory_owner = location.at("inventory").at("owner");
+                const auto kind = inventory_owner.at("kind").as<std::string>();
+                if (kind == "character")
+                    owner_inspected = records_.contains(
+                        "characters/" +
+                        inventory_owner.at("character").at("$ref").at("id").as<std::string>());
+                else if (kind == "room-feature")
+                    owner_inspected = records_.contains(
+                        "rooms/" +
+                        inventory_owner.at("room").at("$ref").at("id").as<std::string>());
+                else if (kind == "interactable" || kind == "interactable-feature") {
+                    const auto owner_id =
+                        inventory_owner.at("interactable").at("$ref").at("id").as<std::string>();
+                    if (instances.contains(owner_id))
+                        owner_inspected =
+                            records_.contains("interactables/" + instances.at(owner_id)
+                                                                     .at("definition")
+                                                                     .at("$ref")
+                                                                     .at("id")
+                                                                     .as<std::string>());
                 }
             }
+            if (!old_instances.contains(id) || old_instances.at(id) != entry.value() ||
+                records_.contains("interactables/" + definition) || owner_inspected ||
+                (inventory_changed && location.at("kind") == "inventory"))
+                affected_instances.insert(id);
         }
+        const auto exists = [&](std::string_view family, std::string_view id) {
+            if (!is_id(id))
+                return false;
+            const auto owner = std::string(family) + "/" + std::string(id);
+            if (records_.contains(owner))
+                return true;
+            if (!record_contracts().contains(std::string(family)))
+                return false;
+            const auto path = root_ / "records" / std::string(family) / (std::string(id) + ".yaml");
+            return std::filesystem::is_regular_file(path);
+        };
+        const auto semantic = validate_interactable_inventory_project(
+            state.normalized_json, resolve_record, traits_json, exists, affected_instances);
+        state.valid &= semantic.accepted;
+        state.diagnostics.insert(state.diagnostics.end(), semantic.diagnostics.begin(),
+                                 semantic.diagnostics.end());
     }
     return state;
 }
@@ -1514,13 +1527,61 @@ ProjectSession::save_owners(std::uint64_t revision, const std::vector<std::strin
                 const bool instance_dependency =
                     owner == "project" && diagnostic.path.starts_with("/interactableInstances/") &&
                     (diagnostic.code.starts_with("authoring.trait.") ||
-                     diagnostic.code.starts_with("authoring.interactable.")) &&
+                     diagnostic.code.starts_with("authoring.interactable.") ||
+                     diagnostic.code.starts_with("authoring.inventory.")) &&
                     (all_paths || std::any_of(filter->second.begin(), filter->second.end(),
                                               [&](const std::string& path) {
                                                   return paths_overlap(path, diagnostic.path);
                                               }));
+                bool owner_dependency = false;
+                if (!current.normalized_json.empty() &&
+                    diagnostic.path.starts_with("/interactableInstances/")) {
+                    const auto start = std::string_view("/interactableInstances/").size();
+                    const auto end = diagnostic.path.find('/', start);
+                    const auto instance_id = diagnostic.path.substr(start, end - start);
+                    const auto manifest = Json::parse(current.normalized_json);
+                    const auto& instances = manifest.at("interactableInstances");
+                    if (instances.contains(instance_id)) {
+                        const auto& instance = instances.at(instance_id);
+                        if (owner.starts_with("interactables/") &&
+                            diagnostic.code.starts_with("authoring.interactable."))
+                            owner_dependency = instance.at("definition").at("$ref").at("id") ==
+                                               owner.substr(std::string("interactables/").size());
+                        if (diagnostic.code.starts_with("authoring.inventory.") &&
+                            instance.at("location").at("kind") == "inventory") {
+                            const auto& inventory_owner =
+                                instance.at("location").at("inventory").at("owner");
+                            const auto kind = inventory_owner.at("kind").as<std::string>();
+                            if (kind == "character")
+                                owner_dependency =
+                                    owner == "characters/" + inventory_owner.at("character")
+                                                                 .at("$ref")
+                                                                 .at("id")
+                                                                 .as<std::string>();
+                            else if (kind == "room-feature")
+                                owner_dependency = owner == "rooms/" + inventory_owner.at("room")
+                                                                           .at("$ref")
+                                                                           .at("id")
+                                                                           .as<std::string>();
+                            else if ((kind == "interactable" || kind == "interactable-feature") &&
+                                     owner.starts_with("interactables/")) {
+                                const auto owner_id = inventory_owner.at("interactable")
+                                                          .at("$ref")
+                                                          .at("id")
+                                                          .as<std::string>();
+                                if (instances.contains(owner_id))
+                                    owner_dependency =
+                                        instances.at(owner_id)
+                                            .at("definition")
+                                            .at("$ref")
+                                            .at("id") ==
+                                        owner.substr(std::string("interactables/").size());
+                            }
+                        }
+                    }
+                }
                 if (invalid_selected_record || trait_dependency || variable_dependency ||
-                    instance_dependency)
+                    instance_dependency || owner_dependency)
                     throw std::runtime_error("Cannot save invalid dependent Project record: " +
                                              diagnostic.path);
             }

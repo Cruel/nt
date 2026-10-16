@@ -1141,6 +1141,12 @@ ValidationResult validate_material_source(std::string_view source_json)
     return validate_sparse_record_source(source_json, "materials", "MaterialsRecord", "material");
 }
 
+ValidationResult validate_interactable_sparse_source(std::string_view source_json)
+{
+    return validate_sparse_record_source(source_json, "interactables", "InteractablesRecord",
+                                         "interactable");
+}
+
 ValidationResult validate_layout_source(std::string_view source_json,
                                         const std::map<std::string, std::string>& companions)
 {

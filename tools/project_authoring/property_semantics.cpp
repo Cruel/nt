@@ -238,69 +238,7 @@ void visit_references(ValidationResult& result, const Json& value, const std::st
 
 ValidationResult validate_interactable_source(std::string_view source_json)
 {
-    auto record = Json::parse(source_json);
-    if (!record.is_object())
-        return validate_record("InteractablesRecord", source_json);
-    auto* data = field(&record, "data");
-    if (!data || !data->is_object())
-        return validate_record("InteractablesRecord", source_json);
-    if (!data->contains("kind"))
-        data->insert_or_assign("kind", "interactable");
-    if (!data->contains("features"))
-        data->insert_or_assign("features", Json::array());
-    if (!data->contains("inventories"))
-        data->insert_or_assign("inventories", Json::array());
-    if (!data->contains("presentation"))
-        data->insert_or_assign(
-            "presentation",
-            Json::parse(
-                R"({"visual":null,"materialApplication":null,"hotspots":{"kind":"none"}})"));
-    if (auto* presentation = field(data, "presentation");
-        presentation && presentation->is_object()) {
-        if (!presentation->contains("visual"))
-            presentation->insert_or_assign("visual", Json::null());
-        if (!presentation->contains("materialApplication"))
-            presentation->insert_or_assign("materialApplication", Json::null());
-        if (!presentation->contains("hotspots"))
-            presentation->insert_or_assign("hotspots", Json::parse(R"({"kind":"none"})"));
-        if (auto* visual = field(presentation, "visual"); visual && visual->is_object()) {
-            if (visual->contains("kind") && visual->at("kind") == "image") {
-                if (auto* image = field(visual, "image"); image && image->is_string()) {
-                    const auto id = image->as<std::string>();
-                    *image = Json::parse(R"({"$ref":{"collection":"assets","id":""}})");
-                    image->at("$ref").at("id") = id;
-                }
-            }
-        }
-    }
-    auto* features = field(data, "features");
-    if (features && features->is_array()) {
-        for (auto& feature : features->array_range()) {
-            if (!feature.is_object())
-                continue;
-            for (const auto* field_name :
-                 {"traits", "localProperties", "defaultProperties", "inventories"})
-                if (!feature.contains(field_name))
-                    feature.insert_or_assign(field_name, Json::array());
-        }
-    }
-    // The condition schema's authored scalar 'always' is a separate sparse
-    // representation from its normalized tagged form.
-    const auto expand_conditions = [&](auto&& self, Json& value) -> void {
-        if (value.is_object()) {
-            for (auto& entry : value.object_range()) {
-                if (entry.key() == "condition" && entry.value() == "always")
-                    entry.value() = Json::parse(R"({"kind":"always"})");
-                else
-                    self(self, entry.value());
-            }
-        } else if (value.is_array()) {
-            for (auto& entry : value.array_range())
-                self(self, entry);
-        }
-    };
-    expand_conditions(expand_conditions, record);
-    return validate_record("InteractablesRecord", record.to_string());
+    return validate_interactable_sparse_source(source_json);
 }
 
 ValidationResult validate_variable_semantics(std::string_view record_json)
