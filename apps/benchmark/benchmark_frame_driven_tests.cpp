@@ -19,12 +19,21 @@ struct ScenarioStub : Scenario {
     int frames = 0;
     bool fail_prepare = false;
     bool fail_cleanup = false;
+    bool interrupt_first_attempt = false;
+    bool always_interrupt = false;
+    bool cancel_first_attempt = false;
+    bool sent_interruption = false;
+    int attempt_frames = 0;
+    Interruption state = Interruption::None;
+    [[nodiscard]] Interruption interruption() const override { return state; }
     const char* id() const override { return "frame-driven-test"; }
     const char* description() const override { return "synthetic rAF test"; }
     bool requires_graphics() const override { return false; }
     bool prepare(const Options&, std::string& reason) override
     {
         ++prepared;
+        attempt_frames = 0;
+        state = Interruption::None;
         if (fail_prepare) {
             reason = "preparation failed";
             return false;
@@ -32,10 +41,24 @@ struct ScenarioStub : Scenario {
         return true;
     }
     Readiness readiness(std::string&) override { return Readiness::Ready; }
-    bool frame(std::string&) override
+    bool frame(std::string& reason) override
     {
         ++frames;
+        ++attempt_frames;
         clock.time += 0.003;
+        if (attempt_frames == 2 &&
+            (always_interrupt || (!sent_interruption && interrupt_first_attempt))) {
+            state = Interruption::Recoverable;
+            reason = "graphics interrupted";
+            sent_interruption = true;
+            return false;
+        }
+        if (attempt_frames == 2 && !sent_interruption && cancel_first_attempt) {
+            state = Interruption::Cancelled;
+            reason = "Escape";
+            sent_interruption = true;
+            return false;
+        }
         return true;
     }
     bool complete(std::string&) override
@@ -105,13 +128,67 @@ int main()
     ScenarioStub interrupted(interrupt_clock);
     Options single = options;
     single.repeats = 1;
-    FrameDrivenSuite interrupt_runner(single, interrupted, interrupt_clock);
+    int recovery_calls = 0;
+    FrameDrivenSuite interrupt_runner(single, interrupted, interrupt_clock, [&](std::string&) {
+        return ++recovery_calls == 1 ? RecoveryState::Pending : RecoveryState::Ready;
+    });
     (void)interrupt_runner.step(); // prepare
     interrupt_runner.interrupt("page hidden");
     advance(interrupt_runner, interrupt_clock);
-    if (!verify(interrupt_runner.result().outcome == "failed" && interrupted.cleaned == 1 &&
-                    interrupt_runner.result().scenarios[0].trials[0].reason == "page hidden",
-                "page interruption fails trial and cleans up"))
+    if (!verify(interrupt_runner.result().outcome == "complete" && interrupted.cleaned == 2 &&
+                    interrupted.prepared == 2 && recovery_calls == 2 &&
+                    interrupt_runner.result().scenarios[0].trials[0].interruption_retries == 1,
+                "interrupted attempt cleaned up, pending recovery, fresh warmup and retry"))
+        return 1;
+
+    ClockStub pending_clock;
+    ScenarioStub pending(pending_clock);
+    FrameDrivenSuite pending_runner(single, pending, pending_clock,
+                                    [](std::string&) { return RecoveryState::Pending; });
+    (void)pending_runner.step();
+    pending_runner.interrupt("surface unavailable");
+    (void)pending_runner.step(); // cleanup once
+    (void)pending_runner.step(); // recovery remains pending
+    pending_runner.cancel("Escape while awaiting recovery");
+    (void)pending_runner.step();
+    if (!verify(pending_runner.result().outcome == "cancelled" && pending.cleaned == 1 &&
+                    pending_runner.result().scenarios[0].trials.size() == 1,
+                "cancelling pending recovery must not double-cleanup the graphics host"))
+        return 1;
+
+    ClockStub sample_clock;
+    ScenarioStub sample_scenario(sample_clock);
+    sample_scenario.interrupt_first_attempt = true;
+    FrameDrivenSuite sample_runner(options, sample_scenario, sample_clock);
+    advance(sample_runner, sample_clock);
+    const auto& sample_result = sample_runner.result().scenarios[0];
+    if (!verify(sample_result.outcome == "complete" && sample_result.trials.size() == 2 &&
+                    sample_result.trials[0].interruption_retries == 1 &&
+                    sample_result.trials[0].measured_frames == 3 &&
+                    sample_result.measured_frames == 6 && sample_scenario.cleaned == 3,
+                "partial samples discarded; completed repeats retained"))
+        return 1;
+
+    ClockStub bounded_clock;
+    ScenarioStub bounded(bounded_clock);
+    bounded.always_interrupt = true;
+    FrameDrivenSuite bounded_runner(single, bounded, bounded_clock);
+    advance(bounded_runner, bounded_clock);
+    if (!verify(bounded_runner.result().outcome == "failed" &&
+                    bounded.prepared == static_cast<int>(kMaxInterruptionRetries + 1) &&
+                    bounded_runner.result().scenarios[0].trials[0].reason.find("retry limit") !=
+                        std::string::npos,
+                "persistent graphics interruption exhausts a bounded retry policy"))
+        return 1;
+
+    ClockStub cancel_clock;
+    ScenarioStub cancelled(cancel_clock);
+    cancelled.cancel_first_attempt = true;
+    FrameDrivenSuite cancel_runner(options, cancelled, cancel_clock);
+    advance(cancel_runner, cancel_clock);
+    if (!verify(cancel_runner.result().outcome == "cancelled" && cancelled.cleaned == 1 &&
+                    cancel_runner.result().scenarios[0].trials.size() == 1,
+                "Escape cancellation terminates repeats without retry"))
         return 1;
 
     ClockStub failure_clock;

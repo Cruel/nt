@@ -78,5 +78,5 @@ if [ "${#APP_ARGS[@]}" -gt 0 ]; then
 else
   "${ADB[@]}" shell am start -n "$ACTIVITY"
 fi
-echo "[benchmark] APK launched on $DEVICE_SERIAL. Log: adb -s $DEVICE_SERIAL logcat -s SDL:V"
+echo "[benchmark] APK launched on $DEVICE_SERIAL. Log: adb -s $DEVICE_SERIAL logcat -s 'SDL/APP:V'"
 echo "[benchmark] Reports: $0 --device $DEVICE_SERIAL --no-build --pull"

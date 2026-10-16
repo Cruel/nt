@@ -5,6 +5,7 @@
 #include <cmath>
 #include <limits>
 #include <numeric>
+#include <thread>
 #include <unordered_set>
 #include <utility>
 
@@ -335,7 +336,8 @@ DiagnosticSummary summarize_diagnostics(const std::vector<DiagnosticObservation>
     return result;
 }
 
-SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios, Clock& clock)
+SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scenarios, Clock& clock,
+                      Recovery recovery)
 {
     SuiteResult suite;
     std::string error;
@@ -354,6 +356,7 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
         result.scenario = scenario->id();
         result.description = scenario->description();
         std::vector<FrameSample> combined_samples;
+        bool cancelled = false;
         for (uint32_t trial_number = 0; trial_number < options.repeats; ++trial_number) {
             const size_t capacity = options.measurement_frames != 0
                                         ? static_cast<size_t>(options.measurement_frames)
@@ -363,7 +366,43 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
             std::vector<DiagnosticObservation> observations;
             if (options.profile == "diagnostic")
                 observations.resize(capacity);
-            auto trial = run_trial(options, *scenario, clock, samples, observations);
+            TrialResult trial;
+            uint32_t retries = 0;
+            while (true) {
+                trial = run_trial(options, *scenario, clock, samples, observations);
+                const auto interruption = scenario->interruption();
+                if (trial.outcome == "complete" || interruption == Interruption::None)
+                    break;
+                if (interruption == Interruption::Cancelled) {
+                    trial.outcome = "cancelled";
+                    cancelled = true;
+                    break;
+                }
+                // Failed cleanup cannot safely be followed by a new graphics owner.
+                if (trial.reason.find("cleanup failed") != std::string::npos)
+                    break;
+                if (retries == kMaxInterruptionRetries) {
+                    trial.reason = "interruption retry limit exceeded: " + trial.reason;
+                    break;
+                }
+                ++retries;
+                if (recovery) {
+                    std::string error;
+                    RecoveryState state;
+                    do {
+                        state = recovery(error);
+                        if (state == RecoveryState::Pending)
+                            std::this_thread::sleep_for(std::chrono::milliseconds(50));
+                    } while (state == RecoveryState::Pending);
+                    if (state == RecoveryState::Failed) {
+                        trial.reason = "graphics recovery failed: " + error;
+                        break;
+                    }
+                }
+                // Recreate every resource and repeat warmup. Never aggregate a
+                // discarded attempt's frames or wall time.
+            }
+            trial.interruption_retries = retries;
             if (trial.outcome == "complete") {
                 combined_samples.insert(combined_samples.end(), samples.begin(),
                                         samples.begin() +
@@ -372,12 +411,15 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
                 result.measured_wall_seconds += trial.measured_wall_seconds;
             }
             result.trials.push_back(std::move(trial));
+            if (cancelled)
+                break;
         }
         const auto passed =
             std::count_if(result.trials.begin(), result.trials.end(),
                           [](const TrialResult& trial) { return trial.outcome == "complete"; });
         completed_trials += static_cast<uint64_t>(passed);
-        result.outcome = passed == static_cast<std::ptrdiff_t>(result.trials.size())
+        result.outcome = cancelled ? "cancelled"
+                         : passed == static_cast<std::ptrdiff_t>(options.repeats)
                              ? "complete"
                              : (passed > 0 ? "partial" : "failed");
         result.wall_frame = summarize(combined_samples, true);
@@ -385,6 +427,10 @@ SuiteResult run_suite(const Options& options, const std::vector<Scenario*>& scen
         if (result.outcome == "complete")
             ++successful_scenarios;
         suite.scenarios.push_back(std::move(result));
+        if (cancelled) {
+            suite.outcome = "cancelled";
+            return suite;
+        }
     }
     // Optional clock-control exercise executes only after every measured trial.
     if (options.profile == "diagnostic")

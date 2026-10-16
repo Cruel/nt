@@ -403,6 +403,11 @@ struct EmptyBgfxScenario : Scenario {
     Graphics graphics;
     Graphics* shared_graphics = nullptr;
     bool diagnostic = false;
+    noveltea::benchmark::Interruption last_interruption = noveltea::benchmark::Interruption::None;
+    [[nodiscard]] noveltea::benchmark::Interruption interruption() const override
+    {
+        return last_interruption;
+    }
     uint32_t submitted_frame = 0;
     double cpu_submission_ms = 0.0;
     double bgfx_frame_cpu_ms = 0.0;
@@ -416,6 +421,7 @@ struct EmptyBgfxScenario : Scenario {
     bool requires_graphics() const override { return true; }
     bool prepare(const Options& options, std::string& reason) override
     {
+        last_interruption = noveltea::benchmark::Interruption::None;
         diagnostic = options.profile == "diagnostic";
         host().environment.ui_backend.reset();
         if (!shared_graphics) {
@@ -498,9 +504,16 @@ struct EmptyBgfxScenario : Scenario {
         SDL_Event event;
         while (SDL_PollEvent(&event)) {
             if (event.type == SDL_EVENT_QUIT || event.type == SDL_EVENT_WINDOW_CLOSE_REQUESTED ||
-                event.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
+                (event.type == SDL_EVENT_KEY_DOWN &&
+                 (event.key.key == SDLK_ESCAPE || event.key.key == SDLK_AC_BACK))) {
+                last_interruption = noveltea::benchmark::Interruption::Cancelled;
+                reason = "benchmark cancelled by SDL input or window close";
+                return false;
+            }
+            if (event.type == SDL_EVENT_WINDOW_FOCUS_LOST ||
                 event.type == SDL_EVENT_WILL_ENTER_BACKGROUND ||
                 event.type == SDL_EVENT_WINDOW_PIXEL_SIZE_CHANGED) {
+                last_interruption = noveltea::benchmark::Interruption::Recoverable;
                 reason = "interrupted by SDL event " + std::to_string(event.type);
                 return false;
             }
@@ -809,7 +822,21 @@ int run_dashboard(Options options)
                                  : run_options.scenario == "standalone-rmlui-simple"
                                      ? static_cast<Scenario*>(&rmlui)
                                      : static_cast<Scenario*>(&empty);
-            auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock);
+            noveltea::benchmark::Recovery recover;
+#if defined(__ANDROID__)
+            recover = [&](std::string& reason) {
+                if (!wait_for_android_foreground(reason))
+                    return noveltea::benchmark::RecoveryState::Failed;
+                // Surface loss invalidates the old ANativeWindow/EGL host.
+                // Rebuild only after the failed attempt has cleaned up.
+                graphics.shutdown();
+                if (!graphics.initialize(run_options, reason) ||
+                    !graphics.reconfigure(run_options, reason))
+                    return noveltea::benchmark::RecoveryState::Failed;
+                return noveltea::benchmark::RecoveryState::Ready;
+            };
+#endif
+            auto result = noveltea::benchmark::run_suite(run_options, {selected}, clock, recover);
             ran = true;
             completed_run = noveltea::benchmark::CompletedRun{run_options, std::move(result), {}};
             if (!write_report(completed_run->configuration, graphics.environment,
@@ -837,7 +864,7 @@ int run_dashboard(Options options)
 #endif
                 for (const auto& trial : item.trials) {
                     if (trial.outcome != "complete")
-                        std::fprintf(stderr, "[benchmark] trial failed: %s\n",
+                        std::fprintf(stderr, "[benchmark] trial %s: %s\n", trial.outcome.c_str(),
                                      trial.reason.c_str());
                 }
             }
@@ -1057,7 +1084,8 @@ int run(const Options& options)
     } else {
         for (const auto& trial : scenario_result.trials) {
             if (trial.outcome != "complete")
-                std::fprintf(stderr, "[benchmark] trial failed: %s\n", trial.reason.c_str());
+                std::fprintf(stderr, "[benchmark] trial %s: %s\n", trial.outcome.c_str(),
+                             trial.reason.c_str());
         }
     }
     std::printf("[benchmark] report: %s (outcome=%s)\n", output.c_str(), result.outcome.c_str());
